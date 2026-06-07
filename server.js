@@ -756,6 +756,11 @@ function getDashboardHtml() {
         </div>
       </div>
       <div class="form-group">
+        <label class="form-label">Plugin Directory</label>
+        <input class="form-input" id="add-pluginDir" placeholder="Optional — path to local plugin dir" />
+        <div class="form-hint">For plugins not globally installed. Uses <code>--plugin-dir</code> flag.</div>
+      </div>
+      <div class="form-group">
         <label class="form-checkbox">
           <input type="checkbox" id="add-durable" checked />
           <span>Durable</span>
@@ -1118,12 +1123,16 @@ function getDashboardHtml() {
       switchTab('manual', document.querySelectorAll('.panel-tab')[1]);
       document.getElementById('add-id').value = d.id || '';
       document.getElementById('add-name').value = d.displayName || d.name || '';
-      document.getElementById('add-agent').value = d.displayName || d.name || '';
+      // For plugins, use plugin-id:agent-id format for the agent name
+      const agentName = d.source === 'repo-plugin' || d.source === 'installed-plugin'
+        ? (d.id + ':' + d.id) : (d.displayName || d.name || '');
+      document.getElementById('add-agent').value = agentName;
       document.getElementById('add-cwd').value = d.cwd || '';
       document.getElementById('add-prompt').value = '';
       document.getElementById('add-schedule').value = '1h';
       document.getElementById('add-group').value = '';
       document.getElementById('add-copilotPath').value = '';
+      document.getElementById('add-pluginDir').value = d.pluginDir || '';
       document.getElementById('add-durable').checked = true;
       document.getElementById('add-prompt').focus();
     }
@@ -1183,8 +1192,10 @@ function getDashboardHtml() {
       if (!document.getElementById('add-autoStart').checked) config.autoStart = false;
       const group = document.getElementById('add-group').value.trim();
       const copilotPath = document.getElementById('add-copilotPath').value.trim();
+      const pluginDir = document.getElementById('add-pluginDir').value.trim();
       if (group) config.group = group;
       if (copilotPath) config.copilotPath = copilotPath;
+      if (pluginDir) config.pluginDir = pluginDir;
 
       if (!config.id || !config.name || !config.agent || !config.cwd || !config.prompt || !config.schedule) {
         errEl.textContent = 'All required fields (*) must be filled.';

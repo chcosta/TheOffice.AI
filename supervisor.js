@@ -166,7 +166,8 @@ class Supervisor extends EventEmitter {
     // Build copilot CLI command as a full command string for shell execution
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
-    const cmdLine = `"${copilotCmd}" --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.trim();
+    const pluginDir = config.pluginDir ? `--plugin-dir "${config.pluginDir}"` : '';
+    const cmdLine = `"${copilotCmd}" ${pluginDir} --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
 
