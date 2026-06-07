@@ -678,6 +678,7 @@ app.get('/api/sessions', (req, res) => {
       const eventsPath = path.join(fullPath, 'events.jsonl');
       let lastResult = '';
       let turnCount = 0;
+      let agentName = '';
       if (fs.existsSync(eventsPath)) {
         const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
         for (const line of lines) {
@@ -685,11 +686,13 @@ app.get('/api/sessions', (req, res) => {
             const ev = JSON.parse(line);
             if (ev.type === 'user.message') turnCount++;
             if (ev.type === 'assistant.message' && ev.data?.content) lastResult = ev.data.content;
+            if (ev.type === 'subagent.selected' && ev.data?.agentDisplayName) agentName = ev.data.agentDisplayName;
           } catch { }
         }
       }
       sessions.push({
         ...meta,
+        agentName: agentName || '',
         lastResult: lastResult.substring(0, 800),
         turnCount,
         lastModified: stat.mtime.toISOString()
@@ -1614,7 +1617,7 @@ function getDashboardHtml() {
     function renderSessions() {
       const filter = (document.getElementById('sessionFilter').value || '').toLowerCase();
       const filtered = filter
-        ? allSessions.filter(s => s.name.toLowerCase().includes(filter) || s.repository.toLowerCase().includes(filter) || s.cwd.toLowerCase().includes(filter))
+        ? allSessions.filter(s => (s.agentName || s.name || '').toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter) || s.repository.toLowerCase().includes(filter) || s.cwd.toLowerCase().includes(filter))
         : allSessions;
       const list = document.getElementById('sessionsList');
       if (filtered.length === 0) {
@@ -1622,10 +1625,10 @@ function getDashboardHtml() {
         return;
       }
 
-      // Group by agent name
+      // Group by agent name (from subagent.selected), fall back to repo name
       const groups = {};
       for (const s of filtered) {
-        const key = s.name || '(unnamed)';
+        const key = s.agentName || path_basename(s.cwd) || '(unknown)';
         if (!groups[key]) groups[key] = [];
         groups[key].push(s);
       }
@@ -1653,10 +1656,14 @@ function getDashboardHtml() {
           const sTimeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const sDateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
           const preview = (s.lastResult || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').substring(0, 200);
+          const promptLabel = esc(s.name || '(no prompt)');
           html += \`
               <div class="session-card" id="session-\${s.id}" onclick="toggleSession('\${s.id}')">
                 <div class="session-header">
-                  <div class="session-time" style="font-size:0.8rem;color:#c9d1d9">\${sDateStr} \${sTimeStr}</div>
+                  <div>
+                    <span style="font-size:0.8rem;color:#c9d1d9">\${sDateStr} \${sTimeStr}</span>
+                    <span style="font-size:0.8rem;color:#8b949e;margin-left:8px">— \${promptLabel}</span>
+                  </div>
                   <div style="font-size:0.75rem;color:#8b949e">
                     💬 \${s.turnCount} turn\${s.turnCount !== 1 ? 's' : ''}
                     <span style="margin-left:8px">🔑 \${s.id.substring(0,8)}</span>
