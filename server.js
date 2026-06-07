@@ -600,6 +600,139 @@ app.post('/api/open-editor', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Session History & Chat ----
+const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+
+function parseYamlSimple(text) {
+  const obj = {};
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(\w[\w_]*)\s*:\s*(.+)/);
+    if (m) obj[m[1]] = m[2].trim();
+  }
+  return obj;
+}
+
+function readSessionMeta(sessionDir) {
+  const wsPath = path.join(sessionDir, 'workspace.yaml');
+  if (!fs.existsSync(wsPath)) return null;
+  const yaml = parseYamlSimple(fs.readFileSync(wsPath, 'utf-8'));
+  return {
+    id: yaml.id || path.basename(sessionDir),
+    name: yaml.name || '(unnamed)',
+    cwd: yaml.cwd || '',
+    repository: yaml.repository || '',
+    branch: yaml.branch || '',
+    client: yaml.client_name || '',
+    createdAt: yaml.created_at || '',
+    updatedAt: yaml.updated_at || ''
+  };
+}
+
+function readSessionConversation(sessionDir, opts = {}) {
+  const eventsPath = path.join(sessionDir, 'events.jsonl');
+  if (!fs.existsSync(eventsPath)) return { turns: [], summary: '' };
+  const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
+  const turns = [];
+  let currentAssistant = '';
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line);
+      if (ev.type === 'user.message' && ev.data?.content) {
+        if (currentAssistant) {
+          if (turns.length > 0) turns[turns.length - 1].assistant = currentAssistant;
+          currentAssistant = '';
+        }
+        turns.push({ role: 'user', content: ev.data.content, timestamp: ev.timestamp, assistant: '' });
+      } else if (ev.type === 'assistant.message' && ev.data?.content) {
+        currentAssistant = ev.data.content;
+      } else if (ev.type === 'skill.invoked') {
+        // track skill usage
+      }
+    } catch { /* skip malformed lines */ }
+  }
+  // Assign last assistant response
+  if (currentAssistant && turns.length > 0) {
+    turns[turns.length - 1].assistant = currentAssistant;
+  }
+  // Build summary from last assistant message
+  const lastAssistant = currentAssistant || (turns.length > 0 ? turns[turns.length - 1].assistant : '');
+  const summary = lastAssistant.substring(0, 500);
+  return { turns, summary };
+}
+
+app.get('/api/sessions', (req, res) => {
+  const hoursBack = parseInt(req.query.hours) || 24;
+  const cutoff = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+  try {
+    if (!fs.existsSync(SESSION_STATE_DIR)) return res.json([]);
+    const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory());
+    const sessions = [];
+    for (const d of dirs) {
+      const fullPath = path.join(SESSION_STATE_DIR, d.name);
+      const stat = fs.statSync(fullPath);
+      if (stat.mtime < cutoff) continue;
+      const meta = readSessionMeta(fullPath);
+      if (!meta) continue;
+      // Get a quick summary without full conversation
+      const eventsPath = path.join(fullPath, 'events.jsonl');
+      let lastResult = '';
+      let turnCount = 0;
+      if (fs.existsSync(eventsPath)) {
+        const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
+        for (const line of lines) {
+          try {
+            const ev = JSON.parse(line);
+            if (ev.type === 'user.message') turnCount++;
+            if (ev.type === 'assistant.message' && ev.data?.content) lastResult = ev.data.content;
+          } catch { }
+        }
+      }
+      sessions.push({
+        ...meta,
+        lastResult: lastResult.substring(0, 800),
+        turnCount,
+        lastModified: stat.mtime.toISOString()
+      });
+    }
+    sessions.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+    res.json(sessions);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/sessions/:id', (req, res) => {
+  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
+  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+  const meta = readSessionMeta(sessionDir);
+  const conversation = readSessionConversation(sessionDir);
+  res.json({ ...meta, ...conversation });
+});
+
+app.post('/api/sessions/:id/chat', (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
+  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+
+  const meta = readSessionMeta(sessionDir);
+  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
+  const { execSync } = require('child_process');
+  try {
+    const escapedMsg = message.replace(/"/g, '\\"');
+    const output = execSync(
+      `"${copilotCmd}" --resume="${req.params.id}" -p "${escapedMsg}" -s --yolo`,
+      { encoding: 'utf-8', timeout: 180000, cwd: meta.cwd || undefined, shell: true }
+    );
+    res.json({ ok: true, response: output.trim() });
+  } catch (e) {
+    const output = e.stdout ? e.stdout.toString() : '';
+    const error = e.stderr ? e.stderr.toString() : e.message;
+    res.json({ ok: output.length > 0, response: output.trim() || error });
+  }
+});
+
 // Start all enabled agents
 supervisor.startAll();
 
@@ -799,18 +932,107 @@ function getDashboardHtml() {
     .discover-scan input { flex: 1; }
     .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .auto-refresh { font-size: 0.8rem; color: #8b949e; }
+    /* Sessions Panel */
+    .sessions-panel {
+      position: fixed; top: 0; right: -620px; width: 600px; height: 100vh;
+      background: #161b22; border-left: 1px solid #30363d; z-index: 103;
+      transition: right 0.25s ease; overflow-y: auto; padding: 24px;
+    }
+    .sessions-panel.visible { right: 0; }
+    .sessions-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 102; }
+    .sessions-overlay.visible { display: block; }
+    .session-filters { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+    .session-filters select, .session-filters input {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;
+    }
+    .session-card {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+      padding: 14px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.2s;
+    }
+    .session-card:hover { border-color: #58a6ff; }
+    .session-card.expanded { border-color: #58a6ff; }
+    .session-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .session-name { font-weight: 600; color: #f0f6fc; font-size: 0.9rem; }
+    .session-time { font-size: 0.75rem; color: #8b949e; white-space: nowrap; }
+    .session-meta { font-size: 0.75rem; color: #8b949e; margin-top: 4px; }
+    .session-meta span { margin-right: 12px; }
+    .session-preview {
+      font-size: 0.78rem; color: #8b949e; margin-top: 8px;
+      max-height: 60px; overflow: hidden; white-space: pre-wrap; word-break: break-word;
+    }
+    .session-detail { display: none; margin-top: 12px; }
+    .session-card.expanded .session-detail { display: block; }
+    .session-card.expanded .session-preview { display: none; }
+    .session-conversation {
+      max-height: 400px; overflow-y: auto; border: 1px solid #30363d;
+      border-radius: 6px; padding: 12px; margin-bottom: 12px; background: #0d1117;
+    }
+    .conv-turn { margin-bottom: 12px; }
+    .conv-turn:last-child { margin-bottom: 0; }
+    .conv-role {
+      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+      margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+    }
+    .conv-role.user { color: #58a6ff; }
+    .conv-role.assistant { color: #3fb950; }
+    .conv-content {
+      font-size: 0.8rem; color: #c9d1d9; white-space: pre-wrap; word-break: break-word;
+      line-height: 1.5; padding-left: 8px; border-left: 2px solid #30363d;
+    }
+    .conv-content.assistant-content { border-left-color: #238636; }
+    .session-chat {
+      display: flex; gap: 8px; margin-top: 8px;
+    }
+    .session-chat input {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 8px 10px; border-radius: 6px; font-size: 0.85rem;
+    }
+    .session-chat input:focus { border-color: #58a6ff; outline: none; }
+    .session-chat button { white-space: nowrap; }
+    .chat-sending {
+      font-size: 0.8rem; color: #f78835; margin-top: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .chat-sending .spinner {
+      width: 14px; height: 14px; border: 2px solid #f7883544;
+      border-top-color: #f78835; border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="refresh-bar">
     <h1>&#x1F916; Copilot Agent Supervisor</h1>
     <div>
+      <button class="btn" onclick="openSessionsPanel()" style="margin-right:4px">&#x1F4CB; Sessions</button>
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
       <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
   <div class="agents" id="agents"></div>
+
+  <!-- Sessions Panel -->
+  <div class="sessions-overlay" id="sessionsOverlay" onclick="closeSessionsPanel()"></div>
+  <div class="sessions-panel" id="sessionsPanel">
+    <div class="panel-header">
+      <h2>&#x1F4CB; Recent Sessions</h2>
+      <button class="panel-close" onclick="closeSessionsPanel()">&times;</button>
+    </div>
+    <div class="session-filters">
+      <select id="sessionHours" onchange="loadSessions()">
+        <option value="4">Last 4 hours</option>
+        <option value="12">Last 12 hours</option>
+        <option value="24" selected>Last 24 hours</option>
+        <option value="72">Last 3 days</option>
+        <option value="168">Last 7 days</option>
+      </select>
+      <input type="text" id="sessionFilter" placeholder="Filter by name..." oninput="filterSessions()" />
+      <button class="btn" onclick="loadSessions()">&#x1F504; Refresh</button>
+    </div>
+    <div id="sessionsList"></div>
+  </div>
 
   <div class="panel-overlay" id="panelOverlay" onclick="closeAddPanel()"></div>
   <div class="side-panel" id="addPanel">
@@ -1355,6 +1577,185 @@ function getDashboardHtml() {
     async function refresh() {
       const agents = await fetchAgents();
       renderAgents(agents);
+    }
+
+    // ---- Sessions Panel ----
+    let allSessions = [];
+
+    function openSessionsPanel() {
+      document.getElementById('sessionsOverlay').classList.add('visible');
+      document.getElementById('sessionsPanel').classList.add('visible');
+      loadSessions();
+    }
+    function closeSessionsPanel() {
+      document.getElementById('sessionsOverlay').classList.remove('visible');
+      document.getElementById('sessionsPanel').classList.remove('visible');
+    }
+
+    async function loadSessions() {
+      const hours = document.getElementById('sessionHours').value;
+      const list = document.getElementById('sessionsList');
+      list.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">Loading sessions...</div>';
+      try {
+        const res = await fetch(\`/api/sessions?hours=\${hours}\`);
+        allSessions = await res.json();
+        renderSessions();
+      } catch (e) {
+        list.innerHTML = '<div style="color:#f85149;padding:12px">Failed to load sessions</div>';
+      }
+    }
+
+    function filterSessions() {
+      renderSessions();
+    }
+
+    function renderSessions() {
+      const filter = (document.getElementById('sessionFilter').value || '').toLowerCase();
+      const filtered = filter
+        ? allSessions.filter(s => s.name.toLowerCase().includes(filter) || s.repository.toLowerCase().includes(filter) || s.cwd.toLowerCase().includes(filter))
+        : allSessions;
+      const list = document.getElementById('sessionsList');
+      if (filtered.length === 0) {
+        list.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">No sessions found</div>';
+        return;
+      }
+      list.innerHTML = filtered.map(s => {
+        const time = new Date(s.lastModified);
+        const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const repoShort = s.repository ? s.repository.split('/').pop() : path_basename(s.cwd);
+        const preview = (s.lastResult || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').substring(0, 200);
+        return \`
+          <div class="session-card" id="session-\${s.id}" onclick="toggleSession('\${s.id}')">
+            <div class="session-header">
+              <div class="session-name">\${esc(s.name)}</div>
+              <div class="session-time">\${dateStr} \${timeStr}</div>
+            </div>
+            <div class="session-meta">
+              <span>📁 \${repoShort}</span>
+              <span>💬 \${s.turnCount} turn\${s.turnCount !== 1 ? 's' : ''}</span>
+              <span>🔑 \${s.id.substring(0,8)}</span>
+            </div>
+            \${preview ? \`<div class="session-preview">\${preview}</div>\` : ''}
+            <div class="session-detail" id="detail-\${s.id}">
+              <div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
+    function esc(s) { return (s||'').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function path_basename(p) { return (p||'').split(/[\\\\/]/).pop(); }
+
+    async function toggleSession(id) {
+      const card = document.getElementById(\`session-\${id}\`);
+      const detail = document.getElementById(\`detail-\${id}\`);
+      if (card.classList.contains('expanded')) {
+        card.classList.remove('expanded');
+        return;
+      }
+      // Collapse all others
+      document.querySelectorAll('.session-card.expanded').forEach(c => c.classList.remove('expanded'));
+      card.classList.add('expanded');
+
+      detail.innerHTML = '<div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>';
+      try {
+        const res = await fetch(\`/api/sessions/\${id}\`);
+        const data = await res.json();
+        renderSessionDetail(id, data);
+      } catch (e) {
+        detail.innerHTML = '<div style="color:#f85149;padding:8px">Failed to load session</div>';
+      }
+    }
+
+    function renderSessionDetail(id, data) {
+      const detail = document.getElementById(\`detail-\${id}\`);
+      let convoHtml = '';
+      if (data.turns && data.turns.length > 0) {
+        convoHtml = '<div class="session-conversation" id="convo-' + id + '">';
+        for (const turn of data.turns) {
+          convoHtml += \`
+            <div class="conv-turn">
+              <div class="conv-role user">👤 You</div>
+              <div class="conv-content">\${esc(turn.content)}</div>
+            </div>\`;
+          if (turn.assistant) {
+            convoHtml += \`
+            <div class="conv-turn">
+              <div class="conv-role assistant">🤖 Agent</div>
+              <div class="conv-content assistant-content">\${esc(turn.assistant)}</div>
+            </div>\`;
+          }
+        }
+        convoHtml += '</div>';
+      } else {
+        convoHtml = '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
+      }
+
+      detail.innerHTML = \`
+        \${convoHtml}
+        <div class="session-chat">
+          <input type="text" id="chat-input-\${id}" placeholder="Ask a follow-up question..."
+                 onkeydown="if(event.key==='Enter')sendChat('\${id}')" />
+          <button class="btn btn-primary" onclick="sendChat('\${id}')">Send</button>
+        </div>
+        <div id="chat-status-\${id}"></div>
+      \`;
+
+      // Scroll conversation to bottom
+      const convo = document.getElementById(\`convo-\${id}\`);
+      if (convo) convo.scrollTop = convo.scrollHeight;
+    }
+
+    async function sendChat(id) {
+      const input = document.getElementById(\`chat-input-\${id}\`);
+      const status = document.getElementById(\`chat-status-\${id}\`);
+      const message = input.value.trim();
+      if (!message) return;
+
+      input.disabled = true;
+      status.innerHTML = '<div class="chat-sending"><div class="spinner"></div>Sending to agent... this may take a minute</div>';
+
+      // Add user message to conversation immediately
+      const convo = document.getElementById(\`convo-\${id}\`);
+      if (convo) {
+        convo.innerHTML += \`
+          <div class="conv-turn">
+            <div class="conv-role user">👤 You</div>
+            <div class="conv-content">\${esc(message)}</div>
+          </div>
+          <div class="conv-turn" id="pending-response-\${id}">
+            <div class="conv-role assistant">🤖 Agent</div>
+            <div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div>
+          </div>\`;
+        convo.scrollTop = convo.scrollHeight;
+      }
+
+      input.value = '';
+
+      try {
+        const res = await fetch(\`/api/sessions/\${id}/chat\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+        const data = await res.json();
+        const pending = document.getElementById(\`pending-response-\${id}\`);
+        if (pending) {
+          pending.innerHTML = \`
+            <div class="conv-role assistant">🤖 Agent</div>
+            <div class="conv-content assistant-content">\${esc(data.response)}</div>\`;
+        }
+        status.innerHTML = '';
+        if (convo) convo.scrollTop = convo.scrollHeight;
+      } catch (e) {
+        const pending = document.getElementById(\`pending-response-\${id}\`);
+        if (pending) pending.remove();
+        status.innerHTML = '<div style="color:#f85149;font-size:0.8rem">Failed to send message</div>';
+      }
+      input.disabled = false;
+      input.focus();
     }
 
     refresh();
