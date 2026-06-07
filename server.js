@@ -632,6 +632,33 @@ app.post('/api/open-editor', (req, res) => {
   res.json({ ok: true });
 });
 
+// Browse for folder using Windows folder picker
+app.post('/api/browse-folder', (req, res) => {
+  const { exec } = require('child_process');
+  const psScript = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select agent directory'; $f.RootFolder = 'MyComputer'; $f.SelectedPath = 'C:\\repos'; if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath } else { '' }`;
+  exec(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, { timeout: 60000 }, (err, stdout) => {
+    const folder = (stdout || '').trim();
+    if (folder) {
+      res.json({ folder });
+    } else {
+      res.json({ folder: null });
+    }
+  });
+});
+
+// Get recent directories from existing agents
+app.get('/api/recent-dirs', (req, res) => {
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const seen = new Set();
+  const dirs = agents.map(a => a.cwd).filter(Boolean).filter(d => {
+    const key = d.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  res.json(dirs);
+});
+
 // ---- Session History & Chat ----
 const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 
@@ -1200,7 +1227,9 @@ function getDashboardHtml() {
       <div class="discover-scan">
         <input class="form-input" id="scanDir" placeholder="Directory to scan (leave empty for all repos)" />
         <button class="btn btn-primary" onclick="runDiscover()">Scan</button>
+        <button class="btn" onclick="browseFolder()" title="Browse for folder">📁</button>
       </div>
+      <div id="recentDirs" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px"></div>
       <div class="discover-list" id="discoverList">
         <span style="color:#8b949e;font-size:0.85rem">Click <strong>Scan</strong> to discover available agents from installed plugins and local repositories.</span>
       </div>
@@ -1626,6 +1655,7 @@ function getDashboardHtml() {
     function openAddPanel() {
       document.getElementById('panelOverlay').classList.add('visible');
       document.getElementById('addPanel').classList.add('visible');
+      loadRecentDirs();
     }
     function closeAddPanel() {
       document.getElementById('panelOverlay').classList.remove('visible');
@@ -1636,6 +1666,25 @@ function getDashboardHtml() {
       document.querySelectorAll('.panel-content').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + tab).classList.add('active');
+    }
+
+    async function browseFolder() {
+      const res = await fetch('/api/browse-folder', { method: 'POST' });
+      const data = await res.json();
+      if (data.folder) {
+        document.getElementById('scanDir').value = data.folder;
+      }
+    }
+
+    async function loadRecentDirs() {
+      try {
+        const res = await fetch('/api/recent-dirs');
+        const dirs = await res.json();
+        const container = document.getElementById('recentDirs');
+        container.innerHTML = dirs.map(d =>
+          \`<button class="btn" style="font-size:0.7rem;padding:2px 8px" onclick="document.getElementById('scanDir').value='\${d.replace(/\\\\/g, '\\\\\\\\')}'">📁 \${d.split('\\\\').pop()}</button>\`
+        ).join('');
+      } catch {}
     }
 
     async function runDiscover() {
