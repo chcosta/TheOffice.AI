@@ -1609,6 +1609,8 @@ function getDashboardHtml() {
       renderSessions();
     }
 
+    const sessionGroupState = {}; // track collapsed state per group
+
     function renderSessions() {
       const filter = (document.getElementById('sessionFilter').value || '').toLowerCase();
       const filtered = filter
@@ -1619,30 +1621,64 @@ function getDashboardHtml() {
         list.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">No sessions found</div>';
         return;
       }
-      list.innerHTML = filtered.map(s => {
-        const time = new Date(s.lastModified);
-        const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        const repoShort = s.repository ? s.repository.split('/').pop() : path_basename(s.cwd);
-        const preview = (s.lastResult || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').substring(0, 200);
-        return \`
-          <div class="session-card" id="session-\${s.id}" onclick="toggleSession('\${s.id}')">
-            <div class="session-header">
-              <div class="session-name">\${esc(s.name)}</div>
-              <div class="session-time">\${dateStr} \${timeStr}</div>
+
+      // Group by agent name
+      const groups = {};
+      for (const s of filtered) {
+        const key = s.name || '(unnamed)';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(s);
+      }
+
+      let html = '';
+      for (const [groupName, sessions] of Object.entries(groups)) {
+        const collapsed = sessionGroupState[groupName] === true;
+        const latestTime = new Date(sessions[0].lastModified);
+        const timeStr = latestTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = latestTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const repoShort = sessions[0].repository ? sessions[0].repository.split('/').pop() : path_basename(sessions[0].cwd);
+
+        html += \`
+          <div class="session-group" style="margin-bottom:12px">
+            <div class="group-header" onclick="toggleSessionGroup('\${esc(groupName)}')" style="padding:8px 12px">
+              <span class="group-toggle">\${collapsed ? '▶' : '▼'}</span>
+              <span class="group-name" style="font-size:0.9rem">\${esc(groupName)}</span>
+              <span class="group-count" style="margin-left:8px">\${sessions.length} session\${sessions.length !== 1 ? 's' : ''}</span>
+              <span style="margin-left:auto;font-size:0.75rem;color:#8b949e">📁 \${repoShort} · \${dateStr} \${timeStr}</span>
             </div>
-            <div class="session-meta">
-              <span>📁 \${repoShort}</span>
-              <span>💬 \${s.turnCount} turn\${s.turnCount !== 1 ? 's' : ''}</span>
-              <span>🔑 \${s.id.substring(0,8)}</span>
+            <div class="group-body\${collapsed ? ' collapsed' : ''}" style="margin-top:6px;padding-left:0">\`;
+
+        for (const s of sessions) {
+          const time = new Date(s.lastModified);
+          const sTimeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const sDateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const preview = (s.lastResult || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').substring(0, 200);
+          html += \`
+              <div class="session-card" id="session-\${s.id}" onclick="toggleSession('\${s.id}')">
+                <div class="session-header">
+                  <div class="session-time" style="font-size:0.8rem;color:#c9d1d9">\${sDateStr} \${sTimeStr}</div>
+                  <div style="font-size:0.75rem;color:#8b949e">
+                    💬 \${s.turnCount} turn\${s.turnCount !== 1 ? 's' : ''}
+                    <span style="margin-left:8px">🔑 \${s.id.substring(0,8)}</span>
+                  </div>
+                </div>
+                \${preview ? \`<div class="session-preview">\${preview}</div>\` : ''}
+                <div class="session-detail" id="detail-\${s.id}" onclick="event.stopPropagation()">
+                  <div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>
+                </div>
+              </div>\`;
+        }
+
+        html += \`
             </div>
-            \${preview ? \`<div class="session-preview">\${preview}</div>\` : ''}
-            <div class="session-detail" id="detail-\${s.id}" onclick="event.stopPropagation()">
-              <div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>
-            </div>
-          </div>
-        \`;
-      }).join('');
+          </div>\`;
+      }
+      list.innerHTML = html;
+    }
+
+    function toggleSessionGroup(name) {
+      sessionGroupState[name] = !sessionGroupState[name];
+      renderSessions();
     }
 
     function esc(s) { return (s||'').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
