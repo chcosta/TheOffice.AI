@@ -1098,10 +1098,10 @@ function getDashboardHtml() {
                 ? '<span style="color:#3fb950;font-size:0.8rem">✓ Added</span>'
                 : \`<button class="btn btn-primary" onclick='prefillFromDiscover(\${JSON.stringify(d).replace(/'/g,"&#39;")})'>+ Add</button>\`}
               \${canInstall
-                ? \`<button class="btn" onclick="installPlugin('\${escapeHtml(d.installCmd)}', null, null, this)">📦 Install</button>\`
+                ? \`<button class="btn" onclick='installPlugin(\${JSON.stringify(d.installCmd)}, null, null, this)'>📦 Install</button>\`
                 : ''}
               \${d.pluginDir && !d.installed
-                ? \`<button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick="installPlugin(null, '\${escapeHtml(d.pluginDir)}', 'agency', this)" title="Install via agency plugin install local:...">⚡ Install via Agency</button>\`
+                ? \`<button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "agency", this)' title="Install via agency plugin install local:...">⚡ Install via Agency</button>\`
                 : ''}
               \${d.installed === false && !d.installCmd && !d.pluginDir
                 ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
