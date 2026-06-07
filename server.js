@@ -10,10 +10,12 @@ const AGENTS_PATH = path.join(__dirname, 'agents.json');
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
 if (!process.env.COPILOT_PATH) {
-  const npmGlobalBin = path.join(process.env.APPDATA || '', 'npm');
-  const copilotCmd = path.join(npmGlobalBin, 'copilot.cmd');
+  const copilotCmd = 'C:\\Users\\chcosta\\AppData\\Roaming\\npm\\copilot.cmd';
   if (fs.existsSync(copilotCmd)) {
     process.env.COPILOT_PATH = copilotCmd;
+    console.log(`[supervisor] Resolved copilot CLI: ${copilotCmd}`);
+  } else {
+    console.warn('[supervisor] WARNING: copilot.cmd not found at expected path');
   }
 }
 
@@ -226,6 +228,7 @@ function getDashboardHtml() {
       max-height: 300px; overflow-y: auto; display: none;
     }
     .output-content.visible { display: block; }
+    .error-text { border-color: #f8514966; color: #f85149; }
     .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 200px; }
     .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .auto-refresh { font-size: 0.8rem; color: #8b949e; }
@@ -295,6 +298,12 @@ function getDashboardHtml() {
             <input class="schedule-input" id="sched-\${agent.agent_id}" value="\${agent.schedule}" />
             <button class="btn" onclick="updateSchedule('\${agent.agent_id}')">Set</button>
           </div>
+          \${agent.lastRun?.error ? \`
+            <div class="output-section error-output">
+              <button class="output-toggle" onclick="toggleOutput('err-\${agent.agent_id}')">\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? '▾' : '▸'} Error</button>
+              <pre class="output-content error-text\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? ' visible' : ''}" id="output-err-\${agent.agent_id}">\${escapeHtml(agent.lastRun.error)}</pre>
+            </div>
+          \` : ''}
           \${agent.lastRun?.output ? \`
             <div class="output-section">
               <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last output</button>
