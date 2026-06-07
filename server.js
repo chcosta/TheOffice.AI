@@ -162,12 +162,23 @@ app.get('/api/discover', async (req, res) => {
       // 3b. .github/plugin/*/plugin.json (local/uninstalled plugins in repos)
       const pluginDir = path.join(dir, '.github', 'plugin');
       if (fs.existsSync(pluginDir)) {
+        // Try to get GitHub owner/repo from git remote
+        let ghOwnerRepo = null;
+        try {
+          const { execSync: es } = require('child_process');
+          const remote = es('git remote get-url origin', { cwd: dir, encoding: 'utf-8', timeout: 5000 }).trim();
+          const ghMatch = remote.match(/github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
+          if (ghMatch) ghOwnerRepo = ghMatch[1];
+        } catch { /* not a git repo or no remote */ }
+
         const dirs2 = fs.readdirSync(pluginDir, { withFileTypes: true }).filter(e => e.isDirectory());
         for (const pd of dirs2) {
           const pj = readPluginJson(path.join(pluginDir, pd.name));
           const id = pj?.name || pd.name;
           // Skip if already discovered as installed
           if (!discovered.some(d => d.id === id && d.source === 'installed-plugin')) {
+            const pluginSubPath = `.github/plugin/${pd.name}`;
+            const installCmd = ghOwnerRepo ? `${ghOwnerRepo}:${pluginSubPath}` : null;
             discovered.push({
               source: 'repo-plugin',
               id,
@@ -177,7 +188,8 @@ app.get('/api/discover', async (req, res) => {
               version: pj?.version || '',
               cwd: dir,
               repoName: path.basename(dir),
-              installCmd: path.join(pluginDir, pd.name),
+              pluginDir: path.join(pluginDir, pd.name),
+              installCmd,
               installed: installedNames.has(id),
               registered: registeredIds.has(id)
             });
@@ -199,15 +211,29 @@ app.get('/api/discover', async (req, res) => {
 // Install a plugin
 app.post('/api/plugins/install', (req, res) => {
   const { execSync } = require('child_process');
-  const { installCmd } = req.body;
-  if (!installCmd) return res.status(400).json({ error: 'installCmd required' });
+  const { installCmd, pluginDir } = req.body;
   const copilotPath = process.env.COPILOT_PATH || 'copilot';
-  try {
-    const output = execSync(`"${copilotPath}" plugin install ${installCmd}`, { encoding: 'utf-8', timeout: 60000, shell: true });
-    res.json({ ok: true, output });
-  } catch (e) {
-    res.status(500).json({ error: e.message, stderr: e.stderr });
+
+  if (installCmd) {
+    // Standard install via marketplace/GitHub
+    try {
+      const output = execSync(`"${copilotPath}" plugin install ${installCmd}`, { encoding: 'utf-8', timeout: 60000, shell: true });
+      return res.json({ ok: true, output });
+    } catch (e) {
+      return res.status(500).json({ error: e.message, stderr: e.stderr });
+    }
   }
+
+  if (pluginDir) {
+    // Local plugin — can't install permanently, but can note the --plugin-dir path
+    return res.status(400).json({
+      error: 'Local plugins from non-GitHub repos cannot be installed via `copilot plugin install`. ' +
+        'Use `copilot --plugin-dir "' + pluginDir + '"` to load it at runtime, ' +
+        'or push the plugin to a GitHub repo and install via owner/repo:path.'
+    });
+  }
+
+  res.status(400).json({ error: 'installCmd or pluginDir required' });
 });
 
 // Dashboard HTML
@@ -1064,9 +1090,12 @@ function getDashboardHtml() {
                 ? '<span style="color:#3fb950;font-size:0.8rem">✓ Added</span>'
                 : \`<button class="btn btn-primary" onclick='prefillFromDiscover(\${JSON.stringify(d).replace(/'/g,"&#39;")})'>+ Add</button>\`}
               \${canInstall
-                ? \`<button class="btn" onclick="installPlugin('\${escapeHtml(d.installCmd)}', this)">📦 Install</button>\`
+                ? \`<button class="btn" onclick="installPlugin('\${escapeHtml(d.installCmd)}', null, this)">📦 Install</button>\`
                 : ''}
-              \${d.installed === false && !d.installCmd
+              \${d.pluginDir && !d.installCmd && !d.installed
+                ? \`<button class="btn" onclick="installPlugin(null, '\${escapeHtml(d.pluginDir)}', this)" title="Local plugin — will show usage instructions">📦 Install</button>\`
+                : ''}
+              \${d.installed === false && !d.installCmd && !d.pluginDir
                 ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
                 : ''}
             </div>
@@ -1091,16 +1120,23 @@ function getDashboardHtml() {
       document.getElementById('add-prompt').focus();
     }
 
-    async function installPlugin(installCmd, btn) {
+    async function installPlugin(installCmd, pluginDir, btn) {
       btn.disabled = true;
       btn.textContent = '⏳ Installing…';
       try {
+        const body = installCmd ? { installCmd } : { pluginDir };
         const res = await fetch('/api/plugins/install', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ installCmd })
+          body: JSON.stringify(body)
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Install failed');
+        if (!res.ok) {
+          // Show helpful message for local plugins
+          alert(data.error || 'Install failed');
+          btn.textContent = '📦 Install';
+          btn.disabled = false;
+          return;
+        }
         btn.textContent = '✓ Installed';
         btn.classList.add('btn-primary');
         setTimeout(() => runDiscover(), 1000);
