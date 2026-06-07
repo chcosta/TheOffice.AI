@@ -36,6 +36,20 @@ function loadAgents() {
 
 loadAgents();
 
+// Watch agents.json for external edits and reload
+let _reloadTimer = null;
+fs.watch(AGENTS_PATH, () => {
+  if (_reloadTimer) clearTimeout(_reloadTimer);
+  _reloadTimer = setTimeout(() => {
+    try {
+      console.log('[supervisor] agents.json changed, reloading...');
+      loadAgents();
+    } catch (e) {
+      console.error('[supervisor] Failed to reload agents.json:', e.message);
+    }
+  }, 500);
+});
+
 // Express app
 const app = express();
 app.use(express.json());
