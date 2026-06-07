@@ -301,6 +301,22 @@ class Supervisor extends EventEmitter {
   }
 
   startAll() {
+    // Recover agents that were killed mid-run (status stuck at 'running')
+    const staleRunning = this.db.prepare("SELECT agent_id FROM agent_state WHERE status = 'running'").all();
+    for (const { agent_id } of staleRunning) {
+      console.log(`[supervisor] Recovering stale running state for "${agent_id}"`);
+      this.db.prepare("UPDATE agent_state SET status = 'idle' WHERE agent_id = ?").run(agent_id);
+      this._recoverLastRun(agent_id);
+    }
+
+    // Hydrate agents with no run history from session files
+    for (const [id] of this.agents) {
+      const hasRuns = this.db.prepare('SELECT 1 FROM agent_runs WHERE agent_id = ? LIMIT 1').get(id);
+      if (!hasRuns) {
+        this._recoverLastRun(id);
+      }
+    }
+
     for (const [id, entry] of this.agents) {
       const state = this.db.prepare('SELECT enabled FROM agent_state WHERE agent_id = ?').get(id);
       const isEnabled = !state || state.enabled;
@@ -315,6 +331,61 @@ class Supervisor extends EventEmitter {
       } else if (entry.config.durable) {
         console.log(`[supervisor] Durable agent "${entry.config.name}" is disabled, skipping`);
       }
+    }
+  }
+
+  _recoverLastRun(agentId) {
+    // Look for the most recent copilot session matching this agent's prompt/cwd
+    try {
+      const entry = this.agents.get(agentId);
+      if (!entry) return;
+      const sessionDir = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+      const fs = require('fs');
+      if (!fs.existsSync(sessionDir)) return;
+
+      const dirs = fs.readdirSync(sessionDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => ({ name: d.name, mtime: fs.statSync(path.join(sessionDir, d.name)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 20); // check last 20 sessions
+
+      for (const dir of dirs) {
+        const eventsFile = path.join(sessionDir, dir.name, 'events.jsonl');
+        if (!fs.existsSync(eventsFile)) continue;
+        const lines = fs.readFileSync(eventsFile, 'utf-8').split('\n').filter(Boolean);
+        
+        // Check if this session matches our agent
+        let matches = false;
+        let lastAssistantContent = '';
+        for (const line of lines) {
+          try {
+            const evt = JSON.parse(line);
+            if (evt.type === 'subagent.selected' && entry.config.agent &&
+                (evt.data?.agentName === entry.config.agent || evt.data?.agentDisplayName === entry.config.name)) {
+              matches = true;
+            }
+            if (evt.type === 'assistant.message' && evt.data?.content) {
+              lastAssistantContent = evt.data.content;
+            }
+          } catch {}
+        }
+        
+        if (matches && lastAssistantContent) {
+          const now = new Date().toISOString();
+          // Check if we already have a more recent run recorded
+          const existing = this.db.prepare('SELECT started_at FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(agentId);
+          if (!existing || new Date(existing.started_at) < new Date(dir.mtime - 300000)) {
+            this.db.prepare(
+              'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
+            ).run(agentId, new Date(dir.mtime).toISOString(), new Date(dir.mtime).toISOString(), 0, lastAssistantContent, '');
+            this.db.prepare('UPDATE agent_state SET last_run = ? WHERE agent_id = ?').run(new Date(dir.mtime).toISOString(), agentId);
+            console.log(`[supervisor] Recovered output for "${agentId}" from session ${dir.name}`);
+          }
+          return;
+        }
+      }
+    } catch (err) {
+      console.error(`[supervisor] Recovery failed for "${agentId}": ${err.message}`);
     }
   }
 
