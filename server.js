@@ -102,6 +102,31 @@ app.put('/api/agents/:id/schedule', (req, res) => {
   }
 });
 
+app.put('/api/agents/:id/triggers', (req, res) => {
+  const { triggers } = req.body;
+  try {
+    // Update in-memory config
+    const entry = supervisor.agents.get(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'Agent not found' });
+    entry.config.triggers = triggers || undefined;
+
+    // Persist to agents.json
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const agent = agents.find(a => a.id === req.params.id);
+    if (agent) {
+      if (triggers && Object.keys(triggers).length > 0) {
+        agent.triggers = triggers;
+      } else {
+        delete agent.triggers;
+      }
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 app.post('/api/agents', (req, res) => {
   const config = req.body;
   if (!config.id || !config.name || !config.cwd || !config.agent || !config.schedule || !config.prompt) {
@@ -237,6 +262,16 @@ function getDashboardHtml() {
     }
     .output-content.visible { display: block; }
     .error-text { border-color: #f8514966; color: #f85149; }
+    .triggers-section { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .trigger-badge {
+      display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+      border-radius: 12px; font-size: 0.75rem; font-weight: 500;
+    }
+    .trigger-success { background: #3fb95022; color: #3fb950; border: 1px solid #3fb95044; }
+    .trigger-failure { background: #f8514922; color: #f85149; border: 1px solid #f8514944; }
+    .trigger-complete { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff44; }
+    .trigger-arrow { color: #8b949e; font-size: 0.7rem; }
+    .trigger-label { color: #8b949e; font-size: 0.75rem; margin-right: 4px; }
     .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 200px; }
     .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .auto-refresh { font-size: 0.8rem; color: #8b949e; }
@@ -306,6 +341,7 @@ function getDashboardHtml() {
             <input class="schedule-input" id="sched-\${agent.agent_id}" value="\${agent.schedule}" />
             <button class="btn" onclick="updateSchedule('\${agent.agent_id}')">Set</button>
           </div>
+          \${renderTriggers(agent, agents)}
           \${agent.lastRun?.error ? \`
             <div class="output-section error-output">
               <button class="output-toggle" onclick="toggleOutput('err-\${agent.agent_id}')">\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? '▾' : '▸'} Error</button>
@@ -320,6 +356,25 @@ function getDashboardHtml() {
           \` : ''}
         </div>
       \`).join('');
+    }
+
+    function renderTriggers(agent, allAgents) {
+      const triggers = agent.config?.triggers;
+      if (!triggers) return '';
+      const agentName = (id) => {
+        const a = allAgents.find(a => a.agent_id === id);
+        return a?.config?.name || id;
+      };
+      const badges = [];
+      const renderList = (ids, cls, icon) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        list.forEach(id => badges.push(\`<span class="trigger-badge \${cls}">\${icon} <span class="trigger-arrow">→</span> \${agentName(id)}</span>\`));
+      };
+      if (triggers.onSuccess) renderList(triggers.onSuccess, 'trigger-success', '✓');
+      if (triggers.onFailure) renderList(triggers.onFailure, 'trigger-failure', '✗');
+      if (triggers.onComplete) renderList(triggers.onComplete, 'trigger-complete', '●');
+      if (badges.length === 0) return '';
+      return \`<div class="triggers-section"><span class="trigger-label">Triggers:</span>\${badges.join('')}</div>\`;
     }
 
     function escapeHtml(str) {

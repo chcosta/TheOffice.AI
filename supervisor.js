@@ -189,6 +189,9 @@ class Supervisor extends EventEmitter {
       if (code !== 0 && config.durable) {
         console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
       }
+
+      // Fire conditional triggers
+      this._fireTriggers(agentId, code);
     });
 
     proc.on('error', (err) => {
@@ -212,6 +215,35 @@ class Supervisor extends EventEmitter {
     const nextRun = getNextRun(entry.config.schedule);
     if (nextRun) {
       this.db.prepare('UPDATE agent_state SET next_run = ? WHERE agent_id = ?').run(nextRun.toISOString(), agentId);
+    }
+  }
+
+  _fireTriggers(agentId, exitCode) {
+    const entry = this.agents.get(agentId);
+    if (!entry || !entry.config.triggers) return;
+
+    const triggers = entry.config.triggers;
+    const succeeded = exitCode === 0;
+
+    const targets = [];
+    if (succeeded && triggers.onSuccess) {
+      targets.push(...(Array.isArray(triggers.onSuccess) ? triggers.onSuccess : [triggers.onSuccess]));
+    }
+    if (!succeeded && triggers.onFailure) {
+      targets.push(...(Array.isArray(triggers.onFailure) ? triggers.onFailure : [triggers.onFailure]));
+    }
+    if (triggers.onComplete) {
+      targets.push(...(Array.isArray(triggers.onComplete) ? triggers.onComplete : [triggers.onComplete]));
+    }
+
+    for (const targetId of targets) {
+      const target = this.agents.get(targetId);
+      if (target) {
+        console.log(`[supervisor] Trigger: "${entry.config.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.config.name}"`);
+        this._executeAgent(targetId);
+      } else {
+        console.warn(`[supervisor] Trigger target "${targetId}" not found`);
+      }
     }
   }
 

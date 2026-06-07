@@ -53,8 +53,33 @@ Edit `agents.json` to add/remove agents:
   "schedule": "weekdays at 9am",
   "prompt": "do the thing",
   "durable": true,
-  "copilotPath": "C:\\Users\\you\\AppData\\Roaming\\npm\\copilot.cmd"
+  "copilotPath": "C:\\Users\\you\\AppData\\Roaming\\npm\\copilot.cmd",
+  "triggers": {
+    "onSuccess": ["other-agent-id"],
+    "onFailure": ["alert-agent-id"]
+  }
 }
+```
+
+### Conditional triggers
+
+Agents can trigger other agents based on their exit status:
+
+```json
+"triggers": {
+  "onSuccess": ["deploy-agent"],
+  "onFailure": ["alert-agent", "rollback-agent"],
+  "onComplete": ["cleanup-agent"]
+}
+```
+
+| Trigger | Fires when |
+|---------|------------|
+| `onSuccess` | Agent exits with code 0 |
+| `onFailure` | Agent exits with non-zero code |
+| `onComplete` | Agent finishes regardless of exit code |
+
+Each trigger value can be a single agent ID string or an array. Triggers are displayed in the dashboard with colored badges (green for success, red for failure, blue for complete).
 ```
 
 ### Schedule formats
@@ -81,6 +106,7 @@ Edit `agents.json` to add/remove agents:
 | `durable` | No | If `true`, always starts on boot regardless of DB state |
 | `copilotPath` | No | Full path to `copilot.cmd` (auto-resolved if omitted) |
 | `allowAll` | No | If `false`, omits `--yolo` flag (default: `true`) |
+| `triggers` | No | Conditional triggers: `{ onSuccess, onFailure, onComplete }` |
 
 ## API
 
@@ -93,6 +119,7 @@ Edit `agents.json` to add/remove agents:
 | POST | `/api/agents/:id/stop` | Stop agent |
 | POST | `/api/agents/:id/run` | Trigger immediate run |
 | PUT | `/api/agents/:id/schedule` | Update schedule (persists to `agents.json`) |
+| PUT | `/api/agents/:id/triggers` | Update triggers (persists to `agents.json`) |
 | POST | `/api/agents` | Add new agent (JSON body) |
 | DELETE | `/api/agents/:id` | Remove agent |
 | POST | `/api/reload` | Reload agents.json |
