@@ -710,7 +710,21 @@ app.get('/api/sessions/:id', (req, res) => {
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
   const meta = readSessionMeta(sessionDir);
   const conversation = readSessionConversation(sessionDir);
-  res.json({ ...meta, ...conversation });
+  // Extract agent name from events
+  let agentName = '';
+  const eventsPath = path.join(sessionDir, 'events.jsonl');
+  if (fs.existsSync(eventsPath)) {
+    for (const line of fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean)) {
+      try {
+        const ev = JSON.parse(line);
+        if (ev.type === 'subagent.selected' && ev.data?.agentDisplayName) {
+          agentName = ev.data.agentDisplayName;
+          break;
+        }
+      } catch { }
+    }
+  }
+  res.json({ ...meta, agentName, ...conversation });
 });
 
 app.post('/api/sessions/:id/chat', (req, res) => {
@@ -734,6 +748,21 @@ app.post('/api/sessions/:id/chat', (req, res) => {
     const error = e.stderr ? e.stderr.toString() : e.message;
     res.json({ ok: output.length > 0, response: output.trim() || error });
   }
+});
+
+app.post('/api/sessions/:id/terminal', (req, res) => {
+  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
+  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+  const meta = readSessionMeta(sessionDir);
+  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
+  const { spawn } = require('child_process');
+  const cwd = meta.cwd || __dirname;
+  // Open a new cmd window with copilot --resume
+  const proc = spawn('cmd', ['/c', 'start', 'cmd', '/k', `"${copilotCmd}" --resume="${req.params.id}"`], {
+    cwd, shell: true, detached: true, stdio: 'ignore'
+  });
+  proc.unref();
+  res.json({ ok: true });
 });
 
 // Start all enabled agents
@@ -778,6 +807,7 @@ function getDashboardHtml() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copilot Agent Supervisor</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
@@ -1002,6 +1032,49 @@ function getDashboardHtml() {
       border-top-color: #f78835; border-radius: 50%; animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* Focus Modal */
+    .focus-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200;
+    }
+    .focus-overlay.visible { display: flex; align-items: center; justify-content: center; }
+    .focus-modal {
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      width: 90vw; max-width: 900px; height: 85vh; display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .focus-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 20px; border-bottom: 1px solid #30363d; flex-shrink: 0;
+    }
+    .focus-header h2 { color: #f0f6fc; font-size: 1.1rem; margin: 0; }
+    .focus-header-actions { display: flex; gap: 8px; align-items: center; }
+    .focus-body {
+      flex: 1; overflow-y: auto; padding: 20px;
+    }
+    .focus-chat {
+      display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid #30363d; flex-shrink: 0;
+    }
+    .focus-chat input {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 10px 12px; border-radius: 6px; font-size: 0.9rem;
+    }
+    .focus-chat input:focus { border-color: #58a6ff; outline: none; }
+    /* Markdown styles in conversation */
+    .conv-content.assistant-content table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+    .conv-content.assistant-content th,
+    .conv-content.assistant-content td { border: 1px solid #30363d; padding: 4px 8px; font-size: 0.78rem; }
+    .conv-content.assistant-content th { background: #161b22; color: #f0f6fc; }
+    .conv-content.assistant-content code { background: #0d1117; padding: 1px 4px; border-radius: 3px; font-size: 0.8rem; }
+    .conv-content.assistant-content pre { background: #0d1117; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+    .conv-content.assistant-content pre code { background: none; padding: 0; }
+    .conv-content.assistant-content h1, .conv-content.assistant-content h2,
+    .conv-content.assistant-content h3 { color: #f0f6fc; margin: 8px 0 4px; }
+    .conv-content.assistant-content h1 { font-size: 1rem; }
+    .conv-content.assistant-content h2 { font-size: 0.95rem; }
+    .conv-content.assistant-content h3 { font-size: 0.9rem; }
+    .conv-content.assistant-content ul, .conv-content.assistant-content ol { padding-left: 20px; margin: 4px 0; }
+    .conv-content.assistant-content strong { color: #f0f6fc; }
+    .conv-content.assistant-content blockquote { border-left: 3px solid #30363d; padding-left: 10px; color: #8b949e; margin: 8px 0; }
   </style>
 </head>
 <body>
@@ -1035,6 +1108,26 @@ function getDashboardHtml() {
       <button class="btn" onclick="loadSessions()">&#x1F504; Refresh</button>
     </div>
     <div id="sessionsList"></div>
+  </div>
+
+  <!-- Focus Modal -->
+  <div class="focus-overlay" id="focusOverlay" onclick="if(event.target===this)closeFocus()">
+    <div class="focus-modal">
+      <div class="focus-header">
+        <h2 id="focusTitle">Session</h2>
+        <div class="focus-header-actions">
+          <button class="btn" onclick="openTerminal(focusSessionId)" title="Open in terminal">&#x1F4BB; Terminal</button>
+          <button class="panel-close" onclick="closeFocus()">&times;</button>
+        </div>
+      </div>
+      <div class="focus-body" id="focusBody"></div>
+      <div class="focus-chat">
+        <input type="text" id="focusChatInput" placeholder="Ask a follow-up question..."
+               onkeydown="if(event.key==='Enter')sendFocusChat()" />
+        <button class="btn btn-primary" onclick="sendFocusChat()">Send</button>
+      </div>
+      <div id="focusChatStatus" style="padding:0 20px 8px"></div>
+    </div>
   </div>
 
   <div class="panel-overlay" id="panelOverlay" onclick="closeAddPanel()"></div>
@@ -1690,6 +1783,29 @@ function getDashboardHtml() {
 
     function esc(s) { return (s||'').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
     function path_basename(p) { return (p||'').split(/[\\\\/]/).pop(); }
+    function renderMd(s) {
+      if (typeof marked !== 'undefined' && marked.parse) {
+        try { return marked.parse(s || ''); } catch { }
+      }
+      return esc(s);
+    }
+
+    function buildConvoHtml(turns, containerId) {
+      if (!turns || turns.length === 0) return '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
+      let html = '<div class="session-conversation" id="' + containerId + '">';
+      for (const turn of turns) {
+        html += '<div class="conv-turn">' +
+          '<div class="conv-role user">👤 You</div>' +
+          '<div class="conv-content">' + esc(turn.content) + '</div></div>';
+        if (turn.assistant) {
+          html += '<div class="conv-turn">' +
+            '<div class="conv-role assistant">🤖 Agent</div>' +
+            '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
+        }
+      }
+      html += '</div>';
+      return html;
+    }
 
     async function toggleSession(id) {
       const card = document.getElementById(\`session-\${id}\`);
@@ -1698,7 +1814,6 @@ function getDashboardHtml() {
         card.classList.remove('expanded');
         return;
       }
-      // Collapse all others
       document.querySelectorAll('.session-card.expanded').forEach(c => c.classList.remove('expanded'));
       card.classList.add('expanded');
 
@@ -1714,29 +1829,13 @@ function getDashboardHtml() {
 
     function renderSessionDetail(id, data) {
       const detail = document.getElementById(\`detail-\${id}\`);
-      let convoHtml = '';
-      if (data.turns && data.turns.length > 0) {
-        convoHtml = '<div class="session-conversation" id="convo-' + id + '">';
-        for (const turn of data.turns) {
-          convoHtml += \`
-            <div class="conv-turn">
-              <div class="conv-role user">👤 You</div>
-              <div class="conv-content">\${esc(turn.content)}</div>
-            </div>\`;
-          if (turn.assistant) {
-            convoHtml += \`
-            <div class="conv-turn">
-              <div class="conv-role assistant">🤖 Agent</div>
-              <div class="conv-content assistant-content">\${esc(turn.assistant)}</div>
-            </div>\`;
-          }
-        }
-        convoHtml += '</div>';
-      } else {
-        convoHtml = '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
-      }
+      const convoHtml = buildConvoHtml(data.turns, 'convo-' + id);
 
       detail.innerHTML = \`
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <button class="btn" onclick="event.stopPropagation();openFocus('\${id}')" title="Expand to focus view">🔍 Focus</button>
+          <button class="btn" onclick="event.stopPropagation();openTerminal('\${id}')" title="Open in terminal">💻 Terminal</button>
+        </div>
         \${convoHtml}
         <div class="session-chat" onclick="event.stopPropagation()">
           <input type="text" id="chat-input-\${id}" placeholder="Ask a follow-up question..."
@@ -1746,11 +1845,88 @@ function getDashboardHtml() {
         <div id="chat-status-\${id}"></div>
       \`;
 
-      // Scroll conversation to bottom
       const convo = document.getElementById(\`convo-\${id}\`);
       if (convo) convo.scrollTop = convo.scrollHeight;
     }
 
+    // ---- Focus Modal ----
+    let focusSessionId = null;
+    let focusSessionData = null;
+
+    async function openFocus(id) {
+      focusSessionId = id;
+      document.getElementById('focusOverlay').classList.add('visible');
+      document.getElementById('focusBody').innerHTML = '<div style="color:#8b949e;padding:20px">Loading session...</div>';
+      try {
+        const res = await fetch(\`/api/sessions/\${id}\`);
+        focusSessionData = await res.json();
+        const agentName = focusSessionData.agentName || focusSessionData.name || id.substring(0,8);
+        document.getElementById('focusTitle').textContent = agentName + ' — ' + (focusSessionData.name || '');
+        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo');
+        document.getElementById('focusBody').innerHTML = convoHtml;
+        const convo = document.getElementById('focus-convo');
+        if (convo) convo.scrollTop = convo.scrollHeight;
+        document.getElementById('focusChatInput').focus();
+      } catch (e) {
+        document.getElementById('focusBody').innerHTML = '<div style="color:#f85149;padding:20px">Failed to load session</div>';
+      }
+    }
+
+    function closeFocus() {
+      document.getElementById('focusOverlay').classList.remove('visible');
+      focusSessionId = null;
+      focusSessionData = null;
+    }
+
+    async function sendFocusChat() {
+      if (!focusSessionId) return;
+      const input = document.getElementById('focusChatInput');
+      const status = document.getElementById('focusChatStatus');
+      const message = input.value.trim();
+      if (!message) return;
+
+      input.disabled = true;
+      status.innerHTML = '<div class="chat-sending"><div class="spinner"></div>Sending to agent... this may take a minute</div>';
+
+      const convo = document.getElementById('focus-convo');
+      if (convo) {
+        convo.innerHTML +=
+          '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
+          '<div class="conv-content">' + esc(message) + '</div></div>' +
+          '<div class="conv-turn" id="focus-pending"><div class="conv-role assistant">🤖 Agent</div>' +
+          '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
+        convo.scrollTop = convo.scrollHeight;
+      }
+      input.value = '';
+
+      try {
+        const res = await fetch(\`/api/sessions/\${focusSessionId}/chat\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+        const data = await res.json();
+        const pending = document.getElementById('focus-pending');
+        if (pending) {
+          pending.innerHTML = '<div class="conv-role assistant">🤖 Agent</div>' +
+            '<div class="conv-content assistant-content">' + renderMd(data.response) + '</div>';
+        }
+        status.innerHTML = '';
+        if (convo) convo.scrollTop = convo.scrollHeight;
+      } catch (e) {
+        const pending = document.getElementById('focus-pending');
+        if (pending) pending.remove();
+        status.innerHTML = '<div style="color:#f85149;font-size:0.8rem">Failed to send message</div>';
+      }
+      input.disabled = false;
+      input.focus();
+    }
+
+    async function openTerminal(id) {
+      await fetch(\`/api/sessions/\${id}/terminal\`, { method: 'POST' });
+    }
+
+    // ---- Inline Chat (in side panel) ----
     async function sendChat(id) {
       const input = document.getElementById(\`chat-input-\${id}\`);
       const status = document.getElementById(\`chat-status-\${id}\`);
@@ -1760,21 +1936,15 @@ function getDashboardHtml() {
       input.disabled = true;
       status.innerHTML = '<div class="chat-sending"><div class="spinner"></div>Sending to agent... this may take a minute</div>';
 
-      // Add user message to conversation immediately
       const convo = document.getElementById(\`convo-\${id}\`);
       if (convo) {
-        convo.innerHTML += \`
-          <div class="conv-turn">
-            <div class="conv-role user">👤 You</div>
-            <div class="conv-content">\${esc(message)}</div>
-          </div>
-          <div class="conv-turn" id="pending-response-\${id}">
-            <div class="conv-role assistant">🤖 Agent</div>
-            <div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div>
-          </div>\`;
+        convo.innerHTML +=
+          '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
+          '<div class="conv-content">' + esc(message) + '</div></div>' +
+          '<div class="conv-turn" id="pending-response-' + id + '"><div class="conv-role assistant">🤖 Agent</div>' +
+          '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
         convo.scrollTop = convo.scrollHeight;
       }
-
       input.value = '';
 
       try {
@@ -1786,9 +1956,8 @@ function getDashboardHtml() {
         const data = await res.json();
         const pending = document.getElementById(\`pending-response-\${id}\`);
         if (pending) {
-          pending.innerHTML = \`
-            <div class="conv-role assistant">🤖 Agent</div>
-            <div class="conv-content assistant-content">\${esc(data.response)}</div>\`;
+          pending.innerHTML = '<div class="conv-role assistant">🤖 Agent</div>' +
+            '<div class="conv-content assistant-content">' + renderMd(data.response) + '</div>';
         }
         status.innerHTML = '';
         if (convo) convo.scrollTop = convo.scrollHeight;
