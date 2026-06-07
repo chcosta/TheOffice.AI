@@ -634,7 +634,7 @@ app.post('/api/open-editor', (req, res) => {
 
 // Browse for folder using Windows folder picker
 app.post('/api/browse-folder', (req, res) => {
-  const { execSync } = require('child_process');
+  const { exec } = require('child_process');
   const tmpFile = path.join(__dirname, '.browse-result.txt');
   try { fs.unlinkSync(tmpFile); } catch {}
   const psScript = `
@@ -651,12 +651,8 @@ if ($result -eq 'OK') { Set-Content -Path '${tmpFile.replace(/\\/g, '\\\\')}' -V
 `;
   const psFile = path.join(__dirname, '.browse-folder.ps1');
   fs.writeFileSync(psFile, psScript);
-  const { spawn } = require('child_process');
-  const proc = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile], {
-    stdio: 'ignore',
-    windowsHide: false
-  });
-  proc.on('close', () => {
+  // Use 'start /wait' to run powershell in a visible (but minimized) process
+  exec(`start /wait powershell -NoProfile -ExecutionPolicy Bypass -File "${psFile}"`, { cwd: __dirname }, () => {
     let folder = null;
     try { folder = fs.readFileSync(tmpFile, 'utf-8').trim(); fs.unlinkSync(tmpFile); } catch {}
     try { fs.unlinkSync(psFile); } catch {}
