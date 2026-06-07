@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "scriptedai-mcp-azdo": {
+      "command": "scriptedai-mcp-azdo",
+      "args": [],
+      "env": {}
+    },
+    "scriptedai-mcp-comms": {
+      "command": "scriptedai-mcp-comms",
+      "args": [],
+      "env": {}
+    },
+    "scriptedai-mcp-devtools": {
+      "command": "scriptedai-mcp-devtools",
+      "args": [],
+      "env": {}
+    }
+  }
+}

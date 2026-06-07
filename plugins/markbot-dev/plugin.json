@@ -1,0 +1,6 @@
+{
+  "name": "markbot-dev",
+  "agents": "agents/",
+  "skills": "skills/",
+  "mcpServers": ".mcp.json"
+}

@@ -687,6 +687,34 @@ app.get('/api/recent-dirs', (req, res) => {
   res.json(dirs);
 });
 
+// Email agent output via Outlook
+app.post('/api/agents/:id/email', (req, res) => {
+  const status = supervisor.getStatus(req.params.id);
+  if (!status || !status.lastRun?.output) return res.status(404).json({ error: 'No output to email' });
+  const { exec } = require('child_process');
+  const agentName = status.config?.name || req.params.id;
+  const subject = `Agent Report: ${agentName} — ${new Date(status.lastRun.started_at).toLocaleDateString()}`;
+  const body = status.lastRun.output;
+  
+  // Write a PS script that opens Outlook compose with HTML body
+  const psFile = path.join(__dirname, '.email-compose.ps1');
+  const htmlBody = body
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  const psScript = `
+$ol = New-Object -ComObject Outlook.Application
+$mail = $ol.CreateItem(0)
+$mail.Subject = "${subject.replace(/"/g, '`"')}"
+$mail.HTMLBody = "<html><body style='font-family:Consolas,monospace;font-size:12px'>${htmlBody.replace(/'/g, "''")}</body></html>"
+$mail.Display()
+`;
+  fs.writeFileSync(psFile, psScript);
+  exec(`start /wait powershell -NoProfile -ExecutionPolicy Bypass -File "${psFile}"`, () => {
+    try { fs.unlinkSync(psFile); } catch {}
+  });
+  res.json({ ok: true });
+});
+
 // ---- Session History & Chat ----
 const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 
@@ -1478,6 +1506,7 @@ function getDashboardHtml() {
             <div class="output-section">
               <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last output</button>
               <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px" title="Open in full view">⛶ Focus</button>
+              <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px" title="Email last output">✉ Email</button>
               <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
             </div>
           \` : ''}
@@ -1648,6 +1677,14 @@ function getDashboardHtml() {
       await fetch(\`/api/groups/\${encodeURIComponent(name)}\`, { method: 'DELETE' });
       collapsedGroups.delete(name);
       refresh();
+    }
+
+    async function emailOutput(agentId, agentName) {
+      const res = await fetch(\`/api/agents/\${agentId}/email\`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || 'Failed to compose email');
+      }
     }
     function toggleOutput(id) {
       if (expandedOutputs.has(id)) {
