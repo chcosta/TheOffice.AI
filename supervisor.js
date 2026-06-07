@@ -36,6 +36,11 @@ class Supervisor extends EventEmitter {
 
 
   register(config) {
+    // Auto-fill copilotPath if not set
+    if (!config.copilotPath && process.env.COPILOT_PATH) {
+      config.copilotPath = process.env.COPILOT_PATH;
+    }
+
     const existing = this.agents.get(config.id);
     if (existing) {
       existing.config = config;
@@ -135,7 +140,11 @@ class Supervisor extends EventEmitter {
       console.error(`[supervisor] Failed to execute agent "${agentId}": ${err.message}`);
       const entry = this.agents.get(agentId);
       if (entry) entry.running = false;
-      this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run('error', agentId);
+      const now = new Date().toISOString();
+      this.db.prepare(
+        'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(agentId, now, now, -1, '', err.message + (err.stack ? '\n' + err.stack : ''));
+      this.db.prepare('UPDATE agent_state SET status = ?, last_run = ? WHERE agent_id = ?').run('error', now, agentId);
     }
   }
 
