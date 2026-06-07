@@ -5,6 +5,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3847 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>&1
 )
 timeout /t 2 /nobreak >nul
-schtasks /Run /TN "CopilotAgentSupervisor"
+cd /d %~dp0
+wscript.exe launch-hidden.vbs
 timeout /t 3 /nobreak >nul
 echo Dashboard: http://localhost:3847

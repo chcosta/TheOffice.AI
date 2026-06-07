@@ -5,12 +5,13 @@ const { execSync } = require('child_process');
 const taskName = 'CopilotAgentSupervisor';
 const nodePath = process.execPath;
 const scriptPath = path.join(__dirname, 'server.js');
+const vbsPath = path.join(__dirname, 'launch-hidden.vbs');
 const workDir = __dirname;
 
 const psScript = `
 $ErrorActionPreference = 'Stop'
 $taskName = '${taskName}'
-$action = New-ScheduledTaskAction -Execute '${nodePath}' -Argument '"${scriptPath}"' -WorkingDirectory '${workDir}'
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '"${vbsPath}"' -WorkingDirectory '${workDir}'
 
 $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
 $triggerRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
