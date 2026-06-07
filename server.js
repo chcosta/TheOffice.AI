@@ -1460,9 +1460,10 @@ function getDashboardHtml() {
     async function moveToGroup(agentId, group) {
       if (group === '__new__') {
         const name = prompt('New group name:');
-        if (!name) { refresh(); return; }
+        if (!name) { document.activeElement?.blur(); refresh(); return; }
         group = name.trim();
       }
+      document.activeElement?.blur();
       await fetch(\`/api/agents/\${agentId}/group\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: group || null }) });
       refresh();
     }
