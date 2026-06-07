@@ -426,6 +426,38 @@ app.put('/api/agents/:id/schedule', (req, res) => {
   }
 });
 
+// Update agent prompt
+app.put('/api/agents/:id/prompt', (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  entry.config.prompt = prompt;
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const agent = agents.find(a => a.id === req.params.id);
+  if (agent) {
+    agent.prompt = prompt;
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  }
+  res.json({ ok: true });
+});
+
+// Update agent display name
+app.put('/api/agents/:id/name', (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  entry.config.name = name;
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const agent = agents.find(a => a.id === req.params.id);
+  if (agent) {
+    agent.name = name;
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  }
+  res.json({ ok: true });
+});
+
 // Enable or disable an agent (persists to DB)
 app.put('/api/agents/:id/enabled', (req, res) => {
   const { enabled } = req.body;
@@ -865,7 +897,8 @@ function getDashboardHtml() {
     .toggle-switch input:checked + .toggle-slider { background: #238636; }
     .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
     .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .agent-name { font-size: 1.1rem; font-weight: 600; color: #f0f6fc; }
+    .agent-name { font-size: 1.1rem; font-weight: 600; color: #f0f6fc; cursor: pointer; }
+    .agent-name:hover, .prompt-value:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
     .status-badge {
       padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
     }
@@ -1331,7 +1364,7 @@ function getDashboardHtml() {
       return \`
         <div class="agent-card\${!isEnabled ? ' agent-disabled' : ''}">
           <div class="agent-header">
-            <span class="agent-name">\${agent.config?.name || agent.agent_id}</span>
+            <span class="agent-name" ondblclick="editAgentName('\${agent.agent_id}', this)" title="Double-click to rename">\${agent.config?.name || agent.agent_id}</span>
             <div style="display:flex;align-items:center;gap:8px">
               <span class="status-badge status-\${agent.status || 'idle'}">\${agent.status || 'idle'}</span>
               <label class="toggle-switch" title="\${isEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}">
@@ -1347,6 +1380,7 @@ function getDashboardHtml() {
             <div class="meta-item"><span class="meta-label">Auto-start:</span> <span class="meta-value" style="cursor:pointer" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">\${autoStart ? '✓ run on start' : '⏱ schedule only'}</span></div>
             <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value">\${agent.config?.cwd || '-'}</span></div>
             <div class="meta-item"><span class="meta-label">Last exit:</span> <span class="meta-value">\${agent.lastRun?.exit_code ?? '-'}</span></div>
+            <div class="meta-item" style="grid-column: span 2"><span class="meta-label">Prompt:</span> <span class="meta-value prompt-value" ondblclick="editAgentPrompt('\${agent.agent_id}', this)" title="Double-click to edit">\${escapeHtml(agent.config?.prompt || '-')}</span></div>
             <div class="meta-item">
               <span class="meta-label">Group:</span>
               <select class="group-select" onchange="moveToGroup('\${agent.agent_id}', this.value)">
@@ -1445,6 +1479,47 @@ function getDashboardHtml() {
 
     function escapeHtml(str) {
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function editAgentName(id, el) {
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.className = 'schedule-input';
+      input.style.fontSize = '1.1rem';
+      input.style.fontWeight = 'bold';
+      input.value = current;
+      el.replaceWith(input);
+      input.focus();
+      input.select();
+      const save = async () => {
+        const newName = input.value.trim();
+        if (newName && newName !== current) {
+          await fetch(\`/api/agents/\${id}/name\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name: newName }) });
+        }
+        refresh();
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = current; input.blur(); } });
+    }
+
+    function editAgentPrompt(id, el) {
+      const current = el.textContent;
+      const input = document.createElement('input');
+      input.className = 'schedule-input';
+      input.style.width = '100%';
+      input.value = current === '-' ? '' : current;
+      el.replaceWith(input);
+      input.focus();
+      input.select();
+      const save = async () => {
+        const newPrompt = input.value.trim();
+        if (newPrompt && newPrompt !== current) {
+          await fetch(\`/api/agents/\${id}/prompt\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt: newPrompt }) });
+        }
+        refresh();
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = current; input.blur(); } });
     }
 
     async function startAgent(id) { await fetch(\`/api/agents/\${id}/start\`, { method: 'POST' }); refresh(); }
