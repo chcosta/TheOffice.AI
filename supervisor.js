@@ -299,11 +299,13 @@ class Supervisor extends EventEmitter {
       const isEnabled = !state || state.enabled;
       
       if (isEnabled) {
-        // Agent was enabled before shutdown — resume scheduling
-        // Don't run immediately on restart; let the schedule handle it
-        this.start(id, { runImmediately: entry.config.autoStart !== false });
+        try {
+          this.start(id, { runImmediately: entry.config.autoStart !== false });
+        } catch (err) {
+          console.error(`[supervisor] Failed to start agent "${entry.config.name}": ${err.message}`);
+          this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run('error', id);
+        }
       } else if (entry.config.durable) {
-        // Durable but was explicitly disabled — keep disabled but log
         console.log(`[supervisor] Durable agent "${entry.config.name}" is disabled, skipping`);
       }
     }
