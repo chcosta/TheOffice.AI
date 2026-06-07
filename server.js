@@ -1175,6 +1175,16 @@ function getDashboardHtml() {
     </div>
   </div>
 
+  <!-- Output Focus Modal -->
+  <div class="sessions-overlay" id="outputModalOverlay" onclick="closeOutputModal()"></div>
+  <div class="focus-modal" id="outputModal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10001">
+    <div class="focus-header">
+      <h2 id="outputModalTitle">Output</h2>
+      <button class="panel-close" onclick="closeOutputModal()">&times;</button>
+    </div>
+    <div class="focus-body markdown-body" id="outputModalBody" style="font-size:0.85rem"></div>
+  </div>
+
   <div class="panel-overlay" id="panelOverlay" onclick="closeAddPanel()"></div>
   <div class="side-panel" id="addPanel">
     <div class="panel-header">
@@ -1410,6 +1420,7 @@ function getDashboardHtml() {
           \${agent.lastRun?.output ? \`
             <div class="output-section">
               <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last output</button>
+              <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px" title="Open in full view">⛶ Focus</button>
               <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
             </div>
           \` : ''}
@@ -1588,6 +1599,19 @@ function getDashboardHtml() {
         expandedOutputs.add(id);
       }
       document.getElementById('output-' + id).classList.toggle('visible');
+    }
+
+    function openOutputModal(name, agentId) {
+      const el = document.getElementById('output-' + agentId);
+      const content = el ? el.innerHTML : '';
+      document.getElementById('outputModalTitle').textContent = name + ' — Last Output';
+      document.getElementById('outputModalBody').innerHTML = content;
+      document.getElementById('outputModal').style.display = 'flex';
+      document.getElementById('outputModalOverlay').classList.add('visible');
+    }
+    function closeOutputModal() {
+      document.getElementById('outputModal').style.display = 'none';
+      document.getElementById('outputModalOverlay').classList.remove('visible');
     }
     function toggleGroup(name) {
       if (collapsedGroups.has(name)) {
