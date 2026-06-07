@@ -1348,6 +1348,8 @@ function getDashboardHtml() {
             <button class="btn btn-primary" onclick="startAgent('\${agent.agent_id}')">▶ Start</button>
             <button class="btn btn-danger" onclick="stopAgent('\${agent.agent_id}')">■ Stop</button>
             <button class="btn" onclick="runNow('\${agent.agent_id}')">⚡ Run Now</button>
+            <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
+            <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Open last run in terminal">💻 Terminal</button>
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
             <input class="schedule-input" id="sched-\${agent.agent_id}" value="\${agent.schedule}" />
             <button class="btn" onclick="updateSchedule('\${agent.agent_id}')">Set</button>
@@ -1937,6 +1939,36 @@ function getDashboardHtml() {
 
     async function openTerminal(id) {
       await fetch(\`/api/sessions/\${id}/terminal\`, { method: 'POST' });
+    }
+
+    function showAgentSessions(agentName) {
+      // Collapse all session groups, then expand only the matching one
+      Object.keys(sessionGroupState).forEach(k => sessionGroupState[k] = true);
+      sessionGroupState[agentName] = false; // false = expanded
+      // Open the panel (will load sessions which calls renderSessions with our state)
+      document.getElementById('sessionsOverlay').classList.add('visible');
+      document.getElementById('sessionsPanel').classList.add('visible');
+      if (allSessions.length) {
+        renderSessions();
+      } else {
+        loadSessions();
+      }
+    }
+
+    async function openLastTerminal(agentId) {
+      // Find the most recent session for this agent from the sessions API
+      try {
+        const res = await fetch('/api/sessions?hours=48');
+        const sessions = await res.json();
+        const match = sessions.find(s => (s.agentName || '').toLowerCase().includes(agentId.toLowerCase()) || (s.name || '').toLowerCase().includes(agentId.toLowerCase()));
+        if (match) {
+          await fetch(\`/api/sessions/\${match.id}/terminal\`, { method: 'POST' });
+        } else {
+          alert('No recent session found for this agent');
+        }
+      } catch (e) {
+        alert('Failed to find session: ' + e.message);
+      }
     }
 
     // ---- Inline Chat (in side panel) ----
