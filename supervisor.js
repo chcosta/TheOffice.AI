@@ -148,8 +148,9 @@ class Supervisor extends EventEmitter {
     this._updateNextRun(agentId);
 
     // Build copilot CLI command as a full command string for shell execution
+    const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
-    const cmdLine = `copilot --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.trim();
+    const cmdLine = `"${copilotCmd}" --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
 

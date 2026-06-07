@@ -8,6 +8,15 @@ const PORT = process.env.PORT || 3847;
 const DB_PATH = path.join(__dirname, 'supervisor.db');
 const AGENTS_PATH = path.join(__dirname, 'agents.json');
 
+// Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
+if (!process.env.COPILOT_PATH) {
+  const npmGlobalBin = path.join(process.env.APPDATA || '', 'npm');
+  const copilotCmd = path.join(npmGlobalBin, 'copilot.cmd');
+  if (fs.existsSync(copilotCmd)) {
+    process.env.COPILOT_PATH = copilotCmd;
+  }
+}
+
 async function main() {
 
 // Initialize database
