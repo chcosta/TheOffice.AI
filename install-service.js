@@ -6,7 +6,7 @@ const nodePath = process.execPath;
 const scriptPath = path.join(__dirname, 'server.js');
 
 // Create a scheduled task that runs as the current user at logon
-const xml = `<?xml version="1.0" encoding="UTF-16"?>
+const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
     <LogonTrigger>
@@ -40,7 +40,7 @@ const xml = `<?xml version="1.0" encoding="UTF-16"?>
 
 const fs = require('fs');
 const xmlPath = path.join(__dirname, 'task.xml');
-fs.writeFileSync(xmlPath, xml, 'utf-16le');
+fs.writeFileSync(xmlPath, xml, 'utf-8');
 
 try {
   execSync(`schtasks /Create /TN "${taskName}" /XML "${xmlPath}" /F`, { stdio: 'inherit' });
