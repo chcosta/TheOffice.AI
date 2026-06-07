@@ -43,18 +43,22 @@ class Supervisor extends EventEmitter {
       this.agents.set(config.id, { config, timer: null, cronJob: null, running: false, process: null });
     }
 
-    // Ensure state row exists
+    // Ensure state row exists; restore persisted schedule if dashboard changed it
     const row = this.db.prepare('SELECT * FROM agent_state WHERE agent_id = ?').get(config.id);
     if (!row) {
-      this.db.prepare('INSERT INTO agent_state (agent_id, schedule, status) VALUES (?, ?, ?)').run(
-        config.id, config.schedule, 'idle'
-      );
+      this.db.prepare('INSERT INTO agent_state (agent_id, schedule, enabled, status) VALUES (?, ?, ?, ?)')
+        .run(config.id, config.schedule, config.enabled !== false ? 1 : 0, 'idle');
     } else {
-      this.db.prepare('UPDATE agent_state SET schedule = ? WHERE agent_id = ?').run(config.schedule, config.id);
+      // DB schedule takes precedence over agents.json (user may have changed it in dashboard)
+      if (row.schedule && row.schedule !== config.schedule) {
+        config.schedule = row.schedule;
+      } else {
+        this.db.prepare('UPDATE agent_state SET schedule = ? WHERE agent_id = ?').run(config.schedule, config.id);
+      }
     }
   }
 
-  start(agentId) {
+  start(agentId, { runImmediately } = {}) {
     const entry = this.agents.get(agentId);
     if (!entry) throw new Error(`Unknown agent: ${agentId}`);
 
@@ -63,8 +67,11 @@ class Supervisor extends EventEmitter {
     // Update state
     this.db.prepare('UPDATE agent_state SET enabled = 1, status = ? WHERE agent_id = ?').run('scheduled', agentId);
 
-    // Run immediately on start
-    this._executeAgent(agentId);
+    // Only run immediately if explicitly requested or autoStart is not false
+    const shouldRunNow = runImmediately !== undefined ? runImmediately : entry.config.autoStart !== false;
+    if (shouldRunNow) {
+      this._executeAgent(agentId);
+    }
 
     // Set up recurring schedule
     if (schedule.type === 'cron') {
@@ -75,7 +82,7 @@ class Supervisor extends EventEmitter {
 
     this._updateNextRun(agentId);
     this.emit('agent-started', agentId);
-    console.log(`[supervisor] Agent "${entry.config.name}" scheduled: ${schedule.description}`);
+    console.log(`[supervisor] Agent "${entry.config.name}" scheduled: ${schedule.description}${shouldRunNow ? ' (running now)' : ' (waiting for schedule)'}`);
   }
 
   stop(agentId, { persist = true } = {}) {
@@ -280,9 +287,15 @@ class Supervisor extends EventEmitter {
   startAll() {
     for (const [id, entry] of this.agents) {
       const state = this.db.prepare('SELECT enabled FROM agent_state WHERE agent_id = ?').get(id);
-      // If agent is in agents.json and durable, always start regardless of DB state
-      if (!state || state.enabled || entry.config.durable) {
-        this.start(id);
+      const isEnabled = !state || state.enabled;
+      
+      if (isEnabled) {
+        // Agent was enabled before shutdown — resume scheduling
+        // Don't run immediately on restart; let the schedule handle it
+        this.start(id, { runImmediately: entry.config.autoStart !== false });
+      } else if (entry.config.durable) {
+        // Durable but was explicitly disabled — keep disabled but log
+        console.log(`[supervisor] Durable agent "${entry.config.name}" is disabled, skipping`);
       }
     }
   }

@@ -272,6 +272,43 @@ app.put('/api/agents/:id/schedule', (req, res) => {
   }
 });
 
+// Enable or disable an agent (persists to DB)
+app.put('/api/agents/:id/enabled', (req, res) => {
+  const { enabled } = req.body;
+  const id = req.params.id;
+  try {
+    if (enabled) {
+      supervisor.start(id, { runImmediately: false });
+    } else {
+      supervisor.stop(id, { persist: true });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Toggle autoStart (persists to agents.json)
+app.put('/api/agents/:id/autostart', (req, res) => {
+  const { autoStart } = req.body;
+  const id = req.params.id;
+  try {
+    const entry = supervisor.agents.get(id);
+    if (!entry) return res.status(404).json({ error: 'Agent not found' });
+    entry.config.autoStart = autoStart;
+
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const agent = agents.find(a => a.id === id);
+    if (agent) {
+      if (autoStart === false) { agent.autoStart = false; } else { delete agent.autoStart; }
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 app.put('/api/agents/:id/triggers', (req, res) => {
   const { triggers } = req.body;
   try {
@@ -481,9 +518,21 @@ function getDashboardHtml() {
     .group-select:focus { border-color: #58a6ff; outline: none; }
     .agent-card {
       background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, opacity 0.2s;
     }
     .agent-card:hover { border-color: #58a6ff; }
+    .agent-card.agent-disabled { opacity: 0.55; border-style: dashed; }
+    .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: #484f58; border-radius: 20px; transition: 0.2s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px;
+      background: #c9d1d9; border-radius: 50%; transition: 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #238636; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
     .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
     .agent-name { font-size: 1.1rem; font-weight: 600; color: #f0f6fc; }
     .status-badge {
@@ -679,6 +728,13 @@ function getDashboardHtml() {
           <span class="form-hint" style="margin:0">(auto-restart on supervisor start)</span>
         </label>
       </div>
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="add-autoStart" checked />
+          <span>Auto-start</span>
+          <span class="form-hint" style="margin:0">(run immediately when enabled; uncheck for schedule-only)</span>
+        </label>
+      </div>
       <div style="display:flex;gap:8px;margin-top:16px">
         <button class="btn btn-primary" onclick="submitAddAgent()">Add Agent</button>
         <button class="btn" onclick="closeAddPanel()">Cancel</button>
@@ -762,19 +818,27 @@ function getDashboardHtml() {
 
     function renderAgentCard(agent, agents, allGroupNames) {
       const currentGroup = agent.config?.group || '';
+      const isEnabled = agent.enabled !== 0;
+      const autoStart = agent.config?.autoStart !== false;
       const groupOpts = allGroupNames.filter(g => g !== 'Ungrouped')
         .map(g => \`<option value="\${escapeHtml(g)}" \${g === currentGroup ? 'selected' : ''}>\${escapeHtml(g)}</option>\`).join('');
       return \`
-        <div class="agent-card">
+        <div class="agent-card\${!isEnabled ? ' agent-disabled' : ''}">
           <div class="agent-header">
             <span class="agent-name">\${agent.config?.name || agent.agent_id}</span>
-            <span class="status-badge status-\${agent.status || 'idle'}">\${agent.status || 'idle'}</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="status-badge status-\${agent.status || 'idle'}">\${agent.status || 'idle'}</span>
+              <label class="toggle-switch" title="\${isEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}">
+                <input type="checkbox" \${isEnabled ? 'checked' : ''} onchange="toggleEnabled('\${agent.agent_id}', this.checked)" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
           <div class="agent-meta">
             <div class="meta-item"><span class="meta-label">Schedule:</span> <span class="meta-value" title="\${agent.scheduleDescription || ''}">\${agent.schedule} (\${agent.scheduleDescription || ''})</span></div>
-            <div class="meta-item"><span class="meta-label">Next run:</span> <span class="meta-value">\${timeUntil(agent.next_run)}</span></div>
+            <div class="meta-item"><span class="meta-label">Next run:</span> <span class="meta-value">\${isEnabled ? timeUntil(agent.next_run) : '—'}</span></div>
             <div class="meta-item"><span class="meta-label">Last run:</span> <span class="meta-value">\${timeAgo(agent.last_run)}</span></div>
-            <div class="meta-item"><span class="meta-label">Durable:</span> <span class="meta-value">\${agent.config?.durable ? '✓' : '✗'}</span></div>
+            <div class="meta-item"><span class="meta-label">Auto-start:</span> <span class="meta-value" style="cursor:pointer" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">\${autoStart ? '✓ run on start' : '⏱ schedule only'}</span></div>
             <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value">\${agent.config?.cwd || '-'}</span></div>
             <div class="meta-item"><span class="meta-label">Last exit:</span> <span class="meta-value">\${agent.lastRun?.exit_code ?? '-'}</span></div>
             <div class="meta-item">
@@ -879,6 +943,15 @@ function getDashboardHtml() {
     async function stopAgent(id) { await fetch(\`/api/agents/\${id}/stop\`, { method: 'POST' }); refresh(); }
     async function runNow(id) { await fetch(\`/api/agents/\${id}/run\`, { method: 'POST' }); refresh(); }
     async function openInCode() { await fetch('/api/open-editor', { method: 'POST' }); }
+    async function toggleEnabled(id, enabled) {
+      await fetch(\`/api/agents/\${id}/enabled\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
+      refresh();
+    }
+    async function toggleAutoStart(id, current) {
+      const newVal = !current;
+      await fetch(\`/api/agents/\${id}/autostart\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ autoStart: newVal }) });
+      refresh();
+    }
     async function updateSchedule(id) {
       const val = document.getElementById('sched-' + id).value;
       await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
@@ -1051,6 +1124,7 @@ function getDashboardHtml() {
         schedule: document.getElementById('add-schedule').value.trim(),
         durable: document.getElementById('add-durable').checked
       };
+      if (!document.getElementById('add-autoStart').checked) config.autoStart = false;
       const group = document.getElementById('add-group').value.trim();
       const copilotPath = document.getElementById('add-copilotPath').value.trim();
       if (group) config.group = group;
