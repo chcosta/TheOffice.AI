@@ -1635,7 +1635,7 @@ function getDashboardHtml() {
 
       let html = '';
       for (const [groupName, sessions] of Object.entries(groups)) {
-        const collapsed = sessionGroupState[groupName] === true;
+        const collapsed = sessionGroupState[groupName] !== false;
         const latestTime = new Date(sessions[0].lastModified);
         const timeStr = latestTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const dateStr = latestTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
