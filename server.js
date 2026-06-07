@@ -40,37 +40,90 @@ loadAgents();
 const app = express();
 app.use(express.json());
 
-// Discover available agents from plugins and local repos
+// Discover available agents from plugins, repos, and marketplaces
 app.get('/api/discover', async (req, res) => {
   const { execSync } = require('child_process');
   const discovered = [];
   const registeredIds = new Set(Array.from(supervisor.agents.keys()));
   const copilotPath = process.env.COPILOT_PATH || 'copilot';
+  const installedPluginsDir = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'installed-plugins', '_direct');
 
-  // 1. Installed Copilot CLI plugins
-  try {
-    const output = execSync(`"${copilotPath}" plugin list`, { encoding: 'utf-8', timeout: 15000, shell: true });
-    const pluginLines = output.match(/•\s+(\S+)\s+\(v[\d.]+\)/g) || [];
-    pluginLines.forEach(line => {
-      const m = line.match(/•\s+(\S+)\s+\(v([\d.]+)\)/);
-      if (m) {
-        discovered.push({
-          source: 'plugin',
-          id: m[1],
-          name: m[1].split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
-          version: m[2],
-          registered: registeredIds.has(m[1])
-        });
-      }
-    });
-  } catch (e) {
-    console.warn('[discover] Failed to list plugins:', e.message);
+  // Helper: read plugin.json description
+  function readPluginJson(dir) {
+    try {
+      const pj = JSON.parse(fs.readFileSync(path.join(dir, 'plugin.json'), 'utf-8'));
+      return { name: pj.name, description: pj.description, version: pj.version, author: pj.author?.name };
+    } catch { return null; }
   }
 
-  // 2. Scan specified directories for .github/copilot-instructions.md agent definitions
+  // Helper: read agent .md frontmatter
+  function readAgentMd(filePath) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const fm = content.match(/^---\s*\n([\s\S]*?)\n---/);
+      if (!fm) return null;
+      const nameMatch = fm[1].match(/name:\s*['"]?([^'"\n]+)/);
+      const descMatch = fm[1].match(/description:\s*['"]?([^'"\n]+)/);
+      return { name: nameMatch?.[1]?.trim(), description: descMatch?.[1]?.trim() };
+    } catch { return null; }
+  }
+
+  // 1. Installed Copilot CLI plugins (with descriptions from plugin.json)
+  const installedNames = new Set();
+  try {
+    if (fs.existsSync(installedPluginsDir)) {
+      const dirs = fs.readdirSync(installedPluginsDir, { withFileTypes: true }).filter(e => e.isDirectory());
+      for (const d of dirs) {
+        const pj = readPluginJson(path.join(installedPluginsDir, d.name));
+        const id = pj?.name || d.name;
+        installedNames.add(id);
+        discovered.push({
+          source: 'installed-plugin',
+          id,
+          name: pj?.name || d.name,
+          displayName: (pj?.name || d.name).split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+          description: pj?.description || '',
+          version: pj?.version || '',
+          author: pj?.author || '',
+          installed: true,
+          registered: registeredIds.has(id)
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[discover] Failed to read installed plugins:', e.message);
+  }
+
+  // 2. Marketplace plugins (not installed)
+  try {
+    const output = execSync(`"${copilotPath}" plugin marketplace browse copilot-plugins`, { encoding: 'utf-8', timeout: 15000, shell: true });
+    const lines = output.split('\n');
+    for (const line of lines) {
+      const m = line.match(/•\s+(\S+)\s*-\s*(.*)/);
+      if (m) {
+        const id = m[1].trim();
+        if (!installedNames.has(id)) {
+          discovered.push({
+            source: 'marketplace',
+            id,
+            name: id,
+            displayName: id.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+            description: m[2].trim(),
+            marketplace: 'copilot-plugins',
+            installCmd: `${id}@copilot-plugins`,
+            installed: false,
+            registered: false
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[discover] Failed to browse marketplace:', e.message);
+  }
+
+  // 3. Scan directories for repo agents and local plugins
   const scanDirs = (req.query.dirs || '').split(',').filter(Boolean);
   if (scanDirs.length === 0) {
-    // Default: scan parent of sessions dir for repos
     const parentDir = path.dirname(__dirname);
     try {
       const entries = fs.readdirSync(parentDir, { withFileTypes: true });
@@ -79,60 +132,82 @@ app.get('/api/discover', async (req, res) => {
           scanDirs.push(path.join(parentDir, e.name));
         }
       });
-    } catch (err) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   for (const dir of scanDirs) {
     try {
-      // Check for copilot-instructions.md with agent definitions
-      const instrPath = path.join(dir, '.github', 'copilot-instructions.md');
-      if (fs.existsSync(instrPath)) {
-        const content = fs.readFileSync(instrPath, 'utf-8');
-        // Look for agent names in available_skills blocks or agent definitions
-        const skillMatches = content.matchAll(/<skill>\s*<name>([^<]+)<\/name>\s*<description>([^<]*)<\/description>/g);
-        for (const sm of skillMatches) {
-          const agentId = sm[1].trim();
-          const desc = sm[2].trim().slice(0, 120);
-          discovered.push({
-            source: 'repo-agent',
-            id: agentId,
-            name: agentId.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
-            description: desc,
-            cwd: dir,
-            registered: registeredIds.has(agentId)
-          });
-        }
-      }
-
-      // Check for local plugin dirs with plugin.yaml
-      const copilotDir = path.join(dir, '.copilot', 'plugins');
-      if (fs.existsSync(copilotDir)) {
-        const pluginDirs = fs.readdirSync(copilotDir, { withFileTypes: true }).filter(e => e.isDirectory());
-        for (const pd of pluginDirs) {
-          const yamlPath = path.join(copilotDir, pd.name, 'plugin.yaml');
-          if (fs.existsSync(yamlPath)) {
+      // 3a. .github/agents/*.md (agent definitions with YAML frontmatter)
+      const agentsDir = path.join(dir, '.github', 'agents');
+      if (fs.existsSync(agentsDir)) {
+        const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+        for (const file of files) {
+          const info = readAgentMd(path.join(agentsDir, file));
+          if (info?.name) {
+            const id = info.name;
             discovered.push({
-              source: 'local-plugin',
-              id: pd.name,
-              name: pd.name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+              source: 'repo-agent',
+              id,
+              name: id,
+              displayName: id.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+              description: info.description || '',
               cwd: dir,
-              registered: registeredIds.has(pd.name)
+              repoName: path.basename(dir),
+              registered: registeredIds.has(id)
             });
           }
         }
       }
-    } catch (e) {
-      // skip inaccessible dirs
-    }
+
+      // 3b. .github/plugin/*/plugin.json (local/uninstalled plugins in repos)
+      const pluginDir = path.join(dir, '.github', 'plugin');
+      if (fs.existsSync(pluginDir)) {
+        const dirs2 = fs.readdirSync(pluginDir, { withFileTypes: true }).filter(e => e.isDirectory());
+        for (const pd of dirs2) {
+          const pj = readPluginJson(path.join(pluginDir, pd.name));
+          const id = pj?.name || pd.name;
+          // Skip if already discovered as installed
+          if (!discovered.some(d => d.id === id && d.source === 'installed-plugin')) {
+            discovered.push({
+              source: 'repo-plugin',
+              id,
+              name: id,
+              displayName: (pj?.name || pd.name).split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+              description: pj?.description || '',
+              version: pj?.version || '',
+              cwd: dir,
+              repoName: path.basename(dir),
+              installCmd: path.join(pluginDir, pd.name),
+              installed: installedNames.has(id),
+              registered: registeredIds.has(id)
+            });
+          }
+        }
+      }
+    } catch { /* skip inaccessible dirs */ }
   }
 
-  // 3. Include already-registered agents for completeness
+  // 4. Include already-registered agents for completeness
   const registered = [];
   for (const [id, entry] of supervisor.agents) {
     registered.push({ id, name: entry.config.name, group: entry.config.group });
   }
 
   res.json({ discovered, registered });
+});
+
+// Install a plugin
+app.post('/api/plugins/install', (req, res) => {
+  const { execSync } = require('child_process');
+  const { installCmd } = req.body;
+  if (!installCmd) return res.status(400).json({ error: 'installCmd required' });
+  const copilotPath = process.env.COPILOT_PATH || 'copilot';
+  try {
+    const output = execSync(`"${copilotPath}" plugin install ${installCmd}`, { encoding: 'utf-8', timeout: 60000, shell: true });
+    res.json({ ok: true, output });
+  } catch (e) {
+    res.status(500).json({ error: e.message, stderr: e.stderr });
+  }
 });
 
 // Dashboard HTML
@@ -513,6 +588,7 @@ function getDashboardHtml() {
       font-weight: 600; text-transform: uppercase;
     }
     .source-plugin { background: #8957e522; color: #d2a8ff; border: 1px solid #8957e544; }
+    .source-marketplace { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
     .source-repo-agent { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff44; }
     .source-local-plugin { background: #3fb95022; color: #3fb950; border: 1px solid #3fb95044; }
     .discover-actions { flex-shrink: 0; }
@@ -893,24 +969,36 @@ function getDashboardHtml() {
           list.innerHTML = '<span style="color:#8b949e">No agents discovered. Try specifying a directory with copilot agents/plugins.</span>';
           return;
         }
-        list.innerHTML = data.discovered.map(d => \`
+        list.innerHTML = data.discovered.map(d => {
+          const sourceLabel = {'installed-plugin':'installed','marketplace':'marketplace','repo-agent':'agent','repo-plugin':'local plugin'}[d.source] || d.source;
+          const sourceClass = {'installed-plugin':'source-plugin','marketplace':'source-marketplace','repo-agent':'source-repo-agent','repo-plugin':'source-local-plugin'}[d.source] || 'source-plugin';
+          const canInstall = !d.installed && d.installCmd;
+          return \`
           <div class="discover-item \${d.registered ? 'registered' : ''}">
             <div class="discover-info">
               <div>
-                <span class="discover-name">\${escapeHtml(d.name)}</span>
-                <span class="source-badge source-\${d.source}">\${d.source.replace('-', ' ')}</span>
+                <span class="discover-name">\${escapeHtml(d.displayName || d.name)}</span>
+                <span class="source-badge \${sourceClass}">\${sourceLabel}</span>
                 \${d.version ? \`<span style="color:#8b949e;font-size:0.7rem">v\${d.version}</span>\` : ''}
+                \${d.repoName ? \`<span style="color:#8b949e;font-size:0.7rem">in \${escapeHtml(d.repoName)}</span>\` : ''}
               </div>
               \${d.description ? \`<div class="discover-desc">\${escapeHtml(d.description)}</div>\` : ''}
               \${d.cwd ? \`<div class="discover-meta">📁 \${escapeHtml(d.cwd)}</div>\` : ''}
+              \${d.author ? \`<div class="discover-meta">👤 \${escapeHtml(d.author)}</div>\` : ''}
             </div>
-            <div class="discover-actions">
+            <div class="discover-actions" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
               \${d.registered
                 ? '<span style="color:#3fb950;font-size:0.8rem">✓ Added</span>'
                 : \`<button class="btn btn-primary" onclick='prefillFromDiscover(\${JSON.stringify(d).replace(/'/g,"&#39;")})'>+ Add</button>\`}
+              \${canInstall
+                ? \`<button class="btn" onclick="installPlugin('\${escapeHtml(d.installCmd)}', this)">📦 Install</button>\`
+                : ''}
+              \${d.installed === false && !d.installCmd
+                ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
+                : ''}
             </div>
-          </div>
-        \`).join('');
+          </div>\`;
+        }).join('');
       } catch (e) {
         list.innerHTML = '<span style="color:#f85149">Error: ' + escapeHtml(e.message) + '</span>';
       }
@@ -919,8 +1007,8 @@ function getDashboardHtml() {
     function prefillFromDiscover(d) {
       switchTab('manual', document.querySelectorAll('.panel-tab')[1]);
       document.getElementById('add-id').value = d.id || '';
-      document.getElementById('add-name').value = d.name || '';
-      document.getElementById('add-agent').value = d.name || '';
+      document.getElementById('add-name').value = d.displayName || d.name || '';
+      document.getElementById('add-agent').value = d.displayName || d.name || '';
       document.getElementById('add-cwd').value = d.cwd || '';
       document.getElementById('add-prompt').value = '';
       document.getElementById('add-schedule').value = '1h';
@@ -928,6 +1016,27 @@ function getDashboardHtml() {
       document.getElementById('add-copilotPath').value = '';
       document.getElementById('add-durable').checked = true;
       document.getElementById('add-prompt').focus();
+    }
+
+    async function installPlugin(installCmd, btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Installing…';
+      try {
+        const res = await fetch('/api/plugins/install', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ installCmd })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Install failed');
+        btn.textContent = '✓ Installed';
+        btn.classList.add('btn-primary');
+        setTimeout(() => runDiscover(), 1000);
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+        btn.title = e.message;
+        btn.disabled = false;
+        setTimeout(() => { btn.textContent = '📦 Install'; }, 3000);
+      }
     }
 
     async function submitAddAgent() {
