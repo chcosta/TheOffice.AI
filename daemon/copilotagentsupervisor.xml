@@ -1,0 +1,31 @@
+<service>
+	<id>copilotagentsupervisor.exe</id>
+	<name>Copilot Agent Supervisor</name>
+	<description>Manages and schedules Copilot CLI agent sessions</description>
+	<executable>C:\Program Files\nodejs\node.exe</executable>
+	<argument>C:\repos\sessions\node_modules\node-windows\lib\wrapper.js</argument>
+	<argument>--file</argument>
+	<argument>C:\repos\sessions\server.js</argument>
+	<argument>--scriptoptions=</argument>
+	<argument>--log</argument>
+	<argument>Copilot Agent Supervisor wrapper</argument>
+	<argument>--grow</argument>
+	<argument>0.25</argument>
+	<argument>--wait</argument>
+	<argument>1</argument>
+	<argument>--maxrestarts</argument>
+	<argument>3</argument>
+	<argument>--abortonerror</argument>
+	<argument>n</argument>
+	<argument>--stopparentfirst</argument>
+	<argument>undefined</argument>
+	<logmode>rotate</logmode>
+	<stoptimeout>30sec</stoptimeout>
+	<env name="PORT" value="3847"/>
+	<serviceaccount>
+		<domain>DESKTOP-KUEDE8R</domain>
+		<user>LocalSystem</user>
+		<password></password>
+	</serviceaccount>
+	<workingdirectory>C:\repos\sessions</workingdirectory>
+</service>

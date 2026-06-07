@@ -78,6 +78,13 @@ app.put('/api/agents/:id/schedule', (req, res) => {
   if (!schedule) return res.status(400).json({ error: 'schedule required' });
   try {
     supervisor.updateSchedule(req.params.id, schedule);
+    // Persist to agents.json
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const agent = agents.find(a => a.id === req.params.id);
+    if (agent) {
+      agent.schedule = schedule;
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    }
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
