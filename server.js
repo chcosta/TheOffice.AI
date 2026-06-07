@@ -1637,7 +1637,7 @@ function getDashboardHtml() {
               <span>🔑 \${s.id.substring(0,8)}</span>
             </div>
             \${preview ? \`<div class="session-preview">\${preview}</div>\` : ''}
-            <div class="session-detail" id="detail-\${s.id}">
+            <div class="session-detail" id="detail-\${s.id}" onclick="event.stopPropagation()">
               <div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>
             </div>
           </div>
@@ -1695,10 +1695,10 @@ function getDashboardHtml() {
 
       detail.innerHTML = \`
         \${convoHtml}
-        <div class="session-chat">
+        <div class="session-chat" onclick="event.stopPropagation()">
           <input type="text" id="chat-input-\${id}" placeholder="Ask a follow-up question..."
-                 onkeydown="if(event.key==='Enter')sendChat('\${id}')" />
-          <button class="btn btn-primary" onclick="sendChat('\${id}')">Send</button>
+                 onkeydown="if(event.key==='Enter')sendChat('\${id}')" onclick="event.stopPropagation()" />
+          <button class="btn btn-primary" onclick="event.stopPropagation();sendChat('\${id}')">Send</button>
         </div>
         <div id="chat-status-\${id}"></div>
       \`;
