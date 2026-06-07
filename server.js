@@ -754,12 +754,21 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
   const meta = readSessionMeta(sessionDir);
-  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const { spawn } = require('child_process');
   const cwd = meta.cwd || __dirname;
-  // Open a new cmd window with copilot --resume
+
+  // Find matching agent config to get pluginDir
+  let pluginDirFlag = '';
+  const agents = supervisor.getAllStatus();
+  for (const agent of agents) {
+    if (agent.config?.pluginDir && agent.config?.cwd?.toLowerCase() === cwd.toLowerCase()) {
+      pluginDirFlag = `--plugin-dir "${agent.config.pluginDir}"`;
+      break;
+    }
+  }
+
+  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
-  const cmdStr = `start "Copilot Session" cmd /k "${copilotCmd}" --resume=${req.params.id} --yolo`;
+  const cmdStr = `start "Copilot Session" cmd /k "${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo`.replace(/\s+/g, ' ');
   exec(cmdStr, { cwd });
   res.json({ ok: true });
 });
