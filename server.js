@@ -1261,6 +1261,12 @@ function getDashboardHtml() {
       const focused = document.activeElement;
       if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input') || focused.classList.contains('group-select'))) return;
 
+      // Save scroll positions of expanded output divs
+      const scrollPositions = new Map();
+      document.querySelectorAll('.output-content.visible').forEach(el => {
+        if (el.id && el.scrollTop > 0) scrollPositions.set(el.id, el.scrollTop);
+      });
+
       // Group agents
       const groups = new Map();
       agents.forEach(agent => {
@@ -1297,6 +1303,12 @@ function getDashboardHtml() {
             </div>
           </div>\`;
       }).join('');
+
+      // Restore scroll positions of output divs
+      scrollPositions.forEach((scrollTop, id) => {
+        const el = document.getElementById(id);
+        if (el) el.scrollTop = scrollTop;
+      });
     }
 
     function renderAgentCard(agent, agents, allGroupNames) {
