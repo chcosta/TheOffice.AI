@@ -1,0 +1,16 @@
+{
+  "name": "copilot-agent-supervisor",
+  "version": "1.0.0",
+  "description": "Local supervisor service for managing Copilot CLI agent schedules",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "install-service": "node install-service.js",
+    "uninstall-service": "node uninstall-service.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "sql.js": "^1.10.3",
+    "node-windows": "^1.0.0-beta.8"
+  }
+}
