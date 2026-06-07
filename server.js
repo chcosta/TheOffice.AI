@@ -635,14 +635,21 @@ app.post('/api/open-editor', (req, res) => {
 // Browse for folder using Windows folder picker
 app.post('/api/browse-folder', (req, res) => {
   const { exec } = require('child_process');
-  const psScript = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select agent directory'; $f.RootFolder = 'MyComputer'; $f.SelectedPath = 'C:\\repos'; if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath } else { '' }`;
+  const psScript = `
+Add-Type -AssemblyName System.Windows.Forms
+$f = New-Object System.Windows.Forms.FolderBrowserDialog
+$f.Description = 'Select agent directory'
+$f.RootFolder = 'MyComputer'
+$f.SelectedPath = 'C:\\repos'
+$topForm = New-Object System.Windows.Forms.Form
+$topForm.TopMost = $true
+$result = $f.ShowDialog($topForm)
+$topForm.Dispose()
+if ($result -eq 'OK') { Write-Output $f.SelectedPath }
+`.trim().replace(/\n/g, '; ');
   exec(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, { timeout: 60000 }, (err, stdout) => {
     const folder = (stdout || '').trim();
-    if (folder) {
-      res.json({ folder });
-    } else {
-      res.json({ folder: null });
-    }
+    res.json({ folder: folder || null });
   });
 });
 
