@@ -1,12 +1,14 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const EventEmitter = require('events');
+const { Cron } = require('croner');
+const { parseSchedule, getNextRun } = require('./scheduler');
 
 class Supervisor extends EventEmitter {
   constructor(db) {
     super();
     this.db = db;
-    this.agents = new Map(); // id -> { config, timer, running, process }
+    this.agents = new Map(); // id -> { config, timer/cronJob, running, process }
     this._initDb();
   }
 
@@ -32,21 +34,13 @@ class Supervisor extends EventEmitter {
     `);
   }
 
-  parseSchedule(schedule) {
-    const match = schedule.match(/^(\d+)(s|m|h|d)$/);
-    if (!match) throw new Error(`Invalid schedule: ${schedule}`);
-    const value = parseInt(match[1]);
-    const unit = match[2];
-    const multipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-    return value * multipliers[unit];
-  }
 
   register(config) {
     const existing = this.agents.get(config.id);
     if (existing) {
       existing.config = config;
     } else {
-      this.agents.set(config.id, { config, timer: null, running: false, process: null });
+      this.agents.set(config.id, { config, timer: null, cronJob: null, running: false, process: null });
     }
 
     // Ensure state row exists
@@ -64,7 +58,7 @@ class Supervisor extends EventEmitter {
     const entry = this.agents.get(agentId);
     if (!entry) throw new Error(`Unknown agent: ${agentId}`);
 
-    const intervalMs = this.parseSchedule(entry.config.schedule);
+    const schedule = parseSchedule(entry.config.schedule);
     
     // Update state
     this.db.prepare('UPDATE agent_state SET enabled = 1, status = ? WHERE agent_id = ?').run('scheduled', agentId);
@@ -72,11 +66,16 @@ class Supervisor extends EventEmitter {
     // Run immediately on start
     this._executeAgent(agentId);
 
-    // Set recurring timer
-    entry.timer = setInterval(() => this._executeAgent(agentId), intervalMs);
+    // Set up recurring schedule
+    if (schedule.type === 'cron') {
+      entry.cronJob = new Cron(schedule.cron, () => this._executeAgent(agentId));
+    } else {
+      entry.timer = setInterval(() => this._executeAgent(agentId), schedule.ms);
+    }
 
+    this._updateNextRun(agentId);
     this.emit('agent-started', agentId);
-    console.log(`[supervisor] Agent "${entry.config.name}" scheduled every ${entry.config.schedule}`);
+    console.log(`[supervisor] Agent "${entry.config.name}" scheduled: ${schedule.description}`);
   }
 
   stop(agentId, { persist = true } = {}) {
@@ -86,6 +85,10 @@ class Supervisor extends EventEmitter {
     if (entry.timer) {
       clearInterval(entry.timer);
       entry.timer = null;
+    }
+    if (entry.cronJob) {
+      entry.cronJob.stop();
+      entry.cronJob = null;
     }
     if (entry.process) {
       entry.process.kill();
@@ -104,8 +107,11 @@ class Supervisor extends EventEmitter {
     const entry = this.agents.get(agentId);
     if (!entry) throw new Error(`Unknown agent: ${agentId}`);
 
+    // Validate the new schedule
+    parseSchedule(newSchedule);
+
     entry.config.schedule = newSchedule;
-    const wasRunning = entry.timer !== null;
+    const wasRunning = entry.timer !== null || entry.cronJob !== null;
 
     if (wasRunning) {
       this.stop(agentId);
@@ -138,9 +144,8 @@ class Supervisor extends EventEmitter {
       .run('running', startedAt, agentId);
     this.emit('agent-running', agentId);
 
-    // Update next run time (based on when this execution started, not when it finishes)
-    const intervalMs = this.parseSchedule(entry.config.schedule);
-    this._updateNextRun(agentId, intervalMs);
+    // Update next run time
+    this._updateNextRun(agentId);
 
     // Build copilot CLI command as a full command string for shell execution
     const perms = config.allowAll !== false ? '--yolo' : '';
@@ -200,9 +205,13 @@ class Supervisor extends EventEmitter {
     });
   }
 
-  _updateNextRun(agentId, intervalMs) {
-    const nextRun = new Date(Date.now() + intervalMs).toISOString();
-    this.db.prepare('UPDATE agent_state SET next_run = ? WHERE agent_id = ?').run(nextRun, agentId);
+  _updateNextRun(agentId) {
+    const entry = this.agents.get(agentId);
+    if (!entry) return;
+    const nextRun = getNextRun(entry.config.schedule);
+    if (nextRun) {
+      this.db.prepare('UPDATE agent_state SET next_run = ? WHERE agent_id = ?').run(nextRun.toISOString(), agentId);
+    }
   }
 
   getStatus(agentId) {
@@ -211,7 +220,9 @@ class Supervisor extends EventEmitter {
       'SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1'
     ).get(agentId);
     const entry = this.agents.get(agentId);
-    return { ...state, lastRun, config: entry?.config || null };
+    let scheduleDescription = '';
+    try { scheduleDescription = parseSchedule(entry?.config?.schedule || state.schedule).description; } catch {}
+    return { ...state, lastRun, config: entry?.config || null, scheduleDescription };
   }
 
   getAllStatus() {
@@ -221,7 +232,9 @@ class Supervisor extends EventEmitter {
         'SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1'
       ).get(state.agent_id);
       const entry = this.agents.get(state.agent_id);
-      return { ...state, lastRun, config: entry?.config || null };
+      let scheduleDescription = '';
+      try { scheduleDescription = parseSchedule(entry?.config?.schedule || state.schedule).description; } catch {}
+      return { ...state, lastRun, config: entry?.config || null, scheduleDescription };
     });
   }
 

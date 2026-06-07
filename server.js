@@ -116,6 +116,17 @@ app.post('/api/reload', (req, res) => {
   res.json({ ok: true });
 });
 
+// Describe a schedule string
+app.post('/api/schedule/describe', (req, res) => {
+  const { parseSchedule } = require('./scheduler');
+  try {
+    const result = parseSchedule(req.body.schedule || '');
+    res.json({ ok: true, description: result.description, type: result.type });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // Open project in VS Code Insiders
 app.post('/api/open-editor', (req, res) => {
   const { spawn } = require('child_process');
@@ -199,7 +210,7 @@ function getDashboardHtml() {
       max-height: 300px; overflow-y: auto; display: none;
     }
     .output-content.visible { display: block; }
-    .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 60px; }
+    .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 200px; }
     .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .auto-refresh { font-size: 0.8rem; color: #8b949e; }
   </style>
@@ -250,7 +261,7 @@ function getDashboardHtml() {
             <span class="status-badge status-\${agent.status || 'idle'}">\${agent.status || 'idle'}</span>
           </div>
           <div class="agent-meta">
-            <div class="meta-item"><span class="meta-label">Schedule:</span> <span class="meta-value">\${agent.schedule}</span></div>
+            <div class="meta-item"><span class="meta-label">Schedule:</span> <span class="meta-value" title="\${agent.scheduleDescription || ''}">\${agent.schedule} (\${agent.scheduleDescription || ''})</span></div>
             <div class="meta-item"><span class="meta-label">Next run:</span> <span class="meta-value">\${timeUntil(agent.next_run)}</span></div>
             <div class="meta-item"><span class="meta-label">Last run:</span> <span class="meta-value">\${timeAgo(agent.last_run)}</span></div>
             <div class="meta-item"><span class="meta-label">Durable:</span> <span class="meta-value">\${agent.config?.durable ? '✓' : '✗'}</span></div>
