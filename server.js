@@ -272,6 +272,16 @@ function getDashboardHtml() {
     .trigger-complete { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff44; }
     .trigger-arrow { color: #8b949e; font-size: 0.7rem; }
     .trigger-label { color: #8b949e; font-size: 0.75rem; margin-right: 4px; }
+    .trigger-editor {
+      display: none; margin-top: 8px; padding: 12px; background: #0d1117;
+      border: 1px solid #30363d; border-radius: 6px;
+    }
+    .trigger-editor.visible { display: block; }
+    .trigger-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .trigger-input {
+      background: #161b22; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; min-width: 200px;
+    }
     .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 200px; }
     .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .auto-refresh { font-size: 0.8rem; color: #8b949e; }
@@ -315,9 +325,9 @@ function getDashboardHtml() {
     const expandedOutputs = new Set();
 
     function renderAgents(agents) {
-      // Skip re-render if user is focused on a schedule input
+      // Skip re-render if user is focused on an input
       const focused = document.activeElement;
-      if (focused && focused.classList.contains('schedule-input')) return;
+      if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input'))) return;
 
       const container = document.getElementById('agents');
       container.innerHTML = agents.map(agent => \`
@@ -359,8 +369,7 @@ function getDashboardHtml() {
     }
 
     function renderTriggers(agent, allAgents) {
-      const triggers = agent.config?.triggers;
-      if (!triggers) return '';
+      const triggers = agent.config?.triggers || {};
       const agentName = (id) => {
         const a = allAgents.find(a => a.agent_id === id);
         return a?.config?.name || id;
@@ -373,8 +382,50 @@ function getDashboardHtml() {
       if (triggers.onSuccess) renderList(triggers.onSuccess, 'trigger-success', '✓');
       if (triggers.onFailure) renderList(triggers.onFailure, 'trigger-failure', '✗');
       if (triggers.onComplete) renderList(triggers.onComplete, 'trigger-complete', '●');
-      if (badges.length === 0) return '';
-      return \`<div class="triggers-section"><span class="trigger-label">Triggers:</span>\${badges.join('')}</div>\`;
+
+      const agentOpts = allAgents.filter(a => a.agent_id !== agent.agent_id)
+        .map(a => \`<option value="\${a.agent_id}">\${a.config?.name || a.agent_id}</option>\`).join('');
+
+      const editId = 'triggers-edit-' + agent.agent_id;
+      const isEditing = expandedOutputs.has(editId);
+
+      const currentSuccess = (Array.isArray(triggers.onSuccess) ? triggers.onSuccess : triggers.onSuccess ? [triggers.onSuccess] : []).join(', ');
+      const currentFailure = (Array.isArray(triggers.onFailure) ? triggers.onFailure : triggers.onFailure ? [triggers.onFailure] : []).join(', ');
+      const currentComplete = (Array.isArray(triggers.onComplete) ? triggers.onComplete : triggers.onComplete ? [triggers.onComplete] : []).join(', ');
+
+      return \`
+        <div class="triggers-section">
+          <span class="trigger-label">Triggers:</span>
+          \${badges.length > 0 ? badges.join('') : '<span style="color:#8b949e;font-size:0.75rem">none</span>'}
+          <button class="btn" style="padding:2px 8px;font-size:0.7rem" onclick="toggleOutput('\${editId}')">✎ Edit</button>
+        </div>
+        <div class="trigger-editor\${isEditing ? ' visible' : ''}" id="output-\${editId}">
+          <div class="trigger-row">
+            <span class="trigger-badge trigger-success" style="min-width:70px">✓ Success</span>
+            <select class="trigger-input" id="trig-success-\${agent.agent_id}" multiple>
+              \${allAgents.filter(a => a.agent_id !== agent.agent_id).map(a =>
+                \`<option value="\${a.agent_id}" \${currentSuccess.includes(a.agent_id) ? 'selected' : ''}>\${a.config?.name || a.agent_id}</option>\`
+              ).join('')}
+            </select>
+          </div>
+          <div class="trigger-row">
+            <span class="trigger-badge trigger-failure" style="min-width:70px">✗ Failure</span>
+            <select class="trigger-input" id="trig-failure-\${agent.agent_id}" multiple>
+              \${allAgents.filter(a => a.agent_id !== agent.agent_id).map(a =>
+                \`<option value="\${a.agent_id}" \${currentFailure.includes(a.agent_id) ? 'selected' : ''}>\${a.config?.name || a.agent_id}</option>\`
+              ).join('')}
+            </select>
+          </div>
+          <div class="trigger-row">
+            <span class="trigger-badge trigger-complete" style="min-width:70px">● Always</span>
+            <select class="trigger-input" id="trig-complete-\${agent.agent_id}" multiple>
+              \${allAgents.filter(a => a.agent_id !== agent.agent_id).map(a =>
+                \`<option value="\${a.agent_id}" \${currentComplete.includes(a.agent_id) ? 'selected' : ''}>\${a.config?.name || a.agent_id}</option>\`
+              ).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary" style="margin-top:6px" onclick="saveTriggers('\${agent.agent_id}')">Save</button>
+        </div>\`;
     }
 
     function escapeHtml(str) {
@@ -388,6 +439,19 @@ function getDashboardHtml() {
     async function updateSchedule(id) {
       const val = document.getElementById('sched-' + id).value;
       await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
+      refresh();
+    }
+    async function saveTriggers(id) {
+      const getSelected = (elId) => Array.from(document.getElementById(elId).selectedOptions).map(o => o.value);
+      const onSuccess = getSelected('trig-success-' + id);
+      const onFailure = getSelected('trig-failure-' + id);
+      const onComplete = getSelected('trig-complete-' + id);
+      const triggers = {};
+      if (onSuccess.length) triggers.onSuccess = onSuccess;
+      if (onFailure.length) triggers.onFailure = onFailure;
+      if (onComplete.length) triggers.onComplete = onComplete;
+      await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers}) });
+      expandedOutputs.delete('triggers-edit-' + id);
       refresh();
     }
     function toggleOutput(id) {
