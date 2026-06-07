@@ -1101,7 +1101,7 @@ function getDashboardHtml() {
                 ? \`<button class="btn" onclick='installPlugin(\${JSON.stringify(d.installCmd)}, null, null, this)'>📦 Install</button>\`
                 : ''}
               \${d.pluginDir && !d.installed
-                ? \`<button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "agency", this)' title="Install via agency plugin install local:...">⚡ Install via Agency</button>\`
+                ? \`<button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installAndAdd(\${JSON.stringify(d).replace(/&#39;/g,"\\\\u0027")}, this)' title="Install via Agency and add as scheduled agent">⚡ Install via Agency</button>\`
                 : ''}
               \${d.installed === false && !d.installCmd && !d.pluginDir
                 ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
@@ -1145,16 +1145,26 @@ function getDashboardHtml() {
           alert(data.error || 'Install failed');
           btn.textContent = engine === 'agency' ? '⚡ Install via Agency' : '📦 Install';
           btn.disabled = false;
-          return;
+          return false;
         }
         btn.textContent = '✓ Installed';
         btn.classList.add('btn-primary');
         setTimeout(() => runDiscover(), 1000);
+        return true;
       } catch (e) {
         btn.textContent = '✗ Failed';
         btn.title = e.message;
         btn.disabled = false;
         setTimeout(() => { btn.textContent = engine === 'agency' ? '⚡ Install via Agency' : '📦 Install'; }, 3000);
+        return false;
+      }
+    }
+
+    async function installAndAdd(d, btn) {
+      const ok = await installPlugin(null, d.pluginDir, 'agency', btn);
+      if (ok) {
+        // Auto-switch to Manual tab pre-filled
+        prefillFromDiscover(d);
       }
     }
 
