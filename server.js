@@ -224,6 +224,58 @@ app.post('/api/plugins/install', (req, res) => {
     }
   }
 
+  if (engine === 'copilot-local' && pluginDir) {
+    // Register a local plugin directly in Copilot's config.json
+    try {
+      const homeDir = process.env.USERPROFILE || process.env.HOME;
+      const configPath = path.join(homeDir, '.copilot', 'config.json');
+      const pluginsDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+
+      // Read plugin.json for metadata
+      const pluginJsonPath = path.join(pluginDir, 'plugin.json');
+      if (!fs.existsSync(pluginJsonPath)) {
+        return res.status(400).json({ error: 'No plugin.json found in ' + pluginDir });
+      }
+      const pluginMeta = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
+      const pluginName = pluginMeta.name;
+
+      // Create junction/symlink in Copilot's plugin directory
+      const targetDir = path.join(pluginsDir, pluginName);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(pluginsDir, { recursive: true });
+        execSync(`mklink /J "${targetDir}" "${pluginDir}"`, { shell: true });
+      }
+
+      // Add to installedPlugins in config.json
+      const configRaw = fs.readFileSync(configPath, 'utf-8');
+      // Strip // comments (config.json has them)
+      const configClean = configRaw.replace(/^\s*\/\/.*$/gm, '');
+      const config = JSON.parse(configClean);
+      if (!config.installedPlugins) config.installedPlugins = [];
+
+      const existing = config.installedPlugins.findIndex(p => p.name === pluginName);
+      const entry = {
+        name: pluginName,
+        marketplace: '',
+        version: pluginMeta.version || '1.0.0',
+        installed_at: new Date().toISOString(),
+        enabled: true,
+        cache_path: targetDir,
+        source: { source: 'local', path: pluginDir }
+      };
+      if (existing >= 0) {
+        config.installedPlugins[existing] = entry;
+      } else {
+        config.installedPlugins.push(entry);
+      }
+
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      return res.json({ ok: true, output: `Registered "${pluginName}" in Copilot (junction → ${pluginDir})` });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   if (installCmd) {
     // Standard install via copilot marketplace/GitHub
     try {
@@ -236,8 +288,7 @@ app.post('/api/plugins/install', (req, res) => {
 
   if (pluginDir) {
     return res.status(400).json({
-      error: 'Local plugins from non-GitHub repos cannot be installed via `copilot plugin install`. ' +
-        'Use the "Install via Agency" button, or run: agency plugin install "local:' + pluginDir + '" --engine copilot'
+      error: 'Use "Install for Copilot" or "Install via Agency" to install local plugins.'
     });
   }
 
@@ -1106,7 +1157,8 @@ function getDashboardHtml() {
                 ? \`<button class="btn" onclick='installPlugin(\${JSON.stringify(d.installCmd)}, null, null, this)'>📦 Install</button>\`
                 : ''}
               \${d.pluginDir && !d.installed
-                ? \`<button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installAndAdd(\${JSON.stringify(d).replace(/&#39;/g,"\\\\u0027")}, this)' title="Install via Agency and add as scheduled agent">⚡ Install via Agency</button>\`
+                ? \`<button class="btn btn-primary" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "copilot-local", this)' title="Register in Copilot via junction + config.json">📦 Install for Copilot</button>
+                   <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "agency", this)' title="Install via Agency registry">⚡ Install via Agency</button>\`
                 : ''}
               \${d.installed === false && !d.installCmd && !d.pluginDir
                 ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
