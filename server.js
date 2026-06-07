@@ -253,6 +253,10 @@ function getDashboardHtml() {
     const expandedOutputs = new Set();
 
     function renderAgents(agents) {
+      // Skip re-render if user is focused on a schedule input
+      const focused = document.activeElement;
+      if (focused && focused.classList.contains('schedule-input')) return;
+
       const container = document.getElementById('agents');
       container.innerHTML = agents.map(agent => \`
         <div class="agent-card">
