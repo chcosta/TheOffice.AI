@@ -634,7 +634,9 @@ app.post('/api/open-editor', (req, res) => {
 
 // Browse for folder using Windows folder picker
 app.post('/api/browse-folder', (req, res) => {
-  const { exec } = require('child_process');
+  const { execSync } = require('child_process');
+  const tmpFile = path.join(__dirname, '.browse-result.txt');
+  try { fs.unlinkSync(tmpFile); } catch {}
   const psScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -645,10 +647,19 @@ $topForm = New-Object System.Windows.Forms.Form
 $topForm.TopMost = $true
 $result = $f.ShowDialog($topForm)
 $topForm.Dispose()
-if ($result -eq 'OK') { Write-Output $f.SelectedPath }
-`.trim().replace(/\n/g, '; ');
-  exec(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, { timeout: 60000 }, (err, stdout) => {
-    const folder = (stdout || '').trim();
+if ($result -eq 'OK') { Set-Content -Path '${tmpFile.replace(/\\/g, '\\\\')}' -Value $f.SelectedPath }
+`;
+  const psFile = path.join(__dirname, '.browse-folder.ps1');
+  fs.writeFileSync(psFile, psScript);
+  const { spawn } = require('child_process');
+  const proc = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile], {
+    stdio: 'ignore',
+    windowsHide: false
+  });
+  proc.on('close', () => {
+    let folder = null;
+    try { folder = fs.readFileSync(tmpFile, 'utf-8').trim(); fs.unlinkSync(tmpFile); } catch {}
+    try { fs.unlinkSync(psFile); } catch {}
     res.json({ folder: folder || null });
   });
 });
