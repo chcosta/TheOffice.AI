@@ -155,8 +155,16 @@ app.post('/api/open-editor', (req, res) => {
 // Start all enabled agents
 supervisor.startAll();
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[supervisor] Dashboard running at http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`[supervisor] Port ${PORT} already in use — another instance is running. Exiting.`);
+    process.exit(0);
+  }
+  throw err;
 });
 
 // Graceful shutdown
