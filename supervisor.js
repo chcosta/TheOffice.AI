@@ -175,6 +175,7 @@ class Supervisor extends EventEmitter {
     const cmdLine = `"${copilotCmd}" ${pluginDir} ${mcpConfig} --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.replace(/\s+/g, ' ').trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
+    console.log(`[supervisor] Command: ${cmdLine}`);
 
     // On Windows, shell:true is required to spawn .cmd shims
     const proc = spawn(cmdLine, [], {

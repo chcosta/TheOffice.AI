@@ -1,6 +1,6 @@
 ---
 description: "Kanban standup facilitator for the Helix UX epic. Use when: running a 15-minute standup, reviewing epic flow and WIP, checking work item status against the roadmap, identifying blockers or timeline risks, reviewing open PRs and assigning reviewers, preparing for a standup meeting, doing a backlog health check, or assessing team capacity vs. roadmap targets. Reads from AzDO work items (Epic #10503 and all children), the docs/roadmap.md plan, and team context."
-name: "Helix UX Standup"
+name: "Helix UX Standup Supervised"
 argument-hint: "Run today's standup / review flow / check roadmap health / prep for standup..."
 ---
 
