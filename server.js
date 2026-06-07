@@ -40,6 +40,101 @@ loadAgents();
 const app = express();
 app.use(express.json());
 
+// Discover available agents from plugins and local repos
+app.get('/api/discover', async (req, res) => {
+  const { execSync } = require('child_process');
+  const discovered = [];
+  const registeredIds = new Set(Array.from(supervisor.agents.keys()));
+  const copilotPath = process.env.COPILOT_PATH || 'copilot';
+
+  // 1. Installed Copilot CLI plugins
+  try {
+    const output = execSync(`"${copilotPath}" plugin list`, { encoding: 'utf-8', timeout: 15000, shell: true });
+    const pluginLines = output.match(/•\s+(\S+)\s+\(v[\d.]+\)/g) || [];
+    pluginLines.forEach(line => {
+      const m = line.match(/•\s+(\S+)\s+\(v([\d.]+)\)/);
+      if (m) {
+        discovered.push({
+          source: 'plugin',
+          id: m[1],
+          name: m[1].split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+          version: m[2],
+          registered: registeredIds.has(m[1])
+        });
+      }
+    });
+  } catch (e) {
+    console.warn('[discover] Failed to list plugins:', e.message);
+  }
+
+  // 2. Scan specified directories for .github/copilot-instructions.md agent definitions
+  const scanDirs = (req.query.dirs || '').split(',').filter(Boolean);
+  if (scanDirs.length === 0) {
+    // Default: scan parent of sessions dir for repos
+    const parentDir = path.dirname(__dirname);
+    try {
+      const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+      entries.forEach(e => {
+        if (e.isDirectory() && !e.name.startsWith('.') && !e.name.endsWith('.worktrees') && e.name !== 'sessions') {
+          scanDirs.push(path.join(parentDir, e.name));
+        }
+      });
+    } catch (err) { /* ignore */ }
+  }
+
+  for (const dir of scanDirs) {
+    try {
+      // Check for copilot-instructions.md with agent definitions
+      const instrPath = path.join(dir, '.github', 'copilot-instructions.md');
+      if (fs.existsSync(instrPath)) {
+        const content = fs.readFileSync(instrPath, 'utf-8');
+        // Look for agent names in available_skills blocks or agent definitions
+        const skillMatches = content.matchAll(/<skill>\s*<name>([^<]+)<\/name>\s*<description>([^<]*)<\/description>/g);
+        for (const sm of skillMatches) {
+          const agentId = sm[1].trim();
+          const desc = sm[2].trim().slice(0, 120);
+          discovered.push({
+            source: 'repo-agent',
+            id: agentId,
+            name: agentId.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+            description: desc,
+            cwd: dir,
+            registered: registeredIds.has(agentId)
+          });
+        }
+      }
+
+      // Check for local plugin dirs with plugin.yaml
+      const copilotDir = path.join(dir, '.copilot', 'plugins');
+      if (fs.existsSync(copilotDir)) {
+        const pluginDirs = fs.readdirSync(copilotDir, { withFileTypes: true }).filter(e => e.isDirectory());
+        for (const pd of pluginDirs) {
+          const yamlPath = path.join(copilotDir, pd.name, 'plugin.yaml');
+          if (fs.existsSync(yamlPath)) {
+            discovered.push({
+              source: 'local-plugin',
+              id: pd.name,
+              name: pd.name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '),
+              cwd: dir,
+              registered: registeredIds.has(pd.name)
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // skip inaccessible dirs
+    }
+  }
+
+  // 3. Include already-registered agents for completeness
+  const registered = [];
+  for (const [id, entry] of supervisor.agents) {
+    registered.push({ id, name: entry.config.name, group: entry.config.group });
+  }
+
+  res.json({ discovered, registered });
+});
+
 // Dashboard HTML
 app.get('/', (req, res) => {
   res.send(getDashboardHtml());
@@ -368,6 +463,61 @@ function getDashboardHtml() {
       padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; min-width: 200px;
     }
     .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 200px; }
+    /* Add Agent Panel */
+    .panel-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; }
+    .panel-overlay.visible { display: block; }
+    .side-panel {
+      position: fixed; top: 0; right: -520px; width: 500px; height: 100vh;
+      background: #161b22; border-left: 1px solid #30363d; z-index: 101;
+      transition: right 0.25s ease; overflow-y: auto; padding: 24px;
+    }
+    .side-panel.visible { right: 0; }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .panel-header h2 { color: #f0f6fc; font-size: 1.2rem; }
+    .panel-close { background: none; border: none; color: #8b949e; font-size: 1.5rem; cursor: pointer; }
+    .panel-close:hover { color: #f0f6fc; }
+    .panel-tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 1px solid #30363d; }
+    .panel-tab {
+      padding: 8px 16px; cursor: pointer; color: #8b949e; border-bottom: 2px solid transparent;
+      font-size: 0.85rem; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none;
+    }
+    .panel-tab:hover { color: #c9d1d9; }
+    .panel-tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+    .panel-content { display: none; }
+    .panel-content.active { display: block; }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 0.8rem; color: #8b949e; margin-bottom: 4px; }
+    .form-input {
+      width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 8px 10px; border-radius: 6px; font-size: 0.85rem; font-family: inherit;
+    }
+    .form-input:focus { border-color: #58a6ff; outline: none; }
+    .form-input::placeholder { color: #484f58; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-checkbox { display: flex; align-items: center; gap: 8px; }
+    .form-checkbox input { accent-color: #58a6ff; }
+    .form-hint { font-size: 0.7rem; color: #484f58; margin-top: 2px; }
+    /* Discover list */
+    .discover-list { display: grid; gap: 10px; }
+    .discover-item {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px;
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+    }
+    .discover-item.registered { opacity: 0.5; }
+    .discover-info { flex: 1; min-width: 0; }
+    .discover-name { font-weight: 600; color: #f0f6fc; font-size: 0.9rem; }
+    .discover-meta { font-size: 0.75rem; color: #8b949e; margin-top: 2px; }
+    .discover-desc { font-size: 0.78rem; color: #8b949e; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
+    .source-badge {
+      display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem;
+      font-weight: 600; text-transform: uppercase;
+    }
+    .source-plugin { background: #8957e522; color: #d2a8ff; border: 1px solid #8957e544; }
+    .source-repo-agent { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff44; }
+    .source-local-plugin { background: #3fb95022; color: #3fb950; border: 1px solid #3fb95044; }
+    .discover-actions { flex-shrink: 0; }
+    .discover-scan { display: flex; gap: 8px; margin-bottom: 12px; }
+    .discover-scan input { flex: 1; }
     .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .auto-refresh { font-size: 0.8rem; color: #8b949e; }
   </style>
@@ -376,11 +526,90 @@ function getDashboardHtml() {
   <div class="refresh-bar">
     <h1>&#x1F916; Copilot Agent Supervisor</h1>
     <div>
+      <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
       <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
   <div class="agents" id="agents"></div>
+
+  <div class="panel-overlay" id="panelOverlay" onclick="closeAddPanel()"></div>
+  <div class="side-panel" id="addPanel">
+    <div class="panel-header">
+      <h2>Add Agent</h2>
+      <button class="panel-close" onclick="closeAddPanel()">&times;</button>
+    </div>
+    <div class="panel-tabs">
+      <button class="panel-tab active" onclick="switchTab('discover', this)">Discover</button>
+      <button class="panel-tab" onclick="switchTab('manual', this)">Manual</button>
+    </div>
+
+    <div class="panel-content active" id="tab-discover">
+      <div class="discover-scan">
+        <input class="form-input" id="scanDir" placeholder="Directory to scan (leave empty for all repos)" />
+        <button class="btn btn-primary" onclick="runDiscover()">Scan</button>
+      </div>
+      <div class="discover-list" id="discoverList">
+        <span style="color:#8b949e;font-size:0.85rem">Click <strong>Scan</strong> to discover available agents from installed plugins and local repositories.</span>
+      </div>
+    </div>
+
+    <div class="panel-content" id="tab-manual">
+      <div class="form-group">
+        <label class="form-label">ID *</label>
+        <input class="form-input" id="add-id" placeholder="my-agent (unique identifier)" />
+        <div class="form-hint">Lowercase, hyphens. Used as internal key.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Display Name *</label>
+        <input class="form-input" id="add-name" placeholder="My Agent" />
+        <div class="form-hint">Human-readable name shown in the dashboard.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Agent Name *</label>
+        <input class="form-input" id="add-agent" placeholder="Agent display name for --agent flag" />
+        <div class="form-hint">The name passed to <code>copilot --agent</code>. Use exact display name.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Working Directory *</label>
+        <input class="form-input" id="add-cwd" placeholder="C:\\repos\\my-project" />
+        <div class="form-hint">Directory where the agent runs (where copilot-instructions.md lives).</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prompt *</label>
+        <input class="form-input" id="add-prompt" placeholder="check status" />
+        <div class="form-hint">The prompt sent to the agent on each scheduled run.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Schedule *</label>
+        <input class="form-input" id="add-schedule" placeholder="1h, 30m, weekdays at 9am" />
+        <div class="form-hint">Interval (30m, 2h), cron expression, or human-readable schedule.</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Group</label>
+          <input class="form-input" id="add-group" placeholder="Optional group name" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Copilot Path</label>
+          <input class="form-input" id="add-copilotPath" placeholder="Auto-detect" />
+          <div class="form-hint">Override path to copilot.cmd</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-checkbox">
+          <input type="checkbox" id="add-durable" checked />
+          <span>Durable</span>
+          <span class="form-hint" style="margin:0">(auto-restart on supervisor start)</span>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" onclick="submitAddAgent()">Add Agent</button>
+        <button class="btn" onclick="closeAddPanel()">Cancel</button>
+      </div>
+      <div id="add-error" style="color:#f85149;font-size:0.8rem;margin-top:8px;display:none"></div>
+    </div>
+  </div>
 
   <script>
     async function fetchAgents() {
@@ -485,6 +714,7 @@ function getDashboardHtml() {
             <button class="btn btn-primary" onclick="startAgent('\${agent.agent_id}')">▶ Start</button>
             <button class="btn btn-danger" onclick="stopAgent('\${agent.agent_id}')">■ Stop</button>
             <button class="btn" onclick="runNow('\${agent.agent_id}')">⚡ Run Now</button>
+            <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
             <input class="schedule-input" id="sched-\${agent.agent_id}" value="\${agent.schedule}" />
             <button class="btn" onclick="updateSchedule('\${agent.agent_id}')">Set</button>
           </div>
@@ -632,6 +862,113 @@ function getDashboardHtml() {
       } else {
         collapsedGroups.add(name);
       }
+      refresh();
+    }
+
+    // ---- Add Agent Panel ----
+    function openAddPanel() {
+      document.getElementById('panelOverlay').classList.add('visible');
+      document.getElementById('addPanel').classList.add('visible');
+    }
+    function closeAddPanel() {
+      document.getElementById('panelOverlay').classList.remove('visible');
+      document.getElementById('addPanel').classList.remove('visible');
+    }
+    function switchTab(tab, btn) {
+      document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + tab).classList.add('active');
+    }
+
+    async function runDiscover() {
+      const dir = document.getElementById('scanDir').value.trim();
+      const list = document.getElementById('discoverList');
+      list.innerHTML = '<span style="color:#8b949e">Scanning…</span>';
+      try {
+        const params = dir ? '?dirs=' + encodeURIComponent(dir) : '';
+        const res = await fetch('/api/discover' + params);
+        const data = await res.json();
+        if (data.discovered.length === 0) {
+          list.innerHTML = '<span style="color:#8b949e">No agents discovered. Try specifying a directory with copilot agents/plugins.</span>';
+          return;
+        }
+        list.innerHTML = data.discovered.map(d => \`
+          <div class="discover-item \${d.registered ? 'registered' : ''}">
+            <div class="discover-info">
+              <div>
+                <span class="discover-name">\${escapeHtml(d.name)}</span>
+                <span class="source-badge source-\${d.source}">\${d.source.replace('-', ' ')}</span>
+                \${d.version ? \`<span style="color:#8b949e;font-size:0.7rem">v\${d.version}</span>\` : ''}
+              </div>
+              \${d.description ? \`<div class="discover-desc">\${escapeHtml(d.description)}</div>\` : ''}
+              \${d.cwd ? \`<div class="discover-meta">📁 \${escapeHtml(d.cwd)}</div>\` : ''}
+            </div>
+            <div class="discover-actions">
+              \${d.registered
+                ? '<span style="color:#3fb950;font-size:0.8rem">✓ Added</span>'
+                : \`<button class="btn btn-primary" onclick='prefillFromDiscover(\${JSON.stringify(d).replace(/'/g,"&#39;")})'>+ Add</button>\`}
+            </div>
+          </div>
+        \`).join('');
+      } catch (e) {
+        list.innerHTML = '<span style="color:#f85149">Error: ' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    function prefillFromDiscover(d) {
+      switchTab('manual', document.querySelectorAll('.panel-tab')[1]);
+      document.getElementById('add-id').value = d.id || '';
+      document.getElementById('add-name').value = d.name || '';
+      document.getElementById('add-agent').value = d.name || '';
+      document.getElementById('add-cwd').value = d.cwd || '';
+      document.getElementById('add-prompt').value = '';
+      document.getElementById('add-schedule').value = '1h';
+      document.getElementById('add-group').value = '';
+      document.getElementById('add-copilotPath').value = '';
+      document.getElementById('add-durable').checked = true;
+      document.getElementById('add-prompt').focus();
+    }
+
+    async function submitAddAgent() {
+      const errEl = document.getElementById('add-error');
+      errEl.style.display = 'none';
+      const config = {
+        id: document.getElementById('add-id').value.trim(),
+        name: document.getElementById('add-name').value.trim(),
+        agent: document.getElementById('add-agent').value.trim(),
+        cwd: document.getElementById('add-cwd').value.trim(),
+        prompt: document.getElementById('add-prompt').value.trim(),
+        schedule: document.getElementById('add-schedule').value.trim(),
+        durable: document.getElementById('add-durable').checked
+      };
+      const group = document.getElementById('add-group').value.trim();
+      const copilotPath = document.getElementById('add-copilotPath').value.trim();
+      if (group) config.group = group;
+      if (copilotPath) config.copilotPath = copilotPath;
+
+      if (!config.id || !config.name || !config.agent || !config.cwd || !config.prompt || !config.schedule) {
+        errEl.textContent = 'All required fields (*) must be filled.';
+        errEl.style.display = 'block';
+        return;
+      }
+      try {
+        const res = await fetch('/api/agents', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add agent');
+        closeAddPanel();
+        refresh();
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    async function deleteAgent(id) {
+      if (!confirm('Delete agent "' + id + '"? This cannot be undone.')) return;
+      await fetch(\`/api/agents/\${id}\`, { method: 'DELETE' });
       refresh();
     }
 
