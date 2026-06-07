@@ -1,28 +1,56 @@
 const path = require('path');
-const Service = require('node-windows').Service;
+const { execSync } = require('child_process');
 
-const svc = new Service({
-  name: 'Copilot Agent Supervisor',
-  description: 'Manages and schedules Copilot CLI agent sessions',
-  script: path.join(__dirname, 'server.js'),
-  nodeOptions: [],
-  env: [{
-    name: 'PORT',
-    value: '3847'
-  }]
-});
+const taskName = 'CopilotAgentSupervisor';
+const nodePath = process.execPath;
+const scriptPath = path.join(__dirname, 'server.js');
 
-svc.on('install', () => {
-  console.log('Service installed. Starting...');
-  svc.start();
-});
+// Create a scheduled task that runs as the current user at logon
+const xml = `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>${nodePath}</Command>
+      <Arguments>"${scriptPath}"</Arguments>
+      <WorkingDirectory>${__dirname}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>`;
 
-svc.on('alreadyinstalled', () => {
-  console.log('Service already installed.');
-});
+const fs = require('fs');
+const xmlPath = path.join(__dirname, 'task.xml');
+fs.writeFileSync(xmlPath, xml, 'utf-16le');
 
-svc.on('start', () => {
-  console.log('Service started.');
-});
-
-svc.install();
+try {
+  execSync(`schtasks /Create /TN "${taskName}" /XML "${xmlPath}" /F`, { stdio: 'inherit' });
+  console.log(`\nTask "${taskName}" created. It will start at logon.`);
+  console.log('Starting now...');
+  execSync(`schtasks /Run /TN "${taskName}"`, { stdio: 'inherit' });
+  console.log('Service is running at http://localhost:3847');
+} catch (e) {
+  console.error('Failed to create task:', e.message);
+  console.error('Try running this from an elevated (admin) terminal.');
+} finally {
+  fs.unlinkSync(xmlPath);
+}

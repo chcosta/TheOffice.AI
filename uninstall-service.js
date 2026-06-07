@@ -1,13 +1,14 @@
-const path = require('path');
-const Service = require('node-windows').Service;
+const { execSync } = require('child_process');
 
-const svc = new Service({
-  name: 'Copilot Agent Supervisor',
-  script: path.join(__dirname, 'server.js')
-});
+const taskName = 'CopilotAgentSupervisor';
 
-svc.on('uninstall', () => {
-  console.log('Service uninstalled.');
-});
+try {
+  execSync(`schtasks /End /TN "${taskName}"`, { stdio: 'inherit' });
+} catch {}
 
-svc.uninstall();
+try {
+  execSync(`schtasks /Delete /TN "${taskName}" /F`, { stdio: 'inherit' });
+  console.log(`Task "${taskName}" removed.`);
+} catch (e) {
+  console.error('Failed to remove task:', e.message);
+}

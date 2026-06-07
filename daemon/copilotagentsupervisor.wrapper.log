@@ -1,2 +1,0 @@
-2026-06-06 22:44:42 - Starting C:\Program Files\nodejs\node.exe  C:\repos\sessions\node_modules\node-windows\lib\wrapper.js --file C:\repos\sessions\server.js --scriptoptions= --log "Copilot Agent Supervisor wrapper" --grow 0.25 --wait 1 --maxrestarts 3 --abortonerror n --stopparentfirst undefined
-2026-06-06 22:44:42 - Started 4484
