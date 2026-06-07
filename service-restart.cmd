@@ -5,6 +5,13 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3847 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>&1
 )
 timeout /t 2 /nobreak >nul
+REM Register task if it doesn't exist (requires admin first time only)
+schtasks /Query /TN "CopilotAgentSupervisor" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo First run - registering scheduled task...
+    cd /d %~dp0
+    node install-service.js
+)
 schtasks /Run /TN "CopilotAgentSupervisor"
 timeout /t 3 /nobreak >nul
 echo Dashboard: http://localhost:3847
