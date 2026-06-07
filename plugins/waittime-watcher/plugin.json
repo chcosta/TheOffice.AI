@@ -1,0 +1,12 @@
+{
+  "name": "waittime-watcher",
+  "description": "Helix queue wait-time watcher plugin — discovers active queues from engineeringdata, flags queues whose observed wait time exceeds 60 minutes, and prepares Markdown alerts for Teams notifications.",
+  "version": "1.0.0",
+  "author": {
+    "name": "DncEng"
+  },
+  "keywords": ["helix", "queue", "wait-time", "monitoring", "kusto", "teams"],
+  "agents": "agents/",
+  "skills": "skills/",
+  "mcpServers": ".mcp.json"
+}

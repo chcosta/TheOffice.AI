@@ -167,7 +167,12 @@ class Supervisor extends EventEmitter {
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
     const pluginDir = config.pluginDir ? `--plugin-dir "${config.pluginDir}"` : '';
-    const cmdLine = `"${copilotCmd}" ${pluginDir} --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.trim();
+    let mcpConfig = '';
+    if (config.mcpConfig) {
+      const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
+      mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
+    }
+    const cmdLine = `"${copilotCmd}" ${pluginDir} ${mcpConfig} --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.replace(/\s+/g, ' ').trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
 

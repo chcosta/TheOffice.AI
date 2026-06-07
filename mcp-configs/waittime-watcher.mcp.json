@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "waittime-watcher-staging-thrive": {
+      "command": "uvx",
+      "args": ["microsoft-fabric-rti-mcp@latest", "--service-uri", "https://engdata.westus2.kusto.windows.net", "--database", "engineeringdata"],
+      "env": {}
+    },
+    "waittime-watcher-production-thrive": {
+      "command": "uvx",
+      "args": ["microsoft-fabric-rti-mcp@latest", "--service-uri", "https://engsrvprod.kusto.windows.net", "--database", "engineeringdata"],
+      "env": {}
+    }
+  }
+}

@@ -179,6 +179,9 @@ app.get('/api/discover', async (req, res) => {
           if (!discovered.some(d => d.id === id && d.source === 'installed-plugin')) {
             const pluginSubPath = `.github/plugin/${pd.name}`;
             const installCmd = ghOwnerRepo ? `${ghOwnerRepo}:${pluginSubPath}` : null;
+            const pluginDirPath = path.join(pluginDir, pd.name);
+            const mcpJsonPath = path.join(pluginDirPath, '.mcp.json');
+            const hasMcpConfig = fs.existsSync(mcpJsonPath);
             discovered.push({
               source: 'repo-plugin',
               id,
@@ -188,7 +191,8 @@ app.get('/api/discover', async (req, res) => {
               version: pj?.version || '',
               cwd: dir,
               repoName: path.basename(dir),
-              pluginDir: path.join(pluginDir, pd.name),
+              pluginDir: pluginDirPath,
+              mcpConfig: hasMcpConfig ? `.github\\plugin\\${pd.name}\\.mcp.json` : null,
               installCmd,
               installed: installedNames.has(id),
               registered: registeredIds.has(id)
@@ -213,6 +217,71 @@ app.post('/api/plugins/install', (req, res) => {
   const { execSync } = require('child_process');
   const { installCmd, pluginDir, engine } = req.body;
   const copilotPath = process.env.COPILOT_PATH || 'copilot';
+
+  if (engine === 'overlay' && pluginDir) {
+    // Install as supervisor-managed overlay: copy plugin, patch agent for tool access
+    try {
+      const pluginJsonPath = path.join(pluginDir, 'plugin.json');
+      if (!fs.existsSync(pluginJsonPath)) {
+        return res.status(400).json({ error: 'No plugin.json found in ' + pluginDir });
+      }
+      const pluginMeta = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
+      const pluginName = pluginMeta.name;
+      const overlayDir = path.join(__dirname, 'plugins', pluginName);
+
+      // Copy plugin to overlay directory
+      if (fs.existsSync(overlayDir)) {
+        fs.rmSync(overlayDir, { recursive: true });
+      }
+      fs.cpSync(pluginDir, overlayDir, { recursive: true });
+
+      // Patch agent files: remove tools: restriction so MCP tools are accessible
+      const agentsDir = path.join(overlayDir, 'agents');
+      if (fs.existsSync(agentsDir)) {
+        for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
+          const agentFile = path.join(agentsDir, f);
+          let content = fs.readFileSync(agentFile, 'utf-8');
+          // Remove tools: block from YAML frontmatter
+          content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
+          fs.writeFileSync(agentFile, content);
+        }
+      }
+
+      // Patch .mcp.json: replace thrive-dataservice with uvx microsoft-fabric-rti-mcp
+      const mcpJsonPath = path.join(overlayDir, '.mcp.json');
+      if (fs.existsSync(mcpJsonPath)) {
+        let mcpContent = fs.readFileSync(mcpJsonPath, 'utf-8');
+        try {
+          const mcpConfig = JSON.parse(mcpContent);
+          let patched = false;
+          for (const [name, server] of Object.entries(mcpConfig.mcpServers || {})) {
+            if (server.command === 'thrive-dataservice') {
+              const cluster = (server.env && server.env.THRIVE_KUSTO_CLUSTER_NAME) || '';
+              const db = (server.env && server.env.THRIVE_DATABASE_NAME) || 'engineeringdata';
+              mcpConfig.mcpServers[name] = {
+                command: 'uvx',
+                args: ['microsoft-fabric-rti-mcp@latest', '--service-uri', cluster, '--database', db],
+                env: {}
+              };
+              patched = true;
+            }
+          }
+          if (patched) {
+            fs.writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2));
+          }
+        } catch { /* leave as-is if parse fails */ }
+      }
+
+      return res.json({
+        ok: true,
+        output: `Installed "${pluginName}" as supervisor overlay in plugins/${pluginName}`,
+        overlayDir,
+        pluginName
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
 
   if (engine === 'agency' && pluginDir) {
     // Install via Agency (supports local paths and ADO repos)
@@ -812,6 +881,11 @@ function getDashboardHtml() {
         <div class="form-hint">For plugins not globally installed. Uses <code>--plugin-dir</code> flag.</div>
       </div>
       <div class="form-group">
+        <label class="form-label">MCP Config</label>
+        <input class="form-input" id="add-mcpConfig" placeholder="Optional — relative path to .mcp.json" />
+        <div class="form-hint">Relative to cwd. Uses <code>--additional-mcp-config</code> flag.</div>
+      </div>
+      <div class="form-group">
         <label class="form-checkbox">
           <input type="checkbox" id="add-durable" checked />
           <span>Durable</span>
@@ -1157,8 +1231,9 @@ function getDashboardHtml() {
                 ? \`<button class="btn" onclick='installPlugin(\${JSON.stringify(d.installCmd)}, null, null, this)'>📦 Install</button>\`
                 : ''}
               \${d.pluginDir && !d.installed
-                ? \`<button class="btn btn-primary" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "copilot-local", this)' title="Register in Copilot via junction + config.json">📦 Install for Copilot</button>
-                   <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "agency", this)' title="Install via Agency registry">⚡ Install via Agency</button>\`
+                ? \`<button class="btn btn-primary" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "overlay", this)' title="Install as supervisor-managed overlay (recommended)">🔧 Install Overlay</button>
+                   <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "copilot-local", this)' title="Register in Copilot via junction + config.json">📦 Copilot Registry</button>
+                   <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "agency", this)' title="Install via Agency registry">⚡ Agency</button>\`
                 : ''}
               \${d.installed === false && !d.installCmd && !d.pluginDir
                 ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
@@ -1185,6 +1260,7 @@ function getDashboardHtml() {
       document.getElementById('add-group').value = '';
       document.getElementById('add-copilotPath').value = '';
       document.getElementById('add-pluginDir').value = d.pluginDir || '';
+      document.getElementById('add-mcpConfig').value = d.mcpConfig || '';
       document.getElementById('add-durable').checked = true;
       document.getElementById('add-prompt').focus();
     }
@@ -1245,9 +1321,11 @@ function getDashboardHtml() {
       const group = document.getElementById('add-group').value.trim();
       const copilotPath = document.getElementById('add-copilotPath').value.trim();
       const pluginDir = document.getElementById('add-pluginDir').value.trim();
+      const mcpConfig = document.getElementById('add-mcpConfig').value.trim();
       if (group) config.group = group;
       if (copilotPath) config.copilotPath = copilotPath;
       if (pluginDir) config.pluginDir = pluginDir;
+      if (mcpConfig) config.mcpConfig = mcpConfig;
 
       if (!config.id || !config.name || !config.agent || !config.cwd || !config.prompt || !config.schedule) {
         errEl.textContent = 'All required fields (*) must be filled.';
