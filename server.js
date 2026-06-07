@@ -425,6 +425,7 @@ function getDashboardHtml() {
             </select>
           </div>
           <button class="btn btn-primary" style="margin-top:6px" onclick="saveTriggers('\${agent.agent_id}')">Save</button>
+          <button class="btn btn-danger" style="margin-top:6px" onclick="clearTriggers('\${agent.agent_id}')">Clear All</button>
         </div>\`;
     }
 
@@ -451,6 +452,11 @@ function getDashboardHtml() {
       if (onFailure.length) triggers.onFailure = onFailure;
       if (onComplete.length) triggers.onComplete = onComplete;
       await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers}) });
+      expandedOutputs.delete('triggers-edit-' + id);
+      refresh();
+    }
+    async function clearTriggers(id) {
+      await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers: {}}) });
       expandedOutputs.delete('triggers-edit-' + id);
       refresh();
     }
