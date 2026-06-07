@@ -881,9 +881,10 @@ function getDashboardHtml() {
     .output-toggle { color: #58a6ff; cursor: pointer; font-size: 0.85rem; border: none; background: none; }
     .output-content {
       margin-top: 8px; padding: 12px; background: #0d1117; border: 1px solid #30363d;
-      border-radius: 6px; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap;
+      border-radius: 6px; font-size: 0.8rem; white-space: pre-wrap;
       max-height: 300px; overflow-y: auto; display: none;
     }
+    .output-content.markdown-body { white-space: normal; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
     .output-content.visible { display: block; }
     .error-text { border-color: #f8514966; color: #f85149; }
     .triggers-section { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -1350,7 +1351,7 @@ function getDashboardHtml() {
           \${agent.lastRun?.output ? \`
             <div class="output-section">
               <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last output</button>
-              <pre class="output-content\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${escapeHtml(agent.lastRun.output)}</pre>
+              <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
             </div>
           \` : ''}
         </div>\`;
