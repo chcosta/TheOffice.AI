@@ -768,8 +768,11 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
-  const cmdStr = `start "Copilot Session" cmd /k "${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo`.replace(/\s+/g, ' ');
-  exec(cmdStr, { cwd });
+  // Write a temp batch file to avoid Windows quoting hell
+  const batContent = `@echo off\ncd /d "${cwd}"\n"${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo\npause\n`;
+  const batPath = path.join(__dirname, 'temp-terminal.bat');
+  fs.writeFileSync(batPath, batContent);
+  exec(`start "Copilot Session" "${batPath}"`);
   res.json({ ok: true });
 });
 
