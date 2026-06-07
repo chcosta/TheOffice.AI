@@ -693,12 +693,49 @@ app.post('/api/agents/:id/email', (req, res) => {
   if (!status || !status.lastRun?.output) return res.status(404).json({ error: 'No output to email' });
   const agentName = status.config?.name || req.params.id;
   const subject = `Agent Report: ${agentName} — ${new Date(status.lastRun.started_at).toLocaleDateString()}`;
-  const body = status.lastRun.output;
+  const markdown = status.lastRun.output;
   
-  // Use mailto: URI — works with any mail client including new Outlook
+  // Convert markdown to HTML and create a .eml file for rich formatting
+  const { marked } = require('marked');
+  const htmlBody = marked.parse(markdown);
+  const htmlEmail = `<html><head><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #222; padding: 16px; }
+h1, h2, h3 { color: #333; }
+a { color: #0078d4; }
+hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+ul, ol { padding-left: 24px; }
+li { margin-bottom: 4px; }
+code { background: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-size: 13px; }
+pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+</style></head><body>${htmlBody}</body></html>`;
+
+  // Build .eml (RFC 2822) with HTML content
+  const boundary = `----=_Part_${Date.now()}`;
+  const eml = [
+    `Subject: ${subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `X-Unsent: 1`,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/plain; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    markdown,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/html; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    htmlEmail,
+    ``,
+    `--${boundary}--`
+  ].join('\r\n');
+
+  const emlPath = path.join(__dirname, 'temp-email.eml');
+  fs.writeFileSync(emlPath, eml, 'utf8');
   const { exec } = require('child_process');
-  const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  exec(`start "" "${mailto}"`);
+  exec(`start "" "${emlPath}"`);
   res.json({ ok: true });
 });
 
