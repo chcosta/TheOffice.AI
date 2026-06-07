@@ -153,6 +153,68 @@ app.delete('/api/agents/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Update agent group
+app.put('/api/agents/:id/group', (req, res) => {
+  const { group } = req.body;
+  try {
+    const entry = supervisor.agents.get(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'Agent not found' });
+    entry.config.group = group || undefined;
+
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const agent = agents.find(a => a.id === req.params.id);
+    if (agent) {
+      if (group) { agent.group = group; } else { delete agent.group; }
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Rename a group
+app.put('/api/groups/rename', (req, res) => {
+  const { oldName, newName } = req.body;
+  if (!oldName || !newName) return res.status(400).json({ error: 'oldName and newName required' });
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    let changed = 0;
+    agents.forEach(a => {
+      if (a.group === oldName) { a.group = newName; changed++; }
+    });
+    if (changed === 0) return res.status(404).json({ error: 'No agents in that group' });
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    // Update in-memory configs
+    for (const [, entry] of supervisor.agents) {
+      if (entry.config.group === oldName) entry.config.group = newName;
+    }
+    res.json({ ok: true, changed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Delete a group (move agents to Ungrouped)
+app.delete('/api/groups/:name', (req, res) => {
+  const groupName = decodeURIComponent(req.params.name);
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    let changed = 0;
+    agents.forEach(a => {
+      if (a.group === groupName) { delete a.group; changed++; }
+    });
+    if (changed === 0) return res.status(404).json({ error: 'No agents in that group' });
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    for (const [, entry] of supervisor.agents) {
+      if (entry.config.group === groupName) delete entry.config.group;
+    }
+    res.json({ ok: true, changed });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // Reload agents.json
 app.post('/api/reload', (req, res) => {
   loadAgents();
@@ -243,6 +305,10 @@ function getDashboardHtml() {
     .dot-stopped { background: #8b949e; }
     .group-body { padding-left: 0; margin-top: 8px; display: grid; gap: 12px; }
     .group-body.collapsed { display: none; }
+    .group-actions { display: flex; gap: 4px; margin-left: 8px; }
+    .group-actions .btn { padding: 2px 8px; font-size: 0.7rem; }
+    .group-select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; cursor: pointer; }
+    .group-select:focus { border-color: #58a6ff; outline: none; }
     .agent-card {
       background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px;
       transition: border-color 0.2s;
@@ -349,7 +415,7 @@ function getDashboardHtml() {
     function renderAgents(agents) {
       // Skip re-render if user is focused on an input
       const focused = document.activeElement;
-      if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input'))) return;
+      if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input') || focused.classList.contains('group-select'))) return;
 
       // Group agents
       const groups = new Map();
@@ -359,12 +425,16 @@ function getDashboardHtml() {
         groups.get(group).push(agent);
       });
 
+      // Collect all known group names for the group selector
+      const allGroupNames = Array.from(groups.keys());
+
       const container = document.getElementById('agents');
       container.innerHTML = Array.from(groups.entries()).map(([groupName, groupAgents]) => {
         const isCollapsed = collapsedGroups.has(groupName);
         const statusDots = groupAgents.map(a =>
           \`<span class="status-dot dot-\${a.status || 'idle'}" title="\${a.config?.name || a.agent_id}: \${a.status || 'idle'}"></span>\`
         ).join('');
+        const isUngrouped = groupName === 'Ungrouped';
         return \`
           <div class="agent-group">
             <div class="group-header" onclick="toggleGroup('\${escapeHtml(groupName)}')">
@@ -372,15 +442,23 @@ function getDashboardHtml() {
               <span class="group-name">\${escapeHtml(groupName)}</span>
               <span class="group-count">(\${groupAgents.length})</span>
               <div class="group-status-dots">\${statusDots}</div>
+              \${!isUngrouped ? \`
+                <div class="group-actions" onclick="event.stopPropagation()">
+                  <button class="btn" onclick="renameGroup('\${escapeHtml(groupName)}')" title="Rename group">✎</button>
+                  <button class="btn btn-danger" onclick="deleteGroup('\${escapeHtml(groupName)}')" title="Dissolve group">✗</button>
+                </div>\` : ''}
             </div>
             <div class="group-body\${isCollapsed ? ' collapsed' : ''}">
-              \${groupAgents.map(agent => renderAgentCard(agent, agents)).join('')}
+              \${groupAgents.map(agent => renderAgentCard(agent, agents, allGroupNames)).join('')}
             </div>
           </div>\`;
       }).join('');
     }
 
-    function renderAgentCard(agent, agents) {
+    function renderAgentCard(agent, agents, allGroupNames) {
+      const currentGroup = agent.config?.group || '';
+      const groupOpts = allGroupNames.filter(g => g !== 'Ungrouped')
+        .map(g => \`<option value="\${escapeHtml(g)}" \${g === currentGroup ? 'selected' : ''}>\${escapeHtml(g)}</option>\`).join('');
       return \`
         <div class="agent-card">
           <div class="agent-header">
@@ -394,6 +472,14 @@ function getDashboardHtml() {
             <div class="meta-item"><span class="meta-label">Durable:</span> <span class="meta-value">\${agent.config?.durable ? '✓' : '✗'}</span></div>
             <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value">\${agent.config?.cwd || '-'}</span></div>
             <div class="meta-item"><span class="meta-label">Last exit:</span> <span class="meta-value">\${agent.lastRun?.exit_code ?? '-'}</span></div>
+            <div class="meta-item">
+              <span class="meta-label">Group:</span>
+              <select class="group-select" onchange="moveToGroup('\${agent.agent_id}', this.value)">
+                <option value="" \${!currentGroup ? 'selected' : ''}>Ungrouped</option>
+                \${groupOpts}
+                <option value="__new__">+ New group…</option>
+              </select>
+            </div>
           </div>
           <div class="agent-actions">
             <button class="btn btn-primary" onclick="startAgent('\${agent.agent_id}')">▶ Start</button>
@@ -508,6 +594,28 @@ function getDashboardHtml() {
     async function clearTriggers(id) {
       await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers: {}}) });
       expandedOutputs.delete('triggers-edit-' + id);
+      refresh();
+    }
+    async function moveToGroup(agentId, group) {
+      if (group === '__new__') {
+        const name = prompt('New group name:');
+        if (!name) { refresh(); return; }
+        group = name.trim();
+      }
+      await fetch(\`/api/agents/\${agentId}/group\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: group || null }) });
+      refresh();
+    }
+    async function renameGroup(oldName) {
+      const newName = prompt('Rename group "' + oldName + '" to:', oldName);
+      if (!newName || newName === oldName) return;
+      await fetch('/api/groups/rename', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ oldName, newName: newName.trim() }) });
+      collapsedGroups.delete(oldName);
+      refresh();
+    }
+    async function deleteGroup(name) {
+      if (!confirm('Dissolve group "' + name + '"? Agents will move to Ungrouped.')) return;
+      await fetch(\`/api/groups/\${encodeURIComponent(name)}\`, { method: 'DELETE' });
+      collapsedGroups.delete(name);
       refresh();
     }
     function toggleOutput(id) {
