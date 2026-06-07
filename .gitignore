@@ -3,7 +3,6 @@ supervisor.db
 daemon/
 
 temp-terminal.bat
-temp-email.eml
 .browse-folder.ps1
 .browse-result.txt
 .test-browse.ps1

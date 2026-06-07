@@ -732,7 +732,8 @@ pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; 
     `--${boundary}--`
   ].join('\r\n');
 
-  const emlPath = path.join(__dirname, 'temp-email.eml');
+  const os = require('os');
+  const emlPath = path.join(os.tmpdir(), `agent-email-${req.params.id}-${Date.now()}.eml`);
   fs.writeFileSync(emlPath, eml, 'utf8');
   const { exec } = require('child_process');
   exec(`start "" "${emlPath}"`);
