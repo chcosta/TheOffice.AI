@@ -687,31 +687,18 @@ app.get('/api/recent-dirs', (req, res) => {
   res.json(dirs);
 });
 
-// Email agent output via Outlook
+// Email agent output via default mail client
 app.post('/api/agents/:id/email', (req, res) => {
   const status = supervisor.getStatus(req.params.id);
   if (!status || !status.lastRun?.output) return res.status(404).json({ error: 'No output to email' });
-  const { exec } = require('child_process');
   const agentName = status.config?.name || req.params.id;
   const subject = `Agent Report: ${agentName} — ${new Date(status.lastRun.started_at).toLocaleDateString()}`;
   const body = status.lastRun.output;
   
-  // Write a PS script that opens Outlook compose with HTML body
-  const psFile = path.join(__dirname, '.email-compose.ps1');
-  const htmlBody = body
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
-  const psScript = `
-$ol = New-Object -ComObject Outlook.Application
-$mail = $ol.CreateItem(0)
-$mail.Subject = "${subject.replace(/"/g, '`"')}"
-$mail.HTMLBody = "<html><body style='font-family:Consolas,monospace;font-size:12px'>${htmlBody.replace(/'/g, "''")}</body></html>"
-$mail.Display()
-`;
-  fs.writeFileSync(psFile, psScript);
-  exec(`start /wait powershell -NoProfile -ExecutionPolicy Bypass -File "${psFile}"`, () => {
-    try { fs.unlinkSync(psFile); } catch {}
-  });
+  // Use mailto: URI — works with any mail client including new Outlook
+  const { exec } = require('child_process');
+  const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  exec(`start "" "${mailto}"`);
   res.json({ ok: true });
 });
 
