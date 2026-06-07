@@ -758,11 +758,9 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   const { spawn } = require('child_process');
   const cwd = meta.cwd || __dirname;
   // Open a new cmd window with copilot --resume
-  const cmdStr = `start "" cmd /k "${copilotCmd}" --resume=${req.params.id}`;
-  const proc = spawn('cmd', ['/c', cmdStr], {
-    cwd, detached: true, stdio: 'ignore'
-  });
-  proc.unref();
+  const { exec } = require('child_process');
+  const cmdStr = `start "Copilot Session" cmd /k "${copilotCmd}" --resume=${req.params.id}`;
+  exec(cmdStr, { cwd });
   res.json({ ok: true });
 });
 
