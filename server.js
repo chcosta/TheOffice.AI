@@ -224,6 +224,25 @@ function getDashboardHtml() {
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
     h1 { color: #58a6ff; margin-bottom: 24px; font-size: 1.5rem; }
     .agents { display: grid; gap: 16px; }
+    .agent-group { margin-bottom: 8px; }
+    .group-header {
+      display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      cursor: pointer; user-select: none; transition: border-color 0.2s;
+    }
+    .group-header:hover { border-color: #58a6ff; }
+    .group-toggle { color: #58a6ff; font-size: 0.9rem; width: 16px; }
+    .group-name { font-size: 1rem; font-weight: 600; color: #f0f6fc; }
+    .group-count { font-size: 0.8rem; color: #8b949e; }
+    .group-status-dots { display: flex; gap: 4px; margin-left: auto; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-idle { background: #58a6ff; }
+    .dot-running { background: #f78835; }
+    .dot-scheduled { background: #3fb950; }
+    .dot-error { background: #f85149; }
+    .dot-stopped { background: #8b949e; }
+    .group-body { padding-left: 0; margin-top: 8px; display: grid; gap: 12px; }
+    .group-body.collapsed { display: none; }
     .agent-card {
       background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px;
       transition: border-color 0.2s;
@@ -324,13 +343,45 @@ function getDashboardHtml() {
     // Track which output panels are expanded
     const expandedOutputs = new Set();
 
+    // Track collapsed groups
+    const collapsedGroups = new Set();
+
     function renderAgents(agents) {
       // Skip re-render if user is focused on an input
       const focused = document.activeElement;
       if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input'))) return;
 
+      // Group agents
+      const groups = new Map();
+      agents.forEach(agent => {
+        const group = agent.config?.group || 'Ungrouped';
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group).push(agent);
+      });
+
       const container = document.getElementById('agents');
-      container.innerHTML = agents.map(agent => \`
+      container.innerHTML = Array.from(groups.entries()).map(([groupName, groupAgents]) => {
+        const isCollapsed = collapsedGroups.has(groupName);
+        const statusDots = groupAgents.map(a =>
+          \`<span class="status-dot dot-\${a.status || 'idle'}" title="\${a.config?.name || a.agent_id}: \${a.status || 'idle'}"></span>\`
+        ).join('');
+        return \`
+          <div class="agent-group">
+            <div class="group-header" onclick="toggleGroup('\${escapeHtml(groupName)}')">
+              <span class="group-toggle">\${isCollapsed ? '▸' : '▾'}</span>
+              <span class="group-name">\${escapeHtml(groupName)}</span>
+              <span class="group-count">(\${groupAgents.length})</span>
+              <div class="group-status-dots">\${statusDots}</div>
+            </div>
+            <div class="group-body\${isCollapsed ? ' collapsed' : ''}">
+              \${groupAgents.map(agent => renderAgentCard(agent, agents)).join('')}
+            </div>
+          </div>\`;
+      }).join('');
+    }
+
+    function renderAgentCard(agent, agents) {
+      return \`
         <div class="agent-card">
           <div class="agent-header">
             <span class="agent-name">\${agent.config?.name || agent.agent_id}</span>
@@ -364,8 +415,7 @@ function getDashboardHtml() {
               <pre class="output-content\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${escapeHtml(agent.lastRun.output)}</pre>
             </div>
           \` : ''}
-        </div>
-      \`).join('');
+        </div>\`;
     }
 
     function renderTriggers(agent, allAgents) {
@@ -467,6 +517,14 @@ function getDashboardHtml() {
         expandedOutputs.add(id);
       }
       document.getElementById('output-' + id).classList.toggle('visible');
+    }
+    function toggleGroup(name) {
+      if (collapsedGroups.has(name)) {
+        collapsedGroups.delete(name);
+      } else {
+        collapsedGroups.add(name);
+      }
+      refresh();
     }
 
     async function refresh() {
