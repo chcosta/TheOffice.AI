@@ -211,25 +211,33 @@ app.get('/api/discover', async (req, res) => {
 // Install a plugin
 app.post('/api/plugins/install', (req, res) => {
   const { execSync } = require('child_process');
-  const { installCmd, pluginDir } = req.body;
+  const { installCmd, pluginDir, engine } = req.body;
   const copilotPath = process.env.COPILOT_PATH || 'copilot';
 
+  if (engine === 'agency' && pluginDir) {
+    // Install via Agency (supports local paths and ADO repos)
+    try {
+      const output = execSync(`agency plugin install "local:${pluginDir}" --engine copilot`, { encoding: 'utf-8', timeout: 60000, shell: true });
+      return res.json({ ok: true, output });
+    } catch (e) {
+      return res.status(500).json({ error: e.stderr || e.message });
+    }
+  }
+
   if (installCmd) {
-    // Standard install via marketplace/GitHub
+    // Standard install via copilot marketplace/GitHub
     try {
       const output = execSync(`"${copilotPath}" plugin install ${installCmd}`, { encoding: 'utf-8', timeout: 60000, shell: true });
       return res.json({ ok: true, output });
     } catch (e) {
-      return res.status(500).json({ error: e.message, stderr: e.stderr });
+      return res.status(500).json({ error: e.stderr || e.message });
     }
   }
 
   if (pluginDir) {
-    // Local plugin — can't install permanently, but can note the --plugin-dir path
     return res.status(400).json({
       error: 'Local plugins from non-GitHub repos cannot be installed via `copilot plugin install`. ' +
-        'Use `copilot --plugin-dir "' + pluginDir + '"` to load it at runtime, ' +
-        'or push the plugin to a GitHub repo and install via owner/repo:path.'
+        'Use the "Install via Agency" button, or run: agency plugin install "local:' + pluginDir + '" --engine copilot'
     });
   }
 
@@ -1090,10 +1098,10 @@ function getDashboardHtml() {
                 ? '<span style="color:#3fb950;font-size:0.8rem">✓ Added</span>'
                 : \`<button class="btn btn-primary" onclick='prefillFromDiscover(\${JSON.stringify(d).replace(/'/g,"&#39;")})'>+ Add</button>\`}
               \${canInstall
-                ? \`<button class="btn" onclick="installPlugin('\${escapeHtml(d.installCmd)}', null, this)">📦 Install</button>\`
+                ? \`<button class="btn" onclick="installPlugin('\${escapeHtml(d.installCmd)}', null, null, this)">📦 Install</button>\`
                 : ''}
-              \${d.pluginDir && !d.installCmd && !d.installed
-                ? \`<button class="btn" onclick="installPlugin(null, '\${escapeHtml(d.pluginDir)}', this)" title="Local plugin — will show usage instructions">📦 Install</button>\`
+              \${d.pluginDir && !d.installed
+                ? \`<button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick="installPlugin(null, '\${escapeHtml(d.pluginDir)}', 'agency', this)" title="Install via agency plugin install local:...">⚡ Install via Agency</button>\`
                 : ''}
               \${d.installed === false && !d.installCmd && !d.pluginDir
                 ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
@@ -1120,20 +1128,22 @@ function getDashboardHtml() {
       document.getElementById('add-prompt').focus();
     }
 
-    async function installPlugin(installCmd, pluginDir, btn) {
+    async function installPlugin(installCmd, pluginDir, engine, btn) {
       btn.disabled = true;
       btn.textContent = '⏳ Installing…';
       try {
-        const body = installCmd ? { installCmd } : { pluginDir };
+        const body = {};
+        if (installCmd) body.installCmd = installCmd;
+        if (pluginDir) body.pluginDir = pluginDir;
+        if (engine) body.engine = engine;
         const res = await fetch('/api/plugins/install', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(body)
         });
         const data = await res.json();
         if (!res.ok) {
-          // Show helpful message for local plugins
           alert(data.error || 'Install failed');
-          btn.textContent = '📦 Install';
+          btn.textContent = engine === 'agency' ? '⚡ Install via Agency' : '📦 Install';
           btn.disabled = false;
           return;
         }
@@ -1144,7 +1154,7 @@ function getDashboardHtml() {
         btn.textContent = '✗ Failed';
         btn.title = e.message;
         btn.disabled = false;
-        setTimeout(() => { btn.textContent = '📦 Install'; }, 3000);
+        setTimeout(() => { btn.textContent = engine === 'agency' ? '⚡ Install via Agency' : '📦 Install'; }, 3000);
       }
     }
 
