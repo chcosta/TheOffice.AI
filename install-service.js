@@ -25,7 +25,22 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($triggerLo
 Write-Host "Task '$taskName' created with logon + every-5-min triggers."
 Write-Host 'Starting now...'
 Start-ScheduledTask -TaskName $taskName
-Write-Host 'Service is running at http://localhost:3847'
+
+# Wait and verify
+Start-Sleep -Seconds 5
+try {
+    $response = Invoke-WebRequest -Uri 'http://localhost:3847/api/agents' -UseBasicParsing -TimeoutSec 5
+    if ($response.StatusCode -eq 200) {
+        Write-Host 'Service is running at http://localhost:3847'
+    }
+} catch {
+    Write-Host 'WARNING: Service may not have started. Check service.log in the install directory.'
+    $logPath = Join-Path '${workDir.replace(/\\/g, '\\\\')}' 'service.log'
+    if (Test-Path $logPath) {
+        Write-Host '--- service.log ---'
+        Get-Content $logPath -Tail 20
+    }
+}
 `;
 
 const psPath = path.join(__dirname, '_install-task.ps1');
