@@ -1255,6 +1255,11 @@ function getDashboardHtml() {
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
+  <div class="filter-bar" style="display:flex;align-items:center;gap:12px;padding:8px 0;margin-bottom:8px;">
+    <input type="text" id="agent-filter" placeholder="Filter agents by name..." oninput="refresh()" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:220px;font-size:0.85rem;">
+    <button class="btn" onclick="expandAllGroups()" title="Expand all groups">▾ Expand All</button>
+    <button class="btn" onclick="collapseAllGroups()" title="Collapse all groups">▸ Collapse All</button>
+  </div>
   <div class="agents" id="agents"></div>
 
   <!-- Sessions Panel -->
@@ -1454,6 +1459,12 @@ function getDashboardHtml() {
       if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input') || focused.classList.contains('group-select'))) return;
       if (document.querySelector('.sched-editor')) return;
 
+      // Filter agents by name
+      const filterText = (document.getElementById('agent-filter')?.value || '').toLowerCase();
+      if (filterText) {
+        agents = agents.filter(a => (a.config?.name || a.agent_id).toLowerCase().includes(filterText));
+      }
+
       // Save scroll positions of expanded output divs
       const scrollPositions = new Map();
       document.querySelectorAll('.output-content.visible').forEach(el => {
@@ -1470,6 +1481,7 @@ function getDashboardHtml() {
 
       // Collect all known group names for the group selector
       const allGroupNames = Array.from(groups.keys());
+      window._lastGroupNames = allGroupNames;
 
       const container = document.getElementById('agents');
       container.innerHTML = Array.from(groups.entries()).map(([groupName, groupAgents]) => {
@@ -1942,6 +1954,21 @@ function getDashboardHtml() {
       } else {
         collapsedGroups.add(name);
       }
+      refresh();
+    }
+
+    function expandAllGroups() {
+      collapsedGroups.clear();
+      refresh();
+    }
+
+    function collapseAllGroups() {
+      document.querySelectorAll('.group-header').forEach(h => {
+        const name = h.textContent.replace(/[▾▸]/, '').trim().replace(/\s*\(\d+\)$/, '');
+        collapsedGroups.add(name);
+      });
+      // Also add from last known groups
+      if (window._lastGroupNames) window._lastGroupNames.forEach(n => collapsedGroups.add(n));
       refresh();
     }
 
