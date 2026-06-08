@@ -2839,16 +2839,10 @@ function getDashboardHtml() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message })
         });
-        const data = await res.json();
-        const pending = document.getElementById('focus-pending');
-        if (pending) {
-          pending.innerHTML = '<div class="conv-role assistant">🤖 Agent</div>' +
-            '<div class="conv-content assistant-content">' + renderMd(data.response) + '</div>';
-        }
+        await res.json();
         status.innerHTML = '';
-        if (convo) convo.scrollTop = convo.scrollHeight;
-        // Start polling for continued activity
-        pollSessionUpdates(focusSessionId, 'focus-pending', 'focus-convo', data.response);
+        // Reload full conversation from events.jsonl (includes steps if verbose)
+        await reloadFocusConversation();
       } catch (e) {
         const pending = document.getElementById('focus-pending');
         if (pending) pending.remove();
@@ -2856,6 +2850,33 @@ function getDashboardHtml() {
       }
       input.disabled = false;
       input.focus();
+    }
+
+    async function reloadFocusConversation() {
+      if (!focusSessionId) return;
+      const verbose = isFocusVerbose();
+      try {
+        const res = await fetch(\`/api/sessions/\${focusSessionId}/poll?verbose=\${verbose ? '1' : '0'}\`);
+        const data = await res.json();
+        if (!data.turns || data.turns.length === 0) return;
+        focusSessionData = { ...focusSessionData, turns: data.turns };
+        const convo = document.getElementById('focus-convo');
+        if (!convo) return;
+        let html = '';
+        for (const turn of data.turns) {
+          html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
+            '<div class="conv-content">' + esc(turn.content) + '</div></div>';
+          if (verbose && turn.steps && turn.steps.length > 0) {
+            html += renderStepsHtml(turn.steps);
+          }
+          if (turn.assistant) {
+            html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
+              '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
+          }
+        }
+        convo.innerHTML = html;
+        convo.scrollTop = convo.scrollHeight;
+      } catch {}
     }
 
     async function openTerminal(id) {
