@@ -1449,9 +1449,10 @@ function getDashboardHtml() {
     const collapsedGroups = new Set();
 
     function renderAgents(agents) {
-      // Skip re-render if user is focused on an input
+      // Skip re-render if user is focused on an input or schedule editor is open
       const focused = document.activeElement;
       if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input') || focused.classList.contains('group-select'))) return;
+      if (document.querySelector('.sched-editor')) return;
 
       // Save scroll positions of expanded output divs
       const scrollPositions = new Map();
