@@ -1622,7 +1622,7 @@ function getDashboardHtml() {
             <button class="btn" onclick="runNow('\${agent.agent_id}')">⚡ Run Now</button>
             <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
             <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
-            <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Open last run in terminal">💻 Terminal</button>
+            <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Resume last session in Copilot CLI">💻 Copilot</button>
             <button class="btn" onclick="editAgentSource('\${agent.agent_id}')" title="Open agent source in editor">✏️ Edit</button>
             \${agent.config?.pluginDir ? \`<button class="btn" onclick="reinstallPlugin('\${agent.agent_id}')" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>\` : ''}
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
