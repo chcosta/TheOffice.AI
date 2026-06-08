@@ -1,0 +1,51 @@
+Subject: Agent Report: Azure Status Observer — 6/7/2026
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="----=_Part_1780879338964"
+X-Unsent: 1
+
+------=_Part_1780879338964
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Good, logged into the correct tenant. Let me fetch the Azure Status page and retrieve the webhook URL.
+
+## Azure Status Summary
+
+**Status: ✅ Healthy — No active incidents**
+
+- All Azure services are reporting normal operations
+- No active outages, degradations, or advisories detected
+- No event/incident links found on the status page
+
+**Previous state:** Last tracked incident (`simulated-westus-vm-storage-2026-06-07`) was already resolved and notified on 2026-06-06.
+
+**Action:** No notification sent — Azure is healthy and there are no incidents affecting Helix infrastructure.
+
+
+
+------=_Part_1780879338964
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<html><head><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #222; padding: 16px; }
+h1, h2, h3 { color: #333; }
+a { color: #0078d4; }
+hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+ul, ol { padding-left: 24px; }
+li { margin-bottom: 4px; }
+code { background: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-size: 13px; }
+pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+</style></head><body><p>Good, logged into the correct tenant. Let me fetch the Azure Status page and retrieve the webhook URL.</p>
+<h2>Azure Status Summary</h2>
+<p><strong>Status: ✅ Healthy — No active incidents</strong></p>
+<ul>
+<li>All Azure services are reporting normal operations</li>
+<li>No active outages, degradations, or advisories detected</li>
+<li>No event/incident links found on the status page</li>
+</ul>
+<p><strong>Previous state:</strong> Last tracked incident (<code>simulated-westus-vm-storage-2026-06-07</code>) was already resolved and notified on 2026-06-06.</p>
+<p><strong>Action:</strong> No notification sent — Azure is healthy and there are no incidents affecting Helix infrastructure.</p>
+</body></html>
+
+------=_Part_1780879338964--
