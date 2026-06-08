@@ -2690,6 +2690,7 @@ function getDashboardHtml() {
     let focusSessionId = null;
     let focusSessionData = null;
     let focusPoller = null;
+    let focusMinTurns = 0; // minimum expected turns after sending a chat
 
     function isFocusVerbose() {
       return localStorage.getItem('focusVerbose') === '1';
@@ -2747,6 +2748,14 @@ function getDashboardHtml() {
           // Count total steps to detect intermediate changes
           const totalSteps = (data.turns || []).reduce((sum, t) => sum + (t.steps ? t.steps.length : 0), 0);
           const turnCount = data.turns ? data.turns.length : 0;
+
+          // Don't rebuild if poll has fewer turns than expected (event not written yet)
+          if (turnCount < focusMinTurns) {
+            if (data.isActive) focusPoller = setTimeout(poll, 2000);
+            else focusPoller = setTimeout(poll, 1000); // retry quickly
+            return;
+          }
+
           const isFirstPoll = lastTurnCount < 0;
           const changed = isFirstPoll || turnCount !== lastTurnCount || (verbose && totalSteps !== lastStepCount);
 
@@ -2808,6 +2817,7 @@ function getDashboardHtml() {
       document.getElementById('focusEmailMenu')?.classList.remove('visible');
       focusSessionId = null;
       focusSessionData = null;
+      focusMinTurns = 0;
     }
 
     async function emailFocusSession(mode) {
@@ -2849,6 +2859,9 @@ function getDashboardHtml() {
       input.value = '';
 
       try {
+        // Set minimum expected turns so polling won't rebuild with fewer
+        const currentTurns = focusSessionData?.turns?.length || 0;
+        focusMinTurns = currentTurns + 1;
         await fetch(\`/api/sessions/\${focusSessionId}/chat\`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
