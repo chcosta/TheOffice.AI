@@ -1241,7 +1241,7 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
   const meta = readSessionMeta(sessionDir);
-  const cwd = meta.cwd || __dirname;
+  const cwd = req.body?.cwd || meta.cwd || __dirname;
 
   // Find matching agent config to get pluginDir
   let pluginDirFlag = '';
@@ -1257,6 +1257,27 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   const { exec } = require('child_process');
   // Write a temp batch file to avoid Windows quoting hell
   const batContent = `@echo off\ncd /d "${cwd}"\n"${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo\npause\n`;
+  const batPath = path.join(__dirname, 'temp-terminal.bat');
+  fs.writeFileSync(batPath, batContent);
+  exec(`start "Copilot Session" "${batPath}"`);
+  res.json({ ok: true });
+});
+
+// Open copilot in a directory without resuming a session
+app.post('/api/terminal/open', (req, res) => {
+  const { cwd, agentId } = req.body || {};
+  if (!cwd) return res.status(400).json({ error: 'cwd required' });
+
+  let pluginDirFlag = '';
+  const agents = supervisor.getAllStatus();
+  const agent = agents.find(a => a.agent_id === agentId);
+  if (agent?.config?.pluginDir) {
+    pluginDirFlag = `--plugin-dir "${agent.config.pluginDir}"`;
+  }
+
+  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
+  const { exec } = require('child_process');
+  const batContent = `@echo off\ncd /d "${cwd}"\n"${copilotCmd}" ${pluginDirFlag} --yolo\npause\n`;
   const batPath = path.join(__dirname, 'temp-terminal.bat');
   fs.writeFileSync(batPath, batContent);
   exec(`start "Copilot Session" "${batPath}"`);
@@ -1984,7 +2005,7 @@ function getDashboardHtml() {
             <button class="btn" onclick="runNow('\${agent.agent_id}')">⚡ Run Now</button>
             <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
             <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
-            <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Resume last session in Copilot CLI">💻 Copilot</button>
+            <button class="btn" onclick="openLastTerminal('\${agent.agent_id}', '\${escapeHtml(agent.config?.cwd || '')}')" title="Resume last session in Copilot CLI">💻 Copilot</button>
             <button class="btn" onclick="editAgentSource('\${agent.agent_id}')" title="Open agent source in editor">✏️ Edit</button>
             \${agent.config?.pluginDir ? \`<button class="btn" onclick="reinstallPlugin('\${agent.agent_id}')" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>\` : ''}
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
@@ -3187,14 +3208,17 @@ function getDashboardHtml() {
       }
     }
 
-    async function openLastTerminal(agentId) {
+    async function openLastTerminal(agentId, agentCwd) {
       // Find the most recent session for this agent from the sessions API
       try {
         const res = await fetch('/api/sessions?hours=48');
         const sessions = await res.json();
         const match = sessions.find(s => (s.agentName || '').toLowerCase().includes(agentId.toLowerCase()) || (s.name || '').toLowerCase().includes(agentId.toLowerCase()));
         if (match) {
-          await fetch(\`/api/sessions/\${match.id}/terminal\`, { method: 'POST' });
+          await fetch(\`/api/sessions/\${match.id}/terminal\`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cwd: agentCwd }) });
+        } else if (agentCwd) {
+          // No session found, just open copilot in the agent's CWD
+          await fetch('/api/terminal/open', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cwd: agentCwd, agentId }) });
         } else {
           alert('No recent session found for this agent');
         }
