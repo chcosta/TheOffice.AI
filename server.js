@@ -2,8 +2,12 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const yazl = require('yazl');
+const yauzl = require('yauzl');
+const multer = require('multer');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
+
+const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
 const PORT = process.env.PORT || 3847;
 const DB_PATH = path.join(__dirname, 'supervisor.db');
@@ -1380,6 +1384,106 @@ app.get('/api/export', (req, res) => {
   zip.end();
 });
 
+// Import configuration from zip
+app.post('/api/import', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const results = { imported: [], warnings: [], errors: [] };
+
+  try {
+    const entries = await new Promise((resolve, reject) => {
+      const files = {};
+      yauzl.open(req.file.path, { lazyEntries: true }, (err, zipfile) => {
+        if (err) return reject(err);
+        zipfile.readEntry();
+        zipfile.on('entry', entry => {
+          if (/\/$/.test(entry.fileName)) { zipfile.readEntry(); return; }
+          zipfile.openReadStream(entry, (err, stream) => {
+            if (err) return reject(err);
+            const chunks = [];
+            stream.on('data', c => chunks.push(c));
+            stream.on('end', () => { files[entry.fileName] = Buffer.concat(chunks); zipfile.readEntry(); });
+          });
+        });
+        zipfile.on('end', () => resolve(files));
+      });
+    });
+
+    // Discover copilot on this machine
+    const { execSync } = require('child_process');
+    let copilotPath = null;
+    try {
+      copilotPath = execSync('where copilot', { encoding: 'utf8', timeout: 5000 }).trim().split('\n')[0].trim();
+      results.imported.push(`Copilot found: ${copilotPath}`);
+    } catch {
+      results.warnings.push('copilot not found in PATH. Install GitHub Copilot CLI or set COPILOT_PATH env var.');
+    }
+
+    // Import agents.json
+    if (entries['agents.json']) {
+      const agents = JSON.parse(entries['agents.json'].toString());
+      // Remove any hardcoded copilotPath — rely on PATH resolution
+      for (const agent of agents) {
+        delete agent.copilotPath;
+      }
+      // Validate CWDs
+      for (const agent of agents) {
+        if (agent.cwd && !fs.existsSync(agent.cwd)) {
+          results.warnings.push(`Agent "${agent.name || agent.id}": CWD does not exist: ${agent.cwd}`);
+        }
+      }
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+      results.imported.push(`agents.json: ${agents.length} agents`);
+    }
+
+    // Import plugins
+    let pluginCount = 0;
+    for (const [filePath, content] of Object.entries(entries)) {
+      if (filePath.startsWith('plugins/')) {
+        const destPath = path.join(__dirname, filePath.replace(/\//g, path.sep));
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.writeFileSync(destPath, content);
+        pluginCount++;
+      }
+    }
+    if (pluginCount > 0) results.imported.push(`plugins: ${pluginCount} files`);
+
+    // Import mcp-configs
+    let mcpCount = 0;
+    for (const [filePath, content] of Object.entries(entries)) {
+      if (filePath.startsWith('mcp-configs/')) {
+        const destPath = path.join(__dirname, filePath.replace(/\//g, path.sep));
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.writeFileSync(destPath, content);
+        mcpCount++;
+      }
+    }
+    if (mcpCount > 0) results.imported.push(`mcp-configs: ${mcpCount} files`);
+
+    // Apply agent state (enabled/disabled flags)
+    if (entries['agent-state.json']) {
+      const states = JSON.parse(entries['agent-state.json'].toString());
+      for (const state of states) {
+        if (state.enabled === 0 || state.enabled === false) {
+          db.prepare('UPDATE agent_state SET enabled = 0 WHERE agent_id = ?').run(state.agent_id);
+        }
+      }
+      results.imported.push(`agent-state.json: ${states.length} states applied`);
+    }
+
+    // Reload supervisor with new config
+    loadAgents();
+    results.imported.push('Supervisor reloaded');
+
+  } catch (e) {
+    results.errors.push(`Import failed: ${e.message}`);
+  } finally {
+    try { fs.unlinkSync(req.file.path); } catch {}
+  }
+
+  res.json(results);
+});
+
 // Start all enabled agents
 supervisor.startAll();
 
@@ -1766,6 +1870,8 @@ function getDashboardHtml() {
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
       <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
       <button class="btn" onclick="window.location='/api/export'" title="Export config as zip">&#x1F4E6; Export</button>
+      <button class="btn" onclick="importConfig()" title="Import config from zip">&#x1F4E5; Import</button>
+      <input type="file" id="importFileInput" accept=".zip" style="display:none" onchange="handleImportFile(this)">
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
@@ -2304,6 +2410,26 @@ function getDashboardHtml() {
     async function stopAgent(id) { await fetch(\`/api/agents/\${id}/stop\`, { method: 'POST' }); refresh(); }
     async function runNow(id) { await fetch(\`/api/agents/\${id}/run\`, { method: 'POST' }); refresh(); }
     async function openInCode() { await fetch('/api/open-editor', { method: 'POST' }); }
+    function importConfig() { document.getElementById('importFileInput').click(); }
+    async function handleImportFile(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/api/import', { method: 'POST', body: formData });
+        const result = await res.json();
+        let msg = '';
+        if (result.imported?.length) msg += '✅ Imported:\\n' + result.imported.join('\\n') + '\\n\\n';
+        if (result.warnings?.length) msg += '⚠️ Warnings:\\n' + result.warnings.join('\\n') + '\\n\\n';
+        if (result.errors?.length) msg += '❌ Errors:\\n' + result.errors.join('\\n');
+        alert(msg || 'Import complete');
+        refresh();
+      } catch (e) {
+        alert('Import failed: ' + e.message);
+      }
+      input.value = '';
+    }
     async function toggleEnabled(id, enabled) {
       await fetch(\`/api/agents/\${id}/enabled\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
       refresh();
