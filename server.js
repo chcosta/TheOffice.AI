@@ -1870,8 +1870,7 @@ function getDashboardHtml() {
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
       <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
       <button class="btn" onclick="window.location='/api/export'" title="Export config as zip">&#x1F4E6; Export</button>
-      <button class="btn" onclick="importConfig()" title="Import config from zip">&#x1F4E5; Import</button>
-      <input type="file" id="importFileInput" accept=".zip" style="display:none" onchange="handleImportFile(this)">
+      <label class="btn" style="cursor:pointer;margin:0" title="Import config from zip">&#x1F4E5; Import<input type="file" accept=".zip" style="display:none" onchange="handleImportFile(this)"></label>
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
