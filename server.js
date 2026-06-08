@@ -1060,6 +1060,21 @@ function getDashboardHtml() {
       padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; min-width: 200px;
     }
     .schedule-input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 200px; }
+    /* Schedule Editor */
+    .sched-editor { display: none; position: absolute; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; z-index: 50; min-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .sched-editor.visible { display: block; }
+    .sched-editor label { color: #8b949e; font-size: 0.75rem; display: block; margin-bottom: 4px; }
+    .sched-editor select, .sched-editor input[type="time"], .sched-editor input[type="number"] {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;
+    }
+    .sched-editor .day-checkboxes { display: flex; gap: 4px; margin: 8px 0; }
+    .sched-editor .day-checkboxes label { display: flex; align-items: center; gap: 2px; cursor: pointer; padding: 4px 6px; border-radius: 4px; border: 1px solid #30363d; color: #c9d1d9; font-size: 0.8rem; }
+    .sched-editor .day-checkboxes label:has(input:checked) { background: #1f6feb33; border-color: #1f6feb; color: #58a6ff; }
+    .sched-editor .day-checkboxes input { display: none; }
+    .sched-editor .sched-preview { margin-top: 10px; padding: 8px; background: #0d1117; border-radius: 4px; color: #7ee787; font-size: 0.8rem; min-height: 20px; }
+    .sched-editor .sched-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .sched-editor .sched-mode-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .sched-editor .sched-fields { margin-top: 8px; }
     /* Add Agent Panel */
     .panel-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; }
     .panel-overlay.visible { display: block; }
@@ -1530,8 +1545,10 @@ function getDashboardHtml() {
             <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
             <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Open last run in terminal">💻 Terminal</button>
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
-            <input class="schedule-input" id="sched-\${agent.agent_id}" value="\${agent.schedule}" />
-            <button class="btn" onclick="updateSchedule('\${agent.agent_id}')">Set</button>
+            <div style="position:relative;display:inline-flex;align-items:center;gap:6px;">
+              <button class="btn" onclick="openScheduleEditor('\${agent.agent_id}', '\${escapeHtml(agent.schedule || '')}', this)" title="Edit schedule">🕐 Schedule</button>
+              <code style="color:#8b949e;font-size:0.8rem">\${escapeHtml(agent.schedule || 'none')}</code>
+            </div>
           </div>
           \${renderTriggers(agent, agents)}
           \${agent.lastRun?.error ? \`
@@ -1690,10 +1707,164 @@ function getDashboardHtml() {
       refresh();
     }
     async function updateSchedule(id) {
-      const val = document.getElementById('sched-' + id).value;
-      await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
+      const val = document.getElementById('sched-' + id)?.value;
+      if (val) {
+        await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
+        refresh();
+      }
+    }
+
+    function openScheduleEditor(agentId, currentSchedule, btnEl) {
+      document.querySelectorAll('.sched-editor').forEach(e => e.remove());
+      const editor = document.createElement('div');
+      editor.className = 'sched-editor visible';
+      editor.innerHTML = \`
+        <label>Schedule type</label>
+        <div class="sched-mode-row">
+          <select id="sched-mode" onchange="schedModeChanged()">
+            <option value="interval">Interval (every N minutes/hours)</option>
+            <option value="daily">Daily (at a specific time)</option>
+            <option value="weekly">Weekly (pick days + time)</option>
+            <option value="cron">Advanced (cron / free text)</option>
+          </select>
+        </div>
+        <div class="sched-fields" id="sched-fields"></div>
+        <div class="sched-preview" id="sched-preview">—</div>
+        <div class="sched-actions">
+          <button class="btn btn-primary" onclick="saveScheduleEditor('\${agentId}')">Save</button>
+          <button class="btn" onclick="closeScheduleEditor()">Cancel</button>
+        </div>
+      \`;
+      btnEl.parentElement.appendChild(editor);
+      editor.dataset.agentId = agentId;
+      editor.dataset.current = currentSchedule;
+      detectScheduleMode(currentSchedule);
+      setTimeout(() => document.addEventListener('click', schedEditorOutsideClick), 10);
+    }
+
+    function schedEditorOutsideClick(e) {
+      const editor = document.querySelector('.sched-editor');
+      if (editor && !editor.contains(e.target) && !e.target.closest('[onclick*="openScheduleEditor"]')) closeScheduleEditor();
+    }
+
+    function closeScheduleEditor() {
+      document.querySelectorAll('.sched-editor').forEach(e => e.remove());
+      document.removeEventListener('click', schedEditorOutsideClick);
+    }
+
+    function detectScheduleMode(schedule) {
+      const mode = document.getElementById('sched-mode');
+      if (!schedule) { mode.value = 'interval'; schedModeChanged(); return; }
+      if (/^\\d+[mh]$/.test(schedule) || /^every\\s+\\d+\\s*(min|hour|sec)/i.test(schedule)) mode.value = 'interval';
+      else if (/weekday|M,T|mon|tue|wed|thu|fri|sat|sun/i.test(schedule)) mode.value = 'weekly';
+      else if (/daily|^at\\s+\\d/i.test(schedule)) mode.value = 'daily';
+      else mode.value = 'cron';
+      schedModeChanged(schedule);
+    }
+
+    function schedModeChanged(prefill) {
+      const mode = document.getElementById('sched-mode').value;
+      const fields = document.getElementById('sched-fields');
+      const editor = document.querySelector('.sched-editor');
+      const current = prefill || editor?.dataset.current || '';
+
+      if (mode === 'interval') {
+        let num = 1, unit = 'h';
+        const m = current.match(/(\\d+)\\s*([mh])/);
+        if (m) { num = parseInt(m[1]); unit = m[2]; }
+        else { const m2 = current.match(/every\\s+(\\d+)\\s*(min|hour)/i); if (m2) { num = parseInt(m2[1]); unit = m2[2].startsWith('h') ? 'h' : 'm'; } }
+        fields.innerHTML = \`<div style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0">Every</label>
+          <input type="number" id="sched-interval-num" value="\${num}" min="1" max="720" style="width:60px" oninput="previewSchedule()">
+          <select id="sched-interval-unit" onchange="previewSchedule()">
+            <option value="m" \${unit==='m'?'selected':''}>minutes</option>
+            <option value="h" \${unit==='h'?'selected':''}>hours</option>
+          </select>
+        </div>\`;
+      } else if (mode === 'daily') {
+        let time = '09:00';
+        const m = current.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/i);
+        if (m) { let h = parseInt(m[1]); const min = m[2]||'00'; if(m[3]?.toLowerCase()==='pm'&&h<12)h+=12; if(m[3]?.toLowerCase()==='am'&&h===12)h=0; time = String(h).padStart(2,'0')+':'+min; }
+        fields.innerHTML = \`<div style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0">At</label>
+          <input type="time" id="sched-daily-time" value="\${time}" onchange="previewSchedule()">
+          <span style="color:#8b949e;font-size:0.8rem">every day</span>
+        </div>\`;
+      } else if (mode === 'weekly') {
+        const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+        const dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+        let checkedDays = new Set();
+        if (/weekday/i.test(current)) checkedDays = new Set(['mon','tue','wed','thu','fri']);
+        else { for (let i=0;i<dayKeys.length;i++) { if(new RegExp(dayKeys[i],'i').test(current)) checkedDays.add(dayKeys[i]); } }
+        if (checkedDays.size===0) checkedDays = new Set(['mon','tue','wed','thu','fri']);
+        let time = '09:00';
+        const m = current.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/i);
+        if (m) { let h=parseInt(m[1]); const min=m[2]||'00'; if(m[3]?.toLowerCase()==='pm'&&h<12)h+=12; if(m[3]?.toLowerCase()==='am'&&h===12)h=0; time=String(h).padStart(2,'0')+':'+min; }
+        fields.innerHTML = \`<div class="day-checkboxes">
+          \${days.map((d,i) => \`<label><input type="checkbox" value="\${dayKeys[i]}" \${checkedDays.has(dayKeys[i])?'checked':''} onchange="previewSchedule()"> \${d}</label>\`).join('')}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0">At</label>
+          <input type="time" id="sched-weekly-time" value="\${time}" onchange="previewSchedule()">
+        </div>\`;
+      } else {
+        fields.innerHTML = \`<div style="display:flex;flex-direction:column;gap:4px">
+          <label style="margin:0">Cron expression or free text</label>
+          <input type="text" class="schedule-input" style="width:100%" id="sched-cron-input" value="\${current.replace(/"/g,'&quot;')}" oninput="previewSchedule()" placeholder="e.g. 0 9 * * 1-5 or weekdays at 9am">
+          <span style="color:#8b949e;font-size:0.7rem">Examples: 0 */2 * * * (every 2h) | weekdays at 9am | every 30 minutes</span>
+        </div>\`;
+      }
+      previewSchedule();
+    }
+
+    function getScheduleValue() {
+      const mode = document.getElementById('sched-mode').value;
+      if (mode === 'interval') {
+        const num = document.getElementById('sched-interval-num')?.value || '1';
+        const unit = document.getElementById('sched-interval-unit')?.value || 'h';
+        return num + unit;
+      } else if (mode === 'daily') {
+        const time = document.getElementById('sched-daily-time')?.value || '09:00';
+        const [h, m] = time.split(':').map(Number);
+        const ampm = h >= 12 ? 'pm' : 'am';
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return \`daily at \${h12}\${m > 0 ? ':' + String(m).padStart(2,'0') : ''}\${ampm}\`;
+      } else if (mode === 'weekly') {
+        const checked = Array.from(document.querySelectorAll('.day-checkboxes input:checked')).map(c => c.value);
+        if (checked.length === 0) return '';
+        const time = document.getElementById('sched-weekly-time')?.value || '09:00';
+        const [h, min] = time.split(':').map(Number);
+        const ampm = h >= 12 ? 'pm' : 'am';
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        const timeStr = \`\${h12}\${min > 0 ? ':' + String(min).padStart(2,'0') : ''}\${ampm}\`;
+        if (checked.length === 5 && !checked.includes('sat') && !checked.includes('sun')) return \`weekdays at \${timeStr}\`;
+        const dayMap = {mon:'M',tue:'T',wed:'W',thu:'Th',fri:'F',sat:'Sa',sun:'Su'};
+        return checked.map(d => dayMap[d]).join(',') + ' at ' + timeStr;
+      } else {
+        return document.getElementById('sched-cron-input')?.value || '';
+      }
+    }
+
+    async function previewSchedule() {
+      const val = getScheduleValue();
+      const preview = document.getElementById('sched-preview');
+      if (!val) { preview.textContent = '—'; preview.style.color = '#8b949e'; return; }
+      try {
+        const res = await fetch('/api/schedule/describe', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
+        const data = await res.json();
+        if (data.error) { preview.textContent = '⚠ ' + data.error; preview.style.color = '#f85149'; }
+        else { preview.textContent = '✓ ' + (data.description || val); preview.style.color = '#7ee787'; }
+      } catch { preview.textContent = val; preview.style.color = '#c9d1d9'; }
+    }
+
+    async function saveScheduleEditor(agentId) {
+      const val = getScheduleValue();
+      if (!val) return;
+      await fetch(\`/api/agents/\${agentId}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
+      closeScheduleEditor();
       refresh();
     }
+
     async function saveTriggers(id) {
       const getSelected = (elId) => Array.from(document.getElementById(elId).selectedOptions).map(o => o.value);
       const onSuccess = getSelected('trig-success-' + id);
