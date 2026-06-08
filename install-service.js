@@ -2,6 +2,13 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 
+// Ensure dependencies are installed
+const nmPath = path.join(__dirname, 'node_modules');
+if (!fs.existsSync(nmPath) || !fs.existsSync(path.join(nmPath, 'yazl'))) {
+  console.log('Installing dependencies...');
+  execSync('npm install --production', { cwd: __dirname, stdio: 'inherit' });
+}
+
 const taskName = 'CopilotAgentSupervisor';
 const nodePath = process.execPath;
 const scriptPath = path.join(__dirname, 'server.js');
