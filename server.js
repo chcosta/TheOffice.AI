@@ -1665,33 +1665,35 @@ function getDashboardHtml() {
             </div>
           </div>
           \${renderTriggers(agent, agents)}
-          \${agent.status === 'running' ? \`
-            <div class="output-section" style="border-left:3px solid #f0883e;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span class="spinner" style="width:14px;height:14px;"></span>
-                <span style="color:#f0883e;font-weight:600;font-size:0.85rem;">Live session output</span>
-                <span style="color:#8b949e;font-size:0.75rem" id="live-status-\${agent.agent_id}">watching...</span>
-                <span id="live-chat-btn-\${agent.agent_id}"></span>
-              </div>
-              <div class="output-content markdown-body visible" id="live-\${agent.agent_id}" style="margin-top:8px;max-height:400px;overflow-y:auto;opacity:0.9;">
-                <span style="color:#8b949e">Waiting for agent output...</span>
-              </div>
-            </div>
-          \` : ''}
           \${agent.lastRun?.error ? \`
             <div class="output-section error-output">
               <button class="output-toggle" onclick="toggleOutput('err-\${agent.agent_id}')">\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? '▾' : '▸'} Error</button>
               <pre class="output-content error-text\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? ' visible' : ''}" id="output-err-\${agent.agent_id}">\${escapeHtml(agent.lastRun.error)}</pre>
             </div>
           \` : ''}
-          \${agent.lastRun?.output ? \`
-            <div class="output-section">
-              <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last session</button>
-              <span style="font-size:11px;color:#888;margin-left:12px">\${agent.lastRun.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''}</span>
-              <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px" title="Open in full view">⛶ Focus</button>
-              \${agent.lastRun.session_id ? \`<button class="output-toggle" onclick="openFocus('\${agent.lastRun.session_id}')" style="margin-left:8px" title="Chat with last session">💬 Chat</button>\` : ''}
-              <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px" title="Email last output">✉ Email</button>
-              <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
+          \${(agent.status === 'running' || agent.lastRun?.output) ? \`
+            <div class="output-section"\${agent.status === 'running' ? ' style="border-left:3px solid #f0883e;"' : ''}>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                \${agent.status === 'running' ? \`
+                  <span class="spinner" style="width:14px;height:14px;"></span>
+                  <span style="color:#f0883e;font-weight:600;font-size:0.85rem;">Latest session</span>
+                  <span style="color:#8b949e;font-size:0.75rem" id="live-status-\${agent.agent_id}">watching...</span>
+                  <span id="live-chat-btn-\${agent.agent_id}"></span>
+                \` : \`
+                  <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Latest session</button>
+                  <span style="font-size:11px;color:#888;margin-left:4px">\${agent.lastRun?.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''}</span>
+                  <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px" title="Open in full view">⛶ Focus</button>
+                  \${agent.lastRun?.session_id ? \`<button class="output-toggle" onclick="openFocus('\${agent.lastRun.session_id}')" style="margin-left:8px" title="Chat with this session">💬 Chat</button>\` : ''}
+                  <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px" title="Email last output">✉ Email</button>
+                \`}
+              </div>
+              \${agent.status === 'running' ? \`
+                <div class="output-content markdown-body visible" id="live-\${agent.agent_id}" style="margin-top:8px;max-height:400px;overflow-y:auto;opacity:0.9;">
+                  <span style="color:#8b949e">Waiting for agent output...</span>
+                </div>
+              \` : \`
+                <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
+              \`}
             </div>
           \` : ''}
         </div>\`;
