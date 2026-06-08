@@ -823,27 +823,41 @@ function readSessionConversation(sessionDir, opts = {}) {
   const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
   const turns = [];
   let currentAssistant = '';
+  let currentSteps = [];
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
       if (ev.type === 'user.message' && ev.data?.content) {
         if (currentAssistant) {
-          if (turns.length > 0) turns[turns.length - 1].assistant = currentAssistant;
+          if (turns.length > 0) {
+            turns[turns.length - 1].assistant = currentAssistant;
+            turns[turns.length - 1].steps = [...currentSteps];
+          }
           currentAssistant = '';
+          currentSteps = [];
         }
-        turns.push({ role: 'user', content: ev.data.content, timestamp: ev.timestamp, assistant: '' });
+        turns.push({ role: 'user', content: ev.data.content, timestamp: ev.timestamp, assistant: '', steps: [] });
       } else if (ev.type === 'assistant.message' && ev.data?.content) {
         currentAssistant = ev.data.content;
-      } else if (ev.type === 'skill.invoked') {
-        // track skill usage
+      } else if (ev.type === 'tool.execution_start' && ev.data) {
+        currentSteps.push({ type: 'tool_start', tool: ev.data.toolName, args: ev.data.arguments, toolCallId: ev.data.toolCallId });
+      } else if (ev.type === 'tool.execution_complete' && ev.data) {
+        const step = currentSteps.find(s => s.toolCallId === ev.data.toolCallId);
+        if (step) {
+          step.type = 'tool';
+          step.success = ev.data.success;
+          step.result = (ev.data.result?.content || '').substring(0, 2000);
+        } else {
+          currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
+        }
       }
     } catch { /* skip malformed lines */ }
   }
   // Assign last assistant response
   if (currentAssistant && turns.length > 0) {
     turns[turns.length - 1].assistant = currentAssistant;
+    turns[turns.length - 1].steps = [...currentSteps];
   }
-  // Build summary from last assistant message
   const lastAssistant = currentAssistant || (turns.length > 0 ? turns[turns.length - 1].assistant : '');
   const summary = lastAssistant.substring(0, 500);
   return { turns, summary };
@@ -946,31 +960,46 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   const eventsPath = path.join(sessionDir, 'events.jsonl');
   if (!fs.existsSync(eventsPath)) return res.json({ turnCount: 0, lastAssistant: '', isActive: false, turns: [] });
   
+  const verbose = req.query.verbose === '1';
   const stat = fs.statSync(eventsPath);
   const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
   let turnCount = 0;
   let lastAssistant = '';
-  let lastEventTime = null;
   const allTurns = [];
   let currentUser = null;
+  let currentSteps = [];
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
       if (ev.type === 'user.message') {
         turnCount++;
         currentUser = ev.data?.content || '';
+        currentSteps = [];
+      }
+      if (verbose && ev.type === 'tool.execution_start' && ev.data) {
+        currentSteps.push({ type: 'tool_start', tool: ev.data.toolName, args: ev.data.arguments, toolCallId: ev.data.toolCallId });
+      }
+      if (verbose && ev.type === 'tool.execution_complete' && ev.data) {
+        const step = currentSteps.find(s => s.toolCallId === ev.data.toolCallId);
+        if (step) {
+          step.type = 'tool';
+          step.success = ev.data.success;
+          step.result = (ev.data.result?.content || '').substring(0, 2000);
+        } else {
+          currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
+        }
       }
       if (ev.type === 'assistant.message' && ev.data?.content) {
         lastAssistant = ev.data.content;
-        allTurns.push({ content: currentUser || '', assistant: ev.data.content });
+        allTurns.push({ content: currentUser || '', assistant: ev.data.content, steps: verbose ? [...currentSteps] : undefined });
         currentUser = null;
+        currentSteps = [];
       }
-      if (ev.timestamp) lastEventTime = ev.timestamp;
     } catch { }
   }
-  // If there's a user message without a response yet, add it
+  // If there's a user message without a response yet, include pending steps
   if (currentUser !== null) {
-    allTurns.push({ content: currentUser, assistant: null });
+    allTurns.push({ content: currentUser, assistant: null, steps: verbose ? [...currentSteps] : undefined });
   }
   const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
   res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns });
@@ -1286,6 +1315,20 @@ function getDashboardHtml() {
       border-top-color: #f78835; border-radius: 50%; animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* Tool steps */
+    .tool-step {
+      margin: 4px 0 4px 16px; padding: 6px 10px; background: #1c2128;
+      border: 1px solid #30363d; border-radius: 6px; font-size: 0.75rem; color: #8b949e;
+    }
+    .tool-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .tool-step-icon { font-size: 0.7rem; }
+    .tool-step-name { color: #d2a8ff; font-weight: 600; font-family: monospace; }
+    .tool-step-desc { color: #8b949e; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+    .tool-step-result { display: none; margin-top: 6px; padding: 6px 8px; background: #0d1117; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.7rem; color: #7ee787; }
+    .tool-step-result.visible { display: block; }
+    .tool-step.pending { border-left: 2px solid #f0883e; }
+    .tool-step.success { border-left: 2px solid #3fb950; }
+    .tool-step.failed { border-left: 2px solid #f85149; }
     /* Focus Modal */
     .focus-overlay {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200;
@@ -1375,6 +1418,10 @@ function getDashboardHtml() {
       <div class="focus-header">
         <h2 id="focusTitle">Session</h2>
         <div class="focus-header-actions">
+          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show tool calls and intermediate steps">
+            <input type="checkbox" id="focusVerbose" onchange="toggleFocusVerbose()" />
+            🔧 Steps
+          </label>
           <button class="btn" onclick="openTerminal(focusSessionId)" title="Open in terminal">&#x1F4BB; Terminal</button>
           <button class="panel-close" onclick="closeFocus()">&times;</button>
         </div>
@@ -2414,13 +2461,38 @@ function getDashboardHtml() {
       return esc(s);
     }
 
-    function buildConvoHtml(turns, containerId) {
+    function renderStepsHtml(steps) {
+      if (!steps || steps.length === 0) return '';
+      let html = '';
+      for (const step of steps) {
+        const statusClass = step.type === 'tool_start' ? 'pending' : (step.success !== false ? 'success' : 'failed');
+        const icon = step.type === 'tool_start' ? '⏳' : (step.success !== false ? '✓' : '✗');
+        const desc = step.args?.description || step.args?.command || step.args?.pattern || step.args?.path || step.args?.query || '';
+        const stepId = 'step-' + Math.random().toString(36).slice(2, 8);
+        html += '<div class="tool-step ' + statusClass + '">' +
+          '<div class="tool-step-header" onclick="document.getElementById(\\\'' + stepId + '\\\').classList.toggle(\\\'visible\\\')">' +
+          '<span class="tool-step-icon">' + icon + '</span>' +
+          '<span class="tool-step-name">' + esc(step.tool || '') + '</span>' +
+          (desc ? '<span class="tool-step-desc">' + esc(desc) + '</span>' : '') +
+          '</div>';
+        if (step.result) {
+          html += '<div class="tool-step-result" id="' + stepId + '">' + esc(step.result) + '</div>';
+        }
+        html += '</div>';
+      }
+      return html;
+    }
+
+    function buildConvoHtml(turns, containerId, showSteps) {
       if (!turns || turns.length === 0) return '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
       let html = '<div class="session-conversation" id="' + containerId + '">';
       for (const turn of turns) {
         html += '<div class="conv-turn">' +
           '<div class="conv-role user">👤 You</div>' +
           '<div class="conv-content">' + esc(turn.content) + '</div></div>';
+        if (showSteps && turn.steps && turn.steps.length > 0) {
+          html += renderStepsHtml(turn.steps);
+        }
         if (turn.assistant) {
           html += '<div class="conv-turn">' +
             '<div class="conv-role assistant">🤖 Agent</div>' +
@@ -2478,16 +2550,35 @@ function getDashboardHtml() {
     let focusSessionData = null;
     let focusPoller = null;
 
+    function isFocusVerbose() {
+      return localStorage.getItem('focusVerbose') === '1';
+    }
+
+    function toggleFocusVerbose() {
+      const checked = document.getElementById('focusVerbose').checked;
+      localStorage.setItem('focusVerbose', checked ? '1' : '0');
+      // Re-render conversation with/without steps
+      if (focusSessionData && focusSessionData.turns) {
+        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo', checked);
+        document.getElementById('focusBody').innerHTML = convoHtml;
+        const convo = document.getElementById('focus-convo');
+        if (convo) convo.scrollTop = convo.scrollHeight;
+      }
+    }
+
     async function openFocus(id) {
       focusSessionId = id;
       document.getElementById('focusOverlay').classList.add('visible');
       document.getElementById('focusBody').innerHTML = '<div style="color:#8b949e;padding:20px">Loading session...</div>';
+      // Restore sticky verbose toggle
+      const verboseCheckbox = document.getElementById('focusVerbose');
+      if (verboseCheckbox) verboseCheckbox.checked = isFocusVerbose();
       try {
         const res = await fetch(\`/api/sessions/\${id}\`);
         focusSessionData = await res.json();
         const agentName = focusSessionData.agentName || focusSessionData.name || id.substring(0,8);
         document.getElementById('focusTitle').textContent = agentName + ' — ' + (focusSessionData.name || '');
-        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo');
+        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo', isFocusVerbose());
         document.getElementById('focusBody').innerHTML = convoHtml;
         const convo = document.getElementById('focus-convo');
         if (convo) convo.scrollTop = convo.scrollHeight;
@@ -2502,21 +2593,30 @@ function getDashboardHtml() {
     function startFocusPolling(sessionId) {
       stopFocusPolling();
       let lastTurnCount = -1;
+      let lastStepCount = -1;
       const poll = async () => {
         if (focusSessionId !== sessionId) return;
+        const verbose = isFocusVerbose();
         try {
-          const res = await fetch(\`/api/sessions/\${sessionId}/poll\`);
+          const res = await fetch(\`/api/sessions/\${sessionId}/poll?verbose=\${verbose ? '1' : '0'}\`);
           const data = await res.json();
           const convo = document.getElementById('focus-convo');
           if (!convo) return;
 
-          // Rebuild conversation if turn count changed
-          if (lastTurnCount >= 0 && data.turns && data.turns.length !== lastTurnCount) {
+          // Count total steps to detect intermediate changes
+          const totalSteps = (data.turns || []).reduce((sum, t) => sum + (t.steps ? t.steps.length : 0), 0);
+          const turnCount = data.turns ? data.turns.length : 0;
+          const changed = (lastTurnCount >= 0 && turnCount !== lastTurnCount) || (verbose && totalSteps !== lastStepCount);
+
+          if (changed) {
             const wasAtBottom = (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40;
             let html = '';
             for (const turn of data.turns) {
               html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
                 '<div class="conv-content">' + esc(turn.content) + '</div></div>';
+              if (verbose && turn.steps && turn.steps.length > 0) {
+                html += renderStepsHtml(turn.steps);
+              }
               if (turn.assistant) {
                 html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
                   '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
@@ -2527,8 +2627,11 @@ function getDashboardHtml() {
             }
             convo.innerHTML = html;
             if (wasAtBottom) convo.scrollTop = convo.scrollHeight;
+            // Update cached data for toggle re-renders
+            focusSessionData = { ...focusSessionData, turns: data.turns };
           }
-          lastTurnCount = data.turns ? data.turns.length : lastTurnCount;
+          lastTurnCount = turnCount;
+          lastStepCount = totalSteps;
 
           // Update status indicator
           const status = document.getElementById('focusChatStatus');
@@ -2544,7 +2647,6 @@ function getDashboardHtml() {
           if (data.isActive) {
             focusPoller = setTimeout(poll, 2000);
           } else {
-            // Do one final refresh after session stops
             focusPoller = null;
           }
         } catch {
