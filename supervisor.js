@@ -201,31 +201,37 @@ class Supervisor extends EventEmitter {
       entry.process = null;
       const finishedAt = new Date().toISOString();
 
-      // Try to get full output from session events (all assistant messages)
-      let fullOutput = this._getSessionOutput(config) || stdout;
+      // Small delay to let session state flush to disk before reading
+      setTimeout(() => {
+        // Try to get full output from session events (all assistant messages)
+        let fullOutput = this._getSessionOutput(config) || stdout;
+        if (fullOutput === stdout && stdout.length < 200) {
+          console.log(`[supervisor] Warning: "${config.name}" session output not found, using stdout (${stdout.length} chars)`);
+        }
 
-      // Store result
-      this.db.prepare(
-        'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000));
+        // Store result
+        this.db.prepare(
+          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000));
 
-      // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
-      let status;
-      if (code !== 0) status = 'error';
-      else if (entry.cronJob || entry.timer) status = 'scheduled';
-      else status = 'idle';
-      this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
+        // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
+        let status;
+        if (code !== 0) status = 'error';
+        else if (entry.cronJob || entry.timer) status = 'scheduled';
+        else status = 'idle';
+        this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
 
-      this.emit('agent-completed', { agentId, code, output: stdout, error: stderr });
-      console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
+        this.emit('agent-completed', { agentId, code, output: fullOutput, error: stderr });
+        console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
 
-      // Durable restart on failure
-      if (code !== 0 && config.durable) {
-        console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
-      }
+        // Durable restart on failure
+        if (code !== 0 && config.durable) {
+          console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
+        }
 
-      // Fire conditional triggers with output context
-      this._fireTriggers(agentId, code, stdout, triggerContext);
+        // Fire conditional triggers with output context
+        this._fireTriggers(agentId, code, fullOutput, triggerContext);
+      }, 1000); // 1s delay to let session state flush
     });
 
     proc.on('error', (err) => {
@@ -253,7 +259,7 @@ class Supervisor extends EventEmitter {
   }
 
   _getSessionOutput(config) {
-    // Find the most recent session for this agent and extract all assistant messages
+    // Find the most recent session for this agent and extract the full conversation
     const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
     if (!fs.existsSync(SESSION_STATE_DIR)) return '';
     try {
@@ -269,7 +275,8 @@ class Supervisor extends EventEmitter {
         const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
         // Check if this session matches our agent
         let isMatch = false;
-        const assistantMessages = [];
+        const turns = [];
+        let currentRole = null;
         for (const line of lines) {
           try {
             const ev = JSON.parse(line);
@@ -280,14 +287,24 @@ class Supervisor extends EventEmitter {
                 isMatch = true;
               }
             }
+            if (ev.type === 'user.message' && ev.data?.content) {
+              turns.push({ role: 'user', content: ev.data.content });
+            }
             if (ev.type === 'assistant.message' && ev.data?.content) {
-              assistantMessages.push(ev.data.content);
+              turns.push({ role: 'assistant', content: ev.data.content });
             }
           } catch { }
         }
-        if (isMatch && assistantMessages.length > 0) {
-          // Return all assistant messages joined (the full conversation output)
-          return assistantMessages.join('\n\n---\n\n');
+        if (isMatch && turns.length > 0) {
+          // Format as a readable conversation, prioritizing assistant messages
+          const parts = [];
+          for (const turn of turns) {
+            if (turn.role === 'assistant') {
+              parts.push(turn.content);
+            }
+          }
+          // Return all assistant messages (the useful output)
+          return parts.join('\n\n---\n\n');
         }
       }
     } catch (e) {
