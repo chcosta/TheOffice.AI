@@ -890,6 +890,31 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   }
 });
 
+// Poll a session for latest state (turn count + last assistant message)
+app.get('/api/sessions/:id/poll', (req, res) => {
+  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
+  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+  const eventsPath = path.join(sessionDir, 'events.jsonl');
+  if (!fs.existsSync(eventsPath)) return res.json({ turnCount: 0, lastAssistant: '', isActive: false });
+  
+  const stat = fs.statSync(eventsPath);
+  const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
+  let turnCount = 0;
+  let lastAssistant = '';
+  let lastEventTime = null;
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line);
+      if (ev.type === 'user.message') turnCount++;
+      if (ev.type === 'assistant.message' && ev.data?.content) lastAssistant = ev.data.content;
+      if (ev.timestamp) lastEventTime = ev.timestamp;
+    } catch { }
+  }
+  // Consider session "active" if events file was modified within last 30 seconds
+  const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
+  res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString() });
+});
+
 app.post('/api/sessions/:id/terminal', (req, res) => {
   const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
@@ -2409,6 +2434,8 @@ function getDashboardHtml() {
         }
         status.innerHTML = '';
         if (convo) convo.scrollTop = convo.scrollHeight;
+        // Start polling for continued activity
+        pollSessionUpdates(focusSessionId, 'focus-pending', 'focus-convo', data.response);
       } catch (e) {
         const pending = document.getElementById('focus-pending');
         if (pending) pending.remove();
@@ -2487,6 +2514,8 @@ function getDashboardHtml() {
         }
         status.innerHTML = '';
         if (convo) convo.scrollTop = convo.scrollHeight;
+        // Start polling for continued activity
+        pollSessionUpdates(id, \`pending-response-\${id}\`, \`convo-\${id}\`, data.response);
       } catch (e) {
         const pending = document.getElementById(\`pending-response-\${id}\`);
         if (pending) pending.remove();
@@ -2494,6 +2523,45 @@ function getDashboardHtml() {
       }
       input.disabled = false;
       input.focus();
+    }
+
+    // Poll session for continued agent activity after sending a chat
+    async function pollSessionUpdates(sessionId, pendingElId, convoElId, initialResponse) {
+      let lastContent = initialResponse;
+      let pollCount = 0;
+      const maxPolls = 30; // poll for up to ~60 seconds
+      const pollInterval = 2000;
+
+      const poll = async () => {
+        if (pollCount++ >= maxPolls) return;
+        try {
+          const res = await fetch(\`/api/sessions/\${sessionId}/poll\`);
+          const data = await res.json();
+          if (data.lastAssistant && data.lastAssistant !== lastContent) {
+            lastContent = data.lastAssistant;
+            const pending = document.getElementById(pendingElId);
+            if (pending) {
+              pending.innerHTML = '<div class="conv-role assistant">🤖 Agent</div>' +
+                '<div class="conv-content assistant-content">' + renderMd(lastContent) + '</div>';
+              const convo = document.getElementById(convoElId);
+              if (convo) convo.scrollTop = convo.scrollHeight;
+            }
+          }
+          if (data.isActive) {
+            // Session is still being written to — keep polling
+            const pending = document.getElementById(pendingElId);
+            if (pending && !pending.querySelector('.poll-indicator')) {
+              pending.querySelector('.conv-content')?.insertAdjacentHTML('beforeend',
+                '<span class="poll-indicator" style="display:inline-block;margin-left:8px;color:#8b949e;font-size:0.75rem">⏳ agent still working...</span>');
+            }
+            setTimeout(poll, pollInterval);
+          } else {
+            // Session stopped updating — remove indicator
+            document.querySelectorAll('.poll-indicator').forEach(el => el.remove());
+          }
+        } catch { /* stop polling on error */ }
+      };
+      setTimeout(poll, pollInterval);
     }
 
     refresh();
