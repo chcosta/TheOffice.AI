@@ -1548,7 +1548,9 @@ function getDashboardHtml() {
       // Save live output content so it's not reset by re-render
       const liveOutputCache = new Map();
       document.querySelectorAll('[id^="live-"]').forEach(el => {
-        if (el.innerHTML && !el.innerHTML.includes('Waiting for agent')) {
+        if (el.id.startsWith('live-chat-btn-')) {
+          if (el.innerHTML) liveOutputCache.set(el.id, el.innerHTML);
+        } else if (el.innerHTML && !el.innerHTML.includes('Waiting for agent')) {
           liveOutputCache.set(el.id, el.innerHTML);
         }
       });
@@ -1594,19 +1596,19 @@ function getDashboardHtml() {
           </div>\`;
       }).join('');
 
-      // Restore scroll positions of output divs
-      scrollPositions.forEach((scrollTop, id) => {
-        const el = document.getElementById(id);
-        if (el) el.scrollTop = scrollTop;
-      });
-
-      // Restore live output content
+      // Restore live output content first (before scroll restore)
       liveOutputCache.forEach((content, id) => {
         const el = document.getElementById(id);
         if (el) {
           if (id.startsWith('live-status-')) el.textContent = content;
           else el.innerHTML = content;
         }
+      });
+
+      // Restore scroll positions of output divs (including live output)
+      scrollPositions.forEach((scrollTop, id) => {
+        const el = document.getElementById(id);
+        if (el) el.scrollTop = scrollTop;
       });
     }
 
