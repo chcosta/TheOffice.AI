@@ -900,24 +900,62 @@ function readSessionConversation(sessionDir, opts = {}) {
   let currentAssistant = '';
   let currentSteps = [];
   let subTurnCount = 0;
+  let currentModel = null;
+  let sessionMeta = null;
+  let tokenStats = null;
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
+      if (ev.type === 'session.start' && ev.data) {
+        sessionMeta = {
+          cwd: ev.data.context?.cwd,
+          branch: ev.data.context?.branch,
+          repo: ev.data.context?.repository,
+          agent: ev.data.context?.agentName,
+          copilotVersion: ev.data.copilotVersion
+        };
+      }
+      if (ev.type === 'session.resume' && ev.data) {
+        if (!sessionMeta) sessionMeta = {};
+        sessionMeta.cwd = sessionMeta.cwd || ev.data.context?.cwd;
+        sessionMeta.branch = sessionMeta.branch || ev.data.context?.branch;
+        sessionMeta.repo = sessionMeta.repo || ev.data.context?.repository;
+      }
+      if (ev.type === 'subagent.selected' && ev.data) {
+        if (!sessionMeta) sessionMeta = {};
+        sessionMeta.agent = ev.data.agentDisplayName || ev.data.agentName;
+      }
+      if (ev.type === 'session.model_change' && ev.data) {
+        currentModel = ev.data.newModel;
+      }
+      if (ev.type === 'session.shutdown' && ev.data) {
+        tokenStats = {
+          premiumRequests: ev.data.totalPremiumRequests,
+          apiDurationMs: ev.data.totalApiDurationMs,
+          input: ev.data.tokenDetails?.input?.tokenCount || 0,
+          cacheRead: ev.data.tokenDetails?.cache_read?.tokenCount || 0,
+          cacheWrite: ev.data.tokenDetails?.cache_write?.tokenCount || 0,
+          output: ev.data.tokenDetails?.output?.tokenCount || 0,
+          linesAdded: ev.data.codeChanges?.linesAdded,
+          linesRemoved: ev.data.codeChanges?.linesRemoved
+        };
+      }
       if (ev.type === 'user.message' && ev.data?.content) {
         if (currentAssistant) {
           if (turns.length > 0) {
             turns[turns.length - 1].assistant = currentAssistant;
+            turns[turns.length - 1].model = currentModel;
             turns[turns.length - 1].steps = [...currentSteps];
           }
           currentAssistant = '';
           currentSteps = [];
         }
         subTurnCount = 0;
-        turns.push({ role: 'user', content: ev.data.content, timestamp: ev.timestamp, assistant: '', steps: [] });
+        turns.push({ role: 'user', content: ev.data.content, timestamp: ev.timestamp, assistant: '', model: null, steps: [] });
       } else if (ev.type === 'assistant.turn_start') {
         subTurnCount++;
       } else if (ev.type === 'assistant.message' && ev.data?.content) {
-        // If there are prior steps, this is an intermediate comment
+        if (ev.data.model) currentModel = ev.data.model;
         if (subTurnCount > 1 || currentSteps.length > 0) {
           currentSteps.push({ type: 'comment', content: ev.data.content });
         }
@@ -930,6 +968,7 @@ function readSessionConversation(sessionDir, opts = {}) {
           step.type = 'tool';
           step.success = ev.data.success;
           step.result = (ev.data.result?.content || '').substring(0, 2000);
+          if (ev.data.result?.detailedContent) step.detail = ev.data.result.detailedContent.substring(0, 500);
         } else {
           currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
         }
@@ -939,6 +978,7 @@ function readSessionConversation(sessionDir, opts = {}) {
   // Assign last assistant response
   if (currentAssistant && turns.length > 0) {
     turns[turns.length - 1].assistant = currentAssistant;
+    turns[turns.length - 1].model = currentModel;
     turns[turns.length - 1].steps = [...currentSteps];
   }
   // Remove duplicate: if last step is a comment matching the final assistant response
@@ -952,7 +992,7 @@ function readSessionConversation(sessionDir, opts = {}) {
   }
   const lastAssistant = currentAssistant || (turns.length > 0 ? turns[turns.length - 1].assistant : '');
   const summary = lastAssistant.substring(0, 500);
-  return { turns, summary };
+  return { turns, summary, sessionMeta, tokenStats };
 }
 
 app.get('/api/sessions', (req, res) => {
@@ -1073,13 +1113,54 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   let currentSteps = [];
   let subTurnCount = 0; // track assistant sub-turns within a user turn
   let lastAssistantMsg = '';
+  let currentModel = null; // track model per assistant message
+  // Session-level metadata (verbose only)
+  let sessionMeta = null;
+  let tokenStats = null;
+  let modelChanges = [];
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
+      if (verbose && ev.type === 'session.start' && ev.data) {
+        sessionMeta = {
+          cwd: ev.data.context?.cwd,
+          branch: ev.data.context?.branch,
+          repo: ev.data.context?.repository,
+          agent: ev.data.context?.agentName,
+          copilotVersion: ev.data.copilotVersion
+        };
+      }
+      if (verbose && ev.type === 'session.resume' && ev.data) {
+        // Update meta on resume if not set
+        if (!sessionMeta) sessionMeta = {};
+        sessionMeta.cwd = sessionMeta.cwd || ev.data.context?.cwd;
+        sessionMeta.branch = sessionMeta.branch || ev.data.context?.branch;
+        sessionMeta.repo = sessionMeta.repo || ev.data.context?.repository;
+      }
+      if (verbose && ev.type === 'subagent.selected' && ev.data) {
+        if (!sessionMeta) sessionMeta = {};
+        sessionMeta.agent = ev.data.agentDisplayName || ev.data.agentName;
+      }
+      if (verbose && ev.type === 'session.model_change' && ev.data) {
+        currentModel = ev.data.newModel;
+        modelChanges.push(ev.data.newModel);
+      }
+      if (verbose && ev.type === 'session.shutdown' && ev.data) {
+        tokenStats = {
+          premiumRequests: ev.data.totalPremiumRequests,
+          apiDurationMs: ev.data.totalApiDurationMs,
+          input: ev.data.tokenDetails?.input?.tokenCount || 0,
+          cacheRead: ev.data.tokenDetails?.cache_read?.tokenCount || 0,
+          cacheWrite: ev.data.tokenDetails?.cache_write?.tokenCount || 0,
+          output: ev.data.tokenDetails?.output?.tokenCount || 0,
+          linesAdded: ev.data.codeChanges?.linesAdded,
+          linesRemoved: ev.data.codeChanges?.linesRemoved
+        };
+      }
       if (ev.type === 'user.message') {
         // Flush previous turn
         if (currentUser !== null || lastAssistantMsg) {
-          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, steps: verbose ? [...currentSteps] : undefined });
+          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
         }
         turnCount++;
         currentUser = ev.data?.content || '';
@@ -1090,13 +1171,15 @@ app.get('/api/sessions/:id/poll', (req, res) => {
       if (ev.type === 'assistant.turn_start') {
         subTurnCount++;
       }
-      if (verbose && ev.type === 'assistant.message' && ev.data?.content) {
-        // If this is not the first sub-turn and there are prior steps, it's an intermediate comment
-        if (subTurnCount > 1 || currentSteps.length > 0) {
-          currentSteps.push({ type: 'comment', content: ev.data.content });
+      if (verbose && ev.type === 'assistant.message') {
+        if (ev.data?.model) currentModel = ev.data.model;
+        if (ev.data?.content) {
+          if (subTurnCount > 1 || currentSteps.length > 0) {
+            currentSteps.push({ type: 'comment', content: ev.data.content });
+          }
+          lastAssistantMsg = ev.data.content;
+          lastAssistant = ev.data.content;
         }
-        lastAssistantMsg = ev.data.content;
-        lastAssistant = ev.data.content;
       }
       if (!verbose && ev.type === 'assistant.message' && ev.data?.content) {
         lastAssistantMsg = ev.data.content;
@@ -1111,6 +1194,7 @@ app.get('/api/sessions/:id/poll', (req, res) => {
           step.type = 'tool';
           step.success = ev.data.success;
           step.result = (ev.data.result?.content || '').substring(0, 2000);
+          if (ev.data.result?.detailedContent) step.detail = ev.data.result.detailedContent.substring(0, 500);
         } else {
           currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
         }
@@ -1119,7 +1203,7 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   }
   // Flush last turn
   if (currentUser !== null || lastAssistantMsg) {
-    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, steps: verbose ? [...currentSteps] : undefined });
+    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
   }
   // Remove duplicate: if last step is a comment matching the final assistant response, drop it
   if (verbose) {
@@ -1136,9 +1220,12 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   // Include any chat error for this session
   const chatErr = chatErrors.get(req.params.id);
   const response = { turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns };
+  if (verbose) {
+    if (sessionMeta) response.sessionMeta = sessionMeta;
+    if (tokenStats) response.tokenStats = tokenStats;
+  }
   if (chatErr) {
     response.chatError = chatErr.error;
-    // Clear after delivering so it only shows once
     chatErrors.delete(req.params.id);
   }
   res.json(response);
@@ -1468,6 +1555,30 @@ function getDashboardHtml() {
     .tool-step.pending { border-left: 2px solid #f0883e; }
     .tool-step.success { border-left: 2px solid #3fb950; }
     .tool-step.failed { border-left: 2px solid #f85149; }
+    /* Session metadata banner */
+    .session-meta-banner {
+      display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; margin-bottom: 10px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      font-size: 0.72rem; color: #8b949e;
+    }
+    .session-meta-banner .meta-item { display: flex; align-items: center; gap: 4px; }
+    .session-meta-banner .meta-label { color: #6e7681; font-weight: 600; text-transform: uppercase; font-size: 0.65rem; }
+    .session-meta-banner .meta-value { color: #c9d1d9; font-family: monospace; }
+    /* Token stats footer */
+    .session-token-stats {
+      display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; margin-top: 10px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      font-size: 0.72rem; color: #8b949e;
+    }
+    .session-token-stats .stat-item { display: flex; align-items: center; gap: 4px; }
+    .session-token-stats .stat-value { color: #d2a8ff; font-weight: 600; font-family: monospace; }
+    .session-token-stats .stat-label { color: #6e7681; }
+    /* Model badge */
+    .model-badge {
+      display: inline-block; font-size: 0.6rem; color: #8b949e; background: #21262d;
+      border: 1px solid #30363d; border-radius: 4px; padding: 1px 6px; margin-left: 8px;
+      font-family: monospace; vertical-align: middle;
+    }
     /* Focus Modal */
     .focus-email-menu {
       display: none; position: absolute; top: 100%; right: 0; z-index: 300;
@@ -2618,6 +2729,39 @@ function getDashboardHtml() {
       return esc(s);
     }
 
+    function renderSessionMetaBanner(meta) {
+      if (!meta) return '';
+      let items = '';
+      if (meta.agent) items += '<span class="meta-item"><span class="meta-label">Agent</span><span class="meta-value">' + esc(meta.agent) + '</span></span>';
+      if (meta.repo) items += '<span class="meta-item"><span class="meta-label">Repo</span><span class="meta-value">' + esc(meta.repo) + '</span></span>';
+      if (meta.branch) items += '<span class="meta-item"><span class="meta-label">Branch</span><span class="meta-value">' + esc(meta.branch) + '</span></span>';
+      if (meta.cwd) items += '<span class="meta-item"><span class="meta-label">CWD</span><span class="meta-value">' + esc(meta.cwd) + '</span></span>';
+      if (meta.copilotVersion) items += '<span class="meta-item"><span class="meta-label">Version</span><span class="meta-value">' + esc(meta.copilotVersion) + '</span></span>';
+      return items ? '<div class="session-meta-banner">' + items + '</div>' : '';
+    }
+
+    function renderTokenStats(stats) {
+      if (!stats) return '';
+      const totalTokens = (stats.input || 0) + (stats.output || 0) + (stats.cacheRead || 0) + (stats.cacheWrite || 0);
+      let items = '';
+      if (stats.premiumRequests != null) items += '<span class="stat-item"><span class="stat-value">' + stats.premiumRequests + '</span><span class="stat-label">requests</span></span>';
+      if (totalTokens > 0) items += '<span class="stat-item"><span class="stat-value">' + totalTokens.toLocaleString() + '</span><span class="stat-label">tokens</span></span>';
+      if (stats.input) items += '<span class="stat-item"><span class="stat-value">' + stats.input.toLocaleString() + '</span><span class="stat-label">in</span></span>';
+      if (stats.output) items += '<span class="stat-item"><span class="stat-value">' + stats.output.toLocaleString() + '</span><span class="stat-label">out</span></span>';
+      if (stats.cacheRead) items += '<span class="stat-item"><span class="stat-value">' + stats.cacheRead.toLocaleString() + '</span><span class="stat-label">cache read</span></span>';
+      if (stats.apiDurationMs != null) items += '<span class="stat-item"><span class="stat-value">' + (stats.apiDurationMs / 1000).toFixed(1) + 's</span><span class="stat-label">API time</span></span>';
+      if (stats.linesAdded != null || stats.linesRemoved != null) {
+        const added = stats.linesAdded || 0, removed = stats.linesRemoved || 0;
+        if (added || removed) items += '<span class="stat-item"><span class="stat-value" style="color:#3fb950">+' + added + '</span><span class="stat-value" style="color:#f85149;margin-left:2px">-' + removed + '</span><span class="stat-label">lines</span></span>';
+      }
+      return items ? '<div class="session-token-stats">' + items + '</div>' : '';
+    }
+
+    function renderModelBadge(model) {
+      if (!model) return '';
+      return '<span class="model-badge">' + esc(model) + '</span>';
+    }
+
     function renderStepsHtml(steps) {
       if (!steps || steps.length === 0) return '';
       let html = '';
@@ -2648,9 +2792,10 @@ function getDashboardHtml() {
       return html;
     }
 
-    function buildConvoHtml(turns, containerId, showSteps) {
+    function buildConvoHtml(turns, containerId, showSteps, sessionMeta, tokenStats) {
       if (!turns || turns.length === 0) return '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
       let html = '<div class="session-conversation" id="' + containerId + '">';
+      if (showSteps && sessionMeta) html += renderSessionMetaBanner(sessionMeta);
       for (const turn of turns) {
         html += '<div class="conv-turn">' +
           '<div class="conv-role user">👤 You</div>' +
@@ -2660,10 +2805,11 @@ function getDashboardHtml() {
         }
         if (turn.assistant) {
           html += '<div class="conv-turn">' +
-            '<div class="conv-role assistant">🤖 Agent</div>' +
+            '<div class="conv-role assistant">🤖 Agent' + (showSteps ? renderModelBadge(turn.model) : '') + '</div>' +
             '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
         }
       }
+      if (showSteps && tokenStats) html += renderTokenStats(tokenStats);
       html += '</div>';
       return html;
     }
@@ -2726,7 +2872,7 @@ function getDashboardHtml() {
       localStorage.setItem('focusVerbose', checked ? '1' : '0');
       // Re-render conversation with/without steps
       if (focusSessionData && focusSessionData.turns) {
-        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo', checked);
+        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo', checked, focusSessionData.sessionMeta, focusSessionData.tokenStats);
         document.getElementById('focusBody').innerHTML = convoHtml;
         const convo = document.getElementById('focus-convo');
         if (convo) convo.scrollTop = convo.scrollHeight;
@@ -2792,6 +2938,10 @@ function getDashboardHtml() {
           if (changed) {
             const wasAtBottom = (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40;
             let html = '';
+            // Session metadata banner (verbose only)
+            if (verbose && data.sessionMeta) {
+              html += renderSessionMetaBanner(data.sessionMeta);
+            }
             for (const turn of data.turns) {
               html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
                 '<div class="conv-content">' + esc(turn.content) + '</div></div>';
@@ -2799,17 +2949,23 @@ function getDashboardHtml() {
                 html += renderStepsHtml(turn.steps);
               }
               if (turn.assistant) {
-                html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
+                html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent' +
+                  (verbose ? renderModelBadge(turn.model) : '') +
+                  '</div>' +
                   '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
               } else {
                 html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
                   '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
               }
             }
+            // Token stats footer (verbose, completed sessions only)
+            if (verbose && data.tokenStats) {
+              html += renderTokenStats(data.tokenStats);
+            }
             convo.innerHTML = html;
             if (wasAtBottom) convo.scrollTop = convo.scrollHeight;
             // Update cached data for toggle re-renders
-            focusSessionData = { ...focusSessionData, turns: data.turns };
+            focusSessionData = { ...focusSessionData, turns: data.turns, sessionMeta: data.sessionMeta, tokenStats: data.tokenStats };
           }
           lastTurnCount = turnCount;
           lastStepCount = totalSteps;
@@ -2941,10 +3097,11 @@ function getDashboardHtml() {
         const res = await fetch(\`/api/sessions/\${focusSessionId}/poll?verbose=\${verbose ? '1' : '0'}\`);
         const data = await res.json();
         if (!data.turns || data.turns.length === 0) return;
-        focusSessionData = { ...focusSessionData, turns: data.turns };
+        focusSessionData = { ...focusSessionData, turns: data.turns, sessionMeta: data.sessionMeta, tokenStats: data.tokenStats };
         const convo = document.getElementById('focus-convo');
         if (!convo) return;
         let html = '';
+        if (verbose && data.sessionMeta) html += renderSessionMetaBanner(data.sessionMeta);
         for (const turn of data.turns) {
           html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
             '<div class="conv-content">' + esc(turn.content) + '</div></div>';
@@ -2952,10 +3109,12 @@ function getDashboardHtml() {
             html += renderStepsHtml(turn.steps);
           }
           if (turn.assistant) {
-            html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
+            html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent' +
+              (verbose ? renderModelBadge(turn.model) : '') + '</div>' +
               '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
           }
         }
+        if (verbose && data.tokenStats) html += renderTokenStats(data.tokenStats);
         convo.innerHTML = html;
         convo.scrollTop = convo.scrollHeight;
       } catch {}
