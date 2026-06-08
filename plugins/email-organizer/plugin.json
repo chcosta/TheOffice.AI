@@ -1,0 +1,6 @@
+{
+  "name": "email-organizer",
+  "agents": "agents/",
+  "skills": "skills/",
+  "mcpServers": ".mcp.json"
+}

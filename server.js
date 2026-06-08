@@ -1386,7 +1386,7 @@ function getDashboardHtml() {
     .output-content.markdown-body { white-space: normal; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
     .output-content.visible { display: block; }
     .error-text { border-color: #f8514966; color: #f85149; }
-    .triggers-section { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .triggers-section { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-left: 8px; padding: 6px 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
     .trigger-badge {
       display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
       border-radius: 12px; font-size: 0.75rem; font-weight: 500;
@@ -2005,8 +2005,8 @@ function getDashboardHtml() {
                 </div>
               </div>
             \`}
+            \${renderTriggers(agent, agents)}
           </div>
-          \${renderTriggers(agent, agents)}
           \${agent.lastRun?.error ? \`
             <div class="output-section error-output">
               <button class="output-toggle" onclick="toggleOutput('err-\${agent.agent_id}')">\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? '▾' : '▸'} Error</button>
@@ -2079,12 +2079,13 @@ function getDashboardHtml() {
       const currentComplete = (Array.isArray(triggers.onComplete) ? triggers.onComplete : triggers.onComplete ? [triggers.onComplete] : []).join(', ');
 
       return \`
+        <div style="display:inline-flex;flex-direction:column;position:relative;">
         <div class="triggers-section">
           <span class="trigger-label">Triggers:</span>
           \${badges.length > 0 ? badges.join('') : '<span style="color:#8b949e;font-size:0.75rem">none</span>'}
           <button class="btn" style="padding:2px 8px;font-size:0.7rem" onclick="toggleOutput('\${editId}')">✎ Edit</button>
         </div>
-        <div class="trigger-editor\${isEditing ? ' visible' : ''}" id="output-\${editId}">
+        <div class="trigger-editor\${isEditing ? ' visible' : ''}" id="output-\${editId}" style="position:absolute;top:100%;left:0;z-index:50;min-width:340px;">
           <div class="trigger-row">
             <span class="trigger-badge trigger-success" style="min-width:70px">✓ Success</span>
             <select class="trigger-input" id="trig-success-\${agent.agent_id}" multiple>
@@ -2111,6 +2112,7 @@ function getDashboardHtml() {
           </div>
           <button class="btn btn-primary" style="margin-top:6px" onclick="saveTriggers('\${agent.agent_id}')">Save</button>
           <button class="btn btn-danger" style="margin-top:6px" onclick="clearTriggers('\${agent.agent_id}')">Clear All</button>
+        </div>
         </div>\`;
     }
 
