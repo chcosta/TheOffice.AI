@@ -1034,7 +1034,7 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   const { spawn } = require('child_process');
   const proc = spawn(copilotCmd, [
     `--resume=${req.params.id}`, '-p', message, '-s', '--yolo'
-  ], { cwd: meta.cwd || undefined, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { cwd: meta.cwd || undefined, shell: true, stdio: ['ignore', 'ignore', 'pipe'] });
   proc.stderr.on('data', d => console.error(`[chat] stderr: ${d}`));
   proc.on('error', e => console.error(`[chat] spawn error: ${e.message}`));
   proc.on('close', code => console.log(`[chat] session ${req.params.id.substring(0,8)} exited (${code})`));
