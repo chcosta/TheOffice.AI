@@ -1083,7 +1083,8 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   const escapedMsg = message.replace(/"/g, '\\"');
   const { spawn } = require('child_process');
   const cmd = `${copilotCmd} --resume=${req.params.id} -p "${escapedMsg}" -s --yolo`;
-  const proc = spawn(cmd, [], { cwd: meta.cwd || undefined, shell: true, stdio: ['ignore', 'ignore', 'pipe'] });
+  const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
+  const proc = spawn(cmd, [], { cwd: meta.cwd || undefined, shell: shellPath, stdio: ['ignore', 'ignore', 'pipe'] });
   let stderrBuf = '';
   proc.stderr.on('data', d => { stderrBuf += d; console.error(`[chat] stderr: ${d}`); });
   proc.on('error', e => {

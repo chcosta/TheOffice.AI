@@ -189,10 +189,12 @@ class Supervisor extends EventEmitter {
     console.log(`[supervisor] Command: ${cmdLine}`);
 
     // On Windows, shell:true is required to spawn .cmd shims
+    // Use explicit shell path to work under service accounts with restricted PATH
+    const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
     const proc = spawn(cmdLine, [], {
       cwd: config.cwd,
-      shell: true,
-      env: { ...process.env },
+      shell: shellPath,
+      env: { ...process.env, PATH: process.env.PATH || 'C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem' },
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
