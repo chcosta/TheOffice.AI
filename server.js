@@ -2907,6 +2907,8 @@ function getDashboardHtml() {
       stopFocusPolling();
       let lastTurnCount = -1;
       let lastStepCount = -1;
+      let lastWasPending = false; // was last turn missing assistant response?
+      let lastTokenStats = false; // did we have token stats last poll?
       const poll = async () => {
         if (focusSessionId !== sessionId) return;
         const verbose = isFocusVerbose();
@@ -2923,8 +2925,7 @@ function getDashboardHtml() {
           // Don't rebuild if poll has fewer turns than expected (event not written yet)
           if (turnCount < focusMinTurns) {
             // Chat was sent but user.message not yet in events — keep polling
-            if (data.isActive || focusChatPending) focusPoller = setTimeout(poll, 1000);
-            else focusPoller = setTimeout(poll, 1000);
+            focusPoller = setTimeout(poll, 1000);
             return;
           }
           // User message appeared — clear chat pending
@@ -2932,8 +2933,16 @@ function getDashboardHtml() {
             focusChatPending = false;
           }
 
+          // Detect changes: turn count, step count, pending→complete transition, new token stats
+          const lastTurn = data.turns && data.turns.length > 0 ? data.turns[data.turns.length - 1] : null;
+          const currentlyPending = lastTurn && !lastTurn.assistant;
+          const hasTokenStats = !!data.tokenStats;
           const isFirstPoll = lastTurnCount < 0;
-          const changed = isFirstPoll || turnCount !== lastTurnCount || (verbose && totalSteps !== lastStepCount);
+          const changed = isFirstPoll
+            || turnCount !== lastTurnCount
+            || (verbose && totalSteps !== lastStepCount)
+            || (lastWasPending && !currentlyPending)  // response just arrived
+            || (verbose && hasTokenStats !== lastTokenStats);  // session just finished
 
           if (changed) {
             const wasAtBottom = (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40;
@@ -2967,8 +2976,6 @@ function getDashboardHtml() {
             // Update cached data for toggle re-renders
             focusSessionData = { ...focusSessionData, turns: data.turns, sessionMeta: data.sessionMeta, tokenStats: data.tokenStats };
           }
-          lastTurnCount = turnCount;
-          lastStepCount = totalSteps;
 
           // Show chat errors from the server
           if (data.chatError) {
@@ -2986,16 +2993,14 @@ function getDashboardHtml() {
             focusPoller = null;
             const status = document.getElementById('focusChatStatus');
             if (status) { const ind = status.querySelector('.focus-live-indicator'); if (ind) ind.remove(); }
+            lastTurnCount = turnCount; lastStepCount = totalSteps;
+            lastWasPending = currentlyPending; lastTokenStats = hasTokenStats;
             return;
           }
 
-          // Check if the last turn is still pending (no assistant response)
-          const lastTurn = data.turns && data.turns.length > 0 ? data.turns[data.turns.length - 1] : null;
-          const hasPendingTurn = lastTurn && !lastTurn.assistant;
-
           // Update status indicator
           const status = document.getElementById('focusChatStatus');
-          if ((data.isActive || hasPendingTurn) && status) {
+          if ((data.isActive || currentlyPending) && status) {
             if (!status.querySelector('.focus-live-indicator')) {
               status.innerHTML = '<span class="focus-live-indicator" style="color:#f0883e;font-size:0.8rem"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Session is active — updating live</span>';
             }
@@ -3004,12 +3009,20 @@ function getDashboardHtml() {
             if (indicator) indicator.remove();
           }
 
-          // Keep polling if session is active, last turn has no response, or chat was just sent
-          if (data.isActive || hasPendingTurn || focusChatPending) {
+          // Keep polling if session is active, last turn has no response, chat pending,
+          // or we just got the response but haven't seen token stats yet (session.shutdown pending)
+          const needsMorePolls = (lastWasPending && !currentlyPending && verbose && !hasTokenStats);
+          if (data.isActive || currentlyPending || focusChatPending || needsMorePolls) {
             focusPoller = setTimeout(poll, 2000);
           } else {
             focusPoller = null;
           }
+
+          // Update tracking AFTER keep-polling decision
+          lastTurnCount = turnCount;
+          lastStepCount = totalSteps;
+          lastWasPending = currentlyPending;
+          lastTokenStats = hasTokenStats;
         } catch {
           focusPoller = null;
         }
