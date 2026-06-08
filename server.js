@@ -1414,6 +1414,19 @@ function getDashboardHtml() {
       return Math.floor(diff / 3600000) + 'h ' + Math.round((diff % 3600000) / 60000) + 'm';
     }
 
+    function formatRunTimestamp(startedAt, finishedAt) {
+      if (!startedAt) return '';
+      const start = new Date(startedAt);
+      const timeStr = start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (!finishedAt) return \`⏱ Started \${timeStr} (running…)\`;
+      const durationMs = new Date(finishedAt).getTime() - start.getTime();
+      let durStr;
+      if (durationMs < 60000) durStr = Math.round(durationMs / 1000) + 's';
+      else if (durationMs < 3600000) durStr = Math.floor(durationMs / 60000) + 'm ' + Math.round((durationMs % 60000) / 1000) + 's';
+      else durStr = Math.floor(durationMs / 3600000) + 'h ' + Math.round((durationMs % 3600000) / 60000) + 'm';
+      return \`🕐 \${timeStr} · ran for \${durStr}\`;
+    }
+
     // Track which output panels are expanded
     const expandedOutputs = new Set();
 
@@ -1530,6 +1543,7 @@ function getDashboardHtml() {
           \${agent.lastRun?.output ? \`
             <div class="output-section">
               <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last output</button>
+              <span style="font-size:11px;color:#888;margin-left:12px">\${agent.lastRun.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''}</span>
               <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px" title="Open in full view">⛶ Focus</button>
               <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px" title="Email last output">✉ Email</button>
               <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
