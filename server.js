@@ -899,6 +899,7 @@ function readSessionConversation(sessionDir, opts = {}) {
   const turns = [];
   let currentAssistant = '';
   let currentSteps = [];
+  let subTurnCount = 0;
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
@@ -911,8 +912,15 @@ function readSessionConversation(sessionDir, opts = {}) {
           currentAssistant = '';
           currentSteps = [];
         }
+        subTurnCount = 0;
         turns.push({ role: 'user', content: ev.data.content, timestamp: ev.timestamp, assistant: '', steps: [] });
+      } else if (ev.type === 'assistant.turn_start') {
+        subTurnCount++;
       } else if (ev.type === 'assistant.message' && ev.data?.content) {
+        // If there are prior steps, this is an intermediate comment
+        if (subTurnCount > 1 || currentSteps.length > 0) {
+          currentSteps.push({ type: 'comment', content: ev.data.content });
+        }
         currentAssistant = ev.data.content;
       } else if (ev.type === 'tool.execution_start' && ev.data) {
         currentSteps.push({ type: 'tool_start', tool: ev.data.toolName, args: ev.data.arguments, toolCallId: ev.data.toolCallId });
@@ -1043,13 +1051,36 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   const allTurns = [];
   let currentUser = null;
   let currentSteps = [];
+  let subTurnCount = 0; // track assistant sub-turns within a user turn
+  let lastAssistantMsg = '';
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
       if (ev.type === 'user.message') {
+        // Flush previous turn
+        if (currentUser !== null || lastAssistantMsg) {
+          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, steps: verbose ? [...currentSteps] : undefined });
+        }
         turnCount++;
         currentUser = ev.data?.content || '';
         currentSteps = [];
+        subTurnCount = 0;
+        lastAssistantMsg = '';
+      }
+      if (ev.type === 'assistant.turn_start') {
+        subTurnCount++;
+      }
+      if (verbose && ev.type === 'assistant.message' && ev.data?.content) {
+        // If this is not the first sub-turn and there are prior steps, it's an intermediate comment
+        if (subTurnCount > 1 || currentSteps.length > 0) {
+          currentSteps.push({ type: 'comment', content: ev.data.content });
+        }
+        lastAssistantMsg = ev.data.content;
+        lastAssistant = ev.data.content;
+      }
+      if (!verbose && ev.type === 'assistant.message' && ev.data?.content) {
+        lastAssistantMsg = ev.data.content;
+        lastAssistant = ev.data.content;
       }
       if (verbose && ev.type === 'tool.execution_start' && ev.data) {
         currentSteps.push({ type: 'tool_start', tool: ev.data.toolName, args: ev.data.arguments, toolCallId: ev.data.toolCallId });
@@ -1064,17 +1095,11 @@ app.get('/api/sessions/:id/poll', (req, res) => {
           currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
         }
       }
-      if (ev.type === 'assistant.message' && ev.data?.content) {
-        lastAssistant = ev.data.content;
-        allTurns.push({ content: currentUser || '', assistant: ev.data.content, steps: verbose ? [...currentSteps] : undefined });
-        currentUser = null;
-        currentSteps = [];
-      }
     } catch { }
   }
-  // If there's a user message without a response yet, include pending steps
-  if (currentUser !== null) {
-    allTurns.push({ content: currentUser, assistant: null, steps: verbose ? [...currentSteps] : undefined });
+  // Flush last turn
+  if (currentUser !== null || lastAssistantMsg) {
+    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, steps: verbose ? [...currentSteps] : undefined });
   }
   const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
   res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns });
@@ -2558,6 +2583,14 @@ function getDashboardHtml() {
       if (!steps || steps.length === 0) return '';
       let html = '';
       for (const step of steps) {
+        if (step.type === 'comment') {
+          // Intermediate agent comment
+          html += '<div class="tool-step" style="border-left:2px solid #58a6ff;background:#161b22;">' +
+            '<div style="font-size:0.7rem;color:#58a6ff;margin-bottom:2px;">💭 Agent</div>' +
+            '<div class="conv-content assistant-content" style="font-size:0.75rem;padding-left:6px;border:none;">' + renderMd(step.content) + '</div>' +
+            '</div>';
+          continue;
+        }
         const statusClass = step.type === 'tool_start' ? 'pending' : (step.success !== false ? 'success' : 'failed');
         const icon = step.type === 'tool_start' ? '⏳' : (step.success !== false ? '✓' : '✗');
         const desc = step.args?.description || step.args?.command || step.args?.pattern || step.args?.path || step.args?.query || '';
