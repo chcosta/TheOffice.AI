@@ -1545,6 +1545,17 @@ function getDashboardHtml() {
         if (el.id && el.scrollTop > 0) scrollPositions.set(el.id, el.scrollTop);
       });
 
+      // Save live output content so it's not reset by re-render
+      const liveOutputCache = new Map();
+      document.querySelectorAll('[id^="live-"]').forEach(el => {
+        if (el.innerHTML && !el.innerHTML.includes('Waiting for agent')) {
+          liveOutputCache.set(el.id, el.innerHTML);
+        }
+      });
+      document.querySelectorAll('[id^="live-status-"]').forEach(el => {
+        if (el.textContent !== 'watching...') liveOutputCache.set(el.id, el.textContent);
+      });
+
       // Group agents
       const groups = new Map();
       agents.forEach(agent => {
@@ -1587,6 +1598,15 @@ function getDashboardHtml() {
       scrollPositions.forEach((scrollTop, id) => {
         const el = document.getElementById(id);
         if (el) el.scrollTop = scrollTop;
+      });
+
+      // Restore live output content
+      liveOutputCache.forEach((content, id) => {
+        const el = document.getElementById(id);
+        if (el) {
+          if (id.startsWith('live-status-')) el.textContent = content;
+          else el.innerHTML = content;
+        }
       });
     }
 
