@@ -1626,22 +1626,40 @@ function getDashboardHtml() {
 
     function editAgentPrompt(id, el) {
       const current = el.textContent;
-      const input = document.createElement('input');
-      input.className = 'schedule-input';
-      input.style.width = '100%';
-      input.value = current === '-' ? '' : current;
-      el.replaceWith(input);
-      input.focus();
-      input.select();
+      const container = document.createElement('div');
+      container.style.cssText = 'width:100%;display:flex;flex-direction:column;gap:4px;';
+      const textarea = document.createElement('textarea');
+      textarea.className = 'schedule-input';
+      textarea.style.cssText = 'width:100%;min-height:60px;resize:vertical;font-family:inherit;font-size:inherit;';
+      textarea.value = current === '-' ? '' : current;
+      
+      // Help hint for template variables
+      const hint = document.createElement('div');
+      hint.style.cssText = 'font-size:11px;color:#888;line-height:1.4;background:#1a1a2e;border:1px solid #333;border-radius:4px;padding:6px 8px;';
+      hint.innerHTML = \`<strong style="color:#aaa">Template variables</strong> (available when triggered by another agent):<br>
+<code style="color:#7ec8e3">\{{ trigger.output }}</code> — output from triggering agent<br>
+<code style="color:#7ec8e3">\{{ trigger.name }}</code> — name &nbsp;|&nbsp; <code style="color:#7ec8e3">\{{ trigger.exitCode }}</code> — exit code<br>
+<code style="color:#7ec8e3">\{{ trigger.startedAt }}</code> / <code style="color:#7ec8e3">\{{ trigger.finishedAt }}</code> — timestamps<br>
+<code style="color:#7ec8e3">\{{ chain[0].output }}</code> — output from earlier chain step (0-indexed)<br>
+<span style="color:#666">Unresolved variables are left as-is. Press Enter to save, Esc to cancel.</span>\`;
+      
+      container.appendChild(textarea);
+      container.appendChild(hint);
+      el.replaceWith(container);
+      textarea.focus();
+      textarea.select();
       const save = async () => {
-        const newPrompt = input.value.trim();
+        const newPrompt = textarea.value.trim();
         if (newPrompt && newPrompt !== current) {
           await fetch(\`/api/agents/\${id}/prompt\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt: newPrompt }) });
         }
         refresh();
       };
-      input.addEventListener('blur', save);
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = current; input.blur(); } });
+      textarea.addEventListener('blur', save);
+      textarea.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); textarea.blur(); }
+        if (e.key === 'Escape') { textarea.value = current; textarea.blur(); }
+      });
     }
 
     async function startAgent(id) { await fetch(\`/api/agents/\${id}/start\`, { method: 'POST' }); refresh(); }
