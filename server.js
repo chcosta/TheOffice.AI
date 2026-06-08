@@ -1835,7 +1835,7 @@ function getDashboardHtml() {
                   <span style="font-size:11px;color:#888;margin-left:4px">\${agent.lastRun?.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''}</span>
                 \`}
                 <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px\${agent.status === 'running' ? ';opacity:0.4;pointer-events:none' : ''}" title="Open in full view">⛶ Focus</button>
-                <span id="live-chat-btn-\${agent.agent_id}">\${agent.lastRun?.session_id && agent.status !== 'running' ? \`<button class="output-toggle" onclick="openFocus('\${agent.lastRun.session_id}')" style="margin-left:0" title="Chat with this session">💬 Chat</button>\` : \`<button class="output-toggle" style="margin-left:0;opacity:0.4;pointer-events:none" title="Chat available after session completes">💬 Chat</button>\`}</span>
+                <span id="live-chat-btn-\${agent.agent_id}">\${agent.status !== 'running' ? \`<button class="output-toggle" onclick="openLastChat('\${agent.agent_id}', '\${agent.lastRun?.session_id || ''}')" style="margin-left:0" title="Chat with this session">💬 Chat</button>\` : \`<button class="output-toggle" style="margin-left:0;opacity:0.4;pointer-events:none" title="Chat available after session completes">💬 Chat</button>\`}</span>
                 <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px\${agent.status === 'running' ? ';opacity:0.4;pointer-events:none' : ''}" title="Email last output">✉ Email</button>
               </div>
               \${agent.status === 'running' ? \`
@@ -2851,6 +2851,23 @@ function getDashboardHtml() {
         const match = sessions.find(s => (s.agentName || '').toLowerCase().includes(agentId.toLowerCase()) || (s.name || '').toLowerCase().includes(agentId.toLowerCase()));
         if (match) {
           await fetch(\`/api/sessions/\${match.id}/terminal\`, { method: 'POST' });
+        } else {
+          alert('No recent session found for this agent');
+        }
+      } catch (e) {
+        alert('Failed to find session: ' + e.message);
+      }
+    }
+
+    async function openLastChat(agentId, sessionId) {
+      // Use stored session ID if available, otherwise search for latest
+      if (sessionId) { openFocus(sessionId); return; }
+      try {
+        const res = await fetch('/api/sessions?hours=72');
+        const sessions = await res.json();
+        const match = sessions.find(s => (s.agentName || '').toLowerCase().includes(agentId.toLowerCase()) || (s.name || '').toLowerCase().includes(agentId.toLowerCase()));
+        if (match) {
+          openFocus(match.id);
         } else {
           alert('No recent session found for this agent');
         }
