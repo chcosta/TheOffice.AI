@@ -2644,7 +2644,7 @@ function getDashboardHtml() {
       renderSessions();
     }
 
-    const sessionGroupState = {}; // track collapsed state per group
+    const sessionGroupState = JSON.parse(localStorage.getItem('sessionGroupState') || '{}'); // track collapsed state per group
 
     function renderSessions() {
       const filter = (document.getElementById('sessionFilter').value || '').toLowerCase();
@@ -2717,6 +2717,7 @@ function getDashboardHtml() {
 
     function toggleSessionGroup(name) {
       sessionGroupState[name] = !sessionGroupState[name];
+      localStorage.setItem('sessionGroupState', JSON.stringify(sessionGroupState));
       renderSessions();
     }
 
@@ -3141,6 +3142,7 @@ function getDashboardHtml() {
       // Collapse all session groups, then expand only the matching one
       Object.keys(sessionGroupState).forEach(k => sessionGroupState[k] = true);
       sessionGroupState[agentName] = false; // false = expanded
+      localStorage.setItem('sessionGroupState', JSON.stringify(sessionGroupState));
       // Open the panel (will load sessions which calls renderSessions with our state)
       document.getElementById('sessionsOverlay').classList.add('visible');
       document.getElementById('sessionsPanel').classList.add('visible');
