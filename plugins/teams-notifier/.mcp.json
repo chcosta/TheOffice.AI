@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "scriptedai-mcp-comms": {
+      "command": "scriptedai-mcp-comms",
+      "args": [],
+      "env": {}
+    },
+    "scriptedai-mcp-devtools": {
+      "command": "scriptedai-mcp-devtools",
+      "args": [],
+      "env": {}
+    }
+  }
+}

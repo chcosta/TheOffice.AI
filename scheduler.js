@@ -149,6 +149,11 @@ function humanToCron(input) {
  * @returns {{ type: 'cron', cron: string, description: string } | { type: 'interval', ms: number, description: string }}
  */
 function parseSchedule(input) {
+  // "never" = trigger-only agent, no scheduled runs
+  if (input.trim().toLowerCase() === 'never') {
+    return { type: 'none', description: 'never (trigger only)' };
+  }
+
   const result = humanToCron(input);
 
   if (typeof result === 'object' && result.type === 'interval') {
@@ -175,6 +180,7 @@ function parseSchedule(input) {
  */
 function getNextRun(input) {
   const schedule = parseSchedule(input);
+  if (schedule.type === 'none') return null;
   if (schedule.type === 'interval') {
     return new Date(Date.now() + schedule.ms);
   }
