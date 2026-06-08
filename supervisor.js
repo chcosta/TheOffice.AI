@@ -188,6 +188,15 @@ class Supervisor extends EventEmitter {
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
     console.log(`[supervisor] Command: ${cmdLine}`);
 
+    // Validate CWD exists
+    if (config.cwd && !fs.existsSync(config.cwd)) {
+      const errMsg = `Working directory does not exist: ${config.cwd}`;
+      console.error(`[supervisor] Agent "${config.name}" failed: ${errMsg}`);
+      entry.status = 'error';
+      entry.lastRun = { started_at: startedAt, ended_at: new Date().toISOString(), exit_code: 1, error: errMsg, output: '' };
+      this._saveRun(agentId, entry.lastRun);
+      return;
+    }
     // On Windows, shell:true is required to spawn .cmd shims
     // Use explicit shell path to work under service accounts with restricted PATH
     const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');

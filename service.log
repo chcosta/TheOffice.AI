@@ -1,0 +1,22 @@
+[supervisor] Resolved copilot CLI: C:\Users\chcosta\AppData\Roaming\npm\copilot.cmd
+[supervisor] Agent "Azure Status Observer" scheduled: Every hour (waiting for schedule)
+[supervisor] Agent "Osx 15 Amd64 Open queue monitor" scheduled: On the hour, every 2 hours (waiting for schedule)
+[supervisor] Durable agent "Waittime Watcher" is disabled, skipping
+[supervisor] Agent "Helix UX Standup" scheduled: At 09:00 AM (waiting for schedule)
+[supervisor] Agent "Markbot Dev (Direct reports)" scheduled: At 09:30 AM (waiting for schedule)
+[supervisor] Agent "Teams Notifier" scheduled: never (trigger only) (waiting for schedule)
+[supervisor] Agent "Email Organizer" scheduled: At 09:00 AM (waiting for schedule)
+[supervisor] Agent "Send email organizer summary" scheduled: never (trigger only) (waiting for schedule)
+[supervisor] Agent "Email Sender (Helix UX Standup)" scheduled: never (trigger only) (waiting for schedule)
+[supervisor] Port 3847 already in use — another instance is running. Exiting.
+[supervisor] Resolved copilot CLI: C:\Users\chcosta\AppData\Roaming\npm\copilot.cmd
+[supervisor] Agent "Azure Status Observer" scheduled: Every hour (waiting for schedule)
+[supervisor] Agent "Osx 15 Amd64 Open queue monitor" scheduled: On the hour, every 2 hours (waiting for schedule)
+[supervisor] Durable agent "Waittime Watcher" is disabled, skipping
+[supervisor] Agent "Helix UX Standup" scheduled: At 09:00 AM (waiting for schedule)
+[supervisor] Agent "Markbot Dev (Direct reports)" scheduled: At 09:30 AM (waiting for schedule)
+[supervisor] Agent "Teams Notifier" scheduled: never (trigger only) (waiting for schedule)
+[supervisor] Agent "Email Organizer" scheduled: At 09:00 AM (waiting for schedule)
+[supervisor] Agent "Send email organizer summary" scheduled: never (trigger only) (waiting for schedule)
+[supervisor] Agent "Email Sender (Helix UX Standup)" scheduled: never (trigger only) (waiting for schedule)
+[supervisor] Port 3847 already in use — another instance is running. Exiting.
