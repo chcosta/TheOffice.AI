@@ -1560,13 +1560,8 @@ function getDashboardHtml() {
             </div>
           </div>
           <div class="agent-meta">
-            <div class="meta-item"><span class="meta-label">Schedule:</span> <span class="meta-value" title="\${agent.scheduleDescription || ''}">\${agent.schedule} (\${agent.scheduleDescription || ''})</span></div>
-            <div class="meta-item"><span class="meta-label">Next run:</span> <span class="meta-value">\${isEnabled ? timeUntil(agent.next_run) : '—'}</span></div>
-            <div class="meta-item"><span class="meta-label">Last run:</span> <span class="meta-value">\${timeAgo(agent.last_run)}</span></div>
-            <div class="meta-item"><span class="meta-label">Auto-start:</span> <span class="meta-value" style="cursor:pointer" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">\${autoStart ? '✓ run on start' : '⏱ schedule only'}</span></div>
-            <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value">\${agent.config?.cwd || '-'}</span></div>
-            <div class="meta-item"><span class="meta-label">Last exit:</span> <span class="meta-value">\${agent.lastRun?.exit_code ?? '-'}</span></div>
             <div class="meta-item" style="grid-column: span 2"><span class="meta-label">Prompt:</span> <span class="meta-value prompt-value" ondblclick="editAgentPrompt('\${agent.agent_id}', this)" title="Double-click to edit">\${escapeHtml(agent.config?.prompt || '-')}</span></div>
+            <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value">\${agent.config?.cwd || '-'}</span></div>
             <div class="meta-item">
               <span class="meta-label">Group:</span>
               <select class="group-select" onchange="moveToGroup('\${agent.agent_id}', this.value)">
@@ -1583,9 +1578,13 @@ function getDashboardHtml() {
             <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
             <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Open last run in terminal">💻 Terminal</button>
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
-            <div style="position:relative;display:inline-flex;align-items:center;gap:6px;">
+            <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
               <button class="btn" onclick="openScheduleEditor('\${agent.agent_id}', '\${escapeHtml(agent.schedule || '')}', this)" title="Edit schedule">🕐 Schedule</button>
-              <code style="color:#8b949e;font-size:0.8rem">\${escapeHtml(agent.schedule || 'none')}</code>
+              <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
+                <span style="color:#c9d1d9;" title="\${agent.scheduleDescription || ''}">\${agent.schedule || 'none'} <span style="color:#8b949e">(\${agent.scheduleDescription || ''})</span></span>
+                <span style="color:#8b949e;">Next: <span style="color:#58a6ff">\${isEnabled ? timeUntil(agent.next_run) : '—'}</span> · Last: \${timeAgo(agent.last_run)} · Exit: \${agent.lastRun?.exit_code ?? '-'}</span>
+                <span style="color:#8b949e;cursor:pointer;" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">Auto-start: \${autoStart ? '<span style=color:#7ee787>✓ on boot</span>' : '<span style=color:#f0883e>⏱ schedule only</span>'}</span>
+              </div>
             </div>
           </div>
           \${renderTriggers(agent, agents)}
