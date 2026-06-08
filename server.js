@@ -2681,8 +2681,9 @@ function getDashboardHtml() {
             return;
           }
           if (data.output) {
+            const wasAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
             el.innerHTML = (typeof marked !== 'undefined') ? marked.parse(data.output) : data.output.replace(/</g,'&lt;');
-            el.scrollTop = el.scrollHeight;
+            if (wasAtBottom) el.scrollTop = el.scrollHeight;
             const statusEl = document.getElementById(\`live-status-\${agentId}\`);
             if (statusEl) statusEl.textContent = \`\${data.messageCount} response\${data.messageCount > 1 ? 's' : ''}\${data.isActive ? ' · updating...' : ''}\`;
             // Show chat button if we have a session ID
