@@ -1669,6 +1669,7 @@ function getDashboardHtml() {
                 <span class="spinner" style="width:14px;height:14px;"></span>
                 <span style="color:#f0883e;font-weight:600;font-size:0.85rem;">Live session output</span>
                 <span style="color:#8b949e;font-size:0.75rem" id="live-status-\${agent.agent_id}">watching...</span>
+                <span id="live-chat-btn-\${agent.agent_id}"></span>
               </div>
               <div class="output-content markdown-body visible" id="live-\${agent.agent_id}" style="margin-top:8px;max-height:400px;overflow-y:auto;opacity:0.9;">
                 <span style="color:#8b949e">Waiting for agent output...</span>
@@ -1686,6 +1687,7 @@ function getDashboardHtml() {
               <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Last session</button>
               <span style="font-size:11px;color:#888;margin-left:12px">\${agent.lastRun.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''}</span>
               <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px" title="Open in full view">⛶ Focus</button>
+              \${agent.lastRun.session_id ? \`<button class="output-toggle" onclick="openFocus('\${agent.lastRun.session_id}')" style="margin-left:8px" title="Chat with last session">💬 Chat</button>\` : ''}
               <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px" title="Email last output">✉ Email</button>
               <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
             </div>
@@ -2683,6 +2685,11 @@ function getDashboardHtml() {
             el.scrollTop = el.scrollHeight;
             const statusEl = document.getElementById(\`live-status-\${agentId}\`);
             if (statusEl) statusEl.textContent = \`\${data.messageCount} response\${data.messageCount > 1 ? 's' : ''}\${data.isActive ? ' · updating...' : ''}\`;
+            // Show chat button if we have a session ID
+            const chatBtnEl = document.getElementById(\`live-chat-btn-\${agentId}\`);
+            if (chatBtnEl && data.sessionId && !chatBtnEl.innerHTML) {
+              chatBtnEl.innerHTML = '<button class="output-toggle" onclick="openFocus(\\\'' + data.sessionId + '\\\')" style="margin-left:4px" title="Chat with this session">💬 Chat</button>';
+            }
           }
         } catch { }
         setTimeout(poll, 3000);

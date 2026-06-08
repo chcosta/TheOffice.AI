@@ -22,7 +22,8 @@ class Supervisor extends EventEmitter {
         finished_at TEXT,
         exit_code INTEGER,
         output TEXT,
-        error TEXT
+        error TEXT,
+        session_id TEXT
       );
       CREATE TABLE IF NOT EXISTS agent_state (
         agent_id TEXT PRIMARY KEY,
@@ -33,6 +34,8 @@ class Supervisor extends EventEmitter {
         status TEXT DEFAULT 'idle'
       );
     `);
+    // Migration: add session_id column if missing
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN session_id TEXT'); } catch {}
   }
 
 
@@ -204,15 +207,17 @@ class Supervisor extends EventEmitter {
       // Small delay to let session state flush to disk before reading
       setTimeout(() => {
         // Try to get full output from session events (all assistant messages)
-        let fullOutput = this._getSessionOutput(config) || stdout;
+        const sessionResult = this._getSessionOutput(config);
+        let fullOutput = sessionResult.output || stdout;
+        const sessionId = sessionResult.sessionId || null;
         if (fullOutput === stdout && stdout.length < 200) {
           console.log(`[supervisor] Warning: "${config.name}" session output not found, using stdout (${stdout.length} chars)`);
         }
 
         // Store result
         this.db.prepare(
-          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000));
+          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000), sessionId);
 
         // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
         let status;
@@ -260,8 +265,9 @@ class Supervisor extends EventEmitter {
 
   _getSessionOutput(config) {
     // Find the most recent session for this agent and extract the full conversation
+    // Returns { output, sessionId } or { output: '', sessionId: null }
     const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
-    if (!fs.existsSync(SESSION_STATE_DIR)) return '';
+    if (!fs.existsSync(SESSION_STATE_DIR)) return { output: '', sessionId: null };
     try {
       const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
         .filter(d => d.isDirectory())
@@ -276,7 +282,6 @@ class Supervisor extends EventEmitter {
         // Check if this session matches our agent
         let isMatch = false;
         const turns = [];
-        let currentRole = null;
         for (const line of lines) {
           try {
             const ev = JSON.parse(line);
@@ -296,21 +301,19 @@ class Supervisor extends EventEmitter {
           } catch { }
         }
         if (isMatch && turns.length > 0) {
-          // Format as a readable conversation, prioritizing assistant messages
           const parts = [];
           for (const turn of turns) {
             if (turn.role === 'assistant') {
               parts.push(turn.content);
             }
           }
-          // Return all assistant messages (the useful output)
-          return parts.join('\n\n---\n\n');
+          return { output: parts.join('\n\n---\n\n'), sessionId: dir.name };
         }
       }
     } catch (e) {
       console.error(`[supervisor] Error reading session output: ${e.message}`);
     }
-    return '';
+    return { output: '', sessionId: null };
   }
 
   _interpolatePrompt(template, context) {
@@ -466,7 +469,8 @@ class Supervisor extends EventEmitter {
             output: assistantMessages.join('\n\n---\n\n'),
             messageCount: assistantMessages.length,
             lastModified: stat.mtime.toISOString(),
-            isActive: (Date.now() - stat.mtime.getTime()) < 15000
+            isActive: (Date.now() - stat.mtime.getTime()) < 15000,
+            sessionId: dir.name
           };
         }
       }
