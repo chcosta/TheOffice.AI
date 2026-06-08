@@ -21,15 +21,28 @@ When asked to send a message to a webhook secret:
 
 1. Extract vault name and secret name from the prompt
 2. Run: `az keyvault secret show --vault-name <vault> --name <secret> --query "value" -o tsv`
-3. POST the message using PowerShell:
+3. POST the message as an **Adaptive Card** using PowerShell:
 
 ```powershell
 $url = "<webhook_url>"
-$body = @{ text = "<message_content>" } | ConvertTo-Json -Depth 10
+$body = @{
+    type = "AdaptiveCard"
+    '$schema' = "http://adaptivecards.io/schemas/adaptive-card.json"
+    version = "1.4"
+    body = @(
+        @{
+            type = "TextBlock"
+            text = "<message_content>"
+            wrap = $true
+        }
+    )
+} | ConvertTo-Json -Depth 10
 Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body $body -UseBasicParsing
 ```
 
 4. Check response: 202 = success
+
+**IMPORTANT**: The webhook expects Adaptive Card format (`type: "AdaptiveCard"`), NOT simple `{ "text": "..." }` format. Always use the Adaptive Card structure above.
 
 ## Naming Normalization
 
