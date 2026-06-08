@@ -418,6 +418,62 @@ class Supervisor extends EventEmitter {
     ).all(agentId, limit);
   }
 
+  getLiveOutput(agentId) {
+    const entry = this.agents.get(agentId);
+    if (!entry || !entry.running) return null;
+    
+    // Find the most recent session that's actively being written
+    const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+    if (!fs.existsSync(SESSION_STATE_DIR)) return null;
+    
+    try {
+      const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => ({ name: d.name, mtime: fs.statSync(path.join(SESSION_STATE_DIR, d.name)).mtime }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 5);
+
+      for (const dir of dirs) {
+        const eventsPath = path.join(SESSION_STATE_DIR, dir.name, 'events.jsonl');
+        if (!fs.existsSync(eventsPath)) continue;
+        
+        const stat = fs.statSync(eventsPath);
+        // Only consider sessions modified within last 60 seconds (actively running)
+        if (Date.now() - stat.mtime.getTime() > 60000) continue;
+        
+        const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
+        let isMatch = false;
+        const assistantMessages = [];
+        
+        for (const line of lines) {
+          try {
+            const ev = JSON.parse(line);
+            if (ev.type === 'subagent.selected' && ev.data) {
+              const name = ev.data.agentDisplayName || ev.data.agentName || '';
+              if (name.toLowerCase().includes((entry.config.name || '').toLowerCase()) ||
+                  (entry.config.agent && name.toLowerCase().includes(entry.config.agent.split(':').pop().toLowerCase()))) {
+                isMatch = true;
+              }
+            }
+            if (ev.type === 'assistant.message' && ev.data?.content) {
+              assistantMessages.push(ev.data.content);
+            }
+          } catch { }
+        }
+        
+        if (isMatch && assistantMessages.length > 0) {
+          return {
+            output: assistantMessages.join('\n\n---\n\n'),
+            messageCount: assistantMessages.length,
+            lastModified: stat.mtime.toISOString(),
+            isActive: (Date.now() - stat.mtime.getTime()) < 15000
+          };
+        }
+      }
+    } catch { }
+    return null;
+  }
+
   startAll() {
     // Recover agents that were killed mid-run (status stuck at 'running')
     const staleRunning = this.db.prepare("SELECT agent_id FROM agent_state WHERE status = 'running'").all();

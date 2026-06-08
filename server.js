@@ -399,6 +399,13 @@ app.get('/api/agents/:id/history', (req, res) => {
   res.json(supervisor.getRunHistory(req.params.id, limit));
 });
 
+// Live output for a running agent
+app.get('/api/agents/:id/live', (req, res) => {
+  const live = supervisor.getLiveOutput(req.params.id);
+  if (!live) return res.json({ running: false });
+  res.json({ running: true, ...live });
+});
+
 app.post('/api/agents/:id/start', (req, res) => {
   try {
     supervisor.start(req.params.id);
@@ -1636,6 +1643,18 @@ function getDashboardHtml() {
             </div>
           </div>
           \${renderTriggers(agent, agents)}
+          \${agent.status === 'running' ? \`
+            <div class="output-section" style="border-left:3px solid #f0883e;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="spinner" style="width:14px;height:14px;"></span>
+                <span style="color:#f0883e;font-weight:600;font-size:0.85rem;">Live session output</span>
+                <span style="color:#8b949e;font-size:0.75rem" id="live-status-\${agent.agent_id}">watching...</span>
+              </div>
+              <div class="output-content markdown-body visible" id="live-\${agent.agent_id}" style="margin-top:8px;max-height:400px;overflow-y:auto;opacity:0.9;">
+                <span style="color:#8b949e">Waiting for agent output...</span>
+              </div>
+            </div>
+          \` : ''}
           \${agent.lastRun?.error ? \`
             <div class="output-section error-output">
               <button class="output-toggle" onclick="toggleOutput('err-\${agent.agent_id}')">\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? '▾' : '▸'} Error</button>
@@ -2623,8 +2642,45 @@ function getDashboardHtml() {
       setTimeout(poll, pollInterval);
     }
 
+    // Poll live output for running agents
+    const livePollers = new Set();
+    async function pollLiveOutput(agentId) {
+      if (livePollers.has(agentId)) return;
+      livePollers.add(agentId);
+      const poll = async () => {
+        const el = document.getElementById(\`live-\${agentId}\`);
+        if (!el) { livePollers.delete(agentId); return; }
+        try {
+          const res = await fetch(\`/api/agents/\${agentId}/live\`);
+          const data = await res.json();
+          if (!data.running) {
+            livePollers.delete(agentId);
+            refresh(); // Agent finished — full refresh to show final output
+            return;
+          }
+          if (data.output) {
+            el.innerHTML = (typeof marked !== 'undefined') ? marked.parse(data.output) : data.output.replace(/</g,'&lt;');
+            el.scrollTop = el.scrollHeight;
+            const statusEl = document.getElementById(\`live-status-\${agentId}\`);
+            if (statusEl) statusEl.textContent = \`\${data.messageCount} response\${data.messageCount > 1 ? 's' : ''}\${data.isActive ? ' · updating...' : ''}\`;
+          }
+        } catch { }
+        setTimeout(poll, 3000);
+      };
+      setTimeout(poll, 2000);
+    }
+
+    // After each refresh, start polling for any running agents
+    function startLivePollers() {
+      document.querySelectorAll('[id^="live-"]').forEach(el => {
+        const agentId = el.id.replace('live-', '');
+        if (agentId) pollLiveOutput(agentId);
+      });
+    }
+
     refresh();
-    setInterval(refresh, 10000);
+    setInterval(() => { refresh(); startLivePollers(); }, 10000);
+    setTimeout(startLivePollers, 1000);
   </script>
 </body>
 </html>`;
