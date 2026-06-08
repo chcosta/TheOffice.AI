@@ -374,8 +374,10 @@ class Supervisor extends EventEmitter {
 
     const targets = [];
 
-    // Method 1: Triggers defined ON the source agent (forward triggers)
-    if (entry.config.triggers) {
+    // Method 1: Forward triggers — defined ON the source agent, listing targets to run after it
+    // Only applies to scheduled agents. Trigger-only agents use their triggers config
+    // to declare what triggers THEM (reverse direction), not what they trigger.
+    if (entry.config.triggers && (entry.config.schedule || '').toLowerCase() !== 'never') {
       const triggers = entry.config.triggers;
       if (succeeded && triggers.onSuccess) {
         targets.push(...(Array.isArray(triggers.onSuccess) ? triggers.onSuccess : [triggers.onSuccess]));
