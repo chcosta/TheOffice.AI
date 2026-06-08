@@ -2,6 +2,8 @@
 
 A local service that manages and schedules Copilot CLI agent sessions with a web dashboard.
 
+![Dashboard](docs/dashboard.png)
+
 ## Prerequisites
 
 - **Node.js** v18+ — [https://nodejs.org](https://nodejs.org)
@@ -24,10 +26,31 @@ Dashboard: http://localhost:3847
 - **Rich scheduling** — simple intervals (`30m`, `1h`), human-readable (`weekdays at 9am`), or cron expressions
 - **Web dashboard** — view status, last results, errors, start/stop agents, change schedules
 - **Durable agents** — marked agents always restart on service boot and retry on failure
+- **Resume sessions** — the Terminal button drops you directly into the Copilot CLI session where an agent left off, so you can continue the conversation interactively
+- **Session browser** — view all past sessions grouped by agent, with timestamps, turn counts, and output previews
+- **Focus mode** — open any agent's last output in a clean, full-screen modal for easy reading
+- **Markdown rendering** — agent output is rendered as formatted markdown with headings, links, lists, and code blocks
+- **Template-driven triggers** — chain agents together and pass output/metadata between them using `{{ trigger.output }}` syntax
+- **Email reports** — send any agent's last output as a formatted HTML email with one click
+- **Inline editing** — double-click to edit agent names, prompts, and schedules directly in the dashboard
+- **Session recovery** — on restart, recovers last output from Copilot session history so no results are lost
+- **Auto-reload** — external edits to `agents.json` are picked up automatically (no restart needed)
 - **Error visibility** — stderr displayed in red, auto-expanded on errors
 - **Run history** — SQLite-backed log of all executions with output capture
 - **REST API** — full programmatic control
 - **VS Code integration** — button to open project in VS Code Insiders
+
+### Session Browser
+
+Browse all past agent sessions with filtering and search. Each session shows the prompt used, turn count, and a preview of the output.
+
+![Sessions](docs/sessions.png)
+
+### Focus Mode
+
+Open any agent's last output in a distraction-free full-screen view with rendered markdown.
+
+![Focus Modal](docs/focus-modal.png)
 
 ## Install as Windows Scheduled Task (survives reboots/sleep)
 
