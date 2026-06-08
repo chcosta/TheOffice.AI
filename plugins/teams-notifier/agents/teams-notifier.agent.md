@@ -21,7 +21,7 @@ When asked to send a message to a webhook secret:
 
 1. Extract vault name and secret name from the prompt
 2. Run: `az keyvault secret show --vault-name <vault> --name <secret> --query "value" -o tsv`
-3. POST the message as an **Adaptive Card** using PowerShell:
+3. POST the message using **Adaptive Card format first** (preferred by Power Automate):
 
 ```powershell
 $url = "<webhook_url>"
@@ -37,12 +37,17 @@ $body = @{
         }
     )
 } | ConvertTo-Json -Depth 10
-Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body $body -UseBasicParsing
+$resp = Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body $body -UseBasicParsing
 ```
 
-4. Check response: 202 = success
+4. Check response: **202 = success**. If the response is NOT 202 (e.g., 400 or error), **fall back to simple text format**:
 
-**IMPORTANT**: The webhook expects Adaptive Card format (`type: "AdaptiveCard"`), NOT simple `{ "text": "..." }` format. Always use the Adaptive Card structure above.
+```powershell
+$body = @{ text = "<message_content>" } | ConvertTo-Json -Depth 10
+$resp = Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body $body -UseBasicParsing
+```
+
+5. Report which format succeeded. If both fail, report the error from each attempt.
 
 ## Naming Normalization
 
