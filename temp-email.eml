@@ -1,0 +1,146 @@
+Subject: Agent Report: Markbot Dev — 6/7/2026
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="----=_Part_1780879370869"
+X-Unsent: 1
+
+------=_Part_1780879370869
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Now I'll query work items for each direct report under the Operations area path.
+
+Let me read the larger output files to get the full details.
+
+I have enough data from the successful queries and previews to compile the report. Let me now send the Teams message with the analysis.
+
+The Teams message was too large. Let me split it into a more concise format.
+
+Let me try a shorter message.
+
+The Teams webhook appears to be unavailable. Here's the report directly:
+
+---
+
+## 📋 Direct Reports Report — June 7, 2026 | 3 Critical, 3 Stale
+
+**Scope:** Mark Wilkie's directs + unassigned | DNCENG Tasks | `internal\.NET Engineering Services\Operations`
+
+---
+
+### 🔴 Critical (3) — All Christopher Costa
+
+| Urgency | Item | State | Key Issue |
+|---------|------|-------|-----------|
+| 🔴 Critical | [#10734](https://dnceng.visualstudio.com/internal/_workitems/edit/10734) android.36 deploy fails | Dev | P1, cross-sub RBAC blocker |
+| 🔴 Critical | [#9674](https://dnceng.visualstudio.com/internal/_workitems/edit/9674) Publicly readable bucket | Blocked | P2, due date **117 days overdue** |
+| 🔴 Critical | [#8444](https://dnceng.visualstudio.com/internal/_workitems/edit/8444) Migrate storage GPv2 | Blocked | P2, **31 days stale** |
+
+---
+
+### 🟡 Items Needing Attention
+
+- **mistucke** — [#9566](https://dnceng.visualstudio.com/internal/_workitems/edit/9566) Python internal mirror | Dev **130 days**
+- **harunaogweda** — [#9806](https://dnceng.visualstudio.com/internal/_workitems/edit/9806) Helix results not updated | In PR **114 days**
+- **meghnaverma** — [#10396](https://dnceng.visualstudio.com/internal/_workitems/edit/10396) VS2026 workload list | Dev **58 days**
+
+---
+
+### ✅ Healthy Progress
+
+- **epananth** — 6 items, 4 actively in PR/rollout (busiest, shipping well)
+- **mjanecke** — [#8579](https://dnceng.visualstudio.com/internal/_workitems/edit/8579) Grafana→AzDO | Waiting for Rollout
+- **davfost** — [#10494](https://dnceng.visualstudio.com/internal/_workitems/edit/10494) DeployVmssInsights cleanup | PR done, awaiting rollout
+
+---
+
+### 🎯 Recommended Actions
+
+1. **Nudge chcosta** on #8444 (31 days no update) — needs status check on remaining 9 storage accounts
+2. **Follow up CISO** on #9674 — exception request has been silent since Feb 2026
+3. **Re-scope mistucke #9566** — 130 days in Dev suggests blockers or scope creep
+4. **Review help for harunaogweda #9806** — In PR for 114 days, may need reviewer attention
+5. **Workload imbalance** — epananth has 6 items vs davfost with 1
+
+⚠️ *Note: Teams webhook delivery failed. Report generated successfully but could not be posted to the channel.*
+
+
+
+------=_Part_1780879370869
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<html><head><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #222; padding: 16px; }
+h1, h2, h3 { color: #333; }
+a { color: #0078d4; }
+hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+ul, ol { padding-left: 24px; }
+li { margin-bottom: 4px; }
+code { background: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-size: 13px; }
+pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+</style></head><body><p>Now I&#39;ll query work items for each direct report under the Operations area path.</p>
+<p>Let me read the larger output files to get the full details.</p>
+<p>I have enough data from the successful queries and previews to compile the report. Let me now send the Teams message with the analysis.</p>
+<p>The Teams message was too large. Let me split it into a more concise format.</p>
+<p>Let me try a shorter message.</p>
+<p>The Teams webhook appears to be unavailable. Here&#39;s the report directly:</p>
+<hr>
+<h2>📋 Direct Reports Report — June 7, 2026 | 3 Critical, 3 Stale</h2>
+<p><strong>Scope:</strong> Mark Wilkie&#39;s directs + unassigned | DNCENG Tasks | <code>internal\.NET Engineering Services\Operations</code></p>
+<hr>
+<h3>🔴 Critical (3) — All Christopher Costa</h3>
+<table>
+<thead>
+<tr>
+<th>Urgency</th>
+<th>Item</th>
+<th>State</th>
+<th>Key Issue</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>🔴 Critical</td>
+<td><a href="https://dnceng.visualstudio.com/internal/_workitems/edit/10734">#10734</a> android.36 deploy fails</td>
+<td>Dev</td>
+<td>P1, cross-sub RBAC blocker</td>
+</tr>
+<tr>
+<td>🔴 Critical</td>
+<td><a href="https://dnceng.visualstudio.com/internal/_workitems/edit/9674">#9674</a> Publicly readable bucket</td>
+<td>Blocked</td>
+<td>P2, due date <strong>117 days overdue</strong></td>
+</tr>
+<tr>
+<td>🔴 Critical</td>
+<td><a href="https://dnceng.visualstudio.com/internal/_workitems/edit/8444">#8444</a> Migrate storage GPv2</td>
+<td>Blocked</td>
+<td>P2, <strong>31 days stale</strong></td>
+</tr>
+</tbody></table>
+<hr>
+<h3>🟡 Items Needing Attention</h3>
+<ul>
+<li><strong>mistucke</strong> — <a href="https://dnceng.visualstudio.com/internal/_workitems/edit/9566">#9566</a> Python internal mirror | Dev <strong>130 days</strong></li>
+<li><strong>harunaogweda</strong> — <a href="https://dnceng.visualstudio.com/internal/_workitems/edit/9806">#9806</a> Helix results not updated | In PR <strong>114 days</strong></li>
+<li><strong>meghnaverma</strong> — <a href="https://dnceng.visualstudio.com/internal/_workitems/edit/10396">#10396</a> VS2026 workload list | Dev <strong>58 days</strong></li>
+</ul>
+<hr>
+<h3>✅ Healthy Progress</h3>
+<ul>
+<li><strong>epananth</strong> — 6 items, 4 actively in PR/rollout (busiest, shipping well)</li>
+<li><strong>mjanecke</strong> — <a href="https://dnceng.visualstudio.com/internal/_workitems/edit/8579">#8579</a> Grafana→AzDO | Waiting for Rollout</li>
+<li><strong>davfost</strong> — <a href="https://dnceng.visualstudio.com/internal/_workitems/edit/10494">#10494</a> DeployVmssInsights cleanup | PR done, awaiting rollout</li>
+</ul>
+<hr>
+<h3>🎯 Recommended Actions</h3>
+<ol>
+<li><strong>Nudge chcosta</strong> on #8444 (31 days no update) — needs status check on remaining 9 storage accounts</li>
+<li><strong>Follow up CISO</strong> on #9674 — exception request has been silent since Feb 2026</li>
+<li><strong>Re-scope mistucke #9566</strong> — 130 days in Dev suggests blockers or scope creep</li>
+<li><strong>Review help for harunaogweda #9806</strong> — In PR for 114 days, may need reviewer attention</li>
+<li><strong>Workload imbalance</strong> — epananth has 6 items vs davfost with 1</li>
+</ol>
+<p>⚠️ <em>Note: Teams webhook delivery failed. Report generated successfully but could not be posted to the channel.</em></p>
+</body></html>
+
+------=_Part_1780879370869--

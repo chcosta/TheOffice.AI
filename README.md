@@ -2,6 +2,13 @@
 
 A local service that manages and schedules Copilot CLI agent sessions with a web dashboard.
 
+## Prerequisites
+
+- **Node.js** v18+ — [https://nodejs.org](https://nodejs.org)
+- **GitHub Copilot CLI** — installed globally via `npm install -g @githubnext/github-copilot-cli` (or available at a custom path set in `agents.json`)
+- **Windows 10/11** — the dashboard uses Windows-specific features (Scheduled Tasks, `start` command, PowerShell folder picker)
+- **Git** (optional) — for version-controlling your `agents.json` and plugin overlays
+
 ## Quick Start
 
 ```bash
