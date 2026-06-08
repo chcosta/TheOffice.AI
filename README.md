@@ -87,6 +87,43 @@ Agents can trigger other agents based on their exit status:
 | `onComplete` | Agent finishes regardless of exit code |
 
 Each trigger value can be a single agent ID string or an array. Triggers are displayed in the dashboard with colored badges (green for success, red for failure, blue for complete).
+
+### Template variables in triggered prompts
+
+Triggered agents can reference data from the agent that triggered them using `{{ }}` template syntax in their prompt:
+
+```json
+{
+  "id": "alert-analyzer",
+  "prompt": "Here's our health report:\n\n{{ trigger.output }}\n\nAnalyze to see if we need to alert the team.",
+  "triggers": {}
+}
+```
+
+**Available variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{ trigger.output }}` | Full output from the triggering agent |
+| `{{ trigger.name }}` | Display name of the triggering agent |
+| `{{ trigger.id }}` | Agent ID of the triggering agent |
+| `{{ trigger.exitCode }}` | Exit code (0 = success) |
+| `{{ trigger.prompt }}` | Prompt that was used for the triggering run |
+| `{{ trigger.startedAt }}` | ISO timestamp when the triggering run started |
+| `{{ trigger.finishedAt }}` | ISO timestamp when it finished |
+| `{{ chain[N].output }}` | Output from the Nth agent in the chain (0 = earliest) |
+| `{{ chain[N].name }}` | Name of the Nth agent in the chain |
+| `{{ chain.length }}` | Number of prior agents in the chain |
+
+**Chain context:** When triggers form a chain (A → B → C), each downstream agent sees the full history. Agent C's `trigger` is B, and `chain[0]` is A. Unresolved variables (typos, missing data) are left as-is.
+
+**Example chain:**
+```json
+[
+  { "id": "health-check", "prompt": "Check system health", "triggers": { "onComplete": ["analyzer"] } },
+  { "id": "analyzer", "prompt": "Report: {{ trigger.output }}. If critical, summarize for alerting.", "triggers": { "onSuccess": ["notifier"] } },
+  { "id": "notifier", "prompt": "Original health: {{ chain[0].output }}\nAnalysis: {{ trigger.output }}\nSend notification if needed." }
+]
 ```
 
 ### Schedule formats

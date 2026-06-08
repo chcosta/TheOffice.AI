@@ -133,9 +133,9 @@ class Supervisor extends EventEmitter {
     this.db.prepare('UPDATE agent_state SET schedule = ? WHERE agent_id = ?').run(newSchedule, agentId);
   }
 
-  _executeAgent(agentId) {
+  _executeAgent(agentId, triggerContext) {
     try {
-      this.__executeAgent(agentId);
+      this.__executeAgent(agentId, triggerContext);
     } catch (err) {
       console.error(`[supervisor] Failed to execute agent "${agentId}": ${err.message}`);
       const entry = this.agents.get(agentId);
@@ -148,7 +148,7 @@ class Supervisor extends EventEmitter {
     }
   }
 
-  __executeAgent(agentId) {
+  __executeAgent(agentId, triggerContext) {
     const entry = this.agents.get(agentId);
     if (!entry || entry.running) return;
 
@@ -163,6 +163,9 @@ class Supervisor extends EventEmitter {
     // Update next run time
     this._updateNextRun(agentId);
 
+    // Interpolate template variables in prompt if trigger context provided
+    const prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext) : config.prompt;
+
     // Build copilot CLI command as a full command string for shell execution
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
@@ -172,7 +175,7 @@ class Supervisor extends EventEmitter {
       const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
       mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
     }
-    const cmdLine = `"${copilotCmd}" ${pluginDir} ${mcpConfig} --agent "${config.agent}" --prompt "${config.prompt}" -s ${perms}`.replace(/\s+/g, ' ').trim();
+    const cmdLine = `"${copilotCmd}" ${pluginDir} ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s ${perms}`.replace(/\s+/g, ' ').trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
     console.log(`[supervisor] Command: ${cmdLine}`);
@@ -213,8 +216,8 @@ class Supervisor extends EventEmitter {
         console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
       }
 
-      // Fire conditional triggers
-      this._fireTriggers(agentId, code);
+      // Fire conditional triggers with output context
+      this._fireTriggers(agentId, code, stdout, triggerContext);
     });
 
     proc.on('error', (err) => {
@@ -241,7 +244,30 @@ class Supervisor extends EventEmitter {
     }
   }
 
-  _fireTriggers(agentId, exitCode) {
+  _interpolatePrompt(template, context) {
+    // Replace {{ variable }} patterns with values from trigger context
+    // Supports: trigger.output, trigger.name, trigger.id, trigger.exitCode,
+    //           trigger.prompt, trigger.startedAt, trigger.finishedAt
+    //           chain[N].output, chain[N].name, etc.
+    //           chain.length
+    return template.replace(/\{\{\s*(.+?)\s*\}\}/g, (match, expr) => {
+      try {
+        // Parse dot/bracket notation safely
+        const parts = expr.split(/\.|\[|\]/).filter(Boolean);
+        let value = context;
+        for (const part of parts) {
+          if (value == null) return match;
+          value = value[part];
+        }
+        if (value == null) return match;
+        return String(value);
+      } catch {
+        return match;
+      }
+    });
+  }
+
+  _fireTriggers(agentId, exitCode, stdout, triggerContext) {
     const entry = this.agents.get(agentId);
     if (!entry || !entry.config.triggers) return;
 
@@ -259,11 +285,34 @@ class Supervisor extends EventEmitter {
       targets.push(...(Array.isArray(triggers.onComplete) ? triggers.onComplete : [triggers.onComplete]));
     }
 
+    // Build trigger context for downstream agents
+    const lastRun = this.db.prepare('SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY finished_at DESC LIMIT 1').get(agentId);
+    const thisAgentContext = {
+      id: agentId,
+      name: entry.config.name || agentId,
+      output: stdout || lastRun?.output || '',
+      exitCode: exitCode,
+      prompt: entry.config.prompt,
+      startedAt: lastRun?.started_at || '',
+      finishedAt: lastRun?.finished_at || ''
+    };
+
+    // Accumulate chain: previous chain + this agent
+    const chain = [...(triggerContext?.chain || [])];
+    if (triggerContext?.trigger) {
+      chain.push(triggerContext.trigger);
+    }
+
+    const downstreamContext = {
+      trigger: thisAgentContext,
+      chain: chain
+    };
+
     for (const targetId of targets) {
       const target = this.agents.get(targetId);
       if (target) {
         console.log(`[supervisor] Trigger: "${entry.config.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.config.name}"`);
-        this._executeAgent(targetId);
+        this._executeAgent(targetId, downstreamContext);
       } else {
         console.warn(`[supervisor] Trigger target "${targetId}" not found`);
       }
