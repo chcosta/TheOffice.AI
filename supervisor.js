@@ -36,6 +36,8 @@ class Supervisor extends EventEmitter {
     `);
     // Migration: add session_id column if missing
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN session_id TEXT'); } catch {}
+    // Migration: add triggered_by column if missing
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN triggered_by TEXT'); } catch {}
   }
 
 
@@ -158,6 +160,7 @@ class Supervisor extends EventEmitter {
     if (!entry || entry.running) return;
 
     entry.running = true;
+    entry._triggeredBy = triggerContext?.trigger?.id || null;
     const { config } = entry;
     const startedAt = new Date().toISOString();
 
@@ -217,8 +220,8 @@ class Supervisor extends EventEmitter {
 
         // Store result
         this.db.prepare(
-          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000), sessionId);
+          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000), sessionId, entry._triggeredBy || null);
 
         // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
         let status;
@@ -434,7 +437,10 @@ class Supervisor extends EventEmitter {
       const entry = this.agents.get(state.agent_id);
       let scheduleDescription = '';
       try { scheduleDescription = parseSchedule(entry?.config?.schedule || state.schedule).description; } catch {}
-      return { ...state, lastRun, config: entry?.config || null, scheduleDescription };
+      const hasTriggers = !!(entry?.config?.triggers && (entry.config.triggers.onSuccess || entry.config.triggers.onFailure || entry.config.triggers.onComplete));
+      const isTriggerOnly = hasTriggers && (entry?.config?.schedule || '').toLowerCase() === 'never';
+      const triggerRuns = isTriggerOnly ? this.getLatestRunsPerTrigger(state.agent_id) : [];
+      return { ...state, lastRun, config: entry?.config || null, scheduleDescription, hasTriggers, isTriggerOnly, triggerRuns };
     });
   }
 
@@ -442,6 +448,33 @@ class Supervisor extends EventEmitter {
     return this.db.prepare(
       'SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT ?'
     ).all(agentId, limit);
+  }
+
+  // Get latest run per trigger source for trigger-only agents
+  getLatestRunsPerTrigger(agentId) {
+    const entry = this.agents.get(agentId);
+    if (!entry) return [];
+    const triggers = entry.config.triggers || {};
+    // Collect all trigger source IDs
+    const sources = new Set();
+    for (const arr of [triggers.onSuccess, triggers.onFailure, triggers.onComplete]) {
+      if (!arr) continue;
+      const list = Array.isArray(arr) ? arr : [arr];
+      list.forEach(id => sources.add(id));
+    }
+    const results = [];
+    for (const srcId of sources) {
+      const srcEntry = this.agents.get(srcId);
+      const run = this.db.prepare(
+        'SELECT * FROM agent_runs WHERE agent_id = ? AND triggered_by = ? ORDER BY id DESC LIMIT 1'
+      ).get(agentId, srcId);
+      results.push({
+        sourceId: srcId,
+        sourceName: srcEntry?.config?.name || srcId,
+        lastRun: run || null
+      });
+    }
+    return results;
   }
 
   getLiveOutput(agentId) {

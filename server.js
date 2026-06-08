@@ -439,6 +439,12 @@ app.put('/api/agents/:id/schedule', (req, res) => {
     const agent = agents.find(a => a.id === req.params.id);
     if (agent) {
       agent.schedule = schedule;
+      // If setting a real schedule (not 'never'), clear triggers (mutual exclusion)
+      if (schedule.toLowerCase() !== 'never' && agent.triggers) {
+        delete agent.triggers;
+        const entry = supervisor.agents.get(req.params.id);
+        if (entry) delete entry.config.triggers;
+      }
       fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
     }
     res.json({ ok: true });
@@ -1982,14 +1988,23 @@ function getDashboardHtml() {
             <button class="btn" onclick="editAgentSource('\${agent.agent_id}')" title="Open agent source in editor">✏️ Edit</button>
             \${agent.config?.pluginDir ? \`<button class="btn" onclick="reinstallPlugin('\${agent.agent_id}')" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>\` : ''}
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
-            <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
-              <button class="btn" onclick="openScheduleEditor('\${agent.agent_id}', '\${escapeHtml(agent.schedule || '')}', this)" title="Edit schedule">🕐 Schedule</button>
-              <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
-                <span style="color:#c9d1d9;" title="\${agent.scheduleDescription || ''}">\${agent.schedule || 'none'} <span style="color:#8b949e">(\${agent.scheduleDescription || ''})</span></span>
-                <span style="color:#8b949e;">Next: <span style="color:#58a6ff">\${isEnabled ? timeUntil(agent.next_run) : '—'}</span> · Last: \${timeAgo(agent.last_run)} · Exit: \${agent.lastRun?.exit_code ?? '-'}</span>
-                <span style="color:#8b949e;cursor:pointer;" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">Auto-start: \${autoStart ? '<span style=color:#7ee787>✓ on boot</span>' : '<span style=color:#f0883e>⏱ schedule only</span>'}</span>
+            \${agent.isTriggerOnly ? \`
+              <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
+                <span style="color:#d2a8ff;font-weight:600;font-size:0.8rem">⚡ Trigger</span>
+                <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
+                  <span style="color:#8b949e;">Last: \${timeAgo(agent.last_run)} · Exit: \${agent.lastRun?.exit_code ?? '-'}</span>
+                </div>
               </div>
-            </div>
+            \` : \`
+              <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
+                <button class="btn" onclick="openScheduleEditor('\${agent.agent_id}', '\${escapeHtml(agent.schedule || '')}', this)" title="Edit schedule">🕐 Schedule</button>
+                <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
+                  <span style="color:#c9d1d9;" title="\${agent.scheduleDescription || ''}">\${agent.schedule || 'none'} <span style="color:#8b949e">(\${agent.scheduleDescription || ''})</span></span>
+                  <span style="color:#8b949e;">Next: <span style="color:#58a6ff">\${isEnabled ? timeUntil(agent.next_run) : '—'}</span> · Last: \${timeAgo(agent.last_run)} · Exit: \${agent.lastRun?.exit_code ?? '-'}</span>
+                  <span style="color:#8b949e;cursor:pointer;" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">Auto-start: \${autoStart ? '<span style=color:#7ee787>✓ on boot</span>' : '<span style=color:#f0883e>⏱ schedule only</span>'}</span>
+                </div>
+              </div>
+            \`}
           </div>
           \${renderTriggers(agent, agents)}
           \${agent.lastRun?.error ? \`
@@ -2022,6 +2037,19 @@ function getDashboardHtml() {
               \`}
             </div>
           \` : ''}
+          \${agent.isTriggerOnly && agent.triggerRuns && agent.triggerRuns.length > 0 ? agent.triggerRuns.map(tr => \`
+            <div class="output-section" style="margin-top:4px;\${tr.lastRun?.exit_code !== 0 && tr.lastRun ? 'border-left:3px solid #f85149;' : ''}">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <button class="output-toggle" onclick="toggleOutput('tr-\${agent.agent_id}-\${tr.sourceId}')">\${expandedOutputs.has('tr-'+agent.agent_id+'-'+tr.sourceId) ? '▾' : '▸'} From: \${escapeHtml(tr.sourceName)}</button>
+                <span style="font-size:11px;color:#888;">\${tr.lastRun?.started_at ? formatRunTimestamp(tr.lastRun.started_at, tr.lastRun.finished_at) : 'never run'}</span>
+                \${tr.lastRun?.exit_code != null ? \`<span style="font-size:11px;color:\${tr.lastRun.exit_code === 0 ? '#3fb950' : '#f85149'}">Exit: \${tr.lastRun.exit_code}</span>\` : ''}
+                \${tr.lastRun?.session_id ? \`<button class="output-toggle" onclick="openFocus('\${tr.lastRun.session_id}')" style="margin-left:4px">⛶ Focus</button>\` : ''}
+              </div>
+              \${tr.lastRun?.output ? \`
+                <div class="output-content markdown-body\${expandedOutputs.has('tr-'+agent.agent_id+'-'+tr.sourceId) ? ' visible' : ''}" id="output-tr-\${agent.agent_id}-\${tr.sourceId}">\${typeof marked !== 'undefined' ? marked.parse(tr.lastRun.output || '') : escapeHtml(tr.lastRun.output)}</div>
+              \` : ''}
+            </div>
+          \`).join('') : ''}
         </div>\`;
     }
 
@@ -2330,6 +2358,10 @@ function getDashboardHtml() {
       if (onSuccess.length) triggers.onSuccess = onSuccess;
       if (onFailure.length) triggers.onFailure = onFailure;
       if (onComplete.length) triggers.onComplete = onComplete;
+      // If triggers are being set, switch to trigger mode (schedule=never)
+      if (Object.keys(triggers).length > 0) {
+        await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: 'never'}) });
+      }
       await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers}) });
       expandedOutputs.delete('triggers-edit-' + id);
       refresh();
