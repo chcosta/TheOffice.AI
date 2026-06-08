@@ -1,5 +1,6 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const EventEmitter = require('events');
 const { Cron } = require('croner');
 const { parseSchedule, getNextRun } = require('./scheduler');
@@ -200,10 +201,13 @@ class Supervisor extends EventEmitter {
       entry.process = null;
       const finishedAt = new Date().toISOString();
 
+      // Try to get full output from session events (all assistant messages)
+      let fullOutput = this._getSessionOutput(config) || stdout;
+
       // Store result
       this.db.prepare(
         'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(agentId, startedAt, finishedAt, code, stdout.slice(-10000), stderr.slice(-5000));
+      ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000));
 
       const status = code === 0 ? 'idle' : 'error';
       this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
@@ -242,6 +246,50 @@ class Supervisor extends EventEmitter {
     if (nextRun) {
       this.db.prepare('UPDATE agent_state SET next_run = ? WHERE agent_id = ?').run(nextRun.toISOString(), agentId);
     }
+  }
+
+  _getSessionOutput(config) {
+    // Find the most recent session for this agent and extract all assistant messages
+    const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+    if (!fs.existsSync(SESSION_STATE_DIR)) return '';
+    try {
+      const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => ({ name: d.name, mtime: fs.statSync(path.join(SESSION_STATE_DIR, d.name)).mtime }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 10);
+
+      for (const dir of dirs) {
+        const eventsPath = path.join(SESSION_STATE_DIR, dir.name, 'events.jsonl');
+        if (!fs.existsSync(eventsPath)) continue;
+        const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
+        // Check if this session matches our agent
+        let isMatch = false;
+        const assistantMessages = [];
+        for (const line of lines) {
+          try {
+            const ev = JSON.parse(line);
+            if (ev.type === 'subagent.selected' && ev.data) {
+              const name = ev.data.agentDisplayName || ev.data.agentName || '';
+              if (name.toLowerCase().includes((config.name || '').toLowerCase()) ||
+                  (config.agent && name.toLowerCase().includes(config.agent.split(':').pop().toLowerCase()))) {
+                isMatch = true;
+              }
+            }
+            if (ev.type === 'assistant.message' && ev.data?.content) {
+              assistantMessages.push(ev.data.content);
+            }
+          } catch { }
+        }
+        if (isMatch && assistantMessages.length > 0) {
+          // Return all assistant messages joined (the full conversation output)
+          return assistantMessages.join('\n\n---\n\n');
+        }
+      }
+    } catch (e) {
+      console.error(`[supervisor] Error reading session output: ${e.message}`);
+    }
+    return '';
   }
 
   _interpolatePrompt(template, context) {
