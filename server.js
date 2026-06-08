@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const yazl = require('yazl');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
 
@@ -1284,6 +1285,68 @@ app.post('/api/terminal/open', (req, res) => {
   res.json({ ok: true });
 });
 
+// Export configuration as zip
+app.get('/api/export', (req, res) => {
+  const zip = new yazl.ZipFile();
+
+  // agents.json
+  zip.addFile(AGENTS_PATH, 'agents.json');
+
+  // plugins directory
+  const pluginsDir = path.join(__dirname, 'plugins');
+  if (fs.existsSync(pluginsDir)) {
+    const addDir = (dir, prefix) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        const zipPath = prefix + '/' + entry.name;
+        if (entry.isDirectory()) addDir(fullPath, zipPath);
+        else zip.addFile(fullPath, zipPath);
+      }
+    };
+    addDir(pluginsDir, 'plugins');
+  }
+
+  // mcp-configs directory
+  const mcpDir = path.join(__dirname, 'mcp-configs');
+  if (fs.existsSync(mcpDir)) {
+    const addDir = (dir, prefix) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        const zipPath = prefix + '/' + entry.name;
+        if (entry.isDirectory()) addDir(fullPath, zipPath);
+        else zip.addFile(fullPath, zipPath);
+      }
+    };
+    addDir(mcpDir, 'mcp-configs');
+  }
+
+  // Export agent state (enabled/disabled, schedules, triggers) from DB
+  const agentStates = [];
+  const allStatus = supervisor.getAllStatus();
+  for (const agent of allStatus) {
+    agentStates.push({
+      agent_id: agent.agent_id,
+      enabled: agent.enabled,
+      schedule: agent.schedule,
+      triggers: agent.config?.triggers || {},
+      group: agent.config?.group || null,
+      autoStart: agent.autoStart
+    });
+  }
+  zip.addBuffer(Buffer.from(JSON.stringify(agentStates, null, 2)), 'agent-state.json');
+
+  // package.json for dependency reference
+  const pkgPath = path.join(__dirname, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    zip.addFile(pkgPath, 'package.json');
+  }
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="agent-supervisor-config-${new Date().toISOString().slice(0,10)}.zip"`);
+  zip.outputStream.pipe(res);
+  zip.end();
+});
+
 // Start all enabled agents
 supervisor.startAll();
 
@@ -1669,6 +1732,7 @@ function getDashboardHtml() {
       <button class="btn" onclick="openSessionsPanel()" style="margin-right:4px">&#x1F4CB; Sessions</button>
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
       <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
+      <button class="btn" onclick="window.location='/api/export'" title="Export config as zip">&#x1F4E6; Export</button>
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
