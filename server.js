@@ -1022,6 +1022,9 @@ app.get('/api/sessions/:id', (req, res) => {
   res.json({ ...meta, agentName, ...conversation });
 });
 
+// Track chat errors per session for surfacing in poll
+const chatErrors = new Map();
+
 app.post('/api/sessions/:id/chat', (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
@@ -1034,10 +1037,21 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   const { spawn } = require('child_process');
   const cmd = `${copilotCmd} --resume=${req.params.id} -p "${escapedMsg}" -s --yolo`;
   const proc = spawn(cmd, [], { cwd: meta.cwd || undefined, shell: true, stdio: ['ignore', 'ignore', 'pipe'] });
-  proc.stderr.on('data', d => console.error(`[chat] stderr: ${d}`));
-  proc.on('error', e => console.error(`[chat] spawn error: ${e.message}`));
-  proc.on('close', code => console.log(`[chat] session ${req.params.id.substring(0,8)} exited (${code})`));
+  let stderrBuf = '';
+  proc.stderr.on('data', d => { stderrBuf += d; console.error(`[chat] stderr: ${d}`); });
+  proc.on('error', e => {
+    console.error(`[chat] spawn error: ${e.message}`);
+    chatErrors.set(req.params.id, { error: e.message, time: Date.now() });
+  });
+  proc.on('close', code => {
+    console.log(`[chat] session ${req.params.id.substring(0,8)} exited (${code})`);
+    if (code !== 0 && stderrBuf.trim()) {
+      chatErrors.set(req.params.id, { error: stderrBuf.trim(), code, time: Date.now() });
+    }
+  });
   proc.unref();
+  // Clear any previous error for this session
+  chatErrors.delete(req.params.id);
   // Return immediately — client polls for live updates
   res.json({ ok: true, started: true });
 });
@@ -1119,7 +1133,15 @@ app.get('/api/sessions/:id/poll', (req, res) => {
     }
   }
   const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
-  res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns });
+  // Include any chat error for this session
+  const chatErr = chatErrors.get(req.params.id);
+  const response = { turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns };
+  if (chatErr) {
+    response.chatError = chatErr.error;
+    // Clear after delivering so it only shows once
+    chatErrors.delete(req.params.id);
+  }
+  res.json(response);
 });
 
 app.post('/api/sessions/:id/terminal', (req, res) => {
@@ -2785,6 +2807,25 @@ function getDashboardHtml() {
           }
           lastTurnCount = turnCount;
           lastStepCount = totalSteps;
+
+          // Show chat errors from the server
+          if (data.chatError) {
+            const convo = document.getElementById('focus-convo');
+            if (convo) {
+              // Remove any pending "Thinking..." indicator
+              const pending = document.getElementById('focus-pending');
+              if (pending) pending.remove();
+              convo.innerHTML += '<div class="conv-turn" style="border-left:3px solid #f85149;padding-left:8px">' +
+                '<div class="conv-role" style="color:#f85149">⚠️ System Error</div>' +
+                '<div class="conv-content" style="color:#f85149;font-family:monospace;font-size:0.85rem;white-space:pre-wrap">' + esc(data.chatError) + '</div></div>';
+              convo.scrollTop = convo.scrollHeight;
+            }
+            // Stop polling on error
+            focusPoller = null;
+            const status = document.getElementById('focusChatStatus');
+            if (status) { const ind = status.querySelector('.focus-live-indicator'); if (ind) ind.remove(); }
+            return;
+          }
 
           // Check if the last turn is still pending (no assistant response)
           const lastTurn = data.turns && data.turns.length > 0 ? data.turns[data.turns.length - 1] : null;
