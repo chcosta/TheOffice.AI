@@ -646,6 +646,48 @@ app.post('/api/open-editor', (req, res) => {
   res.json({ ok: true });
 });
 
+// Open agent source in VS Code
+app.post('/api/agents/:id/edit-source', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  const { spawn } = require('child_process');
+  // Open pluginDir if it's a plugin agent, otherwise open cwd
+  const targetDir = entry.config.pluginDir || entry.config.cwd;
+  spawn('code-insiders', [targetDir], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  res.json({ ok: true });
+});
+
+// Reinstall plugin (uninstall + install)
+app.post('/api/agents/:id/reinstall', async (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  if (!entry.config.pluginDir) return res.status(400).json({ error: 'Not a plugin agent' });
+  
+  const { execSync } = require('child_process');
+  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
+  const pluginDir = entry.config.pluginDir;
+  
+  try {
+    // Get plugin name from plugin.json
+    const pluginJsonPath = path.join(pluginDir, 'plugin.json');
+    const pluginJson = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
+    const pluginName = pluginJson.name || path.basename(pluginDir);
+    
+    // Uninstall
+    try {
+      execSync(`"${copilotCmd}" plugin uninstall "${pluginName}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+    } catch (e) {
+      // Uninstall may fail if not installed — that's ok
+    }
+    
+    // Install
+    const output = execSync(`"${copilotCmd}" plugin install "${pluginDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+    res.json({ ok: true, output: output.trim() });
+  } catch (e) {
+    res.status(500).json({ error: e.stderr || e.message });
+  }
+});
+
 // Browse for folder using Windows folder picker
 app.post('/api/browse-folder', (req, res) => {
   const { exec } = require('child_process');
@@ -1575,8 +1617,11 @@ function getDashboardHtml() {
             <button class="btn btn-primary" onclick="startAgent('\${agent.agent_id}')">▶ Start</button>
             <button class="btn btn-danger" onclick="stopAgent('\${agent.agent_id}')">■ Stop</button>
             <button class="btn" onclick="runNow('\${agent.agent_id}')">⚡ Run Now</button>
+            <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
             <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
             <button class="btn" onclick="openLastTerminal('\${agent.agent_id}')" title="Open last run in terminal">💻 Terminal</button>
+            <button class="btn" onclick="editAgentSource('\${agent.agent_id}')" title="Open agent source in editor">✏️ Edit</button>
+            \${agent.config?.pluginDir ? \`<button class="btn" onclick="reinstallPlugin('\${agent.agent_id}')" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>\` : ''}
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
             <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
               <button class="btn" onclick="openScheduleEditor('\${agent.agent_id}', '\${escapeHtml(agent.schedule || '')}', this)" title="Edit schedule">🕐 Schedule</button>
@@ -2476,6 +2521,18 @@ function getDashboardHtml() {
       } catch (e) {
         alert('Failed to find session: ' + e.message);
       }
+    }
+
+    async function editAgentSource(agentId) {
+      await fetch(\`/api/agents/\${agentId}/edit-source\`, { method: 'POST' });
+    }
+
+    async function reinstallPlugin(agentId) {
+      if (!confirm('Reinstall this plugin? This will uninstall and re-install it.')) return;
+      const res = await fetch(\`/api/agents/\${agentId}/reinstall\`, { method: 'POST' });
+      const data = await res.json();
+      if (data.error) alert('Reinstall failed: ' + data.error);
+      else alert('Plugin reinstalled successfully');
     }
 
     // ---- Inline Chat (in side panel) ----
