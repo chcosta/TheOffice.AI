@@ -1592,8 +1592,10 @@ function getDashboardHtml() {
       return \`
         <div class="agent-card\${!isEnabled ? ' agent-disabled' : ''}">
           <div class="agent-header">
-            <span class="agent-name" ondblclick="editAgentName('\${agent.agent_id}', this)" title="Double-click to rename">\${agent.config?.name || agent.agent_id}</span>
-            <span style="font-size:0.65rem;padding:2px 6px;border-radius:3px;margin-left:8px;background:\${agent.config?.pluginDir ? '#1f6feb22;color:#58a6ff;border:1px solid #1f6feb55' : '#2ea04322;color:#7ee787;border:1px solid #2ea04355'}">\${agent.config?.pluginDir ? '🔌 plugin' : '🤖 agent'}</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="agent-name" ondblclick="editAgentName('\${agent.agent_id}', this)" title="Double-click to rename">\${agent.config?.name || agent.agent_id}</span>
+              <span style="font-size:0.65rem;padding:2px 6px;border-radius:3px;background:\${agent.config?.pluginDir ? '#1f6feb22;color:#58a6ff;border:1px solid #1f6feb55' : '#2ea04322;color:#7ee787;border:1px solid #2ea04355'}">\${agent.config?.pluginDir ? '🔌 plugin' : '🤖 agent'}</span>
+            </div>
             <div style="display:flex;align-items:center;gap:8px">
               <span class="status-badge status-\${agent.status || 'idle'}">\${agent.status || 'idle'}</span>
               <label class="toggle-switch" title="\${isEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}">
