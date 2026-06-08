@@ -2715,6 +2715,7 @@ function getDashboardHtml() {
     let focusSessionData = null;
     let focusPoller = null;
     let focusMinTurns = 0; // minimum expected turns after sending a chat
+    let focusChatPending = false; // true after sending chat until user.message appears in events
 
     function isFocusVerbose() {
       return localStorage.getItem('focusVerbose') === '1';
@@ -2775,9 +2776,14 @@ function getDashboardHtml() {
 
           // Don't rebuild if poll has fewer turns than expected (event not written yet)
           if (turnCount < focusMinTurns) {
-            if (data.isActive) focusPoller = setTimeout(poll, 2000);
-            else focusPoller = setTimeout(poll, 1000); // retry quickly
+            // Chat was sent but user.message not yet in events — keep polling
+            if (data.isActive || focusChatPending) focusPoller = setTimeout(poll, 1000);
+            else focusPoller = setTimeout(poll, 1000);
             return;
+          }
+          // User message appeared — clear chat pending
+          if (focusChatPending && turnCount >= focusMinTurns) {
+            focusChatPending = false;
           }
 
           const isFirstPoll = lastTurnCount < 0;
@@ -2842,8 +2848,8 @@ function getDashboardHtml() {
             if (indicator) indicator.remove();
           }
 
-          // Keep polling if session is active OR last turn has no response yet
-          if (data.isActive || hasPendingTurn) {
+          // Keep polling if session is active, last turn has no response, or chat was just sent
+          if (data.isActive || hasPendingTurn || focusChatPending) {
             focusPoller = setTimeout(poll, 2000);
           } else {
             focusPoller = null;
@@ -2866,6 +2872,7 @@ function getDashboardHtml() {
       focusSessionId = null;
       focusSessionData = null;
       focusMinTurns = 0;
+      focusChatPending = false;
     }
 
     async function emailFocusSession(mode) {
@@ -2910,6 +2917,7 @@ function getDashboardHtml() {
         // Set minimum expected turns so polling won't rebuild with fewer
         const currentTurns = focusSessionData?.turns?.length || 0;
         focusMinTurns = currentTurns + 1;
+        focusChatPending = true;
         await fetch(\`/api/sessions/\${focusSessionId}/chat\`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
