@@ -941,6 +941,15 @@ function readSessionConversation(sessionDir, opts = {}) {
     turns[turns.length - 1].assistant = currentAssistant;
     turns[turns.length - 1].steps = [...currentSteps];
   }
+  // Remove duplicate: if last step is a comment matching the final assistant response
+  for (const turn of turns) {
+    if (turn.steps && turn.steps.length > 0 && turn.assistant) {
+      const lastStep = turn.steps[turn.steps.length - 1];
+      if (lastStep.type === 'comment' && lastStep.content === turn.assistant) {
+        turn.steps.pop();
+      }
+    }
+  }
   const lastAssistant = currentAssistant || (turns.length > 0 ? turns[turns.length - 1].assistant : '');
   const summary = lastAssistant.substring(0, 500);
   return { turns, summary };
@@ -1021,19 +1030,14 @@ app.post('/api/sessions/:id/chat', (req, res) => {
 
   const meta = readSessionMeta(sessionDir);
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const { execSync } = require('child_process');
-  try {
-    const escapedMsg = message.replace(/"/g, '\\"');
-    const output = execSync(
-      `"${copilotCmd}" --resume="${req.params.id}" -p "${escapedMsg}" -s --yolo`,
-      { encoding: 'utf-8', timeout: 180000, cwd: meta.cwd || undefined, shell: true }
-    );
-    res.json({ ok: true, response: output.trim() });
-  } catch (e) {
-    const output = e.stdout ? e.stdout.toString() : '';
-    const error = e.stderr ? e.stderr.toString() : e.message;
-    res.json({ ok: output.length > 0, response: output.trim() || error });
-  }
+  const escapedMsg = message.replace(/"/g, '\\"');
+  const { spawn } = require('child_process');
+  const proc = spawn(copilotCmd, [
+    `--resume=${req.params.id}`, '-p', message, '-s', '--yolo'
+  ], { cwd: meta.cwd || undefined, shell: true, stdio: 'ignore' });
+  proc.unref();
+  // Return immediately — client polls for live updates
+  res.json({ ok: true, started: true });
 });
 
 // Poll a session for latest state (turn count + last assistant message)
@@ -1100,6 +1104,17 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   // Flush last turn
   if (currentUser !== null || lastAssistantMsg) {
     allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, steps: verbose ? [...currentSteps] : undefined });
+  }
+  // Remove duplicate: if last step is a comment matching the final assistant response, drop it
+  if (verbose) {
+    for (const turn of allTurns) {
+      if (turn.steps && turn.steps.length > 0 && turn.assistant) {
+        const lastStep = turn.steps[turn.steps.length - 1];
+        if (lastStep.type === 'comment' && lastStep.content === turn.assistant) {
+          turn.steps.pop();
+        }
+      }
+    }
   }
   const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
   res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns });
@@ -2732,7 +2747,8 @@ function getDashboardHtml() {
           // Count total steps to detect intermediate changes
           const totalSteps = (data.turns || []).reduce((sum, t) => sum + (t.steps ? t.steps.length : 0), 0);
           const turnCount = data.turns ? data.turns.length : 0;
-          const changed = (lastTurnCount >= 0 && turnCount !== lastTurnCount) || (verbose && totalSteps !== lastStepCount);
+          const isFirstPoll = lastTurnCount < 0;
+          const changed = isFirstPoll || turnCount !== lastTurnCount || (verbose && totalSteps !== lastStepCount);
 
           if (changed) {
             const wasAtBottom = (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40;
@@ -2820,7 +2836,6 @@ function getDashboardHtml() {
       if (!message) return;
 
       input.disabled = true;
-      status.innerHTML = '<div class="chat-sending"><div class="spinner"></div>Sending to agent... this may take a minute</div>';
 
       const convo = document.getElementById('focus-convo');
       if (convo) {
@@ -2834,15 +2849,13 @@ function getDashboardHtml() {
       input.value = '';
 
       try {
-        const res = await fetch(\`/api/sessions/\${focusSessionId}/chat\`, {
+        await fetch(\`/api/sessions/\${focusSessionId}/chat\`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message })
         });
-        await res.json();
-        status.innerHTML = '';
-        // Reload full conversation from events.jsonl (includes steps if verbose)
-        await reloadFocusConversation();
+        // Chat is now async — restart focus polling to show live updates
+        startFocusPolling(focusSessionId);
       } catch (e) {
         const pending = document.getElementById('focus-pending');
         if (pending) pending.remove();
