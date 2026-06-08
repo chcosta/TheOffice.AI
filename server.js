@@ -1034,7 +1034,10 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   const { spawn } = require('child_process');
   const proc = spawn(copilotCmd, [
     `--resume=${req.params.id}`, '-p', message, '-s', '--yolo'
-  ], { cwd: meta.cwd || undefined, shell: true, stdio: 'ignore' });
+  ], { cwd: meta.cwd || undefined, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  proc.stderr.on('data', d => console.error(`[chat] stderr: ${d}`));
+  proc.on('error', e => console.error(`[chat] spawn error: ${e.message}`));
+  proc.on('close', code => console.log(`[chat] session ${req.params.id.substring(0,8)} exited (${code})`));
   proc.unref();
   // Return immediately — client polls for live updates
   res.json({ ok: true, started: true });
@@ -2784,9 +2787,13 @@ function getDashboardHtml() {
           lastTurnCount = turnCount;
           lastStepCount = totalSteps;
 
+          // Check if the last turn is still pending (no assistant response)
+          const lastTurn = data.turns && data.turns.length > 0 ? data.turns[data.turns.length - 1] : null;
+          const hasPendingTurn = lastTurn && !lastTurn.assistant;
+
           // Update status indicator
           const status = document.getElementById('focusChatStatus');
-          if (data.isActive && status) {
+          if ((data.isActive || hasPendingTurn) && status) {
             if (!status.querySelector('.focus-live-indicator')) {
               status.innerHTML = '<span class="focus-live-indicator" style="color:#f0883e;font-size:0.8rem"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Session is active — updating live</span>';
             }
@@ -2795,7 +2802,8 @@ function getDashboardHtml() {
             if (indicator) indicator.remove();
           }
 
-          if (data.isActive) {
+          // Keep polling if session is active OR last turn has no response yet
+          if (data.isActive || hasPendingTurn) {
             focusPoller = setTimeout(poll, 2000);
           } else {
             focusPoller = null;
