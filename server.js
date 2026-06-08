@@ -944,24 +944,36 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
   const eventsPath = path.join(sessionDir, 'events.jsonl');
-  if (!fs.existsSync(eventsPath)) return res.json({ turnCount: 0, lastAssistant: '', isActive: false });
+  if (!fs.existsSync(eventsPath)) return res.json({ turnCount: 0, lastAssistant: '', isActive: false, turns: [] });
   
   const stat = fs.statSync(eventsPath);
   const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
   let turnCount = 0;
   let lastAssistant = '';
   let lastEventTime = null;
+  const allTurns = [];
+  let currentUser = null;
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
-      if (ev.type === 'user.message') turnCount++;
-      if (ev.type === 'assistant.message' && ev.data?.content) lastAssistant = ev.data.content;
+      if (ev.type === 'user.message') {
+        turnCount++;
+        currentUser = ev.data?.content || '';
+      }
+      if (ev.type === 'assistant.message' && ev.data?.content) {
+        lastAssistant = ev.data.content;
+        allTurns.push({ content: currentUser || '', assistant: ev.data.content });
+        currentUser = null;
+      }
       if (ev.timestamp) lastEventTime = ev.timestamp;
     } catch { }
   }
-  // Consider session "active" if events file was modified within last 30 seconds
+  // If there's a user message without a response yet, add it
+  if (currentUser !== null) {
+    allTurns.push({ content: currentUser, assistant: null });
+  }
   const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
-  res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString() });
+  res.json({ turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns });
 });
 
 app.post('/api/sessions/:id/terminal', (req, res) => {
@@ -2464,6 +2476,7 @@ function getDashboardHtml() {
     // ---- Focus Modal ----
     let focusSessionId = null;
     let focusSessionData = null;
+    let focusPoller = null;
 
     async function openFocus(id) {
       focusSessionId = id;
@@ -2479,12 +2492,74 @@ function getDashboardHtml() {
         const convo = document.getElementById('focus-convo');
         if (convo) convo.scrollTop = convo.scrollHeight;
         document.getElementById('focusChatInput').focus();
+        // Start live polling for this session
+        startFocusPolling(id);
       } catch (e) {
         document.getElementById('focusBody').innerHTML = '<div style="color:#f85149;padding:20px">Failed to load session</div>';
       }
     }
 
+    function startFocusPolling(sessionId) {
+      stopFocusPolling();
+      let lastTurnCount = -1;
+      const poll = async () => {
+        if (focusSessionId !== sessionId) return;
+        try {
+          const res = await fetch(\`/api/sessions/\${sessionId}/poll\`);
+          const data = await res.json();
+          const convo = document.getElementById('focus-convo');
+          if (!convo) return;
+
+          // Rebuild conversation if turn count changed
+          if (lastTurnCount >= 0 && data.turns && data.turns.length !== lastTurnCount) {
+            const wasAtBottom = (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40;
+            let html = '';
+            for (const turn of data.turns) {
+              html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
+                '<div class="conv-content">' + esc(turn.content) + '</div></div>';
+              if (turn.assistant) {
+                html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
+                  '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
+              } else {
+                html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
+                  '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
+              }
+            }
+            convo.innerHTML = html;
+            if (wasAtBottom) convo.scrollTop = convo.scrollHeight;
+          }
+          lastTurnCount = data.turns ? data.turns.length : lastTurnCount;
+
+          // Update status indicator
+          const status = document.getElementById('focusChatStatus');
+          if (data.isActive && status) {
+            if (!status.querySelector('.focus-live-indicator')) {
+              status.innerHTML = '<span class="focus-live-indicator" style="color:#f0883e;font-size:0.8rem"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Session is active — updating live</span>';
+            }
+          } else if (status) {
+            const indicator = status.querySelector('.focus-live-indicator');
+            if (indicator) indicator.remove();
+          }
+
+          if (data.isActive) {
+            focusPoller = setTimeout(poll, 2000);
+          } else {
+            // Do one final refresh after session stops
+            focusPoller = null;
+          }
+        } catch {
+          focusPoller = null;
+        }
+      };
+      focusPoller = setTimeout(poll, 1500);
+    }
+
+    function stopFocusPolling() {
+      if (focusPoller) { clearTimeout(focusPoller); focusPoller = null; }
+    }
+
     function closeFocus() {
+      stopFocusPolling();
       document.getElementById('focusOverlay').classList.remove('visible');
       focusSessionId = null;
       focusSessionData = null;
