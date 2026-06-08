@@ -209,7 +209,11 @@ class Supervisor extends EventEmitter {
         'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000));
 
-      const status = code === 0 ? 'idle' : 'error';
+      // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
+      let status;
+      if (code !== 0) status = 'error';
+      else if (entry.cronJob || entry.timer) status = 'scheduled';
+      else status = 'idle';
       this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
 
       this.emit('agent-completed', { agentId, code, output: stdout, error: stderr });
