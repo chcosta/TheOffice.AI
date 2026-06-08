@@ -1,7 +1,7 @@
 node_modules/
 supervisor.db
 daemon/
-
+service.log
 temp-terminal.bat
 .browse-folder.ps1
 .browse-result.txt
