@@ -789,6 +789,81 @@ pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; 
   res.json({ ok: true });
 });
 
+// Email a session's content (full conversation or last response only)
+app.post('/api/sessions/:id/email', (req, res) => {
+  const { mode } = req.body; // 'full' or 'last'
+  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
+  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+
+  const conversation = readSessionConversation(sessionDir);
+  const eventsPath = path.join(sessionDir, 'events.jsonl');
+  let agentName = 'Agent';
+  if (fs.existsSync(eventsPath)) {
+    for (const line of fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean)) {
+      try {
+        const ev = JSON.parse(line);
+        if (ev.type === 'subagent.selected' && ev.data?.agentDisplayName) { agentName = ev.data.agentDisplayName; break; }
+      } catch {}
+    }
+  }
+
+  let markdown = '';
+  const subject = `Session: ${agentName} — ${new Date().toLocaleDateString()}`;
+  if (mode === 'last') {
+    // Last agent response only
+    const lastTurn = [...conversation.turns].reverse().find(t => t.assistant);
+    markdown = lastTurn?.assistant || 'No agent response found.';
+  } else {
+    // Full conversation
+    for (const turn of conversation.turns) {
+      markdown += `**You:** ${turn.content}\n\n`;
+      if (turn.assistant) markdown += `**Agent:** ${turn.assistant}\n\n---\n\n`;
+    }
+  }
+
+  const { marked } = require('marked');
+  const htmlBody = marked.parse(markdown);
+  const htmlEmail = `<html><head><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #222; padding: 16px; }
+h1, h2, h3 { color: #333; }
+a { color: #0078d4; }
+hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+ul, ol { padding-left: 24px; }
+li { margin-bottom: 4px; }
+code { background: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-size: 13px; }
+pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+</style></head><body>${htmlBody}</body></html>`;
+
+  const boundary = `----=_Part_${Date.now()}`;
+  const eml = [
+    `Subject: ${subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `X-Unsent: 1`,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/plain; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    markdown,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/html; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    htmlEmail,
+    ``,
+    `--${boundary}--`
+  ].join('\r\n');
+
+  const os = require('os');
+  const emlPath = path.join(os.tmpdir(), `session-email-${req.params.id.substring(0,8)}-${Date.now()}.eml`);
+  fs.writeFileSync(emlPath, eml, 'utf8');
+  const { exec } = require('child_process');
+  exec(`start "" "${emlPath}"`);
+  res.json({ ok: true });
+});
+
 // ---- Session History & Chat ----
 const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 
@@ -1330,6 +1405,17 @@ function getDashboardHtml() {
     .tool-step.success { border-left: 2px solid #3fb950; }
     .tool-step.failed { border-left: 2px solid #f85149; }
     /* Focus Modal */
+    .focus-email-menu {
+      display: none; position: absolute; top: 100%; right: 0; z-index: 300;
+      background: #1c2128; border: 1px solid #30363d; border-radius: 6px;
+      padding: 4px 0; min-width: 180px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .focus-email-menu.visible { display: block; }
+    .focus-email-menu button {
+      display: block; width: 100%; text-align: left; background: none; border: none;
+      color: #c9d1d9; padding: 8px 14px; font-size: 0.82rem; cursor: pointer;
+    }
+    .focus-email-menu button:hover { background: #30363d; }
     .focus-overlay {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200;
     }
@@ -1422,6 +1508,13 @@ function getDashboardHtml() {
             <input type="checkbox" id="focusVerbose" onchange="toggleFocusVerbose()" />
             🔧 Steps
           </label>
+          <div style="position:relative;display:inline-block;" id="focusEmailWrap">
+            <button class="btn" onclick="document.getElementById('focusEmailMenu').classList.toggle('visible')" title="Email session">✉ Email</button>
+            <div id="focusEmailMenu" class="focus-email-menu">
+              <button onclick="emailFocusSession('last')">Last response only</button>
+              <button onclick="emailFocusSession('full')">Full conversation</button>
+            </div>
+          </div>
           <button class="btn" onclick="openTerminal(focusSessionId)" title="Open in terminal">&#x1F4BB; Terminal</button>
           <button class="panel-close" onclick="closeFocus()">&times;</button>
         </div>
@@ -2663,8 +2756,27 @@ function getDashboardHtml() {
     function closeFocus() {
       stopFocusPolling();
       document.getElementById('focusOverlay').classList.remove('visible');
+      document.getElementById('focusEmailMenu')?.classList.remove('visible');
       focusSessionId = null;
       focusSessionData = null;
+    }
+
+    async function emailFocusSession(mode) {
+      document.getElementById('focusEmailMenu').classList.remove('visible');
+      if (!focusSessionId) return;
+      try {
+        const res = await fetch(\`/api/sessions/\${focusSessionId}/email\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || 'Failed to compose email');
+        }
+      } catch (e) {
+        alert('Failed to send email: ' + e.message);
+      }
     }
 
     async function sendFocusChat() {
@@ -2885,6 +2997,13 @@ function getDashboardHtml() {
         if (agentId) pollLiveOutput(agentId);
       });
     }
+
+    // Close email dropdown on outside click
+    document.addEventListener('click', (e) => {
+      const menu = document.getElementById('focusEmailMenu');
+      const wrap = document.getElementById('focusEmailWrap');
+      if (menu && wrap && !wrap.contains(e.target)) menu.classList.remove('visible');
+    });
 
     refresh();
     setInterval(() => { refresh(); startLivePollers(); }, 10000);
