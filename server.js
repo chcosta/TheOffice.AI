@@ -1257,8 +1257,24 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
-  // Write a temp batch file to avoid Windows quoting hell
-  const batContent = `@echo off\ncd /d "${cwd}"\n"${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo\npause\n`;
+  // Write a temp batch file with error diagnostics
+  const batContent = [
+    '@echo off',
+    `if not exist "${cwd}" (`,
+    `  echo ERROR: Working directory not found: ${cwd}`,
+    '  pause',
+    '  exit /b 1',
+    ')',
+    `cd /d "${cwd}"`,
+    `where "${copilotCmd}" >nul 2>&1 || (`,
+    `  echo ERROR: copilot not found in PATH`,
+    '  echo PATH=%PATH%',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    `"${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo`,
+    'pause'
+  ].join('\n');
   const batPath = path.join(__dirname, 'temp-terminal.bat');
   fs.writeFileSync(batPath, batContent);
   exec(`start "Copilot Session" "${batPath}"`);
@@ -1279,7 +1295,23 @@ app.post('/api/terminal/open', (req, res) => {
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
-  const batContent = `@echo off\ncd /d "${cwd}"\n"${copilotCmd}" ${pluginDirFlag} --yolo\npause\n`;
+  const batContent = [
+    '@echo off',
+    `if not exist "${cwd}" (`,
+    `  echo ERROR: Working directory not found: ${cwd}`,
+    '  pause',
+    '  exit /b 1',
+    ')',
+    `cd /d "${cwd}"`,
+    `where "${copilotCmd}" >nul 2>&1 || (`,
+    `  echo ERROR: copilot not found in PATH`,
+    '  echo PATH=%PATH%',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    `"${copilotCmd}" ${pluginDirFlag} --yolo`,
+    'pause'
+  ].join('\n');
   const batPath = path.join(__dirname, 'temp-terminal.bat');
   fs.writeFileSync(batPath, batContent);
   exec(`start "Copilot Session" "${batPath}"`);
