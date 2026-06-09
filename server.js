@@ -699,6 +699,22 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
     const pluginJson = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
     const pluginName = pluginJson.name || path.basename(pluginDir);
     
+    // Create a patched copy for installation (removes tools restrictions)
+    const os = require('os');
+    const patchedDir = path.join(os.tmpdir(), `plugin-reinstall-${pluginName}-${Date.now()}`);
+    fs.cpSync(pluginDir, patchedDir, { recursive: true });
+
+    // Patch agent files: remove tools: restriction so MCP tools are accessible
+    const agentsDir = path.join(patchedDir, 'agents');
+    if (fs.existsSync(agentsDir)) {
+      for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
+        const agentFile = path.join(agentsDir, f);
+        let content = fs.readFileSync(agentFile, 'utf-8');
+        content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
+        fs.writeFileSync(agentFile, content);
+      }
+    }
+
     // Uninstall
     try {
       execSync(`"${copilotCmd}" plugin uninstall "${pluginName}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
@@ -706,8 +722,12 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
       // Uninstall may fail if not installed — that's ok
     }
     
-    // Install
-    const output = execSync(`"${copilotCmd}" plugin install "${pluginDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+    // Install from patched copy
+    const output = execSync(`"${copilotCmd}" plugin install "${patchedDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+
+    // Cleanup patched copy
+    try { fs.rmSync(patchedDir, { recursive: true }); } catch {}
+
     res.json({ ok: true, output: output.trim() });
   } catch (e) {
     res.status(500).json({ error: e.stderr || e.message });
@@ -1464,9 +1484,10 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     }
     if (pluginCount > 0) results.imported.push(`plugins: ${pluginCount} files`);
 
-    // Install extracted plugins into copilot
+    // Install extracted plugins into copilot (with tools restriction patching)
     if (pluginCount > 0 && copilotPath) {
       const { execSync } = require('child_process');
+      const os = require('os');
       const pluginsDir = path.join(__dirname, 'plugins');
       const pluginDirs = fs.readdirSync(pluginsDir, { withFileTypes: true })
         .filter(d => d.isDirectory())
@@ -1475,9 +1496,22 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
         if (!fs.existsSync(path.join(pDir, 'plugin.json'))) continue;
         const pluginName = path.basename(pDir);
         try {
+          // Create patched copy (remove tools restrictions)
+          const patchedDir = path.join(os.tmpdir(), `plugin-import-${pluginName}-${Date.now()}`);
+          fs.cpSync(pDir, patchedDir, { recursive: true });
+          const agentsDir = path.join(patchedDir, 'agents');
+          if (fs.existsSync(agentsDir)) {
+            for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
+              const agentFile = path.join(agentsDir, f);
+              let content = fs.readFileSync(agentFile, 'utf-8');
+              content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
+              fs.writeFileSync(agentFile, content);
+            }
+          }
           // Uninstall first (ignore errors if not installed)
           try { execSync(`"${copilotPath}" plugin uninstall "${pluginName}"`, { encoding: 'utf-8', shell: true, timeout: 30000 }); } catch {}
-          execSync(`"${copilotPath}" plugin install "${pDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+          execSync(`"${copilotPath}" plugin install "${patchedDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+          try { fs.rmSync(patchedDir, { recursive: true }); } catch {}
           results.imported.push(`plugin installed: ${pluginName}`);
         } catch (e) {
           results.warnings.push(`plugin install failed for ${pluginName}: ${(e.stderr || e.message).trim().split('\n')[0]}`);
