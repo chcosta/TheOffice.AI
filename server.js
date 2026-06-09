@@ -683,7 +683,15 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
   
   const { execSync } = require('child_process');
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const pluginDir = entry.config.pluginDir;
+  let pluginDir = entry.config.pluginDir;
+  
+  // If configured pluginDir doesn't exist, try resolving relative to server's plugins/ directory
+  if (!fs.existsSync(pluginDir)) {
+    const localDir = path.join(__dirname, 'plugins', path.basename(pluginDir));
+    if (fs.existsSync(localDir)) {
+      pluginDir = localDir;
+    }
+  }
   
   try {
     // Get plugin name from plugin.json
@@ -1422,9 +1430,17 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     // Import agents.json
     if (entries['agents.json']) {
       const agents = JSON.parse(entries['agents.json'].toString());
-      // Remove any hardcoded copilotPath — rely on PATH resolution
       for (const agent of agents) {
+        // Remove hardcoded copilotPath — rely on PATH resolution
         delete agent.copilotPath;
+        // Rewrite pluginDir to local plugins/ directory if it's an absolute path from another machine
+        if (agent.pluginDir) {
+          const pluginName = path.basename(agent.pluginDir);
+          const localPluginDir = path.join(__dirname, 'plugins', pluginName);
+          if (agent.pluginDir !== localPluginDir) {
+            agent.pluginDir = localPluginDir;
+          }
+        }
       }
       // Validate CWDs
       for (const agent of agents) {
