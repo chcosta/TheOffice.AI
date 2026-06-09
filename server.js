@@ -705,13 +705,15 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
     if (fs.existsSync(runtimeDir)) fs.rmSync(runtimeDir, { recursive: true });
     fs.cpSync(pluginDir, runtimeDir, { recursive: true });
 
-    // Patch runtime copy: remove tools: restriction so all tools are accessible
+    // Patch runtime copy: replace tools: restriction with permissive list
     const agentsDir = path.join(runtimeDir, 'agents');
     if (fs.existsSync(agentsDir)) {
       for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
         const agentFile = path.join(agentsDir, f);
         let content = fs.readFileSync(agentFile, 'utf-8').replace(/\r\n/g, '\n');
-        content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
+        // Replace restrictive tools list with full access
+        const permissiveTools = "tools:\n  - 'powershell'\n  - 'bash'\n  - 'fetch'\n  - 'skill'\n  - 'report_intent'\n";
+        content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, `$1${permissiveTools}$3`);
         fs.writeFileSync(agentFile, content);
       }
     }
