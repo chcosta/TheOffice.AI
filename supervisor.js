@@ -177,7 +177,15 @@ class Supervisor extends EventEmitter {
     // Build copilot CLI command as a full command string for shell execution
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
-    const pluginDir = config.pluginDir ? `--plugin-dir "${config.pluginDir}"` : '';
+    // Prefer patched .runtime/ copy over source plugin dir
+    let resolvedPluginDir = config.pluginDir;
+    if (resolvedPluginDir) {
+      const runtimeCopy = path.join(path.dirname(resolvedPluginDir), '.runtime', path.basename(resolvedPluginDir));
+      if (fs.existsSync(runtimeCopy)) {
+        resolvedPluginDir = runtimeCopy;
+      }
+    }
+    const pluginDir = resolvedPluginDir ? `--plugin-dir "${resolvedPluginDir}"` : '';
     let mcpConfig = '';
     if (config.mcpConfig) {
       const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);

@@ -699,13 +699,14 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
     const pluginJson = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
     const pluginName = pluginJson.name || path.basename(pluginDir);
     
-    // Create a patched copy for installation (removes tools restrictions)
-    const os = require('os');
-    const patchedDir = path.join(os.tmpdir(), `plugin-reinstall-${pluginName}-${Date.now()}`);
-    fs.cpSync(pluginDir, patchedDir, { recursive: true });
+    // Create a patched runtime copy (source stays untouched, supervisor uses this via --plugin-dir)
+    const runtimeDir = path.join(__dirname, 'plugins', '.runtime', path.basename(pluginDir));
+    fs.mkdirSync(path.dirname(runtimeDir), { recursive: true });
+    if (fs.existsSync(runtimeDir)) fs.rmSync(runtimeDir, { recursive: true });
+    fs.cpSync(pluginDir, runtimeDir, { recursive: true });
 
-    // Patch agent files: remove tools: restriction so MCP tools are accessible
-    const agentsDir = path.join(patchedDir, 'agents');
+    // Patch runtime copy: remove tools: restriction so all tools are accessible
+    const agentsDir = path.join(runtimeDir, 'agents');
     if (fs.existsSync(agentsDir)) {
       for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
         const agentFile = path.join(agentsDir, f);
@@ -722,11 +723,8 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
       // Uninstall may fail if not installed — that's ok
     }
     
-    // Install from patched copy
-    const output = execSync(`"${copilotCmd}" plugin install "${patchedDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
-
-    // Cleanup patched copy
-    try { fs.rmSync(patchedDir, { recursive: true }); } catch {}
+    // Install from patched runtime copy
+    const output = execSync(`"${copilotCmd}" plugin install "${runtimeDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
 
     res.json({ ok: true, output: output.trim() });
   } catch (e) {
