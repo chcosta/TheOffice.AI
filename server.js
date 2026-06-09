@@ -1448,6 +1448,27 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     }
     if (pluginCount > 0) results.imported.push(`plugins: ${pluginCount} files`);
 
+    // Install extracted plugins into copilot
+    if (pluginCount > 0 && copilotPath) {
+      const { execSync } = require('child_process');
+      const pluginsDir = path.join(__dirname, 'plugins');
+      const pluginDirs = fs.readdirSync(pluginsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => path.join(pluginsDir, d.name));
+      for (const pDir of pluginDirs) {
+        if (!fs.existsSync(path.join(pDir, 'plugin.json'))) continue;
+        const pluginName = path.basename(pDir);
+        try {
+          // Uninstall first (ignore errors if not installed)
+          try { execSync(`"${copilotPath}" plugin uninstall "${pluginName}"`, { encoding: 'utf-8', shell: true, timeout: 30000 }); } catch {}
+          execSync(`"${copilotPath}" plugin install "${pDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+          results.imported.push(`plugin installed: ${pluginName}`);
+        } catch (e) {
+          results.warnings.push(`plugin install failed for ${pluginName}: ${(e.stderr || e.message).trim().split('\n')[0]}`);
+        }
+      }
+    }
+
     // Import mcp-configs
     let mcpCount = 0;
     for (const [filePath, content] of Object.entries(entries)) {
