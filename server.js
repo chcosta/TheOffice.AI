@@ -24,6 +24,15 @@ if (!process.env.COPILOT_PATH) {
   }
 }
 
+// Get git version info at startup
+let GIT_VERSION = { hash: 'unknown', message: '' };
+try {
+  const { execSync } = require('child_process');
+  const hash = execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf-8' }).trim();
+  const message = execSync('git log -1 --format=%s', { cwd: __dirname, encoding: 'utf-8' }).trim();
+  GIT_VERSION = { hash, message };
+} catch {}
+
 async function main() {
 
 // Initialize database
@@ -1935,7 +1944,7 @@ function getDashboardHtml() {
 </head>
 <body>
   <div class="refresh-bar">
-    <h1>&#x1F916; Copilot Agent Supervisor</h1>
+    <h1>&#x1F916; Copilot Agent Supervisor <span style="font-size:0.5em;color:#8b949e;font-weight:normal" title="${GIT_VERSION.message}">${GIT_VERSION.hash}</span></h1>
     <div>
       <button class="btn" onclick="openSessionsPanel()" style="margin-right:4px">&#x1F4CB; Sessions</button>
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>

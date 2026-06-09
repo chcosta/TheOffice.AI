@@ -192,7 +192,7 @@ class Supervisor extends EventEmitter {
       mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
     }
     // For plugin agents, override tool restrictions so shell tools are available
-    const toolOverride = config.pluginDir ? '--available-tools=powershell,bash,fetch,skill,report_intent' : '';
+    const toolOverride = config.pluginDir ? '--available-tools powershell bash fetch skill report_intent' : '';
     const cmdLine = `"${copilotCmd}" ${pluginDir} ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s ${perms} ${toolOverride}`.replace(/\s+/g, ' ').trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
