@@ -259,7 +259,7 @@ app.post('/api/plugins/install', (req, res) => {
       if (fs.existsSync(agentsDir)) {
         for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
           const agentFile = path.join(agentsDir, f);
-          let content = fs.readFileSync(agentFile, 'utf-8');
+          let content = fs.readFileSync(agentFile, 'utf-8').replace(/\r\n/g, '\n');
           // Remove tools: block from YAML frontmatter
           content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
           fs.writeFileSync(agentFile, content);
@@ -709,7 +709,7 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
     if (fs.existsSync(agentsDir)) {
       for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
         const agentFile = path.join(agentsDir, f);
-        let content = fs.readFileSync(agentFile, 'utf-8');
+        let content = fs.readFileSync(agentFile, 'utf-8').replace(/\r\n/g, '\n');
         content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
         fs.writeFileSync(agentFile, content);
       }
@@ -1503,7 +1503,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
           if (fs.existsSync(agentsDir)) {
             for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
               const agentFile = path.join(agentsDir, f);
-              let content = fs.readFileSync(agentFile, 'utf-8');
+              let content = fs.readFileSync(agentFile, 'utf-8').replace(/\r\n/g, '\n');
               content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, '$1$3');
               fs.writeFileSync(agentFile, content);
             }
