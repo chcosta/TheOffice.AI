@@ -13,5 +13,11 @@ if %ERRORLEVEL% NEQ 0 (
     node install-service.js
 )
 schtasks /Run /TN "CopilotAgentSupervisor"
-timeout /t 3 /nobreak >nul
+echo Waiting for service to start...
+timeout /t 4 /nobreak >nul
+echo.
+echo === Deployed Version ===
+curl -s http://localhost:3847/api/version 2>nul
+echo.
+echo.
 echo Dashboard: http://localhost:3847

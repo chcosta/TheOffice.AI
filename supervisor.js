@@ -177,23 +177,15 @@ class Supervisor extends EventEmitter {
     // Build copilot CLI command as a full command string for shell execution
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
-    // Prefer patched .runtime/ copy over source plugin dir
-    let resolvedPluginDir = config.pluginDir;
-    if (resolvedPluginDir) {
-      const runtimeCopy = path.join(path.dirname(resolvedPluginDir), '.runtime', path.basename(resolvedPluginDir));
-      if (fs.existsSync(runtimeCopy)) {
-        resolvedPluginDir = runtimeCopy;
-      }
-    }
-    const pluginDir = resolvedPluginDir ? `--plugin-dir "${resolvedPluginDir}"` : '';
+    // Don't use --plugin-dir: it restricts tools to only skill/report_intent.
+    // Instead, rely on globally installed plugins (via `copilot plugin install`).
+    // This gives plugin agents full tool access (powershell, etc.)
     let mcpConfig = '';
     if (config.mcpConfig) {
       const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
       mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
     }
-    // For plugin agents, override tool restrictions so shell tools are available
-    const toolOverride = config.pluginDir ? '--available-tools powershell bash fetch skill report_intent' : '';
-    const cmdLine = `"${copilotCmd}" ${pluginDir} ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s ${perms} ${toolOverride}`.replace(/\s+/g, ' ').trim();
+    const cmdLine = `"${copilotCmd}" ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s ${perms}`.replace(/\s+/g, ' ').trim();
     
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
     console.log(`[supervisor] Command: ${cmdLine}`);

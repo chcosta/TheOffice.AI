@@ -24,13 +24,22 @@ if (!process.env.COPILOT_PATH) {
   }
 }
 
-// Get git version info at startup
-let GIT_VERSION = { hash: 'unknown', message: '' };
+// Get git version info and process identity at startup
+const PROCESS_START = new Date().toISOString();
+const PROCESS_PID = process.pid;
+let GIT_VERSION = { hash: 'unknown', message: '', dirty: false };
 try {
   const { execSync } = require('child_process');
   const hash = execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf-8' }).trim();
   const message = execSync('git log -1 --format=%s', { cwd: __dirname, encoding: 'utf-8' }).trim();
-  GIT_VERSION = { hash, message };
+  const status = execSync('git status --porcelain', { cwd: __dirname, encoding: 'utf-8' }).trim();
+  const dirty = status.length > 0;
+  // Compute file hash of running source for integrity verification
+  const crypto = require('crypto');
+  const serverSrc = fs.readFileSync(path.join(__dirname, 'server.js'));
+  const supervisorSrc = fs.readFileSync(path.join(__dirname, 'supervisor.js'));
+  const fileHash = crypto.createHash('sha256').update(serverSrc).update(supervisorSrc).digest('hex').substring(0, 8);
+  GIT_VERSION = { hash, message, dirty, fileHash };
 } catch {}
 
 async function main() {
@@ -395,6 +404,19 @@ app.post('/api/plugins/install', (req, res) => {
 // Dashboard HTML
 app.get('/', (req, res) => {
   res.send(getDashboardHtml());
+});
+
+// Version/health endpoint for verifying deployed version
+app.get('/api/version', (req, res) => {
+  res.json({
+    gitHash: GIT_VERSION.hash,
+    gitMessage: GIT_VERSION.message,
+    dirty: GIT_VERSION.dirty,
+    fileHash: GIT_VERSION.fileHash || 'unknown',
+    pid: PROCESS_PID,
+    startedAt: PROCESS_START,
+    uptime: Math.round(process.uptime()) + 's'
+  });
 });
 
 // API Routes
@@ -1944,7 +1966,7 @@ function getDashboardHtml() {
 </head>
 <body>
   <div class="refresh-bar">
-    <h1>&#x1F916; Copilot Agent Supervisor <span style="font-size:0.5em;color:#8b949e;font-weight:normal" title="${GIT_VERSION.message}">${GIT_VERSION.hash}</span></h1>
+    <h1>&#x1F916; Copilot Agent Supervisor <span style="font-size:0.5em;color:#8b949e;font-weight:normal" title="${GIT_VERSION.message} | files:${GIT_VERSION.fileHash || '?'} | PID:${PROCESS_PID} | started:${PROCESS_START}">${GIT_VERSION.hash}${GIT_VERSION.dirty ? '<span style="color:#f85149">*</span>' : ''}</span></h1>
     <div>
       <button class="btn" onclick="openSessionsPanel()" style="margin-right:4px">&#x1F4CB; Sessions</button>
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
