@@ -1870,7 +1870,7 @@ function getDashboardHtml() {
       <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
       <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
       <button class="btn" onclick="window.location='/api/export'" title="Export config as zip">&#x1F4E6; Export</button>
-      <label class="btn" style="cursor:pointer;margin:0" title="Import config from zip">&#x1F4E5; Import<input type="file" accept=".zip" style="display:none" onchange="handleImportFile(this)"></label>
+      <label class="btn" style="cursor:pointer;margin:0" title="Import config from zip">&#x1F4E5; Import<input type="file" id="importZipInput" accept=".zip" style="display:none"></label>
       <span class="auto-refresh">Auto-refreshes every 10s</span>
     </div>
   </div>
@@ -2412,17 +2412,18 @@ function getDashboardHtml() {
     function importConfig() { document.getElementById('importFileInput').click(); }
     async function handleImportFile(input) {
       const file = input.files[0];
-      if (!file) return;
+      if (!file) { alert('No file selected'); return; }
       const formData = new FormData();
       formData.append('file', file);
       try {
         const res = await fetch('/api/import', { method: 'POST', body: formData });
+        if (!res.ok) { alert('Import request failed: HTTP ' + res.status); return; }
         const result = await res.json();
         let msg = '';
         if (result.imported?.length) msg += '✅ Imported:\\n' + result.imported.join('\\n') + '\\n\\n';
         if (result.warnings?.length) msg += '⚠️ Warnings:\\n' + result.warnings.join('\\n') + '\\n\\n';
         if (result.errors?.length) msg += '❌ Errors:\\n' + result.errors.join('\\n');
-        alert(msg || 'Import complete');
+        alert(msg || 'Import complete (no details returned)');
         refresh();
       } catch (e) {
         alert('Import failed: ' + e.message);
@@ -3618,6 +3619,9 @@ function getDashboardHtml() {
     refresh();
     setInterval(() => { refresh(); startLivePollers(); }, 10000);
     setTimeout(startLivePollers, 1000);
+
+    // Wire up import file input
+    document.getElementById('importZipInput')?.addEventListener('change', function() { handleImportFile(this); });
   </script>
 </body>
 </html>`;
