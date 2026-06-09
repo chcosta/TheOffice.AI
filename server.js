@@ -730,34 +730,15 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
     const pluginJson = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
     const pluginName = pluginJson.name || path.basename(pluginDir);
     
-    // Create a patched runtime copy (source stays untouched, supervisor uses this via --plugin-dir)
-    const runtimeDir = path.join(__dirname, 'plugins', '.runtime', path.basename(pluginDir));
-    fs.mkdirSync(path.dirname(runtimeDir), { recursive: true });
-    if (fs.existsSync(runtimeDir)) fs.rmSync(runtimeDir, { recursive: true });
-    fs.cpSync(pluginDir, runtimeDir, { recursive: true });
-
-    // Patch runtime copy: replace tools: restriction with permissive list
-    const agentsDir = path.join(runtimeDir, 'agents');
-    if (fs.existsSync(agentsDir)) {
-      for (const f of fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'))) {
-        const agentFile = path.join(agentsDir, f);
-        let content = fs.readFileSync(agentFile, 'utf-8').replace(/\r\n/g, '\n');
-        // Replace restrictive tools list with full access
-        const permissiveTools = "tools:\n  - 'powershell'\n  - 'bash'\n  - 'fetch'\n  - 'skill'\n  - 'report_intent'\n";
-        content = content.replace(/^(---\n[\s\S]*?)(tools:\n(?:\s+-[^\n]*\n)*)([\s\S]*?---)/m, `$1${permissiveTools}$3`);
-        fs.writeFileSync(agentFile, content);
-      }
-    }
-
-    // Uninstall
+    // Uninstall existing
     try {
       execSync(`"${copilotCmd}" plugin uninstall "${pluginName}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
     } catch (e) {
       // Uninstall may fail if not installed — that's ok
     }
     
-    // Install from patched runtime copy
-    const output = execSync(`"${copilotCmd}" plugin install "${runtimeDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
+    // Install directly from source (no --plugin-dir needed at runtime, so no patching required)
+    const output = execSync(`"${copilotCmd}" plugin install "${pluginDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
 
     res.json({ ok: true, output: output.trim() });
   } catch (e) {
@@ -1308,16 +1289,6 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   const meta = readSessionMeta(sessionDir);
   const cwd = req.body?.cwd || meta.cwd || __dirname;
 
-  // Find matching agent config to get pluginDir
-  let pluginDirFlag = '';
-  const agents = supervisor.getAllStatus();
-  for (const agent of agents) {
-    if (agent.config?.pluginDir && agent.config?.cwd?.toLowerCase() === cwd.toLowerCase()) {
-      pluginDirFlag = `--plugin-dir "${agent.config.pluginDir}"`;
-      break;
-    }
-  }
-
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
   // Write a temp batch file with error diagnostics
@@ -1335,7 +1306,7 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
     '  pause',
     '  exit /b 1',
     ')',
-    `"${copilotCmd}" ${pluginDirFlag} --resume=${req.params.id} --yolo`,
+    `"${copilotCmd}" --resume=${req.params.id} --yolo`,
     'pause'
   ].join('\n');
   const batPath = path.join(__dirname, 'temp-terminal.bat');
@@ -1346,15 +1317,8 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
 
 // Open copilot in a directory without resuming a session
 app.post('/api/terminal/open', (req, res) => {
-  const { cwd, agentId } = req.body || {};
+  const { cwd } = req.body || {};
   if (!cwd) return res.status(400).json({ error: 'cwd required' });
-
-  let pluginDirFlag = '';
-  const agents = supervisor.getAllStatus();
-  const agent = agents.find(a => a.agent_id === agentId);
-  if (agent?.config?.pluginDir) {
-    pluginDirFlag = `--plugin-dir "${agent.config.pluginDir}"`;
-  }
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
@@ -1372,7 +1336,7 @@ app.post('/api/terminal/open', (req, res) => {
     '  pause',
     '  exit /b 1',
     ')',
-    `"${copilotCmd}" ${pluginDirFlag} --yolo`,
+    `"${copilotCmd}" --yolo`,
     'pause'
   ].join('\n');
   const batPath = path.join(__dirname, 'temp-terminal.bat');
