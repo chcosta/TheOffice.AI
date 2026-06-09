@@ -2343,7 +2343,7 @@ function getDashboardHtml() {
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
     function escapeJs(str) {
-      return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return str.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\\\'");
     }
 
     function editAgentName(id, el) {
