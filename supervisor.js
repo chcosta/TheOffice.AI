@@ -172,19 +172,9 @@ class Supervisor extends EventEmitter {
     this._updateNextRun(agentId);
 
     // Interpolate template variables in prompt if trigger context provided
-    let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext) : config.prompt;
-
-    // If the prompt is too long for Windows command line (~8191 chars), write trigger
-    // context to a file and replace the inline content with a file reference
-    let triggerFile = null;
-    const MAX_CMDLINE_PROMPT = 6000; // Leave room for the rest of the command
-    if (prompt.length > MAX_CMDLINE_PROMPT) {
-      const os = require('os');
-      triggerFile = path.join(os.tmpdir(), `agent-trigger-${agentId}-${Date.now()}.md`);
-      fs.writeFileSync(triggerFile, prompt, 'utf-8');
-      prompt = `Read the full prompt and instructions from the file: ${triggerFile}`;
-      console.log(`[supervisor] Prompt too long (${prompt.length} chars), wrote to ${triggerFile}`);
-    }
+    // Large values are written to temp files to avoid Windows 8191-char cmd limit
+    let triggerFiles = [];
+    let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext, agentId, triggerFiles) : config.prompt;
 
     // Build copilot CLI command as a full command string for shell execution
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
@@ -233,9 +223,9 @@ class Supervisor extends EventEmitter {
       entry.process = null;
       const finishedAt = new Date().toISOString();
 
-      // Clean up trigger file if one was created
-      if (triggerFile) {
-        try { fs.unlinkSync(triggerFile); } catch {}
+      // Clean up trigger temp files
+      for (const f of triggerFiles) {
+        try { fs.unlinkSync(f); } catch {}
       }
 
       // Small delay to let session state flush to disk before reading
@@ -350,12 +340,18 @@ class Supervisor extends EventEmitter {
     return { output: '', sessionId: null };
   }
 
-  _interpolatePrompt(template, context) {
+  _interpolatePrompt(template, context, agentId, triggerFiles) {
     // Replace {{ variable }} patterns with values from trigger context
     // Supports: trigger.output, trigger.name, trigger.id, trigger.exitCode,
     //           trigger.prompt, trigger.startedAt, trigger.finishedAt
     //           chain[N].output, chain[N].name, etc.
     //           chain.length
+    // Large values (>2000 chars) are written to temp files and replaced with
+    // a file reference to avoid exceeding Windows' 8191-char command line limit.
+    const os = require('os');
+    const VAR_INLINE_LIMIT = 2000;
+    let fileCounter = 0;
+
     return template.replace(/\{\{\s*(.+?)\s*\}\}/g, (match, expr) => {
       try {
         // Parse dot/bracket notation safely
@@ -366,7 +362,20 @@ class Supervisor extends EventEmitter {
           value = value[part];
         }
         if (value == null) return match;
-        return String(value);
+        const strValue = String(value);
+
+        // If value is small enough, inline it directly
+        if (strValue.length <= VAR_INLINE_LIMIT) {
+          return strValue;
+        }
+
+        // Write large value to a temp file and return a reference
+        fileCounter++;
+        const filePath = path.join(os.tmpdir(), `agent-trigger-${agentId}-${Date.now()}-${fileCounter}.md`);
+        fs.writeFileSync(filePath, strValue, 'utf-8');
+        triggerFiles.push(filePath);
+        console.log(`[supervisor] Variable {{${expr}}} too long (${strValue.length} chars), wrote to ${filePath}`);
+        return `[content in file: ${filePath}]`;
       } catch {
         return match;
       }
