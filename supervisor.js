@@ -172,7 +172,19 @@ class Supervisor extends EventEmitter {
     this._updateNextRun(agentId);
 
     // Interpolate template variables in prompt if trigger context provided
-    const prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext) : config.prompt;
+    let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext) : config.prompt;
+
+    // If the prompt is too long for Windows command line (~8191 chars), write trigger
+    // context to a file and replace the inline content with a file reference
+    let triggerFile = null;
+    const MAX_CMDLINE_PROMPT = 6000; // Leave room for the rest of the command
+    if (prompt.length > MAX_CMDLINE_PROMPT) {
+      const os = require('os');
+      triggerFile = path.join(os.tmpdir(), `agent-trigger-${agentId}-${Date.now()}.md`);
+      fs.writeFileSync(triggerFile, prompt, 'utf-8');
+      prompt = `Read the full prompt and instructions from the file: ${triggerFile}`;
+      console.log(`[supervisor] Prompt too long (${prompt.length} chars), wrote to ${triggerFile}`);
+    }
 
     // Build copilot CLI command as a full command string for shell execution
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
@@ -220,6 +232,11 @@ class Supervisor extends EventEmitter {
       entry.running = false;
       entry.process = null;
       const finishedAt = new Date().toISOString();
+
+      // Clean up trigger file if one was created
+      if (triggerFile) {
+        try { fs.unlinkSync(triggerFile); } catch {}
+      }
 
       // Small delay to let session state flush to disk before reading
       setTimeout(() => {
