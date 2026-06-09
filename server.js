@@ -2276,6 +2276,7 @@ function getDashboardHtml() {
             <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
             <button class="btn" onclick="openLastTerminal('\${agent.agent_id}', '\${escapeJs(agent.config?.cwd || '')}')" title="Resume last session in Copilot CLI">💻 Copilot</button>
             <button class="btn" onclick="editAgentSource('\${agent.agent_id}')" title="Open agent source in editor">✏️ Edit</button>
+            <button class="btn" onclick="cloneAgent('\${agent.agent_id}')" title="Clone this agent with a new name">📋 Clone</button>
             \${agent.config?.pluginDir ? \`<button class="btn" onclick="reinstallPlugin('\${agent.agent_id}')" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>\` : ''}
             <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
             \${agent.isTriggerOnly ? \`
@@ -2769,6 +2770,30 @@ function getDashboardHtml() {
       document.getElementById('addPanel').classList.add('visible');
       loadRecentDirs();
     }
+    function cloneAgent(agentId) {
+      const agent = window._lastAgents?.find(a => a.agent_id === agentId);
+      if (!agent?.config) return;
+      const c = agent.config;
+      openAddPanel();
+      // Switch to manual tab
+      const manualTab = document.querySelector('.panel-tab[onclick*="manual"]');
+      if (manualTab) manualTab.click();
+      // Pre-fill all fields from the source agent
+      document.getElementById('add-id').value = '';
+      document.getElementById('add-name').value = (c.name || '') + ' (copy)';
+      document.getElementById('add-agent').value = c.agent || '';
+      document.getElementById('add-cwd').value = c.cwd || '';
+      document.getElementById('add-prompt').value = c.prompt || '';
+      document.getElementById('add-schedule').value = c.schedule || '1h';
+      document.getElementById('add-group').value = c.group || '';
+      document.getElementById('add-copilotPath').value = c.copilotPath || '';
+      document.getElementById('add-pluginDir').value = c.pluginDir || '';
+      document.getElementById('add-mcpConfig').value = c.mcpConfig || '';
+      document.getElementById('add-durable').checked = c.durable !== false;
+      // Focus the name field so user can rename immediately
+      document.getElementById('add-name').focus();
+      document.getElementById('add-name').select();
+    }
     function closeAddPanel() {
       document.getElementById('panelOverlay').classList.remove('visible');
       document.getElementById('addPanel').classList.remove('visible');
@@ -2959,6 +2984,7 @@ function getDashboardHtml() {
 
     async function refresh() {
       const agents = await fetchAgents();
+      window._lastAgents = agents;
       renderAgents(agents);
     }
 
