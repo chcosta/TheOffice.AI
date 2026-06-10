@@ -4252,7 +4252,7 @@ function getManagersPageHtml() {
     }
     .empty-state h3 { color: #f0f6fc; margin-bottom: 8px; }
 
-    .asgn-sched-editor { display: none; position: absolute; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; z-index: 50; min-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .asgn-sched-editor { display: none; position: fixed; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; z-index: 1000; min-width: 340px; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
     .asgn-sched-editor.visible { display: block; }
     .asgn-sched-editor label { color: #8b949e; font-size: 0.75rem; display: block; margin-bottom: 4px; }
     .asgn-sched-editor select, .asgn-sched-editor input[type="time"], .asgn-sched-editor input[type="number"] {
@@ -4666,6 +4666,7 @@ function getManagersPageHtml() {
     function editAssignmentSchedule(managerId, assignmentId, currentSchedule) {
       document.querySelectorAll('.asgn-sched-editor').forEach(e => e.remove());
       const btn = event.target.closest('button');
+      const rect = btn.getBoundingClientRect();
       const editor = document.createElement('div');
       editor.className = 'asgn-sched-editor visible';
       editor.dataset.managerId = managerId;
@@ -4689,8 +4690,16 @@ function getManagersPageHtml() {
           <button class="btn" onclick="closeAsgnScheduleEditor()">Cancel</button>
         </div>
       \`;
-      btn.parentElement.style.position = 'relative';
-      btn.parentElement.appendChild(editor);
+      document.body.appendChild(editor);
+      // Position: above the button if room, otherwise below
+      const editorH = 280;
+      let top = rect.top - editorH - 8;
+      if (top < 10) top = rect.bottom + 8;
+      let left = rect.left - 160;
+      if (left < 10) left = 10;
+      if (left + 380 > window.innerWidth) left = window.innerWidth - 390;
+      editor.style.top = top + 'px';
+      editor.style.left = left + 'px';
       asgnDetectMode(currentSchedule);
       setTimeout(() => document.addEventListener('click', asgnSchedOutsideClick), 10);
     }
@@ -5066,7 +5075,7 @@ function getManagersPageHtml() {
     // Initial load
     loadManagers();
     // Refresh every 10s
-    setInterval(loadManagers, 10000);
+    setInterval(() => { if (!document.querySelector('.asgn-sched-editor')) loadManagers(); }, 10000);
   </script>
 </body>
 </html>`;
