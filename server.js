@@ -4551,26 +4551,17 @@ function getManagersPageHtml() {
     async function runAssignment(managerId, assignmentId) {
       // Open chat modal and run the assignment — results stream in via polling
       const mgr = managersData.find(m => m.manager_id === managerId);
-      openManagerChat(managerId, mgr?.config?.name || managerId);
-      
-      // Wait for history to load before adding pending indicator
-      await loadChatHistory(managerId);
+      await openManagerChat(managerId, mgr?.config?.name || managerId);
 
       try {
         const res = await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
         const data = await res.json();
-        if (data.runId) {
-          chatRunId = data.runId;
-          // Show assignment prompt in chat
-          const assignment = (mgr?.config?.assignments || []).find(a => a.id === assignmentId);
-          const body = document.getElementById('mgrChatBody');
-          body.innerHTML += renderChatMessage('user', (assignment?.prompt || assignmentId), new Date().toISOString());
-          body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">🧠 Thinking...</div></div>';
-          body.scrollTop = body.scrollHeight;
-          startChatPolling();
-        } else if (data.error) {
+        if (data.error) {
           document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + data.error + '</div>';
+          return;
         }
+        // Reload history which detects the active run and starts polling
+        await loadChatHistory(managerId);
       } catch (e) {
         document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + e.message + '</div>';
       }
@@ -4607,10 +4598,25 @@ function getManagersPageHtml() {
     async function loadChatHistory(managerId) {
       const res = await fetch('/api/managers/' + managerId + '/messages?limit=30');
       const messages = await res.json();
-      if (messages.length === 0) return;
       const body = document.getElementById('mgrChatBody');
-      body.innerHTML = messages.map(m => renderChatMessage(m.role, m.content, m.created_at)).join('');
-      body.scrollTop = body.scrollHeight;
+      if (messages.length === 0) {
+        body.innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Send a message to start chatting with the manager.</div>';
+      } else {
+        body.innerHTML = messages.map(m => renderChatMessage(m.role, m.content, m.created_at)).join('');
+        body.scrollTop = body.scrollHeight;
+      }
+
+      // Check if there's an active run and start polling for it
+      try {
+        const histRes = await fetch('/api/managers/' + managerId + '/history?limit=1');
+        const runs = await histRes.json();
+        if (runs.length > 0 && runs[0].status === 'running') {
+          chatRunId = runs[0].id;
+          body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">🧠 Thinking...</div></div>';
+          body.scrollTop = body.scrollHeight;
+          startChatPolling();
+        }
+      } catch {}
     }
 
     function renderChatMessage(role, content, timestamp) {
