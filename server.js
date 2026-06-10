@@ -589,6 +589,76 @@ app.post('/api/agents/:id/run', (req, res) => {
   }
 });
 
+// Chat with an agent — starts/resumes a copilot session and sends a prompt
+app.post('/api/agents/:id/chat', (req, res) => {
+  const { message, sessionId: existingSessionId } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+  
+  const agentEntry = supervisor.agents.get(req.params.id);
+  if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
+  
+  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
+  const agentConfig = agentEntry.config;
+  const cwd = agentConfig.cwd || __dirname;
+  const escapedMsg = message.replace(/"/g, '\\"');
+  const { spawn } = require('child_process');
+  
+  let cmd;
+  if (existingSessionId) {
+    // Resume existing session
+    cmd = `${copilotCmd} --resume=${existingSessionId} -p "${escapedMsg}" -s --yolo`;
+  } else {
+    // Start new session with the agent
+    const agentFlag = agentConfig.agent ? `--agent "${agentConfig.agent}"` : '';
+    cmd = `${copilotCmd} ${agentFlag} -p "${escapedMsg}" -s --yolo`;
+  }
+  
+  const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
+  const proc = spawn(cmd, [], { cwd, shell: shellPath, stdio: ['ignore', 'ignore', 'pipe'] });
+  
+  let stderrBuf = '';
+  proc.stderr.on('data', d => { stderrBuf += d; });
+  proc.on('error', e => {
+    console.error(`[agent-chat] spawn error: ${e.message}`);
+  });
+  proc.on('close', code => {
+    console.log(`[agent-chat] agent ${req.params.id} chat exited (${code})`);
+    broadcastSSE('agent-chat-complete', { agentId: req.params.id, code });
+  });
+  proc.unref();
+  
+  // Try to find the session ID that was just created (will appear after a moment)
+  // Return immediately — client will poll for the session
+  res.json({ ok: true, started: true, existingSessionId: existingSessionId || null });
+});
+
+// Find the most recent session for an agent (by matching agent name in events)
+app.get('/api/agents/:id/session', (req, res) => {
+  const agentEntry = supervisor.agents.get(req.params.id);
+  if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
+  
+  const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+  if (!fs.existsSync(SESSION_STATE_DIR)) return res.json({ sessionId: null });
+  
+  const agentName = agentEntry.config.agent || agentEntry.config.name || req.params.id;
+  const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => ({ name: d.name, mtime: fs.statSync(path.join(SESSION_STATE_DIR, d.name)).mtime }))
+    .sort((a, b) => b.mtime - a.mtime);
+  
+  for (const dir of dirs.slice(0, 30)) {
+    const eventsPath = path.join(SESSION_STATE_DIR, dir.name, 'events.jsonl');
+    if (!fs.existsSync(eventsPath)) continue;
+    const content = fs.readFileSync(eventsPath, 'utf-8');
+    if (content.includes(agentName) || content.includes(req.params.id)) {
+      const stat = fs.statSync(eventsPath);
+      const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
+      return res.json({ sessionId: dir.name, isActive, lastModified: stat.mtime.toISOString() });
+    }
+  }
+  res.json({ sessionId: null });
+});
+
 app.put('/api/agents/:id/schedule', (req, res) => {
   const { schedule } = req.body;
   if (!schedule) return res.status(400).json({ error: 'schedule required' });

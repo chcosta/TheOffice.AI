@@ -733,6 +733,74 @@
     }
     .typing-dot:nth-child(2) { animation-delay: 0.15s; }
     .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+    /* Agent activity stream */
+    .agent-activity {
+      margin: 8px 18px 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--cp-surface-soft) 70%, transparent);
+      border: 1px solid var(--cp-border);
+      font-size: 13px;
+    }
+    .activity-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--cp-accent);
+      font-size: 13px;
+    }
+    .activity-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--cp-accent);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.3); }
+    }
+    .activity-step {
+      padding: 4px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .activity-step .tool-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--cp-text-muted);
+    }
+    .tool-icon { font-size: 12px; }
+    .tool-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--cp-text-soft);
+    }
+    .tool-status {
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .tool-status.done { color: var(--cp-success); }
+    .tool-status.failed { color: var(--cp-danger); }
+    .tool-status.running { color: var(--cp-warning); animation: pulse 1s infinite; }
+    .thinking-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: var(--cp-text-muted);
+      font-style: italic;
+    }
+    .thinking-text {
+      max-width: 500px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .timeline-marker {
       width: 10px;
       height: 10px;
@@ -1467,13 +1535,37 @@
                     <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
                       <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
                         <div class="message-bubble">
-                          <div x-text="message.content"></div>
+                          <div x-html="renderMessageContent(message)"></div>
                           <div class="message-meta" x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></div>
                         </div>
                       </div>
                     </template>
                   </div>
-                  <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id]">
+                  <!-- Live activity stream while agent is running -->
+                  <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id]">
+                    <div class="activity-header">
+                      <span class="activity-pulse"></span>
+                      <strong x-text="chatActivity[activeChat?.id]?.status || 'Running...'"></strong>
+                    </div>
+                    <template x-for="(step, si) in (chatActivity[activeChat?.id]?.steps || [])" :key="'step-' + si">
+                      <div class="activity-step" :class="step.type">
+                        <template x-if="step.type === 'tool' || step.type === 'tool_start'">
+                          <div class="tool-step">
+                            <span class="tool-icon">🔧</span>
+                            <span class="tool-name" x-text="step.tool"></span>
+                            <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                          </div>
+                        </template>
+                        <template x-if="step.type === 'thinking'">
+                          <div class="thinking-step">
+                            <span>💭</span>
+                            <span class="thinking-text" x-text="step.content"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id] && !chatActivity[activeChat?.id]">
                     <span>Waiting for response</span>
                     <span class="typing-dot"></span>
                     <span class="typing-dot"></span>
@@ -1763,6 +1855,8 @@
         availableOrgAgents: [],
         toasts: [],
         typingChats: {},
+        chatActivity: {},
+        chatSessions: {},
         refreshTimer: null,
         pollers: {},
         now: Date.now(),
@@ -2192,13 +2286,24 @@
         chatPlaceholder() {
           if (!this.activeChat) return 'Pick a conversation';
           if (this.activeChat.targetType === 'manager') return 'Ask this manager to coordinate work…';
-          return 'Save a note or context for this agent…';
+          return 'Send a message to this agent…';
         },
 
         chatHeaderSubtitle(chat) {
           if (!chat) return '';
-          if (chat.targetType === 'manager') return 'Ad-hoc prompts are sent to the manager API.';
-          return 'Agent chat is stored here until a direct prompt endpoint is added.';
+          if (chat.targetType === 'manager') return 'Ad-hoc prompts are sent to the manager orchestration engine.';
+          return 'Messages are sent to the agent via Copilot CLI. You will see live tool activity.';
+        },
+
+        renderMessageContent(message) {
+          if (!message || !message.content) return '';
+          let text = message.content;
+          // Basic markdown rendering: bold, code, backtick-code
+          text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+          text = text.replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:12px;background:var(--cp-surface-soft);padding:2px 5px;border-radius:3px;">$1</code>');
+          text = text.replace(/\n/g, '<br>');
+          return text;
         },
 
         chatStatusClass(chat) {
@@ -2234,12 +2339,121 @@
               await this.openChat(this.activeChat.id, false);
             }
           } else {
-            await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
-              method: 'POST',
-              body: JSON.stringify({ role: 'assistant', content: 'Direct agent chat is not exposed yet. Your note has been saved here; use Run Now from the agent detail page to trigger the saved prompt.' })
-            });
-            await this.openChat(this.activeChat.id, false);
+            // Agent chat — start a real copilot session
+            try {
+              this.typingChats[this.activeChat.id] = true;
+              this.chatActivity[this.activeChat.id] = { status: 'Starting agent...', steps: [] };
+              const existingSession = this.chatSessions[this.activeChat.id] || null;
+              await this.request(`/api/agents/${encodeURIComponent(this.activeChat.target)}/chat`, {
+                method: 'POST',
+                body: JSON.stringify({ message: content, sessionId: existingSession })
+              });
+              // Start polling for the agent session
+              this.pollAgentChat(this.activeChat.target, this.activeChat.id);
+            } catch (error) {
+              this.typingChats[this.activeChat.id] = false;
+              delete this.chatActivity[this.activeChat.id];
+              await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'assistant', content: `Error: ${error.message}` })
+              });
+              await this.openChat(this.activeChat.id, false);
+            }
           }
+        },
+
+        async pollAgentChat(agentId, chatId) {
+          // Wait a moment for session to be created
+          await new Promise(r => setTimeout(r, 2000));
+          
+          // Find the session
+          let sessionInfo = null;
+          for (let attempt = 0; attempt < 10; attempt++) {
+            try {
+              sessionInfo = await this.request(`/api/agents/${encodeURIComponent(agentId)}/session`);
+              if (sessionInfo.sessionId) break;
+            } catch {}
+            await new Promise(r => setTimeout(r, 1500));
+          }
+          
+          if (!sessionInfo || !sessionInfo.sessionId) {
+            this.typingChats[chatId] = false;
+            delete this.chatActivity[chatId];
+            await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: 'Could not find agent session. The agent may not have started correctly.' })
+            });
+            await this.openChat(chatId, false);
+            return;
+          }
+          
+          const sessionId = sessionInfo.sessionId;
+          this.chatSessions[chatId] = sessionId;
+          this.chatActivity[chatId] = { status: 'Agent is thinking...', steps: [] };
+          
+          // Poll the session for live activity
+          let lastTurnCount = 0;
+          for (let attempt = 0; attempt < 180; attempt++) {
+            await new Promise(r => setTimeout(r, 1000));
+            try {
+              const poll = await this.request(`/api/sessions/${sessionId}/poll?verbose=1`);
+              
+              // Update activity display
+              const currentTurn = poll.turns && poll.turns.length > 0 ? poll.turns[poll.turns.length - 1] : null;
+              if (currentTurn && currentTurn.steps && currentTurn.steps.length > 0) {
+                this.chatActivity[chatId] = {
+                  status: poll.isActive ? 'Agent is working...' : 'Finishing up...',
+                  steps: currentTurn.steps.map(s => ({
+                    type: s.type === 'tool' || s.type === 'tool_start' ? 'tool' : 'thinking',
+                    tool: s.tool || '',
+                    content: s.content || '',
+                    success: s.success
+                  })).slice(-8)
+                };
+              } else if (poll.isActive) {
+                this.chatActivity[chatId] = { status: 'Agent is thinking...', steps: [] };
+              }
+              
+              // Check if done
+              if (!poll.isActive && poll.turnCount > 0) {
+                // Agent finished — get the final response
+                this.typingChats[chatId] = false;
+                delete this.chatActivity[chatId];
+                
+                const lastTurn = poll.turns[poll.turns.length - 1];
+                const response = lastTurn?.assistant || poll.lastAssistant || 'Agent completed without a response.';
+                
+                // Build rich response with tool activity summary
+                let richResponse = '';
+                if (lastTurn?.steps && lastTurn.steps.length > 0) {
+                  const tools = lastTurn.steps.filter(s => s.type === 'tool');
+                  if (tools.length > 0) {
+                    richResponse += '**Tools used:** ' + tools.map(t => '`' + t.tool + '`').join(', ') + '\n\n';
+                  }
+                }
+                richResponse += response;
+                
+                await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+                  method: 'POST',
+                  body: JSON.stringify({ role: 'assistant', content: richResponse })
+                });
+                if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+                this.scheduleRefresh();
+                return;
+              }
+            } catch {
+              // keep polling
+            }
+          }
+          
+          // Timeout
+          this.typingChats[chatId] = false;
+          delete this.chatActivity[chatId];
+          await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ role: 'assistant', content: 'Agent response timed out (3 minutes). It may still be running in the background.' })
+          });
+          if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
         },
 
         async pollManagerRun(managerId, runId, chatId) {
