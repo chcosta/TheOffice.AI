@@ -2383,6 +2383,8 @@ function getDashboardHtml() {
       const focused = document.activeElement;
       if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input') || focused.classList.contains('group-select'))) return;
       if (document.querySelector('.sched-editor')) return;
+      // Skip if any modal/overlay is visible
+      if (document.querySelector('.modal-overlay.visible, .panel-overlay.visible')) return;
 
       // Filter agents by name
       const filterText = (document.getElementById('agent-filter')?.value || '').toLowerCase();
@@ -2774,7 +2776,17 @@ function getDashboardHtml() {
 
     function schedEditorOutsideClick(e) {
       const editor = document.querySelector('.sched-editor');
-      if (editor && !editor.contains(e.target) && !e.target.closest('[onclick*="openScheduleEditor"]')) closeScheduleEditor();
+      if (!editor) return;
+      // Don't close if click is inside editor or on editor-related elements
+      if (editor.contains(e.target)) return;
+      if (e.target.closest('[onclick*="openScheduleEditor"]')) return;
+      if (e.target.closest('.sched-editor')) return;
+      // Don't close if a select dropdown is active (native dropdowns fire clicks on document)
+      if (e.target.tagName === 'OPTION' || e.target.tagName === 'SELECT') return;
+      // Small delay to avoid race with native dropdown close events
+      setTimeout(() => {
+        if (document.querySelector('.sched-editor')) closeScheduleEditor();
+      }, 50);
     }
 
     function closeScheduleEditor() {
@@ -4132,6 +4144,10 @@ function getManagersPageHtml() {
         <label>Description</label>
         <textarea id="mgr-desc" rows="2" placeholder="What this manager does..."></textarea>
       </div>
+      <div class="form-group">
+        <label>Agent Plugin (optional)</label>
+        <input type="text" id="mgr-agent" placeholder="manager:manager (default)" value="manager:manager">
+      </div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('managerModal')">Cancel</button>
         <button class="btn btn-primary" onclick="saveManager()">Save</button>
@@ -4275,6 +4291,7 @@ function getManagersPageHtml() {
         id: document.getElementById('mgr-id').value.trim(),
         name: document.getElementById('mgr-name').value.trim(),
         description: document.getElementById('mgr-desc').value.trim(),
+        agent: document.getElementById('mgr-agent').value.trim() || 'manager:manager',
         org: [],
         assignments: []
       };

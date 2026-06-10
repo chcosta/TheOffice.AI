@@ -322,13 +322,14 @@ REASON: <why you need this agent>
   async _askManager(managerConfig, prompt) {
     return new Promise((resolve, reject) => {
       const copilotCmd = managerConfig.copilotPath || process.env.COPILOT_PATH || 'copilot';
-      const pluginDir = path.join(__dirname, 'plugins', 'manager');
       // Write prompt to temp file to avoid command line length limits
       const os = require('os');
       const promptFile = path.join(os.tmpdir(), `manager-prompt-${managerConfig.id}-${Date.now()}.md`);
       fs.writeFileSync(promptFile, prompt, 'utf-8');
       
-      const cmdLine = `"${copilotCmd}" --agent "manager:manager" --prompt "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" -s --yolo`;
+      // Use configured agent or default to the built-in manager plugin
+      const agentName = managerConfig.agent || 'manager:manager';
+      const cmdLine = `"${copilotCmd}" --agent "${agentName}" --prompt "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" -s --yolo`;
 
       const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
       const proc = spawn(cmdLine, [], {
