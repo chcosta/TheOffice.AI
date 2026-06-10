@@ -4482,12 +4482,12 @@ function getManagersPageHtml() {
               \${(m.config.assignments || []).map(a => \`
                 <div class="assignment-item">
                   <span class="assignment-name">\${a.name}</span>
-                  <span class="assignment-schedule" title="\${a.scheduleDescription || ''}">\${a.schedule || 'never'}\${a.scheduleDescription ? ' (' + a.scheduleDescription + ')' : ''}</span>
+                  <span class="assignment-schedule" title="\${escapeHtml(a.scheduleDescription || '')}">\${a.schedule || 'never'}\${a.scheduleDescription ? ' (' + a.scheduleDescription + ')' : ''}</span>
                   \${a.nextRun ? '<span style="font-size:10px;color:#8b949e;">next: ' + new Date(a.nextRun).toLocaleTimeString() + '</span>' : ''}
-                  <span class="assignment-prompt" title="\${a.prompt}">\${a.prompt}</span>
+                  <span class="assignment-prompt" title="\${escapeHtml(a.prompt || '')}">\${escapeHtml(a.prompt || '')}</span>
                   <div class="assignment-actions">
-                    <button class="btn btn-sm" onclick="toggleAssignment('\${m.manager_id}', '\${a.id}', \${!a.enabled})" title="\${a.enabled !== false ? 'Disable' : 'Enable'}">\${a.enabled !== false ? '⏸' : '▶️'}</button>
-                    <button class="btn btn-sm" onclick="editAssignmentSchedule('\${m.manager_id}', '\${a.id}', '\${(a.schedule || 'never').replace(/'/g, "\\\\'")}')" title="Edit schedule">🕐</button>
+                    <button class="btn btn-sm" onclick="toggleAssignment('\${m.manager_id}', '\${a.id}', \${a.enabled === false ? 'true' : 'false'})" title="\${a.enabled !== false ? 'Disable' : 'Enable'}">\${a.enabled !== false ? '⏸' : '▶️'}</button>
+                    <button class="btn btn-sm" onclick="editAssignmentSchedule('\${m.manager_id}', '\${a.id}', '\${a.schedule || 'never'}')" title="Edit schedule">🕐</button>
                     <button class="btn btn-sm btn-primary" onclick="runAssignment('\${m.manager_id}', '\${a.id}')">▶ Run</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteAssignment('\${m.manager_id}', '\${a.id}')">✕</button>
                   </div>
