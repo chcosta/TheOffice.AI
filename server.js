@@ -4261,6 +4261,22 @@ function getManagersPageHtml() {
     </div>
   </div>
 
+  <!-- Agent Select Modal -->
+  <div id="agentSelectModal" class="modal-overlay">
+    <div class="modal">
+      <h3>Select Agent Plugin</h3>
+      <input type="hidden" id="agent-select-manager-id">
+      <div class="form-group">
+        <label>Agent Variant</label>
+        <select id="agent-select-dropdown" size="1" style="width:100%;"></select>
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeModal('agentSelectModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveAgentSelect()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Manager Chat Modal -->
   <div id="mgrChatOverlay" class="modal-overlay" onclick="if(event.target===this)closeMgrChat()">
     <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
@@ -4401,19 +4417,25 @@ function getManagersPageHtml() {
     }
 
     async function editManagerAgent(managerId, currentAgent) {
-      // Fetch available variants
+      // Fetch available variants and show select modal
       const res = await fetch('/api/manager-agents');
       const variants = await res.json();
-      const variantList = variants.map(v => \`- \${v.id} (\${v.description})\`).join('\\n');
-      
-      const newAgent = prompt('Agent plugin to use (format: plugin:agent)\\n\\nAvailable variants:\\n' + variantList + '\\n\\nCurrent: ' + currentAgent, currentAgent);
-      if (!newAgent || newAgent === currentAgent) return;
-      
-      // Update the manager config
+      document.getElementById('agent-select-manager-id').value = managerId;
+      const select = document.getElementById('agent-select-dropdown');
+      select.innerHTML = variants.map(v => 
+        \`<option value="\${v.id}" \${v.id === currentAgent ? 'selected' : ''}>\${v.id} — \${v.description}</option>\`
+      ).join('');
+      document.getElementById('agentSelectModal').classList.add('visible');
+    }
+
+    async function saveAgentSelect() {
+      const managerId = document.getElementById('agent-select-manager-id').value;
+      const newAgent = document.getElementById('agent-select-dropdown').value;
       const mgr = managersData.find(m => m.manager_id === managerId);
       if (!mgr) return;
       const config = { ...mgr.config, agent: newAgent };
       await fetch('/api/managers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
+      closeModal('agentSelectModal');
       loadManagers();
     }
 
