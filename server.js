@@ -1772,6 +1772,33 @@ app.get('/api/managers/:id/available-agents', (req, res) => {
   res.json(managerAgent.getAvailableAgents(req.params.id));
 });
 
+// Open manager agent file in VS Code
+app.post('/api/managers/:id/edit-agent', (req, res) => {
+  const entry = managerAgent.managers.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Manager not found' });
+  const agentRef = entry.config.agent || 'manager:manager';
+  const [plugin, agent] = agentRef.split(':');
+  const agentFile = path.join(__dirname, 'plugins', plugin, 'agents', `${agent}.agent.md`);
+  if (!fs.existsSync(agentFile)) return res.status(404).json({ error: `Agent file not found: ${agentFile}` });
+  const { spawn: sp } = require('child_process');
+  sp('code-insiders', [agentFile], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  res.json({ ok: true, file: agentFile });
+});
+
+// List available manager agent variants
+app.get('/api/manager-agents', (req, res) => {
+  const agentsDir = path.join(__dirname, 'plugins', 'manager', 'agents');
+  if (!fs.existsSync(agentsDir)) return res.json([]);
+  const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+  const variants = files.map(f => {
+    const name = f.replace('.agent.md', '');
+    const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
+    const descMatch = content.match(/description:\s*(.+)/);
+    return { id: `manager:${name}`, name, description: descMatch?.[1]?.trim() || '' };
+  });
+  res.json(variants);
+});
+
 // ============ End Manager API Routes ============
 
 // Start all enabled agents
@@ -4225,6 +4252,12 @@ function getManagersPageHtml() {
             </div>
           </div>
           <div class="manager-desc">\${m.config.description || ''}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+            <span style="font-size:0.8rem;color:#8b949e;">Agent:</span>
+            <code style="font-size:0.8rem;color:#58a6ff;background:#1f6feb22;padding:2px 8px;border-radius:4px;">\${m.config.agent || 'manager:manager'}</code>
+            <button class="btn btn-sm" onclick="editManagerAgent('\${m.manager_id}', '\${m.config.agent || 'manager:manager'}')">🔄 Change</button>
+            <button class="btn btn-sm" onclick="openManagerAgentInEditor('\${m.manager_id}')">📝 Edit Prompt</button>
+          </div>
           
           <div class="org-section">
             <div class="org-label">Organization (Agents)</div>
@@ -4313,6 +4346,27 @@ function getManagersPageHtml() {
       if (!confirm('Delete this manager?')) return;
       await fetch('/api/managers/' + id, { method: 'DELETE' });
       loadManagers();
+    }
+
+    async function editManagerAgent(managerId, currentAgent) {
+      // Fetch available variants
+      const res = await fetch('/api/manager-agents');
+      const variants = await res.json();
+      const variantList = variants.map(v => \`- \${v.id} (\${v.description})\`).join('\\n');
+      
+      const newAgent = prompt('Agent plugin to use (format: plugin:agent)\\n\\nAvailable variants:\\n' + variantList + '\\n\\nCurrent: ' + currentAgent, currentAgent);
+      if (!newAgent || newAgent === currentAgent) return;
+      
+      // Update the manager config
+      const mgr = managersData.find(m => m.manager_id === managerId);
+      if (!mgr) return;
+      const config = { ...mgr.config, agent: newAgent };
+      await fetch('/api/managers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
+      loadManagers();
+    }
+
+    function openManagerAgentInEditor(managerId) {
+      fetch('/api/managers/' + managerId + '/edit-agent', { method: 'POST' });
     }
 
     async function showAddAgent(managerId) {

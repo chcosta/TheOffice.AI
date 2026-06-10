@@ -48,6 +48,10 @@ class StatementWrapper {
   run(...params) {
     this._db.run(this._sql, params);
     this._wrapper._save();
+    // Return info object mimicking better-sqlite3 API
+    const lastId = this._db.exec("SELECT last_insert_rowid() as id");
+    const lastInsertRowid = lastId.length > 0 ? lastId[0].values[0][0] : 0;
+    return { lastInsertRowid, changes: this._db.getRowsModified() };
   }
 
   get(...params) {
