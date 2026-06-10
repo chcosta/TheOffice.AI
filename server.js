@@ -4571,7 +4571,7 @@ function getManagersPageHtml() {
     let chatManagerId = null;
     let chatRunId = null;
     let chatPoller = null;
-    let chatVerbose = false;
+    let chatVerbose = localStorage.getItem('mgrVerbose') === 'true';
 
     async function openManagerChat(managerId, managerName) {
       chatManagerId = managerId;
@@ -4579,6 +4579,7 @@ function getManagersPageHtml() {
       stopChatPolling();
       document.getElementById('mgrChatTitle').textContent = '💬 ' + managerName;
       document.getElementById('mgrChatBody').innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Loading...</div>';
+      document.getElementById('mgrChatVerbose').checked = chatVerbose;
       document.getElementById('mgrChatOverlay').classList.add('visible');
       document.getElementById('mgrChatInput').value = '';
       document.getElementById('mgrChatInput').focus();
@@ -4592,6 +4593,7 @@ function getManagersPageHtml() {
 
     function toggleChatVerbose() {
       chatVerbose = document.getElementById('mgrChatVerbose').checked;
+      localStorage.setItem('mgrVerbose', chatVerbose);
       if (chatRunId) pollChatRun();
     }
 
