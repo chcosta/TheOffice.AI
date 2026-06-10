@@ -26,6 +26,46 @@ if (!process.env.COPILOT_PATH) {
   }
 }
 
+// Ensure manager plugin is registered in copilot config
+(function ensureManagerPlugin() {
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const configPath = path.join(homeDir, '.copilot', 'config.json');
+  const pluginsDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+  const managerPluginDir = path.join(__dirname, 'plugins', 'manager');
+  const targetDir = path.join(pluginsDir, 'manager');
+
+  if (!fs.existsSync(managerPluginDir)) return;
+
+  // Create junction if missing
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(pluginsDir, { recursive: true });
+      require('child_process').execSync(`mklink /J "${targetDir}" "${managerPluginDir}"`, { shell: true });
+      console.log('[supervisor] Created manager plugin junction');
+    } catch (e) { console.warn('[supervisor] Could not create manager plugin junction:', e.message); }
+  }
+
+  // Register in config.json if missing
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf-8').replace(/^\s*\/\/.*$/gm, '');
+      const config = JSON.parse(raw);
+      if (!config.installedPlugins) config.installedPlugins = [];
+      const hasManager = config.installedPlugins.some(p => p.name === 'manager');
+      if (!hasManager) {
+        config.installedPlugins.push({
+          name: 'manager', marketplace: '', version: '1.0.0',
+          installed_at: new Date().toISOString(), enabled: true,
+          cache_path: targetDir,
+          source: { source: 'local', path: managerPluginDir }
+        });
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('[supervisor] Registered manager plugin in copilot config');
+      }
+    } catch (e) { console.warn('[supervisor] Could not register manager plugin:', e.message); }
+  }
+})();
+
 // Get git version info and process identity at startup
 const PROCESS_START = new Date().toISOString();
 const PROCESS_PID = process.pid;
@@ -4207,8 +4247,8 @@ function getManagersPageHtml() {
         <textarea id="mgr-desc" rows="2" placeholder="What this manager does..."></textarea>
       </div>
       <div class="form-group">
-        <label>Agent Plugin (optional)</label>
-        <input type="text" id="mgr-agent" placeholder="manager:manager (default)" value="manager:manager">
+        <label>Agent Plugin</label>
+        <select id="mgr-agent"></select>
       </div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('managerModal')">Cancel</button>
@@ -4375,11 +4415,20 @@ function getManagersPageHtml() {
       \`).join('');
     }
 
-    function showCreateManager() {
+    async function showCreateManager() {
       document.getElementById('mgr-id').value = '';
       document.getElementById('mgr-name').value = '';
       document.getElementById('mgr-desc').value = '';
       document.getElementById('managerModalTitle').textContent = 'Create Manager';
+      // Load agent variants into dropdown
+      const select = document.getElementById('mgr-agent');
+      try {
+        const res = await fetch('/api/manager-agents');
+        const variants = await res.json();
+        select.innerHTML = variants.map(v => 
+          \`<option value="\${v.id}">\${v.id} — \${v.description}</option>\`
+        ).join('');
+      } catch { select.innerHTML = '<option value="manager:manager">manager:manager</option>'; }
       document.getElementById('managerModal').classList.add('visible');
     }
 
