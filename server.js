@@ -638,7 +638,7 @@ app.post('/api/agents/:id/chat', (req, res) => {
   res.json({ ok: true, started: true, existingSessionId: existingSessionId || null });
 });
 
-// Find the most recent session for an agent (by matching agent name in events)
+// Find the most recent session for an agent (by matching agent name in session start events)
 app.get('/api/agents/:id/session', (req, res) => {
   const agentEntry = supervisor.agents.get(req.params.id);
   if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
@@ -652,11 +652,36 @@ app.get('/api/agents/:id/session', (req, res) => {
     .map(d => ({ name: d.name, mtime: fs.statSync(path.join(SESSION_STATE_DIR, d.name)).mtime }))
     .sort((a, b) => b.mtime - a.mtime);
   
-  for (const dir of dirs.slice(0, 30)) {
+  for (const dir of dirs.slice(0, 50)) {
     const eventsPath = path.join(SESSION_STATE_DIR, dir.name, 'events.jsonl');
     if (!fs.existsSync(eventsPath)) continue;
     const content = fs.readFileSync(eventsPath, 'utf-8');
-    if (content.includes(agentName) || content.includes(req.params.id)) {
+    
+    // Only match sessions that were STARTED with this agent — check session.start or subagent.selected events
+    // Avoid matching sessions that merely mention the agent name in conversation
+    let isAgentSession = false;
+    const lines = content.split('\n').filter(Boolean).slice(0, 20); // Only check first 20 events for performance
+    for (const line of lines) {
+      try {
+        const ev = JSON.parse(line);
+        if (ev.type === 'subagent.selected' && ev.data) {
+          const selectedName = (ev.data.agentDisplayName || ev.data.agentName || '').toLowerCase();
+          if (selectedName === agentName.toLowerCase() || selectedName.includes(req.params.id.toLowerCase())) {
+            isAgentSession = true;
+            break;
+          }
+        }
+        if (ev.type === 'session.start' && ev.data?.context?.agentName) {
+          const startAgent = ev.data.context.agentName.toLowerCase();
+          if (startAgent === agentName.toLowerCase() || startAgent.includes(req.params.id.toLowerCase())) {
+            isAgentSession = true;
+            break;
+          }
+        }
+      } catch {}
+    }
+    
+    if (isAgentSession) {
       const stat = fs.statSync(eventsPath);
       const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
       return res.json({ sessionId: dir.name, isActive, lastModified: stat.mtime.toISOString() });
