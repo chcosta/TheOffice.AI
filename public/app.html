@@ -633,6 +633,9 @@
       flex-wrap: wrap;
       margin-top: 10px;
     }
+    .schedule-picker select {
+      max-width: 320px;
+    }
     .chat-shell {
       min-height: 68vh;
       display: grid;
@@ -1309,8 +1312,25 @@
                       <textarea class="field-input field-area" x-model="selectedAgent.promptDraft" placeholder="Describe the task for this agent..."></textarea>
                     </div>
                     <div>
-                      <div class="field-label"><span>Schedule</span><span class="hint">Examples: never, 30m, 1h, daily 9:00, */15 * * * *</span></div>
-                      <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" placeholder="never" />
+                      <div class="field-label"><span>Schedule</span></div>
+                      <div class="schedule-picker">
+                        <select class="field-input" x-model="selectedAgent.schedulePreset" @change="applySchedulePreset($event.target.value, 'agent')">
+                          <option value="never">Manual only (no schedule)</option>
+                          <option value="5m">Every 5 minutes</option>
+                          <option value="15m">Every 15 minutes</option>
+                          <option value="30m">Every 30 minutes</option>
+                          <option value="1h">Every hour</option>
+                          <option value="6h">Every 6 hours</option>
+                          <option value="24h">Daily</option>
+                          <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                          <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
+                          <option value="custom">Advanced (cron / custom)…</option>
+                        </select>
+                        <div x-show="selectedAgent.schedulePreset === 'custom'" x-transition style="margin-top:8px">
+                          <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" placeholder="e.g. */15 * * * * or weekdays at 7am" />
+                          <div class="hint" style="margin-top:4px">Supports: intervals (30m, 1h), human-readable (weekdays at 9am), or 5-field cron.</div>
+                        </div>
+                      </div>
                     </div>
                     <div class="inline-actions">
                       <button class="btn primary" type="button" @click="saveAgentTask()">Save Task</button>
@@ -1483,7 +1503,23 @@
                         </div>
                         <div style="margin-top:12px">
                           <div class="field-label"><span>Schedule</span><span class="hint" x-text="assignment.scheduleDescription || humanizeSchedule(assignment.schedule)"></span></div>
-                          <input class="field-input mono" type="text" x-model="assignment.scheduleDraft" />
+                          <div class="schedule-picker">
+                            <select class="field-input" x-model="assignment.schedulePreset" @change="applySchedulePresetTo(assignment, $event.target.value)">
+                              <option value="never">Manual only</option>
+                              <option value="5m">Every 5 minutes</option>
+                              <option value="15m">Every 15 minutes</option>
+                              <option value="30m">Every 30 minutes</option>
+                              <option value="1h">Every hour</option>
+                              <option value="6h">Every 6 hours</option>
+                              <option value="24h">Daily</option>
+                              <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                              <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
+                              <option value="custom">Advanced (cron / custom)…</option>
+                            </select>
+                            <div x-show="assignment.schedulePreset === 'custom'" x-transition style="margin-top:8px">
+                              <input class="field-input mono" type="text" x-model="assignment.scheduleDraft" />
+                            </div>
+                          </div>
                           <div class="inline-actions">
                             <button class="btn" type="button" @click="saveAssignmentSchedule(assignment)">Save</button>
                             <span class="hint" x-text="assignment.nextRun ? 'Next: ' + formatDateTime(assignment.nextRun) : 'No upcoming run'"></span>
@@ -1564,17 +1600,33 @@
                     <div class="config-grid">
                       <div>
                         <div class="field-label"><span>Schedule</span><span class="hint" x-text="task.nextRun ? 'Next ' + formatCountdown(task.nextRun) : 'No next run'"></span></div>
-                        <input class="field-input mono" type="text" x-model="task.scheduleDraft" />
-                        <div class="inline-actions">
-                          <button class="btn primary" type="button" @click="saveTaskSchedule(task)">Save schedule</button>
-                          <button class="btn ghost" type="button" @click="task.type === 'agent' ? goTo('#/agents/' + encodeURIComponent(task.agentId)) : goTo('#/managers/' + encodeURIComponent(task.managerId))">Open detail</button>
+                      <div class="schedule-picker">
+                        <select class="field-input" x-model="task.schedulePreset" @change="applySchedulePresetTo(task, $event.target.value)">
+                          <option value="never">Manual only</option>
+                          <option value="5m">Every 5 minutes</option>
+                          <option value="15m">Every 15 minutes</option>
+                          <option value="30m">Every 30 minutes</option>
+                          <option value="1h">Every hour</option>
+                          <option value="6h">Every 6 hours</option>
+                          <option value="24h">Daily</option>
+                          <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                          <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
+                          <option value="custom">Advanced (cron / custom)…</option>
+                        </select>
+                        <div x-show="task.schedulePreset === 'custom'" x-transition style="margin-top:8px">
+                          <input class="field-input mono" type="text" x-model="task.scheduleDraft" />
                         </div>
                       </div>
-                      <div>
-                        <div class="field-label"><span>Prompt / description</span><span class="hint">Preview</span></div>
-                        <pre x-text="task.prompt || 'No prompt available.'"></pre>
+                      <div class="inline-actions">
+                        <button class="btn primary" type="button" @click="saveTaskSchedule(task)">Save schedule</button>
+                        <button class="btn ghost" type="button" @click="task.type === 'agent' ? goTo('#/agents/' + encodeURIComponent(task.agentId)) : goTo('#/managers/' + encodeURIComponent(task.managerId))">Open detail</button>
                       </div>
                     </div>
+                    <div>
+                      <div class="field-label"><span>Prompt / description</span><span class="hint">Preview</span></div>
+                      <pre x-text="task.prompt || 'No prompt available.'"></pre>
+                    </div>
+                  </div>
                   </div>
                 </article>
               </template>
@@ -1803,7 +1855,23 @@
             <input class="field-input mono" type="text" placeholder="task-id" x-model="newTaskForm.id" />
             <input class="field-input" type="text" placeholder="Agent reference (e.g. manager:manager)" x-model="newTaskForm.agent" />
             <input class="field-input" type="text" placeholder="Working directory" x-model="newTaskForm.cwd" />
-            <input class="field-input mono" type="text" placeholder="Schedule" x-model="newTaskForm.schedule" />
+            <div class="schedule-picker">
+              <select class="field-input" x-model="newTaskForm.schedulePreset" @change="applySchedulePresetTo(newTaskForm, $event.target.value)">
+                <option value="never">Manual only (no schedule)</option>
+                <option value="5m">Every 5 minutes</option>
+                <option value="15m">Every 15 minutes</option>
+                <option value="30m">Every 30 minutes</option>
+                <option value="1h">Every hour</option>
+                <option value="6h">Every 6 hours</option>
+                <option value="24h">Daily</option>
+                <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
+                <option value="custom">Advanced (cron / custom)…</option>
+              </select>
+              <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
+                <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
+              </div>
+            </div>
             <textarea class="field-input field-area" placeholder="Prompt" x-model="newTaskForm.prompt"></textarea>
           </div>
         </template>
@@ -1817,7 +1885,23 @@
             </select>
             <input class="field-input" type="text" placeholder="Assignment name" x-model="newTaskForm.name" />
             <input class="field-input mono" type="text" placeholder="assignment-id" x-model="newTaskForm.id" />
-            <input class="field-input mono" type="text" placeholder="Schedule" x-model="newTaskForm.schedule" />
+            <div class="schedule-picker">
+              <select class="field-input" x-model="newTaskForm.schedulePreset" @change="applySchedulePresetTo(newTaskForm, $event.target.value)">
+                <option value="never">Manual only (no schedule)</option>
+                <option value="5m">Every 5 minutes</option>
+                <option value="15m">Every 15 minutes</option>
+                <option value="30m">Every 30 minutes</option>
+                <option value="1h">Every hour</option>
+                <option value="6h">Every 6 hours</option>
+                <option value="24h">Daily</option>
+                <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
+                <option value="custom">Advanced (cron / custom)…</option>
+              </select>
+              <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
+                <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
+              </div>
+            </div>
             <textarea class="field-input field-area" placeholder="Prompt" x-model="newTaskForm.prompt"></textarea>
           </div>
         </template>
@@ -1965,6 +2049,7 @@
           agent: '',
           cwd: '',
           schedule: 'never',
+          schedulePreset: 'never',
           prompt: ''
         },
 
@@ -2078,6 +2163,7 @@
           const assignments = (manager.config?.assignments || []).map((assignment) => ({
             ...assignment,
             scheduleDraft: assignment.schedule || 'never',
+            schedulePreset: this.resolveSchedulePreset(assignment.schedule),
             nextRun: assignment.nextRun || this.computeNextRun(assignment.schedule),
             scheduleDescription: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule)
           }));
@@ -2107,6 +2193,7 @@
             this.selectedAgent = this.normalizeAgent(agent);
             this.selectedAgent.promptDraft = this.selectedAgent.config?.prompt || '';
             this.selectedAgent.scheduleDraft = this.selectedAgent.schedule;
+            this.selectedAgent.schedulePreset = this.resolveSchedulePreset(this.selectedAgent.schedule);
             this.selectedAgent.taskNameDraft = this.selectedAgent.config?.name || this.selectedAgent.name;
             this.agentHistory = history;
           } catch (error) {
@@ -2247,6 +2334,7 @@
             status: agent.status,
             schedule: agent.schedule,
             scheduleDraft: agent.scheduleDraft,
+            schedulePreset: this.resolveSchedulePreset(agent.schedule),
             scheduleSummary: agent.scheduleSummary,
             nextRun: agent.nextRun,
             lastRun: agent.lastRun,
@@ -2265,6 +2353,7 @@
             status: manager.status,
             schedule: assignment.schedule,
             scheduleDraft: assignment.scheduleDraft,
+            schedulePreset: this.resolveSchedulePreset(assignment.schedule),
             scheduleSummary: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule),
             nextRun: assignment.nextRun,
             lastRun: manager.lastRun,
@@ -2890,6 +2979,9 @@
         },
 
         async submitNewTask() {
+          const resolvedSchedule = this.newTaskForm.schedulePreset === 'custom'
+            ? (this.newTaskForm.schedule || 'never')
+            : this.newTaskForm.schedulePreset;
           try {
             if (this.newTaskForm.kind === 'agent') {
               await this.request('/api/agents', {
@@ -2899,7 +2991,7 @@
                   name: this.newTaskForm.name,
                   cwd: this.newTaskForm.cwd,
                   agent: this.newTaskForm.agent,
-                  schedule: this.newTaskForm.schedule,
+                  schedule: resolvedSchedule,
                   prompt: this.newTaskForm.prompt,
                   durable: true
                 })
@@ -2911,14 +3003,14 @@
                   id: this.newTaskForm.id,
                   name: this.newTaskForm.name,
                   prompt: this.newTaskForm.prompt,
-                  schedule: this.newTaskForm.schedule,
+                  schedule: resolvedSchedule,
                   enabled: true
                 })
               });
             }
             this.showToast('Created', 'New workload saved.', 'info');
             this.newTaskOpen = false;
-            this.newTaskForm = { kind: 'agent', managerId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', prompt: '' };
+            this.newTaskForm = { kind: 'agent', managerId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '' };
             await this.refreshAll(false);
           } catch (error) {
             this.showToast('Create failed', error.message, 'error');
@@ -3130,6 +3222,37 @@
           }
           if (/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/.test(value)) return `Cron • ${value}`;
           return value;
+        },
+
+        // Schedule picker helpers
+        schedulePresets: ['never', '5m', '15m', '30m', '1h', '6h', '24h', 'weekdays at 9am', 'weekdays at 9am and 5pm'],
+
+        resolveSchedulePreset(scheduleValue) {
+          const v = (scheduleValue || 'never').trim().toLowerCase();
+          if (this.schedulePresets.includes(v)) return v;
+          return 'custom';
+        },
+
+        applySchedulePreset(value, context) {
+          if (context === 'agent' && this.selectedAgent) {
+            if (value === 'custom') {
+              this.selectedAgent.scheduleDraft = '';
+              this.selectedAgent.schedulePreset = 'custom';
+            } else {
+              this.selectedAgent.scheduleDraft = value;
+              this.selectedAgent.schedulePreset = value;
+            }
+          }
+        },
+
+        applySchedulePresetTo(obj, value) {
+          if (value === 'custom') {
+            obj.scheduleDraft = obj.scheduleDraft || '';
+            obj.schedulePreset = 'custom';
+          } else {
+            obj.scheduleDraft = value;
+            obj.schedulePreset = value;
+          }
         },
 
         computeNextRun(schedule) {
