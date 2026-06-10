@@ -1298,9 +1298,10 @@
                 <section class="detail-panel" id="agent-task-editor">
                   <div class="panel-header">
                     <div>
-                      <h2 class="panel-title">Create / Edit Task</h2>
+                      <h2 class="panel-title" x-text="selectedAgent.editingTaskId ? 'Edit Task' : 'Create Task'"></h2>
                       <div class="hint">Define a named task with a prompt and schedule for this agent.</div>
                     </div>
+                    <button class="btn" type="button" x-show="selectedAgent.editingTaskId" @click="selectedAgent.editingTaskId = null; selectedAgent.taskNameDraft = ''; selectedAgent.promptDraft = ''; selectedAgent.scheduleDraft = 'never'; selectedAgent.schedulePreset = 'never'">＋ New</button>
                   </div>
                   <div class="config-grid">
                     <div>
@@ -1386,7 +1387,10 @@
                             <a :href="'#/tasks'" class="md-link" style="font-weight:700" x-text="task.name"></a>
                             <div class="hint" style="margin-top:6px" x-text="task.typeLabel + ' • ' + task.scheduleSummary"></div>
                           </div>
-                          <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="editTaskInForm(task)" x-show="task.type === 'agent'">✏️</button>
+                            <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
+                          </div>
                         </div>
                       </div>
                     </template>
@@ -2004,6 +2008,7 @@
       Alpine.store('data', {
         agents: [],
         managers: [],
+        tasks: [],
         activity: [],
         chats: [],
         version: null
@@ -2072,7 +2077,10 @@
           const contentType = response.headers.get('content-type') || '';
           const body = contentType.includes('application/json') ? await response.json() : await response.text();
           if (!response.ok) {
-            throw new Error((body && body.error) || (typeof body === 'string' ? body : 'Request failed'));
+            const err = new Error((body && body.error) || (typeof body === 'string' ? body : 'Request failed'));
+            err.status = response.status;
+            err.body = body;
+            throw err;
           }
           return body;
         },
@@ -2121,16 +2129,18 @@
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
-            const [agents, managers, version, chats] = await Promise.all([
+            const [agents, managers, version, chats, tasks] = await Promise.all([
               this.request('/api/agents'),
               this.request('/api/managers'),
               this.request('/api/version'),
-              this.request('/api/chats')
+              this.request('/api/chats'),
+              this.request('/api/tasks')
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
             this.data.managers = managers.map((manager) => this.normalizeManager(manager));
             this.data.version = version;
             this.data.chats = chats;
+            this.data.tasks = tasks || [];
             await this.loadActivity();
             await this.handleRouteChange();
           } catch (error) {
@@ -2191,10 +2201,11 @@
               this.request(`/api/agents/${encodeURIComponent(id)}/history?limit=10`)
             ]);
             this.selectedAgent = this.normalizeAgent(agent);
-            this.selectedAgent.promptDraft = this.selectedAgent.config?.prompt || '';
-            this.selectedAgent.scheduleDraft = this.selectedAgent.schedule;
-            this.selectedAgent.schedulePreset = this.resolveSchedulePreset(this.selectedAgent.schedule);
-            this.selectedAgent.taskNameDraft = this.selectedAgent.config?.name || this.selectedAgent.name;
+            this.selectedAgent.promptDraft = '';
+            this.selectedAgent.scheduleDraft = 'never';
+            this.selectedAgent.schedulePreset = 'never';
+            this.selectedAgent.taskNameDraft = '';
+            this.selectedAgent.editingTaskId = null;
             this.agentHistory = history;
           } catch (error) {
             this.showToast('Agent detail failed', error.message, 'error');
@@ -2324,26 +2335,33 @@
         },
 
         allTasks() {
-          const agentTasks = this.data.agents.map((agent) => ({
-            taskKey: `task-agent-${agent.id}`,
-            name: agent.name,
-            type: 'agent',
-            typeLabel: 'Task',
-            agentId: agent.id,
-            ownerName: agent.name,
-            status: agent.status,
-            schedule: agent.schedule,
-            scheduleDraft: agent.scheduleDraft,
-            schedulePreset: this.resolveSchedulePreset(agent.schedule),
-            scheduleSummary: agent.scheduleSummary,
-            nextRun: agent.nextRun,
-            lastRun: agent.lastRun,
-            prompt: agent.config.prompt || '',
-            managerId: null,
-            assignmentId: null
-          }));
+          // Tasks from the dedicated tasks.json store
+          const agentTasks = (this.data.tasks || []).map((task) => {
+            const agent = this.data.agents.find(a => a.id === task.agentId);
+            return {
+              taskKey: `task-${task.id}`,
+              id: task.id,
+              name: task.name,
+              type: 'agent',
+              typeLabel: 'Task',
+              agentId: task.agentId,
+              ownerName: agent ? agent.name : task.agentId,
+              status: agent ? agent.status : 'idle',
+              schedule: task.schedule,
+              scheduleDraft: task.schedule || 'never',
+              schedulePreset: this.resolveSchedulePreset(task.schedule),
+              scheduleSummary: this.humanizeSchedule(task.schedule),
+              nextRun: this.computeNextRun(task.schedule),
+              lastRun: agent ? agent.lastRun : null,
+              prompt: task.prompt || '',
+              managerId: null,
+              assignmentId: null
+            };
+          });
+          // Manager assignments
           const assignments = this.data.managers.flatMap((manager) => (manager.config.assignments || []).map((assignment) => ({
             taskKey: `assignment-${manager.id}-${assignment.id}`,
+            id: assignment.id,
             name: assignment.name,
             type: 'assignment',
             typeLabel: 'Assignment',
@@ -2371,11 +2389,31 @@
         },
 
         tasksForAgent(agentId) {
-          const direct = this.allTasks().filter((task) => task.agentId === agentId);
+          // Direct tasks for this agent from tasks.json
+          const direct = (this.data.tasks || [])
+            .filter(t => t.agentId === agentId)
+            .map(task => ({
+              taskKey: `task-${task.id}`,
+              id: task.id,
+              name: task.name,
+              type: 'agent',
+              typeLabel: 'Task',
+              agentId: task.agentId,
+              ownerName: this.data.agents.find(a => a.id === task.agentId)?.name || task.agentId,
+              status: 'idle',
+              scheduleDraft: task.schedule || 'never',
+              schedulePreset: this.resolveSchedulePreset(task.schedule),
+              scheduleSummary: this.humanizeSchedule(task.schedule),
+              nextRun: this.computeNextRun(task.schedule),
+              prompt: task.prompt || '',
+              managerId: null
+            }));
+          // Manager assignments that include this agent in the org
           const managerAssignments = this.data.managers
             .filter((manager) => (manager.config.org || []).includes(agentId))
             .flatMap((manager) => (manager.config.assignments || []).map((assignment) => ({
               taskKey: `assignment-${manager.id}-${assignment.id}`,
+              id: assignment.id,
               name: assignment.name,
               type: 'assignment',
               typeLabel: 'Assignment',
@@ -2384,6 +2422,7 @@
               ownerName: manager.name,
               status: manager.status,
               scheduleDraft: assignment.scheduleDraft,
+              schedulePreset: this.resolveSchedulePreset(assignment.schedule),
               scheduleSummary: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule),
               nextRun: assignment.nextRun,
               prompt: assignment.prompt || '',
@@ -2835,37 +2874,93 @@
         },
 
         runTask(task) {
-          if (task.type === 'agent') this.runAgentNow(task.agentId);
-          if (task.type === 'assignment') this.runAssignment(task.managerId, task.assignmentId);
+          if (task.type === 'agent' && task.id) {
+            this.request(`/api/tasks/${encodeURIComponent(task.id)}/run`, { method: 'POST' })
+              .then(() => this.showToast('Task started', `"${task.name}" is running.`, 'info'))
+              .catch(e => this.showToast('Run failed', e.message, 'error'));
+          } else if (task.type === 'agent') {
+            this.runAgentNow(task.agentId);
+          } else if (task.type === 'assignment') {
+            this.runAssignment(task.managerId, task.assignmentId);
+          }
         },
 
-        async saveAgentTask() {
+        editTaskInForm(task) {
           if (!this.selectedAgent) return;
-          const id = this.selectedAgent.id;
+          this.selectedAgent.taskNameDraft = task.name;
+          this.selectedAgent.promptDraft = task.prompt || '';
+          this.selectedAgent.scheduleDraft = task.scheduleDraft || task.schedule || 'never';
+          this.selectedAgent.schedulePreset = this.resolveSchedulePreset(task.schedule);
+          this.selectedAgent.editingTaskId = task.id;
+          // Scroll to the form
+          document.getElementById('agent-task-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+
+        async saveAgentTask(forceReplace) {
+          if (!this.selectedAgent) return;
+          const agentId = this.selectedAgent.id;
           const prompt = this.selectedAgent.promptDraft || '';
           const schedule = this.selectedAgent.scheduleDraft || 'never';
-          const name = this.selectedAgent.taskNameDraft || this.selectedAgent.name;
+          const name = (this.selectedAgent.taskNameDraft || this.selectedAgent.name).trim();
+          if (!name) { this.showToast('Name required', 'Please enter a task name.', 'error'); return; }
+          if (!prompt) { this.showToast('Prompt required', 'Please enter a prompt for this task.', 'error'); return; }
+
+          // Check if we're editing an existing task or creating new
+          const editingId = this.selectedAgent.editingTaskId || null;
           try {
-            // Save name, prompt, and schedule together
-            await Promise.all([
-              this.request(`/api/agents/${encodeURIComponent(id)}/prompt`, {
+            let result;
+            if (editingId) {
+              // Update existing task
+              result = await this.request(`/api/tasks/${encodeURIComponent(editingId)}`, {
                 method: 'PUT',
-                body: JSON.stringify({ prompt })
-              }),
-              this.request(`/api/agents/${encodeURIComponent(id)}/schedule`, {
-                method: 'PUT',
-                body: JSON.stringify({ schedule })
-              }),
-              this.request(`/api/agents/${encodeURIComponent(id)}/name`, {
-                method: 'PUT',
-                body: JSON.stringify({ name })
-              })
-            ]);
-            this.showToast('Task saved', prompt && schedule !== 'never' ? 'Task is now scheduled and visible in Tasks.' : 'Task configuration saved.', 'info');
-            await this.loadAgentDetail(id);
+                body: JSON.stringify({ name, prompt, schedule })
+              });
+            } else {
+              // Create new task
+              result = await this.request('/api/tasks', {
+                method: 'POST',
+                body: JSON.stringify({ name, agentId, prompt, schedule })
+              });
+            }
+            this.showToast('Task saved', schedule !== 'never' ? 'Task is now scheduled and visible in Tasks.' : 'Task saved (manual run only).', 'info');
+            // Reset form for next task
+            this.selectedAgent.taskNameDraft = '';
+            this.selectedAgent.promptDraft = '';
+            this.selectedAgent.scheduleDraft = 'never';
+            this.selectedAgent.schedulePreset = 'never';
+            this.selectedAgent.editingTaskId = null;
             await this.refreshAll(false);
+            await this.loadAgentDetail(agentId);
           } catch (error) {
-            this.showToast('Save failed', error.message, 'error');
+            if (error.status === 409 || (error.message && error.message.includes('already exists'))) {
+              // Duplicate name — ask user
+              const replace = confirm(`A task named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`);
+              if (replace) {
+                // Find the existing task and update it
+                try {
+                  const tasks = await this.request('/api/tasks');
+                  const existing = tasks.find(t => t.name.toLowerCase() === name.toLowerCase());
+                  if (existing) {
+                    await this.request(`/api/tasks/${encodeURIComponent(existing.id)}`, {
+                      method: 'PUT',
+                      body: JSON.stringify({ name, prompt, schedule })
+                    });
+                    this.showToast('Task updated', `"${name}" has been updated.`, 'info');
+                    this.selectedAgent.taskNameDraft = '';
+                    this.selectedAgent.promptDraft = '';
+                    this.selectedAgent.scheduleDraft = 'never';
+                    this.selectedAgent.schedulePreset = 'never';
+                    this.selectedAgent.editingTaskId = null;
+                    await this.refreshAll(false);
+                    await this.loadAgentDetail(agentId);
+                  }
+                } catch (e2) {
+                  this.showToast('Update failed', e2.message, 'error');
+                }
+              }
+            } else {
+              this.showToast('Save failed', error.message, 'error');
+            }
           }
         },
 
@@ -2915,28 +3010,30 @@
         },
 
         async saveTaskSchedule(task) {
-          if (task.type === 'agent') {
+          if (task.type === 'agent' && task.id) {
             try {
-              await this.request(`/api/agents/${encodeURIComponent(task.agentId)}/schedule`, {
+              await this.request(`/api/tasks/${encodeURIComponent(task.id)}`, {
                 method: 'PUT',
                 body: JSON.stringify({ schedule: task.scheduleDraft })
               });
-              this.showToast('Task updated', 'Agent schedule saved.', 'info');
+              this.showToast('Task updated', 'Schedule saved.', 'info');
               await this.refreshAll(false);
             } catch (error) {
               this.showToast('Save failed', error.message, 'error');
             }
             return;
           }
-          try {
-            await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/assignments/${encodeURIComponent(task.assignmentId)}/schedule`, {
-              method: 'PUT',
-              body: JSON.stringify({ schedule: task.scheduleDraft })
-            });
-            this.showToast('Assignment updated', 'Assignment schedule saved.', 'info');
-            await this.refreshAll(false);
-          } catch (error) {
-            this.showToast('Save failed', error.message, 'error');
+          if (task.type === 'assignment') {
+            try {
+              await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/assignments/${encodeURIComponent(task.assignmentId)}/schedule`, {
+                method: 'PUT',
+                body: JSON.stringify({ schedule: task.scheduleDraft })
+              });
+              this.showToast('Assignment updated', 'Assignment schedule saved.', 'info');
+              await this.refreshAll(false);
+            } catch (error) {
+              this.showToast('Save failed', error.message, 'error');
+            }
           }
         },
 

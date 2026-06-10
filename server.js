@@ -14,6 +14,12 @@ const PORT = process.env.PORT || 3847;
 const DB_PATH = path.join(__dirname, 'supervisor.db');
 const AGENTS_PATH = path.join(__dirname, 'agents.json');
 const MANAGERS_PATH = path.join(__dirname, 'managers.json');
+const TASKS_PATH = path.join(__dirname, 'tasks.json');
+
+// Ensure tasks.json exists
+if (!fs.existsSync(TASKS_PATH)) {
+  fs.writeFileSync(TASKS_PATH, '[]');
+}
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
 if (!process.env.COPILOT_PATH) {
@@ -869,6 +875,91 @@ app.delete('/api/groups/:name', (req, res) => {
 app.post('/api/reload', (req, res) => {
   loadAgents();
   res.json({ ok: true });
+});
+
+// ============ Tasks API ============
+// Tasks are separate from agents — an agent can have multiple tasks
+function loadTasks() {
+  try { return JSON.parse(fs.readFileSync(TASKS_PATH, 'utf-8')); }
+  catch { return []; }
+}
+function saveTasks(tasks) {
+  fs.writeFileSync(TASKS_PATH, JSON.stringify(tasks, null, 2));
+}
+
+app.get('/api/tasks', (req, res) => {
+  res.json(loadTasks());
+});
+
+app.get('/api/tasks/:id', (req, res) => {
+  const tasks = loadTasks();
+  const task = tasks.find(t => t.id === req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json(task);
+});
+
+app.post('/api/tasks', (req, res) => {
+  const { id, name, agentId, prompt, schedule, enabled } = req.body;
+  if (!name || !agentId) return res.status(400).json({ error: 'name and agentId are required' });
+  const tasks = loadTasks();
+  const taskId = id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  // Check for name collision
+  const existing = tasks.find(t => t.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    return res.status(409).json({ error: 'duplicate_name', existingId: existing.id, message: `A task named "${name}" already exists.` });
+  }
+  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, createdAt: new Date().toISOString() };
+  tasks.push(task);
+  saveTasks(tasks);
+  broadcastSSE('task-created', task);
+  res.status(201).json(task);
+});
+
+app.put('/api/tasks/:id', (req, res) => {
+  const tasks = loadTasks();
+  const idx = tasks.findIndex(t => t.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Task not found' });
+  const { name, prompt, schedule, enabled } = req.body;
+  // Check for name collision (excluding self)
+  if (name) {
+    const dup = tasks.find(t => t.id !== req.params.id && t.name.toLowerCase() === name.toLowerCase());
+    if (dup) {
+      return res.status(409).json({ error: 'duplicate_name', existingId: dup.id, message: `A task named "${name}" already exists.` });
+    }
+    tasks[idx].name = name;
+  }
+  if (prompt !== undefined) tasks[idx].prompt = prompt;
+  if (schedule !== undefined) tasks[idx].schedule = schedule;
+  if (enabled !== undefined) tasks[idx].enabled = enabled;
+  tasks[idx].updatedAt = new Date().toISOString();
+  saveTasks(tasks);
+  broadcastSSE('task-updated', tasks[idx]);
+  res.json(tasks[idx]);
+});
+
+app.delete('/api/tasks/:id', (req, res) => {
+  const tasks = loadTasks();
+  const filtered = tasks.filter(t => t.id !== req.params.id);
+  if (filtered.length === tasks.length) return res.status(404).json({ error: 'Task not found' });
+  saveTasks(filtered);
+  broadcastSSE('task-deleted', { id: req.params.id });
+  res.json({ ok: true });
+});
+
+// Run a task by ID (triggers the associated agent with the task's prompt)
+app.post('/api/tasks/:id/run', (req, res) => {
+  const tasks = loadTasks();
+  const task = tasks.find(t => t.id === req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  const entry = supervisor.agents.get(task.agentId);
+  if (!entry) return res.status(404).json({ error: `Agent "${task.agentId}" not found` });
+  // Override the prompt temporarily and run
+  const originalPrompt = entry.config.prompt;
+  entry.config.prompt = task.prompt;
+  supervisor.runOnce(task.agentId);
+  entry.config.prompt = originalPrompt;
+  broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId });
+  res.json({ ok: true, message: `Task "${task.name}" started on agent "${task.agentId}"` });
 });
 
 // Describe a schedule string
