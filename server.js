@@ -2984,7 +2984,7 @@ function getDashboardHtml() {
         const desc = (step.args && (step.args.description || step.args.command || step.args.pattern || step.args.path || step.args.query)) || '';
         const stepId = 'step-' + Math.random().toString(36).slice(2, 8);
         html += '<div class="tool-step ' + statusClass + '">' +
-          '<div class="tool-step-header" onclick="document.getElementById(\'' + stepId + '\').classList.toggle(\'visible\')">' +
+          '<div class="tool-step-header" onclick="document.getElementById(\\'' + stepId + '\\').classList.toggle(\\'visible\\')">' +
           '<span class="tool-step-icon">' + icon + '</span>' +
           '<span class="tool-step-name">' + esc(step.tool || '') + '</span>' +
           (desc ? '<span class="tool-step-desc">' + esc(desc) + '</span>' : '') +
@@ -3357,9 +3357,9 @@ function getDashboardHtml() {
             }
             const result = await res.json();
             let msg = '';
-            if (result.imported && result.imported.length) msg += '✅ Imported:\n' + result.imported.join('\n') + '\n\n';
-            if (result.warnings && result.warnings.length) msg += '⚠️ Warnings:\n' + result.warnings.join('\n') + '\n\n';
-            if (result.errors && result.errors.length) msg += '❌ Errors:\n' + result.errors.join('\n');
+            if (result.imported && result.imported.length) msg += '✅ Imported:\\n' + result.imported.join('\\n') + '\\n\\n';
+            if (result.warnings && result.warnings.length) msg += '⚠️ Warnings:\\n' + result.warnings.join('\\n') + '\\n\\n';
+            if (result.errors && result.errors.length) msg += '❌ Errors:\\n' + result.errors.join('\\n');
             alert(msg || 'Import complete (no details returned)');
             await this.refresh();
           } catch (e) {
