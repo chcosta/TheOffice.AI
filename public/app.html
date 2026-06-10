@@ -456,6 +456,42 @@
       color: var(--cp-danger);
       background: color-mix(in srgb, var(--cp-danger) 10%, transparent);
     }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      cursor: pointer;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--cp-border-strong);
+      border-radius: 20px;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--cp-surface);
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: var(--cp-success);
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(16px);
+    }
     .card,
     .list-card,
     .detail-panel,
@@ -1624,7 +1660,7 @@
                       <h3 class="entity-name" x-text="manager.name"></h3>
                       <div class="entity-subtitle line-clamp" x-text="manager.config.description || 'Manager orchestration agent'"></div>
                     </div>
-                    <span class="status-badge" :class="statusClass(manager.status)" x-text="statusLabel(manager.status)"></span>
+                    <span class="status-badge" :class="managerActiveCount(manager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(manager) + ' active'"></span>
                   </div>
                   <div class="meta-grid">
                     <div>
@@ -1638,7 +1674,6 @@
                   </div>
                   <div class="split-meta">
                     <span class="tiny-badge" x-text="manager.lastRun ? 'Last run ' + formatRelative(manager.lastRun.finished_at || manager.lastRun.started_at) : 'Never run' "></span>
-                    <span class="tiny-badge" x-text="manager.activeSchedules + ' active schedules'"></span>
                   </div>
                 </article>
               </template>
@@ -1654,8 +1689,7 @@
                 <p x-text="selectedManager.config.description || selectedManager.id"></p>
               </div>
               <div class="toolbar">
-                <span class="status-badge" :class="statusClass(selectedManager.status)" x-text="statusLabel(selectedManager.status)"></span>
-                <button class="btn primary" type="button" @click="startManager(selectedManager.id)">▶ Start</button>
+                <span class="status-badge" :class="managerActiveCount(selectedManager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(selectedManager) + ' active'"></span>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="focusConfigSection('manager-assignments')">⚙ Edit</button>
                 <button class="btn danger" type="button" @click="removeManager(selectedManager.id)">🗑 Remove</button>
@@ -1701,11 +1735,14 @@
                           <div>
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                               <strong x-text="assignment.name"></strong>
-                              <span class="status-badge" :class="assignment.enabled === false ? 'warning' : 'idle'" x-text="assignment.enabled === false ? 'Paused' : 'Enabled'"></span>
                             </div>
                             <div class="hint line-clamp" style="margin-top:6px" x-text="assignment.prompt"></div>
                           </div>
                           <div class="toolbar">
+                            <label class="toggle-switch" :title="assignment.enabled === false ? 'Enable assignment' : 'Disable assignment'">
+                              <input type="checkbox" :checked="assignment.enabled !== false" @change="toggleAssignmentEnabled(selectedManager.id, assignment.id, $event.target.checked)" />
+                              <span class="toggle-slider"></span>
+                            </label>
                             <button class="btn" type="button" @click="editAssignmentInForm(assignment)">✏️ Edit</button>
                             <button class="btn primary" type="button" @click="runAssignment(selectedManager.id, assignment.id)">▶ Run</button>
                           </div>
@@ -3672,6 +3709,30 @@
           }
         },
 
+        managerActiveCount(manager) {
+          const assignments = manager?.config?.assignments || [];
+          return assignments.filter(a => a.enabled !== false && a.schedule && a.schedule.toLowerCase() !== 'never').length;
+        },
+
+        async toggleAssignmentEnabled(managerId, assignmentId, enabled) {
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments/${encodeURIComponent(assignmentId)}/toggle`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled })
+            });
+            // Update local state
+            if (this.selectedManager) {
+              const assignment = (this.selectedManager.config.assignments || []).find(a => a.id === assignmentId);
+              if (assignment) assignment.enabled = enabled;
+            }
+            this.showToast(enabled ? 'Assignment enabled' : 'Assignment disabled', '', 'info');
+            this.scheduleRefresh();
+          } catch (error) {
+            this.showToast('Toggle failed', error.message, 'error');
+          }
+        },
+
         async openCreateManager() {
           const name = prompt('New manager name:');
           if (!name || !name.trim()) return;
@@ -4105,7 +4166,6 @@
             ])),
             ...this.data.managers.flatMap((manager) => ([
               { key: `view-manager-${manager.id}`, icon: '👔', label: `View manager: ${manager.name}`, meta: manager.config.description || 'Manager detail', action: () => this.goTo(`#/managers/${encodeURIComponent(manager.id)}`) },
-              { key: `start-manager-${manager.id}`, icon: '▶', label: `Start ${manager.name}`, meta: 'Activate schedules', action: () => this.startManager(manager.id) },
               { key: `chat-manager-${manager.id}`, icon: '💬', label: `Chat with ${manager.name}`, meta: 'Open manager prompt thread', action: () => this.openOrCreateChat('manager', manager.id) }
             ])),
             ...this.allTasks().map((task) => ({
