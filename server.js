@@ -113,6 +113,24 @@ function loadManagers() {
 loadAgents();
 loadManagers();
 
+// Auto-start managers that have scheduled assignments
+(() => {
+  const managers = managerAgent.managers;
+  for (const [id, entry] of managers) {
+    const hasScheduled = (entry.config.assignments || []).some(
+      a => a.enabled !== false && a.schedule && a.schedule.toLowerCase() !== 'never'
+    );
+    if (hasScheduled) {
+      try {
+        managerAgent.startSchedules(id);
+        console.log(`[manager] Auto-started schedules for "${entry.config.name || id}"`);
+      } catch (e) {
+        console.error(`[manager] Failed to auto-start "${id}":`, e.message);
+      }
+    }
+  }
+})();
+
 // Watch agents.json for external edits and reload
 let _reloadTimer = null;
 fs.watch(AGENTS_PATH, () => {
@@ -1733,6 +1751,9 @@ app.post('/api/managers/:id/assignments', (req, res) => {
   if (mi >= 0) { managers[mi] = entry.config; }
   fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
 
+  // Restart schedules if this manager has active scheduled assignments
+  _restartManagerSchedules(req.params.id);
+
   res.json({ ok: true });
 });
 
@@ -1748,8 +1769,78 @@ app.delete('/api/managers/:id/assignments/:assignmentId', (req, res) => {
   if (mi >= 0) { managers[mi] = entry.config; }
   fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
 
+  // Restart schedules to remove the deleted assignment's timer
+  _restartManagerSchedules(req.params.id);
+
   res.json({ ok: true });
 });
+
+// Update a single assignment's schedule
+app.put('/api/managers/:id/assignments/:assignmentId/schedule', (req, res) => {
+  const { schedule } = req.body;
+  if (!schedule) return res.status(400).json({ error: 'schedule required' });
+
+  const entry = managerAgent.managers.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Manager not found' });
+
+  const assignment = (entry.config.assignments || []).find(a => a.id === req.params.assignmentId);
+  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+
+  // Validate schedule string
+  try {
+    const { parseSchedule } = require('./scheduler');
+    const parsed = parseSchedule(schedule);
+    assignment.schedule = schedule;
+
+    // Persist
+    let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+    const mi = managers.findIndex(m => m.id === req.params.id);
+    if (mi >= 0) { managers[mi] = entry.config; }
+    fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+
+    // Restart schedules
+    _restartManagerSchedules(req.params.id);
+
+    res.json({ ok: true, description: parsed.description });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Toggle assignment enabled/disabled
+app.put('/api/managers/:id/assignments/:assignmentId/toggle', (req, res) => {
+  const { enabled } = req.body;
+  const entry = managerAgent.managers.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Manager not found' });
+
+  const assignment = (entry.config.assignments || []).find(a => a.id === req.params.assignmentId);
+  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+
+  assignment.enabled = enabled !== false;
+
+  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  const mi = managers.findIndex(m => m.id === req.params.id);
+  if (mi >= 0) { managers[mi] = entry.config; }
+  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+
+  _restartManagerSchedules(req.params.id);
+
+  res.json({ ok: true, enabled: assignment.enabled });
+});
+
+// Helper: restart schedules for a manager if it has any scheduled assignments
+function _restartManagerSchedules(managerId) {
+  const entry = managerAgent.managers.get(managerId);
+  if (!entry) return;
+  const hasScheduled = (entry.config.assignments || []).some(
+    a => a.enabled !== false && a.schedule && a.schedule.toLowerCase() !== 'never'
+  );
+  if (hasScheduled) {
+    managerAgent.startSchedules(managerId);
+  } else {
+    managerAgent.stopSchedules(managerId);
+  }
+}
 
 // Ad-hoc prompt to a manager (async — returns immediately with runId)
 app.post('/api/managers/:id/prompt', (req, res) => {
@@ -4386,14 +4477,17 @@ function getManagersPageHtml() {
           </div>
 
           <div class="assignments-section">
-            <div class="org-label">Assignments</div>
+            <div class="org-label">Assignments \${m.activeSchedules > 0 ? '<span style="color:#3fb950;font-size:11px;">(' + m.activeSchedules + ' scheduled)</span>' : ''}</div>
             <div class="assignment-list">
               \${(m.config.assignments || []).map(a => \`
                 <div class="assignment-item">
                   <span class="assignment-name">\${a.name}</span>
-                  <span class="assignment-schedule">\${a.schedule}</span>
+                  <span class="assignment-schedule" title="\${a.scheduleDescription || ''}">\${a.schedule || 'never'}\${a.scheduleDescription ? ' (' + a.scheduleDescription + ')' : ''}</span>
+                  \${a.nextRun ? '<span style="font-size:10px;color:#8b949e;">next: ' + new Date(a.nextRun).toLocaleTimeString() + '</span>' : ''}
                   <span class="assignment-prompt" title="\${a.prompt}">\${a.prompt}</span>
                   <div class="assignment-actions">
+                    <button class="btn btn-sm" onclick="toggleAssignment('\${m.manager_id}', '\${a.id}', \${!a.enabled})" title="\${a.enabled !== false ? 'Disable' : 'Enable'}">\${a.enabled !== false ? '⏸' : '▶️'}</button>
+                    <button class="btn btn-sm" onclick="editAssignmentSchedule('\${m.manager_id}', '\${a.id}', '\${(a.schedule || 'never').replace(/'/g, "\\\\'")}')" title="Edit schedule">🕐</button>
                     <button class="btn btn-sm btn-primary" onclick="runAssignment('\${m.manager_id}', '\${a.id}')">▶ Run</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteAssignment('\${m.manager_id}', '\${a.id}')">✕</button>
                   </div>
@@ -4546,6 +4640,24 @@ function getManagersPageHtml() {
       if (!confirm('Delete this assignment?')) return;
       await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId, { method: 'DELETE' });
       loadManagers();
+    }
+
+    async function toggleAssignment(managerId, assignmentId, enabled) {
+      await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/toggle', {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled })
+      });
+      loadManagers();
+    }
+
+    function editAssignmentSchedule(managerId, assignmentId, currentSchedule) {
+      const newSchedule = prompt('Schedule for this assignment:\n\nExamples: 1h, 30m, daily at 9am, weekdays at 8am, never\n\nCurrent: ' + currentSchedule, currentSchedule);
+      if (newSchedule === null) return;
+      fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/schedule', {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ schedule: newSchedule })
+      }).then(r => r.json()).then(data => {
+        if (data.error) alert('Invalid schedule: ' + data.error);
+        else loadManagers();
+      });
     }
 
     async function runAssignment(managerId, assignmentId) {

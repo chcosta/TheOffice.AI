@@ -564,11 +564,30 @@ REASON: <why you need this agent>
         'SELECT * FROM manager_runs WHERE manager_id = ? ORDER BY id DESC LIMIT 1'
       ).get(id);
       const orgDetails = this._getOrgAgentDetails(id);
+
+      // Enrich assignments with schedule descriptions
+      const assignments = (entry.config.assignments || []).map(a => {
+        let scheduleDescription = '';
+        let nextRun = null;
+        if (a.schedule && a.schedule.toLowerCase() !== 'never') {
+          try {
+            const parsed = parseSchedule(a.schedule);
+            scheduleDescription = parsed.description;
+            nextRun = getNextRun(a.schedule);
+          } catch (e) { /* ignore parse errors */ }
+        }
+        return { ...a, scheduleDescription, nextRun };
+      });
+
+      // Count active schedule jobs
+      const activeSchedules = entry.cronJobs?.length || 0;
+
       results.push({
         ...(state || { manager_id: id, status: 'idle' }),
-        config: entry.config,
+        config: { ...entry.config, assignments },
         lastRun,
-        orgDetails
+        orgDetails,
+        activeSchedules
       });
     }
     return results;
