@@ -1,0 +1,7 @@
+{
+  "name": "manager",
+  "description": "Orchestrating manager agent that coordinates sub-agents to accomplish complex multi-step tasks",
+  "version": "1.0.0",
+  "agents": "agents/",
+  "skills": "skills/"
+}

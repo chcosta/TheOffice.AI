@@ -322,12 +322,17 @@ REASON: <why you need this agent>
   async _askManager(managerConfig, prompt) {
     return new Promise((resolve, reject) => {
       const copilotCmd = managerConfig.copilotPath || process.env.COPILOT_PATH || 'copilot';
-      // Use a generic agent name for the manager brain — it's the system prompt that makes it a manager
-      const cmdLine = `"${copilotCmd}" --prompt "${prompt.replace(/"/g, '\\"').replace(/\n/g, '\\n')}" -s --yolo`;
+      const pluginDir = path.join(__dirname, 'plugins', 'manager');
+      // Write prompt to temp file to avoid command line length limits
+      const os = require('os');
+      const promptFile = path.join(os.tmpdir(), `manager-prompt-${managerConfig.id}-${Date.now()}.md`);
+      fs.writeFileSync(promptFile, prompt, 'utf-8');
+      
+      const cmdLine = `"${copilotCmd}" --agent "manager:manager" --prompt "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" -s --yolo`;
 
       const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
       const proc = spawn(cmdLine, [], {
-        cwd: managerConfig.cwd || process.cwd(),
+        cwd: managerConfig.cwd || __dirname,
         shell: shellPath,
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe']
@@ -339,6 +344,8 @@ REASON: <why you need this agent>
       proc.stderr.on('data', d => { stderr += d.toString(); });
 
       proc.on('close', (code) => {
+        // Clean up prompt file
+        try { fs.unlinkSync(promptFile); } catch {}
         if (code === 0) {
           resolve(stdout);
         } else {
@@ -346,11 +353,15 @@ REASON: <why you need this agent>
         }
       });
 
-      proc.on('error', reject);
+      proc.on('error', (err) => {
+        try { fs.unlinkSync(promptFile); } catch {}
+        reject(err);
+      });
 
       // Timeout after 5 minutes per step
       setTimeout(() => {
         proc.kill();
+        try { fs.unlinkSync(promptFile); } catch {}
         reject(new Error('Manager decision timed out (5min)'));
       }, 300000);
     });
