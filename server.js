@@ -4135,6 +4135,7 @@ function getManagersPageHtml() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Managers — Copilot Agent Supervisor</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
@@ -4327,755 +4328,1107 @@ function getManagersPageHtml() {
     <a href="/agents" class="nav-link">Agents</a>
   </nav>
 
-  <div id="app">
+  <div id="app" x-data="managersApp()" x-init="init()">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
       <h2>Managers</h2>
-      <button class="btn btn-primary" onclick="showCreateManager()">+ New Manager</button>
+      <button class="btn btn-primary" @click="showCreateManager()">+ New Manager</button>
     </div>
-    <div id="managers-list" class="managers-grid"></div>
-  </div>
 
-  <!-- Create/Edit Manager Modal -->
-  <div id="managerModal" class="modal-overlay">
-    <div class="modal">
-      <h3 id="managerModalTitle">Create Manager</h3>
-      <div class="form-group">
-        <label>ID (unique slug)</label>
-        <input type="text" id="mgr-id" placeholder="e.g. helix-ops-manager">
+    <template x-if="managers.length === 0">
+      <div class="empty-state">
+        <h3>No Managers Yet</h3>
+        <p>Create a manager to orchestrate your agents intelligently.</p>
       </div>
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" id="mgr-name" placeholder="e.g. Helix Ops Manager">
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea id="mgr-desc" rows="2" placeholder="What this manager does..."></textarea>
-      </div>
-      <div class="form-group">
-        <label>Agent Plugin</label>
-        <select id="mgr-agent"></select>
-      </div>
-      <div class="form-actions">
-        <button class="btn" onclick="closeModal('managerModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="saveManager()">Save</button>
-      </div>
+    </template>
+
+    <div id="managers-list" class="managers-grid" x-show="managers.length > 0">
+      <template x-for="m in managers" :key="m.manager_id">
+        <div class="manager-card" :id="'mgr-' + m.manager_id">
+          <div class="manager-header">
+            <span class="manager-name" x-text="(m.config && m.config.name) || m.manager_id"></span>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="status-badge" :class="'status-' + (m.status || 'idle')" x-text="m.status || 'idle'"></span>
+              <button class="btn btn-sm" title="Edit manager" @click="showEditManager(m)">✎</button>
+              <button class="btn btn-sm btn-danger" title="Delete manager" @click="deleteManager(m.manager_id)">✕</button>
+            </div>
+          </div>
+          <div class="manager-desc" x-text="(m.config && m.config.description) || ''"></div>
+
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+            <span style="font-size:0.8rem;color:#8b949e;">Agent:</span>
+            <code style="font-size:0.8rem;color:#58a6ff;background:#1f6feb22;padding:2px 8px;border-radius:4px;" x-text="managerAgentLabel(m)"></code>
+            <button class="btn btn-sm" @click="editManagerAgent(m.manager_id, managerAgentLabel(m))">🔄 Change</button>
+            <button class="btn btn-sm" @click="openManagerAgentInEditor(m.manager_id)">📝 Edit Prompt</button>
+          </div>
+
+          <div class="org-section">
+            <div class="org-label">Organization (Agents)</div>
+            <div class="org-agents">
+              <template x-for="a in (m.orgDetails || [])" :key="a.id">
+                <span class="org-chip">
+                  <span x-text="a.name"></span>
+                  <span class="remove-btn" title="Remove" @click="removeFromOrg(m.manager_id, a.id)">✕</span>
+                </span>
+              </template>
+              <button class="org-add-btn" @click="showAddAgent(m.manager_id)">+ Add</button>
+            </div>
+          </div>
+
+          <div class="assignments-section">
+            <div class="org-label">
+              <span>Assignments</span>
+              <span x-show="(m.activeSchedules || 0) > 0" style="color:#3fb950;font-size:11px;" x-text="'(' + (m.activeSchedules || 0) + ' scheduled)'"></span>
+            </div>
+            <div class="assignment-list">
+              <template x-for="a in ((m.config && m.config.assignments) || [])" :key="a.id">
+                <div class="assignment-item">
+                  <span class="assignment-name" x-text="a.name"></span>
+                  <span class="assignment-schedule" :title="a.scheduleDescription || ''" x-text="assignmentScheduleLabel(a)"></span>
+                  <span x-show="a.nextRun" style="font-size:10px;color:#8b949e;" x-text="'next: ' + formatTime(a.nextRun)"></span>
+                  <span class="assignment-prompt" :title="a.prompt || ''" x-text="a.prompt || ''"></span>
+                  <div class="assignment-actions">
+                    <button class="btn btn-sm" title="Edit assignment" @click="showEditAssignment(m.manager_id, a)">✎</button>
+                    <button class="btn btn-sm" :title="a.enabled !== false ? 'Disable' : 'Enable'" @click="toggleAssignment(m.manager_id, a.id, a.enabled === false)" x-text="a.enabled !== false ? '⏸' : '▶️'"></button>
+                    <button class="btn btn-sm" title="Edit schedule" @click="openScheduleEditor(m.manager_id, a, $event)">🕐</button>
+                    <button class="btn btn-sm btn-primary" @click="runAssignment(m.manager_id, a.id)">▶ Run</button>
+                    <button class="btn btn-sm btn-danger" @click="deleteAssignment(m.manager_id, a.id)">✕</button>
+                  </div>
+                </div>
+              </template>
+              <button class="btn btn-sm" style="margin-top:6px;" @click="showAddAssignment(m.manager_id)">+ Add Assignment</button>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-primary" @click="openManagerChat(m.manager_id, (m.config && m.config.name) || m.manager_id)">💬 Chat with Manager</button>
+            <button class="btn" @click="toggleHistory(m.manager_id)">📋 Run History</button>
+          </div>
+
+          <div class="history-section">
+            <div class="history-list" :class="{ visible: historyOpen[m.manager_id] }" x-show="historyOpen[m.manager_id]">
+              <template x-if="(histories[m.manager_id] || []).length === 0">
+                <div style="color:#8b949e;font-size:0.85rem;">No runs yet.</div>
+              </template>
+              <template x-for="run in (histories[m.manager_id] || [])" :key="run.id">
+                <div class="history-item" style="cursor:pointer;" @click="viewRun(m.manager_id, run.id)">
+                  <div>
+                    <span :class="run.status === 'completed' ? 'status-ok' : 'status-err'" x-text="run.status"></span>
+                    <span class="time" x-text="formatDateTime(run.started_at)"></span>
+                    <span x-text="run.assignment_id ? ' — ' + run.assignment_id : ' — ad-hoc'"></span>
+                  </div>
+                  <div style="margin-top:4px;color:#8b949e;font-size:0.75rem;" x-text="truncate(run.prompt || '', 100)"></div>
+                  <div class="steps-list" x-show="filteredHistorySteps(run).length > 0">
+                    <template x-for="step in filteredHistorySteps(run)" :key="historyStepKey(run, step)">
+                      <div class="step-item" :class="step.action" x-text="historyStepSummary(step)"></div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
-  </div>
 
-  <!-- Assignment Modal -->
-  <div id="assignmentModal" class="modal-overlay">
-    <div class="modal">
-      <h3>New Assignment</h3>
-      <input type="hidden" id="asgn-manager-id">
-      <div class="form-group">
-        <label>ID (unique slug)</label>
-        <input type="text" id="asgn-id" placeholder="e.g. monitor-azure">
-      </div>
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" id="asgn-name" placeholder="e.g. Monitor Azure">
-      </div>
-      <div class="form-group">
-        <label>Prompt</label>
-        <textarea id="asgn-prompt" rows="4" placeholder="What should the manager do?"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Schedule</label>
-        <input type="text" id="asgn-schedule" placeholder="e.g. 1h, daily at 9am, never" value="never">
-      </div>
-      <div class="form-actions">
-        <button class="btn" onclick="closeModal('assignmentModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="saveAssignment()">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Add Agent to Org Modal -->
-  <div id="orgModal" class="modal-overlay">
-    <div class="modal">
-      <h3>Add Agent to Organization</h3>
-      <input type="hidden" id="org-manager-id">
-      <div class="form-group">
-        <label>Available Agents</label>
-        <select id="org-agent-select" size="8" style="height:auto;"></select>
-      </div>
-      <div class="form-actions">
-        <button class="btn" onclick="closeModal('orgModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="addAgentToOrg()">Add</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Agent Select Modal -->
-  <div id="agentSelectModal" class="modal-overlay">
-    <div class="modal">
-      <h3>Select Agent Plugin</h3>
-      <input type="hidden" id="agent-select-manager-id">
-      <div class="form-group">
-        <label>Agent Variant</label>
-        <select id="agent-select-dropdown" size="1" style="width:100%;"></select>
-      </div>
-      <div class="form-actions">
-        <button class="btn" onclick="closeModal('agentSelectModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="saveAgentSelect()">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manager Chat Modal -->
-  <div id="mgrChatOverlay" class="modal-overlay" onclick="if(event.target===this)closeMgrChat()">
-    <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #30363d;flex-shrink:0;">
-        <h2 id="mgrChatTitle" style="color:#f0f6fc;font-size:1.1rem;margin:0;">Chat</h2>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show orchestration steps">
-            <input type="checkbox" id="mgrChatVerbose" onchange="toggleChatVerbose()" />
-            🔧 Verbose
-          </label>
-          <button class="btn" style="padding:4px 10px;font-size:1rem;line-height:1;" onclick="closeMgrChat()">&times;</button>
+    <div id="managerModal" class="modal-overlay" x-show="showManagerModal" :class="{ visible: showManagerModal }" @click.self="closeManagerModal()">
+      <div class="modal">
+        <h3 x-text="mgrForm.editing ? 'Edit Manager' : 'Create Manager'"></h3>
+        <div class="form-group">
+          <label>ID (unique slug)</label>
+          <input type="text" x-model="mgrForm.id" :disabled="mgrForm.editing" placeholder="e.g. helix-ops-manager">
+        </div>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" x-model="mgrForm.name" placeholder="e.g. Helix Ops Manager">
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea rows="2" x-model="mgrForm.desc" placeholder="What this manager does..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Agent Plugin</label>
+          <select x-model="mgrForm.agent">
+            <template x-for="variant in managerAgents" :key="variant.id">
+              <option :value="variant.id" x-text="variant.id + ' — ' + variant.description"></option>
+            </template>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @click="closeManagerModal()">Cancel</button>
+          <button class="btn btn-primary" @click="saveManager()">Save</button>
         </div>
       </div>
-      <div id="mgrChatBody" style="flex:1;overflow-y:auto;padding:20px;"></div>
-      <div style="display:flex;gap:8px;padding:12px 20px;border-top:1px solid #30363d;flex-shrink:0;">
-        <input type="text" id="mgrChatInput" placeholder="Ask the manager to do something..."
-               style="flex:1;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:10px 12px;border-radius:6px;font-size:0.9rem;" />
-        <button class="btn btn-primary" onclick="sendMgrChat()">Send</button>
+    </div>
+
+    <div id="assignmentModal" class="modal-overlay" x-show="showAssignmentModal" :class="{ visible: showAssignmentModal }" @click.self="closeAssignmentModal()">
+      <div class="modal">
+        <h3 x-text="asgnForm.editing ? 'Edit Assignment' : 'New Assignment'"></h3>
+        <div class="form-group">
+          <label>ID (unique slug)</label>
+          <input type="text" x-model="asgnForm.id" :disabled="asgnForm.editing" placeholder="e.g. monitor-azure">
+        </div>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" x-model="asgnForm.name" placeholder="e.g. Monitor Azure">
+        </div>
+        <div class="form-group">
+          <label>Prompt</label>
+          <textarea rows="4" x-model="asgnForm.prompt" placeholder="What should the manager do?"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Schedule</label>
+          <input type="text" x-model="asgnForm.schedule" placeholder="e.g. 1h, daily at 9am, never">
+        </div>
+        <div class="form-actions">
+          <button class="btn" @click="closeAssignmentModal()">Cancel</button>
+          <button class="btn btn-primary" @click="saveAssignment()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="orgModal" class="modal-overlay" x-show="showOrgModal" :class="{ visible: showOrgModal }" @click.self="closeOrgModal()">
+      <div class="modal">
+        <h3>Add Agent to Organization</h3>
+        <div class="form-group">
+          <label>Available Agents</label>
+          <select size="8" style="height:auto;" x-model="orgForm.agentId">
+            <template x-for="agent in availableOrgAgents" :key="agent.id">
+              <option :value="agent.id" x-text="agent.name + ' (' + agent.id + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @click="closeOrgModal()">Cancel</button>
+          <button class="btn btn-primary" @click="addAgentToOrg()">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="agentSelectModal" class="modal-overlay" x-show="showAgentSelectModal" :class="{ visible: showAgentSelectModal }" @click.self="closeAgentSelectModal()">
+      <div class="modal">
+        <h3>Select Agent Plugin</h3>
+        <div class="form-group">
+          <label>Agent Variant</label>
+          <select size="1" style="width:100%;" x-model="agentSelect.agent">
+            <template x-for="variant in managerAgents" :key="variant.id">
+              <option :value="variant.id" x-text="variant.id + ' — ' + variant.description"></option>
+            </template>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button class="btn" @click="closeAgentSelectModal()">Cancel</button>
+          <button class="btn btn-primary" @click="saveAgentSelect()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="asgn-sched-editor" x-show="schedEditor.show" :class="{ visible: schedEditor.show }" :style="'top:' + schedEditor.top + 'px; left:' + schedEditor.left + 'px;'" @click.outside="closeScheduleEditor()" x-transition.opacity>
+      <label>Schedule type</label>
+      <div style="margin-bottom:8px;">
+        <select x-model="schedEditor.mode" @change="onScheduleModeChanged()">
+          <option value="never">Never (manual only)</option>
+          <option value="interval">Interval (every N minutes/hours)</option>
+          <option value="daily">Daily (at a specific time)</option>
+          <option value="weekly">Weekly (pick days + time)</option>
+          <option value="cron">Advanced (cron / free text)</option>
+        </select>
+      </div>
+      <div>
+        <div x-show="schedEditor.mode === 'never'">
+          <span style="color:#8b949e;font-size:0.8rem;">Assignment will only run manually.</span>
+        </div>
+        <div x-show="schedEditor.mode === 'interval'" style="display:flex;gap:8px;align-items:center;">
+          <label style="margin:0">Every</label>
+          <input type="number" min="1" max="720" style="width:60px" x-model="schedEditor.num" @input="updateSchedulePreview()">
+          <select x-model="schedEditor.unit" @change="updateSchedulePreview()">
+            <option value="m">minutes</option>
+            <option value="h">hours</option>
+          </select>
+        </div>
+        <div x-show="schedEditor.mode === 'daily'" style="display:flex;gap:8px;align-items:center;">
+          <label style="margin:0">At</label>
+          <input type="time" x-model="schedEditor.dailyTime" @change="updateSchedulePreview()">
+          <span style="color:#8b949e;font-size:0.8rem">every day</span>
+        </div>
+        <div x-show="schedEditor.mode === 'weekly'">
+          <div class="day-checkboxes">
+            <label><input type="checkbox" value="mon" x-model="schedEditor.days" @change="updateSchedulePreview()"> Mon</label>
+            <label><input type="checkbox" value="tue" x-model="schedEditor.days" @change="updateSchedulePreview()"> Tue</label>
+            <label><input type="checkbox" value="wed" x-model="schedEditor.days" @change="updateSchedulePreview()"> Wed</label>
+            <label><input type="checkbox" value="thu" x-model="schedEditor.days" @change="updateSchedulePreview()"> Thu</label>
+            <label><input type="checkbox" value="fri" x-model="schedEditor.days" @change="updateSchedulePreview()"> Fri</label>
+            <label><input type="checkbox" value="sat" x-model="schedEditor.days" @change="updateSchedulePreview()"> Sat</label>
+            <label><input type="checkbox" value="sun" x-model="schedEditor.days" @change="updateSchedulePreview()"> Sun</label>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="margin:0">At</label>
+            <input type="time" x-model="schedEditor.weeklyTime" @change="updateSchedulePreview()">
+          </div>
+        </div>
+        <div x-show="schedEditor.mode === 'cron'" style="display:flex;flex-direction:column;gap:4px;">
+          <label style="margin:0">Cron expression or free text</label>
+          <input type="text" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:100%;" x-model="schedEditor.cron" @input="updateSchedulePreview()" placeholder="e.g. 0 9 * * 1-5 or weekdays at 9am">
+          <span style="color:#8b949e;font-size:0.7rem">Examples: 0 */2 * * * (every 2h) | weekdays at 9am | every 30 minutes</span>
+        </div>
+      </div>
+      <div class="sched-preview" :style="'color:' + schedEditor.previewColor" x-text="schedEditor.previewText"></div>
+      <div class="sched-actions">
+        <button class="btn btn-primary" @click="saveScheduleEditor()">Save</button>
+        <button class="btn" @click="closeScheduleEditor()">Cancel</button>
+      </div>
+    </div>
+
+    <div id="mgrChatOverlay" class="modal-overlay" x-show="chat.show" :class="{ visible: chat.show }" @click.self="closeManagerChat()">
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #30363d;flex-shrink:0;">
+          <h2 style="color:#f0f6fc;font-size:1.1rem;margin:0;" x-text="chat.title || 'Chat'"></h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show orchestration steps">
+              <input type="checkbox" x-model="chat.verbose" @change="toggleChatVerbose()">
+              🔧 Verbose
+            </label>
+            <button class="btn" style="padding:4px 10px;font-size:1rem;line-height:1;" @click="closeManagerChat()">&times;</button>
+          </div>
+        </div>
+        <div x-ref="chatBody" style="flex:1;overflow-y:auto;padding:20px;">
+          <template x-if="chat.loading">
+            <div style="color:#8b949e;padding:20px;text-align:center;">Loading...</div>
+          </template>
+          <template x-if="!chat.loading && chat.messages.length === 0 && !chat.pending">
+            <div style="color:#8b949e;padding:20px;text-align:center;">Send a message to start chatting with the manager.</div>
+          </template>
+          <template x-for="(msg, index) in chat.messages" :key="chatMessageKey(msg, index)">
+            <div class="mgr-chat-msg" :class="msg.role">
+              <div class="mgr-chat-role">
+                <span x-text="msg.role === 'user' ? '👤 You' : '🤖 Manager'"></span>
+                <span style="color:#484f58;font-size:0.7rem;margin-left:8px;" x-show="msg.timestamp" x-text="formatTime(msg.timestamp)"></span>
+              </div>
+              <template x-if="shouldShowMessageSteps(msg)">
+                <div class="mgr-steps" x-html="renderSteps(msg.steps)"></div>
+              </template>
+              <div class="mgr-chat-content" :class="{ 'assistant-md': msg.role === 'assistant' }" x-html="renderChatContent(msg)"></div>
+            </div>
+          </template>
+          <template x-if="chat.pending">
+            <div class="mgr-chat-msg assistant">
+              <div class="mgr-chat-role">🤖 Manager</div>
+              <template x-if="chat.verbose && chat.pending.steps && chat.pending.steps.length">
+                <div class="mgr-steps" x-html="renderSteps(chat.pending.steps)"></div>
+              </template>
+              <div class="mgr-chat-content assistant-md" :style="'color:' + chat.pending.color" x-text="chat.pending.text"></div>
+            </div>
+          </template>
+        </div>
+        <div style="display:flex;gap:8px;padding:12px 20px;border-top:1px solid #30363d;flex-shrink:0;">
+          <input type="text" x-ref="chatInput" x-model="chat.input" @keydown.enter.exact.prevent="sendManagerChat()" placeholder="Ask the manager to do something..." style="flex:1;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:10px 12px;border-radius:6px;font-size:0.9rem;">
+          <button class="btn btn-primary" @click="sendManagerChat()">Send</button>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
-    let managersData = [];
-
-    async function loadManagers() {
-      const res = await fetch('/api/managers');
-      managersData = await res.json();
-      renderManagers();
-    }
-
-    function renderManagers() {
-      const container = document.getElementById('managers-list');
-      if (managersData.length === 0) {
-        container.innerHTML = '<div class="empty-state"><h3>No Managers Yet</h3><p>Create a manager to orchestrate your agents intelligently.</p></div>';
-        return;
-      }
-
-      container.innerHTML = managersData.map(m => \`
-        <div class="manager-card" id="mgr-\${m.manager_id}">
-          <div class="manager-header">
-            <span class="manager-name">\${m.config.name}</span>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <span class="status-badge status-\${m.status || 'idle'}">\${m.status || 'idle'}</span>
-              <button class="btn btn-sm btn-danger" onclick="deleteManager('\${m.manager_id}')">✕</button>
-            </div>
-          </div>
-          <div class="manager-desc">\${m.config.description || ''}</div>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
-            <span style="font-size:0.8rem;color:#8b949e;">Agent:</span>
-            <code style="font-size:0.8rem;color:#58a6ff;background:#1f6feb22;padding:2px 8px;border-radius:4px;">\${m.config.agent || 'manager:manager'}</code>
-            <button class="btn btn-sm" onclick="editManagerAgent('\${m.manager_id}', '\${m.config.agent || 'manager:manager'}')">🔄 Change</button>
-            <button class="btn btn-sm" onclick="openManagerAgentInEditor('\${m.manager_id}')">📝 Edit Prompt</button>
-          </div>
-          
-          <div class="org-section">
-            <div class="org-label">Organization (Agents)</div>
-            <div class="org-agents">
-              \${(m.orgDetails || []).map(a => \`
-                <span class="org-chip">
-                  \${a.name}
-                  <span class="remove-btn" onclick="removeFromOrg('\${m.manager_id}', '\${a.id}')" title="Remove">✕</span>
-                </span>
-              \`).join('')}
-              <button class="org-add-btn" onclick="showAddAgent('\${m.manager_id}')">+ Add</button>
-            </div>
-          </div>
-
-          <div class="assignments-section">
-            <div class="org-label">Assignments \${m.activeSchedules > 0 ? '<span style="color:#3fb950;font-size:11px;">(' + m.activeSchedules + ' scheduled)</span>' : ''}</div>
-            <div class="assignment-list">
-              \${(m.config.assignments || []).map(a => \`
-                <div class="assignment-item">
-                  <span class="assignment-name">\${a.name}</span>
-                  <span class="assignment-schedule" title="\${escapeHtml(a.scheduleDescription || '')}">\${a.schedule || 'never'}\${a.scheduleDescription ? ' (' + a.scheduleDescription + ')' : ''}</span>
-                  \${a.nextRun ? '<span style="font-size:10px;color:#8b949e;">next: ' + new Date(a.nextRun).toLocaleTimeString() + '</span>' : ''}
-                  <span class="assignment-prompt" title="\${escapeHtml(a.prompt || '')}">\${escapeHtml(a.prompt || '')}</span>
-                  <div class="assignment-actions">
-                    <button class="btn btn-sm" onclick="toggleAssignment('\${m.manager_id}', '\${a.id}', \${a.enabled === false ? 'true' : 'false'})" title="\${a.enabled !== false ? 'Disable' : 'Enable'}">\${a.enabled !== false ? '⏸' : '▶️'}</button>
-                    <button class="btn btn-sm" onclick="editAssignmentSchedule('\${m.manager_id}', '\${a.id}', '\${a.schedule || 'never'}')" title="Edit schedule">🕐</button>
-                    <button class="btn btn-sm btn-primary" onclick="runAssignment('\${m.manager_id}', '\${a.id}')">▶ Run</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteAssignment('\${m.manager_id}', '\${a.id}')">✕</button>
-                  </div>
-                </div>
-              \`).join('')}
-              <button class="btn btn-sm" onclick="showAddAssignment('\${m.manager_id}')" style="margin-top:6px;">+ Add Assignment</button>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn btn-primary" onclick="openManagerChat('\${m.manager_id}', '\${m.config.name}').then(() => loadChatHistory('\${m.manager_id}'))">💬 Chat with Manager</button>
-            <button class="btn" onclick="toggleHistory('\${m.manager_id}')">📋 Run History</button>
-          </div>
-
-          <div class="history-section">
-            <div id="history-\${m.manager_id}" class="history-list"></div>
-          </div>
-        </div>
-      \`).join('');
-    }
-
-    async function showCreateManager() {
-      document.getElementById('mgr-id').value = '';
-      document.getElementById('mgr-name').value = '';
-      document.getElementById('mgr-desc').value = '';
-      document.getElementById('managerModalTitle').textContent = 'Create Manager';
-      // Load agent variants into dropdown
-      const select = document.getElementById('mgr-agent');
-      try {
-        const res = await fetch('/api/manager-agents');
-        const variants = await res.json();
-        select.innerHTML = variants.map(v => 
-          \`<option value="\${v.id}">\${v.id} — \${v.description}</option>\`
-        ).join('');
-      } catch { select.innerHTML = '<option value="manager:manager">manager:manager</option>'; }
-      document.getElementById('managerModal').classList.add('visible');
-    }
-
-    function closeModal(id) {
-      document.getElementById(id).classList.remove('visible');
-    }
-
-    async function saveManager() {
-      const config = {
-        id: document.getElementById('mgr-id').value.trim(),
-        name: document.getElementById('mgr-name').value.trim(),
-        description: document.getElementById('mgr-desc').value.trim(),
-        agent: document.getElementById('mgr-agent').value.trim() || 'manager:manager',
-        org: [],
-        assignments: []
-      };
-      if (!config.id || !config.name) return alert('ID and Name are required');
-
-      // If editing existing, preserve org and assignments
-      const existing = managersData.find(m => m.manager_id === config.id);
-      if (existing) {
-        config.org = existing.config.org || [];
-        config.assignments = existing.config.assignments || [];
-      }
-
-      await fetch('/api/managers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
-      closeModal('managerModal');
-      loadManagers();
-    }
-
-    async function deleteManager(id) {
-      if (!confirm('Delete this manager?')) return;
-      await fetch('/api/managers/' + id, { method: 'DELETE' });
-      loadManagers();
-    }
-
-    async function editManagerAgent(managerId, currentAgent) {
-      // Fetch available variants and show select modal
-      const res = await fetch('/api/manager-agents');
-      const variants = await res.json();
-      document.getElementById('agent-select-manager-id').value = managerId;
-      const select = document.getElementById('agent-select-dropdown');
-      select.innerHTML = variants.map(v => 
-        \`<option value="\${v.id}" \${v.id === currentAgent ? 'selected' : ''}>\${v.id} — \${v.description}</option>\`
-      ).join('');
-      document.getElementById('agentSelectModal').classList.add('visible');
-    }
-
-    async function saveAgentSelect() {
-      const managerId = document.getElementById('agent-select-manager-id').value;
-      const newAgent = document.getElementById('agent-select-dropdown').value;
-      const mgr = managersData.find(m => m.manager_id === managerId);
-      if (!mgr) return;
-      const config = { ...mgr.config, agent: newAgent };
-      await fetch('/api/managers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
-      closeModal('agentSelectModal');
-      loadManagers();
-    }
-
-    function openManagerAgentInEditor(managerId) {
-      fetch('/api/managers/' + managerId + '/edit-agent', { method: 'POST' });
-    }
-
-    async function showAddAgent(managerId) {
-      document.getElementById('org-manager-id').value = managerId;
-      const res = await fetch('/api/managers/' + managerId + '/available-agents');
-      const agents = await res.json();
-      const select = document.getElementById('org-agent-select');
-      select.innerHTML = agents.map(a => \`<option value="\${a.id}">\${a.name} (\${a.id})</option>\`).join('');
-      document.getElementById('orgModal').classList.add('visible');
-    }
-
-    async function addAgentToOrg() {
-      const managerId = document.getElementById('org-manager-id').value;
-      const agentId = document.getElementById('org-agent-select').value;
-      if (!agentId) return;
-      await fetch('/api/managers/' + managerId + '/org', {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ agentId })
-      });
-      closeModal('orgModal');
-      loadManagers();
-    }
-
-    async function removeFromOrg(managerId, agentId) {
-      await fetch('/api/managers/' + managerId + '/org/' + agentId, { method: 'DELETE' });
-      loadManagers();
-    }
-
-    function showAddAssignment(managerId) {
-      document.getElementById('asgn-manager-id').value = managerId;
-      document.getElementById('asgn-id').value = '';
-      document.getElementById('asgn-name').value = '';
-      document.getElementById('asgn-prompt').value = '';
-      document.getElementById('asgn-schedule').value = 'never';
-      document.getElementById('assignmentModal').classList.add('visible');
-    }
-
-    async function saveAssignment() {
-      const managerId = document.getElementById('asgn-manager-id').value;
-      const data = {
-        id: document.getElementById('asgn-id').value.trim(),
-        name: document.getElementById('asgn-name').value.trim(),
-        prompt: document.getElementById('asgn-prompt').value.trim(),
-        schedule: document.getElementById('asgn-schedule').value.trim() || 'never'
-      };
-      if (!data.id || !data.name || !data.prompt) return alert('ID, Name, and Prompt are required');
-      await fetch('/api/managers/' + managerId + '/assignments', {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
-      });
-      closeModal('assignmentModal');
-      loadManagers();
-    }
-
-    async function deleteAssignment(managerId, assignmentId) {
-      if (!confirm('Delete this assignment?')) return;
-      await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId, { method: 'DELETE' });
-      loadManagers();
-    }
-
-    async function toggleAssignment(managerId, assignmentId, enabled) {
-      await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/toggle', {
-        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled })
-      });
-      loadManagers();
-    }
-
-    function editAssignmentSchedule(managerId, assignmentId, currentSchedule) {
-      document.querySelectorAll('.asgn-sched-editor').forEach(e => e.remove());
-      const btn = event.target.closest('button');
-      const rect = btn.getBoundingClientRect();
-      const editor = document.createElement('div');
-      editor.className = 'asgn-sched-editor visible';
-      editor.dataset.managerId = managerId;
-      editor.dataset.assignmentId = assignmentId;
-      editor.dataset.current = currentSchedule;
-      editor.innerHTML = \`
-        <label>Schedule type</label>
-        <div style="margin-bottom:8px;">
-          <select id="asgn-sched-mode" onchange="asgnSchedModeChanged()">
-            <option value="never">Never (manual only)</option>
-            <option value="interval">Interval (every N minutes/hours)</option>
-            <option value="daily">Daily (at a specific time)</option>
-            <option value="weekly">Weekly (pick days + time)</option>
-            <option value="cron">Advanced (cron / free text)</option>
-          </select>
-        </div>
-        <div id="asgn-sched-fields"></div>
-        <div class="sched-preview" id="asgn-sched-preview">—</div>
-        <div class="sched-actions">
-          <button class="btn btn-primary" onclick="saveAsgnSchedule()">Save</button>
-          <button class="btn" onclick="closeAsgnScheduleEditor()">Cancel</button>
-        </div>
-      \`;
-      document.body.appendChild(editor);
-      // Position: above the button if room, otherwise below
-      const editorH = 280;
-      let top = rect.top - editorH - 8;
-      if (top < 10) top = rect.bottom + 8;
-      let left = rect.left - 160;
-      if (left < 10) left = 10;
-      if (left + 380 > window.innerWidth) left = window.innerWidth - 390;
-      editor.style.top = top + 'px';
-      editor.style.left = left + 'px';
-      asgnDetectMode(currentSchedule);
-      setTimeout(() => document.addEventListener('click', asgnSchedOutsideClick), 10);
-    }
-
-    function asgnSchedOutsideClick(e) {
-      const editor = document.querySelector('.asgn-sched-editor');
-      if (!editor) return;
-      if (editor.contains(e.target)) return;
-      if (e.target.closest('[onclick*="editAssignmentSchedule"]')) return;
-      if (e.target.tagName === 'OPTION' || e.target.tagName === 'SELECT') return;
-      setTimeout(() => { if (document.querySelector('.asgn-sched-editor')) closeAsgnScheduleEditor(); }, 50);
-    }
-
-    function closeAsgnScheduleEditor() {
-      document.querySelectorAll('.asgn-sched-editor').forEach(e => e.remove());
-      document.removeEventListener('click', asgnSchedOutsideClick);
-    }
-
-    function asgnDetectMode(schedule) {
-      const mode = document.getElementById('asgn-sched-mode');
-      if (!schedule || schedule === 'never') { mode.value = 'never'; asgnSchedModeChanged(); return; }
-      if (/^\\d+[mh]$/.test(schedule) || /^every\\s+\\d+\\s*(min|hour|sec)/i.test(schedule)) mode.value = 'interval';
-      else if (/weekday|M,T|mon|tue|wed|thu|fri|sat|sun/i.test(schedule)) mode.value = 'weekly';
-      else if (/daily|^at\\s+\\d/i.test(schedule)) mode.value = 'daily';
-      else mode.value = 'cron';
-      asgnSchedModeChanged(schedule);
-    }
-
-    function asgnSchedModeChanged(prefill) {
-      const mode = document.getElementById('asgn-sched-mode').value;
-      const fields = document.getElementById('asgn-sched-fields');
-      const editor = document.querySelector('.asgn-sched-editor');
-      const current = prefill || editor?.dataset.current || '';
-
-      if (mode === 'never') {
-        fields.innerHTML = '<span style="color:#8b949e;font-size:0.8rem;">Assignment will only run manually.</span>';
-      } else if (mode === 'interval') {
-        let num = 1, unit = 'h';
-        const m = current.match(/(\\d+)\\s*([mh])/);
-        if (m) { num = parseInt(m[1]); unit = m[2]; }
-        fields.innerHTML = \`<div style="display:flex;gap:8px;align-items:center">
-          <label style="margin:0">Every</label>
-          <input type="number" id="asgn-sched-num" value="\${num}" min="1" max="720" style="width:60px" oninput="asgnPreviewSchedule()">
-          <select id="asgn-sched-unit" onchange="asgnPreviewSchedule()">
-            <option value="m" \${unit==='m'?'selected':''}>minutes</option>
-            <option value="h" \${unit==='h'?'selected':''}>hours</option>
-          </select>
-        </div>\`;
-      } else if (mode === 'daily') {
-        let time = '09:00';
-        const m = current.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/i);
-        if (m) { let h = parseInt(m[1]); const min = m[2]||'00'; if(m[3]?.toLowerCase()==='pm'&&h<12)h+=12; if(m[3]?.toLowerCase()==='am'&&h===12)h=0; time = String(h).padStart(2,'0')+':'+min; }
-        fields.innerHTML = \`<div style="display:flex;gap:8px;align-items:center">
-          <label style="margin:0">At</label>
-          <input type="time" id="asgn-sched-time" value="\${time}" onchange="asgnPreviewSchedule()">
-          <span style="color:#8b949e;font-size:0.8rem">every day</span>
-        </div>\`;
-      } else if (mode === 'weekly') {
-        const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-        const dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
-        let checkedDays = new Set();
-        if (/weekday/i.test(current)) checkedDays = new Set(['mon','tue','wed','thu','fri']);
-        else { for (let i=0;i<dayKeys.length;i++) { if(new RegExp(dayKeys[i],'i').test(current)) checkedDays.add(dayKeys[i]); } }
-        if (checkedDays.size===0) checkedDays = new Set(['mon','tue','wed','thu','fri']);
-        let time = '09:00';
-        const m = current.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/i);
-        if (m) { let h=parseInt(m[1]); const min=m[2]||'00'; if(m[3]?.toLowerCase()==='pm'&&h<12)h+=12; if(m[3]?.toLowerCase()==='am'&&h===12)h=0; time=String(h).padStart(2,'0')+':'+min; }
-        fields.innerHTML = \`<div class="day-checkboxes">
-          \${days.map((d,i) => \`<label><input type="checkbox" value="\${dayKeys[i]}" \${checkedDays.has(dayKeys[i])?'checked':''} onchange="asgnPreviewSchedule()"> \${d}</label>\`).join('')}
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <label style="margin:0">At</label>
-          <input type="time" id="asgn-sched-weekly-time" value="\${time}" onchange="asgnPreviewSchedule()">
-        </div>\`;
-      } else {
-        fields.innerHTML = \`<div style="display:flex;flex-direction:column;gap:4px">
-          <label style="margin:0">Cron expression or free text</label>
-          <input type="text" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:100%" id="asgn-sched-cron" value="\${current.replace(/"/g,'&quot;')}" oninput="asgnPreviewSchedule()" placeholder="e.g. 0 9 * * 1-5 or weekdays at 9am">
-          <span style="color:#8b949e;font-size:0.7rem">Examples: 0 */2 * * * (every 2h) | weekdays at 9am | every 30 minutes</span>
-        </div>\`;
-      }
-      asgnPreviewSchedule();
-    }
-
-    function getAsgnScheduleValue() {
-      const mode = document.getElementById('asgn-sched-mode').value;
-      if (mode === 'never') return 'never';
-      if (mode === 'interval') {
-        const num = document.getElementById('asgn-sched-num')?.value || '1';
-        const unit = document.getElementById('asgn-sched-unit')?.value || 'h';
-        return num + unit;
-      } else if (mode === 'daily') {
-        const time = document.getElementById('asgn-sched-time')?.value || '09:00';
-        const [h, m] = time.split(':').map(Number);
-        const ampm = h >= 12 ? 'pm' : 'am';
-        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        return \`daily at \${h12}\${m > 0 ? ':' + String(m).padStart(2,'0') : ''}\${ampm}\`;
-      } else if (mode === 'weekly') {
-        const checked = Array.from(document.querySelectorAll('.asgn-sched-editor .day-checkboxes input:checked')).map(c => c.value);
-        if (checked.length === 0) return '';
-        const time = document.getElementById('asgn-sched-weekly-time')?.value || '09:00';
-        const [h, min] = time.split(':').map(Number);
-        const ampm = h >= 12 ? 'pm' : 'am';
-        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        const timeStr = \`\${h12}\${min > 0 ? ':' + String(min).padStart(2,'0') : ''}\${ampm}\`;
-        if (checked.length === 5 && !checked.includes('sat') && !checked.includes('sun')) return \`weekdays at \${timeStr}\`;
-        const dayMap = {mon:'M',tue:'T',wed:'W',thu:'Th',fri:'F',sat:'Sa',sun:'Su'};
-        return checked.map(d => dayMap[d]).join(',') + ' at ' + timeStr;
-      } else {
-        return document.getElementById('asgn-sched-cron')?.value || '';
-      }
-    }
-
-    async function asgnPreviewSchedule() {
-      const val = getAsgnScheduleValue();
-      const preview = document.getElementById('asgn-sched-preview');
-      if (!val || val === 'never') { preview.textContent = val === 'never' ? 'Manual only' : '—'; preview.style.color = '#8b949e'; return; }
-      try {
-        const res = await fetch('/api/schedule/describe', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
-        const data = await res.json();
-        if (data.error) { preview.textContent = '⚠ ' + data.error; preview.style.color = '#f85149'; }
-        else { preview.textContent = '✓ ' + (data.description || val); preview.style.color = '#7ee787'; }
-      } catch { preview.textContent = val; preview.style.color = '#c9d1d9'; }
-    }
-
-    async function saveAsgnSchedule() {
-      const editor = document.querySelector('.asgn-sched-editor');
-      if (!editor) return;
-      const managerId = editor.dataset.managerId;
-      const assignmentId = editor.dataset.assignmentId;
-      const val = getAsgnScheduleValue();
-      if (!val) return;
-      const res = await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/schedule', {
-        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ schedule: val })
-      });
-      const data = await res.json();
-      if (data.error) { alert('Invalid schedule: ' + data.error); return; }
-      closeAsgnScheduleEditor();
-      loadManagers();
-    }
-
-    async function runAssignment(managerId, assignmentId) {
-      // Open chat modal and run the assignment — results stream in via polling
-      const mgr = managersData.find(m => m.manager_id === managerId);
-      await openManagerChat(managerId, mgr?.config?.name || managerId);
-
-      try {
-        const res = await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
-        const data = await res.json();
-        if (data.error) {
-          document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + data.error + '</div>';
-          return;
-        }
-        // Reload history which detects the active run and starts polling
-        await loadChatHistory(managerId);
-      } catch (e) {
-        document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + e.message + '</div>';
-      }
-    }
-
-    // ---- Manager Chat Modal ----
-    let chatManagerId = null;
-    let chatRunId = null;
-    let chatPoller = null;
-    let chatVerbose = localStorage.getItem('mgrVerbose') === 'true';
-
-    async function openManagerChat(managerId, managerName) {
-      chatManagerId = managerId;
-      chatRunId = null;
-      stopChatPolling();
-      document.getElementById('mgrChatTitle').textContent = '💬 ' + managerName;
-      document.getElementById('mgrChatBody').innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Loading...</div>';
-      document.getElementById('mgrChatVerbose').checked = chatVerbose;
-      document.getElementById('mgrChatOverlay').classList.add('visible');
-      document.getElementById('mgrChatInput').value = '';
-      document.getElementById('mgrChatInput').focus();
-    }
-
-    function closeMgrChat() {
-      document.getElementById('mgrChatOverlay').classList.remove('visible');
-      chatManagerId = null;
-      stopChatPolling();
-    }
-
-    function toggleChatVerbose() {
-      chatVerbose = document.getElementById('mgrChatVerbose').checked;
-      localStorage.setItem('mgrVerbose', chatVerbose);
-      if (chatRunId) pollChatRun();
-    }
-
-    async function loadChatHistory(managerId) {
-      const res = await fetch('/api/managers/' + managerId + '/messages?limit=30');
-      const messages = await res.json();
-      const body = document.getElementById('mgrChatBody');
-      if (messages.length === 0) {
-        body.innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Send a message to start chatting with the manager.</div>';
-      } else {
-        body.innerHTML = messages.map(m => renderChatMessage(m.role, m.content, m.created_at)).join('');
-        body.scrollTop = body.scrollHeight;
-      }
-
-      // Check if there's an active run and start polling for it
-      try {
-        const histRes = await fetch('/api/managers/' + managerId + '/history?limit=1');
-        const runs = await histRes.json();
-        if (runs.length > 0 && runs[0].status === 'running') {
-          chatRunId = runs[0].id;
-          body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">🧠 Thinking...</div></div>';
-          body.scrollTop = body.scrollHeight;
-          startChatPolling();
-        }
-      } catch {}
-    }
-
-    function renderChatMessage(role, content, timestamp) {
-      const timeStr = timestamp ? '<span style="color:#484f58;font-size:0.7rem;margin-left:8px;">' + new Date(timestamp).toLocaleTimeString() + '</span>' : '';
-      if (role === 'user') {
-        return '<div class="mgr-chat-msg user"><div class="mgr-chat-role">👤 You' + timeStr + '</div><div class="mgr-chat-content">' + escapeHtml(content) + '</div></div>';
-      }
-      const rendered = (typeof marked !== 'undefined') ? marked.parse(content) : escapeHtml(content);
-      return '<div class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager' + timeStr + '</div><div class="mgr-chat-content assistant-md">' + rendered + '</div></div>';
-    }
-
     function escapeHtml(str) {
-      return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    function renderStep(step) {
-      const icons = { thinking: '🧠', run_agent: '▶️', agent_result: '✅', complete: '🏁', error: '❌', request_agent: '🔍' };
-      const icon = icons[step.action] || '•';
-      let detail = '';
-      if (step.action === 'thinking') detail = 'Analyzing...';
-      else if (step.action === 'run_agent') detail = \`Running <strong>\${step.agentId}</strong>: \${(step.prompt || '').substring(0, 100)}\`;
-      else if (step.action === 'agent_result') detail = \`<strong>\${step.agentId}</strong> returned (exit \${step.exitCode}, \${step.outputLength} chars)\`;
-      else if (step.action === 'complete') detail = 'Completed';
-      else if (step.action === 'error') detail = step.message || 'Error';
-      else if (step.action === 'request_agent') detail = \`Requesting <strong>\${step.agentId}</strong>: \${step.reason || ''}\`;
-      const time = step.timestamp ? '<span style="color:#484f58;margin-left:8px;">' + new Date(step.timestamp).toLocaleTimeString() + '</span>' : '';
-      return \`<div class="mgr-step \${step.action}">\${icon} \${detail}\${time}</div>\`;
-    }
+    function managersApp() {
+      return {
+        managers: [],
+        refreshTimer: null,
+        refreshInFlight: false,
+        showManagerModal: false,
+        showAssignmentModal: false,
+        showOrgModal: false,
+        showAgentSelectModal: false,
+        managerAgents: [],
+        availableOrgAgents: [],
+        mgrForm: { originalId: '', id: '', name: '', desc: '', agent: 'manager:manager', editing: false },
+        asgnForm: { managerId: '', originalId: '', id: '', name: '', prompt: '', schedule: 'never', editing: false },
+        orgForm: { managerId: '', agentId: '' },
+        agentSelect: { managerId: '', agent: 'manager:manager' },
+        historyOpen: {},
+        histories: {},
+        schedEditor: {
+          show: false,
+          top: 0,
+          left: 0,
+          managerId: '',
+          assignmentId: '',
+          rawSchedule: 'never',
+          mode: 'never',
+          num: 1,
+          unit: 'h',
+          dailyTime: '09:00',
+          weeklyTime: '09:00',
+          days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+          cron: '',
+          previewText: '—',
+          previewColor: '#8b949e'
+        },
+        chat: {
+          show: false,
+          managerId: '',
+          title: 'Chat',
+          input: '',
+          messages: [],
+          pending: null,
+          runId: null,
+          verbose: false,
+          poller: null,
+          loading: false
+        },
 
-    async function sendMgrChat() {
-      if (!chatManagerId) return;
-      const input = document.getElementById('mgrChatInput');
-      const prompt = input.value.trim();
-      if (!prompt) return;
-      input.value = '';
-      input.disabled = true;
+        async init() {
+          this.chat.verbose = localStorage.getItem('mgrVerbose') === 'true';
+          document.addEventListener('keydown', this.handleGlobalKeydown.bind(this));
+          await this.refresh();
+          const self = this;
+          this.refreshTimer = setInterval(function() { self.refresh(); }, 10000);
+        },
 
-      const body = document.getElementById('mgrChatBody');
-      // Clear placeholder if present
-      if (body.querySelector('[style*="text-align:center"]')) body.innerHTML = '';
-      body.innerHTML += renderChatMessage('user', prompt, new Date().toISOString());
-      body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">Thinking...</div></div>';
-      body.scrollTop = body.scrollHeight;
-
-      try {
-        const res = await fetch('/api/managers/' + chatManagerId + '/prompt', {
-          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
-        });
-        const data = await res.json();
-        if (data.runId) {
-          chatRunId = data.runId;
-          startChatPolling();
-        }
-      } catch (e) {
-        const pending = document.getElementById('mgr-pending');
-        if (pending) pending.innerHTML = '<div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content" style="color:#f85149;">Error: ' + e.message + '</div>';
-      }
-      input.disabled = false;
-      input.focus();
-    }
-
-    function startChatPolling() {
-      stopChatPolling();
-      chatPoller = setInterval(pollChatRun, 2000);
-      pollChatRun();
-    }
-
-    function stopChatPolling() {
-      if (chatPoller) { clearInterval(chatPoller); chatPoller = null; }
-    }
-
-    async function pollChatRun() {
-      if (!chatManagerId || !chatRunId) return;
-      try {
-        const res = await fetch(\`/api/managers/\${chatManagerId}/runs/\${chatRunId}\`);
-        const run = await res.json();
-        const body = document.getElementById('mgrChatBody');
-        const pending = document.getElementById('mgr-pending');
-        if (!pending) return;
-
-        // Build verbose steps view
-        let stepsHtml = '';
-        if (chatVerbose && run.steps && run.steps.length > 0) {
-          stepsHtml = '<div class="mgr-steps">' + run.steps.map(renderStep).join('') + '</div>';
-        }
-
-        if (run.status === 'running') {
-          const lastStep = run.steps && run.steps.length > 0 ? run.steps[run.steps.length - 1] : null;
-          let statusText = 'Thinking...';
-          if (lastStep) {
-            if (lastStep.action === 'run_agent') statusText = \`Running \${lastStep.agentId}...\`;
-            else if (lastStep.action === 'agent_result') statusText = 'Analyzing results...';
+        handleGlobalKeydown(e) {
+          if (e.key !== 'Escape') return;
+          if (this.chat.show) {
+            this.closeManagerChat();
+          } else if (this.schedEditor.show) {
+            this.closeScheduleEditor();
+          } else if (this.showAgentSelectModal) {
+            this.closeAgentSelectModal();
+          } else if (this.showOrgModal) {
+            this.closeOrgModal();
+          } else if (this.showAssignmentModal) {
+            this.closeAssignmentModal();
+          } else if (this.showManagerModal) {
+            this.closeManagerModal();
           }
-          pending.innerHTML = '<div class="mgr-chat-role">🤖 Manager</div>' + stepsHtml + '<div class="mgr-chat-content assistant-md" style="color:#8b949e;">' + statusText + '</div>';
-        } else {
-          // Completed or error
-          stopChatPolling();
-          const result = run.result || run.error || 'No response';
-          const rendered = (typeof marked !== 'undefined') ? marked.parse(result) : escapeHtml(result);
-          pending.innerHTML = '<div class="mgr-chat-role">🤖 Manager</div>' + stepsHtml + '<div class="mgr-chat-content assistant-md">' + rendered + '</div>';
-          pending.id = ''; // Clear pending ID
-          loadManagers();
+        },
+
+        async request(url, options) {
+          const res = await fetch(url, options || {});
+          let data = null;
+          const type = res.headers.get('content-type') || '';
+          if (type.includes('application/json')) {
+            data = await res.json();
+          } else {
+            const text = await res.text();
+            try { data = JSON.parse(text); } catch { data = text; }
+          }
+          if (!res.ok) {
+            throw new Error(data && data.error ? data.error : 'Request failed');
+          }
+          return data;
+        },
+
+        async refresh() {
+          if (this.refreshInFlight) return;
+          this.refreshInFlight = true;
+          try {
+            const data = await this.request('/api/managers');
+            this.managers = Array.isArray(data) ? data : [];
+            const openIds = Object.keys(this.historyOpen).filter((id) => this.historyOpen[id]);
+            await Promise.all(openIds.map((id) => this.refreshHistory(id, true)));
+          } catch (e) {
+            console.error(e);
+          } finally {
+            this.refreshInFlight = false;
+          }
+        },
+
+        findManager(managerId) {
+          return this.managers.find((m) => m.manager_id === managerId) || null;
+        },
+
+        managerAgentLabel(manager) {
+          return (manager && manager.config && manager.config.agent) || 'manager:manager';
+        },
+
+        assignmentScheduleLabel(assignment) {
+          const schedule = assignment && assignment.schedule ? assignment.schedule : 'never';
+          return assignment && assignment.scheduleDescription ? schedule + ' (' + assignment.scheduleDescription + ')' : schedule;
+        },
+
+        formatTime(value) {
+          if (!value) return '';
+          const d = new Date(value);
+          if (Number.isNaN(d.getTime())) return '';
+          return d.toLocaleTimeString();
+        },
+
+        formatDateTime(value) {
+          if (!value) return '';
+          const d = new Date(value);
+          if (Number.isNaN(d.getTime())) return '';
+          return d.toLocaleString();
+        },
+
+        truncate(value, maxLen) {
+          const text = value || '';
+          return text.length > maxLen ? text.substring(0, maxLen) : text;
+        },
+
+        async loadManagerAgents() {
+          try {
+            const variants = await this.request('/api/manager-agents');
+            this.managerAgents = Array.isArray(variants) && variants.length ? variants : [{ id: 'manager:manager', description: 'Default manager agent' }];
+          } catch {
+            this.managerAgents = [{ id: 'manager:manager', description: 'Default manager agent' }];
+          }
+        },
+
+        async showCreateManager() {
+          await this.loadManagerAgents();
+          this.mgrForm = { originalId: '', id: '', name: '', desc: '', agent: 'manager:manager', editing: false };
+          if (this.managerAgents.length && !this.managerAgents.some((v) => v.id === this.mgrForm.agent)) {
+            this.mgrForm.agent = this.managerAgents[0].id;
+          }
+          this.showManagerModal = true;
+          this.$nextTick(() => {
+            const input = document.querySelector('#managerModal input');
+            if (input) input.focus();
+          });
+        },
+
+        async showEditManager(manager) {
+          await this.loadManagerAgents();
+          this.mgrForm = {
+            originalId: manager.manager_id,
+            id: manager.manager_id,
+            name: (manager.config && manager.config.name) || '',
+            desc: (manager.config && manager.config.description) || '',
+            agent: this.managerAgentLabel(manager),
+            editing: true
+          };
+          this.showManagerModal = true;
+        },
+
+        closeManagerModal() {
+          this.showManagerModal = false;
+        },
+
+        async saveManager() {
+          const config = {
+            id: (this.mgrForm.id || '').trim(),
+            name: (this.mgrForm.name || '').trim(),
+            description: (this.mgrForm.desc || '').trim(),
+            agent: (this.mgrForm.agent || '').trim() || 'manager:manager',
+            org: [],
+            assignments: []
+          };
+          if (!config.id || !config.name) {
+            alert('ID and Name are required');
+            return;
+          }
+          const existing = this.findManager(this.mgrForm.originalId || config.id);
+          if (existing) {
+            config.org = (existing.config && existing.config.org) || [];
+            config.assignments = (existing.config && existing.config.assignments) || [];
+          }
+          try {
+            await this.request('/api/managers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(config)
+            });
+            this.closeManagerModal();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async deleteManager(managerId) {
+          if (!confirm('Delete this manager?')) return;
+          try {
+            await this.request('/api/managers/' + managerId, { method: 'DELETE' });
+            if (this.chat.managerId === managerId) this.closeManagerChat();
+            delete this.historyOpen[managerId];
+            delete this.histories[managerId];
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async editManagerAgent(managerId, currentAgent) {
+          await this.loadManagerAgents();
+          this.agentSelect = { managerId: managerId, agent: currentAgent || 'manager:manager' };
+          this.showAgentSelectModal = true;
+        },
+
+        closeAgentSelectModal() {
+          this.showAgentSelectModal = false;
+        },
+
+        async saveAgentSelect() {
+          const manager = this.findManager(this.agentSelect.managerId);
+          if (!manager) return;
+          const config = Object.assign({}, manager.config || {}, { agent: (this.agentSelect.agent || '').trim() || 'manager:manager' });
+          try {
+            await this.request('/api/managers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(config)
+            });
+            this.closeAgentSelectModal();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async openManagerAgentInEditor(managerId) {
+          try {
+            await this.request('/api/managers/' + managerId + '/edit-agent', { method: 'POST' });
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async showAddAgent(managerId) {
+          try {
+            const agents = await this.request('/api/managers/' + managerId + '/available-agents');
+            this.availableOrgAgents = Array.isArray(agents) ? agents : [];
+            this.orgForm = { managerId: managerId, agentId: this.availableOrgAgents.length ? this.availableOrgAgents[0].id : '' };
+            this.showOrgModal = true;
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        closeOrgModal() {
+          this.showOrgModal = false;
+        },
+
+        async addAgentToOrg() {
+          if (!this.orgForm.agentId) return;
+          try {
+            await this.request('/api/managers/' + this.orgForm.managerId + '/org', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agentId: this.orgForm.agentId })
+            });
+            this.closeOrgModal();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async removeFromOrg(managerId, agentId) {
+          try {
+            await this.request('/api/managers/' + managerId + '/org/' + agentId, { method: 'DELETE' });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        showAddAssignment(managerId) {
+          this.asgnForm = { managerId: managerId, originalId: '', id: '', name: '', prompt: '', schedule: 'never', editing: false };
+          this.showAssignmentModal = true;
+        },
+
+        showEditAssignment(managerId, assignment) {
+          this.asgnForm = {
+            managerId: managerId,
+            originalId: assignment.id,
+            id: assignment.id,
+            name: assignment.name || '',
+            prompt: assignment.prompt || '',
+            schedule: assignment.schedule || 'never',
+            editing: true
+          };
+          this.showAssignmentModal = true;
+        },
+
+        closeAssignmentModal() {
+          this.showAssignmentModal = false;
+        },
+
+        async saveAssignment() {
+          const payload = {
+            id: (this.asgnForm.id || '').trim(),
+            name: (this.asgnForm.name || '').trim(),
+            prompt: (this.asgnForm.prompt || '').trim(),
+            schedule: (this.asgnForm.schedule || '').trim() || 'never'
+          };
+          if (!payload.id || !payload.name || !payload.prompt) {
+            alert('ID, Name, and Prompt are required');
+            return;
+          }
+          const manager = this.findManager(this.asgnForm.managerId);
+          const existing = manager && manager.config && manager.config.assignments
+            ? manager.config.assignments.find((assignment) => assignment.id === (this.asgnForm.originalId || payload.id))
+            : null;
+          if (existing && existing.enabled === false) {
+            payload.enabled = false;
+          }
+          try {
+            await this.request('/api/managers/' + this.asgnForm.managerId + '/assignments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            this.closeAssignmentModal();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async deleteAssignment(managerId, assignmentId) {
+          if (!confirm('Delete this assignment?')) return;
+          try {
+            await this.request('/api/managers/' + managerId + '/assignments/' + assignmentId, { method: 'DELETE' });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async toggleAssignment(managerId, assignmentId, enabled) {
+          try {
+            await this.request('/api/managers/' + managerId + '/assignments/' + assignmentId + '/toggle', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: enabled })
+            });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        openScheduleEditor(managerId, assignment, evt) {
+          const rect = evt.currentTarget.getBoundingClientRect();
+          let top = rect.top - 280 - 8;
+          if (top < 10) top = rect.bottom + 8;
+          let left = rect.left - 160;
+          if (left < 10) left = 10;
+          if (left + 380 > window.innerWidth) left = window.innerWidth - 390;
+          this.schedEditor.show = true;
+          this.schedEditor.top = top;
+          this.schedEditor.left = left;
+          this.schedEditor.managerId = managerId;
+          this.schedEditor.assignmentId = assignment.id;
+          this.detectScheduleMode(assignment.schedule || 'never');
+        },
+
+        closeScheduleEditor() {
+          this.schedEditor.show = false;
+        },
+
+        detectScheduleMode(schedule) {
+          const current = schedule || 'never';
+          this.schedEditor.rawSchedule = current;
+          if (!current || current === 'never') {
+            this.schedEditor.mode = 'never';
+          } else if (/^\d+[mh]$/i.test(current) || /^every\s+\d+\s*(min|hour|sec)/i.test(current)) {
+            this.schedEditor.mode = 'interval';
+          } else if (/weekday|M,T|mon|tue|wed|thu|fri|sat|sun/i.test(current)) {
+            this.schedEditor.mode = 'weekly';
+          } else if (/daily|^at\s+\d/i.test(current)) {
+            this.schedEditor.mode = 'daily';
+          } else {
+            this.schedEditor.mode = 'cron';
+          }
+
+          let match;
+          match = current.match(/(\d+)\s*([mh])/i);
+          this.schedEditor.num = match ? parseInt(match[1], 10) : 1;
+          this.schedEditor.unit = match ? match[2].toLowerCase() : 'h';
+
+          let time = '09:00';
+          match = current.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+          if (match) {
+            let hours = parseInt(match[1], 10);
+            const minutes = match[2] || '00';
+            if (match[3] && match[3].toLowerCase() === 'pm' && hours < 12) hours += 12;
+            if (match[3] && match[3].toLowerCase() === 'am' && hours === 12) hours = 0;
+            time = String(hours).padStart(2, '0') + ':' + minutes;
+          }
+          this.schedEditor.dailyTime = time;
+          this.schedEditor.weeklyTime = time;
+
+          let checkedDays = [];
+          if (/weekday/i.test(current)) {
+            checkedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+          } else {
+            const keys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+            checkedDays = keys.filter((day) => new RegExp(day, 'i').test(current));
+          }
+          if (!checkedDays.length) checkedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+          this.schedEditor.days = checkedDays;
+          this.schedEditor.cron = current === 'never' ? '' : current;
+          this.updateSchedulePreview();
+        },
+
+        onScheduleModeChanged() {
+          if (this.schedEditor.mode === 'weekly' && !this.schedEditor.days.length) {
+            this.schedEditor.days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+          }
+          if (this.schedEditor.mode === 'cron' && !this.schedEditor.cron && this.schedEditor.rawSchedule !== 'never') {
+            this.schedEditor.cron = this.schedEditor.rawSchedule || '';
+          }
+          this.updateSchedulePreview();
+        },
+
+        getScheduleValue() {
+          if (this.schedEditor.mode === 'never') return 'never';
+          if (this.schedEditor.mode === 'interval') {
+            const num = String(this.schedEditor.num || '1').trim() || '1';
+            return num + (this.schedEditor.unit || 'h');
+          }
+          if (this.schedEditor.mode === 'daily') {
+            const time = this.schedEditor.dailyTime || '09:00';
+            const pieces = time.split(':').map(Number);
+            const hours = pieces[0] || 0;
+            const minutes = pieces[1] || 0;
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            const h12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+            return 'daily at ' + h12 + (minutes > 0 ? ':' + String(minutes).padStart(2, '0') : '') + ampm;
+          }
+          if (this.schedEditor.mode === 'weekly') {
+            const checked = this.schedEditor.days.slice();
+            if (!checked.length) return '';
+            const time = this.schedEditor.weeklyTime || '09:00';
+            const pieces = time.split(':').map(Number);
+            const hours = pieces[0] || 0;
+            const minutes = pieces[1] || 0;
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            const h12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+            const timeStr = h12 + (minutes > 0 ? ':' + String(minutes).padStart(2, '0') : '') + ampm;
+            if (checked.length === 5 && !checked.includes('sat') && !checked.includes('sun')) {
+              return 'weekdays at ' + timeStr;
+            }
+            const dayMap = { mon: 'M', tue: 'T', wed: 'W', thu: 'Th', fri: 'F', sat: 'Sa', sun: 'Su' };
+            return checked.map((day) => dayMap[day]).join(',') + ' at ' + timeStr;
+          }
+          return (this.schedEditor.cron || '').trim();
+        },
+
+        async updateSchedulePreview() {
+          const value = this.getScheduleValue();
+          if (!value || value === 'never') {
+            this.schedEditor.previewText = value === 'never' ? 'Manual only' : '—';
+            this.schedEditor.previewColor = '#8b949e';
+            return;
+          }
+          try {
+            const data = await this.request('/api/schedule/describe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ schedule: value })
+            });
+            this.schedEditor.previewText = '✓ ' + (data.description || value);
+            this.schedEditor.previewColor = '#7ee787';
+          } catch (e) {
+            this.schedEditor.previewText = '⚠ ' + e.message;
+            this.schedEditor.previewColor = '#f85149';
+          }
+        },
+
+        async saveScheduleEditor() {
+          const value = this.getScheduleValue();
+          if (!value) return;
+          try {
+            await this.request('/api/managers/' + this.schedEditor.managerId + '/assignments/' + this.schedEditor.assignmentId + '/schedule', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ schedule: value })
+            });
+            this.closeScheduleEditor();
+            await this.refresh();
+          } catch (e) {
+            alert('Invalid schedule: ' + e.message);
+          }
+        },
+
+        filteredHistorySteps(run) {
+          return ((run && run._steps) || []).filter((step) => step.action !== 'thinking');
+        },
+
+        historyStepKey(run, step) {
+          return String(run.id) + ':' + (step.timestamp || '') + ':' + (step.action || '') + ':' + (step.agentId || '');
+        },
+
+        historyStepSummary(step) {
+          const detail = step.agentId || this.truncate(step.result || '', 80) || step.message || '';
+          return step.action + ': ' + detail;
+        },
+
+        async toggleHistory(managerId) {
+          this.historyOpen[managerId] = !this.historyOpen[managerId];
+          if (this.historyOpen[managerId]) {
+            await this.refreshHistory(managerId);
+          }
+        },
+
+        async refreshHistory(managerId, silent) {
+          try {
+            const runs = await this.request('/api/managers/' + managerId + '/history');
+            this.histories[managerId] = (Array.isArray(runs) ? runs : []).map((run) => {
+              let steps = [];
+              try {
+                steps = Array.isArray(run.steps) ? run.steps : JSON.parse(run.steps || '[]');
+              } catch {
+                steps = [];
+              }
+              return Object.assign({}, run, { _steps: steps });
+            });
+          } catch (e) {
+            if (!silent) alert(e.message);
+          }
+        },
+
+        async openManagerChat(managerId, managerName) {
+          this.stopChatPolling();
+          this.chat.show = true;
+          this.chat.managerId = managerId;
+          this.chat.title = '💬 ' + (managerName || managerId);
+          this.chat.input = '';
+          this.chat.messages = [];
+          this.chat.pending = null;
+          this.chat.runId = null;
+          this.chat.loading = true;
+          try {
+            await this.loadChatHistory(managerId);
+          } catch (e) {
+            this.chat.messages = [{ role: 'assistant', content: 'Error: ' + e.message, timestamp: new Date().toISOString(), steps: [], alwaysShowSteps: false }];
+          } finally {
+            this.chat.loading = false;
+            this.scrollChatToBottom();
+            this.focusChatInput();
+          }
+        },
+
+        closeManagerChat() {
+          this.chat.show = false;
+          this.chat.managerId = '';
+          this.chat.title = 'Chat';
+          this.chat.input = '';
+          this.chat.messages = [];
+          this.chat.pending = null;
+          this.chat.runId = null;
+          this.chat.loading = false;
+          this.stopChatPolling();
+        },
+
+        toggleChatVerbose() {
+          localStorage.setItem('mgrVerbose', this.chat.verbose ? 'true' : 'false');
+          if (this.chat.runId) {
+            this.pollChatRun();
+          }
+        },
+
+        async loadChatHistory(managerId) {
+          const messages = await this.request('/api/managers/' + managerId + '/messages?limit=30');
+          this.chat.messages = (Array.isArray(messages) ? messages : []).map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.created_at,
+            steps: [],
+            alwaysShowSteps: false
+          }));
+          this.chat.pending = null;
+          try {
+            const runs = await this.request('/api/managers/' + managerId + '/history?limit=1');
+            if (Array.isArray(runs) && runs.length > 0 && runs[0].status === 'running') {
+              this.chat.runId = runs[0].id;
+              this.chat.pending = { text: '🧠 Thinking...', steps: [], color: '#8b949e' };
+              this.startChatPolling();
+            }
+          } catch {}
+          this.scrollChatToBottom();
+        },
+
+        renderChatContent(msg) {
+          if (msg.role === 'user') return escapeHtml(msg.content || '');
+          return typeof marked !== 'undefined' ? marked.parse(msg.content || '') : escapeHtml(msg.content || '');
+        },
+
+        shouldShowMessageSteps(msg) {
+          return !!(msg && msg.steps && msg.steps.length && (this.chat.verbose || msg.alwaysShowSteps));
+        },
+
+        renderSteps(steps) {
+          const icons = { thinking: '🧠', run_agent: '▶️', agent_result: '✅', complete: '🏁', error: '❌', request_agent: '🔍' };
+          return (steps || []).map((step) => {
+            const icon = icons[step.action] || '•';
+            let detail = '';
+            if (step.action === 'thinking') {
+              detail = 'Analyzing...';
+            } else if (step.action === 'run_agent') {
+              detail = 'Running <strong>' + escapeHtml(step.agentId || '') + '</strong>: ' + escapeHtml((step.prompt || '').substring(0, 100));
+            } else if (step.action === 'agent_result') {
+              detail = '<strong>' + escapeHtml(step.agentId || '') + '</strong> returned (exit ' + escapeHtml(String(step.exitCode ?? '')) + ', ' + escapeHtml(String(step.outputLength ?? '0')) + ' chars)';
+            } else if (step.action === 'complete') {
+              detail = 'Completed';
+            } else if (step.action === 'error') {
+              detail = escapeHtml(step.message || 'Error');
+            } else if (step.action === 'request_agent') {
+              detail = 'Requesting <strong>' + escapeHtml(step.agentId || '') + '</strong>: ' + escapeHtml(step.reason || '');
+            } else {
+              detail = escapeHtml(step.message || '');
+            }
+            const time = step.timestamp ? '<span style="color:#484f58;margin-left:8px;">' + this.formatTime(step.timestamp) + '</span>' : '';
+            return '<div class="mgr-step ' + escapeHtml(step.action || '') + '">' + icon + ' ' + detail + time + '</div>';
+          }).join('');
+        },
+
+        chatMessageKey(msg, index) {
+          return (msg.role || 'msg') + ':' + (msg.timestamp || '') + ':' + index;
+        },
+
+        scrollChatToBottom() {
+          this.$nextTick(() => {
+            if (this.$refs.chatBody) {
+              this.$refs.chatBody.scrollTop = this.$refs.chatBody.scrollHeight;
+            }
+          });
+        },
+
+        focusChatInput() {
+          this.$nextTick(() => {
+            if (this.$refs.chatInput) this.$refs.chatInput.focus();
+          });
+        },
+
+        getRunStatusText(run) {
+          const steps = run && run.steps ? run.steps : [];
+          const lastStep = steps.length ? steps[steps.length - 1] : null;
+          if (!lastStep) return 'Thinking...';
+          if (lastStep.action === 'run_agent') return 'Running ' + (lastStep.agentId || 'agent') + '...';
+          if (lastStep.action === 'agent_result') return 'Analyzing results...';
+          if (lastStep.action === 'error') return lastStep.message || 'Error';
+          return 'Thinking...';
+        },
+
+        async sendManagerChat() {
+          if (!this.chat.managerId) return;
+          const prompt = (this.chat.input || '').trim();
+          if (!prompt) return;
+          this.chat.input = '';
+          this.chat.messages.push({ role: 'user', content: prompt, timestamp: new Date().toISOString(), steps: [], alwaysShowSteps: false });
+          this.chat.pending = { text: 'Thinking...', steps: [], color: '#8b949e' };
+          this.scrollChatToBottom();
+          try {
+            const data = await this.request('/api/managers/' + this.chat.managerId + '/prompt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: prompt })
+            });
+            if (data && data.runId) {
+              this.chat.runId = data.runId;
+              this.startChatPolling();
+            }
+          } catch (e) {
+            this.chat.pending = { text: 'Error: ' + e.message, steps: [], color: '#f85149' };
+            this.chat.runId = null;
+          }
+          this.focusChatInput();
+        },
+
+        async runAssignment(managerId, assignmentId) {
+          const manager = this.findManager(managerId);
+          await this.openManagerChat(managerId, (manager && manager.config && manager.config.name) || managerId);
+          try {
+            const data = await this.request('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
+            if (data && data.runId) {
+              this.chat.runId = data.runId;
+              this.chat.pending = { text: 'Thinking...', steps: [], color: '#8b949e' };
+              this.startChatPolling();
+            }
+          } catch (e) {
+            this.chat.pending = { text: 'Error: ' + e.message, steps: [], color: '#f85149' };
+          }
+        },
+
+        startChatPolling() {
+          this.stopChatPolling();
+          const self = this;
+          this.chat.poller = setInterval(function() { self.pollChatRun(); }, 2000);
+          this.pollChatRun();
+        },
+
+        stopChatPolling() {
+          if (this.chat.poller) {
+            clearInterval(this.chat.poller);
+            this.chat.poller = null;
+          }
+        },
+
+        async pollChatRun() {
+          const managerId = this.chat.managerId;
+          const runId = this.chat.runId;
+          if (!managerId || !runId) return;
+          try {
+            const run = await this.request('/api/managers/' + managerId + '/runs/' + runId);
+            if (this.chat.managerId !== managerId || this.chat.runId !== runId) return;
+            const steps = Array.isArray(run.steps) ? run.steps : [];
+            if (run.status === 'running') {
+              this.chat.pending = { text: this.getRunStatusText(run), steps: steps, color: '#8b949e' };
+            } else {
+              this.stopChatPolling();
+              this.chat.pending = null;
+              this.chat.messages.push({
+                role: 'assistant',
+                content: run.result || run.error || 'No response',
+                timestamp: run.completed_at || run.started_at || new Date().toISOString(),
+                steps: steps,
+                alwaysShowSteps: false
+              });
+              this.chat.runId = null;
+              await this.refresh();
+              if (this.historyOpen[managerId]) {
+                await this.refreshHistory(managerId, true);
+              }
+            }
+            this.scrollChatToBottom();
+          } catch {}
+        },
+
+        async viewRun(managerId, runId) {
+          const manager = this.findManager(managerId);
+          this.stopChatPolling();
+          this.chat.show = true;
+          this.chat.managerId = managerId;
+          this.chat.title = '💬 ' + ((manager && manager.config && manager.config.name) || managerId);
+          this.chat.input = '';
+          this.chat.messages = [];
+          this.chat.pending = null;
+          this.chat.runId = null;
+          this.chat.loading = true;
+          try {
+            const run = await this.request('/api/managers/' + managerId + '/runs/' + runId);
+            const steps = Array.isArray(run.steps) ? run.steps : [];
+            if (run.prompt) {
+              this.chat.messages.push({ role: 'user', content: run.prompt, timestamp: run.started_at, steps: [], alwaysShowSteps: false });
+            }
+            if (run.status === 'running') {
+              this.chat.runId = run.id;
+              this.chat.pending = { text: this.getRunStatusText(run), steps: steps, color: '#8b949e' };
+              this.startChatPolling();
+            } else {
+              this.chat.messages.push({
+                role: 'assistant',
+                content: run.result || run.error || 'No response',
+                timestamp: run.completed_at || run.started_at,
+                steps: steps,
+                alwaysShowSteps: true
+              });
+            }
+          } catch (e) {
+            this.chat.messages = [{ role: 'assistant', content: 'Error: ' + e.message, timestamp: new Date().toISOString(), steps: [], alwaysShowSteps: false }];
+          } finally {
+            this.chat.loading = false;
+            this.scrollChatToBottom();
+            this.focusChatInput();
+          }
         }
-        body.scrollTop = body.scrollHeight;
-      } catch (e) { /* ignore poll errors */ }
+      };
     }
-
-    function toggleHistory(managerId) {
-      const el = document.getElementById('history-' + managerId);
-      el.classList.toggle('visible');
-      if (el.classList.contains('visible')) {
-        loadHistory(managerId);
-      }
-    }
-
-    async function loadHistory(managerId) {
-      const res = await fetch('/api/managers/' + managerId + '/history');
-      const runs = await res.json();
-      const el = document.getElementById('history-' + managerId);
-      el.innerHTML = runs.map(r => {
-        const steps = JSON.parse(r.steps || '[]');
-        return \`
-          <div class="history-item" onclick="viewRun('\${managerId}', \${r.id})" style="cursor:pointer;">
-            <div>
-              <span class="\${r.status === 'completed' ? 'status-ok' : 'status-err'}">\${r.status}</span>
-              <span class="time">\${new Date(r.started_at).toLocaleString()}</span>
-              \${r.assignment_id ? ' — ' + r.assignment_id : ' — ad-hoc'}
-            </div>
-            <div style="margin-top:4px;color:#8b949e;font-size:0.75rem;">\${(r.prompt || '').substring(0, 100)}</div>
-            \${steps.length ? '<div class="steps-list">' + steps.filter(s => s.action !== 'thinking').map(s => \`<div class="step-item \${s.action}">\${s.action}: \${s.agentId || (s.result||'').substring(0, 80) || s.message || ''}</div>\`).join('') + '</div>' : ''}
-          </div>
-        \`;
-      }).join('') || '<div style="color:#8b949e;font-size:0.85rem;">No runs yet.</div>';
-    }
-
-    async function viewRun(managerId, runId) {
-      // Open chat modal showing this run's details
-      const mgr = managersData.find(m => m.manager_id === managerId);
-      await openManagerChat(managerId, mgr?.config?.name || managerId);
-      const res = await fetch(\`/api/managers/\${managerId}/runs/\${runId}\`);
-      const run = await res.json();
-      const body = document.getElementById('mgrChatBody');
-      let html = renderChatMessage('user', run.prompt || '', run.started_at);
-      if (run.steps && run.steps.length > 0) {
-        html += '<div class="mgr-steps">' + run.steps.map(renderStep).join('') + '</div>';
-      }
-      if (run.result) {
-        html += renderChatMessage('assistant', run.result);
-      }
-      body.innerHTML = html;
-    }
-
-    // Handle Enter in chat modal
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'mgrChatInput') {
-        e.preventDefault();
-        sendMgrChat();
-      }
-    });
-
-    // Initial load
-    loadManagers();
-    // Refresh every 10s
-    setInterval(() => { if (!document.querySelector('.asgn-sched-editor')) loadManagers(); }, 10000);
   </script>
 </body>
 </html>`;
