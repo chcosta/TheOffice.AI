@@ -1,0 +1,523 @@
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const EventEmitter = require('events');
+const { parseSchedule, getNextRun } = require('./scheduler');
+const { Cron } = require('croner');
+
+/**
+ * ManagerAgent - Orchestrates multiple sub-agents to complete complex tasks.
+ * 
+ * A manager:
+ * - Has an "org" of assigned agents it can invoke
+ * - Runs assignments (saved prompts on schedules)  
+ * - Can be interacted with ad-hoc
+ * - Analyzes agent output and decides next steps
+ * - Chains agents together based on results
+ */
+class ManagerAgent extends EventEmitter {
+  constructor(db, supervisor) {
+    super();
+    this.db = db;
+    this.supervisor = supervisor;
+    this.managers = new Map(); // id -> { config, cronJobs, running }
+    this._initDb();
+  }
+
+  _initDb() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS manager_state (
+        manager_id TEXT PRIMARY KEY,
+        status TEXT DEFAULT 'idle',
+        last_active TEXT
+      );
+      CREATE TABLE IF NOT EXISTS manager_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        manager_id TEXT NOT NULL,
+        assignment_id TEXT,
+        prompt TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        steps TEXT,
+        result TEXT,
+        status TEXT DEFAULT 'running'
+      );
+      CREATE TABLE IF NOT EXISTS manager_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        manager_id TEXT NOT NULL,
+        run_id INTEGER,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        timestamp TEXT NOT NULL
+      );
+    `);
+  }
+
+  register(config) {
+    const existing = this.managers.get(config.id);
+    if (existing) {
+      existing.config = config;
+    } else {
+      this.managers.set(config.id, { config, cronJobs: [], running: false, activeRuns: new Map() });
+    }
+
+    // Ensure state row
+    const row = this.db.prepare('SELECT * FROM manager_state WHERE manager_id = ?').get(config.id);
+    if (!row) {
+      this.db.prepare('INSERT INTO manager_state (manager_id, status) VALUES (?, ?)').run(config.id, 'idle');
+    }
+  }
+
+  /**
+   * Start all assignment schedules for a manager
+   */
+  startSchedules(managerId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) throw new Error(`Unknown manager: ${managerId}`);
+
+    // Clear existing schedules
+    this.stopSchedules(managerId);
+
+    const assignments = entry.config.assignments || [];
+    for (const assignment of assignments) {
+      if (assignment.enabled === false) continue;
+      if (!assignment.schedule || assignment.schedule.toLowerCase() === 'never') continue;
+
+      const schedule = parseSchedule(assignment.schedule);
+      if (schedule.type === 'cron') {
+        const job = new Cron(schedule.cron, () => {
+          this.runAssignment(managerId, assignment.id);
+        });
+        entry.cronJobs.push({ assignmentId: assignment.id, job });
+      } else if (schedule.type === 'interval') {
+        const timer = setInterval(() => {
+          this.runAssignment(managerId, assignment.id);
+        }, schedule.ms);
+        entry.cronJobs.push({ assignmentId: assignment.id, timer });
+      }
+    }
+
+    this.db.prepare('UPDATE manager_state SET status = ? WHERE manager_id = ?').run('scheduled', managerId);
+    this.emit('manager-started', managerId);
+  }
+
+  stopSchedules(managerId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) return;
+
+    for (const sched of entry.cronJobs) {
+      if (sched.job) sched.job.stop();
+      if (sched.timer) clearInterval(sched.timer);
+    }
+    entry.cronJobs = [];
+    this.db.prepare('UPDATE manager_state SET status = ? WHERE manager_id = ?').run('idle', managerId);
+    this.emit('manager-stopped', managerId);
+  }
+
+  /**
+   * Run an assignment by ID
+   */
+  async runAssignment(managerId, assignmentId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) throw new Error(`Unknown manager: ${managerId}`);
+
+    const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
+    if (!assignment) throw new Error(`Unknown assignment: ${assignmentId}`);
+
+    return this.executePrompt(managerId, assignment.prompt, assignmentId);
+  }
+
+  /**
+   * Execute an ad-hoc or assignment prompt.
+   * The manager analyzes the prompt, decides which agents to run, 
+   * gathers output, and chains as needed.
+   */
+  async executePrompt(managerId, prompt, assignmentId = null) {
+    const entry = this.managers.get(managerId);
+    if (!entry) throw new Error(`Unknown manager: ${managerId}`);
+
+    const startedAt = new Date().toISOString();
+    const runId = this.db.prepare(
+      'INSERT INTO manager_runs (manager_id, assignment_id, prompt, started_at, steps, status) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(managerId, assignmentId, prompt, startedAt, '[]', 'running').lastInsertRowid;
+
+    this.db.prepare('UPDATE manager_state SET status = ?, last_active = ? WHERE manager_id = ?')
+      .run('running', startedAt, managerId);
+    this.emit('manager-running', { managerId, runId });
+
+    // Store the user prompt as a message
+    this._addMessage(managerId, runId, 'user', prompt);
+
+    const steps = [];
+    try {
+      // Build the orchestration prompt for the manager agent
+      const orgAgents = this._getOrgAgentDetails(managerId);
+      const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps);
+
+      const finishedAt = new Date().toISOString();
+      this.db.prepare(
+        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
+      ).run(finishedAt, JSON.stringify(steps), orchestrationResult, 'completed', runId);
+
+      this.db.prepare('UPDATE manager_state SET status = ?, last_active = ? WHERE manager_id = ?')
+        .run('idle', finishedAt, managerId);
+
+      this._addMessage(managerId, runId, 'assistant', orchestrationResult);
+      this.emit('manager-completed', { managerId, runId, result: orchestrationResult });
+
+      return { runId, result: orchestrationResult, steps };
+    } catch (err) {
+      const finishedAt = new Date().toISOString();
+      this.db.prepare(
+        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
+      ).run(finishedAt, JSON.stringify(steps), err.message, 'error', runId);
+
+      this.db.prepare('UPDATE manager_state SET status = ?, last_active = ? WHERE manager_id = ?')
+        .run('error', finishedAt, managerId);
+
+      this.emit('manager-error', { managerId, runId, error: err });
+      throw err;
+    }
+  }
+
+  /**
+   * Core orchestration loop. Uses the copilot CLI as the manager's "brain"
+   * to decide which agents to run and how to interpret results.
+   */
+  async _orchestrate(managerConfig, userPrompt, orgAgents, runId, steps) {
+    const maxIterations = 10;
+    let iteration = 0;
+    let context = '';
+    let finalResult = '';
+
+    // Build system context for the manager
+    const systemPrompt = this._buildManagerSystemPrompt(managerConfig, orgAgents);
+    let currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}`;
+
+    while (iteration < maxIterations) {
+      iteration++;
+
+      // Ask the manager agent to decide what to do next
+      const decision = await this._askManager(managerConfig, currentPrompt);
+      
+      // Parse the decision
+      const action = this._parseDecision(decision);
+
+      if (action.type === 'complete') {
+        finalResult = action.result;
+        steps.push({ iteration, action: 'complete', result: action.result });
+        break;
+      }
+
+      if (action.type === 'run_agent') {
+        steps.push({ iteration, action: 'run_agent', agentId: action.agentId, prompt: action.prompt });
+
+        // Execute the sub-agent and gather output
+        const agentResult = await this._runSubAgent(action.agentId, action.prompt);
+        steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length });
+
+        // Feed result back to manager for next decision
+        context += `\n\n## Result from "${action.agentId}" (exit code: ${agentResult.exitCode})\n${agentResult.output}`;
+        currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Previous Results\n${context}\n\n## Next Step\nBased on the results above, decide what to do next.`;
+      }
+
+      if (action.type === 'request_agent') {
+        // Manager wants an agent not in its org
+        steps.push({ iteration, action: 'request_agent', agentId: action.agentId, reason: action.reason });
+        this.emit('manager-request-agent', { managerId: managerConfig.id, runId, agentId: action.agentId, reason: action.reason });
+        
+        // For now, continue without the agent
+        context += `\n\n## Note: Agent "${action.agentId}" was requested but is not available in your org.`;
+        currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Previous Results\n${context}\n\n## Next Step\nThe requested agent is not available. Decide what to do next with your available agents.`;
+      }
+
+      if (action.type === 'error') {
+        steps.push({ iteration, action: 'error', message: action.message });
+        finalResult = `Error during orchestration: ${action.message}`;
+        break;
+      }
+    }
+
+    if (iteration >= maxIterations && !finalResult) {
+      finalResult = 'Manager reached maximum iteration limit. Last context:\n' + context.slice(-2000);
+    }
+
+    return finalResult;
+  }
+
+  _buildManagerSystemPrompt(managerConfig, orgAgents) {
+    const agentList = orgAgents.map(a => 
+      `- **${a.id}** (${a.name}): ${a.description || 'No description'}`
+    ).join('\n');
+
+    return `You are "${managerConfig.name}", an orchestrating manager agent.
+${managerConfig.description || ''}
+
+## Your Organization (Available Agents)
+${agentList}
+
+## Instructions
+You coordinate the agents in your organization to accomplish tasks. For each step:
+1. Analyze what needs to be done
+2. Decide which agent to run (or if the task is complete)
+3. Provide the prompt for that agent
+
+## Response Format
+Respond with EXACTLY ONE of these formats:
+
+**To run an agent:**
+\`\`\`action
+RUN_AGENT: <agent_id>
+PROMPT: <the prompt to send to the agent>
+\`\`\`
+
+**To complete the task:**
+\`\`\`action
+COMPLETE
+RESULT: <your final summary/response to the user>
+\`\`\`
+
+**To request an agent not in your org:**
+\`\`\`action
+REQUEST_AGENT: <agent_id>
+REASON: <why you need this agent>
+\`\`\``;
+  }
+
+  _parseDecision(text) {
+    // Extract action block
+    const actionMatch = text.match(/```action\s*\n([\s\S]*?)```/);
+    if (!actionMatch) {
+      // If no action block, treat the whole response as a completion
+      return { type: 'complete', result: text };
+    }
+
+    const block = actionMatch[1].trim();
+
+    if (block.startsWith('RUN_AGENT:')) {
+      const agentLine = block.match(/RUN_AGENT:\s*(.+)/);
+      const promptLine = block.match(/PROMPT:\s*([\s\S]*?)$/m);
+      if (agentLine && promptLine) {
+        return { type: 'run_agent', agentId: agentLine[1].trim(), prompt: promptLine[1].trim() };
+      }
+    }
+
+    if (block.startsWith('COMPLETE')) {
+      const resultMatch = block.match(/RESULT:\s*([\s\S]*)/);
+      return { type: 'complete', result: resultMatch ? resultMatch[1].trim() : text };
+    }
+
+    if (block.startsWith('REQUEST_AGENT:')) {
+      const agentLine = block.match(/REQUEST_AGENT:\s*(.+)/);
+      const reasonLine = block.match(/REASON:\s*([\s\S]*?)$/m);
+      return { type: 'request_agent', agentId: agentLine?.[1]?.trim() || '', reason: reasonLine?.[1]?.trim() || '' };
+    }
+
+    return { type: 'error', message: 'Could not parse manager decision' };
+  }
+
+  /**
+   * Ask the manager agent (copilot CLI) to make a decision
+   */
+  async _askManager(managerConfig, prompt) {
+    return new Promise((resolve, reject) => {
+      const copilotCmd = managerConfig.copilotPath || process.env.COPILOT_PATH || 'copilot';
+      // Use a generic agent name for the manager brain — it's the system prompt that makes it a manager
+      const cmdLine = `"${copilotCmd}" --prompt "${prompt.replace(/"/g, '\\"').replace(/\n/g, '\\n')}" -s --yolo`;
+
+      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
+      const proc = spawn(cmdLine, [], {
+        cwd: managerConfig.cwd || process.cwd(),
+        shell: shellPath,
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', d => { stdout += d.toString(); });
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          reject(new Error(`Manager agent exited with code ${code}: ${stderr}`));
+        }
+      });
+
+      proc.on('error', reject);
+
+      // Timeout after 5 minutes per step
+      setTimeout(() => {
+        proc.kill();
+        reject(new Error('Manager decision timed out (5min)'));
+      }, 300000);
+    });
+  }
+
+  /**
+   * Run a sub-agent and return its output
+   */
+  async _runSubAgent(agentId, prompt) {
+    return new Promise((resolve) => {
+      const entry = this.supervisor.agents.get(agentId);
+      if (!entry) {
+        resolve({ exitCode: -1, output: `Agent "${agentId}" not found in supervisor` });
+        return;
+      }
+
+      const config = entry.config;
+      const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
+
+      let mcpConfig = '';
+      if (config.mcpConfig) {
+        const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
+        mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
+      }
+
+      const cmdLine = `"${copilotCmd}" ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s --yolo`.replace(/\s+/g, ' ').trim();
+
+      console.log(`[manager] Running sub-agent "${agentId}": ${cmdLine.substring(0, 200)}...`);
+
+      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
+      const proc = spawn(cmdLine, [], {
+        cwd: config.cwd,
+        shell: shellPath,
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', d => { stdout += d.toString(); });
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+
+      proc.on('close', (code) => {
+        // Try to get session output (richer than stdout)
+        setTimeout(() => {
+          const sessionResult = this.supervisor._getSessionOutput(config);
+          const output = sessionResult.output || stdout;
+          resolve({ exitCode: code, output, stderr });
+        }, 1000);
+      });
+
+      proc.on('error', (err) => {
+        resolve({ exitCode: -1, output: '', stderr: err.message });
+      });
+
+      // Timeout after 10 minutes per agent run
+      setTimeout(() => {
+        proc.kill();
+        resolve({ exitCode: -1, output: stdout, stderr: 'Timed out after 10 minutes' });
+      }, 600000);
+    });
+  }
+
+  /**
+   * Get details about agents in a manager's org
+   */
+  _getOrgAgentDetails(managerId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) return [];
+
+    return (entry.config.org || []).map(agentId => {
+      const agentEntry = this.supervisor.agents.get(agentId);
+      if (agentEntry) {
+        return {
+          id: agentId,
+          name: agentEntry.config.name,
+          description: agentEntry.config.description || agentEntry.config.prompt || '',
+          status: agentEntry.running ? 'running' : 'idle'
+        };
+      }
+      return { id: agentId, name: agentId, description: 'Not registered', status: 'unknown' };
+    });
+  }
+
+  /**
+   * Get available agents not in this manager's org (for REQUEST_AGENT)
+   */
+  getAvailableAgents(managerId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) return [];
+
+    const orgSet = new Set(entry.config.org || []);
+    const available = [];
+    for (const [id, agentEntry] of this.supervisor.agents) {
+      if (!orgSet.has(id)) {
+        available.push({ id, name: agentEntry.config.name, group: agentEntry.config.group });
+      }
+    }
+    return available;
+  }
+
+  /**
+   * Add an agent to a manager's org
+   */
+  addToOrg(managerId, agentId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) throw new Error(`Unknown manager: ${managerId}`);
+    if (!entry.config.org) entry.config.org = [];
+    if (!entry.config.org.includes(agentId)) {
+      entry.config.org.push(agentId);
+    }
+  }
+
+  /**
+   * Remove an agent from a manager's org
+   */
+  removeFromOrg(managerId, agentId) {
+    const entry = this.managers.get(managerId);
+    if (!entry) throw new Error(`Unknown manager: ${managerId}`);
+    entry.config.org = (entry.config.org || []).filter(id => id !== agentId);
+  }
+
+  _addMessage(managerId, runId, role, content) {
+    this.db.prepare(
+      'INSERT INTO manager_messages (manager_id, run_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)'
+    ).run(managerId, runId, role, content, new Date().toISOString());
+  }
+
+  // Status methods
+  getStatus(managerId) {
+    const state = this.db.prepare('SELECT * FROM manager_state WHERE manager_id = ?').get(managerId);
+    const entry = this.managers.get(managerId);
+    const lastRun = this.db.prepare(
+      'SELECT * FROM manager_runs WHERE manager_id = ? ORDER BY id DESC LIMIT 1'
+    ).get(managerId);
+    return { ...state, config: entry?.config || null, lastRun };
+  }
+
+  getAllStatus() {
+    const results = [];
+    for (const [id, entry] of this.managers) {
+      const state = this.db.prepare('SELECT * FROM manager_state WHERE manager_id = ?').get(id);
+      const lastRun = this.db.prepare(
+        'SELECT * FROM manager_runs WHERE manager_id = ? ORDER BY id DESC LIMIT 1'
+      ).get(id);
+      const orgDetails = this._getOrgAgentDetails(id);
+      results.push({
+        ...(state || { manager_id: id, status: 'idle' }),
+        config: entry.config,
+        lastRun,
+        orgDetails
+      });
+    }
+    return results;
+  }
+
+  getRunHistory(managerId, limit = 20) {
+    return this.db.prepare(
+      'SELECT * FROM manager_runs WHERE manager_id = ? ORDER BY id DESC LIMIT ?'
+    ).all(managerId, limit);
+  }
+
+  getMessages(managerId, limit = 50) {
+    return this.db.prepare(
+      'SELECT * FROM manager_messages WHERE manager_id = ? ORDER BY id DESC LIMIT ?'
+    ).all(managerId, limit).reverse();
+  }
+}
+
+module.exports = ManagerAgent;

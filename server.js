@@ -6,12 +6,14 @@ const yauzl = require('yauzl');
 const multer = require('multer');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
+const ManagerAgent = require('./manager');
 
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
 const PORT = process.env.PORT || 3847;
 const DB_PATH = path.join(__dirname, 'supervisor.db');
 const AGENTS_PATH = path.join(__dirname, 'agents.json');
+const MANAGERS_PATH = path.join(__dirname, 'managers.json');
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
 if (!process.env.COPILOT_PATH) {
@@ -50,6 +52,9 @@ const db = await openDatabase(DB_PATH);
 // Initialize supervisor
 const supervisor = new Supervisor(db);
 
+// Initialize manager agent system
+const managerAgent = new ManagerAgent(db, supervisor);
+
 // Load agent configs
 function loadAgents() {
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
@@ -57,7 +62,16 @@ function loadAgents() {
   return agents;
 }
 
+// Load manager configs
+function loadManagers() {
+  if (!fs.existsSync(MANAGERS_PATH)) return [];
+  const managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  managers.forEach(m => managerAgent.register(m));
+  return managers;
+}
+
 loadAgents();
+loadManagers();
 
 // Watch agents.json for external edits and reload
 let _reloadTimer = null;
@@ -72,6 +86,22 @@ fs.watch(AGENTS_PATH, () => {
     }
   }, 500);
 });
+
+// Watch managers.json for external edits and reload
+let _reloadManagerTimer = null;
+if (fs.existsSync(MANAGERS_PATH)) {
+  fs.watch(MANAGERS_PATH, () => {
+    if (_reloadManagerTimer) clearTimeout(_reloadManagerTimer);
+    _reloadManagerTimer = setTimeout(() => {
+      try {
+        console.log('[supervisor] managers.json changed, reloading...');
+        loadManagers();
+      } catch (e) {
+        console.error('[supervisor] Failed to reload managers.json:', e.message);
+      }
+    }, 500);
+  });
+}
 
 // Express app
 const app = express();
@@ -401,8 +431,18 @@ app.post('/api/plugins/install', (req, res) => {
   res.status(400).json({ error: 'installCmd or pluginDir required' });
 });
 
-// Dashboard HTML
+// Dashboard HTML — Agents page
+app.get('/agents', (req, res) => {
+  res.send(getDashboardHtml());
+});
+
+// Managers page (default)
 app.get('/', (req, res) => {
+  res.send(getManagersPageHtml());
+});
+
+// Legacy dashboard route
+app.get('/dashboard', (req, res) => {
   res.send(getDashboardHtml());
 });
 
@@ -1550,6 +1590,190 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
   res.json(results);
 });
 
+// ============ Manager API Routes ============
+
+// List all managers
+app.get('/api/managers', (req, res) => {
+  res.json(managerAgent.getAllStatus());
+});
+
+// Get a single manager
+app.get('/api/managers/:id', (req, res) => {
+  const status = managerAgent.getStatus(req.params.id);
+  if (!status) return res.status(404).json({ error: 'Manager not found' });
+  res.json(status);
+});
+
+// Create or update a manager
+app.post('/api/managers', (req, res) => {
+  const config = req.body;
+  if (!config.id || !config.name) {
+    return res.status(400).json({ error: 'Missing required fields: id, name' });
+  }
+  if (!config.org) config.org = [];
+  if (!config.assignments) config.assignments = [];
+
+  // Save to managers.json
+  let managers = [];
+  if (fs.existsSync(MANAGERS_PATH)) {
+    managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  }
+  const existing = managers.findIndex(m => m.id === config.id);
+  if (existing >= 0) {
+    managers[existing] = config;
+  } else {
+    managers.push(config);
+  }
+  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+  managerAgent.register(config);
+  res.json({ ok: true });
+});
+
+// Delete a manager
+app.delete('/api/managers/:id', (req, res) => {
+  managerAgent.stopSchedules(req.params.id);
+  let managers = [];
+  if (fs.existsSync(MANAGERS_PATH)) {
+    managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  }
+  managers = managers.filter(m => m.id !== req.params.id);
+  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+  managerAgent.managers.delete(req.params.id);
+  res.json({ ok: true });
+});
+
+// Start a manager's schedules
+app.post('/api/managers/:id/start', (req, res) => {
+  try {
+    managerAgent.startSchedules(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Stop a manager's schedules
+app.post('/api/managers/:id/stop', (req, res) => {
+  managerAgent.stopSchedules(req.params.id);
+  res.json({ ok: true });
+});
+
+// Run an assignment
+app.post('/api/managers/:id/assignments/:assignmentId/run', async (req, res) => {
+  try {
+    const result = await managerAgent.runAssignment(req.params.id, req.params.assignmentId);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Add an assignment
+app.post('/api/managers/:id/assignments', (req, res) => {
+  const { id: assignmentId, name, prompt, schedule, enabled } = req.body;
+  if (!assignmentId || !name || !prompt) {
+    return res.status(400).json({ error: 'Missing required fields: id, name, prompt' });
+  }
+
+  const entry = managerAgent.managers.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Manager not found' });
+
+  const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false };
+  if (!entry.config.assignments) entry.config.assignments = [];
+  const existing = entry.config.assignments.findIndex(a => a.id === assignmentId);
+  if (existing >= 0) {
+    entry.config.assignments[existing] = assignment;
+  } else {
+    entry.config.assignments.push(assignment);
+  }
+
+  // Persist
+  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  const mi = managers.findIndex(m => m.id === req.params.id);
+  if (mi >= 0) { managers[mi] = entry.config; }
+  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+
+  res.json({ ok: true });
+});
+
+// Delete an assignment
+app.delete('/api/managers/:id/assignments/:assignmentId', (req, res) => {
+  const entry = managerAgent.managers.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Manager not found' });
+
+  entry.config.assignments = (entry.config.assignments || []).filter(a => a.id !== req.params.assignmentId);
+
+  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  const mi = managers.findIndex(m => m.id === req.params.id);
+  if (mi >= 0) { managers[mi] = entry.config; }
+  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+
+  res.json({ ok: true });
+});
+
+// Ad-hoc prompt to a manager
+app.post('/api/managers/:id/prompt', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+  try {
+    const result = await managerAgent.executePrompt(req.params.id, prompt);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Get manager run history
+app.get('/api/managers/:id/history', (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  res.json(managerAgent.getRunHistory(req.params.id, limit));
+});
+
+// Get manager messages (chat history)
+app.get('/api/managers/:id/messages', (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  res.json(managerAgent.getMessages(req.params.id, limit));
+});
+
+// Manage org: add agent
+app.post('/api/managers/:id/org', (req, res) => {
+  const { agentId } = req.body;
+  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  try {
+    managerAgent.addToOrg(req.params.id, agentId);
+    // Persist
+    let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+    const mi = managers.findIndex(m => m.id === req.params.id);
+    if (mi >= 0) { managers[mi].org = managerAgent.managers.get(req.params.id).config.org; }
+    fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Manage org: remove agent
+app.delete('/api/managers/:id/org/:agentId', (req, res) => {
+  try {
+    managerAgent.removeFromOrg(req.params.id, req.params.agentId);
+    // Persist
+    let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+    const mi = managers.findIndex(m => m.id === req.params.id);
+    if (mi >= 0) { managers[mi].org = managerAgent.managers.get(req.params.id).config.org; }
+    fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Get available agents not in manager's org
+app.get('/api/managers/:id/available-agents', (req, res) => {
+  res.json(managerAgent.getAvailableAgents(req.params.id));
+});
+
+// ============ End Manager API Routes ============
+
 // Start all enabled agents
 supervisor.startAll();
 
@@ -1929,6 +2153,11 @@ function getDashboardHtml() {
   </style>
 </head>
 <body>
+  <nav style="display:flex;gap:16px;align-items:center;margin-bottom:16px;border-bottom:1px solid #30363d;padding-bottom:12px;">
+    <span style="font-size:1.3rem;font-weight:700;color:#f0f6fc;margin-right:auto;">Copilot Agent Supervisor</span>
+    <a href="/" style="color:#8b949e;text-decoration:none;font-size:0.9rem;padding:6px 12px;border-radius:6px;">Managers</a>
+    <a href="/agents" style="color:#58a6ff;text-decoration:none;font-size:0.9rem;padding:6px 12px;border-radius:6px;background:#1f6feb22;font-weight:600;">Agents</a>
+  </nav>
   <div class="refresh-bar">
     <h1>&#x1F916; Copilot Agent Supervisor <span style="font-size:0.5em;color:#8b949e;font-weight:normal" title="${GIT_VERSION.message} | files:${GIT_VERSION.fileHash || '?'} | PID:${PROCESS_PID} | started:${PROCESS_START}">${GIT_VERSION.hash}${GIT_VERSION.dirty ? '<span style="color:#f85149">*</span>' : ''}</span></h1>
     <div>
@@ -3715,6 +3944,522 @@ function getDashboardHtml() {
 
     // Wire up import file input
     document.getElementById('importZipInput')?.addEventListener('change', function() { handleImportFile(this); });
+  </script>
+</body>
+</html>`;
+}
+
+function getManagersPageHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Managers — Copilot Agent Supervisor</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
+    
+    .top-nav {
+      display: flex; gap: 16px; align-items: center; margin-bottom: 24px;
+      border-bottom: 1px solid #30363d; padding-bottom: 16px;
+    }
+    .nav-link {
+      color: #8b949e; text-decoration: none; font-size: 0.9rem; padding: 6px 12px;
+      border-radius: 6px; transition: all 0.15s;
+    }
+    .nav-link:hover { color: #c9d1d9; background: #21262d; }
+    .nav-link.active { color: #58a6ff; background: #1f6feb22; font-weight: 600; }
+    .nav-title { font-size: 1.3rem; font-weight: 700; color: #f0f6fc; margin-right: auto; }
+
+    h2 { color: #58a6ff; margin-bottom: 16px; font-size: 1.2rem; }
+    
+    .managers-grid { display: grid; gap: 20px; margin-bottom: 32px; }
+    
+    .manager-card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px;
+      transition: border-color 0.2s;
+    }
+    .manager-card:hover { border-color: #58a6ff; }
+    .manager-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .manager-name { font-size: 1.2rem; font-weight: 700; color: #f0f6fc; }
+    .manager-desc { color: #8b949e; font-size: 0.9rem; margin-bottom: 16px; }
+    
+    .status-badge {
+      padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+    }
+    .status-idle { background: #1f6feb33; color: #58a6ff; }
+    .status-running { background: #f7883533; color: #f78835; }
+    .status-scheduled { background: #3fb95033; color: #3fb950; }
+    .status-error { background: #f8514933; color: #f85149; }
+
+    .org-section { margin-bottom: 16px; }
+    .org-label { font-size: 0.8rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .org-agents { display: flex; gap: 6px; flex-wrap: wrap; }
+    .org-chip {
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+      background: #21262d; border: 1px solid #30363d; border-radius: 16px;
+      font-size: 0.8rem; color: #c9d1d9;
+    }
+    .org-chip .remove-btn {
+      cursor: pointer; color: #f85149; font-size: 0.7rem; margin-left: 4px;
+      opacity: 0.6; transition: opacity 0.15s;
+    }
+    .org-chip .remove-btn:hover { opacity: 1; }
+    .org-add-btn {
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+      background: none; border: 1px dashed #30363d; border-radius: 16px;
+      font-size: 0.8rem; color: #58a6ff; cursor: pointer; transition: all 0.15s;
+    }
+    .org-add-btn:hover { border-color: #58a6ff; background: #1f6feb11; }
+
+    .assignments-section { margin-bottom: 16px; }
+    .assignment-list { display: grid; gap: 8px; }
+    .assignment-item {
+      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+      background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+    }
+    .assignment-name { font-weight: 600; font-size: 0.9rem; color: #f0f6fc; }
+    .assignment-schedule { font-size: 0.75rem; color: #8b949e; font-family: monospace; }
+    .assignment-prompt { font-size: 0.8rem; color: #8b949e; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .assignment-actions { display: flex; gap: 6px; }
+
+    .btn {
+      padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d;
+      color: #c9d1d9; cursor: pointer; font-size: 0.8rem; transition: all 0.15s;
+    }
+    .btn:hover { background: #30363d; border-color: #58a6ff; }
+    .btn-primary { background: #238636; border-color: #238636; color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: #da3633; border-color: #da3633; color: #fff; }
+    .btn-danger:hover { background: #f85149; }
+    .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+
+    .chat-section {
+      margin-top: 16px; border-top: 1px solid #30363d; padding-top: 16px;
+    }
+    .chat-messages {
+      max-height: 300px; overflow-y: auto; margin-bottom: 12px;
+      padding: 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+      display: none;
+    }
+    .chat-messages.visible { display: block; }
+    .chat-msg { margin-bottom: 8px; font-size: 0.85rem; }
+    .chat-msg.user { color: #58a6ff; }
+    .chat-msg.assistant { color: #c9d1d9; }
+    .chat-msg .role { font-weight: 600; margin-right: 6px; }
+    .chat-input-row { display: flex; gap: 8px; }
+    .chat-input {
+      flex: 1; padding: 10px 14px; background: #0d1117; border: 1px solid #30363d;
+      border-radius: 8px; color: #c9d1d9; font-size: 0.9rem; resize: none;
+    }
+    .chat-input:focus { border-color: #58a6ff; outline: none; }
+
+    .history-section { margin-top: 16px; }
+    .history-toggle { color: #58a6ff; cursor: pointer; font-size: 0.85rem; border: none; background: none; }
+    .history-list { display: none; margin-top: 8px; }
+    .history-list.visible { display: block; }
+    .history-item {
+      padding: 8px 12px; background: #0d1117; border: 1px solid #30363d;
+      border-radius: 6px; margin-bottom: 6px; font-size: 0.8rem;
+    }
+    .history-item .time { color: #8b949e; }
+    .history-item .status-ok { color: #3fb950; }
+    .history-item .status-err { color: #f85149; }
+
+    .empty-state {
+      text-align: center; padding: 60px 24px; color: #8b949e;
+    }
+    .empty-state h3 { color: #f0f6fc; margin-bottom: 8px; }
+
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      z-index: 1000; align-items: center; justify-content: center;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal {
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      padding: 24px; width: 500px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
+    }
+    .modal h3 { color: #f0f6fc; margin-bottom: 16px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 0.85rem; color: #8b949e; margin-bottom: 4px; }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d;
+      border-radius: 6px; color: #c9d1d9; font-size: 0.9rem;
+    }
+    .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+      border-color: #58a6ff; outline: none;
+    }
+    .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+    .steps-list { margin-top: 8px; }
+    .step-item { padding: 6px 10px; font-size: 0.8rem; border-left: 2px solid #30363d; margin-bottom: 4px; padding-left: 12px; }
+    .step-item.run_agent { border-color: #58a6ff; }
+    .step-item.complete { border-color: #3fb950; }
+    .step-item.error { border-color: #f85149; }
+  </style>
+</head>
+<body>
+  <nav class="top-nav">
+    <span class="nav-title">Copilot Agent Supervisor</span>
+    <a href="/" class="nav-link active">Managers</a>
+    <a href="/agents" class="nav-link">Agents</a>
+  </nav>
+
+  <div id="app">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2>Managers</h2>
+      <button class="btn btn-primary" onclick="showCreateManager()">+ New Manager</button>
+    </div>
+    <div id="managers-list" class="managers-grid"></div>
+  </div>
+
+  <!-- Create/Edit Manager Modal -->
+  <div id="managerModal" class="modal-overlay">
+    <div class="modal">
+      <h3 id="managerModalTitle">Create Manager</h3>
+      <div class="form-group">
+        <label>ID (unique slug)</label>
+        <input type="text" id="mgr-id" placeholder="e.g. helix-ops-manager">
+      </div>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="mgr-name" placeholder="e.g. Helix Ops Manager">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="mgr-desc" rows="2" placeholder="What this manager does..."></textarea>
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeModal('managerModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveManager()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assignment Modal -->
+  <div id="assignmentModal" class="modal-overlay">
+    <div class="modal">
+      <h3>New Assignment</h3>
+      <input type="hidden" id="asgn-manager-id">
+      <div class="form-group">
+        <label>ID (unique slug)</label>
+        <input type="text" id="asgn-id" placeholder="e.g. monitor-azure">
+      </div>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="asgn-name" placeholder="e.g. Monitor Azure">
+      </div>
+      <div class="form-group">
+        <label>Prompt</label>
+        <textarea id="asgn-prompt" rows="4" placeholder="What should the manager do?"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Schedule</label>
+        <input type="text" id="asgn-schedule" placeholder="e.g. 1h, daily at 9am, never" value="never">
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeModal('assignmentModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveAssignment()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Agent to Org Modal -->
+  <div id="orgModal" class="modal-overlay">
+    <div class="modal">
+      <h3>Add Agent to Organization</h3>
+      <input type="hidden" id="org-manager-id">
+      <div class="form-group">
+        <label>Available Agents</label>
+        <select id="org-agent-select" size="8" style="height:auto;"></select>
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeModal('orgModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="addAgentToOrg()">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let managersData = [];
+
+    async function loadManagers() {
+      const res = await fetch('/api/managers');
+      managersData = await res.json();
+      renderManagers();
+    }
+
+    function renderManagers() {
+      const container = document.getElementById('managers-list');
+      if (managersData.length === 0) {
+        container.innerHTML = '<div class="empty-state"><h3>No Managers Yet</h3><p>Create a manager to orchestrate your agents intelligently.</p></div>';
+        return;
+      }
+
+      container.innerHTML = managersData.map(m => \`
+        <div class="manager-card" id="mgr-\${m.manager_id}">
+          <div class="manager-header">
+            <span class="manager-name">\${m.config.name}</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="status-badge status-\${m.status || 'idle'}">\${m.status || 'idle'}</span>
+              <button class="btn btn-sm btn-danger" onclick="deleteManager('\${m.manager_id}')">✕</button>
+            </div>
+          </div>
+          <div class="manager-desc">\${m.config.description || ''}</div>
+          
+          <div class="org-section">
+            <div class="org-label">Organization (Agents)</div>
+            <div class="org-agents">
+              \${(m.orgDetails || []).map(a => \`
+                <span class="org-chip">
+                  \${a.name}
+                  <span class="remove-btn" onclick="removeFromOrg('\${m.manager_id}', '\${a.id}')" title="Remove">✕</span>
+                </span>
+              \`).join('')}
+              <button class="org-add-btn" onclick="showAddAgent('\${m.manager_id}')">+ Add</button>
+            </div>
+          </div>
+
+          <div class="assignments-section">
+            <div class="org-label">Assignments</div>
+            <div class="assignment-list">
+              \${(m.config.assignments || []).map(a => \`
+                <div class="assignment-item">
+                  <span class="assignment-name">\${a.name}</span>
+                  <span class="assignment-schedule">\${a.schedule}</span>
+                  <span class="assignment-prompt" title="\${a.prompt}">\${a.prompt}</span>
+                  <div class="assignment-actions">
+                    <button class="btn btn-sm btn-primary" onclick="runAssignment('\${m.manager_id}', '\${a.id}')">▶ Run</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteAssignment('\${m.manager_id}', '\${a.id}')">✕</button>
+                  </div>
+                </div>
+              \`).join('')}
+              <button class="btn btn-sm" onclick="showAddAssignment('\${m.manager_id}')" style="margin-top:6px;">+ Add Assignment</button>
+            </div>
+          </div>
+
+          <div class="chat-section">
+            <button class="history-toggle" onclick="toggleChat('\${m.manager_id}')">💬 Chat with Manager</button>
+            <div id="chat-\${m.manager_id}" class="chat-messages"></div>
+            <div class="chat-input-row" style="margin-top:8px;">
+              <textarea class="chat-input" id="chat-input-\${m.manager_id}" rows="2" placeholder="Ask the manager to do something..."></textarea>
+              <button class="btn btn-primary" onclick="sendPrompt('\${m.manager_id}')">Send</button>
+            </div>
+          </div>
+
+          <div class="history-section">
+            <button class="history-toggle" onclick="toggleHistory('\${m.manager_id}')">📋 Run History</button>
+            <div id="history-\${m.manager_id}" class="history-list"></div>
+          </div>
+        </div>
+      \`).join('');
+    }
+
+    function showCreateManager() {
+      document.getElementById('mgr-id').value = '';
+      document.getElementById('mgr-name').value = '';
+      document.getElementById('mgr-desc').value = '';
+      document.getElementById('managerModalTitle').textContent = 'Create Manager';
+      document.getElementById('managerModal').classList.add('visible');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('visible');
+    }
+
+    async function saveManager() {
+      const config = {
+        id: document.getElementById('mgr-id').value.trim(),
+        name: document.getElementById('mgr-name').value.trim(),
+        description: document.getElementById('mgr-desc').value.trim(),
+        org: [],
+        assignments: []
+      };
+      if (!config.id || !config.name) return alert('ID and Name are required');
+
+      // If editing existing, preserve org and assignments
+      const existing = managersData.find(m => m.manager_id === config.id);
+      if (existing) {
+        config.org = existing.config.org || [];
+        config.assignments = existing.config.assignments || [];
+      }
+
+      await fetch('/api/managers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
+      closeModal('managerModal');
+      loadManagers();
+    }
+
+    async function deleteManager(id) {
+      if (!confirm('Delete this manager?')) return;
+      await fetch('/api/managers/' + id, { method: 'DELETE' });
+      loadManagers();
+    }
+
+    async function showAddAgent(managerId) {
+      document.getElementById('org-manager-id').value = managerId;
+      const res = await fetch('/api/managers/' + managerId + '/available-agents');
+      const agents = await res.json();
+      const select = document.getElementById('org-agent-select');
+      select.innerHTML = agents.map(a => \`<option value="\${a.id}">\${a.name} (\${a.id})</option>\`).join('');
+      document.getElementById('orgModal').classList.add('visible');
+    }
+
+    async function addAgentToOrg() {
+      const managerId = document.getElementById('org-manager-id').value;
+      const agentId = document.getElementById('org-agent-select').value;
+      if (!agentId) return;
+      await fetch('/api/managers/' + managerId + '/org', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ agentId })
+      });
+      closeModal('orgModal');
+      loadManagers();
+    }
+
+    async function removeFromOrg(managerId, agentId) {
+      await fetch('/api/managers/' + managerId + '/org/' + agentId, { method: 'DELETE' });
+      loadManagers();
+    }
+
+    function showAddAssignment(managerId) {
+      document.getElementById('asgn-manager-id').value = managerId;
+      document.getElementById('asgn-id').value = '';
+      document.getElementById('asgn-name').value = '';
+      document.getElementById('asgn-prompt').value = '';
+      document.getElementById('asgn-schedule').value = 'never';
+      document.getElementById('assignmentModal').classList.add('visible');
+    }
+
+    async function saveAssignment() {
+      const managerId = document.getElementById('asgn-manager-id').value;
+      const data = {
+        id: document.getElementById('asgn-id').value.trim(),
+        name: document.getElementById('asgn-name').value.trim(),
+        prompt: document.getElementById('asgn-prompt').value.trim(),
+        schedule: document.getElementById('asgn-schedule').value.trim() || 'never'
+      };
+      if (!data.id || !data.name || !data.prompt) return alert('ID, Name, and Prompt are required');
+      await fetch('/api/managers/' + managerId + '/assignments', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+      });
+      closeModal('assignmentModal');
+      loadManagers();
+    }
+
+    async function deleteAssignment(managerId, assignmentId) {
+      if (!confirm('Delete this assignment?')) return;
+      await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId, { method: 'DELETE' });
+      loadManagers();
+    }
+
+    async function runAssignment(managerId, assignmentId) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '⏳ Running...';
+      try {
+        const res = await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          alert('Assignment completed successfully.');
+        } else {
+          alert('Error: ' + (data.error || 'Unknown'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Run';
+        loadManagers();
+      }
+    }
+
+    function toggleChat(managerId) {
+      const el = document.getElementById('chat-' + managerId);
+      el.classList.toggle('visible');
+      if (el.classList.contains('visible')) {
+        loadMessages(managerId);
+      }
+    }
+
+    async function loadMessages(managerId) {
+      const res = await fetch('/api/managers/' + managerId + '/messages');
+      const messages = await res.json();
+      const el = document.getElementById('chat-' + managerId);
+      el.innerHTML = messages.map(m => \`
+        <div class="chat-msg \${m.role}">
+          <span class="role">\${m.role === 'user' ? 'You' : 'Manager'}:</span>
+          \${m.content.substring(0, 500)}\${m.content.length > 500 ? '...' : ''}
+        </div>
+      \`).join('') || '<div style="color:#8b949e;font-size:0.85rem;">No messages yet. Send a prompt below.</div>';
+    }
+
+    async function sendPrompt(managerId) {
+      const input = document.getElementById('chat-input-' + managerId);
+      const prompt = input.value.trim();
+      if (!prompt) return;
+      input.value = '';
+
+      // Show in chat immediately
+      const chatEl = document.getElementById('chat-' + managerId);
+      chatEl.classList.add('visible');
+      chatEl.innerHTML += '<div class="chat-msg user"><span class="role">You:</span> ' + prompt + '</div>';
+      chatEl.innerHTML += '<div class="chat-msg assistant"><span class="role">Manager:</span> <em>Thinking...</em></div>';
+
+      try {
+        const res = await fetch('/api/managers/' + managerId + '/prompt', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
+        });
+        const data = await res.json();
+        loadMessages(managerId);
+        loadManagers();
+      } catch (e) {
+        chatEl.innerHTML += '<div class="chat-msg assistant" style="color:#f85149;"><span class="role">Error:</span> ' + e.message + '</div>';
+      }
+    }
+
+    function toggleHistory(managerId) {
+      const el = document.getElementById('history-' + managerId);
+      el.classList.toggle('visible');
+      if (el.classList.contains('visible')) {
+        loadHistory(managerId);
+      }
+    }
+
+    async function loadHistory(managerId) {
+      const res = await fetch('/api/managers/' + managerId + '/history');
+      const runs = await res.json();
+      const el = document.getElementById('history-' + managerId);
+      el.innerHTML = runs.map(r => {
+        const steps = JSON.parse(r.steps || '[]');
+        return \`
+          <div class="history-item">
+            <div>
+              <span class="\${r.status === 'completed' ? 'status-ok' : 'status-err'}">\${r.status}</span>
+              <span class="time">\${new Date(r.started_at).toLocaleString()}</span>
+              \${r.assignment_id ? ' — ' + r.assignment_id : ' — ad-hoc'}
+            </div>
+            <div style="margin-top:4px;color:#8b949e;font-size:0.75rem;">\${(r.prompt || '').substring(0, 100)}</div>
+            \${steps.length ? '<div class="steps-list">' + steps.map(s => \`<div class="step-item \${s.action}">\${s.action}: \${s.agentId || s.result?.substring(0, 80) || s.message || ''}</div>\`).join('') + '</div>' : ''}
+          </div>
+        \`;
+      }).join('') || '<div style="color:#8b949e;font-size:0.85rem;">No runs yet.</div>';
+    }
+
+    // Handle Enter key in chat
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('chat-input')) {
+        e.preventDefault();
+        const managerId = e.target.id.replace('chat-input-', '');
+        sendPrompt(managerId);
+      }
+    });
+
+    // Initial load
+    loadManagers();
+    // Refresh every 10s
+    setInterval(loadManagers, 10000);
   </script>
 </body>
 </html>`;
