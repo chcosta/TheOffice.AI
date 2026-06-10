@@ -1281,28 +1281,41 @@
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Configuration</h2>
-                      <div class="hint">Command preview, schedule, and prompt configuration.</div>
+                      <div class="hint">Agent command details (read only).</div>
                     </div>
                   </div>
                   <div class="config-grid">
                     <div>
-                      <div class="field-label"><span>Command</span><span class="hint">Read only</span></div>
+                      <div class="field-label"><span>Command</span></div>
                       <pre x-text="agentCommandPreview(selectedAgent)"></pre>
                     </div>
+                  </div>
+                </section>
+
+                <section class="detail-panel" id="agent-task-editor">
+                  <div class="panel-header">
                     <div>
-                      <div class="field-label"><span>Schedule</span><span class="hint" x-text="selectedAgent.scheduleSummary"></span></div>
-                      <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" />
-                      <div class="inline-actions">
-                        <button class="btn primary" type="button" @click="saveAgentSchedule()">Save schedule</button>
-                        <span class="hint">Examples: never, 30m, */15 * * * *</span>
-                      </div>
+                      <h2 class="panel-title">Create / Edit Task</h2>
+                      <div class="hint">Define a named task with a prompt and schedule for this agent.</div>
+                    </div>
+                  </div>
+                  <div class="config-grid">
+                    <div>
+                      <div class="field-label"><span>Task name</span><span class="hint">Displayed in the Tasks section</span></div>
+                      <input class="field-input" type="text" x-model="selectedAgent.taskNameDraft" placeholder="e.g. Daily standup report" />
                     </div>
                     <div>
-                      <div class="field-label"><span>Prompt</span><span class="hint">Editable inline</span></div>
-                      <textarea class="field-input field-area" x-model="selectedAgent.promptDraft"></textarea>
-                      <div class="inline-actions">
-                        <button class="btn primary" type="button" @click="saveAgentPrompt()">Save prompt</button>
-                      </div>
+                      <div class="field-label"><span>Prompt</span><span class="hint">What the agent should do</span></div>
+                      <textarea class="field-input field-area" x-model="selectedAgent.promptDraft" placeholder="Describe the task for this agent..."></textarea>
+                    </div>
+                    <div>
+                      <div class="field-label"><span>Schedule</span><span class="hint">Examples: never, 30m, 1h, daily 9:00, */15 * * * *</span></div>
+                      <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" placeholder="never" />
+                    </div>
+                    <div class="inline-actions">
+                      <button class="btn primary" type="button" @click="saveAgentTask()">Save Task</button>
+                      <span class="hint" x-show="selectedAgent.promptDraft && selectedAgent.scheduleDraft !== 'never'">Will appear in Tasks with the specified schedule.</span>
+                      <span class="hint" x-show="!selectedAgent.promptDraft || selectedAgent.scheduleDraft === 'never'">Set both a prompt and schedule to create a recurring task.</span>
                     </div>
                   </div>
                 </section>
@@ -1350,7 +1363,7 @@
                       <div class="assignment-item">
                         <div class="assignment-top">
                           <div>
-                            <strong x-text="task.name"></strong>
+                            <a :href="'#/tasks'" class="md-link" style="font-weight:700" x-text="task.name"></a>
                             <div class="hint" style="margin-top:6px" x-text="task.typeLabel + ' • ' + task.scheduleSummary"></div>
                           </div>
                           <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
@@ -1358,7 +1371,7 @@
                       </div>
                     </template>
                   </div>
-                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).length">No related tasks found.</div>
+                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).length">No tasks yet. Create one using the form on the left.</div>
                 </section>
               </div>
             </div>
@@ -2094,6 +2107,7 @@
             this.selectedAgent = this.normalizeAgent(agent);
             this.selectedAgent.promptDraft = this.selectedAgent.config?.prompt || '';
             this.selectedAgent.scheduleDraft = this.selectedAgent.schedule;
+            this.selectedAgent.taskNameDraft = this.selectedAgent.config?.name || this.selectedAgent.name;
             this.agentHistory = history;
           } catch (error) {
             this.showToast('Agent detail failed', error.message, 'error');
@@ -2734,6 +2748,36 @@
         runTask(task) {
           if (task.type === 'agent') this.runAgentNow(task.agentId);
           if (task.type === 'assignment') this.runAssignment(task.managerId, task.assignmentId);
+        },
+
+        async saveAgentTask() {
+          if (!this.selectedAgent) return;
+          const id = this.selectedAgent.id;
+          const prompt = this.selectedAgent.promptDraft || '';
+          const schedule = this.selectedAgent.scheduleDraft || 'never';
+          const name = this.selectedAgent.taskNameDraft || this.selectedAgent.name;
+          try {
+            // Save name, prompt, and schedule together
+            await Promise.all([
+              this.request(`/api/agents/${encodeURIComponent(id)}/prompt`, {
+                method: 'PUT',
+                body: JSON.stringify({ prompt })
+              }),
+              this.request(`/api/agents/${encodeURIComponent(id)}/schedule`, {
+                method: 'PUT',
+                body: JSON.stringify({ schedule })
+              }),
+              this.request(`/api/agents/${encodeURIComponent(id)}/name`, {
+                method: 'PUT',
+                body: JSON.stringify({ name })
+              })
+            ]);
+            this.showToast('Task saved', prompt && schedule !== 'never' ? 'Task is now scheduled and visible in Tasks.' : 'Task configuration saved.', 'info');
+            await this.loadAgentDetail(id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
         },
 
         async saveAgentSchedule() {
