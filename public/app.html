@@ -2290,7 +2290,7 @@
                 </div>
 
                 <div class="chat-input-row" x-show="activeChat">
-                  <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()"></textarea>
+                  <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.ctrl.enter.prevent="sendChat()" @keydown.meta.enter.prevent="sendChat()"></textarea>
                   <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
                 </div>
               </section>
