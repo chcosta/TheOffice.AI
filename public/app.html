@@ -492,6 +492,18 @@
     .toggle-switch input:checked + .toggle-slider::before {
       transform: translateX(16px);
     }
+    .task-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 0.82rem;
+    }
+    .task-meta-item .meta-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--cp-text-muted);
+    }
     .card,
     .list-card,
     .detail-panel,
@@ -1880,10 +1892,30 @@
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Edit'"></button>
+                      <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Details'"></button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
                   </div>
+                  <!-- Summary row: next run + last result -->
+                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap">
+                    <div class="task-meta-item">
+                      <span class="meta-label">Next run</span>
+                      <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
+                    </div>
+                    <div class="task-meta-item">
+                      <span class="meta-label">Last run</span>
+                      <span x-text="task.lastRun ? formatRelative(task.lastRun.finished_at || task.lastRun.started_at) : 'Never'"></span>
+                    </div>
+                    <div class="task-meta-item" x-show="task.lastRun">
+                      <span class="meta-label">Result</span>
+                      <span class="status-badge" style="font-size:0.72rem" :class="statusClass(task.lastRun?.status || 'idle')" x-text="statusLabel(task.lastRun?.status || 'idle')"></span>
+                    </div>
+                    <div class="task-meta-item" x-show="task.lastRun">
+                      <span class="meta-label">Duration</span>
+                      <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
+                    </div>
+                  </div>
+                  <!-- Expanded detail panel -->
                   <div x-show="selectedTaskId === task.taskKey" x-transition.opacity.duration.150ms style="margin-top:14px">
                     <div class="config-grid">
                       <div>
@@ -1911,8 +1943,32 @@
                       </div>
                     </div>
                     <div>
-                      <div class="field-label"><span>Prompt / description</span><span class="hint">Preview</span></div>
-                      <pre x-text="task.prompt || 'No prompt available.'"></pre>
+                      <div class="field-label"><span>Prompt / description</span></div>
+                      <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
+                    </div>
+                    <!-- Recent run history -->
+                    <div style="margin-top:16px">
+                      <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
+                      <div x-show="(taskHistoryCache[task.taskKey] || []).length" class="run-list" style="margin-top:8px">
+                        <template x-for="run in (taskHistoryCache[task.taskKey] || []).slice(0, 5)" :key="'th-' + run.id">
+                          <div class="run-item" style="padding:10px 14px">
+                            <div class="split-meta">
+                              <div>
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                  <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
+                                  <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
+                                </div>
+                                <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
+                              </div>
+                              <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
+                            </div>
+                            <div x-show="isExpanded('task-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
+                              <pre style="max-height:200px;overflow:auto;font-size:0.75rem" x-text="run.output || run.result || run.error || 'No output captured.'"></pre>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="hint" x-show="!(taskHistoryCache[task.taskKey] || []).length" style="margin-top:8px">No run history yet. <a href="#" @click.prevent="loadTaskHistory(task)" style="color:var(--cp-link)">Load history</a></div>
                     </div>
                   </div>
                   </div>
@@ -1994,11 +2050,66 @@
                         <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
                       </div>
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
-                      <div class="hint mono" style="margin-top:6px;max-width:600px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="task.prompt"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="goTo('#/managers/' + encodeURIComponent(task.managerId))">Open Manager</button>
+                      <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Details'"></button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
+                    </div>
+                  </div>
+                  <!-- Summary row: next run + last result -->
+                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap">
+                    <div class="task-meta-item">
+                      <span class="meta-label">Next run</span>
+                      <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
+                    </div>
+                    <div class="task-meta-item">
+                      <span class="meta-label">Last run</span>
+                      <span x-text="task.lastRun ? formatRelative(task.lastRun.finished_at || task.lastRun.started_at) : 'Never'"></span>
+                    </div>
+                    <div class="task-meta-item" x-show="task.lastRun">
+                      <span class="meta-label">Result</span>
+                      <span class="status-badge" style="font-size:0.72rem" :class="statusClass(task.lastRun?.status || 'idle')" x-text="statusLabel(task.lastRun?.status || 'idle')"></span>
+                    </div>
+                    <div class="task-meta-item" x-show="task.lastRun">
+                      <span class="meta-label">Duration</span>
+                      <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
+                    </div>
+                  </div>
+                  <!-- Expanded detail panel -->
+                  <div x-show="selectedTaskId === task.taskKey" x-transition.opacity.duration.150ms style="margin-top:14px">
+                    <div class="config-grid">
+                      <div>
+                        <div class="field-label"><span>Prompt</span></div>
+                        <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
+                      </div>
+                      <div>
+                        <div class="field-label"><span>Manager</span></div>
+                        <a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(task.managerId))" style="color:var(--cp-link)" x-text="task.ownerName"></a>
+                      </div>
+                      <!-- Recent run history -->
+                      <div style="margin-top:8px">
+                        <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
+                        <div x-show="(taskHistoryCache[task.taskKey] || []).length" class="run-list" style="margin-top:8px">
+                          <template x-for="run in (taskHistoryCache[task.taskKey] || []).slice(0, 5)" :key="'th-' + run.id">
+                            <div class="run-item" style="padding:10px 14px">
+                              <div class="split-meta">
+                                <div>
+                                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                    <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
+                                    <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
+                                  </div>
+                                  <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
+                                </div>
+                                <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
+                              </div>
+                              <div x-show="isExpanded('task-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
+                                <pre style="max-height:200px;overflow:auto;font-size:0.75rem" x-text="run.output || run.result || run.error || 'No output captured.'"></pre>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                        <div class="hint" x-show="!(taskHistoryCache[task.taskKey] || []).length" style="margin-top:8px">No run history yet. <a href="#" @click.prevent="loadTaskHistory(task)" style="color:var(--cp-link)">Load history</a></div>
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -2530,6 +2641,7 @@
         managerHistory: [],
         expanded: {},
         selectedTaskId: null,
+        taskHistoryCache: {},
         activeChat: null,
         chatDraft: '',
         commandQuery: '',
@@ -4139,6 +4251,29 @@
 
         toggleSelectedTask(id) {
           this.selectedTaskId = this.selectedTaskId === id ? null : id;
+          // Auto-load history when expanding
+          if (this.selectedTaskId === id) {
+            const task = this.allTasks().find(t => t.taskKey === id);
+            if (task && !this.taskHistoryCache[id]) this.loadTaskHistory(task);
+          }
+        },
+
+        async loadTaskHistory(task) {
+          try {
+            let runs = [];
+            if (task.type === 'agent') {
+              runs = await this.request(`/api/agents/${encodeURIComponent(task.agentId)}/history?limit=5`);
+            } else if (task.type === 'assignment') {
+              const allRuns = await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/history?limit=10`);
+              // Filter to runs for this assignment
+              runs = (allRuns || []).filter(r => r.assignment_id === task.assignmentId || r.assignmentId === task.assignmentId).slice(0, 5);
+              // If no assignment-specific filter matches, show all manager runs
+              if (!runs.length) runs = (allRuns || []).slice(0, 5);
+            }
+            this.taskHistoryCache = { ...this.taskHistoryCache, [task.taskKey]: runs || [] };
+          } catch (e) {
+            this.taskHistoryCache = { ...this.taskHistoryCache, [task.taskKey]: [] };
+          }
         },
 
         focusConfigSection(id) {
