@@ -165,6 +165,32 @@ if (fs.existsSync(MANAGERS_PATH)) {
 const app = express();
 app.use(express.json());
 
+// Serve static SPA files
+app.use('/public', express.static(path.join(__dirname, 'public')));
+const SPA_PATH = path.join(__dirname, 'public', 'app.html');
+
+// SSE (Server-Sent Events) for real-time updates
+const sseClients = new Set();
+
+app.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.write('data: {"type":"connected"}\n\n');
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+});
+
+function broadcastSSE(eventType, data) {
+  const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch(e) { sseClients.delete(client); }
+  }
+}
+
 // Discover available agents from plugins, repos, and marketplaces
 app.get('/api/discover', async (req, res) => {
   const { execSync } = require('child_process');
@@ -489,19 +515,17 @@ app.post('/api/plugins/install', (req, res) => {
   res.status(400).json({ error: 'installCmd or pluginDir required' });
 });
 
-// Dashboard HTML — Agents page
-app.get('/agents', (req, res) => {
-  res.send(getDashboardHtml());
-});
-
-// Managers page (default)
-app.get('/', (req, res) => {
-  res.send(getManagersPageHtml());
-});
-
-// Legacy dashboard route
-app.get('/dashboard', (req, res) => {
-  res.send(getDashboardHtml());
+// SPA — serve new unified app for all page routes
+function serveSpa(req, res) {
+  if (fs.existsSync(SPA_PATH)) {
+    res.sendFile(SPA_PATH);
+  } else {
+    // Fallback to legacy pages if SPA not built yet
+    res.send(getDashboardHtml());
+  }
+}
+['/', '/agents', '/dashboard', '/managers', '/tasks', '/chat', '/activity'].forEach(route => {
+  app.get(route, serveSpa);
 });
 
 // Version/health endpoint for verifying deployed version
@@ -551,12 +575,14 @@ app.post('/api/agents/:id/start', (req, res) => {
 
 app.post('/api/agents/:id/stop', (req, res) => {
   supervisor.stop(req.params.id);
+  broadcastSSE('agent-status', { id: req.params.id, status: 'stopped' });
   res.json({ ok: true });
 });
 
 app.post('/api/agents/:id/run', (req, res) => {
   try {
     supervisor._executeAgent(req.params.id);
+    broadcastSSE('run-started', { id: req.params.id, type: 'agent', timestamp: new Date().toISOString() });
     res.json({ ok: true, message: 'Execution triggered' });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1704,6 +1730,7 @@ app.delete('/api/managers/:id', (req, res) => {
 app.post('/api/managers/:id/start', (req, res) => {
   try {
     managerAgent.startSchedules(req.params.id);
+    broadcastSSE('manager-status', { id: req.params.id, status: 'running' });
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1713,6 +1740,7 @@ app.post('/api/managers/:id/start', (req, res) => {
 // Stop a manager's schedules
 app.post('/api/managers/:id/stop', (req, res) => {
   managerAgent.stopSchedules(req.params.id);
+  broadcastSSE('manager-status', { id: req.params.id, status: 'stopped' });
   res.json({ ok: true });
 });
 
@@ -1720,6 +1748,7 @@ app.post('/api/managers/:id/stop', (req, res) => {
 app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
   try {
     const result = managerAgent.runAssignment(req.params.id, req.params.assignmentId);
+    broadcastSSE('run-started', { id: req.params.id, assignmentId: req.params.assignmentId, type: 'assignment', timestamp: new Date().toISOString() });
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1939,6 +1968,100 @@ app.get('/api/manager-agents', (req, res) => {
 });
 
 // ============ End Manager API Routes ============
+
+// ============ Chat Persistence API ============
+const CHATS_DIR = path.join(__dirname, 'chats');
+if (!fs.existsSync(CHATS_DIR)) fs.mkdirSync(CHATS_DIR, { recursive: true });
+
+app.get('/api/chats', (req, res) => {
+  if (!fs.existsSync(CHATS_DIR)) return res.json([]);
+  const files = fs.readdirSync(CHATS_DIR).filter(f => f.endsWith('.json'));
+  const chats = files.map(f => {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(CHATS_DIR, f), 'utf-8'));
+      return { id: data.id, title: data.title, target: data.target, targetType: data.targetType, updatedAt: data.updatedAt, messageCount: (data.messages || []).length };
+    } catch { return null; }
+  }).filter(Boolean).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  res.json(chats);
+});
+
+app.get('/api/chats/:id', (req, res) => {
+  const chatFile = path.join(CHATS_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(chatFile)) return res.status(404).json({ error: 'Chat not found' });
+  res.json(JSON.parse(fs.readFileSync(chatFile, 'utf-8')));
+});
+
+app.post('/api/chats', (req, res) => {
+  const { id, title, target, targetType } = req.body;
+  if (!id || !target) return res.status(400).json({ error: 'id and target required' });
+  const chat = { id, title: title || `Chat with ${target}`, target, targetType: targetType || 'agent', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  fs.writeFileSync(path.join(CHATS_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
+  res.json(chat);
+});
+
+app.post('/api/chats/:id/messages', (req, res) => {
+  const chatFile = path.join(CHATS_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(chatFile)) return res.status(404).json({ error: 'Chat not found' });
+  const chat = JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
+  const msg = { role: req.body.role || 'user', content: req.body.content, timestamp: new Date().toISOString() };
+  chat.messages.push(msg);
+  chat.updatedAt = msg.timestamp;
+  fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
+  broadcastSSE('chat-message', { chatId: req.params.id, message: msg });
+  res.json(msg);
+});
+
+app.delete('/api/chats/:id', (req, res) => {
+  const chatFile = path.join(CHATS_DIR, `${req.params.id}.json`);
+  if (fs.existsSync(chatFile)) fs.unlinkSync(chatFile);
+  res.json({ ok: true });
+});
+
+// ============ End Chat API ============
+
+// Unified activity feed across all agents and managers
+app.get('/api/activity', (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  const activities = [];
+  
+  // Gather agent run history
+  for (const [id, entry] of supervisor.agents) {
+    const history = entry.history || [];
+    for (const run of history.slice(-20)) {
+      activities.push({
+        type: 'agent',
+        entityId: id,
+        entityName: entry.config.name || id,
+        action: 'run',
+        status: run.status || (run.exitCode === 0 ? 'success' : 'failed'),
+        timestamp: run.startedAt || run.timestamp,
+        duration: run.duration,
+        output: (run.output || '').slice(0, 500)
+      });
+    }
+  }
+  
+  // Gather manager run history
+  for (const [id, mgr] of managerAgent.managers) {
+    const runs = mgr.runs || [];
+    for (const run of runs.slice(-20)) {
+      activities.push({
+        type: 'manager',
+        entityId: id,
+        entityName: mgr.name || id,
+        action: run.assignmentId ? `assignment:${run.assignmentId}` : 'prompt',
+        status: run.status || 'completed',
+        timestamp: run.startedAt,
+        duration: run.duration,
+        output: (run.summary || '').slice(0, 500)
+      });
+    }
+  }
+  
+  // Sort by timestamp descending
+  activities.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+  res.json(activities.slice(0, limit));
+});
 
 // Start all enabled agents
 supervisor.startAll();

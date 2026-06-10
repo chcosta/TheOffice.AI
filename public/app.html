@@ -1,0 +1,2721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Copilot Agent Supervisor</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+      --sidebar-width: 240px;
+      --header-height: 56px;
+      --radius-sm: 0.625rem;
+      --radius-md: 0.625rem;
+      --radius-lg: 1rem;
+      --card-shadow: 0 0 0 1px color-mix(in srgb, var(--cp-border) 90%, transparent), 0 1px 2px color-mix(in srgb, var(--cp-bg) 70%, transparent);
+      --hover-shadow: 0 0 0 1px color-mix(in srgb, var(--cp-border-strong) 60%, transparent), 0 10px 24px color-mix(in srgb, var(--cp-bg) 55%, transparent);
+      --font-sans: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: Consolas, "Courier New", Courier, monospace;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      overflow: hidden;
+    }
+    [x-cloak] { display: none !important; }
+    button, input, textarea, select {
+      font: inherit;
+      color: inherit;
+    }
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+    button {
+      border: 0;
+      background: none;
+      cursor: pointer;
+    }
+    ::selection {
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
+    .app-shell {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: var(--header-height) 1fr;
+      background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--cp-accent-soft) 80%, transparent), transparent 34%),
+        linear-gradient(180deg, var(--cp-bg-elevated), var(--cp-bg));
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-panel-strong) 92%, transparent);
+      backdrop-filter: blur(14px);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: var(--cp-accent-fg);
+      background: linear-gradient(135deg, var(--cp-accent), color-mix(in srgb, var(--cp-accent) 76%, var(--cp-surface)));
+      box-shadow: var(--card-shadow);
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .search-trigger,
+    .icon-button,
+    .btn,
+    .pill,
+    .status-badge,
+    .field-input,
+    .message-input,
+    .selector-button {
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 180ms ease, box-shadow 180ms ease;
+    }
+    .search-trigger {
+      min-width: 240px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--cp-surface-soft) 88%, transparent);
+      color: var(--cp-text-muted);
+      padding: 9px 12px;
+    }
+    .search-trigger:hover,
+    .icon-button:hover,
+    .btn:hover,
+    .selector-button:hover {
+      border-color: var(--cp-border-strong);
+      background: color-mix(in srgb, var(--cp-surface) 88%, transparent);
+      transform: translateY(-1px);
+    }
+    .kbd {
+      border-radius: 8px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+      color: var(--cp-text-soft);
+      padding: 2px 8px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+    }
+    .icon-button {
+      width: 38px;
+      height: 38px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-surface-soft);
+    }
+    .body-grid {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: var(--sidebar-width) 1fr;
+    }
+    .sidebar {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-panel) 96%, transparent);
+      backdrop-filter: blur(16px);
+      padding: 16px 12px 12px;
+    }
+    .sidebar-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .sidebar-section + .sidebar-section { margin-top: 10px; }
+    .section-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--cp-text-muted);
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .section-header:hover {
+      background: color-mix(in srgb, var(--cp-surface-soft) 70%, transparent);
+      color: var(--cp-text);
+    }
+    .section-chevron {
+      font-size: 11px;
+      color: var(--cp-text-soft);
+    }
+    .nav-list {
+      display: grid;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .nav-link,
+    .sub-link {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 40px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      color: var(--cp-text-muted);
+    }
+    .sub-link {
+      min-height: 34px;
+      margin-left: 8px;
+      padding-left: 16px;
+      font-size: 14px;
+    }
+    .nav-link:hover,
+    .sub-link:hover {
+      background: var(--cp-highlight);
+      color: var(--cp-text);
+      transform: translateX(2px);
+    }
+    .nav-link.active,
+    .sub-link.active {
+      background: color-mix(in srgb, var(--cp-accent-soft) 90%, var(--cp-surface-soft));
+      color: var(--cp-text);
+      box-shadow: inset 3px 0 0 var(--cp-accent);
+    }
+    .nav-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      background: var(--cp-text-muted);
+    }
+    .nav-dot.running {
+      background: var(--cp-success);
+      animation: pulseDot 1.8s ease-in-out infinite;
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-success) 20%, transparent);
+    }
+    .nav-dot.idle { background: var(--cp-text-soft); }
+    .sidebar-bottom {
+      padding-top: 12px;
+      border-top: 1px solid var(--cp-border);
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .sidebar-meta {
+      font-size: 12px;
+      color: var(--cp-text-soft);
+      padding: 0 10px;
+    }
+    .content {
+      min-height: 0;
+      overflow: auto;
+      padding: 24px;
+    }
+    .content-inner {
+      min-height: 100%;
+      display: grid;
+      align-content: start;
+      gap: 20px;
+    }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .page-title h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+    }
+    .page-title p {
+      margin: 8px 0 0;
+      color: var(--cp-text-muted);
+      max-width: 68ch;
+    }
+    .badge-count,
+    .type-badge,
+    .status-badge,
+    .tiny-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-surface-soft) 90%, transparent);
+      color: var(--cp-text-muted);
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status-badge.running {
+      border-color: color-mix(in srgb, var(--cp-success) 48%, var(--cp-border));
+      color: var(--cp-success);
+      background: color-mix(in srgb, var(--cp-success) 14%, transparent);
+    }
+    .status-badge.idle {
+      color: var(--cp-text-soft);
+    }
+    .status-badge.failed,
+    .status-badge.error {
+      border-color: color-mix(in srgb, var(--cp-danger) 50%, var(--cp-border));
+      color: var(--cp-danger);
+      background: color-mix(in srgb, var(--cp-danger) 13%, transparent);
+    }
+    .status-badge.success,
+    .status-badge.completed {
+      border-color: color-mix(in srgb, var(--cp-success) 48%, var(--cp-border));
+      color: var(--cp-success);
+      background: color-mix(in srgb, var(--cp-success) 13%, transparent);
+    }
+    .status-badge.warning {
+      border-color: color-mix(in srgb, var(--cp-warning) 48%, var(--cp-border));
+      color: var(--cp-warning);
+      background: color-mix(in srgb, var(--cp-warning) 13%, transparent);
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .field-input,
+    .message-input,
+    .selector-button {
+      width: 100%;
+      border: 1px solid var(--cp-border);
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--cp-surface) 92%, transparent);
+      padding: 10px 12px;
+      color: var(--cp-text);
+      outline: none;
+    }
+    .field-input:focus,
+    .message-input:focus,
+    .selector-button:focus,
+    .search-trigger:focus,
+    .icon-button:focus,
+    .btn:focus,
+    .pill:focus {
+      border-color: var(--cp-accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent-soft) 90%, transparent);
+    }
+    .field-area { min-height: 118px; resize: vertical; }
+    .search-row {
+      display: grid;
+      grid-template-columns: minmax(240px, 360px) auto;
+      gap: 12px;
+      align-items: center;
+    }
+    .filter-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .pill.active {
+      border-color: color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-surface) 92%, transparent);
+      color: var(--cp-text);
+      font-weight: 600;
+    }
+    .btn.primary {
+      border-color: color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+    }
+    .btn.primary:hover { background: var(--cp-accent-hover); }
+    .btn.ghost {
+      background: transparent;
+    }
+    .btn.danger {
+      border-color: color-mix(in srgb, var(--cp-danger) 45%, var(--cp-border));
+      color: var(--cp-danger);
+      background: color-mix(in srgb, var(--cp-danger) 10%, transparent);
+    }
+    .card,
+    .list-card,
+    .detail-panel,
+    .chat-shell,
+    .modal-card {
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--cp-panel-strong) 96%, transparent);
+      box-shadow: var(--card-shadow);
+    }
+    .card,
+    .detail-panel { padding: 18px; }
+    .card-header,
+    .panel-header,
+    .list-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .card-title,
+    .panel-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .card-subtitle,
+    .muted,
+    .hint {
+      color: var(--cp-text-muted);
+    }
+    .home-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .home-grid > .card:nth-child(1),
+    .home-grid > .card:nth-child(2) { grid-column: span 6; }
+    .home-grid > .card:nth-child(3),
+    .home-grid > .card:nth-child(4) { grid-column: span 6; }
+    .stack,
+    .timeline,
+    .run-list,
+    .chat-list,
+    .assignment-list,
+    .org-list,
+    .activity-list {
+      display: grid;
+      gap: 10px;
+    }
+    .item-row,
+    .timeline-item,
+    .run-item,
+    .chat-list-item,
+    .assignment-item,
+    .org-item,
+    .task-card {
+      border: 1px solid color-mix(in srgb, var(--cp-border) 70%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--cp-surface) 86%, transparent);
+      padding: 14px;
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+    .item-row:hover,
+    .timeline-item:hover,
+    .run-item:hover,
+    .chat-list-item:hover,
+    .assignment-item:hover,
+    .org-item:hover,
+    .task-card:hover,
+    .agent-card:hover,
+    .manager-card:hover {
+      transform: translateY(-2px);
+      border-color: color-mix(in srgb, var(--cp-accent) 35%, var(--cp-border));
+      box-shadow: var(--hover-shadow);
+    }
+    .split-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .mono,
+    pre,
+    code {
+      font-family: var(--font-mono);
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--cp-text-soft);
+      background: color-mix(in srgb, var(--cp-bg-elevated) 68%, var(--cp-surface));
+      border: 1px solid var(--cp-border);
+      border-radius: 12px;
+      padding: 12px;
+      max-height: 280px;
+      overflow: auto;
+    }
+    .line-clamp {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .agent-card,
+    .manager-card {
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--cp-panel) 96%, transparent);
+      padding: 18px;
+      box-shadow: var(--card-shadow);
+      display: grid;
+      gap: 16px;
+      cursor: pointer;
+    }
+    .entity-top,
+    .assignment-top,
+    .chat-list-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .entity-name {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .entity-subtitle {
+      margin: 6px 0 0;
+      color: var(--cp-text-muted);
+      font-size: 14px;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .meta-label {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--cp-text-soft);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .detail-layout {
+      display: grid;
+      gap: 16px;
+    }
+    .detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .panel-stack { display: grid; gap: 16px; }
+    .config-grid { display: grid; gap: 14px; }
+    .field-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .inline-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .chat-shell {
+      min-height: 68vh;
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      overflow: hidden;
+    }
+    .chat-sidebar {
+      border-right: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-surface-soft) 84%, transparent);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+    .chat-sidebar-top,
+    .chat-main-top,
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .chat-scroll,
+    .chat-main-messages {
+      min-height: 0;
+      overflow: auto;
+    }
+    .chat-list {
+      padding: 12px;
+    }
+    .chat-list-item.active {
+      border-color: color-mix(in srgb, var(--cp-accent) 40%, var(--cp-border));
+      background: var(--cp-accent-soft);
+    }
+    .chat-main {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    .messages-stack {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      align-content: start;
+    }
+    .message-row {
+      display: flex;
+    }
+    .message-row.user { justify-content: flex-end; }
+    .message-bubble {
+      max-width: min(78%, 760px);
+      border-radius: 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+      box-shadow: var(--card-shadow);
+    }
+    .message-row.user .message-bubble {
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      border-color: color-mix(in srgb, var(--cp-accent) 60%, var(--cp-border));
+    }
+    .message-meta {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--cp-text-soft);
+    }
+    .message-row.user .message-meta {
+      color: color-mix(in srgb, var(--cp-accent-fg) 70%, transparent);
+    }
+    .chat-input-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 16px;
+      border-top: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-panel-strong) 96%, transparent);
+    }
+    .message-input {
+      min-height: 78px;
+      resize: vertical;
+    }
+    .typing-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      padding: 0 18px 10px;
+    }
+    .typing-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--cp-text-soft);
+      animation: bounceDots 1.1s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+    .timeline-marker {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--cp-accent);
+      box-shadow: 0 0 0 5px var(--cp-accent-soft);
+      margin-top: 6px;
+    }
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    .empty-state {
+      border: 1px dashed var(--cp-border-strong);
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      color: var(--cp-text-muted);
+      background: color-mix(in srgb, var(--cp-surface-soft) 80%, transparent);
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: color-mix(in srgb, var(--cp-overlay) 88%, transparent);
+      backdrop-filter: blur(10px);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      z-index: 50;
+    }
+    .modal-card {
+      width: min(760px, 100%);
+      max-height: min(88vh, 900px);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    .modal-body {
+      overflow: auto;
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 16px 18px 18px;
+      border-top: 1px solid var(--cp-border);
+    }
+    .command-input-wrap {
+      padding: 18px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .command-list {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+    }
+    .command-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+    }
+    .command-item.active {
+      background: var(--cp-accent-soft);
+      border-color: color-mix(in srgb, var(--cp-accent) 30%, var(--cp-border));
+    }
+    .toast-stack {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 60;
+      display: grid;
+      gap: 10px;
+      width: min(340px, calc(100vw - 36px));
+    }
+    .toast {
+      border-radius: 14px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-panel-strong);
+      box-shadow: var(--hover-shadow);
+      padding: 12px 14px;
+    }
+    .toast.error { border-color: color-mix(in srgb, var(--cp-danger) 45%, var(--cp-border)); }
+    .help-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .route-fade-enter,
+    .route-fade-leave-to { opacity: 0; transform: translateY(6px); }
+    .route-fade-enter-active,
+    .route-fade-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(1); opacity: 0.75; }
+      50% { transform: scale(1.14); opacity: 1; }
+    }
+    @keyframes bounceDots {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+      40% { transform: translateY(-4px); opacity: 1; }
+    }
+    @media (max-width: 1200px) {
+      .detail-grid,
+      .home-grid {
+        grid-template-columns: 1fr;
+      }
+      .home-grid > .card { grid-column: auto; }
+    }
+    @media (max-width: 980px) {
+      .body-grid,
+      .chat-shell {
+        grid-template-columns: 1fr;
+      }
+      .sidebar { display: none; }
+      .search-row { grid-template-columns: 1fr; }
+      .topbar { grid-template-columns: 1fr auto; }
+      .search-trigger { min-width: 0; }
+    }
+  </style>
+</head>
+<body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)">
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">⚡</div>
+        <div>Agent Supervisor</div>
+      </div>
+      <button class="search-trigger" type="button" @click="openCommandPalette()">
+        <span>Search agents, managers, tasks…</span>
+        <span class="kbd">⌘K</span>
+      </button>
+      <div class="topbar-actions">
+        <button class="icon-button" type="button" title="Command palette" @click="openCommandPalette()">⌘K</button>
+        <button class="icon-button" type="button" title="Settings" @click="settingsOpen = true">⚙</button>
+      </div>
+    </header>
+
+    <div class="body-grid">
+      <aside class="sidebar">
+        <div class="sidebar-scroll">
+          <template x-for="section in sidebarSections()" :key="section.key">
+            <section class="sidebar-section">
+              <template x-if="section.collapsible">
+                <button class="section-header" type="button" @click="toggleSidebar(section.key)">
+                  <span x-text="section.label"></span>
+                  <span class="section-chevron" x-text="app.sidebarCollapsed[section.key] ? '▸' : '▾'"></span>
+                </button>
+              </template>
+              <template x-if="!section.collapsible">
+                <div class="section-header" x-text="section.label"></div>
+              </template>
+
+              <div class="nav-list" x-show="!section.collapsible || !app.sidebarCollapsed[section.key]" x-transition.opacity.duration.150ms>
+                <a class="nav-link"
+                   :class="{ active: isRouteGroup(section.routeGroup) }"
+                   :href="section.href">
+                  <span x-text="section.icon"></span>
+                  <span x-text="section.title"></span>
+                </a>
+                <template x-for="item in section.items" :key="item.id">
+                  <a class="sub-link"
+                     :class="{ active: item.active }"
+                     :href="item.href">
+                    <span class="nav-dot" :class="item.statusClass"></span>
+                    <span class="line-clamp" x-text="item.label"></span>
+                  </a>
+                </template>
+              </div>
+            </section>
+          </template>
+        </div>
+        <div class="sidebar-bottom">
+          <a class="nav-link" href="#/settings" @click.prevent="settingsOpen = true">
+            <span>⚙</span>
+            <span>Settings</span>
+          </a>
+          <div class="sidebar-meta">
+            <div x-text="versionLabel()"></div>
+            <div x-text="sseStatusLabel()"></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <div class="content-inner">
+          <template x-if="loading">
+            <div class="empty-state">Loading supervisor data…</div>
+          </template>
+
+          <template x-if="!loading && errorMessage">
+            <div class="empty-state">
+              <strong>Unable to load data.</strong>
+              <div style="margin-top:8px" x-text="errorMessage"></div>
+              <div style="margin-top:14px"><button class="btn primary" type="button" @click="refreshAll()">Retry</button></div>
+            </div>
+          </template>
+
+          <section x-show="!loading && !errorMessage && route === 'home'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Overview</h1>
+                <p>Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
+              </div>
+              <div class="toolbar">
+                <span class="badge-count" x-text="runningEntities().length + ' running' "></span>
+                <button class="btn" type="button" @click="refreshAll(false)">↻ Refresh</button>
+              </div>
+            </div>
+
+            <div class="home-grid">
+              <section class="card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Running Now</h2>
+                    <div class="card-subtitle">Active agents and managers with live elapsed time.</div>
+                  </div>
+                </div>
+                <div class="stack" x-show="runningEntities().length">
+                  <template x-for="entry in runningEntities()" :key="entry.key">
+                    <div class="item-row">
+                      <div class="split-meta">
+                        <div>
+                          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                            <strong x-text="entry.name"></strong>
+                            <span class="status-badge running">Running</span>
+                            <span class="type-badge" x-text="entry.kind"></span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-text="entry.summary"></div>
+                        </div>
+                        <div class="mono" x-text="elapsedSince(entry.startedAt)"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!runningEntities().length">Nothing is currently executing.</div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Recent Activity</h2>
+                    <div class="card-subtitle">Latest completions across agents and managers.</div>
+                  </div>
+                </div>
+                <div class="timeline" x-show="recentCompletions().length">
+                  <template x-for="entry in recentCompletions()" :key="entry.id">
+                    <div class="item-row">
+                      <div class="split-meta">
+                        <div>
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span x-text="entry.status === 'success' ? '✅' : '❌'"></span>
+                            <strong x-text="entry.entityName"></strong>
+                            <span class="type-badge" x-text="entry.entityType"></span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.finishedAt || entry.startedAt)"></div>
+                        </div>
+                        <div class="mono" x-text="formatDuration(entry.durationMs)"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!recentCompletions().length">No completed runs yet.</div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Upcoming</h2>
+                    <div class="card-subtitle">Next scheduled tasks and assignments.</div>
+                  </div>
+                </div>
+                <div class="stack" x-show="upcomingTasks().length">
+                  <template x-for="task in upcomingTasks()" :key="task.taskKey">
+                    <div class="item-row">
+                      <div class="split-meta">
+                        <div>
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <strong x-text="task.name"></strong>
+                            <span class="type-badge" x-text="task.typeLabel"></span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
+                        </div>
+                        <div>
+                          <div class="mono" x-text="formatCountdown(task.nextRun)"></div>
+                          <div class="hint" style="text-align:right;margin-top:4px" x-text="formatDateTime(task.nextRun)"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!upcomingTasks().length">No future schedules detected.</div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">Alerts</h2>
+                    <div class="card-subtitle">Failed runs in the last 24 hours that may need attention.</div>
+                  </div>
+                </div>
+                <div class="stack" x-show="alerts().length">
+                  <template x-for="entry in alerts()" :key="entry.id">
+                    <div class="item-row">
+                      <div class="split-meta">
+                        <div>
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span>⚠</span>
+                            <strong x-text="entry.entityName"></strong>
+                            <span class="status-badge failed">Failed</span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-text="entry.preview"></div>
+                        </div>
+                        <div class="mono" x-text="formatRelative(entry.finishedAt || entry.startedAt)"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!alerts().length">No recent failures detected.</div>
+              </section>
+            </div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'agents'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Agents</h1>
+                <p>View execution status, schedules, prompts, and recent runs for every registered agent.</p>
+              </div>
+              <div class="toolbar">
+                <span class="badge-count" x-text="data.agents.length + ' total'"></span>
+              </div>
+            </div>
+            <div class="search-row">
+              <input class="field-input" type="search" placeholder="Filter agents by name, group, or schedule…" x-model="agentSearch" />
+              <div class="hint" x-text="filteredAgents().length + ' shown'"></div>
+            </div>
+            <div class="cards-grid">
+              <template x-for="agent in filteredAgents()" :key="agent.id">
+                <article class="agent-card" @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
+                  <div class="entity-top">
+                    <div>
+                      <h3 class="entity-name" x-text="agent.name"></h3>
+                      <div class="entity-subtitle" x-text="agent.config.group || agent.config.agent || 'Standalone agent'"></div>
+                    </div>
+                    <span class="status-badge" :class="statusClass(agent.status)" x-text="statusLabel(agent.status)"></span>
+                  </div>
+                  <div class="meta-grid">
+                    <div>
+                      <span class="meta-label">Last run</span>
+                      <div x-text="agent.lastRun ? formatRelative(agent.lastRun.finished_at || agent.lastRun.started_at) : 'Never'"></div>
+                    </div>
+                    <div>
+                      <span class="meta-label">Schedule</span>
+                      <div x-text="agent.scheduleSummary"></div>
+                    </div>
+                  </div>
+                  <div class="split-meta">
+                    <span class="tiny-badge" x-text="agent.config.cwd || 'No working directory'"></span>
+                    <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="empty-state" x-show="!filteredAgents().length">No agents matched your filter.</div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'agent-detail' && selectedAgent" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <a class="btn ghost" href="#/agents">← Agents</a>
+                <h1 style="margin-top:14px" x-text="selectedAgent.name"></h1>
+                <p x-text="selectedAgent.config.group || selectedAgent.config.cwd || selectedAgent.id"></p>
+              </div>
+              <div class="toolbar">
+                <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
+                <button class="btn primary" type="button" @click="runAgentNow(selectedAgent.id)">▶ Run Now</button>
+                <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
+                <button class="btn" type="button" @click="focusConfigSection('agent-config')">⚙ Edit</button>
+                <button class="btn" type="button" @click="showToast('Reinstall flow is not exposed yet from the API.', 'info')">🔄 Reinstall</button>
+              </div>
+            </div>
+            <div class="detail-grid">
+              <div class="panel-stack">
+                <section class="detail-panel" id="agent-config">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Configuration</h2>
+                      <div class="hint">Command preview, schedule, and prompt configuration.</div>
+                    </div>
+                  </div>
+                  <div class="config-grid">
+                    <div>
+                      <div class="field-label"><span>Command</span><span class="hint">Read only</span></div>
+                      <pre x-text="agentCommandPreview(selectedAgent)"></pre>
+                    </div>
+                    <div>
+                      <div class="field-label"><span>Schedule</span><span class="hint" x-text="selectedAgent.scheduleSummary"></span></div>
+                      <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" />
+                      <div class="inline-actions">
+                        <button class="btn primary" type="button" @click="saveAgentSchedule()">Save schedule</button>
+                        <span class="hint">Examples: never, 30m, */15 * * * *</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="field-label"><span>Prompt</span><span class="hint">Editable inline</span></div>
+                      <textarea class="field-input field-area" x-model="selectedAgent.promptDraft"></textarea>
+                      <div class="inline-actions">
+                        <button class="btn primary" type="button" @click="saveAgentPrompt()">Save prompt</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Recent Runs</h2>
+                      <div class="hint">Last 10 executions with expandable output.</div>
+                    </div>
+                  </div>
+                  <div class="run-list" x-show="agentHistory.length">
+                    <template x-for="run in agentHistory" :key="'agent-run-' + run.id">
+                      <div class="run-item">
+                        <div class="split-meta">
+                          <div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <strong x-text="formatDateTime(run.started_at)"></strong>
+                              <span class="status-badge" :class="statusClass(agentRunStatus(run))" x-text="statusLabel(agentRunStatus(run))"></span>
+                            </div>
+                            <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
+                          </div>
+                          <button class="btn" type="button" @click="toggleExpanded('agent-' + run.id)">Output</button>
+                        </div>
+                        <div x-show="isExpanded('agent-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
+                          <pre x-text="run.output || run.error || 'No output captured.'"></pre>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!agentHistory.length">No run history recorded yet.</div>
+                </section>
+              </div>
+
+              <div class="panel-stack">
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Tasks</h2>
+                      <div class="hint">Workloads and assignments connected to this agent.</div>
+                    </div>
+                  </div>
+                  <div class="assignment-list" x-show="tasksForAgent(selectedAgent.id).length">
+                    <template x-for="task in tasksForAgent(selectedAgent.id)" :key="task.taskKey">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <strong x-text="task.name"></strong>
+                            <div class="hint" style="margin-top:6px" x-text="task.typeLabel + ' • ' + task.scheduleSummary"></div>
+                          </div>
+                          <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).length">No related tasks found.</div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'managers'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Managers</h1>
+                <p>Supervise orchestration managers, their organizations, and active assignments.</p>
+              </div>
+              <div class="toolbar">
+                <span class="badge-count" x-text="data.managers.length + ' total'"></span>
+              </div>
+            </div>
+            <div class="search-row">
+              <input class="field-input" type="search" placeholder="Filter managers by name, org member, or assignment…" x-model="managerSearch" />
+              <div class="hint" x-text="filteredManagers().length + ' shown'"></div>
+            </div>
+            <div class="cards-grid">
+              <template x-for="manager in filteredManagers()" :key="manager.id">
+                <article class="manager-card" @click="goTo('#/managers/' + encodeURIComponent(manager.id))">
+                  <div class="entity-top">
+                    <div>
+                      <h3 class="entity-name" x-text="manager.name"></h3>
+                      <div class="entity-subtitle line-clamp" x-text="manager.config.description || 'Manager orchestration agent'"></div>
+                    </div>
+                    <span class="status-badge" :class="statusClass(manager.status)" x-text="statusLabel(manager.status)"></span>
+                  </div>
+                  <div class="meta-grid">
+                    <div>
+                      <span class="meta-label">Org size</span>
+                      <div x-text="(manager.orgDetails || []).length"></div>
+                    </div>
+                    <div>
+                      <span class="meta-label">Assignments</span>
+                      <div x-text="(manager.config.assignments || []).length"></div>
+                    </div>
+                  </div>
+                  <div class="split-meta">
+                    <span class="tiny-badge" x-text="manager.lastRun ? 'Last run ' + formatRelative(manager.lastRun.finished_at || manager.lastRun.started_at) : 'Never run' "></span>
+                    <span class="tiny-badge" x-text="manager.activeSchedules + ' active schedules'"></span>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="empty-state" x-show="!filteredManagers().length">No managers matched your filter.</div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'manager-detail' && selectedManager" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <a class="btn ghost" href="#/managers">← Managers</a>
+                <h1 style="margin-top:14px" x-text="selectedManager.name"></h1>
+                <p x-text="selectedManager.config.description || selectedManager.id"></p>
+              </div>
+              <div class="toolbar">
+                <span class="status-badge" :class="statusClass(selectedManager.status)" x-text="statusLabel(selectedManager.status)"></span>
+                <button class="btn primary" type="button" @click="startManager(selectedManager.id)">▶ Start</button>
+                <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
+                <button class="btn" type="button" @click="focusConfigSection('manager-assignments')">⚙ Edit</button>
+              </div>
+            </div>
+            <div class="detail-grid">
+              <div class="panel-stack">
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Organization</h2>
+                      <div class="hint">Agents available to this manager.</div>
+                    </div>
+                    <button class="btn" type="button" @click="openOrgPicker()">＋ Add</button>
+                  </div>
+                  <div class="org-list" x-show="(selectedManager.orgDetails || []).length">
+                    <template x-for="agent in selectedManager.orgDetails" :key="agent.id">
+                      <div class="org-item">
+                        <div class="split-meta">
+                          <div>
+                            <strong x-text="agent.name || agent.id"></strong>
+                            <div class="hint" style="margin-top:6px" x-text="agent.capability || agent.group || agent.id"></div>
+                          </div>
+                          <button class="btn danger" type="button" @click="removeAgentFromOrg(agent.id)">Remove</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!(selectedManager.orgDetails || []).length">No agents assigned to this organization.</div>
+                </section>
+
+                <section class="detail-panel" id="manager-assignments">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Assignments</h2>
+                      <div class="hint">Schedules, latest activity, and ad-hoc execution controls.</div>
+                    </div>
+                  </div>
+                  <div class="assignment-list" x-show="(selectedManager.config.assignments || []).length">
+                    <template x-for="assignment in selectedManager.config.assignments" :key="assignment.id">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <strong x-text="assignment.name"></strong>
+                              <span class="status-badge" :class="assignment.enabled === false ? 'warning' : 'idle'" x-text="assignment.enabled === false ? 'Paused' : 'Enabled'"></span>
+                            </div>
+                            <div class="hint line-clamp" style="margin-top:6px" x-text="assignment.prompt"></div>
+                          </div>
+                          <button class="btn primary" type="button" @click="runAssignment(selectedManager.id, assignment.id)">▶ Run</button>
+                        </div>
+                        <div style="margin-top:12px">
+                          <div class="field-label"><span>Schedule</span><span class="hint" x-text="assignment.scheduleDescription || humanizeSchedule(assignment.schedule)"></span></div>
+                          <input class="field-input mono" type="text" x-model="assignment.scheduleDraft" />
+                          <div class="inline-actions">
+                            <button class="btn" type="button" @click="saveAssignmentSchedule(assignment)">Save</button>
+                            <span class="hint" x-text="assignment.nextRun ? 'Next: ' + formatDateTime(assignment.nextRun) : 'No upcoming run'"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!(selectedManager.config.assignments || []).length">No assignments configured.</div>
+                </section>
+              </div>
+
+              <div class="panel-stack">
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Recent Runs</h2>
+                      <div class="hint">Expandable manager orchestration history.</div>
+                    </div>
+                  </div>
+                  <div class="run-list" x-show="managerHistory.length">
+                    <template x-for="run in managerHistory" :key="'manager-run-' + run.id">
+                      <div class="run-item">
+                        <div class="split-meta">
+                          <div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <strong x-text="formatDateTime(run.started_at)"></strong>
+                              <span class="status-badge" :class="statusClass(managerRunStatus(run))" x-text="statusLabel(managerRunStatus(run))"></span>
+                            </div>
+                            <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
+                          </div>
+                          <button class="btn" type="button" @click="toggleExpanded('manager-' + run.id)">Output</button>
+                        </div>
+                        <div x-show="isExpanded('manager-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
+                          <pre x-text="run.result || run.error || 'No output captured.'"></pre>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!managerHistory.length">No manager run history recorded.</div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Tasks</h1>
+                <p>Unified view of agent tasks and manager assignments with quick scheduling edits.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" type="button" @click="newTaskOpen = true">＋ New Task</button>
+              </div>
+            </div>
+            <div class="search-row">
+              <input class="field-input" type="search" placeholder="Filter by task, owner, or schedule…" x-model="taskSearch" />
+              <div class="hint" x-text="filteredTasks().length + ' shown'"></div>
+            </div>
+            <div class="assignment-list">
+              <template x-for="task in filteredTasks()" :key="task.taskKey">
+                <article class="task-card">
+                  <div class="assignment-top">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong x-text="task.name"></strong>
+                        <span class="type-badge" x-text="task.typeLabel"></span>
+                        <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
+                    </div>
+                    <div class="toolbar">
+                      <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Edit'"></button>
+                      <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
+                    </div>
+                  </div>
+                  <div x-show="selectedTaskId === task.taskKey" x-transition.opacity.duration.150ms style="margin-top:14px">
+                    <div class="config-grid">
+                      <div>
+                        <div class="field-label"><span>Schedule</span><span class="hint" x-text="task.nextRun ? 'Next ' + formatCountdown(task.nextRun) : 'No next run'"></span></div>
+                        <input class="field-input mono" type="text" x-model="task.scheduleDraft" />
+                        <div class="inline-actions">
+                          <button class="btn primary" type="button" @click="saveTaskSchedule(task)">Save schedule</button>
+                          <button class="btn ghost" type="button" @click="task.type === 'agent' ? goTo('#/agents/' + encodeURIComponent(task.agentId)) : goTo('#/managers/' + encodeURIComponent(task.managerId))">Open detail</button>
+                        </div>
+                      </div>
+                      <div>
+                        <div class="field-label"><span>Prompt / description</span><span class="hint">Preview</span></div>
+                        <pre x-text="task.prompt || 'No prompt available.'"></pre>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="empty-state" x-show="!filteredTasks().length">No tasks matched your filter.</div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && (route === 'chat' || route === 'chat-detail')" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Chat</h1>
+                <p>Talk to managers today, keep notes with agents, and keep persistent conversations in one place.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" type="button" @click="chatPickerOpen = true">＋ New chat</button>
+              </div>
+            </div>
+            <section class="chat-shell">
+              <aside class="chat-sidebar">
+                <div class="chat-sidebar-top">
+                  <strong>Conversations</strong>
+                  <span class="badge-count" x-text="data.chats.length"></span>
+                </div>
+                <div class="chat-scroll">
+                  <div class="chat-list">
+                    <template x-for="chat in sortedChats()" :key="chat.id">
+                      <button class="chat-list-item" type="button" :class="{ active: activeChat && activeChat.id === chat.id }" @click="openChat(chat.id)">
+                        <div class="chat-list-top">
+                          <div>
+                            <strong x-text="chat.title"></strong>
+                            <div class="hint" style="margin-top:6px" x-text="chat.targetType + ' • ' + (chat.updatedAt ? formatRelative(chat.updatedAt) : 'new')"></div>
+                          </div>
+                          <span class="nav-dot" :class="chatStatusClass(chat)"></span>
+                        </div>
+                      </button>
+                    </template>
+                    <div class="empty-state" x-show="!data.chats.length">No conversations yet.</div>
+                  </div>
+                </div>
+              </aside>
+
+              <section class="chat-main">
+                <div class="chat-main-top" x-show="activeChat">
+                  <div>
+                    <strong x-text="activeChat ? activeChat.title : ''"></strong>
+                    <div class="hint" style="margin-top:6px" x-text="activeChat ? chatHeaderSubtitle(activeChat) : ''"></div>
+                  </div>
+                  <div class="toolbar" x-show="activeChat">
+                    <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
+                  </div>
+                </div>
+
+                <div class="chat-main-messages" x-show="activeChat">
+                  <div class="messages-stack">
+                    <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
+                      <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
+                        <div class="message-bubble">
+                          <div x-text="message.content"></div>
+                          <div class="message-meta" x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id]">
+                    <span>Waiting for response</span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                  </div>
+                </div>
+
+                <div class="empty-state" x-show="!activeChat">
+                  <strong>Select a conversation.</strong>
+                  <div style="margin-top:8px">Start a new chat with an agent or manager from the sidebar or the button above.</div>
+                </div>
+
+                <div class="chat-input-row" x-show="activeChat">
+                  <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()"></textarea>
+                  <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
+                </div>
+              </section>
+            </section>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'activity'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Activity</h1>
+                <p>Reverse chronological timeline of agent and manager execution events.</p>
+              </div>
+            </div>
+            <div class="toolbar">
+              <div class="filter-pills">
+                <template x-for="filter in ['all', 'success', 'failed', 'running']" :key="filter">
+                  <button class="pill" type="button" :class="{ active: activityFilter === filter }" @click="activityFilter = filter" x-text="filter.charAt(0).toUpperCase() + filter.slice(1)"></button>
+                </template>
+              </div>
+            </div>
+            <div class="activity-list">
+              <template x-for="entry in filteredActivity()" :key="entry.id">
+                <article class="timeline-item">
+                  <div class="timeline-marker"></div>
+                  <div>
+                    <div class="split-meta">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <strong x-text="entry.entityName"></strong>
+                          <span class="type-badge" x-text="entry.runType"></span>
+                          <span class="status-badge" :class="statusClass(entry.status)" x-text="statusLabel(entry.status)"></span>
+                        </div>
+                        <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.startedAt) + ' • ' + formatDuration(entry.durationMs)"></div>
+                      </div>
+                      <button class="btn" type="button" @click="toggleExpanded('activity-' + entry.id)">Output</button>
+                    </div>
+                    <div class="hint" style="margin-top:10px" x-text="entry.preview"></div>
+                    <div x-show="isExpanded('activity-' + entry.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
+                      <pre x-text="entry.output || 'No output captured.'"></pre>
+                    </div>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="empty-state" x-show="!filteredActivity().length">No activity matched this filter.</div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" x-show="app.commandPaletteOpen" x-transition.opacity.duration.150ms @click.self="closeCommandPalette()" x-cloak>
+    <section class="modal-card" style="max-width:680px">
+      <div class="command-input-wrap">
+        <input class="field-input" x-ref="commandInput" type="search" placeholder="Run monitor-azure, chat with helix-ops-manager, view agent: email-sender…" x-model="commandQuery" />
+      </div>
+      <div class="modal-body" style="padding:0">
+        <div class="command-list">
+          <template x-for="(item, index) in commandItems()" :key="item.key">
+            <button class="command-item" type="button" :class="{ active: commandIndex === index }" @mouseenter="commandIndex = index" @click="activateCommandItem(item)">
+              <div>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <span x-text="item.icon"></span>
+                  <strong x-text="item.label"></strong>
+                </div>
+                <div class="hint" style="margin-top:6px" x-text="item.meta"></div>
+              </div>
+              <span class="kbd" x-text="item.shortcut || '↵'"></span>
+            </button>
+          </template>
+          <div class="empty-state" x-show="!commandItems().length">No matching actions.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" x-show="settingsOpen" x-transition.opacity.duration.150ms @click.self="settingsOpen = false" x-cloak>
+    <section class="modal-card" style="max-width:720px">
+      <div class="modal-header">
+        <div>
+          <strong>Settings</strong>
+          <div class="hint" style="margin-top:6px">Supervisor metadata, connection status, and shortcuts.</div>
+        </div>
+        <button class="icon-button" type="button" @click="settingsOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="card">
+          <div class="help-row"><strong>Version</strong><span class="mono" x-text="versionLabel()"></span></div>
+          <div class="help-row" style="margin-top:10px"><strong>Process</strong><span x-text="data.version?.pid ? 'PID ' + data.version.pid : 'Unknown' "></span></div>
+          <div class="help-row" style="margin-top:10px"><strong>Started</strong><span x-text="data.version?.startedAt ? formatDateTime(data.version.startedAt) : 'Unknown'"></span></div>
+          <div class="help-row" style="margin-top:10px"><strong>Realtime</strong><span x-text="sseStatusLabel()"></span></div>
+        </div>
+        <div class="card">
+          <strong>Shortcuts</strong>
+          <div class="help-row" style="margin-top:12px"><span>Open command palette</span><span class="kbd">Ctrl/⌘ + K</span></div>
+          <div class="help-row" style="margin-top:10px"><span>Command palette navigation</span><span class="kbd">↑ ↓ Enter</span></div>
+          <div class="help-row" style="margin-top:10px"><span>Close overlays</span><span class="kbd">Esc</span></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" type="button" @click="refreshAll(false)">Refresh data</button>
+        <button class="btn primary" type="button" @click="settingsOpen = false">Done</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" x-show="newTaskOpen" x-transition.opacity.duration.150ms @click.self="newTaskOpen = false" x-cloak>
+    <section class="modal-card">
+      <div class="modal-header">
+        <div>
+          <strong>New Task</strong>
+          <div class="hint" style="margin-top:6px">Create a standalone agent task or a manager assignment.</div>
+        </div>
+        <button class="icon-button" type="button" @click="newTaskOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="filter-pills">
+          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'agent' }" @click="newTaskForm.kind = 'agent'">Task</button>
+          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'assignment' }" @click="newTaskForm.kind = 'assignment'">Assignment</button>
+        </div>
+        <template x-if="newTaskForm.kind === 'agent'">
+          <div class="config-grid">
+            <input class="field-input" type="text" placeholder="Task name" x-model="newTaskForm.name" />
+            <input class="field-input mono" type="text" placeholder="task-id" x-model="newTaskForm.id" />
+            <input class="field-input" type="text" placeholder="Agent reference (e.g. manager:manager)" x-model="newTaskForm.agent" />
+            <input class="field-input" type="text" placeholder="Working directory" x-model="newTaskForm.cwd" />
+            <input class="field-input mono" type="text" placeholder="Schedule" x-model="newTaskForm.schedule" />
+            <textarea class="field-input field-area" placeholder="Prompt" x-model="newTaskForm.prompt"></textarea>
+          </div>
+        </template>
+        <template x-if="newTaskForm.kind === 'assignment'">
+          <div class="config-grid">
+            <select class="field-input" x-model="newTaskForm.managerId">
+              <option value="">Select manager…</option>
+              <template x-for="manager in data.managers" :key="manager.id">
+                <option :value="manager.id" x-text="manager.name"></option>
+              </template>
+            </select>
+            <input class="field-input" type="text" placeholder="Assignment name" x-model="newTaskForm.name" />
+            <input class="field-input mono" type="text" placeholder="assignment-id" x-model="newTaskForm.id" />
+            <input class="field-input mono" type="text" placeholder="Schedule" x-model="newTaskForm.schedule" />
+            <textarea class="field-input field-area" placeholder="Prompt" x-model="newTaskForm.prompt"></textarea>
+          </div>
+        </template>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" type="button" @click="newTaskOpen = false">Cancel</button>
+        <button class="btn primary" type="button" @click="submitNewTask()">Create</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" x-show="chatPickerOpen" x-transition.opacity.duration.150ms @click.self="chatPickerOpen = false" x-cloak>
+    <section class="modal-card" style="max-width:760px">
+      <div class="modal-header">
+        <div>
+          <strong>Start a chat</strong>
+          <div class="hint" style="margin-top:6px">Choose an agent or manager to open a conversation.</div>
+        </div>
+        <button class="icon-button" type="button" @click="chatPickerOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="cards-grid">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Managers</h3></div>
+            <div class="stack">
+              <template x-for="manager in data.managers" :key="'pick-mgr-' + manager.id">
+                <button class="selector-button" type="button" @click="openOrCreateChat('manager', manager.id); chatPickerOpen = false">
+                  <div class="split-meta">
+                    <span x-text="manager.name"></span>
+                    <span class="nav-dot" :class="manager.status === 'running' ? 'running' : 'idle'"></span>
+                  </div>
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Agents</h3></div>
+            <div class="stack">
+              <template x-for="agent in data.agents" :key="'pick-agent-' + agent.id">
+                <button class="selector-button" type="button" @click="openOrCreateChat('agent', agent.id); chatPickerOpen = false">
+                  <div class="split-meta">
+                    <span x-text="agent.name"></span>
+                    <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
+                  </div>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" x-show="orgPickerOpen" x-transition.opacity.duration.150ms @click.self="orgPickerOpen = false" x-cloak>
+    <section class="modal-card" style="max-width:680px">
+      <div class="modal-header">
+        <div>
+          <strong>Add agent to organization</strong>
+          <div class="hint" style="margin-top:6px">Available agents not already assigned to this manager.</div>
+        </div>
+        <button class="icon-button" type="button" @click="orgPickerOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="stack" x-show="availableOrgAgents.length">
+          <template x-for="agent in availableOrgAgents" :key="'avail-' + agent.id">
+            <button class="selector-button" type="button" @click="addAgentToOrg(agent.id)">
+              <div class="split-meta">
+                <div>
+                  <strong x-text="agent.name || agent.id"></strong>
+                  <div class="hint" style="margin-top:6px" x-text="agent.group || agent.capability || agent.id"></div>
+                </div>
+                <span>＋</span>
+              </div>
+            </button>
+          </template>
+        </div>
+        <div class="empty-state" x-show="!availableOrgAgents.length">No additional agents available.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast-stack">
+    <template x-for="toast in toasts" :key="toast.id">
+      <div class="toast" :class="toast.kind">
+        <strong x-text="toast.title"></strong>
+        <div class="hint" style="margin-top:6px" x-text="toast.message"></div>
+      </div>
+    </template>
+  </div>
+
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.store('app', {
+        route: 'home',
+        routeParam: null,
+        sidebarCollapsed: { chat: false, agents: false, managers: false },
+        commandPaletteOpen: false
+      });
+
+      Alpine.store('data', {
+        agents: [],
+        managers: [],
+        activity: [],
+        chats: [],
+        version: null
+      });
+    });
+
+    function supervisorApp() {
+      return {
+        loading: false,
+        errorMessage: '',
+        sseStatus: 'disconnected',
+        agentSearch: '',
+        managerSearch: '',
+        taskSearch: '',
+        activityFilter: 'all',
+        selectedAgent: null,
+        selectedManager: null,
+        agentHistory: [],
+        managerHistory: [],
+        expanded: {},
+        selectedTaskId: null,
+        activeChat: null,
+        chatDraft: '',
+        commandQuery: '',
+        commandIndex: 0,
+        settingsOpen: false,
+        newTaskOpen: false,
+        chatPickerOpen: false,
+        orgPickerOpen: false,
+        availableOrgAgents: [],
+        toasts: [],
+        typingChats: {},
+        refreshTimer: null,
+        pollers: {},
+        now: Date.now(),
+        newTaskForm: {
+          kind: 'agent',
+          managerId: '',
+          id: '',
+          name: '',
+          agent: '',
+          cwd: '',
+          schedule: 'never',
+          prompt: ''
+        },
+
+        get app() { return Alpine.store('app'); },
+        get data() { return Alpine.store('data'); },
+        get route() { return this.app.route; },
+
+        async init() {
+          this.setupRouting();
+          await this.refreshAll();
+          this.connectEvents();
+          setInterval(() => { this.now = Date.now(); }, 1000);
+        },
+
+        async request(url, options = {}) {
+          const response = await fetch(url, {
+            headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+            ...options
+          });
+          const contentType = response.headers.get('content-type') || '';
+          const body = contentType.includes('application/json') ? await response.json() : await response.text();
+          if (!response.ok) {
+            throw new Error((body && body.error) || (typeof body === 'string' ? body : 'Request failed'));
+          }
+          return body;
+        },
+
+        setupRouting() {
+          const applyRoute = async () => {
+            const { route, param } = this.parseHash();
+            this.app.route = route;
+            this.app.routeParam = param;
+            await this.handleRouteChange();
+          };
+          window.addEventListener('hashchange', applyRoute);
+          if (!window.location.hash) {
+            window.location.hash = '#/home';
+          }
+          applyRoute();
+        },
+
+        parseHash() {
+          const hash = (window.location.hash || '#/home').replace(/^#\/?/, '');
+          const parts = hash.split('/').filter(Boolean);
+          const first = parts[0] || 'home';
+          const second = parts[1] ? decodeURIComponent(parts.slice(1).join('/')) : null;
+          if (first === 'agents' && second) return { route: 'agent-detail', param: second };
+          if (first === 'managers' && second) return { route: 'manager-detail', param: second };
+          if (first === 'chat' && second) return { route: 'chat-detail', param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'chat', 'activity'].includes(first)) return { route: first, param: second };
+          return { route: 'home', param: null };
+        },
+
+        async handleRouteChange() {
+          if (this.route === 'agent-detail' && this.app.routeParam) {
+            await this.loadAgentDetail(this.app.routeParam);
+          } else if (this.route === 'manager-detail' && this.app.routeParam) {
+            await this.loadManagerDetail(this.app.routeParam);
+          } else if (this.route === 'chat-detail' && this.app.routeParam) {
+            await this.openChat(this.app.routeParam);
+          }
+        },
+
+        goTo(hash) {
+          window.location.hash = hash;
+        },
+
+        async refreshAll(showLoading = true) {
+          if (showLoading) this.loading = true;
+          this.errorMessage = '';
+          try {
+            const [agents, managers, version, chats] = await Promise.all([
+              this.request('/api/agents'),
+              this.request('/api/managers'),
+              this.request('/api/version'),
+              this.request('/api/chats')
+            ]);
+            this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
+            this.data.managers = managers.map((manager) => this.normalizeManager(manager));
+            this.data.version = version;
+            this.data.chats = chats;
+            await this.loadActivity();
+            await this.handleRouteChange();
+          } catch (error) {
+            this.errorMessage = error.message;
+            this.showToast('Load failed', error.message, 'error');
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        normalizeAgent(agent) {
+          const id = agent.agent_id || agent.id || agent.config?.id;
+          const schedule = agent.config?.schedule || agent.schedule || 'never';
+          return {
+            ...agent,
+            id,
+            name: agent.config?.name || agent.name || id,
+            status: (agent.status || 'idle').toLowerCase(),
+            config: agent.config || {},
+            schedule,
+            scheduleDraft: schedule,
+            promptDraft: agent.config?.prompt || '',
+            scheduleSummary: agent.scheduleDescription || this.humanizeSchedule(schedule),
+            nextRun: this.computeNextRun(schedule),
+            key: `agent-${id}`
+          };
+        },
+
+        normalizeManager(manager) {
+          const assignments = (manager.config?.assignments || []).map((assignment) => ({
+            ...assignment,
+            scheduleDraft: assignment.schedule || 'never',
+            nextRun: assignment.nextRun || this.computeNextRun(assignment.schedule),
+            scheduleDescription: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule)
+          }));
+          return {
+            ...manager,
+            id: manager.manager_id || manager.id || manager.config?.id,
+            name: manager.config?.name || manager.name || manager.manager_id,
+            status: (manager.status || 'idle').toLowerCase(),
+            config: { ...(manager.config || {}), assignments },
+            key: `manager-${manager.manager_id || manager.id}`
+          };
+        },
+
+        async loadAgentDetail(id) {
+          try {
+            const [agent, history] = await Promise.all([
+              this.request(`/api/agents/${encodeURIComponent(id)}`),
+              this.request(`/api/agents/${encodeURIComponent(id)}/history?limit=10`)
+            ]);
+            this.selectedAgent = this.normalizeAgent(agent);
+            this.selectedAgent.promptDraft = this.selectedAgent.config?.prompt || '';
+            this.selectedAgent.scheduleDraft = this.selectedAgent.schedule;
+            this.agentHistory = history;
+          } catch (error) {
+            this.showToast('Agent detail failed', error.message, 'error');
+          }
+        },
+
+        async loadManagerDetail(id) {
+          try {
+            const [manager, history] = await Promise.all([
+              this.request(`/api/managers/${encodeURIComponent(id)}`),
+              this.request(`/api/managers/${encodeURIComponent(id)}/history?limit=10`)
+            ]);
+            this.selectedManager = this.normalizeManager(manager);
+            this.managerHistory = history;
+          } catch (error) {
+            this.showToast('Manager detail failed', error.message, 'error');
+          }
+        },
+
+        async loadActivity() {
+          const agentRequests = this.data.agents.map((agent) => this.request(`/api/agents/${encodeURIComponent(agent.id)}/history?limit=6`).then((history) => ({ agent, history })).catch(() => ({ agent, history: [] })));
+          const managerRequests = this.data.managers.map((manager) => this.request(`/api/managers/${encodeURIComponent(manager.id)}/history?limit=6`).then((history) => ({ manager, history })).catch(() => ({ manager, history: [] })));
+          const results = await Promise.all([...agentRequests, ...managerRequests]);
+          const activity = [];
+          for (const result of results) {
+            if (result.agent) {
+              result.history.forEach((run) => {
+                activity.push({
+                  id: `agent-${run.id}`,
+                  entityType: 'Agent',
+                  entityName: result.agent.name,
+                  runType: 'Task',
+                  status: this.agentRunStatus(run),
+                  startedAt: run.started_at,
+                  finishedAt: run.finished_at,
+                  durationMs: this.durationBetween(run.started_at, run.finished_at),
+                  output: run.output || run.error || '',
+                  preview: this.preview(run.output || run.error || ''),
+                  route: `#/agents/${encodeURIComponent(result.agent.id)}`
+                });
+              });
+            }
+            if (result.manager) {
+              result.history.forEach((run) => {
+                activity.push({
+                  id: `manager-${run.id}`,
+                  entityType: 'Manager',
+                  entityName: result.manager.name,
+                  runType: 'Assignment',
+                  status: this.managerRunStatus(run),
+                  startedAt: run.started_at,
+                  finishedAt: run.finished_at,
+                  durationMs: this.durationBetween(run.started_at, run.finished_at),
+                  output: run.result || run.error || '',
+                  preview: this.preview(run.result || run.error || ''),
+                  route: `#/managers/${encodeURIComponent(result.manager.id)}`
+                });
+              });
+            }
+          }
+          this.data.activity = activity.sort((a, b) => new Date(b.finishedAt || b.startedAt) - new Date(a.finishedAt || a.startedAt));
+        },
+
+        connectEvents() {
+          try {
+            const source = new EventSource('/api/events');
+            this.sseStatus = 'connecting';
+            source.onopen = () => { this.sseStatus = 'connected'; };
+            source.onerror = () => { this.sseStatus = 'reconnecting'; };
+            source.onmessage = () => { this.scheduleRefresh(); };
+            ['agent-status', 'manager-status', 'run-started', 'chat-message'].forEach((eventName) => {
+              source.addEventListener(eventName, (event) => {
+                if (eventName === 'chat-message') {
+                  const payload = JSON.parse(event.data || '{}');
+                  if (this.activeChat && payload.chatId === this.activeChat.id) {
+                    this.openChat(this.activeChat.id, false);
+                  }
+                }
+                this.scheduleRefresh();
+              });
+            });
+          } catch {
+            this.sseStatus = 'unavailable';
+          }
+        },
+
+        scheduleRefresh() {
+          clearTimeout(this.refreshTimer);
+          this.refreshTimer = setTimeout(() => this.refreshAll(false), 400);
+        },
+
+        sidebarSections() {
+          return [
+            { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
+            { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', collapsible: true, items: this.sortedChats().slice(0, 8).map((chat) => ({ id: chat.id, label: chat.title, href: `#/chat/${chat.id}`, active: this.route === 'chat-detail' && this.app.routeParam === chat.id, statusClass: this.chatStatusClass(chat) })) },
+            { key: 'agents', label: 'Workloads', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', collapsible: true, items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) },
+            { key: 'managers', label: 'Orchestration', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', collapsible: true, items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
+            { key: 'tasks', label: 'Execution', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [], collapsible: false },
+            { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
+          ];
+        },
+
+        toggleSidebar(key) {
+          this.app.sidebarCollapsed[key] = !this.app.sidebarCollapsed[key];
+        },
+
+        isRouteGroup(group) {
+          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail';
+          if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
+          if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
+          return this.route === group;
+        },
+
+        filteredAgents() {
+          const query = this.agentSearch.trim().toLowerCase();
+          if (!query) return this.data.agents;
+          return this.data.agents.filter((agent) => [agent.name, agent.config.group, agent.scheduleSummary, agent.config.agent].filter(Boolean).join(' ').toLowerCase().includes(query));
+        },
+
+        filteredManagers() {
+          const query = this.managerSearch.trim().toLowerCase();
+          if (!query) return this.data.managers;
+          return this.data.managers.filter((manager) => {
+            const haystack = [manager.name, manager.config.description, ...(manager.orgDetails || []).map((agent) => agent.name || agent.id), ...(manager.config.assignments || []).map((assignment) => assignment.name)].filter(Boolean).join(' ').toLowerCase();
+            return haystack.includes(query);
+          });
+        },
+
+        allTasks() {
+          const agentTasks = this.data.agents.map((agent) => ({
+            taskKey: `task-agent-${agent.id}`,
+            name: agent.name,
+            type: 'agent',
+            typeLabel: 'Task',
+            agentId: agent.id,
+            ownerName: agent.name,
+            status: agent.status,
+            schedule: agent.schedule,
+            scheduleDraft: agent.scheduleDraft,
+            scheduleSummary: agent.scheduleSummary,
+            nextRun: agent.nextRun,
+            lastRun: agent.lastRun,
+            prompt: agent.config.prompt || '',
+            managerId: null,
+            assignmentId: null
+          }));
+          const assignments = this.data.managers.flatMap((manager) => (manager.config.assignments || []).map((assignment) => ({
+            taskKey: `assignment-${manager.id}-${assignment.id}`,
+            name: assignment.name,
+            type: 'assignment',
+            typeLabel: 'Assignment',
+            assignmentId: assignment.id,
+            managerId: manager.id,
+            ownerName: manager.name,
+            status: manager.status,
+            schedule: assignment.schedule,
+            scheduleDraft: assignment.scheduleDraft,
+            scheduleSummary: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule),
+            nextRun: assignment.nextRun,
+            lastRun: manager.lastRun,
+            prompt: assignment.prompt || '',
+            agentId: null
+          })));
+          return [...agentTasks, ...assignments];
+        },
+
+        filteredTasks() {
+          const query = this.taskSearch.trim().toLowerCase();
+          const tasks = this.allTasks();
+          if (!query) return tasks;
+          return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
+        },
+
+        tasksForAgent(agentId) {
+          const direct = this.allTasks().filter((task) => task.agentId === agentId);
+          const managerAssignments = this.data.managers
+            .filter((manager) => (manager.config.org || []).includes(agentId))
+            .flatMap((manager) => (manager.config.assignments || []).map((assignment) => ({
+              taskKey: `assignment-${manager.id}-${assignment.id}`,
+              name: assignment.name,
+              type: 'assignment',
+              typeLabel: 'Assignment',
+              assignmentId: assignment.id,
+              managerId: manager.id,
+              ownerName: manager.name,
+              status: manager.status,
+              scheduleDraft: assignment.scheduleDraft,
+              scheduleSummary: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule),
+              nextRun: assignment.nextRun,
+              prompt: assignment.prompt || '',
+              agentId: null
+            })));
+          return [...direct, ...managerAssignments];
+        },
+
+        runningEntities() {
+          const activeAgents = this.data.agents.filter((agent) => agent.status === 'running').map((agent) => ({
+            key: `running-${agent.id}`,
+            kind: 'Agent',
+            name: agent.name,
+            summary: agent.scheduleSummary,
+            startedAt: agent.lastRun?.started_at || agent.last_run || new Date().toISOString()
+          }));
+          const activeManagers = this.data.managers.filter((manager) => manager.status === 'running').map((manager) => ({
+            key: `running-${manager.id}`,
+            kind: 'Manager',
+            name: manager.name,
+            summary: `${(manager.config.assignments || []).length} assignments`,
+            startedAt: manager.lastRun?.started_at || manager.last_active || new Date().toISOString()
+          }));
+          return [...activeAgents, ...activeManagers].sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+        },
+
+        recentCompletions() {
+          return this.data.activity.filter((entry) => entry.status === 'success' || entry.status === 'failed').slice(0, 10);
+        },
+
+        upcomingTasks() {
+          return this.allTasks()
+            .filter((task) => task.nextRun && new Date(task.nextRun) > new Date())
+            .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
+            .slice(0, 5);
+        },
+
+        alerts() {
+          const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+          return this.data.activity
+            .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff)
+            .slice(0, 8);
+        },
+
+        filteredActivity() {
+          if (this.activityFilter === 'all') return this.data.activity;
+          if (this.activityFilter === 'running') {
+            return this.runningEntities().map((entry) => ({
+              id: `live-${entry.key}`,
+              entityName: entry.name,
+              runType: entry.kind,
+              status: 'running',
+              startedAt: entry.startedAt,
+              durationMs: Date.now() - new Date(entry.startedAt).getTime(),
+              preview: entry.summary,
+              output: ''
+            }));
+          }
+          return this.data.activity.filter((entry) => entry.status === this.activityFilter);
+        },
+
+        sortedChats() {
+          return [...this.data.chats].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+        },
+
+        async openOrCreateChat(targetType, target) {
+          const existing = this.data.chats.find((chat) => chat.targetType === targetType && chat.target === target);
+          if (existing) {
+            this.goTo(`#/chat/${existing.id}`);
+            return;
+          }
+          const baseName = targetType === 'manager'
+            ? (this.data.managers.find((manager) => manager.id === target)?.name || target)
+            : (this.data.agents.find((agent) => agent.id === target)?.name || target);
+          const chatId = `${targetType}-${target.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${Date.now().toString(36)}`;
+          const chat = await this.request('/api/chats', {
+            method: 'POST',
+            body: JSON.stringify({ id: chatId, title: `Chat with ${baseName}`, target, targetType })
+          });
+          this.data.chats = [chat, ...this.data.chats];
+          this.goTo(`#/chat/${chat.id}`);
+        },
+
+        async openChat(chatId, navigate = true) {
+          try {
+            const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
+            this.activeChat = chat;
+            if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
+          } catch (error) {
+            this.showToast('Chat failed', error.message, 'error');
+          }
+        },
+
+        chatPlaceholder() {
+          if (!this.activeChat) return 'Pick a conversation';
+          if (this.activeChat.targetType === 'manager') return 'Ask this manager to coordinate work…';
+          return 'Save a note or context for this agent…';
+        },
+
+        chatHeaderSubtitle(chat) {
+          if (!chat) return '';
+          if (chat.targetType === 'manager') return 'Ad-hoc prompts are sent to the manager API.';
+          return 'Agent chat is stored here until a direct prompt endpoint is added.';
+        },
+
+        chatStatusClass(chat) {
+          const collection = chat.targetType === 'manager' ? this.data.managers : this.data.agents;
+          const target = collection.find((item) => item.id === chat.target);
+          return target && target.status === 'running' ? 'running' : 'idle';
+        },
+
+        async sendChat() {
+          if (!this.activeChat || !this.chatDraft.trim()) return;
+          const content = this.chatDraft.trim();
+          this.chatDraft = '';
+          await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ role: 'user', content })
+          });
+          await this.openChat(this.activeChat.id, false);
+
+          if (this.activeChat.targetType === 'manager') {
+            try {
+              this.typingChats[this.activeChat.id] = true;
+              const run = await this.request(`/api/managers/${encodeURIComponent(this.activeChat.target)}/prompt`, {
+                method: 'POST',
+                body: JSON.stringify({ prompt: content })
+              });
+              this.pollManagerRun(this.activeChat.target, run.runId, this.activeChat.id);
+            } catch (error) {
+              this.typingChats[this.activeChat.id] = false;
+              await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'assistant', content: `Error: ${error.message}` })
+              });
+              await this.openChat(this.activeChat.id, false);
+            }
+          } else {
+            await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: 'Direct agent chat is not exposed yet. Your note has been saved here; use Run Now from the agent detail page to trigger the saved prompt.' })
+            });
+            await this.openChat(this.activeChat.id, false);
+          }
+        },
+
+        async pollManagerRun(managerId, runId, chatId) {
+          const key = `${managerId}-${runId}`;
+          this.pollers[key] = true;
+          for (let attempt = 0; attempt < 120 && this.pollers[key]; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            try {
+              const run = await this.request(`/api/managers/${encodeURIComponent(managerId)}/runs/${runId}`);
+              if (run.status === 'completed' || run.status === 'error') {
+                this.typingChats[chatId] = false;
+                await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+                  method: 'POST',
+                  body: JSON.stringify({ role: 'assistant', content: run.result || run.error || 'Run finished.' })
+                });
+                if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+                delete this.pollers[key];
+                this.scheduleRefresh();
+                return;
+              }
+            } catch {
+              // keep polling
+            }
+          }
+          this.typingChats[chatId] = false;
+          delete this.pollers[key];
+        },
+
+        async runAgentNow(id) {
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/run`, { method: 'POST' });
+            this.showToast('Agent queued', 'Execution triggered successfully.', 'info');
+            this.scheduleRefresh();
+          } catch (error) {
+            this.showToast('Run failed', error.message, 'error');
+          }
+        },
+
+        async startManager(id) {
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(id)}/start`, { method: 'POST' });
+            this.showToast('Manager started', 'Schedules are now active.', 'info');
+            this.scheduleRefresh();
+          } catch (error) {
+            this.showToast('Start failed', error.message, 'error');
+          }
+        },
+
+        async runAssignment(managerId, assignmentId) {
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments/${encodeURIComponent(assignmentId)}/run`, { method: 'POST' });
+            this.showToast('Assignment queued', 'Manager assignment execution started.', 'info');
+            this.scheduleRefresh();
+          } catch (error) {
+            this.showToast('Assignment failed', error.message, 'error');
+          }
+        },
+
+        runTask(task) {
+          if (task.type === 'agent') this.runAgentNow(task.agentId);
+          if (task.type === 'assignment') this.runAssignment(task.managerId, task.assignmentId);
+        },
+
+        async saveAgentSchedule() {
+          if (!this.selectedAgent) return;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/schedule`, {
+              method: 'PUT',
+              body: JSON.stringify({ schedule: this.selectedAgent.scheduleDraft })
+            });
+            this.showToast('Schedule saved', 'Agent schedule updated.', 'info');
+            await this.loadAgentDetail(this.selectedAgent.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async saveAgentPrompt() {
+          if (!this.selectedAgent) return;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/prompt`, {
+              method: 'PUT',
+              body: JSON.stringify({ prompt: this.selectedAgent.promptDraft })
+            });
+            this.showToast('Prompt saved', 'Agent prompt updated.', 'info');
+            await this.loadAgentDetail(this.selectedAgent.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async saveAssignmentSchedule(assignment) {
+          if (!this.selectedManager) return;
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/assignments/${encodeURIComponent(assignment.id)}/schedule`, {
+              method: 'PUT',
+              body: JSON.stringify({ schedule: assignment.scheduleDraft })
+            });
+            this.showToast('Assignment saved', 'Schedule updated.', 'info');
+            await this.loadManagerDetail(this.selectedManager.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async saveTaskSchedule(task) {
+          if (task.type === 'agent') {
+            try {
+              await this.request(`/api/agents/${encodeURIComponent(task.agentId)}/schedule`, {
+                method: 'PUT',
+                body: JSON.stringify({ schedule: task.scheduleDraft })
+              });
+              this.showToast('Task updated', 'Agent schedule saved.', 'info');
+              await this.refreshAll(false);
+            } catch (error) {
+              this.showToast('Save failed', error.message, 'error');
+            }
+            return;
+          }
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/assignments/${encodeURIComponent(task.assignmentId)}/schedule`, {
+              method: 'PUT',
+              body: JSON.stringify({ schedule: task.scheduleDraft })
+            });
+            this.showToast('Assignment updated', 'Assignment schedule saved.', 'info');
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async openOrgPicker() {
+          if (!this.selectedManager) return;
+          this.orgPickerOpen = true;
+          try {
+            this.availableOrgAgents = await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/available-agents`);
+          } catch (error) {
+            this.showToast('Unable to load agents', error.message, 'error');
+          }
+        },
+
+        async addAgentToOrg(agentId) {
+          if (!this.selectedManager) return;
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/org`, {
+              method: 'POST',
+              body: JSON.stringify({ agentId })
+            });
+            this.orgPickerOpen = false;
+            this.showToast('Organization updated', 'Agent added to manager org.', 'info');
+            await this.loadManagerDetail(this.selectedManager.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Add failed', error.message, 'error');
+          }
+        },
+
+        async removeAgentFromOrg(agentId) {
+          if (!this.selectedManager) return;
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/org/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+            this.showToast('Organization updated', 'Agent removed from manager org.', 'info');
+            await this.loadManagerDetail(this.selectedManager.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Remove failed', error.message, 'error');
+          }
+        },
+
+        async submitNewTask() {
+          try {
+            if (this.newTaskForm.kind === 'agent') {
+              await this.request('/api/agents', {
+                method: 'POST',
+                body: JSON.stringify({
+                  id: this.newTaskForm.id,
+                  name: this.newTaskForm.name,
+                  cwd: this.newTaskForm.cwd,
+                  agent: this.newTaskForm.agent,
+                  schedule: this.newTaskForm.schedule,
+                  prompt: this.newTaskForm.prompt,
+                  durable: true
+                })
+              });
+            } else {
+              await this.request(`/api/managers/${encodeURIComponent(this.newTaskForm.managerId)}/assignments`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  id: this.newTaskForm.id,
+                  name: this.newTaskForm.name,
+                  prompt: this.newTaskForm.prompt,
+                  schedule: this.newTaskForm.schedule,
+                  enabled: true
+                })
+              });
+            }
+            this.showToast('Created', 'New workload saved.', 'info');
+            this.newTaskOpen = false;
+            this.newTaskForm = { kind: 'agent', managerId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', prompt: '' };
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Create failed', error.message, 'error');
+          }
+        },
+
+        toggleExpanded(key) {
+          this.expanded[key] = !this.expanded[key];
+        },
+
+        isExpanded(key) {
+          return !!this.expanded[key];
+        },
+
+        toggleSelectedTask(id) {
+          this.selectedTaskId = this.selectedTaskId === id ? null : id;
+        },
+
+        focusConfigSection(id) {
+          document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+
+        openCommandPalette() {
+          this.app.commandPaletteOpen = true;
+          this.commandIndex = 0;
+          this.commandQuery = '';
+          this.$nextTick(() => this.$refs.commandInput?.focus());
+        },
+
+        closeCommandPalette() {
+          this.app.commandPaletteOpen = false;
+        },
+
+        commandItems() {
+          const items = [
+            { key: 'go-home', icon: '🏠', label: 'Go to Home', meta: 'Dashboard overview', action: () => this.goTo('#/home') },
+            ...this.data.agents.flatMap((agent) => ([
+              { key: `view-agent-${agent.id}`, icon: '🤖', label: `View agent: ${agent.name}`, meta: agent.scheduleSummary, action: () => this.goTo(`#/agents/${encodeURIComponent(agent.id)}`) },
+              { key: `run-agent-${agent.id}`, icon: '▶', label: `Run ${agent.name}`, meta: 'Trigger agent immediately', action: () => this.runAgentNow(agent.id) },
+              { key: `chat-agent-${agent.id}`, icon: '💬', label: `Chat with ${agent.name}`, meta: 'Open persistent notes', action: () => this.openOrCreateChat('agent', agent.id) }
+            ])),
+            ...this.data.managers.flatMap((manager) => ([
+              { key: `view-manager-${manager.id}`, icon: '👔', label: `View manager: ${manager.name}`, meta: manager.config.description || 'Manager detail', action: () => this.goTo(`#/managers/${encodeURIComponent(manager.id)}`) },
+              { key: `start-manager-${manager.id}`, icon: '▶', label: `Start ${manager.name}`, meta: 'Activate schedules', action: () => this.startManager(manager.id) },
+              { key: `chat-manager-${manager.id}`, icon: '💬', label: `Chat with ${manager.name}`, meta: 'Open manager prompt thread', action: () => this.openOrCreateChat('manager', manager.id) }
+            ])),
+            ...this.allTasks().map((task) => ({
+              key: `task-${task.taskKey}`,
+              icon: '⚡',
+              label: task.type === 'agent' ? `Run task: ${task.name}` : `Run assignment: ${task.name}`,
+              meta: `${task.ownerName} • ${task.scheduleSummary}`,
+              action: () => this.runTask(task)
+            }))
+          ];
+          const query = this.commandQuery.trim().toLowerCase();
+          const filtered = query
+            ? items.filter((item) => `${item.label} ${item.meta}`.toLowerCase().includes(query))
+            : items;
+          return filtered.slice(0, 18);
+        },
+
+        activateCommandItem(item) {
+          this.closeCommandPalette();
+          item.action();
+        },
+
+        handleGlobalKeydown(event) {
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+            event.preventDefault();
+            this.openCommandPalette();
+            return;
+          }
+          if (event.key === 'Escape') {
+            this.closeCommandPalette();
+            this.settingsOpen = false;
+            this.newTaskOpen = false;
+            this.chatPickerOpen = false;
+            this.orgPickerOpen = false;
+            return;
+          }
+          if (!this.app.commandPaletteOpen) return;
+          const items = this.commandItems();
+          if (!items.length) return;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            this.commandIndex = (this.commandIndex + 1) % items.length;
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            this.commandIndex = (this.commandIndex - 1 + items.length) % items.length;
+          } else if (event.key === 'Enter') {
+            event.preventDefault();
+            this.activateCommandItem(items[this.commandIndex]);
+          }
+        },
+
+        showToast(title, message, kind = 'info') {
+          const toast = { id: `${Date.now()}-${Math.random()}`, title, message, kind };
+          this.toasts = [...this.toasts, toast].slice(-4);
+          setTimeout(() => {
+            this.toasts = this.toasts.filter((entry) => entry.id !== toast.id);
+          }, 4200);
+        },
+
+        versionLabel() {
+          if (!this.data.version) return 'Version unavailable';
+          const dirty = this.data.version.dirty ? ' • dirty' : '';
+          return `${this.data.version.gitHash || 'unknown'}${dirty}`;
+        },
+
+        sseStatusLabel() {
+          return `Realtime: ${this.sseStatus}`;
+        },
+
+        statusLabel(status) {
+          const value = (status || 'idle').toLowerCase();
+          if (value === 'error') return 'Error';
+          if (value === 'failed') return 'Failed';
+          if (value === 'success' || value === 'completed') return 'Success';
+          return value.charAt(0).toUpperCase() + value.slice(1);
+        },
+
+        statusClass(status) {
+          const value = (status || 'idle').toLowerCase();
+          if (value === 'error') return 'failed';
+          if (value === 'completed') return 'success';
+          return value;
+        },
+
+        preview(text) {
+          return (text || 'No output').replace(/\s+/g, ' ').trim().slice(0, 180) || 'No output';
+        },
+
+        agentRunStatus(run) {
+          if (!run) return 'idle';
+          if (run.finished_at && Number(run.exit_code) === 0) return 'success';
+          if (run.finished_at && Number(run.exit_code) !== 0) return 'failed';
+          return 'running';
+        },
+
+        managerRunStatus(run) {
+          if (!run) return 'idle';
+          if (run.status === 'completed') return 'success';
+          if (run.status === 'error') return 'failed';
+          return run.status || 'idle';
+        },
+
+        agentCommandPreview(agent) {
+          if (!agent) return '';
+          return [`cwd: ${agent.config.cwd || ''}`, `agent: ${agent.config.agent || ''}`, `prompt: ${agent.config.prompt || ''}`].join('\n');
+        },
+
+        durationBetween(start, end) {
+          const startMs = start ? new Date(start).getTime() : 0;
+          const endMs = end ? new Date(end).getTime() : Date.now();
+          if (!startMs) return 0;
+          return Math.max(0, endMs - startMs);
+        },
+
+        formatDuration(ms) {
+          const total = Math.max(0, Math.floor((ms || 0) / 1000));
+          const hours = Math.floor(total / 3600);
+          const minutes = Math.floor((total % 3600) / 60);
+          const seconds = total % 60;
+          if (hours) return `${hours}h ${minutes}m`;
+          if (minutes) return `${minutes}m ${seconds}s`;
+          return `${seconds}s`;
+        },
+
+        elapsedSince(timestamp) {
+          if (!timestamp) return '—';
+          return this.formatDuration(this.now - new Date(timestamp).getTime());
+        },
+
+        formatRelative(timestamp) {
+          if (!timestamp) return '—';
+          const diff = this.now - new Date(timestamp).getTime();
+          const abs = Math.abs(diff);
+          const suffix = diff >= 0 ? 'ago' : 'from now';
+          const minutes = Math.floor(abs / 60000);
+          if (minutes < 1) return `just now`;
+          if (minutes < 60) return `${minutes}m ${suffix}`;
+          const hours = Math.floor(minutes / 60);
+          if (hours < 24) return `${hours}h ${suffix}`;
+          const days = Math.floor(hours / 24);
+          return `${days}d ${suffix}`;
+        },
+
+        formatDateTime(timestamp) {
+          if (!timestamp) return '—';
+          return new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        },
+
+        formatCountdown(timestamp) {
+          if (!timestamp) return '—';
+          const delta = new Date(timestamp).getTime() - this.now;
+          if (delta <= 0) return 'due now';
+          return `in ${this.formatDuration(delta)}`;
+        },
+
+        humanizeSchedule(schedule) {
+          const value = (schedule || 'never').trim();
+          if (!value || value.toLowerCase() === 'never') return 'No schedule';
+          const interval = value.match(/^(\d+)\s*([smhdw])$/i);
+          if (interval) {
+            const unitMap = { s: 'second', m: 'minute', h: 'hour', d: 'day', w: 'week' };
+            const amount = Number(interval[1]);
+            const unit = unitMap[interval[2].toLowerCase()];
+            return `Every ${amount} ${unit}${amount === 1 ? '' : 's'}`;
+          }
+          if (/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/.test(value)) return `Cron • ${value}`;
+          return value;
+        },
+
+        computeNextRun(schedule) {
+          const value = (schedule || '').trim();
+          if (!value || value.toLowerCase() === 'never') return null;
+          const now = new Date();
+          const interval = value.match(/^(\d+)\s*([smhdw])$/i);
+          if (interval) {
+            const multipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000, w: 604800000 };
+            const amount = Number(interval[1]);
+            const unit = interval[2].toLowerCase();
+            return new Date(now.getTime() + amount * multipliers[unit]).toISOString();
+          }
+          const weekdays = value.match(/^weekdays?\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+          if (weekdays) {
+            const next = new Date(now);
+            let hour = Number(weekdays[1]) % 12;
+            if (weekdays[3].toLowerCase() === 'pm') hour += 12;
+            const minute = Number(weekdays[2] || 0);
+            next.setSeconds(0, 0);
+            next.setHours(hour, minute, 0, 0);
+            while (next <= now || next.getDay() === 0 || next.getDay() === 6) next.setDate(next.getDate() + 1);
+            return next.toISOString();
+          }
+          const cron = value.split(/\s+/);
+          if (cron.length === 5) {
+            const probe = new Date(now.getTime());
+            probe.setSeconds(0, 0);
+            for (let i = 0; i < 525600; i += 1) {
+              probe.setMinutes(probe.getMinutes() + 1);
+              if (this.matchesCron(probe, cron)) return probe.toISOString();
+            }
+          }
+          return null;
+        },
+
+        matchesCron(date, cron) {
+          const [min, hour, day, month, weekDay] = cron;
+          return [
+            this.matchesCronField(date.getMinutes(), min),
+            this.matchesCronField(date.getHours(), hour),
+            this.matchesCronField(date.getDate(), day),
+            this.matchesCronField(date.getMonth() + 1, month),
+            this.matchesCronField(date.getDay(), weekDay)
+          ].every(Boolean);
+        },
+
+        matchesCronField(value, field) {
+          if (field === '*') return true;
+          return field.split(',').some((part) => {
+            if (part.startsWith('*/')) {
+              const step = Number(part.slice(2));
+              return step > 0 && value % step === 0;
+            }
+            if (part.includes('-')) {
+              const [start, end] = part.split('-').map(Number);
+              return value >= start && value <= end;
+            }
+            return Number(part) === value;
+          });
+        }
+      };
+    }
+  </script>
+</body>
+</html>
