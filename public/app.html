@@ -504,6 +504,51 @@
       letter-spacing: 0.04em;
       color: var(--cp-text-muted);
     }
+    .md-output {
+      max-height: 300px;
+      overflow: auto;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      padding: 12px 16px;
+      background: var(--cp-surface-soft);
+      border-radius: 8px;
+      border: 1px solid var(--cp-border);
+    }
+    .md-output pre {
+      background: var(--cp-surface);
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.78rem;
+    }
+    .md-output code {
+      background: var(--cp-surface);
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-size: 0.78rem;
+    }
+    .md-output table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0;
+    }
+    .md-output th, .md-output td {
+      border: 1px solid var(--cp-border);
+      padding: 6px 10px;
+      text-align: left;
+      font-size: 0.78rem;
+    }
+    .md-output th {
+      background: var(--cp-surface);
+    }
+    .md-output ul, .md-output ol {
+      padding-left: 20px;
+      margin: 6px 0;
+    }
+    .md-output h1, .md-output h2, .md-output h3 {
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
     .card,
     .list-card,
     .detail-panel,
@@ -852,6 +897,23 @@
     }
     .message-row.user .message-meta {
       color: color-mix(in srgb, var(--cp-accent-fg) 70%, transparent);
+    }
+    .message-bubble-wrap {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .message-share-btn {
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      align-self: flex-start;
+      margin-top: 6px;
+      padding: 6px 8px;
+      font-size: 0.8rem;
+    }
+    .message-row:hover .message-share-btn,
+    .message-row:focus-within .message-share-btn {
+      opacity: 1;
     }
     .chat-input-row {
       display: grid;
@@ -1607,10 +1669,13 @@
                             </div>
                             <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
                           </div>
-                          <button class="btn" type="button" @click="toggleExpanded('agent-' + run.id)">Output</button>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="toggleExpanded('agent-' + run.id)">Output</button>
+                            <button class="btn ghost" type="button" @click="openShareModal(run.output || run.error, 'Agent run — ' + formatDateTime(run.started_at), 'run-output')">📤</button>
+                          </div>
                         </div>
                         <div x-show="isExpanded('agent-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                          <pre x-text="run.output || run.error || 'No output captured.'"></pre>
+                          <div class="md-output" x-html="renderMarkdown(run.output || run.error || 'No output captured.')"></div>
                         </div>
                       </div>
                     </template>
@@ -1851,10 +1916,13 @@
                             </div>
                             <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
                           </div>
-                          <button class="btn" type="button" @click="toggleExpanded('manager-' + run.id)">Output</button>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="toggleExpanded('manager-' + run.id)">Output</button>
+                            <button class="btn ghost" type="button" @click="openShareModal(run.result || run.error, 'Manager run — ' + formatDateTime(run.started_at), 'run-output')">📤</button>
+                          </div>
                         </div>
                         <div x-show="isExpanded('manager-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                          <pre x-text="run.result || run.error || 'No output captured.'"></pre>
+                          <div class="md-output" x-html="renderMarkdown(run.result || run.error || 'No output captured.')"></div>
                         </div>
                       </div>
                     </template>
@@ -1960,10 +2028,13 @@
                                 </div>
                                 <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
                               </div>
-                              <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
+                              <div class="toolbar">
+                                <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
+                                <button class="btn ghost" style="font-size:0.72rem" type="button" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
+                              </div>
                             </div>
                             <div x-show="isExpanded('task-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
-                              <pre style="max-height:200px;overflow:auto;font-size:0.75rem" x-text="run.output || run.result || run.error || 'No output captured.'"></pre>
+                              <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
                             </div>
                           </div>
                         </template>
@@ -2100,10 +2171,13 @@
                                   </div>
                                   <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
                                 </div>
-                                <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
+                                <div class="toolbar">
+                                  <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
+                                  <button class="btn ghost" style="font-size:0.72rem" type="button" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
+                                </div>
                               </div>
                               <div x-show="isExpanded('task-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
-                                <pre style="max-height:200px;overflow:auto;font-size:0.75rem" x-text="run.output || run.result || run.error || 'No output captured.'"></pre>
+                                <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
                               </div>
                             </div>
                           </template>
@@ -2159,6 +2233,7 @@
                     <div class="hint" style="margin-top:6px" x-text="activeChat ? chatHeaderSubtitle(activeChat) : ''"></div>
                   </div>
                   <div class="toolbar" x-show="activeChat">
+                    <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
                   </div>
                 </div>
@@ -2167,9 +2242,12 @@
                   <div class="messages-stack">
                     <template x-for="(message, index) in (activeChat?.messages || [])" :key="message.timestamp + '-' + index">
                       <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
-                        <div class="message-bubble">
-                          <div x-html="renderMessageContent(message)"></div>
-                          <div class="message-meta" x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></div>
+                        <div class="message-bubble-wrap">
+                          <div class="message-bubble">
+                            <div x-html="renderMessageContent(message)"></div>
+                            <div class="message-meta" x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></div>
+                          </div>
+                          <button class="btn ghost message-share-btn" type="button" @click="openShareModal(message.content || '', 'Chat message — ' + formatDateTime(message.timestamp), 'chat-message')">📤</button>
                         </div>
                       </div>
                     </template>
@@ -2247,11 +2325,14 @@
                         </div>
                         <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.startedAt) + ' • ' + formatDuration(entry.durationMs)"></div>
                       </div>
-                      <button class="btn" type="button" @click="toggleExpanded('activity-' + entry.id)">Output</button>
+                      <div class="toolbar">
+                        <button class="btn" type="button" @click="toggleExpanded('activity-' + entry.id)">Output</button>
+                        <button class="btn ghost" type="button" @click="openShareModal(entry.output, 'Activity — ' + entry.entityName, 'run-output')">📤</button>
+                      </div>
                     </div>
                     <div class="hint" style="margin-top:10px" x-text="entry.preview"></div>
                     <div x-show="isExpanded('activity-' + entry.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                      <pre x-text="entry.output || 'No output captured.'"></pre>
+                      <div class="md-output" x-html="renderMarkdown(entry.output || 'No output captured.')"></div>
                     </div>
                   </div>
                 </article>
@@ -2287,6 +2368,26 @@
         </div>
       </div>
     </section>
+  </div>
+
+  <!-- Share Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="shareModalOpen" x-transition.opacity @click.self="shareModalOpen = false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:480px">
+      <div class="modal-header">
+        <h2 class="modal-title">📤 Share</h2>
+        <button class="icon-button" type="button" @click="shareModalOpen = false">✕</button>
+      </div>
+      <div style="padding:18px">
+        <div class="field-label">Subject</div>
+        <input class="field-input" type="text" x-model="shareSubject" style="margin-bottom:14px" />
+        <div class="field-label">Preview</div>
+        <div class="md-output" style="max-height:200px;margin-bottom:18px" x-html="renderMarkdown((shareContent || '').substring(0, 2000))"></div>
+        <div style="display:flex;gap:12px">
+          <button class="btn primary" type="button" @click="shareViaEmail()" style="flex:1">📧 Email</button>
+          <button class="btn" type="button" @click="shareViaTeams()" style="flex:1">💬 Teams</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="modal-backdrop" x-show="settingsOpen" x-transition.opacity.duration.150ms @click.self="settingsOpen = false" x-cloak>
@@ -2647,6 +2748,10 @@
         commandQuery: '',
         commandIndex: 0,
         settingsOpen: false,
+        shareModalOpen: false,
+        shareContent: '',
+        shareSubject: '',
+        shareContext: '',
         newTaskOpen: false,
         chatPickerOpen: false,
         orgPickerOpen: false,
@@ -3457,7 +3562,55 @@
           return this.renderMarkdown(message.content);
         },
 
+        openShareModal(content, subject, context) {
+          this.shareContent = content == null ? '' : String(content);
+          this.shareSubject = subject || 'Shared from Agent Supervisor';
+          this.shareContext = context || '';
+          this.shareModalOpen = true;
+        },
+
+        async shareViaEmail() {
+          try {
+            await this.request('/api/share/email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: this.shareContent, subject: this.shareSubject })
+            });
+            this.shareModalOpen = false;
+            this.showToast('Email draft opened', 'Check your email client.', 'info');
+          } catch (e) {
+            this.showToast('Share failed', e.message, 'error');
+          }
+        },
+
+        async shareViaTeams() {
+          try {
+            await this.request('/api/share/teams', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: this.shareContent, subject: this.shareSubject })
+            });
+            this.shareModalOpen = false;
+            this.showToast('Sent to Teams', 'Message posted to channel.', 'info');
+          } catch (e) {
+            this.showToast('Share failed', e.message, 'error');
+          }
+        },
+
+        shareChatConversation() {
+          if (!this.activeChat) return;
+          const messages = this.activeChat.messages || [];
+          const md = messages.length
+            ? messages.map((m) => {
+                const role = m.role === 'assistant' ? '**Agent:**' : '**You:**';
+                return `${role}\n${m.content || ''}`;
+              }).join('\n\n---\n\n')
+            : 'No messages in this conversation.';
+          this.openShareModal(md, 'Chat conversation — ' + (this.activeChat.name || this.activeChat.title || 'Untitled'), 'chat-full');
+        },
+
         renderMarkdown(src) {
+          src = src == null ? '' : String(src);
           // Lightweight markdown → HTML renderer
           const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const lines = src.split('\n');
@@ -4332,6 +4485,7 @@
           if (event.key === 'Escape') {
             this.closeCommandPalette();
             this.settingsOpen = false;
+            this.shareModalOpen = false;
             this.newTaskOpen = false;
             this.chatPickerOpen = false;
             this.orgPickerOpen = false;

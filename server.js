@@ -1225,6 +1225,105 @@ pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; 
   res.json({ ok: true });
 });
 
+// Share content via email (.eml file)
+app.post('/api/share/email', (req, res) => {
+  const { content, subject } = req.body;
+  if (!content) return res.status(400).json({ error: 'No content to share' });
+
+  const { marked } = require('marked');
+  const htmlBody = marked.parse(content);
+  const htmlEmail = `<html><head><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #222; padding: 16px; }
+h1, h2, h3 { color: #333; }
+a { color: #0078d4; }
+hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+code { background: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-size: 13px; }
+pre { background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+table { border-collapse: collapse; }
+th, td { border: 1px solid #ddd; padding: 6px 10px; }
+</style></head><body>${htmlBody}</body></html>`;
+
+  const boundary = `----=_Part_${Date.now()}`;
+  const eml = [
+    `Subject: ${subject || 'Shared from Agent Supervisor'}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `X-Unsent: 1`,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/plain; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    content,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/html; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    htmlEmail,
+    ``,
+    `--${boundary}--`
+  ].join('\r\n');
+
+  const draftDir = path.join(__dirname, '.share-drafts');
+  fs.mkdirSync(draftDir, { recursive: true });
+  const emlPath = path.join(draftDir, `share-${Date.now()}.eml`);
+  fs.writeFileSync(emlPath, eml, 'utf8');
+  const { exec } = require('child_process');
+  exec(`start "" "${emlPath}"`);
+  res.json({ ok: true });
+});
+
+// Share content to Teams channel
+app.post('/api/share/teams', (req, res) => {
+  const { content, subject } = req.body;
+  if (!content) return res.status(400).json({ error: 'No content to share' });
+
+  const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return res.status(400).json({ error: 'Teams webhook not configured. Set TEAMS_WEBHOOK_URL environment variable.' });
+  }
+
+  const card = {
+    '@type': 'MessageCard',
+    '@context': 'http://schema.org/extensions',
+    themeColor: 'b11f4b',
+    summary: subject || 'Shared from Agent Supervisor',
+    sections: [{
+      activityTitle: subject || 'Shared from Agent Supervisor',
+      activitySubtitle: new Date().toLocaleString(),
+      text: content.length > 5000 ? `${content.substring(0, 5000)}\n\n...(truncated)` : content,
+      markdown: true
+    }]
+  };
+
+  const https = require('https');
+  const url = new URL(webhookUrl);
+  const postData = JSON.stringify(card);
+  const options = {
+    hostname: url.hostname,
+    port: 443,
+    path: url.pathname + url.search,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+  };
+
+  const request = https.request(options, (response) => {
+    let data = '';
+    response.on('data', chunk => data += chunk);
+    response.on('end', () => {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        res.json({ ok: true });
+      } else {
+        res.status(502).json({ error: `Teams returned ${response.statusCode}: ${data}` });
+      }
+    });
+  });
+  request.on('error', (e) => res.status(502).json({ error: e.message }));
+  request.write(postData);
+  request.end();
+});
+
 // ---- Session History & Chat ----
 const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 
