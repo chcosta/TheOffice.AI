@@ -235,6 +235,20 @@
       font-size: 11px;
       color: var(--cp-text-soft);
     }
+    .section-chevron-btn {
+      background: none;
+      border: none;
+      color: var(--cp-text-soft);
+      cursor: pointer;
+      padding: 4px 6px;
+      font-size: 11px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+    .section-chevron-btn:hover {
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+    }
     .nav-list {
       display: grid;
       gap: 4px;
@@ -910,6 +924,151 @@
       color: var(--cp-text-muted);
       background: color-mix(in srgb, var(--cp-surface-soft) 80%, transparent);
     }
+    .discovery-groups {
+      display: grid;
+      gap: 16px;
+    }
+    .discovery-group {
+      display: grid;
+      gap: 10px;
+    }
+    .discovery-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 3px;
+      background: var(--cp-surface-soft);
+      border-radius: var(--radius-sm);
+      margin-bottom: 16px;
+      flex-shrink: 0;
+      position: sticky;
+      top: -18px;
+      z-index: 10;
+      border: 1px solid var(--cp-border);
+    }
+    .discovery-tab {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      border: none;
+      background: transparent;
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+      flex: 1;
+      text-align: center;
+    }
+    .discovery-tab:hover {
+      color: var(--cp-text);
+      background: var(--cp-bg);
+    }
+    .discovery-tab.active {
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .discovery-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 8px 0;
+      user-select: none;
+    }
+    .discovery-group-header .chevron {
+      transition: transform 0.2s;
+      font-size: 0.75rem;
+      color: var(--cp-text-muted);
+    }
+    .discovery-group-header .chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    .discovery-paths {
+      padding: 12px;
+      background: var(--cp-surface-soft);
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+    }
+    .discovery-paths .path-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .discovery-paths .path-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-family: var(--font-mono);
+    }
+    .discovery-paths .path-tag button {
+      background: none;
+      border: none;
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 0.85rem;
+    }
+    .discovery-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+      border: 1px solid color-mix(in srgb, var(--cp-border) 70%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--cp-surface) 86%, transparent);
+      padding: 14px;
+    }
+    .discovery-item.registered {
+      opacity: 0.72;
+    }
+    .discovery-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .discovery-overlay-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: var(--cp-text-muted);
+    }
+    .discovery-overlay-option input[type="checkbox"] {
+      margin: 0;
+    }
+    .manager-create-form {
+      padding: 16px;
+      background: var(--cp-surface-soft);
+      border-radius: var(--radius-sm);
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      border: 1px solid var(--cp-border);
+    }
+    .source-plugin { background: #8957e522; color: #d2a8ff; border-color: #8957e544; }
+    .source-marketplace { background: #f0883e22; color: #f0883e; border-color: #f0883e44; }
+    .source-repo-agent { background: #58a6ff22; color: #58a6ff; border-color: #58a6ff44; }
+    .source-local-plugin { background: #3fb95022; color: #3fb950; border-color: #3fb95044; }
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -1045,26 +1204,65 @@
                   <span class="section-chevron" x-text="app.sidebarCollapsed[section.key] ? '▸' : '▾'"></span>
                 </button>
               </template>
-              <template x-if="!section.collapsible">
+              <template x-if="!section.collapsible && !section.isGroup">
                 <div class="section-header" x-text="section.label"></div>
               </template>
 
-              <div class="nav-list" x-show="!section.collapsible || !app.sidebarCollapsed[section.key]" x-transition.opacity.duration.150ms>
-                <a class="nav-link"
-                   :class="{ active: isRouteGroup(section.routeGroup) }"
-                   :href="section.href">
-                  <span x-text="section.icon"></span>
-                  <span x-text="section.title"></span>
-                </a>
-                <template x-for="item in section.items" :key="item.id">
-                  <a class="sub-link"
-                     :class="{ active: item.active }"
-                     :href="item.href">
-                    <span class="nav-dot" :class="item.statusClass"></span>
-                    <span class="line-clamp" x-text="item.label"></span>
+              <!-- Grouped section (Resources, Executions) -->
+              <template x-if="section.isGroup">
+                <div class="nav-list" x-show="!app.sidebarCollapsed[section.key]" x-transition.opacity.duration.150ms>
+                  <template x-for="child in section.children" :key="child.key">
+                    <div>
+                      <div style="display:flex;align-items:center">
+                        <a class="nav-link" style="flex:1"
+                           :class="{ active: isRouteGroup(child.routeGroup) }"
+                           :href="child.href">
+                          <span x-text="child.icon"></span>
+                          <span x-text="child.title"></span>
+                        </a>
+                        <button class="section-chevron-btn" type="button"
+                                x-show="child.items && child.items.length"
+                                @click.prevent.stop="app.sidebarCollapsed[child.key] = !app.sidebarCollapsed[child.key]"
+                                x-text="app.sidebarCollapsed[child.key] ? '▸' : '▾'"
+                                :title="app.sidebarCollapsed[child.key] ? 'Expand' : 'Collapse'">
+                        </button>
+                      </div>
+                      <template x-if="child.items && child.items.length && !app.sidebarCollapsed[child.key]">
+                        <div>
+                          <template x-for="item in child.items" :key="item.id">
+                            <a class="sub-link"
+                               :class="{ active: item.active }"
+                               :href="item.href">
+                              <span class="nav-dot" :class="item.statusClass"></span>
+                              <span class="line-clamp" x-text="item.label"></span>
+                            </a>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Flat section (Home, Chat, Activity) -->
+              <template x-if="!section.isGroup">
+                <div class="nav-list" x-show="!section.collapsible || !app.sidebarCollapsed[section.key]" x-transition.opacity.duration.150ms>
+                  <a class="nav-link"
+                     :class="{ active: isRouteGroup(section.routeGroup) }"
+                     :href="section.href">
+                    <span x-text="section.icon"></span>
+                    <span x-text="section.title"></span>
                   </a>
-                </template>
-              </div>
+                  <template x-for="item in section.items" :key="item.id">
+                    <a class="sub-link"
+                       :class="{ active: item.active }"
+                       :href="item.href">
+                      <span class="nav-dot" :class="item.statusClass"></span>
+                      <span class="line-clamp" x-text="item.label"></span>
+                    </a>
+                  </template>
+                </div>
+              </template>
             </section>
           </template>
         </div>
@@ -1223,14 +1421,15 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Agents</h1>
-                <p>View execution status, schedules, prompts, and recent runs for every registered agent.</p>
+                <p>View execution status, commands, prompts, and recent runs for every registered agent.</p>
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="data.agents.length + ' total'"></span>
+                <button class="btn primary" type="button" @click="openAgentDiscovery()">＋ Add Agent</button>
               </div>
             </div>
             <div class="search-row">
-              <input class="field-input" type="search" placeholder="Filter agents by name, group, or schedule…" x-model="agentSearch" />
+              <input class="field-input" type="search" placeholder="Filter agents by name, group, or command…" x-model="agentSearch" />
               <div class="hint" x-text="filteredAgents().length + ' shown'"></div>
             </div>
             <div class="cards-grid">
@@ -1249,8 +1448,8 @@
                       <div x-text="agent.lastRun ? formatRelative(agent.lastRun.finished_at || agent.lastRun.started_at) : 'Never'"></div>
                     </div>
                     <div>
-                      <span class="meta-label">Schedule</span>
-                      <div x-text="agent.scheduleSummary"></div>
+                      <span class="meta-label">Command</span>
+                      <div class="line-clamp" x-text="agent.config.agent || agentCommandPreview(agent)"></div>
                     </div>
                   </div>
                   <div class="split-meta">
@@ -1276,6 +1475,7 @@
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="focusConfigSection('agent-config')">⚙ Edit</button>
                 <button class="btn" type="button" @click="showToast('Reinstall flow is not exposed yet from the API.', 'info')">🔄 Reinstall</button>
+                <button class="btn danger" type="button" @click="removeAgent(selectedAgent.id)">🗑 Remove</button>
               </div>
             </div>
             <div class="detail-grid">
@@ -1409,6 +1609,7 @@
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="data.managers.length + ' total'"></span>
+                <button class="btn primary" type="button" @click="openCreateManager()">＋ Add Manager</button>
               </div>
             </div>
             <div class="search-row">
@@ -1457,6 +1658,7 @@
                 <button class="btn primary" type="button" @click="startManager(selectedManager.id)">▶ Start</button>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="focusConfigSection('manager-assignments')">⚙ Edit</button>
+                <button class="btn danger" type="button" @click="removeManager(selectedManager.id)">🗑 Remove</button>
               </div>
             </div>
             <div class="detail-grid">
@@ -1503,7 +1705,10 @@
                             </div>
                             <div class="hint line-clamp" style="margin-top:6px" x-text="assignment.prompt"></div>
                           </div>
-                          <button class="btn primary" type="button" @click="runAssignment(selectedManager.id, assignment.id)">▶ Run</button>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="editAssignmentInForm(assignment)">✏️ Edit</button>
+                            <button class="btn primary" type="button" @click="runAssignment(selectedManager.id, assignment.id)">▶ Run</button>
+                          </div>
                         </div>
                         <div style="margin-top:12px">
                           <div class="field-label"><span>Schedule</span><span class="hint" x-text="assignment.scheduleDescription || humanizeSchedule(assignment.schedule)"></span></div>
@@ -1533,6 +1738,48 @@
                     </template>
                   </div>
                   <div class="empty-state" x-show="!(selectedManager.config.assignments || []).length">No assignments configured.</div>
+                </section>
+
+                <section class="detail-panel" id="manager-assignment-editor">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title" x-text="selectedManager.editingAssignmentId ? 'Edit Assignment' : 'Create Assignment'"></h2>
+                      <div class="hint">Define a named assignment with a prompt and schedule for this manager.</div>
+                    </div>
+                    <button class="btn" type="button" x-show="selectedManager.editingAssignmentId" @click="resetManagerAssignmentForm()">＋ New</button>
+                  </div>
+                  <div class="config-grid">
+                    <div>
+                      <div class="field-label"><span>Assignment name</span></div>
+                      <input class="field-input" type="text" x-model="selectedManager.assignmentNameDraft" placeholder="e.g. Monitor Azure Health" />
+                    </div>
+                    <div>
+                      <div class="field-label"><span>Prompt</span></div>
+                      <textarea class="field-input field-area" x-model="selectedManager.assignmentPromptDraft" placeholder="What should the manager do..."></textarea>
+                    </div>
+                    <div>
+                      <div class="field-label"><span>Schedule</span></div>
+                      <div class="schedule-picker">
+                        <select class="field-input" x-model="selectedManager.assignmentSchedulePreset" @change="applyManagerAssignmentSchedulePreset($event.target.value)">
+                          <option value="never">Manual only (no schedule)</option>
+                          <option value="5m">Every 5 minutes</option>
+                          <option value="15m">Every 15 minutes</option>
+                          <option value="30m">Every 30 minutes</option>
+                          <option value="1h">Every hour</option>
+                          <option value="6h">Every 6 hours</option>
+                          <option value="24h">Daily</option>
+                          <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                          <option value="custom">Advanced (cron / custom)…</option>
+                        </select>
+                        <div x-show="selectedManager.assignmentSchedulePreset === 'custom'" x-transition style="margin-top:8px">
+                          <input class="field-input mono" type="text" x-model="selectedManager.assignmentScheduleDraft" placeholder="e.g. */15 * * * *" />
+                        </div>
+                      </div>
+                    </div>
+                    <div class="inline-actions">
+                      <button class="btn primary" type="button" @click="saveManagerAssignment()">Save Assignment</button>
+                    </div>
+                  </div>
                 </section>
               </div>
 
@@ -1636,6 +1883,91 @@
               </template>
             </div>
             <div class="empty-state" x-show="!filteredTasks().length">No tasks matched your filter.</div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'assignments'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Assignments</h1>
+                <p>Manager assignments — orchestrated prompts that chain multiple agents together.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" type="button" @click="newAssignmentOpen = !newAssignmentOpen">＋ New Assignment</button>
+              </div>
+            </div>
+
+            <!-- Inline New Assignment Form -->
+            <div class="card" x-show="newAssignmentOpen" x-transition.opacity.duration.150ms style="margin-bottom:20px">
+              <div class="card-header">
+                <div>
+                  <h2 class="card-title">Create Assignment</h2>
+                  <div class="card-subtitle">Define an orchestrated prompt for a manager to execute.</div>
+                </div>
+                <button class="icon-button" type="button" @click="newAssignmentOpen = false">✕</button>
+              </div>
+              <div class="config-grid" style="padding:18px">
+                <div>
+                  <div class="field-label">Manager</div>
+                  <select class="field-input" x-model="newAssignmentForm.managerId">
+                    <option value="">Select a manager…</option>
+                    <template x-for="m in data.managers" :key="m.id">
+                      <option :value="m.id" x-text="m.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <div class="field-label">Assignment Name</div>
+                  <input class="field-input" type="text" placeholder="e.g. Monitor Azure Status" x-model="newAssignmentForm.name" />
+                </div>
+                <div>
+                  <div class="field-label">Prompt</div>
+                  <textarea class="field-input" rows="3" placeholder="Describe what the manager should do…" x-model="newAssignmentForm.prompt"></textarea>
+                </div>
+                <div>
+                  <div class="field-label">Schedule</div>
+                  <select class="field-input" x-model="newAssignmentForm.schedule">
+                    <option value="never">Manual only</option>
+                    <option value="5m">Every 5 minutes</option>
+                    <option value="15m">Every 15 minutes</option>
+                    <option value="30m">Every 30 minutes</option>
+                    <option value="1h">Every hour</option>
+                    <option value="6h">Every 6 hours</option>
+                    <option value="24h">Daily</option>
+                    <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                  </select>
+                </div>
+                <div class="inline-actions">
+                  <button class="btn primary" type="button" @click="saveNewAssignment()">Create Assignment</button>
+                  <button class="btn ghost" type="button" @click="newAssignmentOpen = false">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <div class="search-row">
+              <input class="field-input" type="search" placeholder="Filter by assignment name, manager, or prompt…" x-model="assignmentSearch" />
+              <div class="hint" x-text="filteredAssignments().length + ' shown'"></div>
+            </div>
+            <div class="assignment-list">
+              <template x-for="task in filteredAssignments()" :key="task.taskKey">
+                <article class="task-card">
+                  <div class="assignment-top">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong x-text="task.name"></strong>
+                        <span class="type-badge">Assignment</span>
+                        <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
+                      <div class="hint mono" style="margin-top:6px;max-width:600px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="task.prompt"></div>
+                    </div>
+                    <div class="toolbar">
+                      <button class="btn" type="button" @click="goTo('#/managers/' + encodeURIComponent(task.managerId))">Open Manager</button>
+                      <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
+                    </div>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="empty-state" x-show="!filteredAssignments().length">No assignments matched your filter. Create assignments from the Manager detail page.</div>
           </section>
 
           <section x-show="!loading && !errorMessage && (route === 'chat' || route === 'chat-detail')" x-transition.opacity.duration.180ms>
@@ -1987,6 +2319,134 @@
     </section>
   </div>
 
+  <div class="modal-backdrop" x-show="agentDiscoveryOpen" x-transition.opacity.duration.150ms @click.self="agentDiscoveryOpen = false" x-cloak>
+    <section class="modal-card" style="max-width:920px">
+      <div class="modal-header">
+        <div>
+          <strong>Add Agent</strong>
+          <div class="hint" style="margin-top:6px">Discover installed plugins, marketplace plugins, repository agents, and managers.</div>
+        </div>
+        <div class="toolbar">
+          <button class="btn" type="button" @click="loadAgentDiscovery()">↻ Refresh</button>
+          <button class="icon-button" type="button" @click="agentDiscoveryOpen = false">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="discovery-paths">
+          <div class="split-meta">
+            <strong>Repository Paths</strong>
+            <span class="badge-count" x-text="agentDiscoveryPaths.length ? agentDiscoveryPaths.length + ' custom' : 'auto scan'"></span>
+          </div>
+          <div class="hint" style="margin-top:6px" x-text="agentDiscoveryPaths.length ? 'Custom paths override the default scan until removed.' : 'The parent of the server directory is scanned automatically when no custom paths are set.'"></div>
+          <div class="search-row" style="grid-template-columns:minmax(0,1fr) auto auto;margin-top:10px">
+            <input class="field-input mono" type="text" placeholder="C:\\repos\\my-repo" x-model="agentDiscoveryNewPath" @keydown.enter.prevent="addDiscoveryPath()" />
+            <button class="btn" type="button" @click="addDiscoveryPath()">Add</button>
+            <button class="btn" type="button" @click="$refs.dirPicker.click()" title="Browse for folder">📁</button>
+            <input type="file" x-ref="dirPicker" webkitdirectory style="display:none" @change="pickDirectory($event)" />
+          </div>
+          <div class="path-list">
+            <span class="path-tag" x-show="!agentDiscoveryPaths.length">Auto: parent of server directory</span>
+            <template x-for="(path, index) in agentDiscoveryPaths" :key="path + ':' + index">
+              <span class="path-tag">
+                <span x-text="path"></span>
+                <button type="button" @click="removeDiscoveryPath(index)" aria-label="Remove path">✕</button>
+              </span>
+            </template>
+          </div>
+        </div>
+
+        <div class="search-row" style="grid-template-columns:minmax(0,1fr) auto">
+          <input class="field-input" type="search" placeholder="Search by name, description, id, or source…" x-model="agentDiscoverySearch" />
+          <div class="hint" x-text="filteredDiscoveryCount() + ' shown'"></div>
+        </div>
+
+        <div class="discovery-tabs">
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'all' }" @click="agentDiscoveryTab = 'all'">All</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'installed' }" @click="agentDiscoveryTab = 'installed'">Installed</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'marketplace' }" @click="agentDiscoveryTab = 'marketplace'">Marketplace</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'repository' }" @click="agentDiscoveryTab = 'repository'">Repository</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'managers' }" @click="agentDiscoveryTab = 'managers'">Managers</button>
+        </div>
+
+        <div class="empty-state" x-show="agentDiscoveryLoading">Loading discovery results…</div>
+        <div class="empty-state" x-show="!agentDiscoveryLoading && agentDiscoveryError" x-text="agentDiscoveryError"></div>
+
+        <div class="discovery-groups" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab !== 'managers' && filteredDiscoveryCount()">
+          <template x-for="group in discoveryGroups()" :key="group.source">
+            <section class="discovery-group" x-show="group.items.length">
+              <button class="discovery-group-header" type="button" @click="toggleDiscoveryGroup(group.source)">
+                <span class="chevron" :class="{ collapsed: agentDiscoveryCollapsed[group.source] }">▼</span>
+                <strong x-text="group.label"></strong>
+                <span class="badge-count" x-text="group.items.length"></span>
+              </button>
+              <div x-show="!agentDiscoveryCollapsed[group.source]" x-transition>
+                <template x-for="item in group.items" :key="group.source + ':' + item.id + ':' + (item.pluginDir || item.cwd || item.installCmd || '')">
+                  <article class="discovery-item" :class="{ registered: item.registered }">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong x-text="item.displayName || item.name || item.id"></strong>
+                        <span class="source-badge" :class="discoverySourceClass(item)" x-text="discoverySourceLabel(item)"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="item.description || item.id"></div>
+                      <div class="hint mono" style="margin-top:8px" x-text="item.id"></div>
+                      <div class="hint mono" style="margin-top:6px" x-show="item.cwd || item.pluginDir" x-text="item.pluginDir || item.cwd"></div>
+                    </div>
+                    <div class="discovery-actions">
+                      <button class="btn primary" type="button" :disabled="discoveryActionState(item).disabled" @click="performDiscoveryAction(item)" x-text="discoveryActionState(item).text || discoveryActionLabel(item)"></button>
+                      <details x-show="!item.installed && !item.registered && item.source === 'repo-plugin' && item.pluginDir" style="width:100%">
+                        <summary class="hint" style="cursor:pointer;text-align:right">⚙ Options</summary>
+                        <label class="discovery-overlay-option">
+                          <input type="checkbox" :checked="!!agentDiscoveryOverlayFlags[discoveryActionKey(item)]" @change="toggleOverlayFlag(item)" />
+                          <span>Strip tools restriction (overlay mode)</span>
+                        </label>
+                      </details>
+                    </div>
+                  </article>
+                </template>
+              </div>
+            </section>
+          </template>
+        </div>
+
+        <div class="stack" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab === 'managers'">
+          <div class="discovery-group">
+            <div class="hint">Manager agents orchestrate other agents. They can monitor, analyze, and chain agent outputs.</div>
+            <div class="split-meta" style="margin-top:4px">
+              <span class="mono">Template: manager:manager</span>
+              <button class="btn primary" type="button" @click="agentDiscoveryManagerFormOpen = !agentDiscoveryManagerFormOpen">＋ Create Manager</button>
+            </div>
+            <div class="manager-create-form" x-show="agentDiscoveryManagerFormOpen" x-transition>
+              <input class="field-input" type="text" placeholder="Manager name" x-model="agentDiscoveryNewManager.name" />
+              <textarea class="field-input field-area" placeholder="Description (optional)" x-model="agentDiscoveryNewManager.description"></textarea>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="agentDiscoveryManagerFormOpen = false; agentDiscoveryNewManager = { name: '', description: '' }">Cancel</button>
+                <button class="btn primary" type="button" :disabled="agentDiscoveryCreatingManager" @click="createManager()" x-text="agentDiscoveryCreatingManager ? 'Saving…' : 'Save Manager'"></button>
+              </div>
+            </div>
+          </div>
+          <template x-for="manager in filteredDiscoveryManagers()" :key="'discovery-manager-' + manager.id">
+            <article class="discovery-item">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <strong x-text="manager.name || manager.id"></strong>
+                  <span class="source-badge source-plugin">Manager</span>
+                </div>
+                <div class="hint" style="margin-top:6px" x-text="manager.config?.description || manager.description || 'Manager orchestration agent'"></div>
+                <div class="hint mono" style="margin-top:8px" x-text="manager.id"></div>
+              </div>
+              <div class="discovery-actions">
+                <span class="badge-count" x-text="(manager.orgDetails || []).length + ' org'"></span>
+                <span class="badge-count" x-text="((manager.config && manager.config.assignments) || []).length + ' assignments'"></span>
+              </div>
+            </article>
+          </template>
+        </div>
+
+        <div class="empty-state" x-show="!agentDiscoveryLoading && !agentDiscoveryError && !filteredDiscoveryCount()" x-text="agentDiscoveryTab === 'managers' ? 'No matching managers found.' : 'No matching agents or plugins found.'"></div>
+      </div>
+    </section>
+  </div>
+
   <div class="toast-stack">
     <template x-for="toast in toasts" :key="toast.id">
       <div class="toast" :class="toast.kind">
@@ -2001,7 +2461,7 @@
       Alpine.store('app', {
         route: 'home',
         routeParam: null,
-        sidebarCollapsed: { chat: false, agents: false, managers: false },
+        sidebarCollapsed: { chat: false, resources: false, execution: false, agents: false, managers: false },
         commandPaletteOpen: false
       });
 
@@ -2023,6 +2483,9 @@
         agentSearch: '',
         managerSearch: '',
         taskSearch: '',
+        assignmentSearch: '',
+        newAssignmentOpen: false,
+        newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
         activityFilter: 'all',
         selectedAgent: null,
         selectedManager: null,
@@ -2038,6 +2501,23 @@
         newTaskOpen: false,
         chatPickerOpen: false,
         orgPickerOpen: false,
+        agentDiscoveryOpen: false,
+        agentDiscoveryLoading: false,
+        agentDiscoveryError: '',
+        agentDiscoverySearch: '',
+        agentDiscoveryItems: [],
+        agentDiscoveryActions: {},
+        agentDiscoveryTab: 'all',
+        agentDiscoveryCollapsed: {},
+        agentDiscoveryPaths: (() => {
+          try { return JSON.parse(localStorage.getItem('discovery-paths') || '[]'); }
+          catch { return []; }
+        })(),
+        agentDiscoveryNewPath: '',
+        agentDiscoveryOverlayFlags: {},
+        agentDiscoveryNewManager: { name: '', description: '' },
+        agentDiscoveryCreatingManager: false,
+        agentDiscoveryManagerFormOpen: false,
         availableOrgAgents: [],
         toasts: [],
         typingChats: {},
@@ -2085,6 +2565,282 @@
           return body;
         },
 
+        slugifyId(value, fallback = 'item') {
+          const slug = (value || '')
+            .toString()
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+          return slug || `${fallback}-${Date.now()}`;
+        },
+
+        async openAgentDiscovery() {
+          this.agentDiscoveryOpen = true;
+          this.agentDiscoverySearch = '';
+          this.agentDiscoveryTab = 'all';
+          this.agentDiscoveryOverlayFlags = {};
+          this.agentDiscoveryNewPath = '';
+          this.agentDiscoveryNewManager = { name: '', description: '' };
+          this.agentDiscoveryManagerFormOpen = false;
+          await this.loadAgentDiscovery();
+        },
+
+        async loadAgentDiscovery() {
+          this.agentDiscoveryLoading = true;
+          this.agentDiscoveryError = '';
+          try {
+            const data = await this.request('/api/discover?dirs=' + encodeURIComponent(this.agentDiscoveryPaths.join(',')));
+            const registeredIds = new Set((data.registered || []).map((item) => {
+              if (typeof item === 'string') return item;
+              return item?.id || item?.agent_id || item?.config?.id || null;
+            }).filter(Boolean));
+            this.agentDiscoveryItems = (data.discovered || []).map((item) => ({
+              ...item,
+              installed: !!item.installed,
+              registered: item.registered === true || registeredIds.has(item.id)
+            }));
+            ['installed-plugin', 'marketplace', 'repo-agent', 'repo-plugin'].forEach((source) => {
+              if (typeof this.agentDiscoveryCollapsed[source] !== 'boolean') {
+                this.agentDiscoveryCollapsed[source] = false;
+              }
+            });
+            this.agentDiscoveryActions = {};
+          } catch (error) {
+            this.agentDiscoveryItems = [];
+            this.agentDiscoveryError = error.message;
+          } finally {
+            this.agentDiscoveryLoading = false;
+          }
+        },
+
+        toggleDiscoveryGroup(source) {
+          this.agentDiscoveryCollapsed = {
+            ...this.agentDiscoveryCollapsed,
+            [source]: !this.agentDiscoveryCollapsed[source]
+          };
+        },
+
+        async addDiscoveryPath() {
+          const nextPath = this.agentDiscoveryNewPath.trim();
+          if (!nextPath) return;
+          if (this.agentDiscoveryPaths.includes(nextPath)) {
+            this.showToast('Path already added', nextPath, 'warning');
+            return;
+          }
+          this.agentDiscoveryPaths.push(nextPath);
+          this.agentDiscoveryNewPath = '';
+          this.saveDiscoveryPaths();
+          if (this.agentDiscoveryOpen) await this.loadAgentDiscovery();
+        },
+
+        pickDirectory(event) {
+          const files = event.target.files;
+          if (!files || !files.length) return;
+          // webkitdirectory gives us files with webkitRelativePath like "dirname/file"
+          // Extract the directory path from the first file's path
+          const firstPath = files[0].webkitRelativePath || '';
+          const dirName = firstPath.split('/')[0] || '';
+          if (dirName) {
+            // We can't get the full filesystem path from browser file picker,
+            // so just populate the text field with the folder name as a hint
+            this.agentDiscoveryNewPath = dirName;
+            this.showToast('Path hint', `Folder "${dirName}" selected. Enter the full path and click Add.`, 'info');
+          }
+          event.target.value = '';
+        },
+
+        async removeDiscoveryPath(index) {
+          this.agentDiscoveryPaths.splice(index, 1);
+          this.saveDiscoveryPaths();
+          if (this.agentDiscoveryOpen) await this.loadAgentDiscovery();
+        },
+
+        saveDiscoveryPaths() {
+          localStorage.setItem('discovery-paths', JSON.stringify(this.agentDiscoveryPaths));
+        },
+
+        toggleOverlayFlag(item) {
+          const key = this.discoveryActionKey(item);
+          this.agentDiscoveryOverlayFlags = {
+            ...this.agentDiscoveryOverlayFlags,
+            [key]: !this.agentDiscoveryOverlayFlags[key]
+          };
+        },
+
+        filteredDiscoveryManagers() {
+          const query = this.agentDiscoverySearch.trim().toLowerCase();
+          return this.data.managers.filter((manager) => {
+            if (!query) return true;
+            return [manager.name, manager.id, manager.config?.description, manager.description]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(query);
+          });
+        },
+
+        async createManager() {
+          const name = this.agentDiscoveryNewManager.name.trim();
+          if (!name) {
+            this.showToast('Name required', 'Enter a manager name before saving.', 'warning');
+            return;
+          }
+          this.agentDiscoveryCreatingManager = true;
+          try {
+            const payload = {
+              id: this.slugifyId(name, 'manager'),
+              name,
+              description: this.agentDiscoveryNewManager.description.trim(),
+              agent: 'manager:manager',
+              org: [],
+              assignments: []
+            };
+            await this.request('/api/managers', { method: 'POST', body: JSON.stringify(payload) });
+            this.agentDiscoveryNewManager = { name: '', description: '' };
+            this.agentDiscoveryManagerFormOpen = false;
+            await this.refreshAll(false);
+            await this.loadAgentDiscovery();
+            this.showToast('Manager created', `${payload.name} is ready to orchestrate agents.`, 'info');
+          } catch (error) {
+            this.showToast('Manager creation failed', error.message, 'error');
+          } finally {
+            this.agentDiscoveryCreatingManager = false;
+          }
+        },
+
+        discoverySourceLabel(item) {
+          return ({
+            'installed-plugin': 'Installed Plugin',
+            marketplace: 'Marketplace',
+            'repo-agent': 'Repository Agent',
+            'repo-plugin': 'Repository Plugin'
+          }[item.source]) || item.source;
+        },
+
+        discoverySourceClass(item) {
+          return ({
+            'installed-plugin': 'source-plugin',
+            marketplace: 'source-marketplace',
+            'repo-agent': 'source-repo-agent',
+            'repo-plugin': 'source-local-plugin'
+          }[item.source]) || 'source-plugin';
+        },
+
+        discoveryGroups() {
+          const query = this.agentDiscoverySearch.trim().toLowerCase();
+          const groups = [
+            { source: 'installed-plugin', label: 'Installed Plugins', tabs: ['all', 'installed'] },
+            { source: 'marketplace', label: 'Marketplace', tabs: ['all', 'marketplace'] },
+            { source: 'repo-agent', label: 'Repository Agents', tabs: ['all', 'repository'] },
+            { source: 'repo-plugin', label: 'Repository Plugins', tabs: ['all', 'repository'] }
+          ];
+          return groups
+            .filter((group) => group.tabs.includes(this.agentDiscoveryTab))
+            .map((group) => ({
+              ...group,
+              items: this.agentDiscoveryItems.filter((item) => {
+                if (item.source !== group.source) return false;
+                if (!query) return true;
+                return [item.displayName, item.name, item.description, item.id, this.discoverySourceLabel(item)]
+                  .filter(Boolean)
+                  .join(' ')
+                  .toLowerCase()
+                  .includes(query);
+              })
+            }))
+            .filter((group) => group.items.length);
+        },
+
+        filteredDiscoveryCount() {
+          if (this.agentDiscoveryTab === 'managers') {
+            return this.filteredDiscoveryManagers().length;
+          }
+          return this.discoveryGroups().reduce((count, group) => count + group.items.length, 0);
+        },
+
+        discoveryActionKey(item) {
+          return `${item.source}:${item.id}:${item.pluginDir || item.cwd || item.installCmd || ''}`;
+        },
+
+        discoveryActionState(item) {
+          const key = this.discoveryActionKey(item);
+          return this.agentDiscoveryActions[key] || { disabled: !!item.registered, text: item.registered ? 'Registered' : '' };
+        },
+
+        discoveryRequiresInstall(item) {
+          return !item.installed && (item.source === 'marketplace' || item.source === 'repo-plugin');
+        },
+
+        discoveryActionLabel(item) {
+          if (item.registered) return 'Registered';
+          if (this.discoveryRequiresInstall(item)) return 'Install';
+          return 'Register';
+        },
+
+        discoveryInstallPayload(item) {
+          if (item.installCmd) return { installCmd: item.installCmd };
+          if (item.pluginDir) {
+            return {
+              pluginDir: item.pluginDir,
+              engine: this.agentDiscoveryOverlayFlags[this.discoveryActionKey(item)] ? 'overlay' : 'copilot-local'
+            };
+          }
+          return null;
+        },
+
+        discoveryAgentRef(item) {
+          if (item.source === 'repo-agent') return item.name || item.id;
+          return `${item.id}:${item.id}`;
+        },
+
+        async registerDiscoveredAgent(item) {
+          const payload = {
+            id: item.id,
+            name: item.displayName || item.name || item.id,
+            cwd: item.cwd || item.pluginDir || '',
+            agent: this.discoveryAgentRef(item),
+            schedule: 'never',
+            prompt: '',
+            durable: true
+          };
+          try {
+            return await this.request('/api/agents', { method: 'POST', body: JSON.stringify(payload) });
+          } catch (error) {
+            if ((error.status === 400 || error.status === 422) && /prompt/i.test(error.message)) {
+              payload.prompt = ' ';
+              return await this.request('/api/agents', { method: 'POST', body: JSON.stringify(payload) });
+            }
+            throw error;
+          }
+        },
+
+        async performDiscoveryAction(item) {
+          const key = this.discoveryActionKey(item);
+          this.agentDiscoveryActions[key] = {
+            disabled: true,
+            text: this.discoveryRequiresInstall(item) ? 'Installing…' : 'Registering…'
+          };
+          try {
+            if (this.discoveryRequiresInstall(item)) {
+              const installPayload = this.discoveryInstallPayload(item);
+              if (!installPayload) throw new Error('Missing install details for this plugin.');
+              await this.request('/api/plugins/install', { method: 'POST', body: JSON.stringify(installPayload) });
+              item.installed = true;
+              this.agentDiscoveryActions[key] = { disabled: true, text: 'Registering…' };
+            }
+            await this.registerDiscoveredAgent(item);
+            item.registered = true;
+            this.agentDiscoveryActions[key] = { disabled: true, text: 'Registered' };
+            await this.refreshAll(false);
+            await this.loadAgentDiscovery();
+            this.showToast('Agent added', `${item.displayName || item.name || item.id} is ready to use.`, 'info');
+          } catch (error) {
+            this.agentDiscoveryActions[key] = { disabled: false, text: '' };
+            this.showToast('Add failed', error.message, 'error');
+          }
+        },
+
         setupRouting() {
           const applyRoute = async () => {
             const { route, param } = this.parseHash();
@@ -2107,7 +2863,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'chat', 'activity'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'assignments', 'chat', 'activity'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -2219,6 +2975,13 @@
               this.request(`/api/managers/${encodeURIComponent(id)}/history?limit=10`)
             ]);
             this.selectedManager = this.normalizeManager(manager);
+            this.selectedManager.assignmentNameDraft = '';
+            this.selectedManager.assignmentPromptDraft = '';
+            this.selectedManager.assignmentScheduleDraft = 'never';
+            this.selectedManager.assignmentSchedulePreset = 'never';
+            this.selectedManager.editingAssignmentId = null;
+            this.selectedManager.scheduleDraft = 'never';
+            this.selectedManager.schedulePreset = 'never';
             this.managerHistory = history;
           } catch (error) {
             this.showToast('Manager detail failed', error.message, 'error');
@@ -2301,9 +3064,14 @@
           return [
             { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
             { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', collapsible: true, items: this.sortedChats().slice(0, 8).map((chat) => ({ id: chat.id, label: chat.title, href: `#/chat/${chat.id}`, active: this.route === 'chat-detail' && this.app.routeParam === chat.id, statusClass: this.chatStatusClass(chat) })) },
-            { key: 'agents', label: 'Workloads', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', collapsible: true, items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) },
-            { key: 'managers', label: 'Orchestration', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', collapsible: true, items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
-            { key: 'tasks', label: 'Execution', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [], collapsible: false },
+            { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
+              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
+            ]},
+            { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, children: [
+              { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
+              { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
+            ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
         },
@@ -2322,7 +3090,7 @@
         filteredAgents() {
           const query = this.agentSearch.trim().toLowerCase();
           if (!query) return this.data.agents;
-          return this.data.agents.filter((agent) => [agent.name, agent.config.group, agent.scheduleSummary, agent.config.agent].filter(Boolean).join(' ').toLowerCase().includes(query));
+          return this.data.agents.filter((agent) => [agent.name, agent.config.group, agent.config.agent, agent.config.cwd, agent.id].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
         filteredManagers() {
@@ -2388,6 +3156,13 @@
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
+        filteredAssignments() {
+          const query = this.assignmentSearch.trim().toLowerCase();
+          const assignments = this.allTasks().filter(t => t.type === 'assignment');
+          if (!query) return assignments;
+          return assignments.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
+        },
+
         tasksForAgent(agentId) {
           // Direct tasks for this agent from tasks.json
           const direct = (this.data.tasks || [])
@@ -2436,7 +3211,7 @@
             key: `running-${agent.id}`,
             kind: 'Agent',
             name: agent.name,
-            summary: agent.scheduleSummary,
+            summary: agent.config.group || agent.config.agent || agent.config.cwd || agent.id,
             startedAt: agent.lastRun?.started_at || agent.last_run || new Date().toISOString()
           }));
           const activeManagers = this.data.managers.filter((manager) => manager.status === 'running').map((manager) => ({
@@ -2853,6 +3628,40 @@
           }
         },
 
+        async removeAgent(id) {
+          const agent = this.data.agents.find(a => a.id === id);
+          const name = agent ? agent.name : id;
+          if (!confirm(`Remove agent "${name}"?\n\nThis will unregister the agent and delete its configuration. Any tasks linked to this agent will become orphaned.`)) return;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            this.showToast('Agent removed', `${name} has been unregistered.`, 'info');
+            await this.refreshAll(false);
+            this.goTo('#/agents');
+          } catch (error) {
+            this.showToast('Remove failed', error.message, 'error');
+          }
+        },
+
+        async saveNewAssignment() {
+          const { managerId, name, prompt, schedule } = this.newAssignmentForm;
+          if (!managerId) { this.showToast('Manager required', 'Select which manager should own this assignment.', 'error'); return; }
+          if (!name.trim()) { this.showToast('Name required', 'Enter a name for this assignment.', 'error'); return; }
+          if (!prompt.trim()) { this.showToast('Prompt required', 'Describe what the manager should do.', 'error'); return; }
+          const assignmentId = this.slugifyId(name, 'assignment');
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments`, {
+              method: 'POST',
+              body: JSON.stringify({ id: assignmentId, name: name.trim(), prompt: prompt.trim(), schedule, enabled: true })
+            });
+            this.showToast('Assignment created', `"${name.trim()}" added to manager.`, 'info');
+            this.newAssignmentForm = { managerId: '', name: '', prompt: '', schedule: 'never' };
+            this.newAssignmentOpen = false;
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Create failed', error.message, 'error');
+          }
+        },
+
         async startManager(id) {
           try {
             await this.request(`/api/managers/${encodeURIComponent(id)}/start`, { method: 'POST' });
@@ -2860,6 +3669,38 @@
             this.scheduleRefresh();
           } catch (error) {
             this.showToast('Start failed', error.message, 'error');
+          }
+        },
+
+        async openCreateManager() {
+          const name = prompt('New manager name:');
+          if (!name || !name.trim()) return;
+          const description = prompt('Description (optional):') || '';
+          const id = this.slugifyId(name, 'manager');
+          try {
+            await this.request('/api/managers', {
+              method: 'POST',
+              body: JSON.stringify({ id, name: name.trim(), description: description.trim(), agent: 'manager:manager', org: [], assignments: [] })
+            });
+            this.showToast('Manager created', `${name.trim()} is ready to configure.`, 'info');
+            await this.refreshAll(false);
+            this.goTo('#/managers/' + encodeURIComponent(id));
+          } catch (error) {
+            this.showToast('Create failed', error.message, 'error');
+          }
+        },
+
+        async removeManager(id) {
+          const manager = this.data.managers.find(m => m.id === id);
+          const name = manager ? manager.name : id;
+          if (!confirm(`Remove manager "${name}"?\n\nThis will delete the manager and all its assignments.`)) return;
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            this.showToast('Manager removed', `${name} has been deleted.`, 'info');
+            await this.refreshAll(false);
+            this.goTo('#/managers');
+          } catch (error) {
+            this.showToast('Remove failed', error.message, 'error');
           }
         },
 
@@ -2894,6 +3735,119 @@
           this.selectedAgent.editingTaskId = task.id;
           // Scroll to the form
           document.getElementById('agent-task-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+
+        applyManagerAssignmentSchedulePreset(value) {
+          if (!this.selectedManager) return;
+          this.applySchedulePresetTo(this.selectedManager, value);
+          this.selectedManager.assignmentScheduleDraft = this.selectedManager.scheduleDraft;
+          this.selectedManager.assignmentSchedulePreset = value;
+        },
+
+        resetManagerAssignmentForm() {
+          if (!this.selectedManager) return;
+          this.selectedManager.editingAssignmentId = null;
+          this.selectedManager.assignmentNameDraft = '';
+          this.selectedManager.assignmentPromptDraft = '';
+          this.selectedManager.assignmentScheduleDraft = 'never';
+          this.selectedManager.assignmentSchedulePreset = 'never';
+          this.selectedManager.scheduleDraft = 'never';
+          this.selectedManager.schedulePreset = 'never';
+        },
+
+        editAssignmentInForm(assignment) {
+          if (!this.selectedManager) return;
+          this.selectedManager.editingAssignmentId = assignment.id;
+          this.selectedManager.assignmentNameDraft = assignment.name || '';
+          this.selectedManager.assignmentPromptDraft = assignment.prompt || '';
+          this.selectedManager.assignmentScheduleDraft = assignment.scheduleDraft || assignment.schedule || 'never';
+          this.selectedManager.assignmentSchedulePreset = this.resolveSchedulePreset(assignment.schedule);
+          this.selectedManager.scheduleDraft = this.selectedManager.assignmentScheduleDraft;
+          this.selectedManager.schedulePreset = this.selectedManager.assignmentSchedulePreset;
+          document.getElementById('manager-assignment-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+
+        async persistManagerAssignment(managerId, assignmentId, payload, preferPut = false) {
+          if (preferPut) {
+            try {
+              return await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments/${encodeURIComponent(assignmentId)}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+              });
+            } catch (error) {
+              if (error.status !== 404 && error.status !== 405) throw error;
+            }
+          }
+          return this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments`, {
+            method: 'POST',
+            body: JSON.stringify({ id: assignmentId, ...payload })
+          });
+        },
+
+        async saveManagerAssignment() {
+          if (!this.selectedManager) return;
+          const managerId = this.selectedManager.id;
+          const name = (this.selectedManager.assignmentNameDraft || '').trim();
+          const prompt = (this.selectedManager.assignmentPromptDraft || '').trim();
+          const schedule = this.selectedManager.assignmentScheduleDraft || 'never';
+          const existingAssignments = this.selectedManager.config.assignments || [];
+          const duplicate = existingAssignments.find((assignment) => assignment.name && assignment.name.toLowerCase() === name.toLowerCase());
+          const editingId = this.selectedManager.editingAssignmentId || null;
+          const assignmentId = editingId || this.slugifyId(name, 'assignment');
+          const existing = existingAssignments.find((assignment) => assignment.id === assignmentId) || null;
+          if (!name) { this.showToast('Name required', 'Please enter an assignment name.', 'error'); return; }
+          if (!prompt) { this.showToast('Prompt required', 'Please enter a prompt for this assignment.', 'error'); return; }
+
+          const payload = {
+            name,
+            prompt,
+            schedule,
+            enabled: existing?.enabled !== false
+          };
+
+          if (!editingId && duplicate) {
+            const replace = confirm(`An assignment named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`);
+            if (!replace) return;
+            try {
+              await this.persistManagerAssignment(managerId, duplicate.id, { ...payload, enabled: duplicate.enabled !== false }, true);
+              this.showToast('Assignment updated', `"${name}" has been updated.`, 'info');
+              this.resetManagerAssignmentForm();
+              await this.refreshAll(false);
+              await this.loadManagerDetail(managerId);
+            } catch (replaceError) {
+              this.showToast('Update failed', replaceError.message, 'error');
+            }
+            return;
+          }
+
+          try {
+            await this.persistManagerAssignment(managerId, assignmentId, payload, !!editingId);
+            this.showToast('Assignment saved', schedule !== 'never' ? 'Assignment is now scheduled for this manager.' : 'Assignment saved (manual run only).', 'info');
+            this.resetManagerAssignmentForm();
+            await this.refreshAll(false);
+            await this.loadManagerDetail(managerId);
+          } catch (error) {
+            if (!editingId && (error.status === 409 || (error.message && error.message.includes('already exists')))) {
+              const existingAssignment = duplicate || (error.body?.existingId ? existingAssignments.find((assignment) => assignment.id === error.body.existingId) : null);
+              if (!existingAssignment) {
+                this.showToast('Save failed', error.message, 'error');
+                return;
+              }
+              const replace = confirm(`An assignment named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`);
+              if (!replace) return;
+              try {
+                await this.persistManagerAssignment(managerId, existingAssignment.id, { ...payload, enabled: existingAssignment.enabled !== false }, true);
+                this.showToast('Assignment updated', `"${name}" has been updated.`, 'info');
+                this.resetManagerAssignmentForm();
+                await this.refreshAll(false);
+                await this.loadManagerDetail(managerId);
+              } catch (replaceError) {
+                this.showToast('Update failed', replaceError.message, 'error');
+              }
+              return;
+            }
+            this.showToast('Save failed', error.message, 'error');
+          }
         },
 
         async saveAgentTask(forceReplace) {
@@ -3145,7 +4099,7 @@
           const items = [
             { key: 'go-home', icon: '🏠', label: 'Go to Home', meta: 'Dashboard overview', action: () => this.goTo('#/home') },
             ...this.data.agents.flatMap((agent) => ([
-              { key: `view-agent-${agent.id}`, icon: '🤖', label: `View agent: ${agent.name}`, meta: agent.scheduleSummary, action: () => this.goTo(`#/agents/${encodeURIComponent(agent.id)}`) },
+              { key: `view-agent-${agent.id}`, icon: '🤖', label: `View agent: ${agent.name}`, meta: agent.config.group || agent.config.agent || agent.config.cwd || 'Agent detail', action: () => this.goTo(`#/agents/${encodeURIComponent(agent.id)}`) },
               { key: `run-agent-${agent.id}`, icon: '▶', label: `Run ${agent.name}`, meta: 'Trigger agent immediately', action: () => this.runAgentNow(agent.id) },
               { key: `chat-agent-${agent.id}`, icon: '💬', label: `Chat with ${agent.name}`, meta: 'Open persistent notes', action: () => this.openOrCreateChat('agent', agent.id) }
             ])),
