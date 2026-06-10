@@ -2068,12 +2068,19 @@
             nextRun: assignment.nextRun || this.computeNextRun(assignment.schedule),
             scheduleDescription: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule)
           }));
+          // Resolve org agent IDs to details from the agents list
+          const orgIds = manager.config?.org || [];
+          const orgDetails = orgIds.map(agentId => {
+            const agentData = this.data.agents.find(a => a.id === agentId);
+            return agentData ? { id: agentData.id, name: agentData.name, group: agentData.group || '' } : { id: agentId, name: agentId, group: '' };
+          });
           return {
             ...manager,
             id: manager.manager_id || manager.id || manager.config?.id,
             name: manager.config?.name || manager.name || manager.manager_id,
             status: (manager.status || 'idle').toLowerCase(),
             config: { ...(manager.config || {}), assignments },
+            orgDetails,
             key: `manager-${manager.manager_id || manager.id}`
           };
         },
