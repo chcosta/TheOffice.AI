@@ -352,7 +352,7 @@ REASON: <why you need this agent>
       
       // Use configured agent or default to the built-in manager plugin
       const agentName = managerConfig.agent || 'manager:manager';
-      const cmdLine = `"${copilotCmd}" --agent "${agentName}" --prompt "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" -s --yolo`;
+      const cmdLine = `"${copilotCmd}" --agent "${agentName}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`;
 
       const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
       const proc = spawn(cmdLine, [], {
@@ -373,7 +373,8 @@ REASON: <why you need this agent>
         if (code === 0) {
           resolve(stdout);
         } else {
-          reject(new Error(`Manager agent exited with code ${code}: ${stderr}`));
+          const errDetail = stderr || stdout || '(no output)';
+          reject(new Error(`Manager agent exited with code ${code}: ${errDetail}`));
         }
       });
 

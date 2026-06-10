@@ -4606,16 +4606,17 @@ function getManagersPageHtml() {
       const messages = await res.json();
       if (messages.length === 0) return;
       const body = document.getElementById('mgrChatBody');
-      body.innerHTML = messages.map(m => renderChatMessage(m.role, m.content)).join('');
+      body.innerHTML = messages.map(m => renderChatMessage(m.role, m.content, m.created_at)).join('');
       body.scrollTop = body.scrollHeight;
     }
 
-    function renderChatMessage(role, content) {
+    function renderChatMessage(role, content, timestamp) {
+      const timeStr = timestamp ? '<span style="color:#484f58;font-size:0.7rem;margin-left:8px;">' + new Date(timestamp).toLocaleTimeString() + '</span>' : '';
       if (role === 'user') {
-        return '<div class="mgr-chat-msg user"><div class="mgr-chat-role">👤 You</div><div class="mgr-chat-content">' + escapeHtml(content) + '</div></div>';
+        return '<div class="mgr-chat-msg user"><div class="mgr-chat-role">👤 You' + timeStr + '</div><div class="mgr-chat-content">' + escapeHtml(content) + '</div></div>';
       }
       const rendered = (typeof marked !== 'undefined') ? marked.parse(content) : escapeHtml(content);
-      return '<div class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md">' + rendered + '</div></div>';
+      return '<div class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager' + timeStr + '</div><div class="mgr-chat-content assistant-md">' + rendered + '</div></div>';
     }
 
     function escapeHtml(str) {
@@ -4647,7 +4648,7 @@ function getManagersPageHtml() {
       const body = document.getElementById('mgrChatBody');
       // Clear placeholder if present
       if (body.querySelector('[style*="text-align:center"]')) body.innerHTML = '';
-      body.innerHTML += renderChatMessage('user', prompt);
+      body.innerHTML += renderChatMessage('user', prompt, new Date().toISOString());
       body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">Thinking...</div></div>';
       body.scrollTop = body.scrollHeight;
 
