@@ -4404,7 +4404,7 @@ function getManagersPageHtml() {
           </div>
 
           <div style="display:flex;gap:8px;margin-top:12px;">
-            <button class="btn btn-primary" onclick="openManagerChat('\${m.manager_id}', '\${m.config.name}')">💬 Chat with Manager</button>
+            <button class="btn btn-primary" onclick="openManagerChat('\${m.manager_id}', '\${m.config.name}').then(() => loadChatHistory('\${m.manager_id}'))">💬 Chat with Manager</button>
             <button class="btn" onclick="toggleHistory('\${m.manager_id}')">📋 Run History</button>
           </div>
 
@@ -4553,6 +4553,9 @@ function getManagersPageHtml() {
       const mgr = managersData.find(m => m.manager_id === managerId);
       openManagerChat(managerId, mgr?.config?.name || managerId);
       
+      // Wait for history to load before adding pending indicator
+      await loadChatHistory(managerId);
+
       try {
         const res = await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
         const data = await res.json();
@@ -4561,8 +4564,9 @@ function getManagersPageHtml() {
           // Show assignment prompt in chat
           const assignment = (mgr?.config?.assignments || []).find(a => a.id === assignmentId);
           const body = document.getElementById('mgrChatBody');
-          body.innerHTML = renderChatMessage('user', (assignment?.name || assignmentId) + ': ' + (assignment?.prompt || ''));
-          body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">Starting...</div></div>';
+          body.innerHTML += renderChatMessage('user', (assignment?.prompt || assignmentId), new Date().toISOString());
+          body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">🧠 Thinking...</div></div>';
+          body.scrollTop = body.scrollHeight;
           startChatPolling();
         } else if (data.error) {
           document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + data.error + '</div>';
@@ -4578,16 +4582,15 @@ function getManagersPageHtml() {
     let chatPoller = null;
     let chatVerbose = false;
 
-    function openManagerChat(managerId, managerName) {
+    async function openManagerChat(managerId, managerName) {
       chatManagerId = managerId;
       chatRunId = null;
+      stopChatPolling();
       document.getElementById('mgrChatTitle').textContent = '💬 ' + managerName;
-      document.getElementById('mgrChatBody').innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Send a message to start chatting with the manager.</div>';
+      document.getElementById('mgrChatBody').innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Loading...</div>';
       document.getElementById('mgrChatOverlay').classList.add('visible');
       document.getElementById('mgrChatInput').value = '';
       document.getElementById('mgrChatInput').focus();
-      // Load recent messages
-      loadChatHistory(managerId);
     }
 
     function closeMgrChat() {
@@ -4746,11 +4749,11 @@ function getManagersPageHtml() {
     async function viewRun(managerId, runId) {
       // Open chat modal showing this run's details
       const mgr = managersData.find(m => m.manager_id === managerId);
-      openManagerChat(managerId, mgr?.config?.name || managerId);
+      await openManagerChat(managerId, mgr?.config?.name || managerId);
       const res = await fetch(\`/api/managers/\${managerId}/runs/\${runId}\`);
       const run = await res.json();
       const body = document.getElementById('mgrChatBody');
-      let html = renderChatMessage('user', run.prompt || '');
+      let html = renderChatMessage('user', run.prompt || '', run.started_at);
       if (run.steps && run.steps.length > 0) {
         html += '<div class="mgr-steps">' + run.steps.map(renderStep).join('') + '</div>';
       }

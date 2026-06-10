@@ -51,6 +51,15 @@ class ManagerAgent extends EventEmitter {
         timestamp TEXT NOT NULL
       );
     `);
+
+    // Clean up orphaned runs from previous server instance
+    const orphaned = this.db.prepare("SELECT id, manager_id FROM manager_runs WHERE status = 'running'").all();
+    if (orphaned.length > 0) {
+      const now = new Date().toISOString();
+      this.db.prepare("UPDATE manager_runs SET status = 'error', result = 'Server restarted — run was interrupted', finished_at = ? WHERE status = 'running'").run(now);
+      this.db.prepare("UPDATE manager_state SET status = 'idle'").run();
+      console.log(`[manager] Cleaned up ${orphaned.length} orphaned runs from previous session`);
+    }
   }
 
   register(config) {
@@ -162,6 +171,7 @@ class ManagerAgent extends EventEmitter {
   async _runOrchestration(managerId, runId, entry, prompt) {
     const steps = [];
     try {
+      console.log(`[manager] Starting orchestration run ${runId} for ${managerId}`);
       const orgAgents = this._getOrgAgentDetails(managerId);
       const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps);
 
@@ -175,9 +185,11 @@ class ManagerAgent extends EventEmitter {
 
       this._addMessage(managerId, runId, 'assistant', orchestrationResult);
       this.emit('manager-completed', { managerId, runId, result: orchestrationResult });
+      console.log(`[manager] Orchestration run ${runId} completed`);
 
       return { runId, result: orchestrationResult, steps };
     } catch (err) {
+      console.error(`[manager] Orchestration run ${runId} failed:`, err.message);
       const finishedAt = new Date().toISOString();
       this.db.prepare(
         'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
