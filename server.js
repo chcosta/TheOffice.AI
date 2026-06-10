@@ -1983,6 +1983,7 @@ function getDashboardHtml() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copilot Agent Supervisor</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
@@ -2324,187 +2325,576 @@ function getDashboardHtml() {
     <a href="/" style="color:#8b949e;text-decoration:none;font-size:0.9rem;padding:6px 12px;border-radius:6px;">Managers</a>
     <a href="/agents" style="color:#58a6ff;text-decoration:none;font-size:0.9rem;padding:6px 12px;border-radius:6px;background:#1f6feb22;font-weight:600;">Agents</a>
   </nav>
-  <div class="refresh-bar">
-    <h1>&#x1F916; Copilot Agent Supervisor <span style="font-size:0.5em;color:#8b949e;font-weight:normal" title="${GIT_VERSION.message} | files:${GIT_VERSION.fileHash || '?'} | PID:${PROCESS_PID} | started:${PROCESS_START}">${GIT_VERSION.hash}${GIT_VERSION.dirty ? '<span style="color:#f85149">*</span>' : ''}</span></h1>
-    <div>
-      <button class="btn" onclick="openSessionsPanel()" style="margin-right:4px">&#x1F4CB; Sessions</button>
-      <button class="btn btn-primary" onclick="openAddPanel()">+ Add Agent</button>
-      <button class="btn" onclick="openInCode()">&#x1F4DD; Edit in VS Code</button>
-      <button class="btn" onclick="window.location='/api/export'" title="Export config as zip">&#x1F4E6; Export</button>
-      <label class="btn" style="cursor:pointer;margin:0" title="Import config from zip">&#x1F4E5; Import<input type="file" id="importZipInput" accept=".zip" style="display:none"></label>
-      <span class="auto-refresh">Auto-refreshes every 10s</span>
-    </div>
-  </div>
-  <div class="filter-bar" style="display:flex;align-items:center;gap:12px;padding:8px 0;margin-bottom:8px;">
-    <input type="text" id="agent-filter" placeholder="Filter agents by name..." oninput="refresh()" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:220px;font-size:0.85rem;">
-    <button class="btn" onclick="expandAllGroups()" title="Expand all groups">▾ Expand All</button>
-    <button class="btn" onclick="collapseAllGroups()" title="Collapse all groups">▸ Collapse All</button>
-  </div>
-  <div class="agents" id="agents"></div>
 
-  <!-- Sessions Panel -->
-  <div class="sessions-overlay" id="sessionsOverlay" onclick="closeSessionsPanel()"></div>
-  <div class="sessions-panel" id="sessionsPanel">
-    <div class="panel-header">
-      <h2>&#x1F4CB; Recent Sessions</h2>
-      <button class="panel-close" onclick="closeSessionsPanel()">&times;</button>
+  <div id="app" x-data="agentsApp()" x-init="init()">
+    <div class="refresh-bar">
+      <h1>&#x1F916; Copilot Agent Supervisor <span style="font-size:0.5em;color:#8b949e;font-weight:normal" title="${GIT_VERSION.message} | files:${GIT_VERSION.fileHash || '?'} | PID:${PROCESS_PID} | started:${PROCESS_START}">${GIT_VERSION.hash}${GIT_VERSION.dirty ? '<span style="color:#f85149">*</span>' : ''}</span></h1>
+      <div>
+        <button class="btn" @click="openSessionsPanel()" style="margin-right:4px">&#x1F4CB; Sessions</button>
+        <button class="btn btn-primary" @click="openAddPanel()">+ Add Agent</button>
+        <button class="btn" @click="openInCode()">&#x1F4DD; Edit in VS Code</button>
+        <a href="/api/export" class="btn" style="text-decoration:none;display:inline-block" title="Export config as zip">&#x1F4E6; Export</a>
+        <button class="btn" style="cursor:pointer;margin:0" title="Import config from zip" @click="$refs.importZipInput.click()">&#x1F4E5; Import</button>
+        <input type="file" x-ref="importZipInput" accept=".zip" style="display:none" @change="handleImportFile($event)">
+        <span class="auto-refresh">Auto-refreshes every 10s</span>
+      </div>
     </div>
-    <div class="session-filters">
-      <select id="sessionHours" onchange="loadSessions()">
-        <option value="4">Last 4 hours</option>
-        <option value="12">Last 12 hours</option>
-        <option value="24" selected>Last 24 hours</option>
-        <option value="72">Last 3 days</option>
-        <option value="168">Last 7 days</option>
-      </select>
-      <input type="text" id="sessionFilter" placeholder="Filter by name..." oninput="filterSessions()" />
-      <button class="btn" onclick="loadSessions()">&#x1F504; Refresh</button>
-    </div>
-    <div id="sessionsList"></div>
-  </div>
 
-  <!-- Focus Modal -->
-  <div class="focus-overlay" id="focusOverlay" onclick="if(event.target===this)closeFocus()">
-    <div class="focus-modal">
-      <div class="focus-header">
-        <h2 id="focusTitle">Session</h2>
-        <div class="focus-header-actions">
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show tool calls and intermediate steps">
-            <input type="checkbox" id="focusVerbose" onchange="toggleFocusVerbose()" />
-            🔧 Steps
-          </label>
-          <div style="position:relative;display:inline-block;" id="focusEmailWrap">
-            <button class="btn" onclick="document.getElementById('focusEmailMenu').classList.toggle('visible')" title="Email session">✉ Email</button>
-            <div id="focusEmailMenu" class="focus-email-menu">
-              <button onclick="emailFocusSession('last')">Last response only</button>
-              <button onclick="emailFocusSession('full')">Full conversation</button>
+    <div class="filter-bar" style="display:flex;align-items:center;gap:12px;padding:8px 0;margin-bottom:8px;">
+      <input type="text" x-model="filter" placeholder="Filter agents by name..." style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:220px;font-size:0.85rem;">
+      <button class="btn" @click="expandAllGroups()" title="Expand all groups">▾ Expand All</button>
+      <button class="btn" @click="collapseAllGroups()" title="Collapse all groups">▸ Collapse All</button>
+    </div>
+
+    <div class="agents" id="agents">
+      <template x-for="group in groupedAgents()" :key="group.name">
+        <div class="agent-group">
+          <div class="group-header" @click="toggleGroup(group.name)">
+            <span class="group-toggle" x-text="isGroupCollapsed(group.name) ? '▸' : '▾'"></span>
+            <span class="group-name" x-text="group.name"></span>
+            <span class="group-count" x-text="'(' + group.agents.length + ')'"></span>
+            <div class="group-status-dots">
+              <template x-for="agent in group.agents" :key="group.name + ':' + agent.agent_id">
+                <span class="status-dot" :class="'dot-' + (agent.status || 'idle')" :title="agentDisplayName(agent) + ': ' + (agent.status || 'idle')"></span>
+              </template>
             </div>
+            <template x-if="group.name !== 'Ungrouped'">
+              <div class="group-actions" @click.stop>
+                <button class="btn" @click="renameGroup(group.name)" title="Rename group">✎</button>
+                <button class="btn btn-danger" @click="deleteGroup(group.name)" title="Dissolve group">✗</button>
+              </div>
+            </template>
           </div>
-          <button class="btn" onclick="openTerminal(focusSessionId)" title="Open in terminal">&#x1F4BB; Terminal</button>
-          <button class="panel-close" onclick="closeFocus()">&times;</button>
+          <div class="group-body" :class="{ collapsed: isGroupCollapsed(group.name) }">
+            <template x-for="agent in group.agents" :key="agent.agent_id">
+              <div class="agent-card" :class="{ 'agent-disabled': !isAgentEnabled(agent) }">
+                <div class="agent-header">
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <template x-if="editingNameId !== agent.agent_id">
+                      <span class="agent-name" @dblclick="startEditName(agent)" title="Double-click to rename" x-text="agentDisplayName(agent)"></span>
+                    </template>
+                    <template x-if="editingNameId === agent.agent_id">
+                      <input class="schedule-input" style="font-size:1.1rem;font-weight:bold;" x-model="pendingName" @keydown.enter.prevent="saveEditName(agent.agent_id)" @keydown.escape.prevent="cancelEditName()" @blur="saveEditName(agent.agent_id)" x-init="$nextTick(() => { $el.focus(); $el.select(); })">
+                    </template>
+                    <span style="font-size:0.65rem;padding:2px 6px;border-radius:3px;" :style="agent.config && agent.config.pluginDir ? 'background:#1f6feb22;color:#58a6ff;border:1px solid #1f6feb55' : 'background:#2ea04322;color:#7ee787;border:1px solid #2ea04355'" x-text="agent.config && agent.config.pluginDir ? '🔌 plugin' : '🤖 agent'"></span>
+                    <template x-if="agent.config && agent.config.agent && agent.config.agent !== agentDisplayName(agent)">
+                      <span style="font-size:0.7rem;color:#8b949e;font-family:monospace" title="Agent identifier" x-text="agent.config.agent"></span>
+                    </template>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span class="status-badge" :class="'status-' + (agent.status || 'idle')" x-text="agent.status || 'idle'"></span>
+                    <label class="toggle-switch" :title="isAgentEnabled(agent) ? 'Enabled — click to disable' : 'Disabled — click to enable'">
+                      <input type="checkbox" :checked="isAgentEnabled(agent)" @change="toggleEnabled(agent.agent_id, $event.target.checked)">
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="agent-meta">
+                  <div class="meta-item" style="grid-column: span 2">
+                    <span class="meta-label">Prompt:</span>
+                    <template x-if="editingPromptId !== agent.agent_id">
+                      <span class="meta-value prompt-value" @dblclick="startEditPrompt(agent)" title="Double-click to edit" x-text="agentPrompt(agent)"></span>
+                    </template>
+                    <template x-if="editingPromptId === agent.agent_id">
+                      <div style="width:100%;display:flex;flex-direction:column;gap:4px;">
+                        <textarea class="schedule-input" style="width:100%;min-height:60px;resize:vertical;font-family:inherit;font-size:inherit;" x-model="pendingPrompt" @keydown.enter.exact.prevent="saveEditPrompt(agent.agent_id)" @keydown.shift.enter.stop @keydown.escape.prevent="cancelEditPrompt()" @blur="saveEditPrompt(agent.agent_id)" x-init="$nextTick(() => { $el.focus(); $el.select(); })"></textarea>
+                        <div style="font-size:11px;color:#888;line-height:1.4;background:#1a1a2e;border:1px solid #333;border-radius:4px;padding:6px 8px;">
+                          <strong style="color:#aaa">Template variables</strong> (available when triggered by another agent):<br>
+                          <code style="color:#7ec8e3">\{{ trigger.output }}</code> — output from triggering agent<br>
+                          <code style="color:#7ec8e3">\{{ trigger.name }}</code> — name &nbsp;|&nbsp; <code style="color:#7ec8e3">\{{ trigger.exitCode }}</code> — exit code<br>
+                          <code style="color:#7ec8e3">\{{ trigger.startedAt }}</code> / <code style="color:#7ec8e3">\{{ trigger.finishedAt }}</code> — timestamps<br>
+                          <code style="color:#7ec8e3">\{{ chain[0].output }}</code> — output from earlier chain step (0-indexed)<br>
+                          <span style="color:#666">Press Enter to save, Shift+Enter for newline, Esc to cancel.</span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value" x-text="(agent.config && agent.config.cwd) || '-' "></span></div>
+                  <div class="meta-item">
+                    <span class="meta-label">Group:</span>
+                    <select class="group-select" :value="(agent.config && agent.config.group) || ''" @change="moveToGroup(agent.agent_id, $event.target.value)">
+                      <option value="">Ungrouped</option>
+                      <template x-for="groupName in movableGroupNames()" :key="agent.agent_id + ':group:' + groupName">
+                        <option :value="groupName" x-text="groupName"></option>
+                      </template>
+                      <option value="__new__">+ New group…</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="agent-actions">
+                  <button class="btn btn-primary" @click="startAgent(agent.agent_id)">▶ Start</button>
+                  <button class="btn btn-danger" @click="stopAgent(agent.agent_id)">■ Stop</button>
+                  <button class="btn" @click="runNow(agent.agent_id)">⚡ Run Now</button>
+                  <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
+                  <button class="btn" @click="showAgentSessions(agentDisplayName(agent))" title="View sessions for this agent">📋 Sessions</button>
+                  <button class="btn" @click="openLastTerminal(agent.agent_id, (agent.config && agent.config.cwd) || '')" title="Resume last session in Copilot CLI">💻 Copilot</button>
+                  <button class="btn" @click="editAgentSource(agent.agent_id)" title="Open agent source in editor">✏️ Edit</button>
+                  <button class="btn" @click="cloneAgent(agent.agent_id)" title="Clone this agent with a new name">📋 Clone</button>
+                  <template x-if="agent.config && agent.config.pluginDir">
+                    <button class="btn" @click="reinstallPlugin(agent.agent_id)" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>
+                  </template>
+                  <button class="btn btn-danger" style="margin-left:auto" @click="deleteAgent(agent.agent_id)" title="Remove agent">🗑</button>
+
+                  <template x-if="agent.isTriggerOnly">
+                    <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
+                      <span style="color:#d2a8ff;font-weight:600;font-size:0.8rem">⚡ Trigger</span>
+                      <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
+                        <span style="color:#8b949e;" x-text="'Last: ' + timeAgo(agent.last_run) + ' · Exit: ' + ((agent.lastRun && agent.lastRun.exit_code != null) ? agent.lastRun.exit_code : '-')"></span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template x-if="!agent.isTriggerOnly">
+                    <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
+                      <button class="btn" @click="openScheduleEditor(agent.agent_id, agent.schedule || '', $event)" title="Edit schedule">🕐 Schedule</button>
+                      <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
+                        <span style="color:#c9d1d9;" :title="agent.scheduleDescription || ''" x-text="(agent.schedule || 'none') + ' (' + (agent.scheduleDescription || '') + ')' "></span>
+                        <span style="color:#8b949e;" x-text="'Next: ' + (isAgentEnabled(agent) ? timeUntil(agent.next_run) : '—') + ' · Last: ' + timeAgo(agent.last_run) + ' · Exit: ' + ((agent.lastRun && agent.lastRun.exit_code != null) ? agent.lastRun.exit_code : '-')"></span>
+                        <span style="color:#8b949e;cursor:pointer;" @click="toggleAutoStart(agent.agent_id, isAutoStart(agent))" :title="'Click to toggle'" x-html="'Auto-start: ' + (isAutoStart(agent) ? '<span style=color:#7ee787>✓ on boot</span>' : '<span style=color:#f0883e>⏱ schedule only</span>')"></span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <div style="display:inline-flex;flex-direction:column;position:relative;">
+                    <div class="triggers-section">
+                      <span class="trigger-label">Triggers:</span>
+                      <template x-for="targetId in normalizeTriggerList(agent.config && agent.config.triggers && agent.config.triggers.onSuccess)" :key="agent.agent_id + ':success:' + targetId">
+                        <span class="trigger-badge trigger-success">✓ <span class="trigger-arrow">→</span> <span x-text="agentNameById(targetId)"></span></span>
+                      </template>
+                      <template x-for="targetId in normalizeTriggerList(agent.config && agent.config.triggers && agent.config.triggers.onFailure)" :key="agent.agent_id + ':failure:' + targetId">
+                        <span class="trigger-badge trigger-failure">✗ <span class="trigger-arrow">→</span> <span x-text="agentNameById(targetId)"></span></span>
+                      </template>
+                      <template x-for="targetId in normalizeTriggerList(agent.config && agent.config.triggers && agent.config.triggers.onComplete)" :key="agent.agent_id + ':complete:' + targetId">
+                        <span class="trigger-badge trigger-complete">● <span class="trigger-arrow">→</span> <span x-text="agentNameById(targetId)"></span></span>
+                      </template>
+                      <template x-if="!hasTriggers(agent)">
+                        <span style="color:#8b949e;font-size:0.75rem">none</span>
+                      </template>
+                      <button class="btn" style="padding:2px 8px;font-size:0.7rem" @click="toggleTriggerEditor(agent)">✎ Edit</button>
+                    </div>
+                    <div class="trigger-editor" :class="{ visible: triggerEditor.agentId === agent.agent_id }" x-show="triggerEditor.agentId === agent.agent_id" style="position:absolute;top:100%;left:0;z-index:50;min-width:340px;">
+                      <div class="trigger-row">
+                        <span class="trigger-badge trigger-success" style="min-width:70px">✓ Success</span>
+                        <select class="trigger-input" multiple x-model="triggerEditor.success">
+                          <template x-for="target in triggerTargets(agent)" :key="agent.agent_id + ':trigger-success-opt:' + target.agent_id">
+                            <option :value="target.agent_id" x-text="agentDisplayName(target)"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <div class="trigger-row">
+                        <span class="trigger-badge trigger-failure" style="min-width:70px">✗ Failure</span>
+                        <select class="trigger-input" multiple x-model="triggerEditor.failure">
+                          <template x-for="target in triggerTargets(agent)" :key="agent.agent_id + ':trigger-failure-opt:' + target.agent_id">
+                            <option :value="target.agent_id" x-text="agentDisplayName(target)"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <div class="trigger-row">
+                        <span class="trigger-badge trigger-complete" style="min-width:70px">● Always</span>
+                        <select class="trigger-input" multiple x-model="triggerEditor.complete">
+                          <template x-for="target in triggerTargets(agent)" :key="agent.agent_id + ':trigger-complete-opt:' + target.agent_id">
+                            <option :value="target.agent_id" x-text="agentDisplayName(target)"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <button class="btn btn-primary" style="margin-top:6px" @click="saveTriggers()">Save</button>
+                      <button class="btn btn-danger" style="margin-top:6px" @click="clearTriggers()">Clear All</button>
+                    </div>
+                  </div>
+                </div>
+
+                <template x-if="agent.lastRun && agent.lastRun.error">
+                  <div class="output-section error-output">
+                    <button class="output-toggle" @click="toggleOutput('err-' + agent.agent_id)" x-text="((agent.status === 'error' || isOutputExpanded('err-' + agent.agent_id)) ? '▾' : '▸') + ' Error'"></button>
+                    <pre class="output-content error-text" :class="{ visible: agent.status === 'error' || isOutputExpanded('err-' + agent.agent_id) }" x-show="agent.status === 'error' || isOutputExpanded('err-' + agent.agent_id)" :id="'output-err-' + agent.agent_id" @scroll="rememberOutputScroll('output-err-' + agent.agent_id, $event.target.scrollTop)" x-text="agent.lastRun.error"></pre>
+                  </div>
+                </template>
+
+                <template x-if="agent.status === 'running' || (agent.lastRun && agent.lastRun.output)">
+                  <div class="output-section" :style="agent.status === 'running' ? 'border-left:3px solid #f0883e;' : ''">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      <template x-if="agent.status === 'running'">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                          <span class="spinner" style="width:14px;height:14px;"></span>
+                          <span style="color:#f0883e;font-weight:600;font-size:0.85rem;">Latest session</span>
+                          <span style="color:#8b949e;font-size:0.75rem" :id="'live-status-' + agent.agent_id" x-text="liveStatusText(agent.agent_id)"></span>
+                        </div>
+                      </template>
+                      <template x-if="agent.status !== 'running'">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                          <button class="output-toggle" @click="toggleOutput(agent.agent_id)" x-text="(isOutputExpanded(agent.agent_id) ? '▾' : '▸') + ' Latest session'"></button>
+                          <span style="font-size:11px;color:#888;margin-left:4px" x-text="agent.lastRun && agent.lastRun.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''"></span>
+                        </div>
+                      </template>
+                      <button class="output-toggle" @click="openOutputModal(agentDisplayName(agent), agent.agent_id)" :style="agent.status === 'running' ? 'margin-left:8px;opacity:0.4;pointer-events:none' : 'margin-left:8px'" title="Open in full view">⛶ Focus</button>
+                      <span :id="'live-chat-btn-' + agent.agent_id">
+                        <template x-if="agent.status !== 'running'">
+                          <button class="output-toggle" style="margin-left:0" title="Chat with this session" @click="openLastChat(agent.agent_id, agent.lastRun && agent.lastRun.session_id ? agent.lastRun.session_id : '')">💬 Chat</button>
+                        </template>
+                        <template x-if="agent.status === 'running' && liveSessionId(agent.agent_id)">
+                          <button class="output-toggle" style="margin-left:0" title="Chat with this session" @click="openFocus(liveSessionId(agent.agent_id))">💬 Chat</button>
+                        </template>
+                        <template x-if="agent.status === 'running' && !liveSessionId(agent.agent_id)">
+                          <button class="output-toggle" style="margin-left:0;opacity:0.4;pointer-events:none" title="Chat available after session completes">💬 Chat</button>
+                        </template>
+                      </span>
+                      <button class="output-toggle" @click="emailOutput(agent.agent_id, agentDisplayName(agent))" :style="agent.status === 'running' ? 'margin-left:8px;opacity:0.4;pointer-events:none' : 'margin-left:8px'" title="Email last output">✉ Email</button>
+                    </div>
+                    <template x-if="agent.status === 'running'">
+                      <div class="output-content markdown-body visible" :id="'live-' + agent.agent_id" style="margin-top:8px;max-height:400px;overflow-y:auto;opacity:0.9;display:block;" @scroll="rememberOutputScroll('live-' + agent.agent_id, $event.target.scrollTop)" x-html="liveOutputHtml(agent.agent_id)"></div>
+                    </template>
+                    <template x-if="agent.status !== 'running'">
+                      <div class="output-content markdown-body" :class="{ visible: isOutputExpanded(agent.agent_id) }" x-show="isOutputExpanded(agent.agent_id)" :id="'output-' + agent.agent_id" @scroll="rememberOutputScroll('output-' + agent.agent_id, $event.target.scrollTop)" x-html="renderMd((agent.lastRun && agent.lastRun.output) || '')"></div>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-for="triggerRun in (agent.triggerRuns || [])" :key="agent.agent_id + ':trigger:' + triggerRun.sourceId">
+                  <div class="output-section" :style="triggerRun.lastRun && triggerRun.lastRun.exit_code !== 0 ? 'margin-top:4px;border-left:3px solid #f85149;' : 'margin-top:4px;'">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                      <button class="output-toggle" @click="toggleOutput('tr-' + agent.agent_id + '-' + triggerRun.sourceId)" x-text="(isOutputExpanded('tr-' + agent.agent_id + '-' + triggerRun.sourceId) ? '▾' : '▸') + ' From: ' + triggerRun.sourceName"></button>
+                      <span style="font-size:11px;color:#888;" x-text="triggerRun.lastRun && triggerRun.lastRun.started_at ? formatRunTimestamp(triggerRun.lastRun.started_at, triggerRun.lastRun.finished_at) : 'never run'"></span>
+                      <template x-if="triggerRun.lastRun && triggerRun.lastRun.exit_code != null">
+                        <span style="font-size:11px;" :style="triggerRun.lastRun.exit_code === 0 ? 'color:#3fb950' : 'color:#f85149'" x-text="'Exit: ' + triggerRun.lastRun.exit_code"></span>
+                      </template>
+                      <template x-if="triggerRun.lastRun && triggerRun.lastRun.session_id">
+                        <button class="output-toggle" style="margin-left:4px" @click="openFocus(triggerRun.lastRun.session_id)">⛶ Focus</button>
+                      </template>
+                    </div>
+                    <template x-if="triggerRun.lastRun && triggerRun.lastRun.output">
+                      <div class="output-content markdown-body" :class="{ visible: isOutputExpanded('tr-' + agent.agent_id + '-' + triggerRun.sourceId) }" x-show="isOutputExpanded('tr-' + agent.agent_id + '-' + triggerRun.sourceId)" :id="'output-tr-' + agent.agent_id + '-' + triggerRun.sourceId" @scroll="rememberOutputScroll('output-tr-' + agent.agent_id + '-' + triggerRun.sourceId, $event.target.scrollTop)" x-html="renderMd(triggerRun.lastRun.output || '')"></div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div class="sched-editor" :class="{ visible: scheduleEditor.show }" x-show="scheduleEditor.show" :style="'position:fixed;top:' + scheduleEditor.top + 'px;left:' + scheduleEditor.left + 'px;'" @click.outside="closeScheduleEditor()">
+      <label>Schedule type</label>
+      <div class="sched-mode-row">
+        <select x-model="scheduleEditor.mode" @change="onScheduleModeChanged()">
+          <option value="interval">Interval (every N minutes/hours)</option>
+          <option value="daily">Daily (at a specific time)</option>
+          <option value="weekly">Weekly (pick days + time)</option>
+          <option value="cron">Advanced (cron / free text)</option>
+        </select>
+      </div>
+      <div class="sched-fields">
+        <div x-show="scheduleEditor.mode === 'interval'" style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0">Every</label>
+          <input type="number" min="1" max="720" style="width:60px" x-model="scheduleEditor.num" @input="previewSchedule()">
+          <select x-model="scheduleEditor.unit" @change="previewSchedule()">
+            <option value="m">minutes</option>
+            <option value="h">hours</option>
+          </select>
+        </div>
+        <div x-show="scheduleEditor.mode === 'daily'" style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0">At</label>
+          <input type="time" x-model="scheduleEditor.dailyTime" @change="previewSchedule()">
+          <span style="color:#8b949e;font-size:0.8rem">every day</span>
+        </div>
+        <div x-show="scheduleEditor.mode === 'weekly'">
+          <div class="day-checkboxes">
+            <label><input type="checkbox" value="mon" x-model="scheduleEditor.days" @change="previewSchedule()"> Mon</label>
+            <label><input type="checkbox" value="tue" x-model="scheduleEditor.days" @change="previewSchedule()"> Tue</label>
+            <label><input type="checkbox" value="wed" x-model="scheduleEditor.days" @change="previewSchedule()"> Wed</label>
+            <label><input type="checkbox" value="thu" x-model="scheduleEditor.days" @change="previewSchedule()"> Thu</label>
+            <label><input type="checkbox" value="fri" x-model="scheduleEditor.days" @change="previewSchedule()"> Fri</label>
+            <label><input type="checkbox" value="sat" x-model="scheduleEditor.days" @change="previewSchedule()"> Sat</label>
+            <label><input type="checkbox" value="sun" x-model="scheduleEditor.days" @change="previewSchedule()"> Sun</label>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label style="margin:0">At</label>
+            <input type="time" x-model="scheduleEditor.weeklyTime" @change="previewSchedule()">
+          </div>
+        </div>
+        <div x-show="scheduleEditor.mode === 'cron'" style="display:flex;flex-direction:column;gap:4px">
+          <label style="margin:0">Cron expression or free text</label>
+          <input type="text" class="schedule-input" style="width:100%" x-model="scheduleEditor.cron" @input="previewSchedule()" placeholder="e.g. 0 9 * * 1-5 or weekdays at 9am">
+          <span style="color:#8b949e;font-size:0.7rem">Examples: 0 */2 * * * (every 2h) | weekdays at 9am | every 30 minutes</span>
         </div>
       </div>
-      <div class="focus-body" id="focusBody"></div>
-      <div class="focus-chat">
-        <input type="text" id="focusChatInput" placeholder="Ask a follow-up question..."
-               onkeydown="if(event.key==='Enter')sendFocusChat()" />
-        <button class="btn btn-primary" onclick="sendFocusChat()">Send</button>
-      </div>
-      <div id="focusChatStatus" style="padding:0 20px 8px"></div>
-    </div>
-  </div>
-
-  <!-- Output Focus Modal -->
-  <div class="sessions-overlay" id="outputModalOverlay" onclick="closeOutputModal()"></div>
-  <div class="focus-modal" id="outputModal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10001">
-    <div class="focus-header">
-      <h2 id="outputModalTitle">Output</h2>
-      <button class="panel-close" onclick="closeOutputModal()">&times;</button>
-    </div>
-    <div class="focus-body markdown-body" id="outputModalBody" style="font-size:0.85rem"></div>
-  </div>
-
-  <div class="panel-overlay" id="panelOverlay" onclick="closeAddPanel()"></div>
-  <div class="side-panel" id="addPanel">
-    <div class="panel-header">
-      <h2>Add Agent</h2>
-      <button class="panel-close" onclick="closeAddPanel()">&times;</button>
-    </div>
-    <div class="panel-tabs">
-      <button class="panel-tab active" onclick="switchTab('discover', this)">Discover</button>
-      <button class="panel-tab" onclick="switchTab('manual', this)">Manual</button>
-    </div>
-
-    <div class="panel-content active" id="tab-discover">
-      <div class="discover-scan">
-        <input class="form-input" id="scanDir" placeholder="Directory to scan (leave empty for all repos)" />
-        <button class="btn btn-primary" onclick="runDiscover()">Scan</button>
-        <button class="btn" onclick="browseFolder()" title="Browse for folder">📁</button>
-      </div>
-      <div id="recentDirs" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px"></div>
-      <div class="discover-list" id="discoverList">
-        <span style="color:#8b949e;font-size:0.85rem">Click <strong>Scan</strong> to discover available agents from installed plugins and local repositories.</span>
+      <div class="sched-preview" :style="'color:' + scheduleEditor.previewColor" x-text="scheduleEditor.previewText"></div>
+      <div class="sched-actions">
+        <button class="btn btn-primary" @click="saveScheduleEditor()">Save</button>
+        <button class="btn" @click="closeScheduleEditor()">Cancel</button>
       </div>
     </div>
 
-    <div class="panel-content" id="tab-manual">
-      <div class="form-group">
-        <label class="form-label">ID *</label>
-        <input class="form-input" id="add-id" placeholder="my-agent (unique identifier)" />
-        <div class="form-hint">Lowercase, hyphens. Used as internal key.</div>
+    <div class="sessions-overlay" :class="{ visible: sessionsPanel.show }" x-show="sessionsPanel.show" @click="closeSessionsPanel()"></div>
+    <div class="sessions-panel" :class="{ visible: sessionsPanel.show }">
+      <div class="panel-header">
+        <h2>&#x1F4CB; Recent Sessions</h2>
+        <button class="panel-close" @click="closeSessionsPanel()">&times;</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Display Name *</label>
-        <input class="form-input" id="add-name" placeholder="My Agent" />
-        <div class="form-hint">Human-readable name shown in the dashboard.</div>
+      <div class="session-filters">
+        <select x-model="sessionsPanel.hours" @change="loadSessions()">
+          <option value="4">Last 4 hours</option>
+          <option value="12">Last 12 hours</option>
+          <option value="24">Last 24 hours</option>
+          <option value="72">Last 3 days</option>
+          <option value="168">Last 7 days</option>
+        </select>
+        <input type="text" x-model="sessionsPanel.filter" placeholder="Filter by name...">
+        <button class="btn" @click="loadSessions()">&#x1F504; Refresh</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Agent Name *</label>
-        <input class="form-input" id="add-agent" placeholder="Agent display name for --agent flag" />
-        <div class="form-hint">The name passed to <code>copilot --agent</code>. Use exact display name.</div>
+      <template x-if="sessionsPanel.loading">
+        <div style="color:#8b949e;text-align:center;padding:20px">Loading sessions...</div>
+      </template>
+      <template x-if="!sessionsPanel.loading && sessionGroups().length === 0">
+        <div style="color:#8b949e;text-align:center;padding:20px">No sessions found</div>
+      </template>
+      <template x-for="group in sessionGroups()" :key="group.name">
+        <div class="session-group" style="margin-bottom:12px">
+          <div class="group-header" @click="toggleSessionGroup(group.name)" style="padding:8px 12px">
+            <span class="group-toggle" x-text="isSessionGroupCollapsed(group.name) ? '▶' : '▼'"></span>
+            <span class="group-name" style="font-size:0.9rem" x-text="group.name"></span>
+            <span class="group-count" style="margin-left:8px" x-text="group.sessions.length + ' session' + (group.sessions.length !== 1 ? 's' : '')"></span>
+            <span style="margin-left:auto;font-size:0.75rem;color:#8b949e" x-text="'📁 ' + group.repoShort + ' · ' + group.dateStr + ' ' + group.timeStr"></span>
+          </div>
+          <div class="group-body" :class="{ collapsed: isSessionGroupCollapsed(group.name) }" style="margin-top:6px;padding-left:0">
+            <template x-for="session in group.sessions" :key="session.id">
+              <div class="session-card" :class="{ expanded: !!sessionsPanel.expanded[session.id] }" :id="'session-' + session.id" @click="toggleSession(session.id)">
+                <div class="session-header">
+                  <div>
+                    <span style="font-size:0.8rem;color:#c9d1d9" x-text="sessionDateLabel(session)"></span>
+                    <span style="font-size:0.8rem;color:#8b949e;margin-left:8px" x-text="'— ' + (session.name || '(no prompt)')"></span>
+                  </div>
+                  <div style="font-size:0.75rem;color:#8b949e">
+                    <span x-text="'💬 ' + session.turnCount + ' turn' + (session.turnCount !== 1 ? 's' : '')"></span>
+                    <span style="margin-left:8px" x-text="'🔑 ' + session.id.substring(0,8)"></span>
+                  </div>
+                </div>
+                <div class="session-preview" x-show="!sessionsPanel.expanded[session.id]" x-text="(session.lastResult || '').substring(0, 200)"></div>
+                <div class="session-detail" @click.stop>
+                  <template x-if="sessionsPanel.details[session.id] && sessionsPanel.details[session.id].loading">
+                    <div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>
+                  </template>
+                  <template x-if="sessionsPanel.details[session.id] && !sessionsPanel.details[session.id].loading">
+                    <div>
+                      <div style="display:flex;gap:6px;margin-bottom:8px">
+                        <button class="btn" @click="openFocus(session.id)" title="Expand to focus view">🔍 Focus</button>
+                        <button class="btn" @click="openTerminal(session.id)" title="Open in terminal">💻 Terminal</button>
+                      </div>
+                      <div x-html="sessionsPanel.details[session.id].html"></div>
+                      <div class="session-chat">
+                        <input type="text" :value="sessionsPanel.chatInputs[session.id] || ''" @input="sessionsPanel.chatInputs[session.id] = $event.target.value" @keydown.enter.prevent="sendSessionChat(session.id)" placeholder="Ask a follow-up question...">
+                        <button class="btn btn-primary" @click="sendSessionChat(session.id)">Send</button>
+                      </div>
+                      <div x-html="sessionsPanel.chatStatus[session.id] || ''"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div class="focus-overlay" :class="{ visible: focus.show }" x-show="focus.show" @click.self="closeFocus()">
+      <div class="focus-modal">
+        <div class="focus-header">
+          <h2 x-text="focus.title"></h2>
+          <div class="focus-header-actions">
+            <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show tool calls and intermediate steps">
+              <input type="checkbox" x-model="focus.verbose" @change="toggleFocusVerbose()">
+              🔧 Steps
+            </label>
+            <div style="position:relative;display:inline-block;" @click.outside="focus.emailMenu = false">
+              <button class="btn" @click="focus.emailMenu = !focus.emailMenu" title="Email session">✉ Email</button>
+              <div class="focus-email-menu" :class="{ visible: focus.emailMenu }">
+                <button @click="emailFocusSession('last')">Last response only</button>
+                <button @click="emailFocusSession('full')">Full conversation</button>
+              </div>
+            </div>
+            <button class="btn" @click="openTerminal(focus.sessionId)" title="Open in terminal">&#x1F4BB; Terminal</button>
+            <button class="panel-close" @click="closeFocus()">&times;</button>
+          </div>
+        </div>
+        <div class="focus-body" x-ref="focusBody" x-html="focus.html"></div>
+        <div class="focus-chat">
+          <input type="text" x-model="focus.chatInput" x-ref="focusChatInput" placeholder="Ask a follow-up question..." @keydown.enter.prevent="sendFocusChat()">
+          <button class="btn btn-primary" @click="sendFocusChat()">Send</button>
+        </div>
+        <div style="padding:0 20px 8px" x-html="focus.chatStatus"></div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Working Directory *</label>
-        <input class="form-input" id="add-cwd" placeholder="C:\\repos\\my-project" />
-        <div class="form-hint">Directory where the agent runs (where copilot-instructions.md lives).</div>
+    </div>
+
+    <div class="sessions-overlay" :class="{ visible: outputModal.show }" x-show="outputModal.show" @click="closeOutputModal()"></div>
+    <div class="focus-modal" x-show="outputModal.show" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10001">
+      <div class="focus-header">
+        <h2 x-text="outputModal.title"></h2>
+        <button class="panel-close" @click="closeOutputModal()">&times;</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Prompt *</label>
-        <input class="form-input" id="add-prompt" placeholder="check status" />
-        <div class="form-hint">The prompt sent to the agent on each scheduled run.</div>
+      <div class="focus-body markdown-body" style="font-size:0.85rem" x-html="outputModal.content"></div>
+    </div>
+
+    <div class="panel-overlay" :class="{ visible: addPanel.show }" x-show="addPanel.show" @click="closeAddPanel()"></div>
+    <div class="side-panel" :class="{ visible: addPanel.show }">
+      <div class="panel-header">
+        <h2>Add Agent</h2>
+        <button class="panel-close" @click="closeAddPanel()">&times;</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Schedule *</label>
-        <input class="form-input" id="add-schedule" placeholder="1h, 30m, weekdays at 9am" />
-        <div class="form-hint">Interval (30m, 2h), cron expression, or human-readable schedule.</div>
+      <div class="panel-tabs">
+        <button class="panel-tab" :class="{ active: addPanel.tab === 'discover' }" @click="switchAddTab('discover')">Discover</button>
+        <button class="panel-tab" :class="{ active: addPanel.tab === 'manual' }" @click="switchAddTab('manual')">Manual</button>
       </div>
-      <div class="form-row">
+
+      <div class="panel-content" :class="{ active: addPanel.tab === 'discover' }" x-show="addPanel.tab === 'discover'">
+        <div class="discover-scan">
+          <input class="form-input" x-model="addPanel.scanDir" placeholder="Directory to scan (leave empty for all repos)">
+          <button class="btn btn-primary" @click="runDiscover()">Scan</button>
+          <button class="btn" @click="browseFolder()" title="Browse for folder">📁</button>
+        </div>
+        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
+          <template x-for="dir in addPanel.recentDirs" :key="dir">
+            <button class="btn" style="font-size:0.7rem;padding:2px 8px" @click="addPanel.scanDir = dir" x-text="'📁 ' + basename(dir)"></button>
+          </template>
+        </div>
+        <div class="discover-list">
+          <template x-if="addPanel.discovering">
+            <span style="color:#8b949e">Scanning…</span>
+          </template>
+          <template x-if="!addPanel.discovering && addPanel.discovered.length === 0 && !addPanel.discoverMessage">
+            <span style="color:#8b949e;font-size:0.85rem">Click <strong>Scan</strong> to discover available agents from installed plugins and local repositories.</span>
+          </template>
+          <template x-if="!addPanel.discovering && addPanel.discoverMessage">
+            <span :style="addPanel.discoverError ? 'color:#f85149' : 'color:#8b949e'" x-text="addPanel.discoverMessage"></span>
+          </template>
+          <template x-for="item in addPanel.discovered" :key="item.source + ':' + item.id + ':' + (item.pluginDir || item.cwd || '')">
+            <div class="discover-item" :class="{ registered: item.registered }">
+              <div class="discover-info">
+                <div>
+                  <span class="discover-name" x-text="item.displayName || item.name"></span>
+                  <span class="source-badge" :class="discoverSourceClass(item)" x-text="discoverSourceLabel(item)"></span>
+                  <template x-if="item.version"><span style="color:#8b949e;font-size:0.7rem" x-text="'v' + item.version"></span></template>
+                  <template x-if="item.repoName"><span style="color:#8b949e;font-size:0.7rem" x-text="'in ' + item.repoName"></span></template>
+                </div>
+                <template x-if="item.description"><div class="discover-desc" x-text="item.description"></div></template>
+                <template x-if="item.cwd"><div class="discover-meta" x-text="'📁 ' + item.cwd"></div></template>
+                <template x-if="item.author"><div class="discover-meta" x-text="'👤 ' + item.author"></div></template>
+              </div>
+              <div class="discover-actions" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+                <template x-if="item.registered">
+                  <span style="color:#3fb950;font-size:0.8rem">✓ Added</span>
+                </template>
+                <template x-if="!item.registered">
+                  <button class="btn btn-primary" @click="prefillFromDiscover(item)">+ Add</button>
+                </template>
+                <template x-if="item.installed === false && item.installCmd">
+                  <button class="btn" :disabled="installState(installStateKey(item, 'cmd')).disabled" :title="installState(installStateKey(item, 'cmd')).title" @click="installPlugin(item.installCmd, null, null, installStateKey(item, 'cmd'))" x-text="installState(installStateKey(item, 'cmd')).text || '📦 Install'"></button>
+                </template>
+                <template x-if="item.pluginDir && !item.installed">
+                  <button class="btn btn-primary" :disabled="installState(installStateKey(item, 'overlay')).disabled" :title="'Install as supervisor-managed overlay (recommended)'" @click="installPlugin(null, item.pluginDir, 'overlay', installStateKey(item, 'overlay'))" x-text="installState(installStateKey(item, 'overlay')).text || '🔧 Install Overlay'"></button>
+                </template>
+                <template x-if="item.pluginDir && !item.installed">
+                  <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" :disabled="installState(installStateKey(item, 'copilot-local')).disabled" :title="'Register in Copilot via junction + config.json'" @click="installPlugin(null, item.pluginDir, 'copilot-local', installStateKey(item, 'copilot-local'))" x-text="installState(installStateKey(item, 'copilot-local')).text || '📦 Copilot Registry'"></button>
+                </template>
+                <template x-if="item.pluginDir && !item.installed">
+                  <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" :disabled="installState(installStateKey(item, 'agency')).disabled" :title="'Install via Agency registry'" @click="installPlugin(null, item.pluginDir, 'agency', installStateKey(item, 'agency'))" x-text="installState(installStateKey(item, 'agency')).text || '⚡ Agency'"></button>
+                </template>
+                <template x-if="item.installed === false && !item.installCmd && !item.pluginDir">
+                  <span style="color:#f0883e;font-size:0.7rem">not installed</span>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="panel-content" :class="{ active: addPanel.tab === 'manual' }" x-show="addPanel.tab === 'manual'">
         <div class="form-group">
-          <label class="form-label">Group</label>
-          <input class="form-input" id="add-group" placeholder="Optional group name" />
+          <label class="form-label">ID *</label>
+          <input class="form-input" x-model="addPanel.form.id" placeholder="my-agent (unique identifier)">
+          <div class="form-hint">Lowercase, hyphens. Used as internal key.</div>
         </div>
         <div class="form-group">
-          <label class="form-label">Copilot Path</label>
-          <input class="form-input" id="add-copilotPath" placeholder="Auto-detect" />
-          <div class="form-hint">Override path to copilot.cmd</div>
+          <label class="form-label">Display Name *</label>
+          <input class="form-input" x-model="addPanel.form.name" placeholder="My Agent">
+          <div class="form-hint">Human-readable name shown in the dashboard.</div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Agent Name *</label>
+          <input class="form-input" x-model="addPanel.form.agent" placeholder="Agent display name for --agent flag">
+          <div class="form-hint">The name passed to <code>copilot --agent</code>. Use exact display name.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Working Directory *</label>
+          <input class="form-input" x-model="addPanel.form.cwd" placeholder="C:\repos\my-project">
+          <div class="form-hint">Directory where the agent runs (where copilot-instructions.md lives).</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prompt *</label>
+          <input class="form-input" x-model="addPanel.form.prompt" placeholder="check status">
+          <div class="form-hint">The prompt sent to the agent on each scheduled run.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Schedule *</label>
+          <input class="form-input" x-model="addPanel.form.schedule" placeholder="1h, 30m, weekdays at 9am">
+          <div class="form-hint">Interval (30m, 2h), cron expression, or human-readable schedule.</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Group</label>
+            <input class="form-input" x-model="addPanel.form.group" placeholder="Optional group name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Copilot Path</label>
+            <input class="form-input" x-model="addPanel.form.copilotPath" placeholder="Auto-detect">
+            <div class="form-hint">Override path to copilot.cmd</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Plugin Directory</label>
+          <input class="form-input" x-model="addPanel.form.pluginDir" placeholder="Optional — path to local plugin dir">
+          <div class="form-hint">For plugins not globally installed. Uses <code>--plugin-dir</code> flag.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">MCP Config</label>
+          <input class="form-input" x-model="addPanel.form.mcpConfig" placeholder="Optional — relative path to .mcp.json">
+          <div class="form-hint">Relative to cwd. Uses <code>--additional-mcp-config</code> flag.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" x-model="addPanel.form.durable">
+            <span>Durable</span>
+            <span class="form-hint" style="margin:0">(auto-restart on supervisor start)</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-checkbox">
+            <input type="checkbox" x-model="addPanel.form.autoStart">
+            <span>Auto-start</span>
+            <span class="form-hint" style="margin:0">(run immediately when enabled; uncheck for schedule-only)</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn btn-primary" @click="submitAddAgent()">Add Agent</button>
+          <button class="btn" @click="closeAddPanel()">Cancel</button>
+        </div>
+        <div style="color:#f85149;font-size:0.8rem;margin-top:8px;display:none" x-show="!!addPanel.error" x-text="addPanel.error"></div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Plugin Directory</label>
-        <input class="form-input" id="add-pluginDir" placeholder="Optional — path to local plugin dir" />
-        <div class="form-hint">For plugins not globally installed. Uses <code>--plugin-dir</code> flag.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">MCP Config</label>
-        <input class="form-input" id="add-mcpConfig" placeholder="Optional — relative path to .mcp.json" />
-        <div class="form-hint">Relative to cwd. Uses <code>--additional-mcp-config</code> flag.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="add-durable" checked />
-          <span>Durable</span>
-          <span class="form-hint" style="margin:0">(auto-restart on supervisor start)</span>
-        </label>
-      </div>
-      <div class="form-group">
-        <label class="form-checkbox">
-          <input type="checkbox" id="add-autoStart" checked />
-          <span>Auto-start</span>
-          <span class="form-hint" style="margin:0">(run immediately when enabled; uncheck for schedule-only)</span>
-        </label>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-primary" onclick="submitAddAgent()">Add Agent</button>
-        <button class="btn" onclick="closeAddPanel()">Cancel</button>
-      </div>
-      <div id="add-error" style="color:#f85149;font-size:0.8rem;margin-top:8px;display:none"></div>
     </div>
   </div>
 
   <script>
-    async function fetchAgents() {
-      const res = await fetch('/api/agents');
-      return res.json();
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function esc(str) {
+      return escapeHtml(str || '');
+    }
+
+    function basename(p) {
+      return (p || '').split(/[\\/]/).pop() || '';
     }
 
     function timeAgo(iso) {
@@ -2529,986 +2919,20 @@ function getDashboardHtml() {
       if (!startedAt) return '';
       const start = new Date(startedAt);
       const timeStr = start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      if (!finishedAt) return \`⏱ Started \${timeStr} (running…)\`;
+      if (!finishedAt) return '⏱ Started ' + timeStr + ' (running…)';
       const durationMs = new Date(finishedAt).getTime() - start.getTime();
       let durStr;
       if (durationMs < 60000) durStr = Math.round(durationMs / 1000) + 's';
       else if (durationMs < 3600000) durStr = Math.floor(durationMs / 60000) + 'm ' + Math.round((durationMs % 60000) / 1000) + 's';
       else durStr = Math.floor(durationMs / 3600000) + 'h ' + Math.round((durationMs % 3600000) / 60000) + 'm';
-      return \`🕐 \${timeStr} · ran for \${durStr}\`;
+      return '🕐 ' + timeStr + ' · ran for ' + durStr;
     }
 
-    // Track which output panels are expanded
-    const expandedOutputs = new Set();
-
-    // Track collapsed groups
-    const collapsedGroups = new Set();
-
-    function renderAgents(agents) {
-      // Skip re-render if user is focused on an input or schedule editor is open
-      const focused = document.activeElement;
-      if (focused && (focused.classList.contains('schedule-input') || focused.classList.contains('trigger-input') || focused.classList.contains('group-select'))) return;
-      if (document.querySelector('.sched-editor')) return;
-      // Skip if any modal/overlay is visible
-      if (document.querySelector('.modal-overlay.visible, .panel-overlay.visible')) return;
-
-      // Filter agents by name
-      const filterText = (document.getElementById('agent-filter')?.value || '').toLowerCase();
-      if (filterText) {
-        agents = agents.filter(a => (a.config?.name || a.agent_id).toLowerCase().includes(filterText));
-      }
-
-      // Save scroll positions of expanded output divs
-      const scrollPositions = new Map();
-      document.querySelectorAll('.output-content.visible').forEach(el => {
-        if (el.id && el.scrollTop > 0) scrollPositions.set(el.id, el.scrollTop);
-      });
-
-      // Save live output content so it's not reset by re-render
-      const liveOutputCache = new Map();
-      document.querySelectorAll('[id^="live-"]').forEach(el => {
-        if (el.id.startsWith('live-chat-btn-')) {
-          if (el.innerHTML) liveOutputCache.set(el.id, el.innerHTML);
-        } else if (el.innerHTML && !el.innerHTML.includes('Waiting for agent')) {
-          liveOutputCache.set(el.id, el.innerHTML);
-        }
-      });
-      document.querySelectorAll('[id^="live-status-"]').forEach(el => {
-        if (el.textContent !== 'watching...') liveOutputCache.set(el.id, el.textContent);
-      });
-
-      // Group agents
-      const groups = new Map();
-      agents.forEach(agent => {
-        const group = agent.config?.group || 'Ungrouped';
-        if (!groups.has(group)) groups.set(group, []);
-        groups.get(group).push(agent);
-      });
-
-      // Collect all known group names for the group selector
-      const allGroupNames = Array.from(groups.keys());
-      window._lastGroupNames = allGroupNames;
-
-      const container = document.getElementById('agents');
-      container.innerHTML = Array.from(groups.entries()).map(([groupName, groupAgents]) => {
-        const isCollapsed = collapsedGroups.has(groupName);
-        const statusDots = groupAgents.map(a =>
-          \`<span class="status-dot dot-\${a.status || 'idle'}" title="\${a.config?.name || a.agent_id}: \${a.status || 'idle'}"></span>\`
-        ).join('');
-        const isUngrouped = groupName === 'Ungrouped';
-        return \`
-          <div class="agent-group">
-            <div class="group-header" onclick="toggleGroup('\${escapeHtml(groupName)}')">
-              <span class="group-toggle">\${isCollapsed ? '▸' : '▾'}</span>
-              <span class="group-name">\${escapeHtml(groupName)}</span>
-              <span class="group-count">(\${groupAgents.length})</span>
-              <div class="group-status-dots">\${statusDots}</div>
-              \${!isUngrouped ? \`
-                <div class="group-actions" onclick="event.stopPropagation()">
-                  <button class="btn" onclick="renameGroup('\${escapeHtml(groupName)}')" title="Rename group">✎</button>
-                  <button class="btn btn-danger" onclick="deleteGroup('\${escapeHtml(groupName)}')" title="Dissolve group">✗</button>
-                </div>\` : ''}
-            </div>
-            <div class="group-body\${isCollapsed ? ' collapsed' : ''}">
-              \${groupAgents.map(agent => renderAgentCard(agent, agents, allGroupNames)).join('')}
-            </div>
-          </div>\`;
-      }).join('');
-
-      // Restore live output content first (before scroll restore)
-      liveOutputCache.forEach((content, id) => {
-        const el = document.getElementById(id);
-        if (el) {
-          if (id.startsWith('live-status-')) el.textContent = content;
-          else el.innerHTML = content;
-        }
-      });
-
-      // Restore scroll positions of output divs (including live output)
-      scrollPositions.forEach((scrollTop, id) => {
-        const el = document.getElementById(id);
-        if (el) el.scrollTop = scrollTop;
-      });
-    }
-
-    function renderAgentCard(agent, agents, allGroupNames) {
-      const currentGroup = agent.config?.group || '';
-      const isEnabled = agent.enabled !== 0;
-      const autoStart = agent.config?.autoStart !== false;
-      const groupOpts = allGroupNames.filter(g => g !== 'Ungrouped')
-        .map(g => \`<option value="\${escapeHtml(g)}" \${g === currentGroup ? 'selected' : ''}>\${escapeHtml(g)}</option>\`).join('');
-      return \`
-        <div class="agent-card\${!isEnabled ? ' agent-disabled' : ''}">
-          <div class="agent-header">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span class="agent-name" ondblclick="editAgentName('\${agent.agent_id}', this)" title="Double-click to rename">\${agent.config?.name || agent.agent_id}</span>
-              <span style="font-size:0.65rem;padding:2px 6px;border-radius:3px;background:\${agent.config?.pluginDir ? '#1f6feb22;color:#58a6ff;border:1px solid #1f6feb55' : '#2ea04322;color:#7ee787;border:1px solid #2ea04355'}">\${agent.config?.pluginDir ? '🔌 plugin' : '🤖 agent'}</span>
-             \${agent.config?.agent && agent.config.agent !== agent.config?.name ? \`<span style="font-size:0.7rem;color:#8b949e;font-family:monospace" title="Agent identifier">\${escapeHtml(agent.config.agent)}</span>\` : ''}
-           </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span class="status-badge status-\${agent.status || 'idle'}">\${agent.status || 'idle'}</span>
-              <label class="toggle-switch" title="\${isEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}">
-                <input type="checkbox" \${isEnabled ? 'checked' : ''} onchange="toggleEnabled('\${agent.agent_id}', this.checked)" />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-          <div class="agent-meta">
-            <div class="meta-item" style="grid-column: span 2"><span class="meta-label">Prompt:</span> <span class="meta-value prompt-value" ondblclick="editAgentPrompt('\${agent.agent_id}', this)" title="Double-click to edit">\${escapeHtml(agent.config?.prompt || '-')}</span></div>
-            <div class="meta-item"><span class="meta-label">CWD:</span> <span class="meta-value">\${agent.config?.cwd || '-'}</span></div>
-            <div class="meta-item">
-              <span class="meta-label">Group:</span>
-              <select class="group-select" onchange="moveToGroup('\${agent.agent_id}', this.value)">
-                <option value="" \${!currentGroup ? 'selected' : ''}>Ungrouped</option>
-                \${groupOpts}
-                <option value="__new__">+ New group…</option>
-              </select>
-            </div>
-          </div>
-          <div class="agent-actions">
-            <button class="btn btn-primary" onclick="startAgent('\${agent.agent_id}')">▶ Start</button>
-            <button class="btn btn-danger" onclick="stopAgent('\${agent.agent_id}')">■ Stop</button>
-            <button class="btn" onclick="runNow('\${agent.agent_id}')">⚡ Run Now</button>
-            <span style="border-left:1px solid #30363d;height:20px;margin:0 4px"></span>
-            <button class="btn" onclick="showAgentSessions('\${escapeHtml(agent.config?.name || agent.agent_id)}')" title="View sessions for this agent">📋 Sessions</button>
-            <button class="btn" onclick="openLastTerminal('\${agent.agent_id}', '\${escapeJs(agent.config?.cwd || '')}')" title="Resume last session in Copilot CLI">💻 Copilot</button>
-            <button class="btn" onclick="editAgentSource('\${agent.agent_id}')" title="Open agent source in editor">✏️ Edit</button>
-            <button class="btn" onclick="cloneAgent('\${agent.agent_id}')" title="Clone this agent with a new name">📋 Clone</button>
-            \${agent.config?.pluginDir ? \`<button class="btn" onclick="reinstallPlugin('\${agent.agent_id}')" title="Reinstall plugin (uninstall + install)">🔄 Reinstall</button>\` : ''}
-            <button class="btn btn-danger" style="margin-left:auto" onclick="deleteAgent('\${agent.agent_id}')" title="Remove agent">🗑</button>
-            \${agent.isTriggerOnly ? \`
-              <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
-                <span style="color:#d2a8ff;font-weight:600;font-size:0.8rem">⚡ Trigger</span>
-                <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
-                  <span style="color:#8b949e;">Last: \${timeAgo(agent.last_run)} · Exit: \${agent.lastRun?.exit_code ?? '-'}</span>
-                </div>
-              </div>
-            \` : \`
-              <div style="position:relative;display:inline-flex;align-items:center;gap:6px;margin-left:8px;padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;">
-                <button class="btn" onclick="openScheduleEditor('\${agent.agent_id}', '\${escapeHtml(agent.schedule || '')}', this)" title="Edit schedule">🕐 Schedule</button>
-                <div style="display:flex;flex-direction:column;gap:2px;font-size:0.75rem;">
-                  <span style="color:#c9d1d9;" title="\${agent.scheduleDescription || ''}">\${agent.schedule || 'none'} <span style="color:#8b949e">(\${agent.scheduleDescription || ''})</span></span>
-                  <span style="color:#8b949e;">Next: <span style="color:#58a6ff">\${isEnabled ? timeUntil(agent.next_run) : '—'}</span> · Last: \${timeAgo(agent.last_run)} · Exit: \${agent.lastRun?.exit_code ?? '-'}</span>
-                  <span style="color:#8b949e;cursor:pointer;" onclick="toggleAutoStart('\${agent.agent_id}', \${autoStart})" title="Click to toggle">Auto-start: \${autoStart ? '<span style=color:#7ee787>✓ on boot</span>' : '<span style=color:#f0883e>⏱ schedule only</span>'}</span>
-                </div>
-              </div>
-            \`}
-            \${renderTriggers(agent, agents)}
-          </div>
-          \${agent.lastRun?.error ? \`
-            <div class="output-section error-output">
-              <button class="output-toggle" onclick="toggleOutput('err-\${agent.agent_id}')">\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? '▾' : '▸'} Error</button>
-              <pre class="output-content error-text\${(agent.status === 'error' || expandedOutputs.has('err-' + agent.agent_id)) ? ' visible' : ''}" id="output-err-\${agent.agent_id}">\${escapeHtml(agent.lastRun.error)}</pre>
-            </div>
-          \` : ''}
-          \${(agent.status === 'running' || agent.lastRun?.output) ? \`
-            <div class="output-section"\${agent.status === 'running' ? ' style="border-left:3px solid #f0883e;"' : ''}>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                \${agent.status === 'running' ? \`
-                  <span class="spinner" style="width:14px;height:14px;"></span>
-                  <span style="color:#f0883e;font-weight:600;font-size:0.85rem;">Latest session</span>
-                  <span style="color:#8b949e;font-size:0.75rem" id="live-status-\${agent.agent_id}">watching...</span>
-                \` : \`
-                  <button class="output-toggle" onclick="toggleOutput('\${agent.agent_id}')">\${expandedOutputs.has(agent.agent_id) ? '▾' : '▸'} Latest session</button>
-                  <span style="font-size:11px;color:#888;margin-left:4px">\${agent.lastRun?.started_at ? formatRunTimestamp(agent.lastRun.started_at, agent.lastRun.finished_at) : ''}</span>
-                \`}
-                <button class="output-toggle" onclick="openOutputModal('\${escapeHtml(agent.config?.name || agent.agent_id)}', '\${agent.agent_id}')" style="margin-left:8px\${agent.status === 'running' ? ';opacity:0.4;pointer-events:none' : ''}" title="Open in full view">⛶ Focus</button>
-                <span id="live-chat-btn-\${agent.agent_id}">\${agent.status !== 'running' ? \`<button class="output-toggle" onclick="openLastChat('\${agent.agent_id}', '\${agent.lastRun?.session_id || ''}')" style="margin-left:0" title="Chat with this session">💬 Chat</button>\` : \`<button class="output-toggle" style="margin-left:0;opacity:0.4;pointer-events:none" title="Chat available after session completes">💬 Chat</button>\`}</span>
-                <button class="output-toggle" onclick="emailOutput('\${agent.agent_id}', '\${escapeHtml(agent.config?.name || agent.agent_id)}')" style="margin-left:8px\${agent.status === 'running' ? ';opacity:0.4;pointer-events:none' : ''}" title="Email last output">✉ Email</button>
-              </div>
-              \${agent.status === 'running' ? \`
-                <div class="output-content markdown-body visible" id="live-\${agent.agent_id}" style="margin-top:8px;max-height:400px;overflow-y:auto;opacity:0.9;">
-                  <span style="color:#8b949e">Waiting for agent output...</span>
-                </div>
-              \` : \`
-                <div class="output-content markdown-body\${expandedOutputs.has(agent.agent_id) ? ' visible' : ''}" id="output-\${agent.agent_id}">\${typeof marked !== 'undefined' ? marked.parse(agent.lastRun.output || '') : escapeHtml(agent.lastRun.output)}</div>
-              \`}
-            </div>
-          \` : ''}
-          \${agent.isTriggerOnly && agent.triggerRuns && agent.triggerRuns.length > 0 ? agent.triggerRuns.map(tr => \`
-            <div class="output-section" style="margin-top:4px;\${tr.lastRun?.exit_code !== 0 && tr.lastRun ? 'border-left:3px solid #f85149;' : ''}">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <button class="output-toggle" onclick="toggleOutput('tr-\${agent.agent_id}-\${tr.sourceId}')">\${expandedOutputs.has('tr-'+agent.agent_id+'-'+tr.sourceId) ? '▾' : '▸'} From: \${escapeHtml(tr.sourceName)}</button>
-                <span style="font-size:11px;color:#888;">\${tr.lastRun?.started_at ? formatRunTimestamp(tr.lastRun.started_at, tr.lastRun.finished_at) : 'never run'}</span>
-                \${tr.lastRun?.exit_code != null ? \`<span style="font-size:11px;color:\${tr.lastRun.exit_code === 0 ? '#3fb950' : '#f85149'}">Exit: \${tr.lastRun.exit_code}</span>\` : ''}
-                \${tr.lastRun?.session_id ? \`<button class="output-toggle" onclick="openFocus('\${tr.lastRun.session_id}')" style="margin-left:4px">⛶ Focus</button>\` : ''}
-              </div>
-              \${tr.lastRun?.output ? \`
-                <div class="output-content markdown-body\${expandedOutputs.has('tr-'+agent.agent_id+'-'+tr.sourceId) ? ' visible' : ''}" id="output-tr-\${agent.agent_id}-\${tr.sourceId}">\${typeof marked !== 'undefined' ? marked.parse(tr.lastRun.output || '') : escapeHtml(tr.lastRun.output)}</div>
-              \` : ''}
-            </div>
-          \`).join('') : ''}
-        </div>\`;
-    }
-
-    function renderTriggers(agent, allAgents) {
-      const triggers = agent.config?.triggers || {};
-      const agentName = (id) => {
-        const a = allAgents.find(a => a.agent_id === id);
-        return a?.config?.name || id;
-      };
-      const badges = [];
-      const renderList = (ids, cls, icon) => {
-        const list = Array.isArray(ids) ? ids : [ids];
-        list.forEach(id => badges.push(\`<span class="trigger-badge \${cls}">\${icon} <span class="trigger-arrow">→</span> \${agentName(id)}</span>\`));
-      };
-      if (triggers.onSuccess) renderList(triggers.onSuccess, 'trigger-success', '✓');
-      if (triggers.onFailure) renderList(triggers.onFailure, 'trigger-failure', '✗');
-      if (triggers.onComplete) renderList(triggers.onComplete, 'trigger-complete', '●');
-
-      const agentOpts = allAgents.filter(a => a.agent_id !== agent.agent_id)
-        .map(a => \`<option value="\${a.agent_id}">\${a.config?.name || a.agent_id}</option>\`).join('');
-
-      const editId = 'triggers-edit-' + agent.agent_id;
-      const isEditing = expandedOutputs.has(editId);
-
-      const currentSuccess = (Array.isArray(triggers.onSuccess) ? triggers.onSuccess : triggers.onSuccess ? [triggers.onSuccess] : []).join(', ');
-      const currentFailure = (Array.isArray(triggers.onFailure) ? triggers.onFailure : triggers.onFailure ? [triggers.onFailure] : []).join(', ');
-      const currentComplete = (Array.isArray(triggers.onComplete) ? triggers.onComplete : triggers.onComplete ? [triggers.onComplete] : []).join(', ');
-
-      return \`
-        <div style="display:inline-flex;flex-direction:column;position:relative;">
-        <div class="triggers-section">
-          <span class="trigger-label">Triggers:</span>
-          \${badges.length > 0 ? badges.join('') : '<span style="color:#8b949e;font-size:0.75rem">none</span>'}
-          <button class="btn" style="padding:2px 8px;font-size:0.7rem" onclick="toggleOutput('\${editId}')">✎ Edit</button>
-        </div>
-        <div class="trigger-editor\${isEditing ? ' visible' : ''}" id="output-\${editId}" style="position:absolute;top:100%;left:0;z-index:50;min-width:340px;">
-          <div class="trigger-row">
-            <span class="trigger-badge trigger-success" style="min-width:70px">✓ Success</span>
-            <select class="trigger-input" id="trig-success-\${agent.agent_id}" multiple>
-              \${allAgents.filter(a => a.agent_id !== agent.agent_id).map(a =>
-                \`<option value="\${a.agent_id}" \${currentSuccess.includes(a.agent_id) ? 'selected' : ''}>\${a.config?.name || a.agent_id}</option>\`
-              ).join('')}
-            </select>
-          </div>
-          <div class="trigger-row">
-            <span class="trigger-badge trigger-failure" style="min-width:70px">✗ Failure</span>
-            <select class="trigger-input" id="trig-failure-\${agent.agent_id}" multiple>
-              \${allAgents.filter(a => a.agent_id !== agent.agent_id).map(a =>
-                \`<option value="\${a.agent_id}" \${currentFailure.includes(a.agent_id) ? 'selected' : ''}>\${a.config?.name || a.agent_id}</option>\`
-              ).join('')}
-            </select>
-          </div>
-          <div class="trigger-row">
-            <span class="trigger-badge trigger-complete" style="min-width:70px">● Always</span>
-            <select class="trigger-input" id="trig-complete-\${agent.agent_id}" multiple>
-              \${allAgents.filter(a => a.agent_id !== agent.agent_id).map(a =>
-                \`<option value="\${a.agent_id}" \${currentComplete.includes(a.agent_id) ? 'selected' : ''}>\${a.config?.name || a.agent_id}</option>\`
-              ).join('')}
-            </select>
-          </div>
-          <button class="btn btn-primary" style="margin-top:6px" onclick="saveTriggers('\${agent.agent_id}')">Save</button>
-          <button class="btn btn-danger" style="margin-top:6px" onclick="clearTriggers('\${agent.agent_id}')">Clear All</button>
-        </div>
-        </div>\`;
-    }
-
-    function escapeHtml(str) {
-      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
-    function escapeJs(str) {
-      return str.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\\\'");
-    }
-
-    function editAgentName(id, el) {
-      const current = el.textContent;
-      const input = document.createElement('input');
-      input.className = 'schedule-input';
-      input.style.fontSize = '1.1rem';
-      input.style.fontWeight = 'bold';
-      input.value = current;
-      el.replaceWith(input);
-      input.focus();
-      input.select();
-      const save = async () => {
-        const newName = input.value.trim();
-        if (newName && newName !== current) {
-          await fetch(\`/api/agents/\${id}/name\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name: newName }) });
-        }
-        refresh();
-      };
-      input.addEventListener('blur', save);
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = current; input.blur(); } });
-    }
-
-    function editAgentPrompt(id, el) {
-      const current = el.textContent;
-      const container = document.createElement('div');
-      container.style.cssText = 'width:100%;display:flex;flex-direction:column;gap:4px;';
-      const textarea = document.createElement('textarea');
-      textarea.className = 'schedule-input';
-      textarea.style.cssText = 'width:100%;min-height:60px;resize:vertical;font-family:inherit;font-size:inherit;';
-      textarea.value = current === '-' ? '' : current;
-      
-      // Help hint for template variables
-      const hint = document.createElement('div');
-      hint.style.cssText = 'font-size:11px;color:#888;line-height:1.4;background:#1a1a2e;border:1px solid #333;border-radius:4px;padding:6px 8px;';
-      hint.innerHTML = \`<strong style="color:#aaa">Template variables</strong> (available when triggered by another agent):<br>
-<code style="color:#7ec8e3">\{{ trigger.output }}</code> — output from triggering agent<br>
-<code style="color:#7ec8e3">\{{ trigger.name }}</code> — name &nbsp;|&nbsp; <code style="color:#7ec8e3">\{{ trigger.exitCode }}</code> — exit code<br>
-<code style="color:#7ec8e3">\{{ trigger.startedAt }}</code> / <code style="color:#7ec8e3">\{{ trigger.finishedAt }}</code> — timestamps<br>
-<code style="color:#7ec8e3">\{{ chain[0].output }}</code> — output from earlier chain step (0-indexed)<br>
-<span style="color:#666">Unresolved variables are left as-is. Press Enter to save, Esc to cancel.</span>\`;
-      
-      container.appendChild(textarea);
-      container.appendChild(hint);
-      el.replaceWith(container);
-      textarea.focus();
-      textarea.select();
-      const save = async () => {
-        const newPrompt = textarea.value.trim();
-        if (newPrompt && newPrompt !== current) {
-          await fetch(\`/api/agents/\${id}/prompt\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt: newPrompt }) });
-        }
-        refresh();
-      };
-      textarea.addEventListener('blur', save);
-      textarea.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); textarea.blur(); }
-        if (e.key === 'Escape') { textarea.value = current; textarea.blur(); }
-      });
-    }
-
-    async function startAgent(id) { await fetch(\`/api/agents/\${id}/start\`, { method: 'POST' }); refresh(); }
-    async function stopAgent(id) { await fetch(\`/api/agents/\${id}/stop\`, { method: 'POST' }); refresh(); }
-    async function runNow(id) { await fetch(\`/api/agents/\${id}/run\`, { method: 'POST' }); refresh(); }
-    async function openInCode() { await fetch('/api/open-editor', { method: 'POST' }); }
-    function importConfig() { document.getElementById('importFileInput').click(); }
-    async function handleImportFile(input) {
-      const file = input.files[0];
-      if (!file) { alert('No file selected'); return; }
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await fetch('/api/import', { method: 'POST', body: formData });
-        if (!res.ok) { alert('Import request failed: HTTP ' + res.status); return; }
-        const result = await res.json();
-        let msg = '';
-        if (result.imported?.length) msg += '✅ Imported:\\n' + result.imported.join('\\n') + '\\n\\n';
-        if (result.warnings?.length) msg += '⚠️ Warnings:\\n' + result.warnings.join('\\n') + '\\n\\n';
-        if (result.errors?.length) msg += '❌ Errors:\\n' + result.errors.join('\\n');
-        alert(msg || 'Import complete (no details returned)');
-        refresh();
-      } catch (e) {
-        alert('Import failed: ' + e.message);
-      }
-      input.value = '';
-    }
-    async function toggleEnabled(id, enabled) {
-      await fetch(\`/api/agents/\${id}/enabled\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled }) });
-      refresh();
-    }
-    async function toggleAutoStart(id, current) {
-      const newVal = !current;
-      await fetch(\`/api/agents/\${id}/autostart\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ autoStart: newVal }) });
-      refresh();
-    }
-    async function updateSchedule(id) {
-      const val = document.getElementById('sched-' + id)?.value;
-      if (val) {
-        await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
-        refresh();
-      }
-    }
-
-    function openScheduleEditor(agentId, currentSchedule, btnEl) {
-      document.querySelectorAll('.sched-editor').forEach(e => e.remove());
-      const editor = document.createElement('div');
-      editor.className = 'sched-editor visible';
-      editor.innerHTML = \`
-        <label>Schedule type</label>
-        <div class="sched-mode-row">
-          <select id="sched-mode" onchange="schedModeChanged()">
-            <option value="interval">Interval (every N minutes/hours)</option>
-            <option value="daily">Daily (at a specific time)</option>
-            <option value="weekly">Weekly (pick days + time)</option>
-            <option value="cron">Advanced (cron / free text)</option>
-          </select>
-        </div>
-        <div class="sched-fields" id="sched-fields"></div>
-        <div class="sched-preview" id="sched-preview">—</div>
-        <div class="sched-actions">
-          <button class="btn btn-primary" onclick="saveScheduleEditor('\${agentId}')">Save</button>
-          <button class="btn" onclick="closeScheduleEditor()">Cancel</button>
-        </div>
-      \`;
-      btnEl.parentElement.appendChild(editor);
-      editor.dataset.agentId = agentId;
-      editor.dataset.current = currentSchedule;
-      detectScheduleMode(currentSchedule);
-      setTimeout(() => document.addEventListener('click', schedEditorOutsideClick), 10);
-    }
-
-    function schedEditorOutsideClick(e) {
-      const editor = document.querySelector('.sched-editor');
-      if (!editor) return;
-      // Don't close if click is inside editor or on editor-related elements
-      if (editor.contains(e.target)) return;
-      if (e.target.closest('[onclick*="openScheduleEditor"]')) return;
-      if (e.target.closest('.sched-editor')) return;
-      // Don't close if a select dropdown is active (native dropdowns fire clicks on document)
-      if (e.target.tagName === 'OPTION' || e.target.tagName === 'SELECT') return;
-      // Small delay to avoid race with native dropdown close events
-      setTimeout(() => {
-        if (document.querySelector('.sched-editor')) closeScheduleEditor();
-      }, 50);
-    }
-
-    function closeScheduleEditor() {
-      document.querySelectorAll('.sched-editor').forEach(e => e.remove());
-      document.removeEventListener('click', schedEditorOutsideClick);
-    }
-
-    function detectScheduleMode(schedule) {
-      const mode = document.getElementById('sched-mode');
-      if (!schedule) { mode.value = 'interval'; schedModeChanged(); return; }
-      if (/^\\d+[mh]$/.test(schedule) || /^every\\s+\\d+\\s*(min|hour|sec)/i.test(schedule)) mode.value = 'interval';
-      else if (/weekday|M,T|mon|tue|wed|thu|fri|sat|sun/i.test(schedule)) mode.value = 'weekly';
-      else if (/daily|^at\\s+\\d/i.test(schedule)) mode.value = 'daily';
-      else mode.value = 'cron';
-      schedModeChanged(schedule);
-    }
-
-    function schedModeChanged(prefill) {
-      const mode = document.getElementById('sched-mode').value;
-      const fields = document.getElementById('sched-fields');
-      const editor = document.querySelector('.sched-editor');
-      const current = prefill || editor?.dataset.current || '';
-
-      if (mode === 'interval') {
-        let num = 1, unit = 'h';
-        const m = current.match(/(\\d+)\\s*([mh])/);
-        if (m) { num = parseInt(m[1]); unit = m[2]; }
-        else { const m2 = current.match(/every\\s+(\\d+)\\s*(min|hour)/i); if (m2) { num = parseInt(m2[1]); unit = m2[2].startsWith('h') ? 'h' : 'm'; } }
-        fields.innerHTML = \`<div style="display:flex;gap:8px;align-items:center">
-          <label style="margin:0">Every</label>
-          <input type="number" id="sched-interval-num" value="\${num}" min="1" max="720" style="width:60px" oninput="previewSchedule()">
-          <select id="sched-interval-unit" onchange="previewSchedule()">
-            <option value="m" \${unit==='m'?'selected':''}>minutes</option>
-            <option value="h" \${unit==='h'?'selected':''}>hours</option>
-          </select>
-        </div>\`;
-      } else if (mode === 'daily') {
-        let time = '09:00';
-        const m = current.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/i);
-        if (m) { let h = parseInt(m[1]); const min = m[2]||'00'; if(m[3]?.toLowerCase()==='pm'&&h<12)h+=12; if(m[3]?.toLowerCase()==='am'&&h===12)h=0; time = String(h).padStart(2,'0')+':'+min; }
-        fields.innerHTML = \`<div style="display:flex;gap:8px;align-items:center">
-          <label style="margin:0">At</label>
-          <input type="time" id="sched-daily-time" value="\${time}" onchange="previewSchedule()">
-          <span style="color:#8b949e;font-size:0.8rem">every day</span>
-        </div>\`;
-      } else if (mode === 'weekly') {
-        const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-        const dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
-        let checkedDays = new Set();
-        if (/weekday/i.test(current)) checkedDays = new Set(['mon','tue','wed','thu','fri']);
-        else { for (let i=0;i<dayKeys.length;i++) { if(new RegExp(dayKeys[i],'i').test(current)) checkedDays.add(dayKeys[i]); } }
-        if (checkedDays.size===0) checkedDays = new Set(['mon','tue','wed','thu','fri']);
-        let time = '09:00';
-        const m = current.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/i);
-        if (m) { let h=parseInt(m[1]); const min=m[2]||'00'; if(m[3]?.toLowerCase()==='pm'&&h<12)h+=12; if(m[3]?.toLowerCase()==='am'&&h===12)h=0; time=String(h).padStart(2,'0')+':'+min; }
-        fields.innerHTML = \`<div class="day-checkboxes">
-          \${days.map((d,i) => \`<label><input type="checkbox" value="\${dayKeys[i]}" \${checkedDays.has(dayKeys[i])?'checked':''} onchange="previewSchedule()"> \${d}</label>\`).join('')}
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <label style="margin:0">At</label>
-          <input type="time" id="sched-weekly-time" value="\${time}" onchange="previewSchedule()">
-        </div>\`;
-      } else {
-        fields.innerHTML = \`<div style="display:flex;flex-direction:column;gap:4px">
-          <label style="margin:0">Cron expression or free text</label>
-          <input type="text" class="schedule-input" style="width:100%" id="sched-cron-input" value="\${current.replace(/"/g,'&quot;')}" oninput="previewSchedule()" placeholder="e.g. 0 9 * * 1-5 or weekdays at 9am">
-          <span style="color:#8b949e;font-size:0.7rem">Examples: 0 */2 * * * (every 2h) | weekdays at 9am | every 30 minutes</span>
-        </div>\`;
-      }
-      previewSchedule();
-    }
-
-    function getScheduleValue() {
-      const mode = document.getElementById('sched-mode').value;
-      if (mode === 'interval') {
-        const num = document.getElementById('sched-interval-num')?.value || '1';
-        const unit = document.getElementById('sched-interval-unit')?.value || 'h';
-        return num + unit;
-      } else if (mode === 'daily') {
-        const time = document.getElementById('sched-daily-time')?.value || '09:00';
-        const [h, m] = time.split(':').map(Number);
-        const ampm = h >= 12 ? 'pm' : 'am';
-        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        return \`daily at \${h12}\${m > 0 ? ':' + String(m).padStart(2,'0') : ''}\${ampm}\`;
-      } else if (mode === 'weekly') {
-        const checked = Array.from(document.querySelectorAll('.day-checkboxes input:checked')).map(c => c.value);
-        if (checked.length === 0) return '';
-        const time = document.getElementById('sched-weekly-time')?.value || '09:00';
-        const [h, min] = time.split(':').map(Number);
-        const ampm = h >= 12 ? 'pm' : 'am';
-        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        const timeStr = \`\${h12}\${min > 0 ? ':' + String(min).padStart(2,'0') : ''}\${ampm}\`;
-        if (checked.length === 5 && !checked.includes('sat') && !checked.includes('sun')) return \`weekdays at \${timeStr}\`;
-        const dayMap = {mon:'M',tue:'T',wed:'W',thu:'Th',fri:'F',sat:'Sa',sun:'Su'};
-        return checked.map(d => dayMap[d]).join(',') + ' at ' + timeStr;
-      } else {
-        return document.getElementById('sched-cron-input')?.value || '';
-      }
-    }
-
-    async function previewSchedule() {
-      const val = getScheduleValue();
-      const preview = document.getElementById('sched-preview');
-      if (!val) { preview.textContent = '—'; preview.style.color = '#8b949e'; return; }
-      try {
-        const res = await fetch('/api/schedule/describe', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
-        const data = await res.json();
-        if (data.error) { preview.textContent = '⚠ ' + data.error; preview.style.color = '#f85149'; }
-        else { preview.textContent = '✓ ' + (data.description || val); preview.style.color = '#7ee787'; }
-      } catch { preview.textContent = val; preview.style.color = '#c9d1d9'; }
-    }
-
-    async function saveScheduleEditor(agentId) {
-      const val = getScheduleValue();
-      if (!val) return;
-      await fetch(\`/api/agents/\${agentId}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: val}) });
-      closeScheduleEditor();
-      refresh();
-    }
-
-    async function saveTriggers(id) {
-      const getSelected = (elId) => Array.from(document.getElementById(elId).selectedOptions).map(o => o.value);
-      const onSuccess = getSelected('trig-success-' + id);
-      const onFailure = getSelected('trig-failure-' + id);
-      const onComplete = getSelected('trig-complete-' + id);
-      const triggers = {};
-      if (onSuccess.length) triggers.onSuccess = onSuccess;
-      if (onFailure.length) triggers.onFailure = onFailure;
-      if (onComplete.length) triggers.onComplete = onComplete;
-      // If triggers are being set, switch to trigger mode (schedule=never)
-      if (Object.keys(triggers).length > 0) {
-        await fetch(\`/api/agents/\${id}/schedule\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({schedule: 'never'}) });
-      }
-      await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers}) });
-      expandedOutputs.delete('triggers-edit-' + id);
-      refresh();
-    }
-    async function clearTriggers(id) {
-      await fetch(\`/api/agents/\${id}/triggers\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({triggers: {}}) });
-      expandedOutputs.delete('triggers-edit-' + id);
-      refresh();
-    }
-    async function moveToGroup(agentId, group) {
-      if (group === '__new__') {
-        const name = prompt('New group name:');
-        if (!name) { document.activeElement?.blur(); refresh(); return; }
-        group = name.trim();
-      }
-      document.activeElement?.blur();
-      await fetch(\`/api/agents/\${agentId}/group\`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: group || null }) });
-      refresh();
-    }
-    async function renameGroup(oldName) {
-      const newName = prompt('Rename group "' + oldName + '" to:', oldName);
-      if (!newName || newName === oldName) return;
-      await fetch('/api/groups/rename', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ oldName, newName: newName.trim() }) });
-      collapsedGroups.delete(oldName);
-      refresh();
-    }
-    async function deleteGroup(name) {
-      if (!confirm('Dissolve group "' + name + '"? Agents will move to Ungrouped.')) return;
-      await fetch(\`/api/groups/\${encodeURIComponent(name)}\`, { method: 'DELETE' });
-      collapsedGroups.delete(name);
-      refresh();
-    }
-
-    async function emailOutput(agentId, agentName) {
-      const res = await fetch(\`/api/agents/\${agentId}/email\`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || 'Failed to compose email');
-      }
-    }
-    function toggleOutput(id) {
-      if (expandedOutputs.has(id)) {
-        expandedOutputs.delete(id);
-      } else {
-        expandedOutputs.add(id);
-      }
-      document.getElementById('output-' + id).classList.toggle('visible');
-    }
-
-    function openOutputModal(name, agentId) {
-      const el = document.getElementById('output-' + agentId);
-      const content = el ? el.innerHTML : '';
-      document.getElementById('outputModalTitle').textContent = name + ' — Last Output';
-      document.getElementById('outputModalBody').innerHTML = content;
-      document.getElementById('outputModal').style.display = 'flex';
-      document.getElementById('outputModalOverlay').classList.add('visible');
-    }
-    function closeOutputModal() {
-      document.getElementById('outputModal').style.display = 'none';
-      document.getElementById('outputModalOverlay').classList.remove('visible');
-    }
-    function toggleGroup(name) {
-      if (collapsedGroups.has(name)) {
-        collapsedGroups.delete(name);
-      } else {
-        collapsedGroups.add(name);
-      }
-      refresh();
-    }
-
-    function expandAllGroups() {
-      collapsedGroups.clear();
-      refresh();
-    }
-
-    function collapseAllGroups() {
-      document.querySelectorAll('.group-header').forEach(h => {
-        const name = h.textContent.replace(/[▾▸]/, '').trim().replace(/\s*\(\d+\)$/, '');
-        collapsedGroups.add(name);
-      });
-      // Also add from last known groups
-      if (window._lastGroupNames) window._lastGroupNames.forEach(n => collapsedGroups.add(n));
-      refresh();
-    }
-
-    // ---- Add Agent Panel ----
-    function openAddPanel() {
-      document.getElementById('panelOverlay').classList.add('visible');
-      document.getElementById('addPanel').classList.add('visible');
-      loadRecentDirs();
-    }
-    function cloneAgent(agentId) {
-      const agent = window._lastAgents?.find(a => a.agent_id === agentId);
-      if (!agent?.config) return;
-      const c = agent.config;
-      openAddPanel();
-      // Switch to manual tab
-      const manualTab = document.querySelector('.panel-tab[onclick*="manual"]');
-      if (manualTab) manualTab.click();
-      // Pre-fill all fields from the source agent
-      document.getElementById('add-id').value = '';
-      document.getElementById('add-name').value = (c.name || '') + ' (copy)';
-      document.getElementById('add-agent').value = c.agent || '';
-      document.getElementById('add-cwd').value = c.cwd || '';
-      document.getElementById('add-prompt').value = c.prompt || '';
-      document.getElementById('add-schedule').value = c.schedule || '1h';
-      document.getElementById('add-group').value = c.group || '';
-      document.getElementById('add-copilotPath').value = c.copilotPath || '';
-      document.getElementById('add-pluginDir').value = c.pluginDir || '';
-      document.getElementById('add-mcpConfig').value = c.mcpConfig || '';
-      document.getElementById('add-durable').checked = c.durable !== false;
-      // Focus the name field so user can rename immediately
-      document.getElementById('add-name').focus();
-      document.getElementById('add-name').select();
-    }
-    function closeAddPanel() {
-      document.getElementById('panelOverlay').classList.remove('visible');
-      document.getElementById('addPanel').classList.remove('visible');
-    }
-    function switchTab(tab, btn) {
-      document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.panel-content').forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('tab-' + tab).classList.add('active');
-    }
-
-    async function browseFolder() {
-      const res = await fetch('/api/browse-folder', { method: 'POST' });
-      const data = await res.json();
-      if (data.folder) {
-        document.getElementById('scanDir').value = data.folder;
-      }
-    }
-
-    async function loadRecentDirs() {
-      try {
-        const res = await fetch('/api/recent-dirs');
-        const dirs = await res.json();
-        const container = document.getElementById('recentDirs');
-        container.innerHTML = dirs.map(d =>
-          \`<button class="btn" style="font-size:0.7rem;padding:2px 8px" onclick="document.getElementById('scanDir').value='\${d.replace(/\\\\/g, '\\\\\\\\')}'">📁 \${d.split('\\\\').pop()}</button>\`
-        ).join('');
-      } catch {}
-    }
-
-    async function runDiscover() {
-      const dir = document.getElementById('scanDir').value.trim();
-      const list = document.getElementById('discoverList');
-      list.innerHTML = '<span style="color:#8b949e">Scanning…</span>';
-      try {
-        const params = dir ? '?dirs=' + encodeURIComponent(dir) : '';
-        const res = await fetch('/api/discover' + params);
-        const data = await res.json();
-        if (data.discovered.length === 0) {
-          list.innerHTML = '<span style="color:#8b949e">No agents discovered. Try specifying a directory with copilot agents/plugins.</span>';
-          return;
-        }
-        list.innerHTML = data.discovered.map(d => {
-          const sourceLabel = {'installed-plugin':'installed','marketplace':'marketplace','repo-agent':'agent','repo-plugin':'local plugin'}[d.source] || d.source;
-          const sourceClass = {'installed-plugin':'source-plugin','marketplace':'source-marketplace','repo-agent':'source-repo-agent','repo-plugin':'source-local-plugin'}[d.source] || 'source-plugin';
-          const canInstall = !d.installed && d.installCmd;
-          return \`
-          <div class="discover-item \${d.registered ? 'registered' : ''}">
-            <div class="discover-info">
-              <div>
-                <span class="discover-name">\${escapeHtml(d.displayName || d.name)}</span>
-                <span class="source-badge \${sourceClass}">\${sourceLabel}</span>
-                \${d.version ? \`<span style="color:#8b949e;font-size:0.7rem">v\${d.version}</span>\` : ''}
-                \${d.repoName ? \`<span style="color:#8b949e;font-size:0.7rem">in \${escapeHtml(d.repoName)}</span>\` : ''}
-              </div>
-              \${d.description ? \`<div class="discover-desc">\${escapeHtml(d.description)}</div>\` : ''}
-              \${d.cwd ? \`<div class="discover-meta">📁 \${escapeHtml(d.cwd)}</div>\` : ''}
-              \${d.author ? \`<div class="discover-meta">👤 \${escapeHtml(d.author)}</div>\` : ''}
-            </div>
-            <div class="discover-actions" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-              \${d.registered
-                ? '<span style="color:#3fb950;font-size:0.8rem">✓ Added</span>'
-                : \`<button class="btn btn-primary" onclick='prefillFromDiscover(\${JSON.stringify(d).replace(/'/g,"&#39;")})'>+ Add</button>\`}
-              \${canInstall
-                ? \`<button class="btn" onclick='installPlugin(\${JSON.stringify(d.installCmd)}, null, null, this)'>📦 Install</button>\`
-                : ''}
-              \${d.pluginDir && !d.installed
-                ? \`<button class="btn btn-primary" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "overlay", this)' title="Install as supervisor-managed overlay (recommended)">🔧 Install Overlay</button>
-                   <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "copilot-local", this)' title="Register in Copilot via junction + config.json">📦 Copilot Registry</button>
-                   <button class="btn" style="background:#1f6feb22;border-color:#58a6ff44;color:#58a6ff" onclick='installPlugin(null, \${JSON.stringify(d.pluginDir)}, "agency", this)' title="Install via Agency registry">⚡ Agency</button>\`
-                : ''}
-              \${d.installed === false && !d.installCmd && !d.pluginDir
-                ? '<span style="color:#f0883e;font-size:0.7rem">not installed</span>'
-                : ''}
-            </div>
-          </div>\`;
-        }).join('');
-      } catch (e) {
-        list.innerHTML = '<span style="color:#f85149">Error: ' + escapeHtml(e.message) + '</span>';
-      }
-    }
-
-    function prefillFromDiscover(d) {
-      switchTab('manual', document.querySelectorAll('.panel-tab')[1]);
-      document.getElementById('add-id').value = d.id || '';
-      document.getElementById('add-name').value = d.displayName || d.name || '';
-      // For plugins, use plugin-id:agent-id format for the agent name
-      const agentName = d.source === 'repo-plugin' || d.source === 'installed-plugin'
-        ? (d.id + ':' + d.id) : (d.displayName || d.name || '');
-      document.getElementById('add-agent').value = agentName;
-      document.getElementById('add-cwd').value = d.cwd || '';
-      document.getElementById('add-prompt').value = '';
-      document.getElementById('add-schedule').value = '1h';
-      document.getElementById('add-group').value = '';
-      document.getElementById('add-copilotPath').value = '';
-      document.getElementById('add-pluginDir').value = d.pluginDir || '';
-      document.getElementById('add-mcpConfig').value = d.mcpConfig || '';
-      document.getElementById('add-durable').checked = true;
-      document.getElementById('add-prompt').focus();
-    }
-
-    async function installPlugin(installCmd, pluginDir, engine, btn) {
-      btn.disabled = true;
-      btn.textContent = '⏳ Installing…';
-      try {
-        const body = {};
-        if (installCmd) body.installCmd = installCmd;
-        if (pluginDir) body.pluginDir = pluginDir;
-        if (engine) body.engine = engine;
-        const res = await fetch('/api/plugins/install', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify(body)
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          alert(data.error || 'Install failed');
-          btn.textContent = engine === 'agency' ? '⚡ Install via Agency' : '📦 Install';
-          btn.disabled = false;
-          return false;
-        }
-        btn.textContent = '✓ Installed';
-        btn.classList.add('btn-primary');
-        setTimeout(() => runDiscover(), 1000);
-        return true;
-      } catch (e) {
-        btn.textContent = '✗ Failed';
-        btn.title = e.message;
-        btn.disabled = false;
-        setTimeout(() => { btn.textContent = engine === 'agency' ? '⚡ Install via Agency' : '📦 Install'; }, 3000);
-        return false;
-      }
-    }
-
-    async function installAndAdd(d, btn) {
-      const ok = await installPlugin(null, d.pluginDir, 'agency', btn);
-      if (ok) {
-        // Auto-switch to Manual tab pre-filled
-        prefillFromDiscover(d);
-      }
-    }
-
-    async function submitAddAgent() {
-      const errEl = document.getElementById('add-error');
-      errEl.style.display = 'none';
-      const config = {
-        id: document.getElementById('add-id').value.trim(),
-        name: document.getElementById('add-name').value.trim(),
-        agent: document.getElementById('add-agent').value.trim(),
-        cwd: document.getElementById('add-cwd').value.trim(),
-        prompt: document.getElementById('add-prompt').value.trim(),
-        schedule: document.getElementById('add-schedule').value.trim(),
-        durable: document.getElementById('add-durable').checked
-      };
-      if (!document.getElementById('add-autoStart').checked) config.autoStart = false;
-      const group = document.getElementById('add-group').value.trim();
-      const copilotPath = document.getElementById('add-copilotPath').value.trim();
-      const pluginDir = document.getElementById('add-pluginDir').value.trim();
-      const mcpConfig = document.getElementById('add-mcpConfig').value.trim();
-      if (group) config.group = group;
-      if (copilotPath) config.copilotPath = copilotPath;
-      if (pluginDir) config.pluginDir = pluginDir;
-      if (mcpConfig) config.mcpConfig = mcpConfig;
-
-      if (!config.id || !config.name || !config.agent || !config.cwd || !config.prompt || !config.schedule) {
-        errEl.textContent = 'All required fields (*) must be filled.';
-        errEl.style.display = 'block';
-        return;
-      }
-      try {
-        const res = await fetch('/api/agents', {
-          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config)
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to add agent');
-        closeAddPanel();
-        refresh();
-      } catch (e) {
-        errEl.textContent = e.message;
-        errEl.style.display = 'block';
-      }
-    }
-
-    async function deleteAgent(id) {
-      if (!confirm('Delete agent "' + id + '"? This cannot be undone.')) return;
-      await fetch(\`/api/agents/\${id}\`, { method: 'DELETE' });
-      refresh();
-    }
-
-    async function refresh() {
-      const agents = await fetchAgents();
-      window._lastAgents = agents;
-      renderAgents(agents);
-    }
-
-    // ---- Sessions Panel ----
-    let allSessions = [];
-
-    function openSessionsPanel() {
-      document.getElementById('sessionsOverlay').classList.add('visible');
-      document.getElementById('sessionsPanel').classList.add('visible');
-      loadSessions();
-    }
-    function closeSessionsPanel() {
-      document.getElementById('sessionsOverlay').classList.remove('visible');
-      document.getElementById('sessionsPanel').classList.remove('visible');
-    }
-
-    async function loadSessions() {
-      const hours = document.getElementById('sessionHours').value;
-      const list = document.getElementById('sessionsList');
-      list.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">Loading sessions...</div>';
-      try {
-        const res = await fetch(\`/api/sessions?hours=\${hours}\`);
-        allSessions = await res.json();
-        renderSessions();
-      } catch (e) {
-        list.innerHTML = '<div style="color:#f85149;padding:12px">Failed to load sessions</div>';
-      }
-    }
-
-    function filterSessions() {
-      renderSessions();
-    }
-
-    const sessionGroupState = JSON.parse(localStorage.getItem('sessionGroupState') || '{}'); // track collapsed state per group
-
-    function renderSessions() {
-      const filter = (document.getElementById('sessionFilter').value || '').toLowerCase();
-      const filtered = filter
-        ? allSessions.filter(s => (s.agentName || s.name || '').toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter) || s.repository.toLowerCase().includes(filter) || s.cwd.toLowerCase().includes(filter))
-        : allSessions;
-      const list = document.getElementById('sessionsList');
-      if (filtered.length === 0) {
-        list.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">No sessions found</div>';
-        return;
-      }
-
-      // Group by agent name (from subagent.selected), fall back to repo name
-      const groups = {};
-      for (const s of filtered) {
-        const key = s.agentName || path_basename(s.cwd) || '(unknown)';
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(s);
-      }
-
-      let html = '';
-      for (const [groupName, sessions] of Object.entries(groups)) {
-        const collapsed = sessionGroupState[groupName] !== false;
-        const latestTime = new Date(sessions[0].lastModified);
-        const timeStr = latestTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dateStr = latestTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        const repoShort = sessions[0].repository ? sessions[0].repository.split('/').pop() : path_basename(sessions[0].cwd);
-
-        html += \`
-          <div class="session-group" style="margin-bottom:12px">
-            <div class="group-header" onclick="toggleSessionGroup('\${esc(groupName)}')" style="padding:8px 12px">
-              <span class="group-toggle">\${collapsed ? '▶' : '▼'}</span>
-              <span class="group-name" style="font-size:0.9rem">\${esc(groupName)}</span>
-              <span class="group-count" style="margin-left:8px">\${sessions.length} session\${sessions.length !== 1 ? 's' : ''}</span>
-              <span style="margin-left:auto;font-size:0.75rem;color:#8b949e">📁 \${repoShort} · \${dateStr} \${timeStr}</span>
-            </div>
-            <div class="group-body\${collapsed ? ' collapsed' : ''}" style="margin-top:6px;padding-left:0">\`;
-
-        for (const s of sessions) {
-          const time = new Date(s.lastModified);
-          const sTimeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const sDateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
-          const preview = (s.lastResult || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').substring(0, 200);
-          const promptLabel = esc(s.name || '(no prompt)');
-          html += \`
-              <div class="session-card" id="session-\${s.id}" onclick="toggleSession('\${s.id}')">
-                <div class="session-header">
-                  <div>
-                    <span style="font-size:0.8rem;color:#c9d1d9">\${sDateStr} \${sTimeStr}</span>
-                    <span style="font-size:0.8rem;color:#8b949e;margin-left:8px">— \${promptLabel}</span>
-                  </div>
-                  <div style="font-size:0.75rem;color:#8b949e">
-                    💬 \${s.turnCount} turn\${s.turnCount !== 1 ? 's' : ''}
-                    <span style="margin-left:8px">🔑 \${s.id.substring(0,8)}</span>
-                  </div>
-                </div>
-                \${preview ? \`<div class="session-preview">\${preview}</div>\` : ''}
-                <div class="session-detail" id="detail-\${s.id}" onclick="event.stopPropagation()">
-                  <div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>
-                </div>
-              </div>\`;
-        }
-
-        html += \`
-            </div>
-          </div>\`;
-      }
-      list.innerHTML = html;
-    }
-
-    function toggleSessionGroup(name) {
-      sessionGroupState[name] = !sessionGroupState[name];
-      localStorage.setItem('sessionGroupState', JSON.stringify(sessionGroupState));
-      renderSessions();
-    }
-
-    function esc(s) { return (s||'').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-    function path_basename(p) { return (p||'').split(/[\\\\/]/).pop(); }
     function renderMd(s) {
       if (typeof marked !== 'undefined' && marked.parse) {
         try { return marked.parse(s || ''); } catch { }
       }
-      return esc(s);
+      return esc(s || '');
     }
 
     function renderSessionMetaBanner(meta) {
@@ -3533,7 +2957,8 @@ function getDashboardHtml() {
       if (stats.cacheRead) items += '<span class="stat-item"><span class="stat-value">' + stats.cacheRead.toLocaleString() + '</span><span class="stat-label">cache read</span></span>';
       if (stats.apiDurationMs != null) items += '<span class="stat-item"><span class="stat-value">' + (stats.apiDurationMs / 1000).toFixed(1) + 's</span><span class="stat-label">API time</span></span>';
       if (stats.linesAdded != null || stats.linesRemoved != null) {
-        const added = stats.linesAdded || 0, removed = stats.linesRemoved || 0;
+        const added = stats.linesAdded || 0;
+        const removed = stats.linesRemoved || 0;
         if (added || removed) items += '<span class="stat-item"><span class="stat-value" style="color:#3fb950">+' + added + '</span><span class="stat-value" style="color:#f85149;margin-left:2px">-' + removed + '</span><span class="stat-label">lines</span></span>';
       }
       return items ? '<div class="session-token-stats">' + items + '</div>' : '';
@@ -3549,7 +2974,6 @@ function getDashboardHtml() {
       let html = '';
       for (const step of steps) {
         if (step.type === 'comment') {
-          // Intermediate agent comment
           html += '<div class="tool-step" style="border-left:2px solid #58a6ff;background:#161b22;">' +
             '<div style="font-size:0.7rem;color:#58a6ff;margin-bottom:2px;">💭 Agent</div>' +
             '<div class="conv-content assistant-content" style="font-size:0.75rem;padding-left:6px;border:none;">' + renderMd(step.content) + '</div>' +
@@ -3558,10 +2982,10 @@ function getDashboardHtml() {
         }
         const statusClass = step.type === 'tool_start' ? 'pending' : (step.success !== false ? 'success' : 'failed');
         const icon = step.type === 'tool_start' ? '⏳' : (step.success !== false ? '✓' : '✗');
-        const desc = step.args?.description || step.args?.command || step.args?.pattern || step.args?.path || step.args?.query || '';
+        const desc = (step.args && (step.args.description || step.args.command || step.args.pattern || step.args.path || step.args.query)) || '';
         const stepId = 'step-' + Math.random().toString(36).slice(2, 8);
         html += '<div class="tool-step ' + statusClass + '">' +
-          '<div class="tool-step-header" onclick="document.getElementById(\\\'' + stepId + '\\\').classList.toggle(\\\'visible\\\')">' +
+          '<div class="tool-step-header" onclick="document.getElementById(\'' + stepId + '\').classList.toggle(\'visible\')">' +
           '<span class="tool-step-icon">' + icon + '</span>' +
           '<span class="tool-step-name">' + esc(step.tool || '') + '</span>' +
           (desc ? '<span class="tool-step-desc">' + esc(desc) + '</span>' : '') +
@@ -3574,21 +2998,21 @@ function getDashboardHtml() {
       return html;
     }
 
-    function buildConvoHtml(turns, containerId, showSteps, sessionMeta, tokenStats) {
-      if (!turns || turns.length === 0) return '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
+    function buildConvoHtml(turns, containerId, showSteps, sessionMeta, tokenStats, showPending) {
+      if (!turns || turns.length === 0) {
+        return '<div style="color:#8b949e;font-size:0.8rem;padding:8px">No conversation data</div>';
+      }
       let html = '<div class="session-conversation" id="' + containerId + '">';
       if (showSteps && sessionMeta) html += renderSessionMetaBanner(sessionMeta);
       for (const turn of turns) {
-        html += '<div class="conv-turn">' +
-          '<div class="conv-role user">👤 You</div>' +
-          '<div class="conv-content">' + esc(turn.content) + '</div></div>';
+        html += '<div class="conv-turn"><div class="conv-role user">👤 You</div><div class="conv-content">' + esc(turn.content) + '</div></div>';
         if (showSteps && turn.steps && turn.steps.length > 0) {
           html += renderStepsHtml(turn.steps);
         }
         if (turn.assistant) {
-          html += '<div class="conv-turn">' +
-            '<div class="conv-role assistant">🤖 Agent' + (showSteps ? renderModelBadge(turn.model) : '') + '</div>' +
-            '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
+          html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent' + (showSteps ? renderModelBadge(turn.model) : '') + '</div><div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
+        } else if (showPending) {
+          html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div><div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
         }
       }
       if (showSteps && tokenStats) html += renderTokenStats(tokenStats);
@@ -3596,532 +3020,1310 @@ function getDashboardHtml() {
       return html;
     }
 
-    async function toggleSession(id) {
-      const card = document.getElementById(\`session-\${id}\`);
-      const detail = document.getElementById(\`detail-\${id}\`);
-      if (card.classList.contains('expanded')) {
-        card.classList.remove('expanded');
-        return;
-      }
-      document.querySelectorAll('.session-card.expanded').forEach(c => c.classList.remove('expanded'));
-      card.classList.add('expanded');
-
-      detail.innerHTML = '<div style="color:#8b949e;font-size:0.8rem;padding:8px">Loading conversation...</div>';
-      try {
-        const res = await fetch(\`/api/sessions/\${id}\`);
-        const data = await res.json();
-        renderSessionDetail(id, data);
-      } catch (e) {
-        detail.innerHTML = '<div style="color:#f85149;padding:8px">Failed to load session</div>';
-      }
-    }
-
-    function renderSessionDetail(id, data) {
-      const detail = document.getElementById(\`detail-\${id}\`);
-      const convoHtml = buildConvoHtml(data.turns, 'convo-' + id);
-
-      detail.innerHTML = \`
-        <div style="display:flex;gap:6px;margin-bottom:8px">
-          <button class="btn" onclick="event.stopPropagation();openFocus('\${id}')" title="Expand to focus view">🔍 Focus</button>
-          <button class="btn" onclick="event.stopPropagation();openTerminal('\${id}')" title="Open in terminal">💻 Terminal</button>
-        </div>
-        \${convoHtml}
-        <div class="session-chat" onclick="event.stopPropagation()">
-          <input type="text" id="chat-input-\${id}" placeholder="Ask a follow-up question..."
-                 onkeydown="if(event.key==='Enter')sendChat('\${id}')" onclick="event.stopPropagation()" />
-          <button class="btn btn-primary" onclick="event.stopPropagation();sendChat('\${id}')">Send</button>
-        </div>
-        <div id="chat-status-\${id}"></div>
-      \`;
-
-      const convo = document.getElementById(\`convo-\${id}\`);
-      if (convo) convo.scrollTop = convo.scrollHeight;
-    }
-
-    // ---- Focus Modal ----
-    let focusSessionId = null;
-    let focusSessionData = null;
-    let focusPoller = null;
-    let focusMinTurns = 0; // minimum expected turns after sending a chat
-    let focusChatPending = false; // true after sending chat until user.message appears in events
-
-    function isFocusVerbose() {
-      return localStorage.getItem('focusVerbose') === '1';
-    }
-
-    function toggleFocusVerbose() {
-      const checked = document.getElementById('focusVerbose').checked;
-      localStorage.setItem('focusVerbose', checked ? '1' : '0');
-      // Re-render conversation with/without steps
-      if (focusSessionData && focusSessionData.turns) {
-        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo', checked, focusSessionData.sessionMeta, focusSessionData.tokenStats);
-        document.getElementById('focusBody').innerHTML = convoHtml;
-        const convo = document.getElementById('focus-convo');
-        if (convo) convo.scrollTop = convo.scrollHeight;
-      }
-    }
-
-    async function openFocus(id) {
-      focusSessionId = id;
-      document.getElementById('focusOverlay').classList.add('visible');
-      document.getElementById('focusBody').innerHTML = '<div style="color:#8b949e;padding:20px">Loading session...</div>';
-      // Restore sticky verbose toggle
-      const verboseCheckbox = document.getElementById('focusVerbose');
-      if (verboseCheckbox) verboseCheckbox.checked = isFocusVerbose();
-      try {
-        const res = await fetch(\`/api/sessions/\${id}\`);
-        focusSessionData = await res.json();
-        const agentName = focusSessionData.agentName || focusSessionData.name || id.substring(0,8);
-        document.getElementById('focusTitle').textContent = agentName + ' — ' + (focusSessionData.name || '');
-        const convoHtml = buildConvoHtml(focusSessionData.turns, 'focus-convo', isFocusVerbose());
-        document.getElementById('focusBody').innerHTML = convoHtml;
-        const convo = document.getElementById('focus-convo');
-        if (convo) convo.scrollTop = convo.scrollHeight;
-        document.getElementById('focusChatInput').focus();
-        // Start live polling for this session
-        startFocusPolling(id);
-      } catch (e) {
-        document.getElementById('focusBody').innerHTML = '<div style="color:#f85149;padding:20px">Failed to load session</div>';
-      }
-    }
-
-    function startFocusPolling(sessionId) {
-      stopFocusPolling();
-      let lastTurnCount = -1;
-      let lastStepCount = -1;
-      let lastWasPending = false; // was last turn missing assistant response?
-      let lastTokenStats = false; // did we have token stats last poll?
-      const poll = async () => {
-        if (focusSessionId !== sessionId) return;
-        const verbose = isFocusVerbose();
-        try {
-          const res = await fetch(\`/api/sessions/\${sessionId}/poll?verbose=\${verbose ? '1' : '0'}\`);
-          const data = await res.json();
-          const convo = document.getElementById('focus-convo');
-          if (!convo) return;
-
-          // Count total steps to detect intermediate changes
-          const totalSteps = (data.turns || []).reduce((sum, t) => sum + (t.steps ? t.steps.length : 0), 0);
-          const turnCount = data.turns ? data.turns.length : 0;
-
-          // Don't rebuild if poll has fewer turns than expected (event not written yet)
-          if (turnCount < focusMinTurns) {
-            // Chat was sent but user.message not yet in events — keep polling
-            focusPoller = setTimeout(poll, 1000);
-            return;
+    function agentsApp() {
+      return {
+        agents: [],
+        filter: '',
+        refreshTimer: null,
+        refreshInFlight: false,
+        collapsedGroups: JSON.parse(localStorage.getItem('collapsedAgentGroups') || '{}'),
+        expandedOutputs: {},
+        outputScrolls: {},
+        liveOutputs: {},
+        livePollers: {},
+        editingNameId: '',
+        pendingName: '',
+        editingPromptId: '',
+        pendingPrompt: '',
+        triggerEditor: { agentId: '', success: [], failure: [], complete: [] },
+        scheduleEditor: {
+          show: false,
+          agentId: '',
+          top: 0,
+          left: 0,
+          current: '',
+          mode: 'interval',
+          num: 1,
+          unit: 'h',
+          dailyTime: '09:00',
+          weeklyTime: '09:00',
+          days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+          cron: '',
+          previewText: '—',
+          previewColor: '#8b949e'
+        },
+        sessionsPanel: {
+          show: false,
+          hours: '24',
+          filter: '',
+          sessions: [],
+          loading: false,
+          expanded: {},
+          details: {},
+          chatInputs: {},
+          chatStatus: {},
+          groupState: JSON.parse(localStorage.getItem('sessionGroupState') || '{}'),
+          pollers: {}
+        },
+        focus: {
+          show: false,
+          sessionId: '',
+          data: null,
+          html: '',
+          title: 'Session',
+          verbose: localStorage.getItem('focusVerbose') === '1',
+          poller: null,
+          minTurns: 0,
+          chatPending: false,
+          chatInput: '',
+          chatStatus: '',
+          emailMenu: false
+        },
+        outputModal: { show: false, title: 'Output', content: '' },
+        addPanel: {
+          show: false,
+          tab: 'discover',
+          scanDir: '',
+          recentDirs: [],
+          discovering: false,
+          discoverMessage: '',
+          discoverError: false,
+          discovered: [],
+          installStates: {},
+          error: '',
+          form: {
+            id: '',
+            name: '',
+            agent: '',
+            cwd: '',
+            prompt: '',
+            schedule: '',
+            group: '',
+            copilotPath: '',
+            pluginDir: '',
+            mcpConfig: '',
+            durable: true,
+            autoStart: true
           }
-          // User message appeared — clear chat pending
-          if (focusChatPending && turnCount >= focusMinTurns) {
-            focusChatPending = false;
-          }
+        },
 
-          // Detect changes: turn count, step count, pending→complete transition, new token stats
-          const lastTurn = data.turns && data.turns.length > 0 ? data.turns[data.turns.length - 1] : null;
-          const currentlyPending = lastTurn && !lastTurn.assistant;
-          const hasTokenStats = !!data.tokenStats;
-          const isFirstPoll = lastTurnCount < 0;
-          const changed = isFirstPoll
-            || turnCount !== lastTurnCount
-            || (verbose && totalSteps !== lastStepCount)
-            || (lastWasPending && !currentlyPending)  // response just arrived
-            || (verbose && hasTokenStats !== lastTokenStats);  // session just finished
+        async init() {
+          await this.refresh();
+          const self = this;
+          this.refreshTimer = setInterval(function() {
+            self.refresh();
+          }, 10000);
+          setTimeout(function() { self.ensureLivePollers(); }, 1000);
+        },
 
-          if (changed) {
-            const wasAtBottom = (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40;
-            let html = '';
-            // Session metadata banner (verbose only)
-            if (verbose && data.sessionMeta) {
-              html += renderSessionMetaBanner(data.sessionMeta);
-            }
-            for (const turn of data.turns) {
-              html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
-                '<div class="conv-content">' + esc(turn.content) + '</div></div>';
-              if (verbose && turn.steps && turn.steps.length > 0) {
-                html += renderStepsHtml(turn.steps);
-              }
-              if (turn.assistant) {
-                html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent' +
-                  (verbose ? renderModelBadge(turn.model) : '') +
-                  '</div>' +
-                  '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
-              } else {
-                html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent</div>' +
-                  '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
-              }
-            }
-            // Token stats footer (verbose, completed sessions only)
-            if (verbose && data.tokenStats) {
-              html += renderTokenStats(data.tokenStats);
-            }
-            convo.innerHTML = html;
-            if (wasAtBottom) convo.scrollTop = convo.scrollHeight;
-            // Update cached data for toggle re-renders
-            focusSessionData = { ...focusSessionData, turns: data.turns, sessionMeta: data.sessionMeta, tokenStats: data.tokenStats };
-          }
-
-          // Show chat errors from the server
-          if (data.chatError) {
-            const convo = document.getElementById('focus-convo');
-            if (convo) {
-              // Remove any pending "Thinking..." indicator
-              const pending = document.getElementById('focus-pending');
-              if (pending) pending.remove();
-              convo.innerHTML += '<div class="conv-turn" style="border-left:3px solid #f85149;padding-left:8px">' +
-                '<div class="conv-role" style="color:#f85149">⚠️ System Error</div>' +
-                '<div class="conv-content" style="color:#f85149;font-family:monospace;font-size:0.85rem;white-space:pre-wrap">' + esc(data.chatError) + '</div></div>';
-              convo.scrollTop = convo.scrollHeight;
-            }
-            // Stop polling on error
-            focusPoller = null;
-            const status = document.getElementById('focusChatStatus');
-            if (status) { const ind = status.querySelector('.focus-live-indicator'); if (ind) ind.remove(); }
-            lastTurnCount = turnCount; lastStepCount = totalSteps;
-            lastWasPending = currentlyPending; lastTokenStats = hasTokenStats;
-            return;
-          }
-
-          // Update status indicator
-          const status = document.getElementById('focusChatStatus');
-          if ((data.isActive || currentlyPending) && status) {
-            if (!status.querySelector('.focus-live-indicator')) {
-              status.innerHTML = '<span class="focus-live-indicator" style="color:#f0883e;font-size:0.8rem"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Session is active — updating live</span>';
-            }
-          } else if (status) {
-            const indicator = status.querySelector('.focus-live-indicator');
-            if (indicator) indicator.remove();
-          }
-
-          // Keep polling if session is active, last turn has no response, chat pending,
-          // or we just got the response but haven't seen token stats yet (session.shutdown pending)
-          const needsMorePolls = (lastWasPending && !currentlyPending && verbose && !hasTokenStats);
-          if (data.isActive || currentlyPending || focusChatPending || needsMorePolls) {
-            focusPoller = setTimeout(poll, 2000);
+        async requestJson(url, options) {
+          const res = await fetch(url, options || {});
+          const type = res.headers.get('content-type') || '';
+          let data = null;
+          if (type.includes('application/json')) {
+            data = await res.json();
           } else {
-            focusPoller = null;
+            const text = await res.text();
+            try { data = JSON.parse(text); } catch { data = text; }
           }
-
-          // Update tracking AFTER keep-polling decision
-          lastTurnCount = turnCount;
-          lastStepCount = totalSteps;
-          lastWasPending = currentlyPending;
-          lastTokenStats = hasTokenStats;
-        } catch {
-          focusPoller = null;
-        }
-      };
-      focusPoller = setTimeout(poll, 1500);
-    }
-
-    function stopFocusPolling() {
-      if (focusPoller) { clearTimeout(focusPoller); focusPoller = null; }
-    }
-
-    function closeFocus() {
-      stopFocusPolling();
-      document.getElementById('focusOverlay').classList.remove('visible');
-      document.getElementById('focusEmailMenu')?.classList.remove('visible');
-      focusSessionId = null;
-      focusSessionData = null;
-      focusMinTurns = 0;
-      focusChatPending = false;
-    }
-
-    async function emailFocusSession(mode) {
-      document.getElementById('focusEmailMenu').classList.remove('visible');
-      if (!focusSessionId) return;
-      try {
-        const res = await fetch(\`/api/sessions/\${focusSessionId}/email\`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode })
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          alert(err.error || 'Failed to compose email');
-        }
-      } catch (e) {
-        alert('Failed to send email: ' + e.message);
-      }
-    }
-
-    async function sendFocusChat() {
-      if (!focusSessionId) return;
-      const input = document.getElementById('focusChatInput');
-      const status = document.getElementById('focusChatStatus');
-      const message = input.value.trim();
-      if (!message) return;
-
-      input.disabled = true;
-
-      const convo = document.getElementById('focus-convo');
-      if (convo) {
-        convo.innerHTML +=
-          '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
-          '<div class="conv-content">' + esc(message) + '</div></div>' +
-          '<div class="conv-turn" id="focus-pending"><div class="conv-role assistant">🤖 Agent</div>' +
-          '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
-        convo.scrollTop = convo.scrollHeight;
-      }
-      input.value = '';
-
-      try {
-        // Set minimum expected turns so polling won't rebuild with fewer
-        const currentTurns = focusSessionData?.turns?.length || 0;
-        focusMinTurns = currentTurns + 1;
-        focusChatPending = true;
-        await fetch(\`/api/sessions/\${focusSessionId}/chat\`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message })
-        });
-        // Chat is now async — restart focus polling to show live updates
-        startFocusPolling(focusSessionId);
-      } catch (e) {
-        const pending = document.getElementById('focus-pending');
-        if (pending) pending.remove();
-        status.innerHTML = '<div style="color:#f85149;font-size:0.8rem">Failed to send message</div>';
-      }
-      input.disabled = false;
-      input.focus();
-    }
-
-    async function reloadFocusConversation() {
-      if (!focusSessionId) return;
-      const verbose = isFocusVerbose();
-      try {
-        const res = await fetch(\`/api/sessions/\${focusSessionId}/poll?verbose=\${verbose ? '1' : '0'}\`);
-        const data = await res.json();
-        if (!data.turns || data.turns.length === 0) return;
-        focusSessionData = { ...focusSessionData, turns: data.turns, sessionMeta: data.sessionMeta, tokenStats: data.tokenStats };
-        const convo = document.getElementById('focus-convo');
-        if (!convo) return;
-        let html = '';
-        if (verbose && data.sessionMeta) html += renderSessionMetaBanner(data.sessionMeta);
-        for (const turn of data.turns) {
-          html += '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
-            '<div class="conv-content">' + esc(turn.content) + '</div></div>';
-          if (verbose && turn.steps && turn.steps.length > 0) {
-            html += renderStepsHtml(turn.steps);
+          if (!res.ok) {
+            throw new Error(data && data.error ? data.error : 'Request failed');
           }
-          if (turn.assistant) {
-            html += '<div class="conv-turn"><div class="conv-role assistant">🤖 Agent' +
-              (verbose ? renderModelBadge(turn.model) : '') + '</div>' +
-              '<div class="conv-content assistant-content">' + renderMd(turn.assistant) + '</div></div>';
+          return data;
+        },
+
+        rememberOutputScroll(id, value) {
+          this.outputScrolls[id] = value;
+        },
+
+        captureOutputScrolls() {
+          document.querySelectorAll('.output-content').forEach((el) => {
+            if (el.id) this.outputScrolls[el.id] = el.scrollTop;
+          });
+        },
+
+        restoreOutputScrolls() {
+          this.$nextTick(() => {
+            Object.keys(this.outputScrolls).forEach((id) => {
+              const el = document.getElementById(id);
+              if (el) el.scrollTop = this.outputScrolls[id];
+            });
+          });
+        },
+
+        async refresh() {
+          if (this.refreshInFlight) return;
+          this.refreshInFlight = true;
+          this.captureOutputScrolls();
+          try {
+            const agents = await this.requestJson('/api/agents');
+            this.agents = Array.isArray(agents) ? agents : [];
+            this.ensureLivePollers();
+            this.restoreOutputScrolls();
+          } catch (e) {
+            console.error(e);
+          } finally {
+            this.refreshInFlight = false;
           }
-        }
-        if (verbose && data.tokenStats) html += renderTokenStats(data.tokenStats);
-        convo.innerHTML = html;
-        convo.scrollTop = convo.scrollHeight;
-      } catch {}
-    }
+        },
 
-    async function openTerminal(id) {
-      await fetch(\`/api/sessions/\${id}/terminal\`, { method: 'POST' });
-    }
+        renderMd(content) {
+          return renderMd(content || '');
+        },
 
-    function showAgentSessions(agentName) {
-      // Collapse all session groups, then expand only the matching one
-      Object.keys(sessionGroupState).forEach(k => sessionGroupState[k] = true);
-      sessionGroupState[agentName] = false; // false = expanded
-      localStorage.setItem('sessionGroupState', JSON.stringify(sessionGroupState));
-      // Open the panel (will load sessions which calls renderSessions with our state)
-      document.getElementById('sessionsOverlay').classList.add('visible');
-      document.getElementById('sessionsPanel').classList.add('visible');
-      if (allSessions.length) {
-        renderSessions();
-      } else {
-        loadSessions();
-      }
-    }
+        agentDisplayName(agent) {
+          return (agent && agent.config && agent.config.name) || (agent && agent.agent_id) || '';
+        },
 
-    async function openLastTerminal(agentId, agentCwd) {
-      // Find the most recent session for this agent from the sessions API
-      try {
-        const res = await fetch('/api/sessions?hours=48');
-        const sessions = await res.json();
-        const match = sessions.find(s => (s.agentName || '').toLowerCase().includes(agentId.toLowerCase()) || (s.name || '').toLowerCase().includes(agentId.toLowerCase()));
-        if (match) {
-          await fetch(\`/api/sessions/\${match.id}/terminal\`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cwd: agentCwd }) });
-        } else if (agentCwd) {
-          // No session found, just open copilot in the agent's CWD
-          await fetch('/api/terminal/open', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ cwd: agentCwd, agentId }) });
-        } else {
-          alert('No recent session found for this agent');
-        }
-      } catch (e) {
-        alert('Failed to find session: ' + e.message);
-      }
-    }
+        agentPrompt(agent) {
+          return (agent && agent.config && agent.config.prompt) || '-';
+        },
 
-    async function openLastChat(agentId, sessionId) {
-      // Use stored session ID if available, otherwise search for latest
-      if (sessionId) { openFocus(sessionId); return; }
-      try {
-        const res = await fetch('/api/sessions?hours=72');
-        const sessions = await res.json();
-        const match = sessions.find(s => (s.agentName || '').toLowerCase().includes(agentId.toLowerCase()) || (s.name || '').toLowerCase().includes(agentId.toLowerCase()));
-        if (match) {
-          openFocus(match.id);
-        } else {
-          alert('No recent session found for this agent');
-        }
-      } catch (e) {
-        alert('Failed to find session: ' + e.message);
-      }
-    }
+        isAgentEnabled(agent) {
+          return agent && agent.enabled !== 0;
+        },
 
-    async function editAgentSource(agentId) {
-      await fetch(\`/api/agents/\${agentId}/edit-source\`, { method: 'POST' });
-    }
+        isAutoStart(agent) {
+          return !agent || !agent.config || agent.config.autoStart !== false;
+        },
 
-    async function reinstallPlugin(agentId) {
-      if (!confirm('Reinstall this plugin? This will uninstall and re-install it.')) return;
-      const res = await fetch(\`/api/agents/\${agentId}/reinstall\`, { method: 'POST' });
-      const data = await res.json();
-      if (data.error) alert('Reinstall failed: ' + data.error);
-      else alert('Plugin reinstalled successfully');
-    }
+        allGroupNames() {
+          const names = [];
+          const seen = {};
+          this.agents.forEach((agent) => {
+            const group = (agent.config && agent.config.group) || 'Ungrouped';
+            if (!seen[group]) {
+              seen[group] = true;
+              names.push(group);
+            }
+          });
+          return names;
+        },
 
-    // ---- Inline Chat (in side panel) ----
-    async function sendChat(id) {
-      const input = document.getElementById(\`chat-input-\${id}\`);
-      const status = document.getElementById(\`chat-status-\${id}\`);
-      const message = input.value.trim();
-      if (!message) return;
+        movableGroupNames() {
+          return this.allGroupNames().filter((name) => name !== 'Ungrouped');
+        },
 
-      input.disabled = true;
-      status.innerHTML = '<div class="chat-sending"><div class="spinner"></div>Sending to agent... this may take a minute</div>';
+        groupedAgents() {
+          const filterText = (this.filter || '').toLowerCase();
+          const groups = {};
+          this.agents.forEach((agent) => {
+            const name = this.agentDisplayName(agent).toLowerCase();
+            if (filterText && name.indexOf(filterText) === -1) return;
+            const group = (agent.config && agent.config.group) || 'Ungrouped';
+            if (!groups[group]) groups[group] = [];
+            groups[group].push(agent);
+          });
+          return Object.keys(groups).map((name) => ({ name: name, agents: groups[name] }));
+        },
 
-      const convo = document.getElementById(\`convo-\${id}\`);
-      if (convo) {
-        convo.innerHTML +=
-          '<div class="conv-turn"><div class="conv-role user">👤 You</div>' +
-          '<div class="conv-content">' + esc(message) + '</div></div>' +
-          '<div class="conv-turn" id="pending-response-' + id + '"><div class="conv-role assistant">🤖 Agent</div>' +
-          '<div class="conv-content assistant-content" style="color:#8b949e">Thinking...</div></div>';
-        convo.scrollTop = convo.scrollHeight;
-      }
-      input.value = '';
+        isGroupCollapsed(name) {
+          return !!this.collapsedGroups[name];
+        },
 
-      try {
-        const res = await fetch(\`/api/sessions/\${id}/chat\`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message })
-        });
-        const data = await res.json();
-        const pending = document.getElementById(\`pending-response-\${id}\`);
-        if (pending) {
-          pending.innerHTML = '<div class="conv-role assistant">🤖 Agent</div>' +
-            '<div class="conv-content assistant-content">' + renderMd(data.response) + '</div>';
-        }
-        status.innerHTML = '';
-        if (convo) convo.scrollTop = convo.scrollHeight;
-        // Start polling for continued activity
-        pollSessionUpdates(id, \`pending-response-\${id}\`, \`convo-\${id}\`, data.response);
-      } catch (e) {
-        const pending = document.getElementById(\`pending-response-\${id}\`);
-        if (pending) pending.remove();
-        status.innerHTML = '<div style="color:#f85149;font-size:0.8rem">Failed to send message</div>';
-      }
-      input.disabled = false;
-      input.focus();
-    }
+        saveCollapsedGroups() {
+          localStorage.setItem('collapsedAgentGroups', JSON.stringify(this.collapsedGroups));
+        },
 
-    // Poll session for continued agent activity after sending a chat
-    async function pollSessionUpdates(sessionId, pendingElId, convoElId, initialResponse) {
-      let lastContent = initialResponse;
-      let pollCount = 0;
-      const maxPolls = 30; // poll for up to ~60 seconds
-      const pollInterval = 2000;
+        toggleGroup(name) {
+          this.collapsedGroups[name] = !this.collapsedGroups[name];
+          this.saveCollapsedGroups();
+        },
 
-      const poll = async () => {
-        if (pollCount++ >= maxPolls) return;
-        try {
-          const res = await fetch(\`/api/sessions/\${sessionId}/poll\`);
-          const data = await res.json();
-          if (data.lastAssistant && data.lastAssistant !== lastContent) {
-            lastContent = data.lastAssistant;
-            const pending = document.getElementById(pendingElId);
-            if (pending) {
-              pending.innerHTML = '<div class="conv-role assistant">🤖 Agent</div>' +
-                '<div class="conv-content assistant-content">' + renderMd(lastContent) + '</div>';
-              const convo = document.getElementById(convoElId);
+        expandAllGroups() {
+          this.collapsedGroups = {};
+          this.saveCollapsedGroups();
+        },
+
+        collapseAllGroups() {
+          const next = {};
+          this.groupedAgents().forEach((group) => { next[group.name] = true; });
+          this.collapsedGroups = next;
+          this.saveCollapsedGroups();
+        },
+
+        isOutputExpanded(id) {
+          return !!this.expandedOutputs[id];
+        },
+
+        toggleOutput(id) {
+          this.expandedOutputs[id] = !this.expandedOutputs[id];
+          this.restoreOutputScrolls();
+        },
+
+        liveOutputHtml(agentId) {
+          const live = this.liveOutputs[agentId];
+          if (live && live.html) return live.html;
+          return '<span style="color:#8b949e">Waiting for agent output...</span>';
+        },
+
+        liveStatusText(agentId) {
+          const live = this.liveOutputs[agentId];
+          return (live && live.statusText) || 'watching...';
+        },
+
+        liveSessionId(agentId) {
+          const live = this.liveOutputs[agentId];
+          return (live && live.sessionId) || '';
+        },
+
+        startEditName(agent) {
+          this.editingPromptId = '';
+          this.editingNameId = agent.agent_id;
+          this.pendingName = this.agentDisplayName(agent);
+        },
+
+        cancelEditName() {
+          this.editingNameId = '';
+          this.pendingName = '';
+        },
+
+        async saveEditName(agentId) {
+          if (this.editingNameId !== agentId) return;
+          const agent = this.agents.find((a) => a.agent_id === agentId);
+          const current = this.agentDisplayName(agent);
+          const newName = (this.pendingName || '').trim();
+          this.cancelEditName();
+          if (!newName || newName === current) return;
+          try {
+            await this.requestJson('/api/agents/' + agentId + '/name', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: newName })
+            });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        startEditPrompt(agent) {
+          this.editingNameId = '';
+          this.editingPromptId = agent.agent_id;
+          this.pendingPrompt = this.agentPrompt(agent) === '-' ? '' : this.agentPrompt(agent);
+        },
+
+        cancelEditPrompt() {
+          this.editingPromptId = '';
+          this.pendingPrompt = '';
+        },
+
+        async saveEditPrompt(agentId) {
+          if (this.editingPromptId !== agentId) return;
+          const agent = this.agents.find((a) => a.agent_id === agentId);
+          const current = this.agentPrompt(agent);
+          const newPrompt = (this.pendingPrompt || '').trim();
+          this.cancelEditPrompt();
+          if (!newPrompt || newPrompt === current) return;
+          try {
+            await this.requestJson('/api/agents/' + agentId + '/prompt', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: newPrompt })
+            });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async startAgent(id) {
+          try { await this.requestJson('/api/agents/' + id + '/start', { method: 'POST' }); await this.refresh(); } catch (e) { alert(e.message); }
+        },
+
+        async stopAgent(id) {
+          try { await this.requestJson('/api/agents/' + id + '/stop', { method: 'POST' }); await this.refresh(); } catch (e) { alert(e.message); }
+        },
+
+        async runNow(id) {
+          try { await this.requestJson('/api/agents/' + id + '/run', { method: 'POST' }); await this.refresh(); } catch (e) { alert(e.message); }
+        },
+
+        async openInCode() {
+          try { await this.requestJson('/api/open-editor', { method: 'POST' }); } catch (e) { alert(e.message); }
+        },
+
+        async handleImportFile(event) {
+          const input = event.target;
+          const file = input.files && input.files[0];
+          if (!file) { alert('No file selected'); return; }
+          const formData = new FormData();
+          formData.append('file', file);
+          try {
+            const res = await fetch('/api/import', { method: 'POST', body: formData });
+            if (!res.ok) {
+              alert('Import request failed: HTTP ' + res.status);
+              input.value = '';
+              return;
+            }
+            const result = await res.json();
+            let msg = '';
+            if (result.imported && result.imported.length) msg += '✅ Imported:\n' + result.imported.join('\n') + '\n\n';
+            if (result.warnings && result.warnings.length) msg += '⚠️ Warnings:\n' + result.warnings.join('\n') + '\n\n';
+            if (result.errors && result.errors.length) msg += '❌ Errors:\n' + result.errors.join('\n');
+            alert(msg || 'Import complete (no details returned)');
+            await this.refresh();
+          } catch (e) {
+            alert('Import failed: ' + e.message);
+          }
+          input.value = '';
+        },
+
+        async toggleEnabled(id, enabled) {
+          try {
+            await this.requestJson('/api/agents/' + id + '/enabled', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: enabled })
+            });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async toggleAutoStart(id, current) {
+          try {
+            await this.requestJson('/api/agents/' + id + '/autostart', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ autoStart: !current })
+            });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        openScheduleEditor(agentId, currentSchedule, evt) {
+          const rect = evt.currentTarget.getBoundingClientRect();
+          let top = rect.top - 260 - 8;
+          if (top < 10) top = rect.bottom + 8;
+          let left = rect.left;
+          if (left + 380 > window.innerWidth) left = window.innerWidth - 390;
+          if (left < 10) left = 10;
+          this.scheduleEditor.show = true;
+          this.scheduleEditor.agentId = agentId;
+          this.scheduleEditor.top = top;
+          this.scheduleEditor.left = left;
+          this.detectScheduleMode(currentSchedule || '');
+        },
+
+        closeScheduleEditor() {
+          this.scheduleEditor.show = false;
+        },
+
+        detectScheduleMode(schedule) {
+          const current = schedule || '';
+          this.scheduleEditor.current = current;
+          if (!current) {
+            this.scheduleEditor.mode = 'interval';
+          } else if (/^\d+[mh]$/i.test(current) || /^every\s+\d+\s*(min|hour|sec)/i.test(current)) {
+            this.scheduleEditor.mode = 'interval';
+          } else if (/weekday|M,T|mon|tue|wed|thu|fri|sat|sun/i.test(current)) {
+            this.scheduleEditor.mode = 'weekly';
+          } else if (/daily|^at\s+\d/i.test(current)) {
+            this.scheduleEditor.mode = 'daily';
+          } else {
+            this.scheduleEditor.mode = 'cron';
+          }
+          let match = current.match(/(\d+)\s*([mh])/i);
+          this.scheduleEditor.num = match ? parseInt(match[1], 10) : 1;
+          this.scheduleEditor.unit = match ? match[2].toLowerCase() : 'h';
+          let time = '09:00';
+          match = current.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+          if (match) {
+            let hours = parseInt(match[1], 10);
+            const minutes = match[2] || '00';
+            if (match[3] && match[3].toLowerCase() === 'pm' && hours < 12) hours += 12;
+            if (match[3] && match[3].toLowerCase() === 'am' && hours === 12) hours = 0;
+            time = String(hours).padStart(2, '0') + ':' + minutes;
+          }
+          this.scheduleEditor.dailyTime = time;
+          this.scheduleEditor.weeklyTime = time;
+          let checkedDays = [];
+          if (/weekday/i.test(current)) {
+            checkedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+          } else {
+            const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+            checkedDays = dayKeys.filter((day) => new RegExp(day, 'i').test(current));
+          }
+          if (!checkedDays.length) checkedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+          this.scheduleEditor.days = checkedDays;
+          this.scheduleEditor.cron = current;
+          this.previewSchedule();
+        },
+
+        onScheduleModeChanged() {
+          if (this.scheduleEditor.mode === 'weekly' && !this.scheduleEditor.days.length) {
+            this.scheduleEditor.days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+          }
+          if (this.scheduleEditor.mode === 'cron' && !this.scheduleEditor.cron) {
+            this.scheduleEditor.cron = this.scheduleEditor.current || '';
+          }
+          this.previewSchedule();
+        },
+
+        getScheduleValue() {
+          if (this.scheduleEditor.mode === 'interval') {
+            return String(this.scheduleEditor.num || '1').trim() + (this.scheduleEditor.unit || 'h');
+          }
+          if (this.scheduleEditor.mode === 'daily') {
+            const time = this.scheduleEditor.dailyTime || '09:00';
+            const parts = time.split(':').map(Number);
+            const h = parts[0] || 0;
+            const m = parts[1] || 0;
+            const ampm = h >= 12 ? 'pm' : 'am';
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+            return 'daily at ' + h12 + (m > 0 ? ':' + String(m).padStart(2, '0') : '') + ampm;
+          }
+          if (this.scheduleEditor.mode === 'weekly') {
+            const checked = this.scheduleEditor.days.slice();
+            if (!checked.length) return '';
+            const time = this.scheduleEditor.weeklyTime || '09:00';
+            const parts = time.split(':').map(Number);
+            const h = parts[0] || 0;
+            const m = parts[1] || 0;
+            const ampm = h >= 12 ? 'pm' : 'am';
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+            const timeStr = h12 + (m > 0 ? ':' + String(m).padStart(2, '0') : '') + ampm;
+            if (checked.length === 5 && checked.indexOf('sat') === -1 && checked.indexOf('sun') === -1) {
+              return 'weekdays at ' + timeStr;
+            }
+            const dayMap = { mon: 'M', tue: 'T', wed: 'W', thu: 'Th', fri: 'F', sat: 'Sa', sun: 'Su' };
+            return checked.map((day) => dayMap[day]).join(',') + ' at ' + timeStr;
+          }
+          return (this.scheduleEditor.cron || '').trim();
+        },
+
+        async previewSchedule() {
+          const value = this.getScheduleValue();
+          if (!value) {
+            this.scheduleEditor.previewText = '—';
+            this.scheduleEditor.previewColor = '#8b949e';
+            return;
+          }
+          try {
+            const data = await this.requestJson('/api/schedule/describe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ schedule: value })
+            });
+            this.scheduleEditor.previewText = '✓ ' + (data.description || value);
+            this.scheduleEditor.previewColor = '#7ee787';
+          } catch (e) {
+            this.scheduleEditor.previewText = '⚠ ' + e.message;
+            this.scheduleEditor.previewColor = '#f85149';
+          }
+        },
+
+        async saveScheduleEditor() {
+          const value = this.getScheduleValue();
+          if (!value) return;
+          try {
+            await this.requestJson('/api/agents/' + this.scheduleEditor.agentId + '/schedule', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ schedule: value })
+            });
+            this.closeScheduleEditor();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        normalizeTriggerList(value) {
+          if (!value) return [];
+          return Array.isArray(value) ? value : [value];
+        },
+
+        hasTriggers(agent) {
+          return this.normalizeTriggerList(agent.config && agent.config.triggers && agent.config.triggers.onSuccess).length > 0
+            || this.normalizeTriggerList(agent.config && agent.config.triggers && agent.config.triggers.onFailure).length > 0
+            || this.normalizeTriggerList(agent.config && agent.config.triggers && agent.config.triggers.onComplete).length > 0;
+        },
+
+        agentNameById(id) {
+          const agent = this.agents.find((a) => a.agent_id === id);
+          return this.agentDisplayName(agent || { agent_id: id });
+        },
+
+        triggerTargets(agent) {
+          return this.agents.filter((candidate) => candidate.agent_id !== agent.agent_id);
+        },
+
+        toggleTriggerEditor(agent) {
+          if (this.triggerEditor.agentId === agent.agent_id) {
+            this.triggerEditor = { agentId: '', success: [], failure: [], complete: [] };
+            return;
+          }
+          const triggers = (agent.config && agent.config.triggers) || {};
+          this.triggerEditor = {
+            agentId: agent.agent_id,
+            success: this.normalizeTriggerList(triggers.onSuccess),
+            failure: this.normalizeTriggerList(triggers.onFailure),
+            complete: this.normalizeTriggerList(triggers.onComplete)
+          };
+        },
+
+        async saveTriggers() {
+          const id = this.triggerEditor.agentId;
+          if (!id) return;
+          const triggers = {};
+          if (this.triggerEditor.success.length) triggers.onSuccess = this.triggerEditor.success.slice();
+          if (this.triggerEditor.failure.length) triggers.onFailure = this.triggerEditor.failure.slice();
+          if (this.triggerEditor.complete.length) triggers.onComplete = this.triggerEditor.complete.slice();
+          try {
+            if (Object.keys(triggers).length > 0) {
+              await this.requestJson('/api/agents/' + id + '/schedule', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schedule: 'never' })
+              });
+            }
+            await this.requestJson('/api/agents/' + id + '/triggers', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ triggers: triggers })
+            });
+            this.triggerEditor = { agentId: '', success: [], failure: [], complete: [] };
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async clearTriggers() {
+          const id = this.triggerEditor.agentId;
+          if (!id) return;
+          try {
+            await this.requestJson('/api/agents/' + id + '/triggers', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ triggers: {} })
+            });
+            this.triggerEditor = { agentId: '', success: [], failure: [], complete: [] };
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async moveToGroup(agentId, group) {
+          let nextGroup = group;
+          if (nextGroup === '__new__') {
+            const name = prompt('New group name:');
+            if (!name) return;
+            nextGroup = name.trim();
+            if (!nextGroup) return;
+          }
+          try {
+            await this.requestJson('/api/agents/' + agentId + '/group', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ group: nextGroup || null })
+            });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async renameGroup(oldName) {
+          const newName = prompt('Rename group "' + oldName + '" to:', oldName);
+          if (!newName || newName === oldName) return;
+          try {
+            await this.requestJson('/api/groups/rename', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ oldName: oldName, newName: newName.trim() })
+            });
+            delete this.collapsedGroups[oldName];
+            this.saveCollapsedGroups();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async deleteGroup(name) {
+          if (!confirm('Dissolve group "' + name + '"? Agents will move to Ungrouped.')) return;
+          try {
+            await this.requestJson('/api/groups/' + encodeURIComponent(name), { method: 'DELETE' });
+            delete this.collapsedGroups[name];
+            this.saveCollapsedGroups();
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async emailOutput(agentId) {
+          try {
+            await this.requestJson('/api/agents/' + agentId + '/email', { method: 'POST' });
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        openOutputModal(name, agentId) {
+          const agent = this.agents.find((a) => a.agent_id === agentId);
+          const content = agent && agent.lastRun ? this.renderMd(agent.lastRun.output || '') : '';
+          this.outputModal = { show: true, title: name + ' — Last Output', content: content };
+        },
+
+        closeOutputModal() {
+          this.outputModal.show = false;
+        },
+
+        resetAddForm() {
+          this.addPanel.form = {
+            id: '',
+            name: '',
+            agent: '',
+            cwd: '',
+            prompt: '',
+            schedule: '',
+            group: '',
+            copilotPath: '',
+            pluginDir: '',
+            mcpConfig: '',
+            durable: true,
+            autoStart: true
+          };
+        },
+
+        async openAddPanel() {
+          this.addPanel.show = true;
+          this.addPanel.error = '';
+          await this.loadRecentDirs();
+        },
+
+        cloneAgent(agentId) {
+          const agent = this.agents.find((a) => a.agent_id === agentId);
+          if (!agent || !agent.config) return;
+          const c = agent.config;
+          this.openAddPanel();
+          this.switchAddTab('manual');
+          this.addPanel.form.id = '';
+          this.addPanel.form.name = (c.name || '') + ' (copy)';
+          this.addPanel.form.agent = c.agent || '';
+          this.addPanel.form.cwd = c.cwd || '';
+          this.addPanel.form.prompt = c.prompt || '';
+          this.addPanel.form.schedule = c.schedule || '1h';
+          this.addPanel.form.group = c.group || '';
+          this.addPanel.form.copilotPath = c.copilotPath || '';
+          this.addPanel.form.pluginDir = c.pluginDir || '';
+          this.addPanel.form.mcpConfig = c.mcpConfig || '';
+          this.addPanel.form.durable = c.durable !== false;
+          this.addPanel.form.autoStart = c.autoStart !== false;
+          this.$nextTick(() => {
+            const inputs = document.querySelectorAll('.side-panel .form-input');
+            if (inputs && inputs.length > 1) {
+              inputs[1].focus();
+              inputs[1].select();
+            }
+          });
+        },
+
+        closeAddPanel() {
+          this.addPanel.show = false;
+        },
+
+        switchAddTab(tab) {
+          this.addPanel.tab = tab;
+        },
+
+        async browseFolder() {
+          try {
+            const data = await this.requestJson('/api/browse-folder', { method: 'POST' });
+            if (data.folder) this.addPanel.scanDir = data.folder;
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        async loadRecentDirs() {
+          try {
+            const dirs = await this.requestJson('/api/recent-dirs');
+            this.addPanel.recentDirs = Array.isArray(dirs) ? dirs : [];
+          } catch {}
+        },
+
+        async runDiscover() {
+          this.addPanel.discovering = true;
+          this.addPanel.discoverMessage = '';
+          this.addPanel.discoverError = false;
+          try {
+            const params = this.addPanel.scanDir.trim() ? ('?dirs=' + encodeURIComponent(this.addPanel.scanDir.trim())) : '';
+            const data = await this.requestJson('/api/discover' + params);
+            this.addPanel.discovered = Array.isArray(data.discovered) ? data.discovered : [];
+            if (this.addPanel.discovered.length === 0) {
+              this.addPanel.discoverMessage = 'No agents discovered. Try specifying a directory with copilot agents/plugins.';
+            }
+          } catch (e) {
+            this.addPanel.discoverMessage = 'Error: ' + e.message;
+            this.addPanel.discoverError = true;
+            this.addPanel.discovered = [];
+          } finally {
+            this.addPanel.discovering = false;
+          }
+        },
+
+        discoverSourceLabel(item) {
+          return ({ 'installed-plugin': 'installed', 'marketplace': 'marketplace', 'repo-agent': 'agent', 'repo-plugin': 'local plugin' }[item.source]) || item.source;
+        },
+
+        discoverSourceClass(item) {
+          return ({ 'installed-plugin': 'source-plugin', 'marketplace': 'source-marketplace', 'repo-agent': 'source-repo-agent', 'repo-plugin': 'source-local-plugin' }[item.source]) || 'source-plugin';
+        },
+
+        installStateKey(item, mode) {
+          return item.id + ':' + mode + ':' + (item.pluginDir || item.installCmd || '');
+        },
+
+        installState(key) {
+          return this.addPanel.installStates[key] || { disabled: false, text: '', title: '' };
+        },
+
+        async installPlugin(installCmd, pluginDir, engine, key) {
+          this.addPanel.installStates[key] = { disabled: true, text: '⏳ Installing…', title: '' };
+          try {
+            const body = {};
+            if (installCmd) body.installCmd = installCmd;
+            if (pluginDir) body.pluginDir = pluginDir;
+            if (engine) body.engine = engine;
+            await this.requestJson('/api/plugins/install', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            this.addPanel.installStates[key] = { disabled: true, text: '✓ Installed', title: '' };
+            setTimeout(() => { this.runDiscover(); }, 1000);
+          } catch (e) {
+            this.addPanel.installStates[key] = { disabled: false, text: '✗ Failed', title: e.message };
+            setTimeout(() => {
+              this.addPanel.installStates[key] = { disabled: false, text: '', title: '' };
+            }, 3000);
+          }
+        },
+
+        prefillFromDiscover(item) {
+          this.switchAddTab('manual');
+          this.addPanel.form.id = item.id || '';
+          this.addPanel.form.name = item.displayName || item.name || '';
+          this.addPanel.form.agent = (item.source === 'repo-plugin' || item.source === 'installed-plugin') ? ((item.id || '') + ':' + (item.id || '')) : (item.displayName || item.name || '');
+          this.addPanel.form.cwd = item.cwd || '';
+          this.addPanel.form.prompt = '';
+          this.addPanel.form.schedule = '1h';
+          this.addPanel.form.group = '';
+          this.addPanel.form.copilotPath = '';
+          this.addPanel.form.pluginDir = item.pluginDir || '';
+          this.addPanel.form.mcpConfig = item.mcpConfig || '';
+          this.addPanel.form.durable = true;
+          this.addPanel.form.autoStart = true;
+          this.$nextTick(() => {
+            const inputs = document.querySelectorAll('.side-panel .form-input');
+            if (inputs && inputs.length > 4) inputs[4].focus();
+          });
+        },
+
+        async submitAddAgent() {
+          this.addPanel.error = '';
+          const config = {
+            id: (this.addPanel.form.id || '').trim(),
+            name: (this.addPanel.form.name || '').trim(),
+            agent: (this.addPanel.form.agent || '').trim(),
+            cwd: (this.addPanel.form.cwd || '').trim(),
+            prompt: (this.addPanel.form.prompt || '').trim(),
+            schedule: (this.addPanel.form.schedule || '').trim(),
+            durable: !!this.addPanel.form.durable
+          };
+          if (!this.addPanel.form.autoStart) config.autoStart = false;
+          const group = (this.addPanel.form.group || '').trim();
+          const copilotPath = (this.addPanel.form.copilotPath || '').trim();
+          const pluginDir = (this.addPanel.form.pluginDir || '').trim();
+          const mcpConfig = (this.addPanel.form.mcpConfig || '').trim();
+          if (group) config.group = group;
+          if (copilotPath) config.copilotPath = copilotPath;
+          if (pluginDir) config.pluginDir = pluginDir;
+          if (mcpConfig) config.mcpConfig = mcpConfig;
+          if (!config.id || !config.name || !config.agent || !config.cwd || !config.prompt || !config.schedule) {
+            this.addPanel.error = 'All required fields (*) must be filled.';
+            return;
+          }
+          try {
+            await this.requestJson('/api/agents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(config)
+            });
+            this.closeAddPanel();
+            this.resetAddForm();
+            await this.refresh();
+          } catch (e) {
+            this.addPanel.error = e.message;
+          }
+        },
+
+        async deleteAgent(id) {
+          if (!confirm('Delete agent "' + id + '"? This cannot be undone.')) return;
+          try {
+            await this.requestJson('/api/agents/' + id, { method: 'DELETE' });
+            await this.refresh();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        openSessionsPanel() {
+          this.sessionsPanel.show = true;
+          this.loadSessions();
+        },
+
+        closeSessionsPanel() {
+          this.sessionsPanel.show = false;
+          Object.keys(this.sessionsPanel.pollers).forEach((id) => this.stopSessionPolling(id));
+        },
+
+        async loadSessions() {
+          this.sessionsPanel.loading = true;
+          try {
+            const sessions = await this.requestJson('/api/sessions?hours=' + this.sessionsPanel.hours);
+            this.sessionsPanel.sessions = Array.isArray(sessions) ? sessions : [];
+          } catch {
+            this.sessionsPanel.sessions = [];
+          } finally {
+            this.sessionsPanel.loading = false;
+          }
+        },
+
+        sessionGroups() {
+          const filterText = (this.sessionsPanel.filter || '').toLowerCase();
+          const filtered = filterText
+            ? this.sessionsPanel.sessions.filter((session) => {
+                const haystack = ((session.agentName || session.name || '') + ' ' + (session.name || '') + ' ' + (session.repository || '') + ' ' + (session.cwd || '')).toLowerCase();
+                return haystack.indexOf(filterText) !== -1;
+              })
+            : this.sessionsPanel.sessions;
+          const groups = {};
+          filtered.forEach((session) => {
+            const key = session.agentName || basename(session.cwd) || '(unknown)';
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(session);
+          });
+          return Object.keys(groups).map((name) => {
+            const sessions = groups[name];
+            const latestTime = new Date(sessions[0].lastModified);
+            return {
+              name: name,
+              sessions: sessions,
+              repoShort: sessions[0].repository ? sessions[0].repository.split('/').pop() : basename(sessions[0].cwd),
+              timeStr: latestTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              dateStr: latestTime.toLocaleDateString([], { month: 'short', day: 'numeric' })
+            };
+          });
+        },
+
+        isSessionGroupCollapsed(name) {
+          return this.sessionsPanel.groupState[name] !== false;
+        },
+
+        saveSessionGroupState() {
+          localStorage.setItem('sessionGroupState', JSON.stringify(this.sessionsPanel.groupState));
+        },
+
+        toggleSessionGroup(name) {
+          this.sessionsPanel.groupState[name] = !this.isSessionGroupCollapsed(name);
+          this.saveSessionGroupState();
+        },
+
+        sessionDateLabel(session) {
+          const time = new Date(session.lastModified);
+          const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dateStr = time.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          return dateStr + ' ' + timeStr;
+        },
+
+        async toggleSession(id) {
+          Object.keys(this.sessionsPanel.pollers).forEach((pollerId) => this.stopSessionPolling(pollerId));
+          if (this.sessionsPanel.expanded[id]) {
+            this.sessionsPanel.expanded = {};
+            return;
+          }
+          this.sessionsPanel.expanded = {};
+          this.sessionsPanel.expanded[id] = true;
+          this.sessionsPanel.details[id] = { loading: true, data: null, html: '', chatPending: false, minTurns: 0 };
+          try {
+            const data = await this.requestJson('/api/sessions/' + id);
+            this.sessionsPanel.details[id] = { loading: false, data: data, html: buildConvoHtml(data.turns, 'convo-' + id, false, null, null, false), chatPending: false, minTurns: 0 };
+            this.$nextTick(() => {
+              const convo = document.getElementById('convo-' + id);
               if (convo) convo.scrollTop = convo.scrollHeight;
-            }
+            });
+          } catch {
+            this.sessionsPanel.details[id] = { loading: false, data: null, html: '<div style="color:#f85149;padding:8px">Failed to load session</div>', chatPending: false, minTurns: 0 };
           }
-          if (data.isActive) {
-            // Session is still being written to — keep polling
-            const pending = document.getElementById(pendingElId);
-            if (pending && !pending.querySelector('.poll-indicator')) {
-              pending.querySelector('.conv-content')?.insertAdjacentHTML('beforeend',
-                '<span class="poll-indicator" style="display:inline-block;margin-left:8px;color:#8b949e;font-size:0.75rem">⏳ agent still working...</span>');
-            }
-            setTimeout(poll, pollInterval);
-          } else {
-            // Session stopped updating — remove indicator
-            document.querySelectorAll('.poll-indicator').forEach(el => el.remove());
-          }
-        } catch { /* stop polling on error */ }
-      };
-      setTimeout(poll, pollInterval);
-    }
+        },
 
-    // Poll live output for running agents
-    const livePollers = new Set();
-    async function pollLiveOutput(agentId) {
-      if (livePollers.has(agentId)) return;
-      livePollers.add(agentId);
-      const poll = async () => {
-        const el = document.getElementById(\`live-\${agentId}\`);
-        if (!el) { livePollers.delete(agentId); return; }
-        try {
-          const res = await fetch(\`/api/agents/\${agentId}/live\`);
-          const data = await res.json();
-          if (!data.running) {
-            livePollers.delete(agentId);
-            refresh(); // Agent finished — full refresh to show final output
+        rerenderSessionDetail(id) {
+          const detail = this.sessionsPanel.details[id];
+          if (!detail || !detail.data) return;
+          detail.html = buildConvoHtml(detail.data.turns, 'convo-' + id, false, null, null, detail.chatPending);
+          this.$nextTick(() => {
+            const convo = document.getElementById('convo-' + id);
+            if (convo) convo.scrollTop = convo.scrollHeight;
+          });
+        },
+
+        startSessionPolling(id) {
+          this.stopSessionPolling(id);
+          const self = this;
+          const poll = async function() {
+            const detail = self.sessionsPanel.details[id];
+            if (!detail) return;
+            try {
+              const data = await self.requestJson('/api/sessions/' + id + '/poll');
+              if (!self.sessionsPanel.details[id]) return;
+              if (data.turns && data.turns.length >= (detail.minTurns || 0)) {
+                detail.chatPending = false;
+                detail.data = Object.assign({}, detail.data || {}, data);
+                self.rerenderSessionDetail(id);
+              }
+              const lastTurn = data.turns && data.turns.length ? data.turns[data.turns.length - 1] : null;
+              const currentlyPending = lastTurn && !lastTurn.assistant;
+              if (data.isActive || detail.chatPending || currentlyPending) {
+                self.sessionsPanel.pollers[id] = setTimeout(poll, 2000);
+              } else {
+                delete self.sessionsPanel.pollers[id];
+              }
+            } catch {
+              delete self.sessionsPanel.pollers[id];
+            }
+          };
+          this.sessionsPanel.pollers[id] = setTimeout(poll, 2000);
+        },
+
+        stopSessionPolling(id) {
+          if (this.sessionsPanel.pollers[id]) {
+            clearTimeout(this.sessionsPanel.pollers[id]);
+            delete this.sessionsPanel.pollers[id];
+          }
+        },
+
+        async sendSessionChat(id) {
+          const detail = this.sessionsPanel.details[id];
+          const message = ((this.sessionsPanel.chatInputs[id] || '') + '').trim();
+          if (!detail || !detail.data || !message) return;
+          this.sessionsPanel.chatInputs[id] = '';
+          this.sessionsPanel.chatStatus[id] = '<div class="chat-sending"><div class="spinner"></div>Sending to agent... this may take a minute</div>';
+          detail.data.turns = (detail.data.turns || []).concat([{ content: message, assistant: null }]);
+          detail.chatPending = true;
+          detail.minTurns = (detail.data.turns || []).length;
+          this.rerenderSessionDetail(id);
+          try {
+            await this.requestJson('/api/sessions/' + id + '/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: message })
+            });
+            this.sessionsPanel.chatStatus[id] = '';
+            this.startSessionPolling(id);
+          } catch {
+            detail.chatPending = false;
+            this.sessionsPanel.chatStatus[id] = '<div style="color:#f85149;font-size:0.8rem">Failed to send message</div>';
+            this.rerenderSessionDetail(id);
+          }
+        },
+
+        stopFocusPolling() {
+          if (this.focus.poller) {
+            clearTimeout(this.focus.poller);
+            this.focus.poller = null;
+          }
+        },
+
+        renderFocusHtml(data) {
+          return buildConvoHtml(data.turns, 'focus-convo', this.focus.verbose, data.sessionMeta, data.tokenStats, true);
+        },
+
+        toggleFocusVerbose() {
+          localStorage.setItem('focusVerbose', this.focus.verbose ? '1' : '0');
+          if (this.focus.data && this.focus.data.turns) {
+            this.focus.html = this.renderFocusHtml(this.focus.data);
+            this.$nextTick(() => {
+              const convo = document.getElementById('focus-convo');
+              if (convo) convo.scrollTop = convo.scrollHeight;
+            });
+          }
+        },
+
+        async openFocus(id) {
+          this.focus.show = true;
+          this.focus.sessionId = id;
+          this.focus.title = 'Session';
+          this.focus.html = '<div style="color:#8b949e;padding:20px">Loading session...</div>';
+          this.focus.chatInput = '';
+          this.focus.chatStatus = '';
+          this.focus.emailMenu = false;
+          this.focus.minTurns = 0;
+          this.focus.chatPending = false;
+          this.stopFocusPolling();
+          try {
+            const data = await this.requestJson('/api/sessions/' + id);
+            this.focus.data = data;
+            const agentName = data.agentName || data.name || id.substring(0, 8);
+            this.focus.title = agentName + ' — ' + (data.name || '');
+            this.focus.html = this.renderFocusHtml(data);
+            this.$nextTick(() => {
+              const convo = document.getElementById('focus-convo');
+              if (convo) convo.scrollTop = convo.scrollHeight;
+              if (this.$refs.focusChatInput) this.$refs.focusChatInput.focus();
+            });
+            this.startFocusPolling(id);
+          } catch {
+            this.focus.html = '<div style="color:#f85149;padding:20px">Failed to load session</div>';
+          }
+        },
+
+        startFocusPolling(sessionId) {
+          this.stopFocusPolling();
+          let lastTurnCount = -1;
+          let lastStepCount = -1;
+          let lastWasPending = false;
+          let lastTokenStats = false;
+          const self = this;
+          const poll = async function() {
+            if (self.focus.sessionId !== sessionId) return;
+            try {
+              const data = await self.requestJson('/api/sessions/' + sessionId + '/poll?verbose=' + (self.focus.verbose ? '1' : '0'));
+              const turnCount = data.turns ? data.turns.length : 0;
+              const totalSteps = (data.turns || []).reduce((sum, turn) => sum + ((turn.steps && turn.steps.length) || 0), 0);
+              if (turnCount < self.focus.minTurns) {
+                self.focus.poller = setTimeout(poll, 1000);
+                return;
+              }
+              if (self.focus.chatPending && turnCount >= self.focus.minTurns) {
+                self.focus.chatPending = false;
+              }
+              const lastTurn = data.turns && data.turns.length ? data.turns[data.turns.length - 1] : null;
+              const currentlyPending = lastTurn && !lastTurn.assistant;
+              const hasTokenStats = !!data.tokenStats;
+              const changed = lastTurnCount < 0 || turnCount !== lastTurnCount || (self.focus.verbose && totalSteps !== lastStepCount) || (lastWasPending && !currentlyPending) || (self.focus.verbose && hasTokenStats !== lastTokenStats);
+              if (changed) {
+                const convo = document.getElementById('focus-convo');
+                const wasAtBottom = convo ? (convo.scrollHeight - convo.scrollTop - convo.clientHeight) < 40 : true;
+                self.focus.data = Object.assign({}, self.focus.data || {}, data);
+                self.focus.html = self.renderFocusHtml(self.focus.data);
+                self.$nextTick(() => {
+                  const el = document.getElementById('focus-convo');
+                  if (el && wasAtBottom) el.scrollTop = el.scrollHeight;
+                });
+              }
+              if (data.chatError) {
+                self.focus.chatStatus = '<div style="color:#f85149;font-size:0.8rem">' + esc(data.chatError) + '</div>';
+                self.focus.poller = null;
+                lastTurnCount = turnCount;
+                lastStepCount = totalSteps;
+                lastWasPending = currentlyPending;
+                lastTokenStats = hasTokenStats;
+                return;
+              }
+              if ((data.isActive || currentlyPending || self.focus.chatPending) && !self.focus.chatStatus.includes('focus-live-indicator')) {
+                self.focus.chatStatus = '<span class="focus-live-indicator" style="color:#f0883e;font-size:0.8rem"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Session is active — updating live</span>';
+              }
+              if (!data.isActive && !currentlyPending && !self.focus.chatPending) {
+                self.focus.chatStatus = '';
+              }
+              const needsMorePolls = (lastWasPending && !currentlyPending && self.focus.verbose && !hasTokenStats);
+              if (data.isActive || currentlyPending || self.focus.chatPending || needsMorePolls) {
+                self.focus.poller = setTimeout(poll, 2000);
+              } else {
+                self.focus.poller = null;
+              }
+              lastTurnCount = turnCount;
+              lastStepCount = totalSteps;
+              lastWasPending = currentlyPending;
+              lastTokenStats = hasTokenStats;
+            } catch {
+              self.focus.poller = null;
+            }
+          };
+          this.focus.poller = setTimeout(poll, 1500);
+        },
+
+        closeFocus() {
+          this.stopFocusPolling();
+          this.focus.show = false;
+          this.focus.sessionId = '';
+          this.focus.data = null;
+          this.focus.html = '';
+          this.focus.chatInput = '';
+          this.focus.chatStatus = '';
+          this.focus.minTurns = 0;
+          this.focus.chatPending = false;
+          this.focus.emailMenu = false;
+        },
+
+        async emailFocusSession(mode) {
+          this.focus.emailMenu = false;
+          if (!this.focus.sessionId) return;
+          try {
+            await this.requestJson('/api/sessions/' + this.focus.sessionId + '/email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode: mode })
+            });
+          } catch (e) {
+            alert('Failed to send email: ' + e.message);
+          }
+        },
+
+        async sendFocusChat() {
+          if (!this.focus.sessionId) return;
+          const message = (this.focus.chatInput || '').trim();
+          if (!message) return;
+          this.focus.chatInput = '';
+          this.focus.chatPending = true;
+          const existingTurns = (this.focus.data && this.focus.data.turns) ? this.focus.data.turns.slice() : [];
+          existingTurns.push({ content: message, assistant: null });
+          this.focus.data = Object.assign({}, this.focus.data || {}, { turns: existingTurns });
+          this.focus.html = this.renderFocusHtml(this.focus.data);
+          this.focus.chatStatus = '<span class="focus-live-indicator" style="color:#f0883e;font-size:0.8rem"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Session is active — updating live</span>';
+          this.focus.minTurns = existingTurns.length;
+          this.$nextTick(() => {
+            const convo = document.getElementById('focus-convo');
+            if (convo) convo.scrollTop = convo.scrollHeight;
+          });
+          try {
+            await this.requestJson('/api/sessions/' + this.focus.sessionId + '/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: message })
+            });
+            this.startFocusPolling(this.focus.sessionId);
+          } catch {
+            this.focus.chatPending = false;
+            this.focus.chatStatus = '<div style="color:#f85149;font-size:0.8rem">Failed to send message</div>';
+          }
+          this.$nextTick(() => {
+            if (this.$refs.focusChatInput) this.$refs.focusChatInput.focus();
+          });
+        },
+
+        async openTerminal(id) {
+          try {
+            await this.requestJson('/api/sessions/' + id + '/terminal', { method: 'POST' });
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+
+        showAgentSessions(agentName) {
+          const next = {};
+          Object.keys(this.sessionsPanel.groupState).forEach((name) => { next[name] = true; });
+          next[agentName] = false;
+          this.sessionsPanel.groupState = next;
+          this.saveSessionGroupState();
+          this.openSessionsPanel();
+        },
+
+        async openLastTerminal(agentId, agentCwd) {
+          try {
+            const sessions = await this.requestJson('/api/sessions?hours=48');
+            const match = (sessions || []).find((session) => ((session.agentName || '').toLowerCase().indexOf(agentId.toLowerCase()) !== -1) || ((session.name || '').toLowerCase().indexOf(agentId.toLowerCase()) !== -1));
+            if (match) {
+              await this.requestJson('/api/sessions/' + match.id + '/terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cwd: agentCwd })
+              });
+            } else if (agentCwd) {
+              await this.requestJson('/api/terminal/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cwd: agentCwd, agentId: agentId })
+              });
+            } else {
+              alert('No recent session found for this agent');
+            }
+          } catch (e) {
+            alert('Failed to find session: ' + e.message);
+          }
+        },
+
+        async openLastChat(agentId, sessionId) {
+          if (sessionId) {
+            this.openFocus(sessionId);
             return;
           }
-          if (data.output) {
-            const wasAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
-            el.innerHTML = (typeof marked !== 'undefined') ? marked.parse(data.output) : data.output.replace(/</g,'&lt;');
-            if (wasAtBottom) el.scrollTop = el.scrollHeight;
-            const statusEl = document.getElementById(\`live-status-\${agentId}\`);
-            if (statusEl) statusEl.textContent = \`\${data.messageCount} response\${data.messageCount > 1 ? 's' : ''}\${data.isActive ? ' · updating...' : ''}\`;
-            // Enable chat button once we have a session ID
-            const chatBtnEl = document.getElementById(\`live-chat-btn-\${agentId}\`);
-            if (chatBtnEl && data.sessionId) {
-              chatBtnEl.innerHTML = '<button class="output-toggle" onclick="openFocus(\\\'' + data.sessionId + '\\\')" title="Chat with this session">💬 Chat</button>';
-            }
+          try {
+            const sessions = await this.requestJson('/api/sessions?hours=72');
+            const match = (sessions || []).find((session) => ((session.agentName || '').toLowerCase().indexOf(agentId.toLowerCase()) !== -1) || ((session.name || '').toLowerCase().indexOf(agentId.toLowerCase()) !== -1));
+            if (match) this.openFocus(match.id);
+            else alert('No recent session found for this agent');
+          } catch (e) {
+            alert('Failed to find session: ' + e.message);
           }
-        } catch { }
-        setTimeout(poll, 3000);
+        },
+
+        async editAgentSource(agentId) {
+          try { await this.requestJson('/api/agents/' + agentId + '/edit-source', { method: 'POST' }); } catch (e) { alert(e.message); }
+        },
+
+        async reinstallPlugin(agentId) {
+          if (!confirm('Reinstall this plugin? This will uninstall and re-install it.')) return;
+          try {
+            await this.requestJson('/api/agents/' + agentId + '/reinstall', { method: 'POST' });
+            alert('Plugin reinstalled successfully');
+          } catch (e) {
+            alert('Reinstall failed: ' + e.message);
+          }
+        },
+
+        async pollLiveOutput(agentId) {
+          if (this.livePollers[agentId]) return;
+          const self = this;
+          const poll = async function() {
+            const el = document.getElementById('live-' + agentId);
+            if (!el) {
+              delete self.livePollers[agentId];
+              return;
+            }
+            try {
+              const data = await self.requestJson('/api/agents/' + agentId + '/live');
+              if (!data.running) {
+                if (self.livePollers[agentId]) clearTimeout(self.livePollers[agentId]);
+                delete self.livePollers[agentId];
+                delete self.liveOutputs[agentId];
+                await self.refresh();
+                return;
+              }
+              const wasAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
+              const scrollTop = el.scrollTop;
+              self.liveOutputs[agentId] = {
+                html: data.output ? renderMd(data.output) : '<span style="color:#8b949e">Waiting for agent output...</span>',
+                statusText: (data.messageCount || 0) + ' response' + ((data.messageCount || 0) !== 1 ? 's' : '') + (data.isActive ? ' · updating...' : ''),
+                sessionId: data.sessionId || ''
+              };
+              self.$nextTick(() => {
+                const liveEl = document.getElementById('live-' + agentId);
+                if (liveEl) liveEl.scrollTop = wasAtBottom ? liveEl.scrollHeight : scrollTop;
+              });
+            } catch {}
+            self.livePollers[agentId] = setTimeout(poll, 3000);
+          };
+          this.livePollers[agentId] = setTimeout(poll, 2000);
+        },
+
+        ensureLivePollers() {
+          this.agents.forEach((agent) => {
+            if (agent.status === 'running') this.pollLiveOutput(agent.agent_id);
+          });
+        }
       };
-      setTimeout(poll, 2000);
     }
-
-    // After each refresh, start polling for any running agents
-    function startLivePollers() {
-      document.querySelectorAll('[id^="live-"]').forEach(el => {
-        const agentId = el.id.replace('live-', '');
-        if (agentId) pollLiveOutput(agentId);
-      });
-    }
-
-    // Close email dropdown on outside click
-    document.addEventListener('click', (e) => {
-      const menu = document.getElementById('focusEmailMenu');
-      const wrap = document.getElementById('focusEmailWrap');
-      if (menu && wrap && !wrap.contains(e.target)) menu.classList.remove('visible');
-    });
-
-    refresh();
-    setInterval(() => { refresh(); startLivePollers(); }, 10000);
-    setTimeout(startLivePollers, 1000);
-
-    // Wire up import file input
-    document.getElementById('importZipInput')?.addEventListener('change', function() { handleImportFile(this); });
   </script>
 </body>
 </html>`;
