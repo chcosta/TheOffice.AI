@@ -246,9 +246,9 @@ class ManagerAgent extends EventEmitter {
         steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
 
-        // Feed result back to manager for next decision
-        context += `\n\n## Result from "${action.agentId}" (exit code: ${agentResult.exitCode})\n${agentResult.output}`;
-        currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Previous Results\n${context}\n\n## Next Step\nBased on the results above, decide what to do next.`;
+        // Feed result back to manager for next decision — include full output so manager can pass it forward
+        context += `\n\n## Result from "${action.agentId}" (exit code: ${agentResult.exitCode})\n\`\`\`\n${agentResult.output}\n\`\`\``;
+        currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## Next Step\nReview the results above. Remember: if you need to pass information to another agent, include the relevant data directly in YOUR prompt to that agent. What should you do next?`;
       }
 
       if (action.type === 'request_agent') {
@@ -282,7 +282,7 @@ class ManagerAgent extends EventEmitter {
 
   _buildManagerSystemPrompt(managerConfig, orgAgents) {
     const agentList = orgAgents.map(a => 
-      `- **${a.id}** (${a.name}): ${a.description || 'No description'}`
+      `- **${a.id}** (${a.name}): ${a.capability || 'General purpose agent'}`
     ).join('\n');
 
     return `You are "${managerConfig.name}", an orchestrating manager agent.
@@ -291,19 +291,27 @@ ${managerConfig.description || ''}
 ## Your Organization (Available Agents)
 ${agentList}
 
+## CRITICAL RULES
+1. **Think step-by-step.** Plan the correct ORDER of operations BEFORE acting. If task A depends on output from task B, run task B FIRST.
+2. **Never use an agent's default/saved prompt.** Always compose YOUR OWN prompt based on what you need the agent to do right now.
+3. **Pass context forward.** When one agent's output is needed by another, include the relevant output directly in your prompt to the second agent.
+4. **One action per turn.** Run only ONE agent at a time, wait for results, then decide next steps.
+5. **Don't repeat yourself.** If an agent already succeeded, don't re-run it. Analyze the result and move to the next step.
+6. **Gather before acting.** If you need information before sending notifications/emails, ALWAYS gather the information first.
+
 ## Instructions
-You coordinate the agents in your organization to accomplish tasks. For each step:
-1. Analyze what needs to be done
-2. Decide which agent to run (or if the task is complete)
-3. Provide the prompt for that agent
+For each turn, decide what to do next:
+1. If you need information → run the appropriate agent to gather it
+2. If you have information and need to act on it → run the action agent WITH the gathered information in the prompt
+3. If the task is fully complete → report completion
 
 ## Response Format
-Respond with EXACTLY ONE of these formats:
+Respond with EXACTLY ONE of these action blocks:
 
-**To run an agent:**
+**To run an agent (compose YOUR OWN prompt — do NOT copy the agent's saved description):**
 \`\`\`action
 RUN_AGENT: <agent_id>
-PROMPT: <the prompt to send to the agent>
+PROMPT: <your custom prompt with full context for what you need this agent to do>
 \`\`\`
 
 **To complete the task:**
@@ -331,9 +339,10 @@ REASON: <why you need this agent>
 
     if (block.startsWith('RUN_AGENT:')) {
       const agentLine = block.match(/RUN_AGENT:\s*(.+)/);
-      const promptLine = block.match(/PROMPT:\s*([\s\S]*?)$/m);
-      if (agentLine && promptLine) {
-        return { type: 'run_agent', agentId: agentLine[1].trim(), prompt: promptLine[1].trim() };
+      // PROMPT captures everything after "PROMPT:" to end of block (multi-line)
+      const promptMatch = block.match(/PROMPT:\s*([\s\S]*)/);
+      if (agentLine && promptMatch) {
+        return { type: 'run_agent', agentId: agentLine[1].trim(), prompt: promptMatch[1].trim() };
       }
     }
 
@@ -344,8 +353,8 @@ REASON: <why you need this agent>
 
     if (block.startsWith('REQUEST_AGENT:')) {
       const agentLine = block.match(/REQUEST_AGENT:\s*(.+)/);
-      const reasonLine = block.match(/REASON:\s*([\s\S]*?)$/m);
-      return { type: 'request_agent', agentId: agentLine?.[1]?.trim() || '', reason: reasonLine?.[1]?.trim() || '' };
+      const reasonMatch = block.match(/REASON:\s*([\s\S]*)/);
+      return { type: 'request_agent', agentId: agentLine?.[1]?.trim() || '', reason: reasonMatch?.[1]?.trim() || '' };
     }
 
     return { type: 'error', message: 'Could not parse manager decision' };
@@ -418,15 +427,20 @@ REASON: <why you need this agent>
       const config = entry.config;
       const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
 
+      // Write prompt to temp file to avoid command line length limits
+      const os = require('os');
+      const promptFile = path.join(os.tmpdir(), `mgr-subagent-${agentId}-${Date.now()}.md`);
+      fs.writeFileSync(promptFile, prompt, 'utf-8');
+
       let mcpConfig = '';
       if (config.mcpConfig) {
         const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
         mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
       }
 
-      const cmdLine = `"${copilotCmd}" ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s --yolo`.replace(/\s+/g, ' ').trim();
+      const cmdLine = `"${copilotCmd}" ${mcpConfig} --agent "${config.agent}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`.replace(/\s+/g, ' ').trim();
 
-      console.log(`[manager] Running sub-agent "${agentId}": ${cmdLine.substring(0, 200)}...`);
+      console.log(`[manager] Running sub-agent "${agentId}": ${prompt.substring(0, 150)}...`);
 
       const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
       const proc = spawn(cmdLine, [], {
@@ -442,6 +456,7 @@ REASON: <why you need this agent>
       proc.stderr.on('data', d => { stderr += d.toString(); });
 
       proc.on('close', (code) => {
+        try { fs.unlinkSync(promptFile); } catch {}
         // Try to get session output (richer than stdout)
         setTimeout(() => {
           const sessionResult = this.supervisor._getSessionOutput(config);
@@ -451,12 +466,14 @@ REASON: <why you need this agent>
       });
 
       proc.on('error', (err) => {
+        try { fs.unlinkSync(promptFile); } catch {}
         resolve({ exitCode: -1, output: '', stderr: err.message });
       });
 
       // Timeout after 10 minutes per agent run
       setTimeout(() => {
         proc.kill();
+        try { fs.unlinkSync(promptFile); } catch {}
         resolve({ exitCode: -1, output: stdout, stderr: 'Timed out after 10 minutes' });
       }, 600000);
     });
@@ -472,14 +489,16 @@ REASON: <why you need this agent>
     return (entry.config.org || []).map(agentId => {
       const agentEntry = this.supervisor.agents.get(agentId);
       if (agentEntry) {
+        // Only show a brief capability description, NOT the agent's saved prompt
+        const capability = agentEntry.config.description || agentEntry.config.name || agentId;
         return {
           id: agentId,
           name: agentEntry.config.name,
-          description: agentEntry.config.description || agentEntry.config.prompt || '',
+          capability: capability.split('\n')[0].substring(0, 100), // First line, max 100 chars
           status: agentEntry.running ? 'running' : 'idle'
         };
       }
-      return { id: agentId, name: agentId, description: 'Not registered', status: 'unknown' };
+      return { id: agentId, name: agentId, capability: 'Not registered', status: 'unknown' };
     });
   }
 
