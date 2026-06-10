@@ -4650,7 +4650,7 @@ function getManagersPageHtml() {
     }
 
     function editAssignmentSchedule(managerId, assignmentId, currentSchedule) {
-      const newSchedule = prompt('Schedule for this assignment:\n\nExamples: 1h, 30m, daily at 9am, weekdays at 8am, never\n\nCurrent: ' + currentSchedule, currentSchedule);
+      const newSchedule = prompt('Schedule for this assignment:\\n\\nExamples: 1h, 30m, daily at 9am, weekdays at 8am, never\\n\\nCurrent: ' + currentSchedule, currentSchedule);
       if (newSchedule === null) return;
       fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/schedule', {
         method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ schedule: newSchedule })
