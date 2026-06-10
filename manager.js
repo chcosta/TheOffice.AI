@@ -129,10 +129,10 @@ class ManagerAgent extends EventEmitter {
 
   /**
    * Execute an ad-hoc or assignment prompt.
-   * The manager analyzes the prompt, decides which agents to run, 
-   * gathers output, and chains as needed.
+   * Returns immediately with runId. Orchestration runs in background.
+   * Poll /api/managers/:id/runs/:runId for live status.
    */
-  async executePrompt(managerId, prompt, assignmentId = null) {
+  executePrompt(managerId, prompt, assignmentId = null, { sync = false } = {}) {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
 
@@ -148,9 +148,20 @@ class ManagerAgent extends EventEmitter {
     // Store the user prompt as a message
     this._addMessage(managerId, runId, 'user', prompt);
 
+    // Run orchestration in background
+    const orchestrationPromise = this._runOrchestration(managerId, runId, entry, prompt);
+
+    if (sync) {
+      return orchestrationPromise;
+    }
+    // Fire-and-forget for async mode
+    orchestrationPromise.catch(() => {}); 
+    return { runId, status: 'running' };
+  }
+
+  async _runOrchestration(managerId, runId, entry, prompt) {
     const steps = [];
     try {
-      // Build the orchestration prompt for the manager agent
       const orgAgents = this._getOrgAgentDetails(managerId);
       const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps);
 
@@ -175,8 +186,9 @@ class ManagerAgent extends EventEmitter {
       this.db.prepare('UPDATE manager_state SET status = ?, last_active = ? WHERE manager_id = ?')
         .run('error', finishedAt, managerId);
 
+      this._addMessage(managerId, runId, 'assistant', `Error: ${err.message}`);
       this.emit('manager-error', { managerId, runId, error: err });
-      throw err;
+      return { runId, error: err.message, steps };
     }
   }
 
@@ -198,6 +210,9 @@ class ManagerAgent extends EventEmitter {
       iteration++;
 
       // Ask the manager agent to decide what to do next
+      steps.push({ iteration, action: 'thinking', timestamp: new Date().toISOString() });
+      this._persistSteps(runId, steps);
+
       const decision = await this._askManager(managerConfig, currentPrompt);
       
       // Parse the decision
@@ -205,16 +220,19 @@ class ManagerAgent extends EventEmitter {
 
       if (action.type === 'complete') {
         finalResult = action.result;
-        steps.push({ iteration, action: 'complete', result: action.result });
+        steps.push({ iteration, action: 'complete', result: action.result, timestamp: new Date().toISOString() });
+        this._persistSteps(runId, steps);
         break;
       }
 
       if (action.type === 'run_agent') {
-        steps.push({ iteration, action: 'run_agent', agentId: action.agentId, prompt: action.prompt });
+        steps.push({ iteration, action: 'run_agent', agentId: action.agentId, prompt: action.prompt, timestamp: new Date().toISOString() });
+        this._persistSteps(runId, steps);
 
         // Execute the sub-agent and gather output
         const agentResult = await this._runSubAgent(action.agentId, action.prompt);
-        steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length });
+        steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
+        this._persistSteps(runId, steps);
 
         // Feed result back to manager for next decision
         context += `\n\n## Result from "${action.agentId}" (exit code: ${agentResult.exitCode})\n${agentResult.output}`;
@@ -222,17 +240,17 @@ class ManagerAgent extends EventEmitter {
       }
 
       if (action.type === 'request_agent') {
-        // Manager wants an agent not in its org
-        steps.push({ iteration, action: 'request_agent', agentId: action.agentId, reason: action.reason });
+        steps.push({ iteration, action: 'request_agent', agentId: action.agentId, reason: action.reason, timestamp: new Date().toISOString() });
+        this._persistSteps(runId, steps);
         this.emit('manager-request-agent', { managerId: managerConfig.id, runId, agentId: action.agentId, reason: action.reason });
         
-        // For now, continue without the agent
         context += `\n\n## Note: Agent "${action.agentId}" was requested but is not available in your org.`;
         currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Previous Results\n${context}\n\n## Next Step\nThe requested agent is not available. Decide what to do next with your available agents.`;
       }
 
       if (action.type === 'error') {
-        steps.push({ iteration, action: 'error', message: action.message });
+        steps.push({ iteration, action: 'error', message: action.message, timestamp: new Date().toISOString() });
+        this._persistSteps(runId, steps);
         finalResult = `Error during orchestration: ${action.message}`;
         break;
       }
@@ -243,6 +261,11 @@ class ManagerAgent extends EventEmitter {
     }
 
     return finalResult;
+  }
+
+  _persistSteps(runId, steps) {
+    this.db.prepare('UPDATE manager_runs SET steps = ? WHERE id = ?')
+      .run(JSON.stringify(steps), runId);
   }
 
   _buildManagerSystemPrompt(managerConfig, orgAgents) {
@@ -525,10 +548,20 @@ REASON: <why you need this agent>
     ).all(managerId, limit);
   }
 
+  getRun(runId) {
+    return this.db.prepare('SELECT * FROM manager_runs WHERE id = ?').get(runId);
+  }
+
   getMessages(managerId, limit = 50) {
     return this.db.prepare(
       'SELECT * FROM manager_messages WHERE manager_id = ? ORDER BY id DESC LIMIT ?'
     ).all(managerId, limit).reverse();
+  }
+
+  getRunMessages(managerId, runId) {
+    return this.db.prepare(
+      'SELECT * FROM manager_messages WHERE manager_id = ? AND run_id = ? ORDER BY id ASC'
+    ).all(managerId, runId);
   }
 }
 

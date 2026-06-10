@@ -1658,10 +1658,10 @@ app.post('/api/managers/:id/stop', (req, res) => {
   res.json({ ok: true });
 });
 
-// Run an assignment
-app.post('/api/managers/:id/assignments/:assignmentId/run', async (req, res) => {
+// Run an assignment (async — returns immediately with runId)
+app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
   try {
-    const result = await managerAgent.runAssignment(req.params.id, req.params.assignmentId);
+    const result = managerAgent.runAssignment(req.params.id, req.params.assignmentId);
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1711,16 +1711,24 @@ app.delete('/api/managers/:id/assignments/:assignmentId', (req, res) => {
   res.json({ ok: true });
 });
 
-// Ad-hoc prompt to a manager
-app.post('/api/managers/:id/prompt', async (req, res) => {
+// Ad-hoc prompt to a manager (async — returns immediately with runId)
+app.post('/api/managers/:id/prompt', (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
   try {
-    const result = await managerAgent.executePrompt(req.params.id, prompt);
+    const result = managerAgent.executePrompt(req.params.id, prompt);
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+// Poll a manager run for live status
+app.get('/api/managers/:id/runs/:runId', (req, res) => {
+  const run = managerAgent.getRun(parseInt(req.params.runId));
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+  const messages = managerAgent.getRunMessages(req.params.id, parseInt(req.params.runId));
+  res.json({ ...run, messages, steps: JSON.parse(run.steps || '[]') });
 });
 
 // Get manager run history
@@ -4138,6 +4146,33 @@ function getManagersPageHtml() {
     .step-item.run_agent { border-color: #58a6ff; }
     .step-item.complete { border-color: #3fb950; }
     .step-item.error { border-color: #f85149; }
+
+    /* Manager Chat Modal Styles */
+    .mgr-chat-msg { margin-bottom: 16px; }
+    .mgr-chat-msg.user { }
+    .mgr-chat-msg.assistant { }
+    .mgr-chat-role { font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; }
+    .mgr-chat-msg.user .mgr-chat-role { color: #58a6ff; }
+    .mgr-chat-msg.assistant .mgr-chat-role { color: #8b949e; }
+    .mgr-chat-content { font-size: 0.9rem; line-height: 1.5; padding: 8px 12px; border-radius: 8px; }
+    .mgr-chat-msg.user .mgr-chat-content { background: #1f6feb22; border: 1px solid #1f6feb44; }
+    .mgr-chat-msg.assistant .mgr-chat-content { background: #0d1117; border: 1px solid #30363d; }
+    .mgr-chat-content.assistant-md table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+    .mgr-chat-content.assistant-md th, .mgr-chat-content.assistant-md td { border: 1px solid #30363d; padding: 4px 8px; font-size: 0.8rem; }
+    .mgr-chat-content.assistant-md th { background: #161b22; color: #f0f6fc; }
+    .mgr-chat-content.assistant-md code { background: #21262d; padding: 1px 4px; border-radius: 3px; font-size: 0.8rem; }
+    .mgr-chat-content.assistant-md pre { background: #21262d; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+    .mgr-chat-content.assistant-md pre code { background: none; padding: 0; }
+    .mgr-chat-content.assistant-md h1, .mgr-chat-content.assistant-md h2, .mgr-chat-content.assistant-md h3 { color: #f0f6fc; margin: 8px 0 4px; }
+    .mgr-chat-content.assistant-md ul, .mgr-chat-content.assistant-md ol { padding-left: 20px; margin: 4px 0; }
+    .mgr-chat-content.assistant-md strong { color: #f0f6fc; }
+    .mgr-steps { margin: 8px 0; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
+    .mgr-step { font-size: 0.8rem; padding: 4px 0; color: #8b949e; display: flex; align-items: center; gap: 6px; }
+    .mgr-step.run_agent { color: #58a6ff; }
+    .mgr-step.agent_result { color: #3fb950; }
+    .mgr-step.complete { color: #3fb950; }
+    .mgr-step.error { color: #f85149; }
+    .mgr-step.thinking { color: #f78835; }
   </style>
 </head>
 <body>
@@ -4226,6 +4261,28 @@ function getManagersPageHtml() {
     </div>
   </div>
 
+  <!-- Manager Chat Modal -->
+  <div id="mgrChatOverlay" class="modal-overlay" onclick="if(event.target===this)closeMgrChat()">
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #30363d;flex-shrink:0;">
+        <h2 id="mgrChatTitle" style="color:#f0f6fc;font-size:1.1rem;margin:0;">Chat</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Show orchestration steps">
+            <input type="checkbox" id="mgrChatVerbose" onchange="toggleChatVerbose()" />
+            🔧 Verbose
+          </label>
+          <button class="btn" style="padding:4px 10px;font-size:1rem;line-height:1;" onclick="closeMgrChat()">&times;</button>
+        </div>
+      </div>
+      <div id="mgrChatBody" style="flex:1;overflow-y:auto;padding:20px;"></div>
+      <div style="display:flex;gap:8px;padding:12px 20px;border-top:1px solid #30363d;flex-shrink:0;">
+        <input type="text" id="mgrChatInput" placeholder="Ask the manager to do something..."
+               style="flex:1;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:10px 12px;border-radius:6px;font-size:0.9rem;" />
+        <button class="btn btn-primary" onclick="sendMgrChat()">Send</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let managersData = [];
 
@@ -4290,17 +4347,12 @@ function getManagersPageHtml() {
             </div>
           </div>
 
-          <div class="chat-section">
-            <button class="history-toggle" onclick="toggleChat('\${m.manager_id}')">💬 Chat with Manager</button>
-            <div id="chat-\${m.manager_id}" class="chat-messages"></div>
-            <div class="chat-input-row" style="margin-top:8px;">
-              <textarea class="chat-input" id="chat-input-\${m.manager_id}" rows="2" placeholder="Ask the manager to do something..."></textarea>
-              <button class="btn btn-primary" onclick="sendPrompt('\${m.manager_id}')">Send</button>
-            </div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-primary" onclick="openManagerChat('\${m.manager_id}', '\${m.config.name}')">💬 Chat with Manager</button>
+            <button class="btn" onclick="toggleHistory('\${m.manager_id}')">📋 Run History</button>
           </div>
 
           <div class="history-section">
-            <button class="history-toggle" onclick="toggleHistory('\${m.manager_id}')">📋 Run History</button>
             <div id="history-\${m.manager_id}" class="history-list"></div>
           </div>
         </div>
@@ -4426,68 +4478,169 @@ function getManagersPageHtml() {
     }
 
     async function runAssignment(managerId, assignmentId) {
-      const btn = event.target;
-      btn.disabled = true;
-      btn.textContent = '⏳ Running...';
+      // Open chat modal and run the assignment — results stream in via polling
+      const mgr = managersData.find(m => m.manager_id === managerId);
+      openManagerChat(managerId, mgr?.config?.name || managerId);
+      
       try {
         const res = await fetch('/api/managers/' + managerId + '/assignments/' + assignmentId + '/run', { method: 'POST' });
         const data = await res.json();
-        if (data.ok) {
-          alert('Assignment completed successfully.');
-        } else {
-          alert('Error: ' + (data.error || 'Unknown'));
+        if (data.runId) {
+          chatRunId = data.runId;
+          // Show assignment prompt in chat
+          const assignment = (mgr?.config?.assignments || []).find(a => a.id === assignmentId);
+          const body = document.getElementById('mgrChatBody');
+          body.innerHTML = renderChatMessage('user', (assignment?.name || assignmentId) + ': ' + (assignment?.prompt || ''));
+          body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">Starting...</div></div>';
+          startChatPolling();
+        } else if (data.error) {
+          document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + data.error + '</div>';
         }
       } catch (e) {
-        alert('Error: ' + e.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '▶ Run';
-        loadManagers();
+        document.getElementById('mgrChatBody').innerHTML += '<div style="color:#f85149;padding:12px;">Error: ' + e.message + '</div>';
       }
     }
 
-    function toggleChat(managerId) {
-      const el = document.getElementById('chat-' + managerId);
-      el.classList.toggle('visible');
-      if (el.classList.contains('visible')) {
-        loadMessages(managerId);
-      }
+    // ---- Manager Chat Modal ----
+    let chatManagerId = null;
+    let chatRunId = null;
+    let chatPoller = null;
+    let chatVerbose = false;
+
+    function openManagerChat(managerId, managerName) {
+      chatManagerId = managerId;
+      chatRunId = null;
+      document.getElementById('mgrChatTitle').textContent = '💬 ' + managerName;
+      document.getElementById('mgrChatBody').innerHTML = '<div style="color:#8b949e;padding:20px;text-align:center;">Send a message to start chatting with the manager.</div>';
+      document.getElementById('mgrChatOverlay').classList.add('visible');
+      document.getElementById('mgrChatInput').value = '';
+      document.getElementById('mgrChatInput').focus();
+      // Load recent messages
+      loadChatHistory(managerId);
     }
 
-    async function loadMessages(managerId) {
-      const res = await fetch('/api/managers/' + managerId + '/messages');
+    function closeMgrChat() {
+      document.getElementById('mgrChatOverlay').classList.remove('visible');
+      chatManagerId = null;
+      stopChatPolling();
+    }
+
+    function toggleChatVerbose() {
+      chatVerbose = document.getElementById('mgrChatVerbose').checked;
+      if (chatRunId) pollChatRun();
+    }
+
+    async function loadChatHistory(managerId) {
+      const res = await fetch('/api/managers/' + managerId + '/messages?limit=30');
       const messages = await res.json();
-      const el = document.getElementById('chat-' + managerId);
-      el.innerHTML = messages.map(m => \`
-        <div class="chat-msg \${m.role}">
-          <span class="role">\${m.role === 'user' ? 'You' : 'Manager'}:</span>
-          \${m.content.substring(0, 500)}\${m.content.length > 500 ? '...' : ''}
-        </div>
-      \`).join('') || '<div style="color:#8b949e;font-size:0.85rem;">No messages yet. Send a prompt below.</div>';
+      if (messages.length === 0) return;
+      const body = document.getElementById('mgrChatBody');
+      body.innerHTML = messages.map(m => renderChatMessage(m.role, m.content)).join('');
+      body.scrollTop = body.scrollHeight;
     }
 
-    async function sendPrompt(managerId) {
-      const input = document.getElementById('chat-input-' + managerId);
+    function renderChatMessage(role, content) {
+      if (role === 'user') {
+        return '<div class="mgr-chat-msg user"><div class="mgr-chat-role">👤 You</div><div class="mgr-chat-content">' + escapeHtml(content) + '</div></div>';
+      }
+      const rendered = (typeof marked !== 'undefined') ? marked.parse(content) : escapeHtml(content);
+      return '<div class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md">' + rendered + '</div></div>';
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function renderStep(step) {
+      const icons = { thinking: '🧠', run_agent: '▶️', agent_result: '✅', complete: '🏁', error: '❌', request_agent: '🔍' };
+      const icon = icons[step.action] || '•';
+      let detail = '';
+      if (step.action === 'thinking') detail = 'Analyzing...';
+      else if (step.action === 'run_agent') detail = \`Running <strong>\${step.agentId}</strong>: \${(step.prompt || '').substring(0, 100)}\`;
+      else if (step.action === 'agent_result') detail = \`<strong>\${step.agentId}</strong> returned (exit \${step.exitCode}, \${step.outputLength} chars)\`;
+      else if (step.action === 'complete') detail = 'Completed';
+      else if (step.action === 'error') detail = step.message || 'Error';
+      else if (step.action === 'request_agent') detail = \`Requesting <strong>\${step.agentId}</strong>: \${step.reason || ''}\`;
+      const time = step.timestamp ? '<span style="color:#484f58;margin-left:8px;">' + new Date(step.timestamp).toLocaleTimeString() + '</span>' : '';
+      return \`<div class="mgr-step \${step.action}">\${icon} \${detail}\${time}</div>\`;
+    }
+
+    async function sendMgrChat() {
+      if (!chatManagerId) return;
+      const input = document.getElementById('mgrChatInput');
       const prompt = input.value.trim();
       if (!prompt) return;
       input.value = '';
+      input.disabled = true;
 
-      // Show in chat immediately
-      const chatEl = document.getElementById('chat-' + managerId);
-      chatEl.classList.add('visible');
-      chatEl.innerHTML += '<div class="chat-msg user"><span class="role">You:</span> ' + prompt + '</div>';
-      chatEl.innerHTML += '<div class="chat-msg assistant"><span class="role">Manager:</span> <em>Thinking...</em></div>';
+      const body = document.getElementById('mgrChatBody');
+      // Clear placeholder if present
+      if (body.querySelector('[style*="text-align:center"]')) body.innerHTML = '';
+      body.innerHTML += renderChatMessage('user', prompt);
+      body.innerHTML += '<div id="mgr-pending" class="mgr-chat-msg assistant"><div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content assistant-md" style="color:#8b949e;">Thinking...</div></div>';
+      body.scrollTop = body.scrollHeight;
 
       try {
-        const res = await fetch('/api/managers/' + managerId + '/prompt', {
+        const res = await fetch('/api/managers/' + chatManagerId + '/prompt', {
           method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt })
         });
         const data = await res.json();
-        loadMessages(managerId);
-        loadManagers();
+        if (data.runId) {
+          chatRunId = data.runId;
+          startChatPolling();
+        }
       } catch (e) {
-        chatEl.innerHTML += '<div class="chat-msg assistant" style="color:#f85149;"><span class="role">Error:</span> ' + e.message + '</div>';
+        const pending = document.getElementById('mgr-pending');
+        if (pending) pending.innerHTML = '<div class="mgr-chat-role">🤖 Manager</div><div class="mgr-chat-content" style="color:#f85149;">Error: ' + e.message + '</div>';
       }
+      input.disabled = false;
+      input.focus();
+    }
+
+    function startChatPolling() {
+      stopChatPolling();
+      chatPoller = setInterval(pollChatRun, 2000);
+      pollChatRun();
+    }
+
+    function stopChatPolling() {
+      if (chatPoller) { clearInterval(chatPoller); chatPoller = null; }
+    }
+
+    async function pollChatRun() {
+      if (!chatManagerId || !chatRunId) return;
+      try {
+        const res = await fetch(\`/api/managers/\${chatManagerId}/runs/\${chatRunId}\`);
+        const run = await res.json();
+        const body = document.getElementById('mgrChatBody');
+        const pending = document.getElementById('mgr-pending');
+        if (!pending) return;
+
+        // Build verbose steps view
+        let stepsHtml = '';
+        if (chatVerbose && run.steps && run.steps.length > 0) {
+          stepsHtml = '<div class="mgr-steps">' + run.steps.map(renderStep).join('') + '</div>';
+        }
+
+        if (run.status === 'running') {
+          const lastStep = run.steps && run.steps.length > 0 ? run.steps[run.steps.length - 1] : null;
+          let statusText = 'Thinking...';
+          if (lastStep) {
+            if (lastStep.action === 'run_agent') statusText = \`Running \${lastStep.agentId}...\`;
+            else if (lastStep.action === 'agent_result') statusText = 'Analyzing results...';
+          }
+          pending.innerHTML = '<div class="mgr-chat-role">🤖 Manager</div>' + stepsHtml + '<div class="mgr-chat-content assistant-md" style="color:#8b949e;">' + statusText + '</div>';
+        } else {
+          // Completed or error
+          stopChatPolling();
+          const result = run.result || run.error || 'No response';
+          const rendered = (typeof marked !== 'undefined') ? marked.parse(result) : escapeHtml(result);
+          pending.innerHTML = '<div class="mgr-chat-role">🤖 Manager</div>' + stepsHtml + '<div class="mgr-chat-content assistant-md">' + rendered + '</div>';
+          pending.id = ''; // Clear pending ID
+          loadManagers();
+        }
+        body.scrollTop = body.scrollHeight;
+      } catch (e) { /* ignore poll errors */ }
     }
 
     function toggleHistory(managerId) {
@@ -4505,25 +4658,41 @@ function getManagersPageHtml() {
       el.innerHTML = runs.map(r => {
         const steps = JSON.parse(r.steps || '[]');
         return \`
-          <div class="history-item">
+          <div class="history-item" onclick="viewRun('\${managerId}', \${r.id})" style="cursor:pointer;">
             <div>
               <span class="\${r.status === 'completed' ? 'status-ok' : 'status-err'}">\${r.status}</span>
               <span class="time">\${new Date(r.started_at).toLocaleString()}</span>
               \${r.assignment_id ? ' — ' + r.assignment_id : ' — ad-hoc'}
             </div>
             <div style="margin-top:4px;color:#8b949e;font-size:0.75rem;">\${(r.prompt || '').substring(0, 100)}</div>
-            \${steps.length ? '<div class="steps-list">' + steps.map(s => \`<div class="step-item \${s.action}">\${s.action}: \${s.agentId || s.result?.substring(0, 80) || s.message || ''}</div>\`).join('') + '</div>' : ''}
+            \${steps.length ? '<div class="steps-list">' + steps.filter(s => s.action !== 'thinking').map(s => \`<div class="step-item \${s.action}">\${s.action}: \${s.agentId || (s.result||'').substring(0, 80) || s.message || ''}</div>\`).join('') + '</div>' : ''}
           </div>
         \`;
       }).join('') || '<div style="color:#8b949e;font-size:0.85rem;">No runs yet.</div>';
     }
 
-    // Handle Enter key in chat
+    async function viewRun(managerId, runId) {
+      // Open chat modal showing this run's details
+      const mgr = managersData.find(m => m.manager_id === managerId);
+      openManagerChat(managerId, mgr?.config?.name || managerId);
+      const res = await fetch(\`/api/managers/\${managerId}/runs/\${runId}\`);
+      const run = await res.json();
+      const body = document.getElementById('mgrChatBody');
+      let html = renderChatMessage('user', run.prompt || '');
+      if (run.steps && run.steps.length > 0) {
+        html += '<div class="mgr-steps">' + run.steps.map(renderStep).join('') + '</div>';
+      }
+      if (run.result) {
+        html += renderChatMessage('assistant', run.result);
+      }
+      body.innerHTML = html;
+    }
+
+    // Handle Enter in chat modal
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('chat-input')) {
+      if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'mgrChatInput') {
         e.preventDefault();
-        const managerId = e.target.id.replace('chat-input-', '');
-        sendPrompt(managerId);
+        sendMgrChat();
       }
     });
 
