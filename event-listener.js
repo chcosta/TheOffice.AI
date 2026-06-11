@@ -65,6 +65,20 @@ class EventListener extends EventEmitter {
         status TEXT DEFAULT 'active'
       )
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS event_dlq (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id TEXT NOT NULL,
+        correlation_id TEXT,
+        content TEXT NOT NULL,
+        error TEXT,
+        attempts INTEGER DEFAULT 1,
+        max_attempts INTEGER DEFAULT 3,
+        status TEXT DEFAULT 'failed',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_attempt_at TEXT
+      )
+    `);
   }
 
   _loadConfig() {
@@ -81,13 +95,31 @@ class EventListener extends EventEmitter {
         rateLimitTotal: 100,
         sessionTimeout: 30,
         connectedAssets: [],
-        users: []
+        users: [],
+        autoReconnect: true,
+        maxReconnectAttempts: 10
       };
     }
   }
 
   _saveConfig() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2));
+  }
+
+  /**
+   * Connection state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
+   */
+  get connectionState() {
+    return this._connectionState || 'disconnected';
+  }
+
+  _setConnectionState(state) {
+    const prev = this._connectionState;
+    this._connectionState = state;
+    if (prev !== state) {
+      this.emit('connection-state', { state, previous: prev });
+      this._logEvent('system', 'connection', `State: ${state}`, state);
+    }
   }
 
   /**
@@ -98,6 +130,14 @@ class EventListener extends EventEmitter {
     if (!this.config.connectionString || !this.config.queueName) {
       throw new Error('Connection string and queue name are required');
     }
+
+    this._reconnectAttempts = 0;
+    this._intentionalDisconnect = false;
+    await this._connect();
+  }
+
+  async _connect() {
+    this._setConnectionState(this._reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
     try {
       this.client = new ServiceBusClient(this.config.connectionString);
@@ -114,41 +154,121 @@ class EventListener extends EventEmitter {
           await this._handleMessage(message);
         },
         processError: async (args) => {
-          this._logEvent('error', 'system', `Error: ${args.error.message}`, 'error');
-          this.emit('error', args.error);
+          console.error('[event-listener] Service Bus error:', args.error.message);
+          this._logEvent('error', 'system', `Service Bus error: ${args.error.message}`, 'error');
+          
+          // Check if this is a fatal disconnect
+          if (this._isDisconnectError(args.error)) {
+            this._handleDisconnect(args.error);
+          }
         }
       });
 
       this.connected = true;
+      this._reconnectAttempts = 0;
+      this._setConnectionState('connected');
       this.config.connected = true;
       this._saveConfig();
       this._logEvent('system', 'listener', 'Connected to Service Bus', '');
       this.emit('connected');
     } catch (err) {
       this.connected = false;
-      throw err;
+      console.error('[event-listener] Connection failed:', err.message);
+      
+      if (this.config.autoReconnect !== false && !this._intentionalDisconnect) {
+        this._scheduleReconnect(err);
+      } else {
+        this._setConnectionState('failed');
+        throw err;
+      }
     }
   }
 
   /**
-   * Disconnect from Service Bus
+   * Check if an error indicates a lost connection
+   */
+  _isDisconnectError(error) {
+    const msg = (error.message || '').toLowerCase();
+    return msg.includes('disconnect') || msg.includes('connection lost') ||
+           msg.includes('socket') || msg.includes('econnrefused') ||
+           msg.includes('econnreset') || msg.includes('timeout') ||
+           error.code === 'ServiceUnavailable' || error.code === 'MessagingEntityNotFound';
+  }
+
+  /**
+   * Handle unexpected disconnect — attempt reconnect
+   */
+  _handleDisconnect(error) {
+    if (this._intentionalDisconnect || this._connectionState === 'reconnecting') return;
+    
+    this.connected = false;
+    this._logEvent('error', 'connection', `Disconnected: ${error.message}`, 'error');
+    
+    if (this.config.autoReconnect !== false) {
+      this._scheduleReconnect(error);
+    } else {
+      this._setConnectionState('failed');
+    }
+  }
+
+  /**
+   * Schedule a reconnect with exponential backoff
+   */
+  _scheduleReconnect(error) {
+    const maxAttempts = this.config.maxReconnectAttempts || 10;
+    this._reconnectAttempts++;
+
+    if (this._reconnectAttempts > maxAttempts) {
+      this._setConnectionState('failed');
+      this._logEvent('error', 'connection', `Reconnect failed after ${maxAttempts} attempts. Manual reconnect required.`, 'error');
+      this.emit('reconnect-failed', { attempts: this._reconnectAttempts, lastError: error });
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s max
+    const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts - 1), 30000);
+    this._setConnectionState('reconnecting');
+    this._logEvent('system', 'connection', `Reconnecting in ${delay / 1000}s (attempt ${this._reconnectAttempts}/${maxAttempts})...`, '');
+
+    // Clean up old resources before reconnecting
+    this._cleanup();
+
+    this._reconnectTimer = setTimeout(async () => {
+      try {
+        await this._connect();
+      } catch (err) {
+        // _connect will schedule next attempt internally
+      }
+    }, delay);
+  }
+
+  /**
+   * Clean up Service Bus resources without state changes
+   */
+  _cleanup() {
+    try { if (this.receiver) this.receiver.close().catch(() => {}); } catch {}
+    try { if (this.sender) this.sender.close().catch(() => {}); } catch {}
+    try { if (this.client) this.client.close().catch(() => {}); } catch {}
+    this.receiver = null;
+    this.sender = null;
+    this.client = null;
+  }
+
+  /**
+   * Disconnect from Service Bus (intentional)
    */
   async disconnect() {
-    if (this.receiver) {
-      await this.receiver.close();
-      this.receiver = null;
+    this._intentionalDisconnect = true;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
     }
-    if (this.sender) {
-      await this.sender.close();
-      this.sender = null;
-    }
-    if (this.client) {
-      await this.client.close();
-      this.client = null;
-    }
+
+    await this._cleanup();
     this.connected = false;
     this.config.connected = false;
     this._saveConfig();
+    this._setConnectionState('disconnected');
     this._logEvent('system', 'listener', 'Disconnected from Service Bus', '');
     this.emit('disconnected');
   }
@@ -186,7 +306,69 @@ class EventListener extends EventEmitter {
     } catch (err) {
       this._logEvent('error', 'router', `Routing error: ${err.message}`, 'error');
       await this._reply(correlationId, senderId, { status: 'error', error: err.message });
+      this._deadLetter(senderId, correlationId, content, err.message);
     }
+  }
+
+  /**
+   * Dead-letter a failed message for later review/retry
+   */
+  _deadLetter(senderId, correlationId, content, error) {
+    if (!this.db) return;
+    try {
+      this.db.prepare(
+        'INSERT INTO event_dlq (sender_id, correlation_id, content, error, last_attempt_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(senderId, correlationId, content, error, new Date().toISOString());
+    } catch (err) {
+      console.error('[event-listener] DLQ write failed:', err.message);
+    }
+  }
+
+  /**
+   * Get dead-lettered messages for UI review
+   */
+  getDLQ(options = {}) {
+    if (!this.db) return [];
+    const { limit = 50, status = 'failed' } = options;
+    return this.db.prepare(
+      'SELECT * FROM event_dlq WHERE status = ? ORDER BY id DESC LIMIT ?'
+    ).all(status, limit);
+  }
+
+  /**
+   * Retry a dead-lettered message
+   */
+  async retryDLQ(dlqId) {
+    if (!this.db) throw new Error('No database');
+    const entry = this.db.prepare('SELECT * FROM event_dlq WHERE id = ?').get(dlqId);
+    if (!entry) throw new Error('DLQ entry not found');
+    if (entry.attempts >= entry.max_attempts) {
+      this.db.prepare('UPDATE event_dlq SET status = ? WHERE id = ?').run('exhausted', dlqId);
+      throw new Error(`Max retry attempts (${entry.max_attempts}) exceeded`);
+    }
+
+    this.db.prepare('UPDATE event_dlq SET attempts = attempts + 1, last_attempt_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), dlqId);
+
+    try {
+      await this._route(entry.sender_id, entry.correlation_id, entry.content);
+      this.db.prepare('UPDATE event_dlq SET status = ? WHERE id = ?').run('resolved', dlqId);
+      return { ok: true };
+    } catch (err) {
+      this.db.prepare('UPDATE event_dlq SET error = ? WHERE id = ?').run(err.message, dlqId);
+      if (entry.attempts + 1 >= entry.max_attempts) {
+        this.db.prepare('UPDATE event_dlq SET status = ? WHERE id = ?').run('exhausted', dlqId);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Dismiss a DLQ entry (mark as acknowledged)
+   */
+  dismissDLQ(dlqId) {
+    if (!this.db) return;
+    this.db.prepare('UPDATE event_dlq SET status = ? WHERE id = ?').run('dismissed', dlqId);
   }
 
   /**

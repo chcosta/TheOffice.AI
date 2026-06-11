@@ -2546,8 +2546,19 @@ app.get('/api/events/config', (req, res) => {
     config.connectionString = config.connectionString.replace(/SharedAccessKey=[^;]+/, 'SharedAccessKey=•••••');
   }
   config.connected = eventListener.connected;
+  config.connectionState = eventListener.connectionState;
   config.activeSessions = eventListener.sessions.size;
   res.json(config);
+});
+
+app.get('/api/events/health', (req, res) => {
+  res.json({
+    connectionState: eventListener.connectionState,
+    connected: eventListener.connected,
+    activeSessions: eventListener.sessions.size,
+    reconnectAttempts: eventListener._reconnectAttempts || 0,
+    uptime: eventListener.connected ? Date.now() - (eventListener._connectedAt || Date.now()) : 0
+  });
 });
 
 app.put('/api/events/config', express.json(), (req, res) => {
@@ -2640,6 +2651,25 @@ app.get('/api/events/session-history', (req, res) => {
     status: status || undefined
   });
   res.json(sessions);
+});
+
+app.get('/api/events/dlq', (req, res) => {
+  const { limit, status } = req.query;
+  res.json(eventListener.getDLQ({ limit: limit ? parseInt(limit) : 50, status: status || 'failed' }));
+});
+
+app.post('/api/events/dlq/:id/retry', async (req, res) => {
+  try {
+    await eventListener.retryDLQ(parseInt(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/events/dlq/:id/dismiss', (req, res) => {
+  eventListener.dismissDLQ(parseInt(req.params.id));
+  res.json({ ok: true });
 });
 
 // SSE stream for live event log
