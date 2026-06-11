@@ -4446,6 +4446,11 @@
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
             this.activeChat = chat;
             if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
+            // Auto-scroll to bottom of chat
+            this.$nextTick(() => {
+              const el = document.querySelector('.chat-main-messages');
+              if (el) el.scrollTop = el.scrollHeight;
+            });
             // Recovery: if manager chat's last message is user with no assistant reply, check for completed run
             if (chat.targetType === 'manager' && chat.messages && chat.messages.length > 0) {
               const lastMsg = chat.messages[chat.messages.length - 1];
