@@ -1339,7 +1339,7 @@
       }
       .home-grid > .card { grid-column: auto; }
     }
-    @media (max-width: 980px) {
+    @media (max-width: 700px) {
       .body-grid,
       .chat-shell {
         grid-template-columns: 1fr;
@@ -4759,7 +4759,7 @@
                 delete this.chatActivity[chatId];
                 
                 const lastTurn = poll.turns[poll.turns.length - 1];
-                const response = lastTurn?.assistant || poll.lastAssistant || 'Agent completed without a response.';
+                const response = lastTurn?.assistant || poll.lastAssistant || '';
                 
                 // Build rich response with tool activity summary
                 let richResponse = '';
@@ -4769,7 +4769,18 @@
                     richResponse += '**Tools used:** ' + tools.map(t => '`' + t.tool + '`').join(', ') + '\n\n';
                   }
                 }
-                richResponse += response;
+                
+                if (response) {
+                  richResponse += response;
+                } else {
+                  // Agent crashed or completed without text output
+                  const toolCount = lastTurn?.steps?.filter(s => s.type === 'tool').length || 0;
+                  if (toolCount > 0) {
+                    richResponse += `⚠️ Agent terminated unexpectedly after ${toolCount} tool call(s). This usually means the process crashed or timed out mid-execution. You can try sending the message again.`;
+                  } else {
+                    richResponse += '⚠️ Agent completed without producing a response. Try again or rephrase your request.';
+                  }
+                }
                 
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
@@ -5469,7 +5480,7 @@
         _checkCompactMode() {
           // Effective width = viewport / (zoom/100). If it's narrow, force compact mode.
           const effectiveWidth = window.innerWidth / (this.zoomLevel / 100);
-          document.body.classList.toggle('compact-mode', effectiveWidth < 980);
+          document.body.classList.toggle('compact-mode', effectiveWidth < 700);
         },
 
         handleGlobalKeydown(event) {
