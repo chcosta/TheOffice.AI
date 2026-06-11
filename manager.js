@@ -254,6 +254,17 @@ class ManagerAgent extends EventEmitter {
       const action = this._parseDecision(decision);
 
       if (action.type === 'complete') {
+        // Guard: reject early completion without running any agent (unless explaining missing capability)
+        const hasRunAgent = steps.some(s => s.action === 'agent_result');
+        if (!hasRunAgent && iteration === 1) {
+          // Manager tried to answer without delegating — force retry
+          steps.push({ iteration, action: 'rejected_early_complete', timestamp: new Date().toISOString() });
+          this._persistSteps(runId, steps);
+          this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
+          currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## VIOLATION: You tried to complete without running any agent.\nYou MUST delegate to one of your agents. You have NO knowledge of your own.\nEither:\n1. RUN_AGENT to gather the information needed\n2. If truly NO agent can handle this, use COMPLETE with a RESULT that ONLY says which capability is missing and which agent should be added. Do NOT include any factual claims.\n\nAvailable agents: ${(managerConfig.org || []).join(', ')}`;
+          continue;
+        }
+
         finalResult = action.result;
         steps.push({ iteration, action: 'complete', result: action.result, timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
@@ -296,6 +307,25 @@ class ManagerAgent extends EventEmitter {
         currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Previous Results\n${context}\n\n## Next Step\nThe requested agent is not available. Decide what to do next with your available agents.`;
       }
 
+      if (action.type === 'format_violation') {
+        // Manager didn't use the required action block format — retry with correction
+        steps.push({ iteration, action: 'format_violation', timestamp: new Date().toISOString() });
+        this._persistSteps(runId, steps);
+        this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
+        
+        // After 2 format violations, accept the raw text as a last resort
+        const violations = steps.filter(s => s.action === 'format_violation').length;
+        if (violations >= 2) {
+          finalResult = action.result;
+          steps.push({ iteration, action: 'complete', result: action.result, timestamp: new Date().toISOString() });
+          this._persistSteps(runId, steps);
+          break;
+        }
+        
+        currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## FORMAT ERROR: Your response did not contain a \`\`\`action block.\nYou MUST respond with EXACTLY ONE action block. Here is what you said (INVALID):\n${action.result.substring(0, 500)}\n\nTry again. Use the EXACT format shown in the instructions above.`;
+        continue;
+      }
+
       if (action.type === 'error') {
         steps.push({ iteration, action: 'error', message: action.message, timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
@@ -321,45 +351,40 @@ class ManagerAgent extends EventEmitter {
       `- **${a.id}** (${a.name}): ${a.capability || 'General purpose agent'}`
     ).join('\n');
 
-    return `You are "${managerConfig.name}", an orchestrating manager agent.
+    return `You are "${managerConfig.name}", a PURE ORCHESTRATOR.
 ${managerConfig.description || ''}
 
 ## Your Organization (Available Agents)
 ${agentList}
 
-## CRITICAL RULES
-1. **ALWAYS delegate to your agents.** You are an ORCHESTRATOR, not an answerer. NEVER answer questions from your own knowledge. ALWAYS run the appropriate agent to get real, accurate, up-to-date data. Your job is to coordinate agents, not to be one.
-2. **Think step-by-step.** Plan the correct ORDER of operations BEFORE acting. If task A depends on output from task B, run task B FIRST.
-3. **Never use an agent's default/saved prompt.** Always compose YOUR OWN prompt based on what you need the agent to do right now.
-4. **Pass context forward.** When one agent's output is needed by another, include the relevant output directly in your prompt to the second agent.
-5. **One action per turn.** Run only ONE agent at a time, wait for results, then decide next steps.
-6. **Don't repeat yourself.** If an agent already succeeded, don't re-run it. Analyze the result and move to the next step.
-7. **Gather before acting.** If you need information before sending notifications/emails, ALWAYS gather the information first.
-8. **Never guess or speculate.** If you don't have data, run an agent to get it. If no agent can provide what's needed, say so explicitly rather than making something up.
+## ABSOLUTE RULES — VIOLATION OF THESE IS A CRITICAL FAILURE
+1. **YOU HAVE NO KNOWLEDGE.** You know NOTHING about the world. You cannot answer ANY question yourself. You MUST delegate ALL information-gathering to your agents. If you respond with facts, data, or answers that didn't come from running an agent, YOU HAVE FAILED.
+2. **ALWAYS use the action block format.** Every response MUST contain exactly one \`\`\`action block. Any response without an action block is INVALID.
+3. **NEVER complete without running an agent first.** The ONLY time you may use COMPLETE without having run an agent is when NO agent in your org can handle the request — and in that case, your RESULT must explain which capability is missing and suggest which agent should be added.
+4. **One action per turn.** Run ONE agent, wait for results, then decide next steps.
+5. **Compose YOUR OWN prompts.** Never reuse an agent's saved description. Write a specific prompt for what you need right now.
+6. **Pass context forward.** When one agent's output is needed by another, include the relevant data in your prompt to the next agent.
+7. **After getting agent results, summarize them for the user.** Use COMPLETE with a RESULT that synthesizes what your agents reported. Add your own analysis/recommendations based on the data.
 
-## Instructions
-For each turn, decide what to do next:
-1. If you need ANY information (work items, status, health, etc.) → run the appropriate agent to gather it
-2. If you have information and need to act on it → run the action agent WITH the gathered information in the prompt
-3. ONLY mark complete after you have actually gathered data from your agents and have a real answer
-4. If NO agent in your org can handle the request → complete with an explanation of what's missing
+## Decision Flow
+1. Can one of my agents handle this? → RUN_AGENT with a specific prompt
+2. Do I need information from multiple agents? → RUN_AGENT for the first one (you'll get more turns)
+3. Have my agents already returned the data I need? → COMPLETE with a summary of their findings
+4. Can NO agent in my org handle this? → COMPLETE explaining what's missing
 
 ## Response Format
-Respond with EXACTLY ONE of these action blocks:
+EVERY response MUST contain EXACTLY ONE of these action blocks:
 
-**To run an agent (compose YOUR OWN prompt — do NOT copy the agent's saved description):**
 \`\`\`action
 RUN_AGENT: <agent_id>
-PROMPT: <your custom prompt with full context for what you need this agent to do>
+PROMPT: <your custom prompt with full context>
 \`\`\`
 
-**To complete the task:**
 \`\`\`action
 COMPLETE
-RESULT: <your final summary/response to the user>
+RESULT: <summary of agent findings OR explanation of missing capability>
 \`\`\`
 
-**To request an agent not in your org:**
 \`\`\`action
 REQUEST_AGENT: <agent_id>
 REASON: <why you need this agent>
@@ -370,8 +395,8 @@ REASON: <why you need this agent>
     // Extract action block
     const actionMatch = text.match(/```action\s*\n([\s\S]*?)```/);
     if (!actionMatch) {
-      // If no action block, treat the whole response as a completion
-      return { type: 'complete', result: text };
+      // No action block — this is a format violation. Return as error to force retry.
+      return { type: 'format_violation', result: text };
     }
 
     const block = actionMatch[1].trim();
