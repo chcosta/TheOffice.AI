@@ -324,18 +324,21 @@ ${managerConfig.description || ''}
 ${agentList}
 
 ## CRITICAL RULES
-1. **Think step-by-step.** Plan the correct ORDER of operations BEFORE acting. If task A depends on output from task B, run task B FIRST.
-2. **Never use an agent's default/saved prompt.** Always compose YOUR OWN prompt based on what you need the agent to do right now.
-3. **Pass context forward.** When one agent's output is needed by another, include the relevant output directly in your prompt to the second agent.
-4. **One action per turn.** Run only ONE agent at a time, wait for results, then decide next steps.
-5. **Don't repeat yourself.** If an agent already succeeded, don't re-run it. Analyze the result and move to the next step.
-6. **Gather before acting.** If you need information before sending notifications/emails, ALWAYS gather the information first.
+1. **ALWAYS delegate to your agents.** You are an ORCHESTRATOR, not an answerer. NEVER answer questions from your own knowledge. ALWAYS run the appropriate agent to get real, accurate, up-to-date data. Your job is to coordinate agents, not to be one.
+2. **Think step-by-step.** Plan the correct ORDER of operations BEFORE acting. If task A depends on output from task B, run task B FIRST.
+3. **Never use an agent's default/saved prompt.** Always compose YOUR OWN prompt based on what you need the agent to do right now.
+4. **Pass context forward.** When one agent's output is needed by another, include the relevant output directly in your prompt to the second agent.
+5. **One action per turn.** Run only ONE agent at a time, wait for results, then decide next steps.
+6. **Don't repeat yourself.** If an agent already succeeded, don't re-run it. Analyze the result and move to the next step.
+7. **Gather before acting.** If you need information before sending notifications/emails, ALWAYS gather the information first.
+8. **Never guess or speculate.** If you don't have data, run an agent to get it. If no agent can provide what's needed, say so explicitly rather than making something up.
 
 ## Instructions
 For each turn, decide what to do next:
-1. If you need information → run the appropriate agent to gather it
+1. If you need ANY information (work items, status, health, etc.) → run the appropriate agent to gather it
 2. If you have information and need to act on it → run the action agent WITH the gathered information in the prompt
-3. If the task is fully complete → report completion
+3. ONLY mark complete after you have actually gathered data from your agents and have a real answer
+4. If NO agent in your org can handle the request → complete with an explanation of what's missing
 
 ## Response Format
 Respond with EXACTLY ONE of these action blocks:
@@ -424,10 +427,11 @@ REASON: <why you need this agent>
         // Clean up prompt file
         try { fs.unlinkSync(promptFile); } catch {}
         if (code === 0) {
-          resolve(stdout);
+          // Prefer stdout, fall back to stderr if stdout is empty
+          resolve(stdout || stderr || '(no output from copilot process)');
         } else {
           const errDetail = stderr || stdout || '(no output)';
-          reject(new Error(`Manager agent exited with code ${code}: ${errDetail}`));
+          reject(new Error(`Manager agent exited with code ${code}: ${errDetail.substring(0, 2000)}`));
         }
       });
 
@@ -465,20 +469,22 @@ REASON: <why you need this agent>
       fs.writeFileSync(promptFile, prompt, 'utf-8');
 
       // Build args array safely (no shell interpolation)
-      const args = [];
+      const argParts = [];
       if (config.mcpConfig) {
         const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
-        args.push('--additional-mcp-config', `@${mcpPath}`);
+        argParts.push(`--additional-mcp-config "@${mcpPath}"`);
       }
-      args.push('--agent', config.agent);
-      args.push('-p', `Follow instructions in file: ${promptFile.replace(/\\/g, '/')}`);
-      args.push('--yolo');
+      argParts.push(`--agent "${config.agent}"`);
+      argParts.push(`-p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}"`);
+      argParts.push('--yolo');
 
+      const cmdLine = `"${copilotCmd}" ${argParts.join(' ')}`;
       console.log(`[manager] Running sub-agent "${agentId}": ${prompt.substring(0, 150)}...`);
 
-      const proc = spawn(copilotCmd, args, {
+      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
+      const proc = spawn(cmdLine, [], {
         cwd: config.cwd,
-        shell: false,
+        shell: shellPath,
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -493,7 +499,13 @@ REASON: <why you need this agent>
         // Try to get session output (richer than stdout)
         setTimeout(() => {
           const sessionResult = this.supervisor._getSessionOutput(config);
-          const output = sessionResult.output || stdout;
+          let output = sessionResult.output || stdout;
+          // If output is empty and we have stderr (common on failure), include it
+          if (!output && stderr) {
+            output = `[stderr] ${stderr}`;
+          } else if (code !== 0 && stderr && !output.includes(stderr)) {
+            output = `${output}\n[stderr] ${stderr}`;
+          }
           resolve({ exitCode: code, output, stderr });
         }, 1000);
       });
