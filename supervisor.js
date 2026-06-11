@@ -176,21 +176,22 @@ class Supervisor extends EventEmitter {
     let triggerFiles = [];
     let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext, agentId, triggerFiles) : config.prompt;
 
-    // Build copilot CLI command as a full command string for shell execution
+    // Build copilot CLI command safely using args array
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
-    // Don't use --plugin-dir: it restricts tools to only skill/report_intent.
-    // Instead, rely on globally installed plugins (via `copilot plugin install`).
-    // This gives plugin agents full tool access (powershell, etc.)
-    let mcpConfig = '';
+
+    const args = [];
     if (config.mcpConfig) {
       const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
-      mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
+      args.push('--additional-mcp-config', `@${mcpPath}`);
     }
-    const cmdLine = `"${copilotCmd}" ${mcpConfig} --agent "${config.agent}" --prompt "${prompt.replace(/"/g, '\\"')}" -s ${perms}`.replace(/\s+/g, ' ').trim();
-    
+    args.push('--agent', config.agent);
+    args.push('--prompt', prompt);
+    args.push('-s');
+    if (perms) args.push(perms);
+
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
-    console.log(`[supervisor] Command: ${cmdLine}`);
+    console.log(`[supervisor] Command: ${copilotCmd} ${args.map(a => a.length > 80 ? a.substring(0, 80) + '...' : a).join(' ')}`);
 
     // Validate CWD exists
     if (config.cwd && !fs.existsSync(config.cwd)) {
@@ -201,12 +202,11 @@ class Supervisor extends EventEmitter {
       this._saveRun(agentId, entry.lastRun);
       return;
     }
-    // On Windows, shell:true is required to spawn .cmd shims
-    // Use explicit shell path to work under service accounts with restricted PATH
-    const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-    const proc = spawn(cmdLine, [], {
+    // On Windows, shell:true is required to spawn .cmd shims (npm-installed binaries)
+    const useShell = process.platform === 'win32';
+    const proc = spawn(copilotCmd, args, {
       cwd: config.cwd,
-      shell: shellPath,
+      shell: useShell,
       env: { ...process.env, PATH: process.env.PATH || 'C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem' },
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -215,8 +215,16 @@ class Supervisor extends EventEmitter {
     let stdout = '';
     let stderr = '';
 
-    proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+    proc.stdout.on('data', (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      this.emit('agent-output', { agentId, stream: 'stdout', chunk });
+    });
+    proc.stderr.on('data', (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      this.emit('agent-output', { agentId, stream: 'stderr', chunk });
+    });
 
     proc.on('close', (code) => {
       entry.running = false;
@@ -250,7 +258,7 @@ class Supervisor extends EventEmitter {
         else status = 'idle';
         this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
 
-        this.emit('agent-completed', { agentId, code, output: fullOutput, error: stderr });
+        this.emit('agent-completed', { agentId, code, output: fullOutput, error: stderr, sessionId });
         console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
 
         // Durable restart on failure

@@ -145,6 +145,19 @@ class ManagerAgent extends EventEmitter {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
 
+    // Concurrency control: check if manager is already running
+    const concurrencyPolicy = entry.config.concurrency || 'reject_if_running';
+    const activeRuns = this.db.prepare(
+      "SELECT COUNT(*) as count FROM manager_runs WHERE manager_id = ? AND status = 'running'"
+    ).get(managerId);
+
+    if (activeRuns.count > 0) {
+      if (concurrencyPolicy === 'reject_if_running') {
+        throw new Error(`Manager "${managerId}" is already running (policy: reject_if_running). Wait for the current run to complete.`);
+      }
+      // 'allow_parallel' falls through; future: 'queue' could defer
+    }
+
     const startedAt = new Date().toISOString();
     const runId = this.db.prepare(
       'INSERT INTO manager_runs (manager_id, assignment_id, prompt, started_at, steps, status) VALUES (?, ?, ?, ?, ?, ?)'
@@ -180,8 +193,13 @@ class ManagerAgent extends EventEmitter {
         'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
       ).run(finishedAt, JSON.stringify(steps), orchestrationResult, 'completed', runId);
 
+      // Only mark idle if no other runs are still active
+      const otherActive = this.db.prepare(
+        "SELECT COUNT(*) as count FROM manager_runs WHERE manager_id = ? AND status = 'running' AND id != ?"
+      ).get(managerId, runId);
+      const newStatus = otherActive.count > 0 ? 'running' : 'idle';
       this.db.prepare('UPDATE manager_state SET status = ?, last_active = ? WHERE manager_id = ?')
-        .run('idle', finishedAt, managerId);
+        .run(newStatus, finishedAt, managerId);
 
       this._addMessage(managerId, runId, 'assistant', orchestrationResult);
       this.emit('manager-completed', { managerId, runId, result: orchestrationResult });
@@ -195,8 +213,12 @@ class ManagerAgent extends EventEmitter {
         'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
       ).run(finishedAt, JSON.stringify(steps), err.message, 'error', runId);
 
+      const otherActive = this.db.prepare(
+        "SELECT COUNT(*) as count FROM manager_runs WHERE manager_id = ? AND status = 'running' AND id != ?"
+      ).get(managerId, runId);
+      const newStatus = otherActive.count > 0 ? 'running' : 'error';
       this.db.prepare('UPDATE manager_state SET status = ?, last_active = ? WHERE manager_id = ?')
-        .run('error', finishedAt, managerId);
+        .run(newStatus, finishedAt, managerId);
 
       this._addMessage(managerId, runId, 'assistant', `Error: ${err.message}`);
       this.emit('manager-error', { managerId, runId, error: err });
@@ -238,6 +260,16 @@ class ManagerAgent extends EventEmitter {
       }
 
       if (action.type === 'run_agent') {
+        // SECURITY: Enforce org boundaries — reject agents not in this manager's org
+        const orgAgents = managerConfig.org || [];
+        if (!orgAgents.includes(action.agentId)) {
+          steps.push({ iteration, action: 'org_rejected', agentId: action.agentId, timestamp: new Date().toISOString() });
+          this._persistSteps(runId, steps);
+          context += `\n\n## Rejected: Agent "${action.agentId}" is not in your organization. Available agents: ${orgAgents.join(', ')}`;
+          currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## Next Step\nThe agent you requested is not authorized. Use only agents in your org: ${orgAgents.join(', ')}. What should you do next?`;
+          continue;
+        }
+
         steps.push({ iteration, action: 'run_agent', agentId: action.agentId, prompt: action.prompt, timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
 
@@ -432,20 +464,21 @@ REASON: <why you need this agent>
       const promptFile = path.join(os.tmpdir(), `mgr-subagent-${agentId}-${Date.now()}.md`);
       fs.writeFileSync(promptFile, prompt, 'utf-8');
 
-      let mcpConfig = '';
+      // Build args array safely (no shell interpolation)
+      const args = [];
       if (config.mcpConfig) {
         const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
-        mcpConfig = `--additional-mcp-config "@${mcpPath}"`;
+        args.push('--additional-mcp-config', `@${mcpPath}`);
       }
-
-      const cmdLine = `"${copilotCmd}" ${mcpConfig} --agent "${config.agent}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`.replace(/\s+/g, ' ').trim();
+      args.push('--agent', config.agent);
+      args.push('-p', `Follow instructions in file: ${promptFile.replace(/\\/g, '/')}`);
+      args.push('--yolo');
 
       console.log(`[manager] Running sub-agent "${agentId}": ${prompt.substring(0, 150)}...`);
 
-      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-      const proc = spawn(cmdLine, [], {
+      const proc = spawn(copilotCmd, args, {
         cwd: config.cwd,
-        shell: shellPath,
+        shell: false,
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe']
       });

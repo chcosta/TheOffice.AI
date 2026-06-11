@@ -98,6 +98,16 @@ const db = await openDatabase(DB_PATH);
 // Initialize supervisor
 const supervisor = new Supervisor(db);
 
+// Forward supervisor events to SSE clients
+supervisor.on('agent-running', (agentId) => {
+  broadcastSSE('agent-status', { id: agentId, status: 'running' });
+});
+supervisor.on('agent-output', ({ agentId, stream, chunk }) => {
+  broadcastSSE('agent-output', { id: agentId, stream, chunk });
+});
+supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) => {
+  broadcastSSE('agent-completed', { id: agentId, code, output: output?.slice(-10000), error: error?.slice(-2000), sessionId });
+});
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
 
@@ -433,7 +443,8 @@ app.post('/api/plugins/install', (req, res) => {
         ok: true,
         output: `Installed "${pluginName}" as supervisor overlay in plugins/${pluginName}`,
         overlayDir,
-        pluginName
+        pluginName,
+        sourceDir: pluginDir
       });
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -865,6 +876,62 @@ app.delete('/api/agents/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Reinstall an agent (re-read source definition and re-register)
+app.post('/api/agents/:id/reinstall', (req, res) => {
+  const agentId = req.params.id;
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const agent = agents.find(a => a.id === agentId);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  try {
+    // For plugins with a pluginDir, re-read the plugin.json and agent.md
+    if (agent.pluginDir && fs.existsSync(agent.pluginDir)) {
+      const pluginJsonPath = path.join(agent.pluginDir, 'plugin.json');
+      if (fs.existsSync(pluginJsonPath)) {
+        const pj = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
+        if (pj.name) agent.name = pj.name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      }
+      // Re-read agent.md if present
+      const agentsDir = path.join(agent.pluginDir, 'agents');
+      if (fs.existsSync(agentsDir)) {
+        const mdFiles = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+        if (mdFiles.length > 0) {
+          const content = fs.readFileSync(path.join(agentsDir, mdFiles[0]), 'utf-8');
+          const fm = content.match(/^---\s*\n([\s\S]*?)\n---/);
+          if (fm) {
+            const nameMatch = fm[1].match(/name:\s*['"]?([^'"\n]+)/);
+            if (nameMatch) agent.name = nameMatch[1].trim();
+          }
+        }
+      }
+    }
+    // For agents with a cwd, re-read the .github/agents/<id>.agent.md
+    else if (agent.cwd && fs.existsSync(agent.cwd)) {
+      const agentMdPath = path.join(agent.cwd, '.github', 'agents', `${agentId}.agent.md`);
+      if (fs.existsSync(agentMdPath)) {
+        const content = fs.readFileSync(agentMdPath, 'utf-8');
+        const fm = content.match(/^---\s*\n([\s\S]*?)\n---/);
+        if (fm) {
+          const nameMatch = fm[1].match(/name:\s*['"]?([^'"\n]+)/);
+          if (nameMatch) { agent.agent = nameMatch[1].trim(); agent.name = nameMatch[1].trim(); }
+        }
+      }
+    }
+
+    // Save updated config
+    const idx = agents.findIndex(a => a.id === agentId);
+    agents[idx] = agent;
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+
+    // Re-register in supervisor
+    supervisor.register(agent);
+    broadcastSSE('agent-update', { agentId });
+    res.json({ ok: true, agent });
+  } catch (e) {
+    res.status(500).json({ error: `Reinstall failed: ${e.message}` });
+  }
+});
+
 // Update agent group
 app.put('/api/agents/:id/group', (req, res) => {
   const { group } = req.body;
@@ -1012,7 +1079,7 @@ app.post('/api/tasks/:id/run', (req, res) => {
   // Override the prompt temporarily and run
   const originalPrompt = entry.config.prompt;
   entry.config.prompt = task.prompt;
-  supervisor.runOnce(task.agentId);
+  supervisor._executeAgent(task.agentId);
   entry.config.prompt = originalPrompt;
   broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId });
   res.json({ ok: true, message: `Task "${task.name}" started on agent "${task.agentId}"` });
@@ -1040,14 +1107,87 @@ app.post('/api/open-editor', (req, res) => {
 app.post('/api/agents/:id/edit-source', (req, res) => {
   const entry = supervisor.agents.get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'Agent not found' });
-  const { spawn } = require('child_process');
-  // Open pluginDir if it's a plugin agent, otherwise open cwd
-  const targetDir = entry.config.pluginDir || entry.config.cwd;
-  spawn('code-insiders', [targetDir], { shell: true, detached: true, stdio: 'ignore' }).unref();
-  res.json({ ok: true });
+  const { spawnSync, spawn } = require('child_process');
+  const config = entry.config;
+  // Prefer sourceDir (original source), then infer from cwd, then pluginDir, then cwd
+  let targetDir = config.sourceDir;
+  if (!targetDir && config.pluginDir && config.pluginDir.includes(path.join(__dirname, 'plugins'))) {
+    const pluginName = path.basename(config.pluginDir);
+    const candidate = path.join(config.cwd || '', '.github', 'plugin', pluginName);
+    if (fs.existsSync(candidate)) targetDir = candidate;
+  }
+  if (!targetDir) targetDir = config.pluginDir || config.cwd;
+  // Try VS Code Insiders first, fall back to VS Code
+  const insiders = spawnSync('where', ['code-insiders'], { shell: true, encoding: 'utf-8' });
+  const editor = insiders.status === 0 ? 'code-insiders' : 'code';
+  spawn(editor, [targetDir], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  res.json({ ok: true, editor, path: targetDir });
 });
 
-// Reinstall plugin (uninstall + install)
+// Check if agent's installed plugin is out of date compared to source
+app.get('/api/agents/:id/check-update', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  const config = entry.config;
+  let sourceDir = config.sourceDir;
+  const pluginDir = config.pluginDir;
+  
+  // If no explicit sourceDir, try to infer: if pluginDir is under our plugins/ folder,
+  // check if there's a matching .github/plugin/<name> in the agent's cwd
+  if (!sourceDir && pluginDir && pluginDir.includes(path.join(__dirname, 'plugins'))) {
+    const pluginName = path.basename(pluginDir);
+    const candidate = path.join(config.cwd || '', '.github', 'plugin', pluginName);
+    if (fs.existsSync(candidate)) sourceDir = candidate;
+  }
+  
+  // No sourceDir means either the pluginDir IS the source or there's no plugin
+  if (!sourceDir || !pluginDir) return res.json({ upToDate: true, reason: 'no-overlay' });
+  // If sourceDir === pluginDir, no comparison needed
+  if (path.resolve(sourceDir) === path.resolve(pluginDir)) return res.json({ upToDate: true, reason: 'same-dir' });
+  // Both must exist
+  if (!fs.existsSync(sourceDir)) return res.json({ upToDate: true, reason: 'source-missing' });
+  if (!fs.existsSync(pluginDir)) return res.json({ upToDate: false, reason: 'installed-missing' });
+
+  // Compare key files recursively (shallow: plugin.json mtime, agents/*.md sizes)
+  function getFingerprint(dir) {
+    const files = {};
+    function walk(d, prefix) {
+      try {
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) {
+            walk(path.join(d, entry.name), rel);
+          } else {
+            const stat = fs.statSync(path.join(d, entry.name));
+            files[rel] = { size: stat.size, mtime: stat.mtimeMs };
+          }
+        }
+      } catch {}
+    }
+    walk(dir, '');
+    return files;
+  }
+
+  const srcFiles = getFingerprint(sourceDir);
+  const instFiles = getFingerprint(pluginDir);
+  const diffs = [];
+  for (const [file, info] of Object.entries(srcFiles)) {
+    if (!instFiles[file]) {
+      diffs.push({ file, reason: 'new-in-source' });
+    } else if (instFiles[file].size !== info.size) {
+      diffs.push({ file, reason: 'size-changed' });
+    } else if (info.mtime > instFiles[file].mtime) {
+      diffs.push({ file, reason: 'source-newer' });
+    }
+  }
+  
+  res.json({
+    upToDate: diffs.length === 0,
+    diffs: diffs.slice(0, 10),
+    sourceDir,
+    pluginDir
+  });
+});
 app.post('/api/agents/:id/reinstall', async (req, res) => {
   const entry = supervisor.agents.get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'Agent not found' });
@@ -2390,6 +2530,12 @@ app.get('/api/activity', (req, res) => {
   // Sort by timestamp descending
   activities.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
   res.json(activities.slice(0, limit));
+});
+
+// SPA catch-all: serve app.html for any non-API route (must be last)
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  serveSpa(req, res);
 });
 
 // Start all enabled agents

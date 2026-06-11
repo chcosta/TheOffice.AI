@@ -112,7 +112,7 @@
     }
     .topbar {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto;
       align-items: center;
       gap: 12px;
       padding: 0 20px;
@@ -139,11 +139,6 @@
       color: var(--cp-accent-fg);
       background: linear-gradient(135deg, var(--cp-accent), color-mix(in srgb, var(--cp-accent) 76%, var(--cp-surface)));
       box-shadow: var(--card-shadow);
-    }
-    .topbar-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
     }
     .search-trigger,
     .icon-button,
@@ -324,6 +319,20 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      flex-wrap: wrap;
+    }
+    .update-banner {
+      margin-bottom: 12px;
+      border: 1px solid var(--cp-warning);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--cp-warning) 8%, var(--cp-surface));
+      padding: 12px 16px;
+    }
+    .update-banner-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       flex-wrap: wrap;
     }
     .page-title h1 {
@@ -736,6 +745,36 @@
     .group-title { font-size: 0.95em; font-weight: 600; color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: 0.03em; }
     .group-chevron { font-size: 0.7em; color: var(--muted); width: 12px; }
     .group-chevron.collapsed { color: var(--muted); }
+    .live-output-container {
+      max-height: 400px;
+      overflow-y: auto;
+      background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-top: 8px;
+    }
+    .live-output-pre {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.82em;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      color: var(--cp-text);
+    }
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      background: var(--cp-success);
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse-glow 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--cp-success); }
+      50% { opacity: 0.6; box-shadow: 0 0 8px 3px var(--cp-success); }
+    }
     .field-label {
       display: flex;
       align-items: center;
@@ -1292,10 +1331,80 @@
       .chat-shell {
         grid-template-columns: 1fr;
       }
-      .sidebar { display: none; }
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 900;
+        width: 260px;
+        transform: translateX(-100%);
+        transition: transform 250ms ease;
+        background: var(--cp-bg-elevated);
+        border-right: 1px solid var(--cp-border);
+        box-shadow: var(--cp-shadow);
+        overflow-y: auto;
+      }
+      .sidebar.mobile-open {
+        transform: translateX(0);
+      }
+      .mobile-nav-toggle {
+        display: flex !important;
+      }
       .search-row { grid-template-columns: 1fr; }
-      .topbar { grid-template-columns: 1fr auto; }
       .search-trigger { min-width: 0; }
+    }
+    /* Compact mode triggered by zoom level */
+    .compact-mode .body-grid,
+    .compact-mode .chat-shell {
+      grid-template-columns: 1fr;
+    }
+    .compact-mode .sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      z-index: 900;
+      width: 260px;
+      transform: translateX(-100%);
+      transition: transform 250ms ease;
+      background: var(--cp-bg-elevated);
+      border-right: 1px solid var(--cp-border);
+      box-shadow: var(--cp-shadow);
+      overflow-y: auto;
+    }
+    .compact-mode .sidebar.mobile-open {
+      transform: translateX(0);
+    }
+    .compact-mode .mobile-nav-toggle {
+      display: flex !important;
+    }
+    .compact-mode .search-row { grid-template-columns: 1fr; }
+    .compact-mode .search-trigger { min-width: 0; }
+    .mobile-nav-toggle {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 901;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      border: none;
+      font-size: 1.4rem;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .mobile-nav-toggle:hover { background: var(--cp-accent-hover); }
+    .mobile-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 899;
+      background: rgba(0,0,0,0.4);
     }
   </style>
 </head>
@@ -1310,14 +1419,15 @@
         <span>Search agents, managers, tasks…</span>
         <span class="kbd">⌘K</span>
       </button>
-      <div class="topbar-actions">
-        <button class="icon-button" type="button" title="Command palette" @click="openCommandPalette()">⌘K</button>
-        <button class="icon-button" type="button" title="Settings" @click="settingsOpen = true">⚙</button>
-      </div>
     </header>
 
     <div class="body-grid">
-      <aside class="sidebar">
+      <!-- Mobile nav toggle + overlay -->
+      <div class="mobile-overlay" x-show="mobileNavOpen" @click="mobileNavOpen = false" x-transition.opacity></div>
+      <button class="mobile-nav-toggle" type="button" @click="mobileNavOpen = !mobileNavOpen" :aria-label="mobileNavOpen ? 'Close menu' : 'Open menu'">
+        <span x-text="mobileNavOpen ? '✕' : '☰'"></span>
+      </button>
+      <aside class="sidebar" :class="{ 'mobile-open': mobileNavOpen }" @click="mobileNavOpen = false">
         <div class="sidebar-scroll">
           <template x-for="section in sidebarSections()" :key="section.key">
             <section class="sidebar-section">
@@ -1603,11 +1713,21 @@
               </div>
               <div class="toolbar">
                 <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
-                <button class="btn primary" type="button" @click="runAgentNow(selectedAgent.id)">▶ Run Now</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
+                <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit</button>
                 <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
-                <button class="btn" type="button" @click="showToast('Reinstall', 'Reinstall flow is not enabled for this agent.', 'info')">🔄 Reinstall</button>
+                <button class="btn" type="button" @click="reinstallAgent(selectedAgent.id)">🔄 Reinstall</button>
                 <button class="btn danger" type="button" @click="removeAgent(selectedAgent.id)">🗑 Remove</button>
+              </div>
+            </div>
+            <!-- Update available banner -->
+            <div class="update-banner" x-show="selectedAgent._updateAvailable" x-transition>
+              <div class="update-banner-inner">
+                <span>⚠️ <strong>Update available</strong> — Source has changed since this agent was installed.</span>
+                <div class="toolbar">
+                  <button class="btn" type="button" @click="reinstallAgent(selectedAgent.id)">🔄 Reinstall from source</button>
+                  <button class="btn ghost" type="button" @click="editAgentSource(selectedAgent.id)">View changes</button>
+                </div>
               </div>
             </div>
             <div class="detail-grid">
@@ -1696,6 +1816,82 @@
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
+                      <h2 class="panel-title">Tasks</h2>
+                      <div class="hint">Direct workloads for this agent.</div>
+                    </div>
+                  </div>
+                  <div class="assignment-list" x-show="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">
+                    <template x-for="task in tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent')" :key="task.taskKey">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <a :href="'#/tasks'" class="md-link" style="font-weight:700" x-text="task.name"></a>
+                            <div class="hint" style="margin-top:6px" x-text="task.scheduleSummary"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="editTaskInForm(task)">✏️</button>
+                            <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">No tasks yet. Create one using the form below.</div>
+                </section>
+
+                <section class="detail-panel" x-show="tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment').length">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Assignments</h2>
+                      <div class="hint">Manager assignments that use this agent.</div>
+                    </div>
+                  </div>
+                  <div class="assignment-list">
+                    <template x-for="task in tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment')" :key="task.taskKey">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <span style="font-weight:700" x-text="task.name"></span>
+                            <div class="hint" style="margin-top:6px">
+                              <span x-text="'Via ' + task.ownerName + ' • ' + task.scheduleSummary"></span>
+                            </div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </section>
+
+                <section class="detail-panel" x-show="managersForAgent(selectedAgent.id).length">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Managers</h2>
+                      <div class="hint">Managers that include this agent in their organization.</div>
+                    </div>
+                  </div>
+                  <div class="assignment-list">
+                    <template x-for="mgr in managersForAgent(selectedAgent.id)" :key="mgr.id">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <a :href="'#/managers/' + mgr.id" class="md-link" style="font-weight:700" x-text="mgr.name"></a>
+                            <div class="hint" style="margin-top:6px" x-text="(mgr.orgDetails || []).length + ' agents in org • ' + (mgr.config?.assignments || []).length + ' assignments'"></div>
+                          </div>
+                          <div class="toolbar">
+                            <span class="status-badge" :class="statusClass(mgr.status)" x-text="statusLabel(mgr.status)"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </section>
+
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
                       <h2 class="panel-title">Recent Runs</h2>
                       <div class="hint">Last 10 executions with expandable output.</div>
                     </div>
@@ -1723,34 +1919,6 @@
                     </template>
                   </div>
                   <div class="empty-state" x-show="!agentHistory.length">No run history recorded yet.</div>
-                </section>
-              </div>
-
-              <div class="panel-stack">
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Tasks</h2>
-                      <div class="hint">Workloads and assignments connected to this agent.</div>
-                    </div>
-                  </div>
-                  <div class="assignment-list" x-show="tasksForAgent(selectedAgent.id).length">
-                    <template x-for="task in tasksForAgent(selectedAgent.id)" :key="task.taskKey">
-                      <div class="assignment-item">
-                        <div class="assignment-top">
-                          <div>
-                            <a :href="'#/tasks'" class="md-link" style="font-weight:700" x-text="task.name"></a>
-                            <div class="hint" style="margin-top:6px" x-text="task.typeLabel + ' • ' + task.scheduleSummary"></div>
-                          </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click="editTaskInForm(task)" x-show="task.type === 'agent'">✏️</button>
-                            <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).length">No tasks yet. Create one using the form on the left.</div>
                 </section>
               </div>
             </div>
@@ -2345,6 +2513,24 @@
                       </div>
                     </template>
                   </div>
+                  <!-- Live task execution output -->
+                  <div class="live-exec-chat" x-show="activeChat && liveOutput[activeChat?.target]">
+                    <div class="message-row">
+                      <div class="message-bubble-wrap">
+                        <div class="message-bubble" style="border: 1px solid var(--cp-success); background: color-mix(in srgb, var(--cp-success) 5%, var(--cp-surface))">
+                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                            <span x-show="liveOutput[activeChat?.target]?.active" class="pulse-dot"></span>
+                            <strong x-text="liveOutput[activeChat?.target]?.active ? '⚡ Executing...' : '✓ Execution Complete'"></strong>
+                            <span class="hint" x-show="!liveOutput[activeChat?.target]?.active" x-text="'Exit ' + (liveOutput[activeChat?.target]?.code ?? '?')"></span>
+                          </div>
+                          <div class="live-output-container" x-ref="liveOutputBox">
+                            <pre class="live-output-pre" x-text="liveOutput[activeChat?.target]?.text || 'Waiting for output...'"></pre>
+                          </div>
+                          <div class="message-meta" x-text="'started ' + formatDateTime(liveOutput[activeChat?.target]?.startedAt)"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   <div class="typing-indicator" x-show="activeChat && typingChats[activeChat.id] && !chatActivity[activeChat?.id]">
                     <span>Waiting for response</span>
                     <span class="typing-dot"></span>
@@ -2798,6 +2984,7 @@
         loading: false,
         errorMessage: '',
         sseStatus: 'disconnected',
+        mobileNavOpen: false,
         agentSearch: '',
         managerSearch: '',
         taskSearch: '',
@@ -2808,6 +2995,7 @@
         selectedAgent: null,
         selectedManager: null,
         agentHistory: [],
+        liveOutput: {},
         managerHistory: [],
         expanded: {},
         selectedTaskId: null,
@@ -2866,6 +3054,7 @@
         get route() { return this.app.route; },
 
         async init() {
+          this.applyZoom();
           this.setupRouting();
           await this.refreshAll();
           this.connectEvents();
@@ -3286,6 +3475,12 @@
             this.selectedAgent.taskNameDraft = '';
             this.selectedAgent.editingTaskId = null;
             this.agentHistory = history;
+            // Check for source updates in background
+            this.checkAgentUpdate(id).then(hasUpdate => {
+              if (this.selectedAgent && this.selectedAgent.id === id) {
+                this.selectedAgent._updateAvailable = hasUpdate;
+              }
+            });
           } catch (error) {
             this.showToast('Agent detail failed', error.message, 'error');
           }
@@ -3372,6 +3567,31 @@
                 }
                 this.scheduleRefresh();
               });
+            });
+            // Live output streaming
+            source.addEventListener('agent-output', (event) => {
+              const { id, stream, chunk } = JSON.parse(event.data || '{}');
+              if (!this.liveOutput[id]) this.liveOutput[id] = { text: '', startedAt: new Date().toISOString(), active: true };
+              this.liveOutput[id].text += chunk;
+              this.liveOutput = { ...this.liveOutput };
+              // Auto-scroll live output
+              this.$nextTick(() => {
+                const box = this.$refs.liveOutputBox;
+                if (box) box.scrollTop = box.scrollHeight;
+              });
+            });
+            source.addEventListener('agent-completed', (event) => {
+              const { id, code, sessionId } = JSON.parse(event.data || '{}');
+              if (this.liveOutput[id]) {
+                this.liveOutput[id].active = false;
+                this.liveOutput[id].code = code;
+                this.liveOutput = { ...this.liveOutput };
+              }
+              // Store session ID so chat can resume the agent session
+              if (sessionId && this.activeChat && this.activeChat.target === id) {
+                this.chatSessions[this.activeChat.id] = sessionId;
+              }
+              this.scheduleRefresh();
             });
           } catch {
             this.sseStatus = 'unavailable';
@@ -3567,6 +3787,10 @@
               agentId: null
             })));
           return [...direct, ...managerAssignments];
+        },
+
+        managersForAgent(agentId) {
+          return this.data.managers.filter(m => (m.config?.org || []).includes(agentId));
         },
 
         runningEntities() {
@@ -4082,12 +4306,42 @@
 
         async runAgentNow(id) {
           try {
+            // Initialize live output panel
+            this.liveOutput[id] = { text: '', startedAt: new Date().toISOString(), active: true };
+            this.liveOutput = { ...this.liveOutput };
             await this.request(`/api/agents/${encodeURIComponent(id)}/run`, { method: 'POST' });
-            this.showToast('Agent queued', 'Execution triggered successfully.', 'info');
+            this.showToast('Agent started', 'Live output streaming below.', 'info');
             this.scheduleRefresh();
           } catch (error) {
             this.showToast('Run failed', error.message, 'error');
           }
+        },
+
+        async reinstallAgent(id) {
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/reinstall`, { method: 'POST' });
+            this.showToast('Reinstalled', 'Agent definition refreshed from source.', 'info');
+            if (this.selectedAgent && this.selectedAgent.id === id) this.selectedAgent._updateAvailable = false;
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Reinstall failed', error.message, 'error');
+          }
+        },
+
+        async editAgentSource(id) {
+          try {
+            const result = await this.request(`/api/agents/${encodeURIComponent(id)}/edit-source`, { method: 'POST' });
+            this.showToast('Opening editor', `Opened ${result.path} in ${result.editor || 'VS Code'}`, 'info');
+          } catch (error) {
+            this.showToast('Failed to open editor', error.message, 'error');
+          }
+        },
+
+        async checkAgentUpdate(id) {
+          try {
+            const result = await this.request(`/api/agents/${encodeURIComponent(id)}/check-update`);
+            return !result.upToDate;
+          } catch { return false; }
         },
 
         async removeAgent(id) {
@@ -4203,10 +4457,20 @@
         runTask(task) {
           if (task.type === 'agent' && task.id) {
             this.request(`/api/tasks/${encodeURIComponent(task.id)}/run`, { method: 'POST' })
-              .then(() => this.showToast('Task started', `"${task.name}" is running.`, 'info'))
+              .then(async () => {
+                // Open chat to show live execution
+                await this.openOrCreateChat('agent', task.agentId);
+                // Add preamble message showing task details
+                const preamble = `**Task: ${task.name}**\n\n> ${task.prompt}\n\n_Schedule: ${task.scheduleSummary || 'Manual'}_`;
+                await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
+                  method: 'POST',
+                  body: JSON.stringify({ role: 'user', content: preamble })
+                });
+                await this.openChat(this.activeChat.id, false);
+                this.liveOutput[task.agentId] = { text: '', startedAt: new Date().toISOString(), active: true };
+                this.liveOutput = { ...this.liveOutput };
+              })
               .catch(e => this.showToast('Run failed', e.message, 'error'));
-          } else if (task.type === 'agent') {
-            this.runAgentNow(task.agentId);
           } else if (task.type === 'assignment') {
             this.runAssignment(task.managerId, task.assignmentId);
           }
@@ -4609,7 +4873,6 @@
             { key: 'go-home', icon: '🏠', label: 'Go to Home', meta: 'Dashboard overview', action: () => this.goTo('#/home') },
             ...this.data.agents.flatMap((agent) => ([
               { key: `view-agent-${agent.id}`, icon: '🤖', label: `View agent: ${agent.name}`, meta: agent.config.group || agent.config.agent || agent.config.cwd || 'Agent detail', action: () => this.goTo(`#/agents/${encodeURIComponent(agent.id)}`) },
-              { key: `run-agent-${agent.id}`, icon: '▶', label: `Run ${agent.name}`, meta: 'Trigger agent immediately', action: () => this.runAgentNow(agent.id) },
               { key: `chat-agent-${agent.id}`, icon: '💬', label: `Chat with ${agent.name}`, meta: 'Open persistent notes', action: () => this.openOrCreateChat('agent', agent.id) }
             ])),
             ...this.data.managers.flatMap((manager) => ([
@@ -4636,7 +4899,54 @@
           item.action();
         },
 
+        // Zoom support — persisted to localStorage
+        zoomLevel: 100,
+        applyZoom() {
+          this.zoomLevel = parseInt(localStorage.getItem('supervisor-zoom') || '100', 10);
+          document.documentElement.style.fontSize = this.zoomLevel + '%';
+          this._checkCompactMode();
+        },
+        zoomIn() {
+          this.zoomLevel = Math.min(150, this.zoomLevel + 10);
+          document.documentElement.style.fontSize = this.zoomLevel + '%';
+          localStorage.setItem('supervisor-zoom', this.zoomLevel);
+          this._checkCompactMode();
+        },
+        zoomOut() {
+          this.zoomLevel = Math.max(60, this.zoomLevel - 10);
+          document.documentElement.style.fontSize = this.zoomLevel + '%';
+          localStorage.setItem('supervisor-zoom', this.zoomLevel);
+          this._checkCompactMode();
+        },
+        zoomReset() {
+          this.zoomLevel = 100;
+          document.documentElement.style.fontSize = '100%';
+          localStorage.setItem('supervisor-zoom', '100');
+          this._checkCompactMode();
+        },
+        _checkCompactMode() {
+          // Effective width = viewport / (zoom/100). If it's narrow, force compact mode.
+          const effectiveWidth = window.innerWidth / (this.zoomLevel / 100);
+          document.body.classList.toggle('compact-mode', effectiveWidth < 980);
+        },
+
         handleGlobalKeydown(event) {
+          // Zoom: Ctrl+= / Ctrl+- / Ctrl+0
+          if ((event.ctrlKey || event.metaKey) && (event.key === '=' || event.key === '+')) {
+            event.preventDefault();
+            this.zoomIn();
+            return;
+          }
+          if ((event.ctrlKey || event.metaKey) && event.key === '-') {
+            event.preventDefault();
+            this.zoomOut();
+            return;
+          }
+          if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+            event.preventDefault();
+            this.zoomReset();
+            return;
+          }
           if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
             event.preventDefault();
             this.openCommandPalette();
