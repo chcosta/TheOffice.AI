@@ -425,6 +425,19 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 700px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 14px;
+    }
     .pill {
       padding: 8px 12px;
       border-radius: 999px;
@@ -2552,6 +2565,236 @@
             </section>
           </section>
 
+          <!-- Events / Integrations Page -->
+          <section x-show="!loading && !errorMessage && route === 'events'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>📡 Event Listeners</h1>
+                <p>External message bus integration — connect agents and managers to Service Bus for CLI, Teams, or webhook-driven interactions.</p>
+              </div>
+            </div>
+
+            <!-- Status Banner -->
+            <div class="card" style="margin-bottom:20px">
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <span class="status-badge" :class="eventsConfig.connected ? 'success' : 'stopped'" x-text="eventsConfig.connected ? '● Connected' : '● Disconnected'"></span>
+                <span class="hint" x-show="eventsConfig.connected" x-text="'Queue: ' + (eventsConfig.queueName || 'not configured')"></span>
+                <span class="hint" x-show="eventsConfig.connected" x-text="eventsConfig.activeSessions + ' active session(s)'"></span>
+                <span style="flex:1"></span>
+                <button class="btn" type="button" x-show="eventsConfig.connected" @click="eventsConfig.connected = false">Disconnect</button>
+                <button class="btn primary" type="button" x-show="!eventsConfig.connected" @click="eventsTab = 'config'">Configure</button>
+              </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="filter-pills" style="margin-bottom:20px">
+              <button class="pill" type="button" :class="{ active: eventsTab === 'config' }" @click="eventsTab = 'config'">Configuration</button>
+              <button class="pill" type="button" :class="{ active: eventsTab === 'live' }" @click="eventsTab = 'live'">Live Log</button>
+              <button class="pill" type="button" :class="{ active: eventsTab === 'sessions' }" @click="eventsTab = 'sessions'">Sessions</button>
+              <button class="pill" type="button" :class="{ active: eventsTab === 'history' }" @click="eventsTab = 'history'">History</button>
+            </div>
+
+            <!-- CONFIG TAB -->
+            <div x-show="eventsTab === 'config'">
+              <div class="card" style="margin-bottom:20px">
+                <h3 style="margin-bottom:14px">Service Bus Connection</h3>
+                <div class="form-grid">
+                  <div>
+                    <div class="field-label">Connection String</div>
+                    <input class="field-input" type="password" x-model="eventsConfig.connectionString" placeholder="Endpoint=sb://...;SharedAccessKeyName=..." />
+                  </div>
+                  <div>
+                    <div class="field-label">Inbound Queue</div>
+                    <input class="field-input" type="text" x-model="eventsConfig.queueName" placeholder="inbound-commands" />
+                  </div>
+                  <div>
+                    <div class="field-label">Reply Queue</div>
+                    <input class="field-input" type="text" x-model="eventsConfig.replyQueue" placeholder="outbound-replies" />
+                  </div>
+                  <div>
+                    <div class="field-label">Max Concurrent Sessions</div>
+                    <input class="field-input" type="number" x-model.number="eventsConfig.maxSessions" />
+                  </div>
+                </div>
+                <div style="margin-top:16px;display:flex;gap:10px">
+                  <button class="btn primary" type="button" @click="saveEventsConfig()">Save &amp; Connect</button>
+                  <button class="btn" type="button" @click="testEventsConnection()">Test Connection</button>
+                </div>
+              </div>
+
+              <div class="card" style="margin-bottom:20px">
+                <h3 style="margin-bottom:14px">Rate Limiting</h3>
+                <div class="form-grid">
+                  <div>
+                    <div class="field-label">Max Messages / User / Minute</div>
+                    <input class="field-input" type="number" x-model.number="eventsConfig.rateLimitPerUser" />
+                  </div>
+                  <div>
+                    <div class="field-label">Max Total Messages / Minute</div>
+                    <input class="field-input" type="number" x-model.number="eventsConfig.rateLimitTotal" />
+                  </div>
+                  <div>
+                    <div class="field-label">Session Idle Timeout (min)</div>
+                    <input class="field-input" type="number" x-model.number="eventsConfig.sessionTimeout" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" style="margin-bottom:20px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                  <h3 style="margin:0">Connected Assets</h3>
+                  <button class="btn" type="button" @click="showConnectAssetModal = true">+ Connect</button>
+                </div>
+                <p class="hint" style="margin-bottom:12px">Only connected assets are addressable by external callers. Use <code>@name</code> for agents/managers, <code>/run name</code> for tasks/assignments.</p>
+
+                <div x-show="eventsConfig.connectedAssets.length === 0" class="empty-state">No assets connected. Click "+ Connect" to make agents, managers, or tasks available via the event listener.</div>
+
+                <div style="display:flex;flex-wrap:wrap;gap:8px" x-show="eventsConfig.connectedAssets.length > 0">
+                  <template x-for="asset in eventsConfig.connectedAssets" :key="asset.id">
+                    <span class="pill active" style="display:inline-flex;align-items:center;gap:6px">
+                      <span x-text="asset.type === 'manager' ? '👔' : asset.type === 'agent' ? '🤖' : '⚡'"></span>
+                      <span x-text="asset.name"></span>
+                      <button type="button" style="background:none;border:none;cursor:pointer;opacity:0.6;padding:0 2px" @click="disconnectAsset(asset.id)">✕</button>
+                    </span>
+                  </template>
+                </div>
+              </div>
+
+              <div class="card">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                  <h3 style="margin:0">RBAC Users</h3>
+                  <button class="btn" type="button" @click="showAddUserModal = true">+ Add User</button>
+                </div>
+                <div x-show="eventsConfig.users.length === 0" class="empty-state">No users configured. All messages will be rejected until RBAC is set up.</div>
+                <template x-for="user in eventsConfig.users" :key="user.id">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                    <strong x-text="user.name" style="min-width:120px"></strong>
+                    <span class="status-badge" :class="user.role === 'admin' ? 'success' : 'running'" x-text="user.role"></span>
+                    <span class="hint" x-text="user.allowedAssets === '*' ? 'All assets' : user.allowedAssets"></span>
+                    <span style="flex:1"></span>
+                    <button class="btn ghost small" type="button" @click="removeEventUser(user.id)">✕</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- LIVE LOG TAB -->
+            <div x-show="eventsTab === 'live'">
+              <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+                <input class="field-input" style="max-width:280px" type="search" placeholder="Filter events..." x-model="eventsLogFilter" />
+                <select class="field-input" style="max-width:140px" x-model="eventsLogType">
+                  <option value="">All types</option>
+                  <option value="inbound">Inbound</option>
+                  <option value="outbound">Outbound</option>
+                  <option value="error">Error</option>
+                  <option value="system">System</option>
+                </select>
+                <span style="flex:1"></span>
+                <button class="btn" type="button" @click="eventsLogPaused = !eventsLogPaused" x-text="eventsLogPaused ? '▶ Resume' : '⏸ Pause'"></button>
+                <button class="btn ghost" type="button" @click="eventsLog = []">Clear</button>
+              </div>
+
+              <div class="card" style="padding:0;overflow:hidden">
+                <div style="max-height:500px;overflow-y:auto;font-family:var(--font-mono);font-size:0.8rem">
+                  <div x-show="filteredEventsLog().length === 0" class="empty-state" style="padding:32px">
+                    <template x-if="eventsConfig.connected">
+                      <span>Listening for events… none received yet.</span>
+                    </template>
+                    <template x-if="!eventsConfig.connected">
+                      <span>Event listener is not connected. <a href="#/events" @click.prevent="eventsTab = 'config'">Configure connection</a> to start receiving events.</span>
+                    </template>
+                  </div>
+                  <template x-for="ev in filteredEventsLog()" :key="ev.id">
+                    <div style="display:grid;grid-template-columns:130px 70px 100px 1fr 70px;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);align-items:center" @click="toggleExpanded('ev-' + ev.id)">
+                      <span class="hint" x-text="ev.timestamp"></span>
+                      <span class="status-badge small" :class="ev.type === 'inbound' ? 'running' : ev.type === 'outbound' ? 'success' : ev.type === 'error' ? 'stopped' : ''" x-text="ev.type"></span>
+                      <span style="font-weight:500" x-text="ev.sender"></span>
+                      <span class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="ev.content"></span>
+                      <span class="hint" style="text-align:right" x-text="ev.status"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- SESSIONS TAB -->
+            <div x-show="eventsTab === 'sessions'">
+              <h3 style="margin-bottom:12px">Active Sessions</h3>
+              <div class="card" style="margin-bottom:20px">
+                <div x-show="eventsSessions.filter(s => s.status === 'active').length === 0" class="empty-state">No active sessions.</div>
+                <template x-for="session in eventsSessions.filter(s => s.status === 'active')" :key="session.id">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                    <strong x-text="session.user" style="min-width:100px"></strong>
+                    <span>→</span>
+                    <span x-text="session.target"></span>
+                    <span class="hint" x-text="session.lastMessage" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                    <span class="hint" x-text="session.duration"></span>
+                    <span class="status-badge success">active</span>
+                    <button class="btn ghost small" type="button" @click="forceCloseSession(session.id)">Close</button>
+                  </div>
+                </template>
+              </div>
+
+              <h3 style="margin-bottom:12px">Recent Closed Sessions</h3>
+              <div class="card">
+                <div x-show="eventsSessions.filter(s => s.status !== 'active').length === 0" class="empty-state">No session history yet.</div>
+                <template x-for="session in eventsSessions.filter(s => s.status !== 'active').slice(0, 20)" :key="session.id">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                    <strong x-text="session.user" style="min-width:100px"></strong>
+                    <span>→</span>
+                    <span x-text="session.target"></span>
+                    <span class="hint" x-text="session.messageCount + ' messages'" style="flex:1"></span>
+                    <span class="hint" x-text="session.duration"></span>
+                    <span class="status-badge" x-text="session.status"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- HISTORY TAB -->
+            <div x-show="eventsTab === 'history'">
+              <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+                <input class="field-input" type="date" style="max-width:150px" x-model="eventsHistoryFrom" />
+                <span class="hint">to</span>
+                <input class="field-input" type="date" style="max-width:150px" x-model="eventsHistoryTo" />
+                <select class="field-input" style="max-width:150px" x-model="eventsHistoryUser">
+                  <option value="">All users</option>
+                  <template x-for="user in eventsConfig.users" :key="user.id">
+                    <option :value="user.name" x-text="user.name"></option>
+                  </template>
+                </select>
+                <button class="btn primary" type="button" @click="searchEventsHistory()">Search</button>
+              </div>
+
+              <div class="card-grid" style="margin-bottom:20px">
+                <div class="card" style="text-align:center">
+                  <div style="font-size:1.5rem;font-weight:700;color:var(--accent)" x-text="eventsStats.total"></div>
+                  <div class="hint">Total Events</div>
+                </div>
+                <div class="card" style="text-align:center">
+                  <div style="font-size:1.5rem;font-weight:700;color:var(--accent)" x-text="eventsStats.inbound"></div>
+                  <div class="hint">Inbound</div>
+                </div>
+                <div class="card" style="text-align:center">
+                  <div style="font-size:1.5rem;font-weight:700;color:var(--danger, #dc2626)" x-text="eventsStats.errors"></div>
+                  <div class="hint">Errors</div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div x-show="eventsHistory.length === 0" class="empty-state">No events found for the selected period.</div>
+                <template x-for="ev in eventsHistory" :key="ev.id">
+                  <div style="display:grid;grid-template-columns:150px 70px 100px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;font-size:0.85rem">
+                    <span class="hint" x-text="ev.timestamp"></span>
+                    <span class="status-badge small" :class="ev.type === 'inbound' ? 'running' : ev.type === 'outbound' ? 'success' : ev.type === 'error' ? 'stopped' : ''" x-text="ev.type"></span>
+                    <span style="font-weight:500" x-text="ev.sender"></span>
+                    <span class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="ev.content"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </section>
+
           <section x-show="!loading && !errorMessage && route === 'activity'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -3049,6 +3292,33 @@
           prompt: ''
         },
 
+        // Event Listeners state
+        eventsTab: 'config',
+        eventsConfig: {
+          connected: false,
+          connectionString: '',
+          queueName: 'inbound-commands',
+          replyQueue: 'outbound-replies',
+          maxSessions: 10,
+          rateLimitPerUser: 20,
+          rateLimitTotal: 100,
+          sessionTimeout: 30,
+          connectedAssets: [],
+          users: []
+        },
+        eventsLog: [],
+        eventsLogFilter: '',
+        eventsLogType: '',
+        eventsLogPaused: false,
+        eventsSessions: [],
+        eventsHistory: [],
+        eventsHistoryFrom: new Date().toISOString().split('T')[0],
+        eventsHistoryTo: new Date().toISOString().split('T')[0],
+        eventsHistoryUser: '',
+        eventsStats: { total: 0, inbound: 0, errors: 0 },
+        showConnectAssetModal: false,
+        showAddUserModal: false,
+
         get app() { return Alpine.store('app'); },
         get data() { return Alpine.store('data'); },
         get route() { return this.app.route; },
@@ -3375,7 +3645,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'assignments', 'chat', 'activity'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'assignments', 'chat', 'activity', 'events'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -3386,6 +3656,8 @@
             await this.loadManagerDetail(this.app.routeParam);
           } else if (this.route === 'chat-detail' && this.app.routeParam) {
             await this.openChat(this.app.routeParam);
+          } else if (this.route === 'events') {
+            await this.loadEvents();
           }
         },
 
@@ -3615,6 +3887,9 @@
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
+            { key: 'integrations', label: 'Integrations', collapsible: true, isGroup: true, children: [
+              { key: 'events', title: 'Events', icon: '📡', href: '#/events', routeGroup: 'events', items: [] }
+            ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
         },
@@ -3627,6 +3902,7 @@
           if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail';
           if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
+          if (group === 'events') return this.route === 'events';
           return this.route === group;
         },
 
@@ -3827,6 +4103,89 @@
           return this.data.activity
             .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff)
             .slice(0, 8);
+        },
+
+        // --- Event Listeners methods ---
+        async loadEvents() {
+          try {
+            const config = await this.request('/api/events/config');
+            if (config) {
+              Object.assign(this.eventsConfig, config);
+            }
+          } catch (e) {
+            // Events not yet configured — that's OK
+          }
+        },
+
+        async saveEventsConfig() {
+          try {
+            await this.request('/api/events/config', {
+              method: 'PUT',
+              body: JSON.stringify(this.eventsConfig)
+            });
+            this.toast('Event listener configuration saved');
+          } catch (e) {
+            this.toast('Failed to save config: ' + e.message, 'error');
+          }
+        },
+
+        async testEventsConnection() {
+          try {
+            const result = await this.request('/api/events/test-connection', { method: 'POST', body: JSON.stringify({ connectionString: this.eventsConfig.connectionString, queueName: this.eventsConfig.queueName }) });
+            if (result && result.ok) {
+              this.toast('Connection successful!');
+            } else {
+              this.toast('Connection failed: ' + (result?.error || 'unknown'), 'error');
+            }
+          } catch (e) {
+            this.toast('Connection test failed: ' + e.message, 'error');
+          }
+        },
+
+        disconnectAsset(assetId) {
+          this.eventsConfig.connectedAssets = this.eventsConfig.connectedAssets.filter(a => a.id !== assetId);
+          this.saveEventsConfig();
+        },
+
+        removeEventUser(userId) {
+          this.eventsConfig.users = this.eventsConfig.users.filter(u => u.id !== userId);
+          this.saveEventsConfig();
+        },
+
+        filteredEventsLog() {
+          let log = this.eventsLog;
+          if (this.eventsLogType) {
+            log = log.filter(ev => ev.type === this.eventsLogType);
+          }
+          if (this.eventsLogFilter) {
+            const q = this.eventsLogFilter.toLowerCase();
+            log = log.filter(ev => (ev.sender + ' ' + ev.content).toLowerCase().includes(q));
+          }
+          return log;
+        },
+
+        async forceCloseSession(sessionId) {
+          try {
+            await this.request(`/api/events/sessions/${sessionId}/close`, { method: 'POST' });
+            this.eventsSessions = this.eventsSessions.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s);
+            this.toast('Session closed');
+          } catch (e) {
+            this.toast('Failed to close session', 'error');
+          }
+        },
+
+        async searchEventsHistory() {
+          try {
+            const params = new URLSearchParams({ from: this.eventsHistoryFrom, to: this.eventsHistoryTo });
+            if (this.eventsHistoryUser) params.set('user', this.eventsHistoryUser);
+            const result = await this.request(`/api/events/history?${params}`);
+            if (result) {
+              this.eventsHistory = result.events || [];
+              this.eventsStats = result.stats || { total: 0, inbound: 0, errors: 0 };
+            }
+          } catch (e) {
+            this.toast('Failed to load history', 'error');
+          }
         },
 
         filteredActivity() {

@@ -2532,6 +2532,64 @@ app.get('/api/activity', (req, res) => {
   res.json(activities.slice(0, limit));
 });
 
+// ─── Event Listeners API ───────────────────────────────────────────────────────
+
+const EVENTS_CONFIG_FILE = path.join(__dirname, 'events-config.json');
+
+function loadEventsConfig() {
+  try { return JSON.parse(fs.readFileSync(EVENTS_CONFIG_FILE, 'utf8')); }
+  catch { return { connected: false, connectionString: '', queueName: 'inbound-commands', replyQueue: 'outbound-replies', maxSessions: 10, rateLimitPerUser: 20, rateLimitTotal: 100, sessionTimeout: 30, connectedAssets: [], users: [] }; }
+}
+
+function saveEventsConfig(config) {
+  fs.writeFileSync(EVENTS_CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+app.get('/api/events/config', (req, res) => {
+  const config = loadEventsConfig();
+  // Mask connection string for security
+  const masked = { ...config };
+  if (masked.connectionString) {
+    masked.connectionString = masked.connectionString.replace(/SharedAccessKey=[^;]+/, 'SharedAccessKey=•••••');
+  }
+  res.json(masked);
+});
+
+app.put('/api/events/config', express.json(), (req, res) => {
+  const existing = loadEventsConfig();
+  const update = req.body;
+  // Don't overwrite connection string with masked value
+  if (update.connectionString && update.connectionString.includes('•••••')) {
+    update.connectionString = existing.connectionString;
+  }
+  const merged = { ...existing, ...update };
+  saveEventsConfig(merged);
+  res.json({ ok: true });
+});
+
+app.post('/api/events/test-connection', express.json(), (req, res) => {
+  // Placeholder — actual Service Bus connection test would go here
+  const { connectionString, queueName } = req.body;
+  if (!connectionString || !queueName) {
+    return res.json({ ok: false, error: 'Connection string and queue name are required' });
+  }
+  // Validate format
+  if (!connectionString.includes('Endpoint=sb://')) {
+    return res.json({ ok: false, error: 'Invalid connection string format. Must start with Endpoint=sb://' });
+  }
+  res.json({ ok: true, message: 'Connection parameters validated (actual connection test requires Service Bus SDK)' });
+});
+
+app.get('/api/events/history', (req, res) => {
+  // Placeholder — would query SQLite events table
+  res.json({ events: [], stats: { total: 0, inbound: 0, errors: 0 } });
+});
+
+app.post('/api/events/sessions/:sessionId/close', (req, res) => {
+  // Placeholder — would close an active event listener session
+  res.json({ ok: true });
+});
+
 // SPA catch-all: serve app.html for any non-API route (must be last)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
