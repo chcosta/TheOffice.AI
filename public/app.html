@@ -4304,12 +4304,17 @@
 
         async searchEventsHistory() {
           try {
-            const params = new URLSearchParams({ from: this.eventsHistoryFrom, to: this.eventsHistoryTo });
-            if (this.eventsHistoryUser) params.set('user', this.eventsHistoryUser);
+            const params = new URLSearchParams();
+            if (this.eventsHistoryFrom) params.set('since', this.eventsHistoryFrom + 'T00:00:00');
+            if (this.eventsHistoryUser) params.set('type', ''); // future: filter by user
             const result = await this.request(`/api/events/history?${params}`);
             if (result) {
-              this.eventsHistory = result.events || [];
-              this.eventsStats = result.stats || { total: 0, inbound: 0, errors: 0 };
+              this.eventsHistory = (result.events || []).map(e => ({
+                ...e,
+                timestamp: e.created_at || e.timestamp,
+                sender: e.source || e.sender_id
+              }));
+              this.eventsStats = result.stats || { total: 0, inbound: 0, outbound: 0, errors: 0 };
             }
           } catch (e) {
             this.toast('Failed to load history', 'error');

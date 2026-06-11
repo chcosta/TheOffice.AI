@@ -21,18 +21,50 @@ const CONFIG_FILE = path.join(__dirname, 'events-config.json');
  *   /close → close current session
  */
 class EventListener extends EventEmitter {
-  constructor(supervisor, managerAgent) {
+  constructor(supervisor, managerAgent, db) {
     super();
     this.supervisor = supervisor;
     this.managerAgent = managerAgent;
+    this.db = db;
     this.client = null;
     this.receiver = null;
     this.sender = null; // For reply queue
     this.connected = false;
     this.sessions = new Map(); // senderId → { target, targetType, startedAt, messages[] }
-    this.eventLog = []; // Recent events for live log
+    this.eventLog = []; // Recent events for live log (also persisted)
     this.maxLogSize = 500;
     this.config = this._loadConfig();
+    this._initDb();
+  }
+
+  _initDb() {
+    if (!this.db) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS event_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        source TEXT,
+        content TEXT,
+        status TEXT,
+        sender_id TEXT,
+        correlation_id TEXT,
+        target TEXT,
+        target_type TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS event_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id TEXT NOT NULL,
+        target TEXT NOT NULL,
+        target_type TEXT,
+        started_at TEXT NOT NULL,
+        closed_at TEXT,
+        message_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active'
+      )
+    `);
   }
 
   _loadConfig() {
@@ -257,19 +289,22 @@ class EventListener extends EventEmitter {
     const existing = this.sessions.get(senderId);
     if (existing && existing.target !== asset.id) {
       this._logEvent('system', 'router', `Session switch: ${senderId} closed ${existing.target}, opening ${asset.id}`, '');
+      this._persistSessionClose(senderId, existing);
       this.sessions.delete(senderId);
     }
 
     // Create or reuse session
     if (!this.sessions.has(senderId) || this.sessions.get(senderId).target !== asset.id) {
-      this.sessions.set(senderId, {
+      const session = {
         target: asset.id,
         targetName: asset.name,
         targetType: asset.type,
         startedAt: new Date().toISOString(),
         messages: [],
         lastActivity: Date.now()
-      });
+      };
+      this.sessions.set(senderId, session);
+      this._persistSessionOpen(senderId, session);
       this._logEvent('system', 'router', `Session created: ${senderId} → ${asset.name}`, '');
     }
 
@@ -306,50 +341,97 @@ class EventListener extends EventEmitter {
   }
 
   /**
-   * Execute an agent prompt via the supervisor
+   * Execute an agent prompt via the supervisor.
+   * Spawns the agent with a custom prompt and collects output via events.
    */
   async _executeAgentPrompt(agentId, prompt) {
-    return new Promise((resolve, reject) => {
-      const agent = this.supervisor.agents.get(agentId);
-      if (!agent) return reject(new Error(`Agent ${agentId} not found`));
+    const entry = this.supervisor.agents.get(agentId);
+    if (!entry) throw new Error(`Agent ${agentId} not found`);
+    if (entry.running) throw new Error(`Agent ${agentId} is already running`);
 
-      // Run agent with custom prompt
-      this.supervisor.runOnce(agentId, prompt, (err, output) => {
-        if (err) return reject(err);
-        resolve(output || '(no output)');
-      });
+    // Temporarily override the agent prompt, execute, then restore
+    const originalPrompt = entry.config.prompt;
+    entry.config.prompt = prompt;
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Agent ${agentId} timed out after 5 minutes`));
+      }, 5 * 60 * 1000);
+
+      const onCompleted = (data) => {
+        if (data.agentId !== agentId) return;
+        cleanup();
+        entry.config.prompt = originalPrompt;
+        resolve(data.output || '(no output)');
+      };
+
+      const onError = (data) => {
+        if (data.agentId !== agentId) return;
+        cleanup();
+        entry.config.prompt = originalPrompt;
+        reject(data.error || new Error('Agent execution failed'));
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.supervisor.removeListener('agent-completed', onCompleted);
+        this.supervisor.removeListener('agent-error', onError);
+      };
+
+      this.supervisor.on('agent-completed', onCompleted);
+      this.supervisor.on('agent-error', onError);
+
+      // Trigger execution
+      this.supervisor._executeAgent(agentId);
     });
   }
 
   /**
-   * Execute a manager prompt
+   * Execute a manager prompt synchronously (waits for orchestration to complete)
    */
   async _executeManagerPrompt(managerId, prompt) {
-    return new Promise((resolve, reject) => {
-      this.managerAgent.executePrompt(managerId, prompt)
-        .then(result => resolve(result?.summary || result?.output || '(no output)'))
-        .catch(reject);
-    });
+    const result = await this.managerAgent.executePrompt(managerId, prompt, null, { sync: true });
+    return result?.result || result?.output || '(no output)';
   }
 
   /**
-   * Execute a task by asset reference
+   * Execute a task/assignment by asset reference
    */
   async _executeTask(asset) {
     if (asset.type === 'assignment') {
-      // Parse manager/assignment from ID
-      const [managerId, assignmentId] = asset.id.split('/');
-      const result = await this.managerAgent.runAssignment(managerId, assignmentId);
-      return result?.summary || result?.output || '(completed)';
+      // Assignment IDs are stored as "managerId/assignmentId"
+      const separatorIdx = asset.id.indexOf('/');
+      if (separatorIdx === -1) throw new Error(`Invalid assignment ID format: ${asset.id}`);
+      const managerId = asset.id.substring(0, separatorIdx);
+      const assignmentId = asset.id.substring(separatorIdx + 1);
+      
+      const result = await this.managerAgent.executePrompt(
+        managerId,
+        // Get assignment prompt from manager config
+        this._getAssignmentPrompt(managerId, assignmentId),
+        assignmentId,
+        { sync: true }
+      );
+      return result?.result || result?.output || '(completed)';
     } else {
-      // Direct task execution
-      return new Promise((resolve, reject) => {
-        this.supervisor.runOnce(asset.id, null, (err, output) => {
-          if (err) return reject(err);
-          resolve(output || '(completed)');
-        });
-      });
+      // Task = agent execution with its configured prompt
+      return this._executeAgentPrompt(asset.id, this._getAgentPrompt(asset.id));
     }
+  }
+
+  _getAssignmentPrompt(managerId, assignmentId) {
+    const entry = this.managerAgent.managers.get(managerId);
+    if (!entry) throw new Error(`Manager ${managerId} not found`);
+    const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
+    if (!assignment) throw new Error(`Assignment ${assignmentId} not found`);
+    return assignment.prompt;
+  }
+
+  _getAgentPrompt(agentId) {
+    const entry = this.supervisor.agents.get(agentId);
+    if (!entry) throw new Error(`Agent ${agentId} not found`);
+    return entry.config.prompt;
   }
 
   /**
@@ -442,7 +524,7 @@ class EventListener extends EventEmitter {
   /**
    * Log an event to the in-memory event log
    */
-  _logEvent(type, sender, content, status) {
+  _logEvent(type, sender, content, status, extra = {}) {
     const event = {
       id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       type,
@@ -456,6 +538,18 @@ class EventListener extends EventEmitter {
       this.eventLog.length = this.maxLogSize;
     }
     this.emit('event', event);
+
+    // Persist to SQLite
+    if (this.db) {
+      try {
+        this.db.prepare(
+          'INSERT INTO event_history (type, source, content, status, sender_id, correlation_id, target, target_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(type, sender, (content || '').substring(0, 2000), status || '', extra.senderId || sender, extra.correlationId || '', extra.target || '', extra.targetType || '', new Date().toISOString());
+      } catch (err) {
+        console.error('[event-listener] Failed to persist event:', err.message);
+      }
+    }
+
     return event;
   }
 
@@ -496,10 +590,86 @@ class EventListener extends EventEmitter {
     const now = Date.now();
     for (const [senderId, session] of this.sessions) {
       if (now - session.lastActivity > timeout) {
+        this._persistSessionClose(senderId, session);
         this.sessions.delete(senderId);
         this._logEvent('system', 'cleanup', `Session expired: ${senderId} → ${session.targetName}`, '');
       }
     }
+  }
+
+  /**
+   * Persist session open to SQLite
+   */
+  _persistSessionOpen(senderId, session) {
+    if (!this.db) return;
+    try {
+      this.db.prepare(
+        'INSERT INTO event_sessions (sender_id, target, target_type, started_at, status) VALUES (?, ?, ?, ?, ?)'
+      ).run(senderId, session.target, session.targetType, session.startedAt, 'active');
+    } catch (err) {
+      console.error('[event-listener] Failed to persist session open:', err.message);
+    }
+  }
+
+  /**
+   * Persist session close to SQLite
+   */
+  _persistSessionClose(senderId, session) {
+    if (!this.db) return;
+    try {
+      this.db.prepare(
+        'UPDATE event_sessions SET closed_at = ?, message_count = ?, status = ? WHERE sender_id = ? AND target = ? AND status = ?'
+      ).run(new Date().toISOString(), session.messages.length, 'closed', senderId, session.target, 'active');
+    } catch (err) {
+      console.error('[event-listener] Failed to persist session close:', err.message);
+    }
+  }
+
+  /**
+   * Get persisted event history from SQLite (for History tab)
+   */
+  getHistory(options = {}) {
+    if (!this.db) return { events: [], stats: {} };
+    const { limit = 200, offset = 0, type, since } = options;
+
+    let query = 'SELECT * FROM event_history';
+    const conditions = [];
+    const params = [];
+
+    if (type) { conditions.push('type = ?'); params.push(type); }
+    if (since) { conditions.push('created_at >= ?'); params.push(since); }
+
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+    query += ' ORDER BY id DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const events = this.db.prepare(query).all(...params);
+
+    // Stats
+    const stats = this.db.prepare(`
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN type = 'inbound' THEN 1 ELSE 0 END) as inbound,
+        SUM(CASE WHEN type = 'outbound' THEN 1 ELSE 0 END) as outbound,
+        SUM(CASE WHEN type = 'error' THEN 1 ELSE 0 END) as errors
+      FROM event_history
+    `).get();
+
+    return { events, stats };
+  }
+
+  /**
+   * Get persisted session history from SQLite
+   */
+  getSessionHistory(options = {}) {
+    if (!this.db) return [];
+    const { limit = 50, status } = options;
+    let query = 'SELECT * FROM event_sessions';
+    const params = [];
+    if (status) { query += ' WHERE status = ?'; params.push(status); }
+    query += ' ORDER BY id DESC LIMIT ?';
+    params.push(limit);
+    return this.db.prepare(query).all(...params);
   }
 }
 

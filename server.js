@@ -111,7 +111,7 @@ supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) =
 });
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
-const eventListener = new EventListener(supervisor, managerAgent);
+const eventListener = new EventListener(supervisor, managerAgent, db);
 
 // Session cleanup interval for idle event listener sessions
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
@@ -2623,14 +2623,23 @@ app.post('/api/events/sessions/:sessionId/close', (req, res) => {
 });
 
 app.get('/api/events/history', (req, res) => {
-  // Return events from log filtered by date (in-memory for now)
-  const events = eventListener.eventLog;
-  const stats = {
-    total: events.length,
-    inbound: events.filter(e => e.type === 'inbound').length,
-    errors: events.filter(e => e.type === 'error').length
-  };
-  res.json({ events: events.slice(0, 200), stats });
+  const { limit, offset, type, since } = req.query;
+  const history = eventListener.getHistory({
+    limit: limit ? parseInt(limit) : 200,
+    offset: offset ? parseInt(offset) : 0,
+    type: type || undefined,
+    since: since || undefined
+  });
+  res.json(history);
+});
+
+app.get('/api/events/session-history', (req, res) => {
+  const { limit, status } = req.query;
+  const sessions = eventListener.getSessionHistory({
+    limit: limit ? parseInt(limit) : 50,
+    status: status || undefined
+  });
+  res.json(sessions);
 });
 
 // SSE stream for live event log
