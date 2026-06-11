@@ -2600,8 +2600,13 @@
                 <h3 style="margin-bottom:14px">Service Bus Connection</h3>
                 <div class="form-grid">
                   <div>
-                    <div class="field-label">Connection String</div>
-                    <input class="field-input" type="password" x-model="eventsConfig.connectionString" placeholder="Endpoint=sb://...;SharedAccessKeyName=..." />
+                    <div class="field-label">Namespace <span class="hint">(Azure AD auth — recommended)</span></div>
+                    <input class="field-input" type="text" x-model="eventsConfig.namespace" placeholder="sb-agentsessions or sb-agentsessions.servicebus.windows.net" />
+                  </div>
+                  <div>
+                    <div class="field-label">Connection String <span class="hint">(alternative to namespace)</span></div>
+                    <input class="field-input" type="password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" />
+                    <span class="hint" x-show="eventsConfig.connectionString && eventsConfig.connectionString.includes('•••••')">🔒 Stored securely (masked)</span>
                   </div>
                   <div>
                     <div class="field-label">Inbound Queue</div>
@@ -3397,6 +3402,7 @@
         eventsTab: 'config',
         eventsConfig: {
           connected: false,
+          namespace: '',
           connectionString: '',
           queueName: 'inbound-commands',
           replyQueue: 'outbound-replies',
@@ -4259,7 +4265,7 @@
 
         async testEventsConnection() {
           try {
-            const result = await this.request('/api/events/test-connection', { method: 'POST', body: JSON.stringify({ connectionString: this.eventsConfig.connectionString, queueName: this.eventsConfig.queueName }) });
+            const result = await this.request('/api/events/test-connection', { method: 'POST', body: JSON.stringify({ connectionString: this.eventsConfig.connectionString, namespace: this.eventsConfig.namespace, queueName: this.eventsConfig.queueName }) });
             if (result && result.ok) {
               this.toast('Connection successful!');
             } else {
