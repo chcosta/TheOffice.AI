@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceBusClient } = require('@azure/service-bus');
+const { DefaultAzureCredential } = require('@azure/identity');
 const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs');
@@ -90,6 +91,7 @@ class EventListener extends EventEmitter {
       return {
         connected: false,
         connectionString: '',
+        namespace: '',
         queueName: 'inbound-commands',
         replyQueue: 'outbound-replies',
         maxSessions: 10,
@@ -129,8 +131,8 @@ class EventListener extends EventEmitter {
    */
   async connect() {
     if (this.connected) return;
-    if (!this.config.connectionString || !this.config.queueName) {
-      throw new Error('Connection string and queue name are required');
+    if ((!this.config.connectionString && !this.config.namespace) || !this.config.queueName) {
+      throw new Error('Connection string (or namespace) and queue name are required');
     }
 
     this._reconnectAttempts = 0;
@@ -142,7 +144,15 @@ class EventListener extends EventEmitter {
     this._setConnectionState(this._reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
     try {
-      this.client = new ServiceBusClient(this.config.connectionString);
+      if (this.config.namespace) {
+        // Azure AD auth via DefaultAzureCredential
+        const fullyQualifiedNamespace = this.config.namespace.includes('.')
+          ? this.config.namespace
+          : `${this.config.namespace}.servicebus.windows.net`;
+        this.client = new ServiceBusClient(fullyQualifiedNamespace, new DefaultAzureCredential());
+      } else {
+        this.client = new ServiceBusClient(this.config.connectionString);
+      }
       this.receiver = this.client.createReceiver(this.config.queueName);
       
       // Set up reply sender if reply queue configured

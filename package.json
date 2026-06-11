@@ -9,6 +9,7 @@
     "uninstall-service": "node uninstall-service.js"
   },
   "dependencies": {
+    "@azure/identity": "^4.13.1",
     "@azure/service-bus": "^7.9.5",
     "croner": "^10.0.1",
     "cronstrue": "^3.14.0",

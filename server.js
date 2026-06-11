@@ -2591,17 +2591,24 @@ app.post('/api/events/disconnect', async (req, res) => {
 });
 
 app.post('/api/events/test-connection', express.json(), async (req, res) => {
-  const { connectionString, queueName } = req.body;
-  if (!connectionString || !queueName) {
-    return res.json({ ok: false, error: 'Connection string and queue name are required' });
+  const { connectionString, namespace, queueName } = req.body;
+  if ((!connectionString && !namespace) || !queueName) {
+    return res.json({ ok: false, error: 'Connection string (or namespace) and queue name are required' });
   }
-  if (!connectionString.includes('Endpoint=sb://')) {
+  if (connectionString && !connectionString.includes('Endpoint=sb://')) {
     return res.json({ ok: false, error: 'Invalid connection string format. Must start with Endpoint=sb://' });
   }
   // Attempt a real connection test
   try {
     const { ServiceBusClient } = require('@azure/service-bus');
-    const testClient = new ServiceBusClient(connectionString);
+    let testClient;
+    if (namespace) {
+      const { DefaultAzureCredential } = require('@azure/identity');
+      const fqns = namespace.includes('.') ? namespace : `${namespace}.servicebus.windows.net`;
+      testClient = new ServiceBusClient(fqns, new DefaultAzureCredential());
+    } else {
+      testClient = new ServiceBusClient(connectionString);
+    }
     const testReceiver = testClient.createReceiver(queueName, { receiveMode: 'peekLock' });
     // Peek one message to verify queue access (non-destructive)
     await testReceiver.peekMessages(1);

@@ -18,12 +18,14 @@
  */
 
 const { ServiceBusClient } = require('@azure/service-bus');
+const { DefaultAzureCredential } = require('@azure/identity');
 const readline = require('readline');
 const crypto = require('crypto');
 const http = require('http');
 
 // Config from env or defaults
 const CONNECTION_STRING = process.env.EVENT_SB_CONNECTION_STRING || '';
+const SB_NAMESPACE = process.env.EVENT_SB_NAMESPACE || '';
 const INBOUND_QUEUE = process.env.EVENT_INBOUND_QUEUE || 'inbound-commands';
 const REPLY_QUEUE = process.env.EVENT_REPLY_QUEUE || 'outbound-replies';
 const SENDER_ID = process.env.EVENT_SENDER_ID || 'cli-user';
@@ -38,10 +40,10 @@ class EventCLI {
     this.sender = null;
     this.receiver = null;
     this.pendingReplies = new Map();
-    this.replyTimeout = 120000; // 2 minutes
+    this.replyTimeout = 300000; // 5 minutes
   }
 
-  async connect(connectionString) {
+  async connect(connectionString, namespace) {
     if (this.localMode) {
       // Local mode — just verify the server is reachable
       try {
@@ -59,14 +61,23 @@ class EventCLI {
       return;
     }
 
+    const ns = namespace || SB_NAMESPACE;
     const connStr = connectionString || CONNECTION_STRING;
-    if (!connStr) {
-      console.error('❌ No connection string. Set EVENT_SB_CONNECTION_STRING, pass --connection-string, or use --local');
+
+    if (!ns && !connStr) {
+      console.error('❌ No connection. Set EVENT_SB_NAMESPACE (Azure AD) or EVENT_SB_CONNECTION_STRING, or use --local');
       process.exit(1);
     }
 
     try {
-      this.client = new ServiceBusClient(connStr);
+      if (ns) {
+        const fqns = ns.includes('.') ? ns : `${ns}.servicebus.windows.net`;
+        this.client = new ServiceBusClient(fqns, new DefaultAzureCredential());
+        console.log(`✅ Connected via Azure AD (${fqns})`);
+      } else {
+        this.client = new ServiceBusClient(connStr);
+        console.log(`✅ Connected to Service Bus`);
+      }
       this.sender = this.client.createSender(INBOUND_QUEUE);
       this.receiver = this.client.createReceiver(REPLY_QUEUE);
 
@@ -80,10 +91,9 @@ class EventCLI {
         }
       });
 
-      console.log(`✅ Connected to Service Bus`);
       console.log(`   Inbound: ${INBOUND_QUEUE}`);
       console.log(`   Replies: ${REPLY_QUEUE}`);
-      console.log(`   Sender:  ${SENDER_ID}`);
+      console.log(`   Sender:  ${this.senderId}`);
       console.log('');
     } catch (err) {
       console.error(`❌ Connection failed: ${err.message}`);
@@ -381,7 +391,8 @@ Modes:
                                (default server: http://localhost:3847)
 
 Environment Variables:
-  EVENT_SB_CONNECTION_STRING   Service Bus connection string (required unless --local)
+  EVENT_SB_CONNECTION_STRING   Service Bus connection string
+  EVENT_SB_NAMESPACE           Service Bus namespace (Azure AD auth, e.g. sb-agentsessions)
   EVENT_INBOUND_QUEUE          Inbound queue name (default: inbound-commands)
   EVENT_REPLY_QUEUE            Reply queue name (default: outbound-replies)
   EVENT_SENDER_ID              Your sender ID (default: cli-user)
@@ -391,6 +402,7 @@ Options:
   --send <message>             Send a single message and exit
   --local                      Use local simulation (no Service Bus required)
   --local-url <url>            Override local server URL
+  --namespace <ns>             Service Bus namespace for Azure AD auth
   --connection-string <str>    Override Service Bus connection string
   --sender-id <id>             Override sender ID
   --help                       Show this help
@@ -400,6 +412,7 @@ Options:
 
   // Parse args
   let connectionString = CONNECTION_STRING;
+  let namespace = SB_NAMESPACE;
   let singleMessage = null;
   let localMode = false;
   let localUrl = LOCAL_URL;
@@ -410,6 +423,8 @@ Options:
       singleMessage = args[++i];
     } else if (args[i] === '--connection-string' && args[i + 1]) {
       connectionString = args[++i];
+    } else if (args[i] === '--namespace' && args[i + 1]) {
+      namespace = args[++i];
     } else if (args[i] === '--local') {
       localMode = true;
     } else if (args[i] === '--local-url' && args[i + 1]) {
@@ -420,7 +435,7 @@ Options:
   }
 
   const cli = new EventCLI({ local: localMode, localUrl, senderId });
-  await cli.connect(connectionString);
+  await cli.connect(connectionString, namespace);
 
   if (singleMessage) {
     // Single-shot mode
