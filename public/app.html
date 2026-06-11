@@ -2888,6 +2888,107 @@
     </div>
   </div>
 
+  <!-- Connect Asset Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="showConnectAssetModal" x-transition.opacity @click.self="showConnectAssetModal = false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:560px">
+      <div class="modal-header">
+        <h2 class="modal-title">🔗 Connect Asset</h2>
+        <button class="icon-button" type="button" @click="showConnectAssetModal = false">✕</button>
+      </div>
+      <div style="padding:18px">
+        <p class="hint" style="margin-bottom:14px">Select agents, managers, tasks, or assignments to make addressable via the event listener.</p>
+        <input class="field-input" type="search" placeholder="Filter assets..." x-model="connectAssetSearch" style="margin-bottom:14px" />
+
+        <div style="max-height:340px;overflow-y:auto">
+          <!-- Managers -->
+          <template x-if="connectableAssets('manager').length > 0">
+            <div style="margin-bottom:14px">
+              <div class="field-label">Managers (addressable via @name)</div>
+              <template x-for="asset in connectableAssets('manager')" :key="asset.id">
+                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'manager')" />
+                  <span>👔</span>
+                  <span x-text="asset.name"></span>
+                </label>
+              </template>
+            </div>
+          </template>
+
+          <!-- Agents -->
+          <template x-if="connectableAssets('agent').length > 0">
+            <div style="margin-bottom:14px">
+              <div class="field-label">Agents (addressable via @name)</div>
+              <template x-for="asset in connectableAssets('agent')" :key="asset.id">
+                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'agent')" />
+                  <span>🤖</span>
+                  <span x-text="asset.name"></span>
+                </label>
+              </template>
+            </div>
+          </template>
+
+          <!-- Tasks -->
+          <template x-if="connectableAssets('task').length > 0">
+            <div style="margin-bottom:14px">
+              <div class="field-label">Tasks (runnable via /run name)</div>
+              <template x-for="asset in connectableAssets('task')" :key="asset.id">
+                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'task')" />
+                  <span>⚡</span>
+                  <span x-text="asset.name"></span>
+                </label>
+              </template>
+            </div>
+          </template>
+
+          <!-- Assignments -->
+          <template x-if="connectableAssets('assignment').length > 0">
+            <div>
+              <div class="field-label">Assignments (runnable via /run name)</div>
+              <template x-for="asset in connectableAssets('assignment')" :key="asset.id">
+                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'assignment')" />
+                  <span>📋</span>
+                  <span x-text="asset.name"></span>
+                </label>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn primary" type="button" @click="showConnectAssetModal = false; saveEventsConfig()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add RBAC User Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="showAddUserModal" x-transition.opacity @click.self="showAddUserModal = false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:440px">
+      <div class="modal-header">
+        <h2 class="modal-title">👤 Add User</h2>
+        <button class="icon-button" type="button" @click="showAddUserModal = false">✕</button>
+      </div>
+      <div style="padding:18px">
+        <div class="field-label">User Name / ID</div>
+        <input class="field-input" type="text" x-model="newEventUser.name" placeholder="e.g. chcosta" style="margin-bottom:14px" />
+        <div class="field-label">Role</div>
+        <select class="field-input" x-model="newEventUser.role" style="margin-bottom:14px">
+          <option value="admin">Admin (all assets, unlimited)</option>
+          <option value="operator">Operator (specified assets)</option>
+          <option value="viewer">Viewer (read-only, /help only)</option>
+        </select>
+        <div class="field-label">Rate Limit (messages/min, 0 = unlimited)</div>
+        <input class="field-input" type="number" x-model.number="newEventUser.rateLimit" style="margin-bottom:14px" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn" type="button" @click="showAddUserModal = false">Cancel</button>
+        <button class="btn primary" type="button" @click="addEventUser()">Add User</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" x-show="settingsOpen" x-transition.opacity.duration.150ms @click.self="settingsOpen = false" x-cloak>
     <section class="modal-card" style="max-width:720px">
       <div class="modal-header">
@@ -3318,6 +3419,8 @@
         eventsStats: { total: 0, inbound: 0, errors: 0 },
         showConnectAssetModal: false,
         showAddUserModal: false,
+        connectAssetSearch: '',
+        newEventUser: { name: '', role: 'operator', rateLimit: 20 },
 
         get app() { return Alpine.store('app'); },
         get data() { return Alpine.store('data'); },
@@ -4112,9 +4215,34 @@
             if (config) {
               Object.assign(this.eventsConfig, config);
             }
+            // Load live log
+            const log = await this.request('/api/events/log');
+            if (log) this.eventsLog = log;
+            // Load sessions
+            const sessions = await this.request('/api/events/sessions');
+            if (sessions) this.eventsSessions = sessions;
+            // Start SSE stream for live events
+            this._connectEventsStream();
           } catch (e) {
             // Events not yet configured — that's OK
           }
+        },
+
+        _connectEventsStream() {
+          if (this._eventsSSE) return; // Already connected
+          this._eventsSSE = new EventSource('/api/events/stream');
+          this._eventsSSE.onmessage = (e) => {
+            if (this.eventsLogPaused) return;
+            try {
+              const event = JSON.parse(e.data);
+              if (event.type === 'connected') return;
+              this.eventsLog.unshift(event);
+              if (this.eventsLog.length > 200) this.eventsLog.length = 200;
+            } catch {}
+          };
+          this._eventsSSE.onerror = () => {
+            // Reconnect handled by EventSource automatically
+          };
         },
 
         async saveEventsConfig() {
@@ -4186,6 +4314,50 @@
           } catch (e) {
             this.toast('Failed to load history', 'error');
           }
+        },
+
+        connectableAssets(type) {
+          const q = (this.connectAssetSearch || '').toLowerCase();
+          let items = [];
+          if (type === 'manager') {
+            items = this.data.managers.map(m => ({ id: m.id, name: m.name }));
+          } else if (type === 'agent') {
+            items = this.data.agents.map(a => ({ id: a.id, name: a.name }));
+          } else if (type === 'task') {
+            items = (this.data.tasks || []).map(t => ({ id: t.id, name: t.name }));
+          } else if (type === 'assignment') {
+            items = this.data.managers.flatMap(m => (m.config.assignments || []).map(a => ({ id: `${m.id}/${a.id}`, name: `${a.name} (${m.name})` })));
+          }
+          if (q) items = items.filter(i => i.name.toLowerCase().includes(q));
+          return items;
+        },
+
+        isAssetConnected(assetId) {
+          return this.eventsConfig.connectedAssets.some(a => a.id === assetId);
+        },
+
+        toggleConnectAsset(asset, type) {
+          const idx = this.eventsConfig.connectedAssets.findIndex(a => a.id === asset.id);
+          if (idx >= 0) {
+            this.eventsConfig.connectedAssets.splice(idx, 1);
+          } else {
+            this.eventsConfig.connectedAssets.push({ id: asset.id, name: asset.name, type });
+          }
+        },
+
+        addEventUser() {
+          if (!this.newEventUser.name.trim()) { this.toast('User name is required', 'error'); return; }
+          const user = {
+            id: this.newEventUser.name.trim().toLowerCase(),
+            name: this.newEventUser.name.trim(),
+            role: this.newEventUser.role,
+            rateLimit: this.newEventUser.rateLimit || 0,
+            allowedAssets: this.newEventUser.role === 'admin' ? '*' : ''
+          };
+          this.eventsConfig.users.push(user);
+          this.newEventUser = { name: '', role: 'operator', rateLimit: 20 };
+          this.showAddUserModal = false;
+          this.saveEventsConfig();
         },
 
         filteredActivity() {

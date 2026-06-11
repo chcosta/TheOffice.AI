@@ -7,6 +7,7 @@ const multer = require('multer');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
 const ManagerAgent = require('./manager');
+const EventListener = require('./event-listener');
 
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
@@ -110,6 +111,10 @@ supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) =
 });
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
+const eventListener = new EventListener(supervisor, managerAgent);
+
+// Session cleanup interval for idle event listener sessions
+setInterval(() => eventListener.cleanupIdleSessions(), 60000);
 
 // Load agent configs
 function loadAgents() {
@@ -2534,60 +2539,113 @@ app.get('/api/activity', (req, res) => {
 
 // ─── Event Listeners API ───────────────────────────────────────────────────────
 
-const EVENTS_CONFIG_FILE = path.join(__dirname, 'events-config.json');
-
-function loadEventsConfig() {
-  try { return JSON.parse(fs.readFileSync(EVENTS_CONFIG_FILE, 'utf8')); }
-  catch { return { connected: false, connectionString: '', queueName: 'inbound-commands', replyQueue: 'outbound-replies', maxSessions: 10, rateLimitPerUser: 20, rateLimitTotal: 100, sessionTimeout: 30, connectedAssets: [], users: [] }; }
-}
-
-function saveEventsConfig(config) {
-  fs.writeFileSync(EVENTS_CONFIG_FILE, JSON.stringify(config, null, 2));
-}
-
 app.get('/api/events/config', (req, res) => {
-  const config = loadEventsConfig();
+  const config = { ...eventListener.config };
   // Mask connection string for security
-  const masked = { ...config };
-  if (masked.connectionString) {
-    masked.connectionString = masked.connectionString.replace(/SharedAccessKey=[^;]+/, 'SharedAccessKey=•••••');
+  if (config.connectionString) {
+    config.connectionString = config.connectionString.replace(/SharedAccessKey=[^;]+/, 'SharedAccessKey=•••••');
   }
-  res.json(masked);
+  config.connected = eventListener.connected;
+  config.activeSessions = eventListener.sessions.size;
+  res.json(config);
 });
 
 app.put('/api/events/config', express.json(), (req, res) => {
-  const existing = loadEventsConfig();
   const update = req.body;
   // Don't overwrite connection string with masked value
   if (update.connectionString && update.connectionString.includes('•••••')) {
-    update.connectionString = existing.connectionString;
+    update.connectionString = eventListener.config.connectionString;
   }
-  const merged = { ...existing, ...update };
-  saveEventsConfig(merged);
+  Object.assign(eventListener.config, update);
+  eventListener._saveConfig();
   res.json({ ok: true });
 });
 
-app.post('/api/events/test-connection', express.json(), (req, res) => {
-  // Placeholder — actual Service Bus connection test would go here
+app.post('/api/events/connect', async (req, res) => {
+  try {
+    await eventListener.connect();
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/events/disconnect', async (req, res) => {
+  try {
+    await eventListener.disconnect();
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/events/test-connection', express.json(), async (req, res) => {
   const { connectionString, queueName } = req.body;
   if (!connectionString || !queueName) {
     return res.json({ ok: false, error: 'Connection string and queue name are required' });
   }
-  // Validate format
   if (!connectionString.includes('Endpoint=sb://')) {
     return res.json({ ok: false, error: 'Invalid connection string format. Must start with Endpoint=sb://' });
   }
-  res.json({ ok: true, message: 'Connection parameters validated (actual connection test requires Service Bus SDK)' });
+  // Attempt a real connection test
+  try {
+    const { ServiceBusClient } = require('@azure/service-bus');
+    const testClient = new ServiceBusClient(connectionString);
+    const testReceiver = testClient.createReceiver(queueName, { receiveMode: 'peekLock' });
+    // Peek one message to verify queue access (non-destructive)
+    await testReceiver.peekMessages(1);
+    await testReceiver.close();
+    await testClient.close();
+    res.json({ ok: true, message: 'Successfully connected and verified queue access.' });
+  } catch (err) {
+    res.json({ ok: false, error: `Connection failed: ${err.message}` });
+  }
 });
 
-app.get('/api/events/history', (req, res) => {
-  // Placeholder — would query SQLite events table
-  res.json({ events: [], stats: { total: 0, inbound: 0, errors: 0 } });
+app.get('/api/events/log', (req, res) => {
+  res.json(eventListener.eventLog);
+});
+
+app.get('/api/events/sessions', (req, res) => {
+  res.json(eventListener.getSessionsInfo());
 });
 
 app.post('/api/events/sessions/:sessionId/close', (req, res) => {
-  // Placeholder — would close an active event listener session
-  res.json({ ok: true });
+  // Find and close session by compound ID (user-target)
+  const parts = req.params.sessionId.split('-');
+  const senderId = parts[0]; // Simplified — real impl would use full ID
+  if (eventListener.sessions.has(senderId)) {
+    eventListener.sessions.delete(senderId);
+    res.json({ ok: true });
+  } else {
+    res.json({ ok: false, error: 'Session not found' });
+  }
+});
+
+app.get('/api/events/history', (req, res) => {
+  // Return events from log filtered by date (in-memory for now)
+  const events = eventListener.eventLog;
+  const stats = {
+    total: events.length,
+    inbound: events.filter(e => e.type === 'inbound').length,
+    errors: events.filter(e => e.type === 'error').length
+  };
+  res.json({ events: events.slice(0, 200), stats });
+});
+
+// SSE stream for live event log
+app.get('/api/events/stream', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+  res.write('data: {"type":"connected"}\n\n');
+
+  const onEvent = (event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+  eventListener.on('event', onEvent);
+
+  req.on('close', () => {
+    eventListener.removeListener('event', onEvent);
+  });
 });
 
 // SPA catch-all: serve app.html for any non-API route (must be last)
