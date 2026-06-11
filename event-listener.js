@@ -406,26 +406,13 @@ class EventListener extends EventEmitter {
       const managerId = asset.id.substring(0, separatorIdx);
       const assignmentId = asset.id.substring(separatorIdx + 1);
       
-      const result = await this.managerAgent.executePrompt(
-        managerId,
-        // Get assignment prompt from manager config
-        this._getAssignmentPrompt(managerId, assignmentId),
-        assignmentId,
-        { sync: true }
-      );
+      // runAssignment looks up the assignment's prompt and runs orchestration
+      const result = await this.managerAgent.runAssignment(managerId, assignmentId);
       return result?.result || result?.output || '(completed)';
     } else {
       // Task = agent execution with its configured prompt
       return this._executeAgentPrompt(asset.id, this._getAgentPrompt(asset.id));
     }
-  }
-
-  _getAssignmentPrompt(managerId, assignmentId) {
-    const entry = this.managerAgent.managers.get(managerId);
-    if (!entry) throw new Error(`Manager ${managerId} not found`);
-    const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
-    if (!assignment) throw new Error(`Assignment ${assignmentId} not found`);
-    return assignment.prompt;
   }
 
   _getAgentPrompt(agentId) {
