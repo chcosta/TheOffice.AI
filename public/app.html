@@ -2558,6 +2558,9 @@
                 </div>
 
                 <div class="chat-input-row" x-show="activeChat">
+                  <div x-show="chatContinueInfo && chatContinueInfo.chatId === (activeChat && activeChat.id)" style="margin-bottom:8px">
+                    <button class="btn primary" type="button" @click="_continueAgentChat(chatContinueInfo.chatId, chatContinueInfo.agentId); chatContinueInfo = null;">▶ Continue — retry the unfinished task</button>
+                  </div>
                   <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.ctrl.enter.prevent="sendChat()" @keydown.meta.enter.prevent="sendChat()"></textarea>
                   <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
                 </div>
@@ -3383,6 +3386,7 @@
         typingChats: {},
         chatActivity: {},
         chatSessions: {},
+        chatContinueInfo: null,
         refreshTimer: null,
         pollers: {},
         now: Date.now(),
@@ -3438,6 +3442,33 @@
           await this.refreshAll();
           this.connectEvents();
           setInterval(() => { this.now = Date.now(); }, 1000);
+        },
+
+        async _continueAgentChat(chatId, agentId) {
+          const sessionId = this.chatSessions[chatId] || null;
+          this.typingChats[chatId] = true;
+          this.chatActivity[chatId] = { status: 'Continuing...', steps: [] };
+          // Add user-visible continuation note
+          await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ role: 'user', content: '_(auto-continue)_' })
+          });
+          if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(agentId)}/chat`, {
+              method: 'POST',
+              body: JSON.stringify({ message: 'Continue where you left off. Complete the remaining actions.', sessionId })
+            });
+            await this.pollAgentChat(agentId, chatId, 0);
+          } catch (err) {
+            this.typingChats[chatId] = false;
+            delete this.chatActivity[chatId];
+            await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+              method: 'POST',
+              body: JSON.stringify({ role: 'assistant', content: `Error continuing: ${err.message}` })
+            });
+            if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+          }
         },
 
         async request(url, options = {}) {
@@ -4700,7 +4731,9 @@
           }
         },
 
-        async pollAgentChat(agentId, chatId) {
+        async pollAgentChat(agentId, chatId, retryCount = 0) {
+          const MAX_RETRIES = 2;
+          
           // Wait a moment for session to be created
           await new Promise(r => setTimeout(r, 2000));
           
@@ -4727,10 +4760,9 @@
           
           const sessionId = sessionInfo.sessionId;
           this.chatSessions[chatId] = sessionId;
-          this.chatActivity[chatId] = { status: 'Agent is thinking...', steps: [] };
+          this.chatActivity[chatId] = { status: retryCount > 0 ? `Retrying (attempt ${retryCount + 1})...` : 'Agent is thinking...', steps: [] };
           
           // Poll the session for live activity
-          let lastTurnCount = 0;
           for (let attempt = 0; attempt < 180; attempt++) {
             await new Promise(r => setTimeout(r, 1000));
             try {
@@ -4740,7 +4772,7 @@
               const currentTurn = poll.turns && poll.turns.length > 0 ? poll.turns[poll.turns.length - 1] : null;
               if (currentTurn && currentTurn.steps && currentTurn.steps.length > 0) {
                 this.chatActivity[chatId] = {
-                  status: poll.isActive ? 'Agent is working...' : 'Finishing up...',
+                  status: poll.isActive ? (retryCount > 0 ? `Retry ${retryCount + 1}: Working...` : 'Agent is working...') : 'Finishing up...',
                   steps: currentTurn.steps.map(s => ({
                     type: s.type === 'tool' || s.type === 'tool_start' ? 'tool' : 'thinking',
                     tool: s.tool || '',
@@ -4749,19 +4781,43 @@
                   })).slice(-8)
                 };
               } else if (poll.isActive) {
-                this.chatActivity[chatId] = { status: 'Agent is thinking...', steps: [] };
+                this.chatActivity[chatId] = { status: retryCount > 0 ? `Retry ${retryCount + 1}: Thinking...` : 'Agent is thinking...', steps: [] };
               }
               
               // Check if done
               if (!poll.isActive && poll.turnCount > 0) {
-                // Agent finished — get the final response
-                this.typingChats[chatId] = false;
-                delete this.chatActivity[chatId];
-                
                 const lastTurn = poll.turns[poll.turns.length - 1];
                 const response = lastTurn?.assistant || poll.lastAssistant || '';
                 
-                // Build rich response with tool activity summary
+                // Detect crash: tools ran but no final response text
+                const toolCount = lastTurn?.steps?.filter(s => s.type === 'tool').length || 0;
+                const isCrash = !response && toolCount > 0;
+                
+                if (isCrash && retryCount < MAX_RETRIES) {
+                  // Auto-retry: send a continuation message
+                  const retryNote = `⚠️ Agent terminated mid-execution (${toolCount} tools ran). Auto-retrying... (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`;
+                  await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+                    method: 'POST',
+                    body: JSON.stringify({ role: 'assistant', content: retryNote })
+                  });
+                  if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+                  
+                  // Send continuation prompt to the agent
+                  this.chatActivity[chatId] = { status: `Auto-retrying (${retryCount + 2}/${MAX_RETRIES + 1})...`, steps: [] };
+                  await this.request(`/api/agents/${encodeURIComponent(agentId)}/chat`, {
+                    method: 'POST',
+                    body: JSON.stringify({ message: 'Continue where you left off. Complete the task.', sessionId })
+                  });
+                  
+                  // Recurse with incremented retry
+                  await this.pollAgentChat(agentId, chatId, retryCount + 1);
+                  return;
+                }
+                
+                // Build final response
+                this.typingChats[chatId] = false;
+                delete this.chatActivity[chatId];
+                
                 let richResponse = '';
                 if (lastTurn?.steps && lastTurn.steps.length > 0) {
                   const tools = lastTurn.steps.filter(s => s.type === 'tool');
@@ -4772,14 +4828,13 @@
                 
                 if (response) {
                   richResponse += response;
+                } else if (isCrash) {
+                  // All retries exhausted
+                  richResponse += `⚠️ Agent terminated after ${toolCount} tool call(s) and ${MAX_RETRIES + 1} attempts. The task may be too large for a single session.`;
+                  // Store continue info for the button
+                  this.chatContinueInfo = { chatId, agentId };
                 } else {
-                  // Agent crashed or completed without text output
-                  const toolCount = lastTurn?.steps?.filter(s => s.type === 'tool').length || 0;
-                  if (toolCount > 0) {
-                    richResponse += `⚠️ Agent terminated unexpectedly after ${toolCount} tool call(s). This usually means the process crashed or timed out mid-execution. You can try sending the message again.`;
-                  } else {
-                    richResponse += '⚠️ Agent completed without producing a response. Try again or rephrase your request.';
-                  }
+                  richResponse += '⚠️ Agent completed without producing a response.';
                 }
                 
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
