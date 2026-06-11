@@ -4,6 +4,8 @@ const { ServiceBusClient } = require('@azure/service-bus');
 const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs');
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
 
 const CONFIG_FILE = path.join(__dirname, 'events-config.json');
 
@@ -278,11 +280,31 @@ class EventListener extends EventEmitter {
    */
   async _handleMessage(message) {
     const body = message.body;
-    const senderId = body?.senderId || message.applicationProperties?.senderId || 'unknown';
-    const correlationId = body?.correlationId || message.correlationId || crypto.randomUUID?.() || Date.now().toString();
+    const correlationId = body?.correlationId || message.correlationId || Date.now().toString();
     const content = (typeof body === 'string' ? body : body?.content || '').trim();
 
     if (!content) return;
+
+    // Identity: if token validation is enabled, extract senderId from verified token
+    let senderId;
+    if (this.config.requireTokenAuth) {
+      const token = message.applicationProperties?.authToken || body?.authToken;
+      if (!token) {
+        this._logEvent('error', 'unknown', 'REJECTED: no auth token provided', 'denied');
+        await this._reply(correlationId, 'unknown', { status: 'error', error: 'Authentication required. Include authToken in message.' });
+        return;
+      }
+      const identity = await this._verifyToken(token);
+      if (!identity) {
+        this._logEvent('error', 'unknown', 'REJECTED: invalid or expired token', 'denied');
+        await this._reply(correlationId, 'unknown', { status: 'error', error: 'Invalid or expired token.' });
+        return;
+      }
+      senderId = identity;
+    } else {
+      // Trust senderId from message (legacy mode)
+      senderId = body?.senderId || message.applicationProperties?.senderId || 'unknown';
+    }
 
     this._logEvent('inbound', senderId, content, 'received');
 
@@ -626,6 +648,54 @@ class EventListener extends EventEmitter {
   _validateSender(senderId) {
     if (this.config.users.length === 0) return false; // No users = reject all
     return this.config.users.some(u => u.id === senderId || u.name === senderId);
+  }
+
+  /**
+   * Verify an Azure AD JWT token. Returns the sender identity (oid or upn) or null.
+   */
+  async _verifyToken(token) {
+    const tenantId = this.config.tenantId;
+    if (!tenantId) {
+      console.error('[event-listener] Token auth enabled but no tenantId configured');
+      return null;
+    }
+
+    // Lazily create JWKS client for this tenant
+    if (!this._jwksClient || this._jwksTenant !== tenantId) {
+      this._jwksClient = jwksClient({
+        jwksUri: `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
+        cache: true,
+        cacheMaxAge: 600000, // 10 min
+        rateLimit: true
+      });
+      this._jwksTenant = tenantId;
+    }
+
+    try {
+      // Decode header to get kid
+      const decoded = jwt.decode(token, { complete: true });
+      if (!decoded || !decoded.header?.kid) return null;
+
+      // Get signing key
+      const key = await this._jwksClient.getSigningKey(decoded.header.kid);
+      const signingKey = key.getPublicKey();
+
+      // Verify token
+      const payload = jwt.verify(token, signingKey, {
+        issuer: [
+          `https://login.microsoftonline.com/${tenantId}/v2.0`,
+          `https://sts.windows.net/${tenantId}/`
+        ],
+        audience: this.config.tokenAudience || undefined,
+        algorithms: ['RS256']
+      });
+
+      // Return identity: prefer upn (user@domain), fall back to oid (GUID)
+      return payload.upn || payload.preferred_username || payload.oid || null;
+    } catch (err) {
+      console.error('[event-listener] Token verification failed:', err.message);
+      return null;
+    }
   }
 
   /**
