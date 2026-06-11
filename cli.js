@@ -326,11 +326,14 @@ class EventCLI {
       }
 
       try {
+        const startTime = Date.now();
         process.stdout.write('⏳ Waiting for reply...');
         const reply = await this.send(input);
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         process.stdout.clearLine(0);
         process.stdout.cursorTo(0);
         this._printReply(reply);
+        console.log(`\n⏱️  ${elapsed}s`);
       } catch (err) {
         console.error(`❌ Send failed: ${err.message}`);
       }
@@ -421,8 +424,11 @@ Options:
 
   if (singleMessage) {
     // Single-shot mode
+    const startTime = Date.now();
     const reply = await cli.send(singleMessage);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     cli._printReply(reply);
+    console.log(`\n⏱️  ${elapsed}s`);
     await cli.disconnect();
     process.exit(0);
   } else {

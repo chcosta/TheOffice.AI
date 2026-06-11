@@ -254,19 +254,8 @@ class ManagerAgent extends EventEmitter {
       const action = this._parseDecision(decision);
 
       if (action.type === 'complete') {
-        // Guard: reject early completion without running any agent (unless explaining missing capability)
-        const hasRunAgent = steps.some(s => s.action === 'agent_result');
-        if (!hasRunAgent && iteration === 1) {
-          // Manager tried to answer without delegating — force retry
-          steps.push({ iteration, action: 'rejected_early_complete', timestamp: new Date().toISOString() });
-          this._persistSteps(runId, steps);
-          this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
-          currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## VIOLATION: You tried to complete without running any agent.\nYou MUST delegate to one of your agents. You have NO knowledge of your own.\nEither:\n1. RUN_AGENT to gather the information needed\n2. If truly NO agent can handle this, use COMPLETE with a RESULT that ONLY says which capability is missing and which agent should be added. Do NOT include any factual claims.\n\nAvailable agents: ${(managerConfig.org || []).join(', ')}`;
-          continue;
-        }
-
         finalResult = action.result;
-        steps.push({ iteration, action: 'complete', result: action.result, timestamp: new Date().toISOString() });
+        steps.push({ iteration, action: 'complete', result: action.result.substring(0, 200), timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
         this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
         break;
@@ -293,7 +282,7 @@ class ManagerAgent extends EventEmitter {
         this._persistSteps(runId, steps);
         this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
-        // Feed result back to manager for next decision — include full output so manager can pass it forward
+        // Feed result back to manager for next decision
         context += `\n\n## Result from "${action.agentId}" (exit code: ${agentResult.exitCode})\n\`\`\`\n${agentResult.output}\n\`\`\``;
         currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## Next Step\nReview the results above. Remember: if you need to pass information to another agent, include the relevant data directly in YOUR prompt to that agent. What should you do next?`;
       }
@@ -305,25 +294,6 @@ class ManagerAgent extends EventEmitter {
         
         context += `\n\n## Note: Agent "${action.agentId}" was requested but is not available in your org.`;
         currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Previous Results\n${context}\n\n## Next Step\nThe requested agent is not available. Decide what to do next with your available agents.`;
-      }
-
-      if (action.type === 'format_violation') {
-        // Manager didn't use the required action block format — retry with correction
-        steps.push({ iteration, action: 'format_violation', timestamp: new Date().toISOString() });
-        this._persistSteps(runId, steps);
-        this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
-        
-        // After 2 format violations, accept the raw text as a last resort
-        const violations = steps.filter(s => s.action === 'format_violation').length;
-        if (violations >= 2) {
-          finalResult = action.result;
-          steps.push({ iteration, action: 'complete', result: action.result, timestamp: new Date().toISOString() });
-          this._persistSteps(runId, steps);
-          break;
-        }
-        
-        currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## FORMAT ERROR: Your response did not contain a \`\`\`action block.\nYou MUST respond with EXACTLY ONE action block. Here is what you said (INVALID):\n${action.result.substring(0, 500)}\n\nTry again. Use the EXACT format shown in the instructions above.`;
-        continue;
       }
 
       if (action.type === 'error') {
@@ -395,8 +365,12 @@ REASON: <why you need this agent>
     // Extract action block
     const actionMatch = text.match(/```action\s*\n([\s\S]*?)```/);
     if (!actionMatch) {
-      // No action block — this is a format violation. Return as error to force retry.
-      return { type: 'format_violation', result: text };
+      // No action block — the manager agent handled the request itself using its own tools.
+      // Accept the response as a completion (the agent did the work).
+      if (!text || text.trim().length === 0) {
+        return { type: 'error', message: 'Manager returned empty response' };
+      }
+      return { type: 'complete', result: text };
     }
 
     const block = actionMatch[1].trim();
@@ -425,7 +399,7 @@ REASON: <why you need this agent>
   }
 
   /**
-   * Ask the manager agent (copilot CLI) to make a decision
+   * Ask the manager agent to make an orchestration decision
    */
   async _askManager(managerConfig, prompt) {
     return new Promise((resolve, reject) => {
@@ -435,7 +409,7 @@ REASON: <why you need this agent>
       const promptFile = path.join(os.tmpdir(), `manager-prompt-${managerConfig.id}-${Date.now()}.md`);
       fs.writeFileSync(promptFile, prompt, 'utf-8');
       
-      // Use configured agent or default to the built-in manager plugin
+      // Use configured agent for decisions — it has the right context/tools
       const agentName = managerConfig.agent || 'manager:manager';
       const cmdLine = `"${copilotCmd}" --agent "${agentName}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`;
 
