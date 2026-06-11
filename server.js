@@ -2687,6 +2687,56 @@ app.get('/api/events/stream', (req, res) => {
   });
 });
 
+// Local simulation endpoint — bypasses Service Bus, exercises full routing pipeline
+app.post('/api/events/simulate', express.json(), async (req, res) => {
+  const { senderId, content, correlationId } = req.body;
+  if (!content) return res.status(400).json({ error: 'content is required' });
+
+  const simCorrelationId = correlationId || `sim-${Date.now()}`;
+  const simSenderId = senderId || 'local-user';
+
+  // Capture reply by temporarily intercepting _reply
+  let capturedReply = null;
+  const originalReply = eventListener._reply.bind(eventListener);
+  eventListener._reply = async (corrId, sender, payload) => {
+    if (corrId === simCorrelationId) {
+      capturedReply = payload;
+    }
+    // Still call original in case sender is set up (no-op without Service Bus)
+    // But don't fail if no sender configured
+  };
+
+  try {
+    // Build a fake Service Bus message object
+    const fakeMessage = {
+      body: { senderId: simSenderId, correlationId: simCorrelationId, content },
+      correlationId: simCorrelationId,
+      applicationProperties: { senderId: simSenderId }
+    };
+
+    await eventListener._handleMessage(fakeMessage);
+
+    // Wait briefly for async execution if no reply yet
+    if (!capturedReply) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    res.json({
+      correlationId: simCorrelationId,
+      senderId: simSenderId,
+      reply: capturedReply || { status: 'pending', content: 'Execution started (async — check live log for results)' }
+    });
+  } catch (err) {
+    res.json({
+      correlationId: simCorrelationId,
+      senderId: simSenderId,
+      reply: { status: 'error', error: err.message }
+    });
+  } finally {
+    eventListener._reply = originalReply;
+  }
+});
+
 // SPA catch-all: serve app.html for any non-API route (must be last)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });

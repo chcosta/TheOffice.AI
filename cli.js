@@ -20,26 +20,48 @@
 const { ServiceBusClient } = require('@azure/service-bus');
 const readline = require('readline');
 const crypto = require('crypto');
+const http = require('http');
 
 // Config from env or defaults
 const CONNECTION_STRING = process.env.EVENT_SB_CONNECTION_STRING || '';
 const INBOUND_QUEUE = process.env.EVENT_INBOUND_QUEUE || 'inbound-commands';
 const REPLY_QUEUE = process.env.EVENT_REPLY_QUEUE || 'outbound-replies';
 const SENDER_ID = process.env.EVENT_SENDER_ID || 'cli-user';
+const LOCAL_URL = process.env.EVENT_LOCAL_URL || 'http://localhost:3847';
 
 class EventCLI {
-  constructor() {
+  constructor(options = {}) {
+    this.localMode = options.local || false;
+    this.localUrl = options.localUrl || LOCAL_URL;
+    this.senderId = options.senderId || SENDER_ID;
     this.client = null;
     this.sender = null;
     this.receiver = null;
-    this.pendingReplies = new Map(); // correlationId → { resolve, timeout }
+    this.pendingReplies = new Map();
     this.replyTimeout = 120000; // 2 minutes
   }
 
   async connect(connectionString) {
+    if (this.localMode) {
+      // Local mode — just verify the server is reachable
+      try {
+        const res = await this._httpGet(`${this.localUrl}/api/events/health`);
+        const health = JSON.parse(res);
+        console.log(`✅ Connected to local server (${this.localUrl})`);
+        console.log(`   Connection state: ${health.connectionState}`);
+        console.log(`   Sender ID: ${this.senderId}`);
+        console.log('   Mode: LOCAL (bypasses Service Bus)');
+        console.log('');
+      } catch (err) {
+        console.error(`❌ Cannot reach local server at ${this.localUrl}: ${err.message}`);
+        process.exit(1);
+      }
+      return;
+    }
+
     const connStr = connectionString || CONNECTION_STRING;
     if (!connStr) {
-      console.error('❌ No connection string. Set EVENT_SB_CONNECTION_STRING or pass --connection-string');
+      console.error('❌ No connection string. Set EVENT_SB_CONNECTION_STRING, pass --connection-string, or use --local');
       process.exit(1);
     }
 
@@ -89,16 +111,36 @@ class EventCLI {
    * Send a message and wait for reply
    */
   async send(content) {
+    if (this.localMode) {
+      return this._sendLocal(content);
+    }
+    return this._sendServiceBus(content);
+  }
+
+  async _sendLocal(content) {
+    const correlationId = crypto.randomUUID();
+    const body = JSON.stringify({
+      senderId: this.senderId,
+      correlationId,
+      content
+    });
+
+    const res = await this._httpPost(`${this.localUrl}/api/events/simulate`, body);
+    const result = JSON.parse(res);
+    return result.reply || { status: 'error', error: 'No reply from server' };
+  }
+
+  async _sendServiceBus(content) {
     const correlationId = crypto.randomUUID();
 
     const message = {
       body: {
-        senderId: SENDER_ID,
+        senderId: this.senderId,
         correlationId,
         content
       },
       correlationId,
-      applicationProperties: { senderId: SENDER_ID }
+      applicationProperties: { senderId: this.senderId }
     };
 
     await this.sender.sendMessages(message);
@@ -111,6 +153,38 @@ class EventCLI {
       }, this.replyTimeout);
 
       this.pendingReplies.set(correlationId, { resolve, timeout });
+    });
+  }
+
+  // ─── HTTP helpers for local mode ──────────────────────────────────────────────
+
+  _httpGet(url) {
+    return new Promise((resolve, reject) => {
+      http.get(url, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
+  }
+
+  _httpPost(url, body) {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const req = http.request({
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => resolve(data));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
     });
   }
 
@@ -201,23 +275,30 @@ async function main() {
   
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-Event Listener CLI — Send messages to Service Bus event listener
+Event Listener CLI — Send messages to the event listener
 
 Usage:
-  node cli.js                              Interactive REPL mode
-  node cli.js --send "@markbot hello"      Send single message, print reply, exit
-  node cli.js --send "/help"               Get list of connected assets
+  node cli.js --local                      Interactive REPL (local simulation, no Service Bus)
+  node cli.js --local --send "/help"       Send single message locally
+  node cli.js --send "@markbot hello"      Send via Service Bus
   node cli.js --send "/run monitor-azure"  Trigger a task
 
+Modes:
+  --local                      Bypass Service Bus, send directly to server's simulate endpoint
+                               (default server: http://localhost:3847)
+
 Environment Variables:
-  EVENT_SB_CONNECTION_STRING   Service Bus connection string (required)
+  EVENT_SB_CONNECTION_STRING   Service Bus connection string (required unless --local)
   EVENT_INBOUND_QUEUE          Inbound queue name (default: inbound-commands)
   EVENT_REPLY_QUEUE            Reply queue name (default: outbound-replies)
   EVENT_SENDER_ID              Your sender ID (default: cli-user)
+  EVENT_LOCAL_URL              Local server URL (default: http://localhost:3847)
 
 Options:
   --send <message>             Send a single message and exit
-  --connection-string <str>    Override connection string
+  --local                      Use local simulation (no Service Bus required)
+  --local-url <url>            Override local server URL
+  --connection-string <str>    Override Service Bus connection string
   --sender-id <id>             Override sender ID
   --help                       Show this help
 `);
@@ -227,16 +308,25 @@ Options:
   // Parse args
   let connectionString = CONNECTION_STRING;
   let singleMessage = null;
+  let localMode = false;
+  let localUrl = LOCAL_URL;
+  let senderId = SENDER_ID;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--send' && args[i + 1]) {
       singleMessage = args[++i];
     } else if (args[i] === '--connection-string' && args[i + 1]) {
       connectionString = args[++i];
+    } else if (args[i] === '--local') {
+      localMode = true;
+    } else if (args[i] === '--local-url' && args[i + 1]) {
+      localUrl = args[++i];
+    } else if (args[i] === '--sender-id' && args[i + 1]) {
+      senderId = args[++i];
     }
   }
 
-  const cli = new EventCLI();
+  const cli = new EventCLI({ local: localMode, localUrl, senderId });
   await cli.connect(connectionString);
 
   if (singleMessage) {
