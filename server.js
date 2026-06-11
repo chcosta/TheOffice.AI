@@ -563,6 +563,20 @@ app.get('/api/agents/:id/history', (req, res) => {
   res.json(supervisor.getRunHistory(req.params.id, limit));
 });
 
+// Agent statistics
+app.get('/api/agents/:id/stats', (req, res) => {
+  const agentId = req.params.id;
+  const rows = db.prepare(`SELECT exit_code, started_at, finished_at FROM agent_runs WHERE agent_id = ? ORDER BY started_at DESC`).all(agentId);
+  const total = rows.length;
+  const success = rows.filter(r => r.exit_code === 0).length;
+  const fail = total - success;
+  let avgDuration = 0;
+  const durations = rows.filter(r => r.started_at && r.finished_at).map(r => new Date(r.finished_at) - new Date(r.started_at));
+  if (durations.length > 0) avgDuration = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
+  const lastRun = rows.length > 0 ? rows[0].started_at : null;
+  res.json({ total, success, fail, avgDuration, lastRun });
+});
+
 // Live output for a running agent
 app.get('/api/agents/:id/live', (req, res) => {
   const live = supervisor.getLiveOutput(req.params.id);
@@ -712,6 +726,23 @@ app.put('/api/agents/:id/schedule', (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+// Update agent group
+app.put('/api/agents/:id/group', (req, res) => {
+  const { group } = req.body;
+  if (group === undefined) return res.status(400).json({ error: 'group required' });
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const agent = agents.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  agent.group = group || undefined;
+  if (!group) delete agent.group;
+  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  // Update in-memory
+  const entry = supervisor.agents.get(req.params.id);
+  if (entry) entry.config.group = group || undefined;
+  broadcastSSE('agent-update', { agentId: req.params.id });
+  res.json({ ok: true });
 });
 
 // Update agent prompt
@@ -2180,6 +2211,19 @@ app.get('/api/managers/:id/runs/:runId', (req, res) => {
 app.get('/api/managers/:id/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 20;
   res.json(managerAgent.getRunHistory(req.params.id, limit));
+});
+
+// Manager statistics
+app.get('/api/managers/:id/stats', (req, res) => {
+  const managerId = req.params.id;
+  const rows = db.prepare(`SELECT status, started_at, finished_at FROM manager_runs WHERE manager_id = ? ORDER BY started_at DESC`).all(managerId);
+  const total = rows.length;
+  const success = rows.filter(r => r.status === 'completed').length;
+  const fail = rows.filter(r => r.status === 'error').length;
+  const durations = rows.filter(r => r.started_at && r.finished_at).map(r => new Date(r.finished_at) - new Date(r.started_at));
+  const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+  const lastRun = rows.length > 0 ? rows[0].started_at : null;
+  res.json({ total, success, fail, avgDuration, lastRun });
 });
 
 // Get manager messages (chat history)

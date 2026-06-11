@@ -723,6 +723,19 @@
     }
     .panel-stack { display: grid; gap: 16px; }
     .config-grid { display: grid; gap: 14px; }
+    .detail-table { display: grid; gap: 6px; }
+    .detail-row { display: flex; align-items: baseline; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { flex: 0 0 140px; font-size: 0.82em; color: var(--muted); font-weight: 500; }
+    .detail-value { font-size: 0.9em; color: var(--fg); }
+    .detail-value.mono { font-family: var(--mono); }
+    .detail-divider { height: 1px; background: var(--border); margin: 6px 0; }
+    .agent-group-section { margin-bottom: 12px; }
+    .group-header { display: flex; align-items: center; gap: 10px; padding: 8px 4px; cursor: pointer; border-bottom: 1px solid var(--border); margin-bottom: 10px; user-select: none; }
+    .group-header:hover { background: var(--hover); border-radius: 6px; }
+    .group-title { font-size: 0.95em; font-weight: 600; color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: 0.03em; }
+    .group-chevron { font-size: 0.7em; color: var(--muted); width: 12px; }
+    .group-chevron.collapsed { color: var(--muted); }
     .field-label {
       display: flex;
       align-items: center;
@@ -1542,33 +1555,42 @@
               <input class="field-input" type="search" placeholder="Filter agents by name, group, or command…" x-model="agentSearch" />
               <div class="hint" x-text="filteredAgents().length + ' shown'"></div>
             </div>
-            <div class="cards-grid">
-              <template x-for="agent in filteredAgents()" :key="agent.id">
-                <article class="agent-card" @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
-                  <div class="entity-top">
-                    <div>
-                      <h3 class="entity-name" x-text="agent.name"></h3>
-                      <div class="entity-subtitle" x-text="agent.config.group || agent.config.agent || 'Standalone agent'"></div>
-                    </div>
-                    <span class="status-badge" :class="statusClass(agent.status)" x-text="statusLabel(agent.status)"></span>
-                  </div>
-                  <div class="meta-grid">
-                    <div>
-                      <span class="meta-label">Last run</span>
-                      <div x-text="agent.lastRun ? formatRelative(agent.lastRun.finished_at || agent.lastRun.started_at) : 'Never'"></div>
-                    </div>
-                    <div>
-                      <span class="meta-label">Command</span>
-                      <div class="line-clamp" x-text="agent.config.agent || agentCommandPreview(agent)"></div>
-                    </div>
-                  </div>
-                  <div class="split-meta">
-                    <span class="tiny-badge" x-text="agent.config.cwd || 'No working directory'"></span>
-                    <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
-                  </div>
-                </article>
-              </template>
-            </div>
+            <template x-for="group in agentGroups()" :key="group.name">
+              <div class="agent-group-section">
+                <div class="group-header" @click="toggleSidebar('ag-' + group.name)">
+                  <span class="group-chevron" :class="app.sidebarCollapsed['ag-' + group.name] ? 'collapsed' : ''" x-text="app.sidebarCollapsed['ag-' + group.name] ? '▶' : '▼'"></span>
+                  <h2 class="group-title" x-text="group.name"></h2>
+                  <span class="badge-count" x-text="group.agents.length"></span>
+                </div>
+                <div class="cards-grid" x-show="!app.sidebarCollapsed['ag-' + group.name]" x-transition.opacity>
+                  <template x-for="agent in group.agents" :key="agent.id">
+                    <article class="agent-card" @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
+                      <div class="entity-top">
+                        <div>
+                          <h3 class="entity-name" x-text="agent.name"></h3>
+                          <div class="entity-subtitle" x-text="agent.config.pluginDir ? 'Plugin' : 'Agent'"></div>
+                        </div>
+                        <span class="status-badge" :class="statusClass(agent.status)" x-text="statusLabel(agent.status)"></span>
+                      </div>
+                      <div class="meta-grid">
+                        <div>
+                          <span class="meta-label">Last run</span>
+                          <div x-text="agent.lastRun ? formatRelative(agent.lastRun.finished_at || agent.lastRun.started_at) : 'Never'"></div>
+                        </div>
+                        <div>
+                          <span class="meta-label">Type</span>
+                          <div class="line-clamp" x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></div>
+                        </div>
+                      </div>
+                      <div class="split-meta">
+                        <span class="tiny-badge" x-text="agent.config.group || 'Ungrouped'"></span>
+                        <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
+                      </div>
+                    </article>
+                  </template>
+                </div>
+              </div>
+            </template>
             <div class="empty-state" x-show="!filteredAgents().length">No agents matched your filter.</div>
           </section>
 
@@ -1583,8 +1605,8 @@
                 <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
                 <button class="btn primary" type="button" @click="runAgentNow(selectedAgent.id)">▶ Run Now</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="focusConfigSection('agent-config')">⚙ Edit</button>
-                <button class="btn" type="button" @click="showToast('Reinstall flow is not exposed yet from the API.', 'info')">🔄 Reinstall</button>
+                <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
+                <button class="btn" type="button" @click="showToast('Reinstall', 'Reinstall flow is not enabled for this agent.', 'info')">🔄 Reinstall</button>
                 <button class="btn danger" type="button" @click="removeAgent(selectedAgent.id)">🗑 Remove</button>
               </div>
             </div>
@@ -1593,14 +1615,34 @@
                 <section class="detail-panel" id="agent-config">
                   <div class="panel-header">
                     <div>
-                      <h2 class="panel-title">Configuration</h2>
-                      <div class="hint">Agent command details (read only).</div>
+                      <h2 class="panel-title">Details</h2>
+                      <div class="hint">Agent identity, source, and performance stats.</div>
                     </div>
                   </div>
-                  <div class="config-grid">
-                    <div>
-                      <div class="field-label"><span>Command</span></div>
-                      <pre x-text="agentCommandPreview(selectedAgent)"></pre>
+                  <div class="config-grid" x-init="$watch('selectedAgent', async (a) => { if (a && a.id) { try { selectedAgent._stats = await request('/api/agents/' + encodeURIComponent(a.id) + '/stats'); } catch {} } })">
+                    <div class="detail-table">
+                      <div class="detail-row"><span class="detail-label">Agent Name</span><span class="detail-value" x-text="selectedAgent.config?.agent || selectedAgent.config?.name || selectedAgent.id"></span></div>
+                      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedAgent.id"></span></div>
+                      <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></span></div>
+                      <div class="detail-row"><span class="detail-label">Source Location</span><span class="detail-value mono" style="font-size:0.82em;word-break:break-all" x-text="selectedAgent.config?.pluginDir || (selectedAgent.config?.cwd ? selectedAgent.config.cwd + '\\.github\\agents\\' + selectedAgent.id + '.agent.md' : '—')"></span></div>
+                      <div class="detail-row"><span class="detail-label">Installation</span><span class="detail-value" x-text="selectedAgent.config?.pluginDir ? 'Local plugin directory' : (selectedAgent.config?.cwd ? 'Local repository' : 'Marketplace')"></span></div>
+                      <div class="detail-row"><span class="detail-label">Group</span><span class="detail-value">
+                        <select class="field-input" style="display:inline;width:auto;padding:2px 8px;font-size:0.85em" :value="selectedAgent.config?.group || ''" @change="changeAgentGroup(selectedAgent.id, $event.target.value)">
+                          <option value="">Ungrouped</option>
+                          <template x-for="g in allGroupNames()" :key="g">
+                            <option :value="g" x-text="g" :selected="g === selectedAgent.config?.group"></option>
+                          </template>
+                          <option value="__new__">+ New group…</option>
+                        </select>
+                      </span></div>
+                      <div class="detail-row"><span class="detail-label">Last Run</span><span class="detail-value" x-text="selectedAgent.last_run ? formatDateTime(selectedAgent.last_run) : '—'"></span></div>
+                    </div>
+                    <div class="detail-divider"></div>
+                    <div class="detail-table" x-show="selectedAgent._stats">
+                      <div class="detail-row"><span class="detail-label">Total Runs</span><span class="detail-value" x-text="selectedAgent._stats?.total || 0"></span></div>
+                      <div class="detail-row"><span class="detail-label">Avg Run Time</span><span class="detail-value" x-text="formatDuration(selectedAgent._stats?.avgDuration || 0)"></span></div>
+                      <div class="detail-row"><span class="detail-label">Success / Fail</span><span class="detail-value"><span style="color:var(--success)" x-text="selectedAgent._stats?.success || 0"></span> / <span style="color:var(--danger)" x-text="selectedAgent._stats?.fail || 0"></span></span></div>
+                      <div class="detail-row"><span class="detail-label">Success Rate</span><span class="detail-value" x-text="selectedAgent._stats?.total ? Math.round((selectedAgent._stats.success / selectedAgent._stats.total) * 100) + '%' : '—'"></span></div>
                     </div>
                   </div>
                 </section>
@@ -1774,6 +1816,33 @@
             </div>
             <div class="detail-grid">
               <div class="panel-stack">
+                <section class="detail-panel" id="manager-details">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Details</h2>
+                      <div class="hint">Manager identity and performance stats.</div>
+                    </div>
+                  </div>
+                  <div class="config-grid" x-init="$watch('selectedManager', async (m) => { if (m && m.id) { try { selectedManager._stats = await request('/api/managers/' + encodeURIComponent(m.id) + '/stats'); } catch {} } })">
+                    <div class="detail-table">
+                      <div class="detail-row"><span class="detail-label">Manager Name</span><span class="detail-value" x-text="selectedManager.name"></span></div>
+                      <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedManager.id"></span></div>
+                      <div class="detail-row"><span class="detail-label">Backing Agent</span><span class="detail-value mono" x-text="selectedManager.config?.agent || '—'"></span></div>
+                      <div class="detail-row"><span class="detail-label">Organization Size</span><span class="detail-value" x-text="(selectedManager.config?.org || []).length + ' agents'"></span></div>
+                      <div class="detail-row"><span class="detail-label">Assignments</span><span class="detail-value" x-text="(selectedManager.config?.assignments || []).length + ' total'"></span></div>
+                      <div class="detail-row"><span class="detail-label">Active Assignments</span><span class="detail-value" x-text="managerActiveCount(selectedManager) + ' enabled'"></span></div>
+                    </div>
+                    <div class="detail-divider"></div>
+                    <div class="detail-table" x-show="selectedManager._stats">
+                      <div class="detail-row"><span class="detail-label">Total Runs</span><span class="detail-value" x-text="selectedManager._stats?.total || 0"></span></div>
+                      <div class="detail-row"><span class="detail-label">Avg Run Time</span><span class="detail-value" x-text="formatDuration(selectedManager._stats?.avgDuration || 0)"></span></div>
+                      <div class="detail-row"><span class="detail-label">Success / Fail</span><span class="detail-value"><span style="color:var(--success)" x-text="selectedManager._stats?.success || 0"></span> / <span style="color:var(--danger)" x-text="selectedManager._stats?.fail || 0"></span></span></div>
+                      <div class="detail-row"><span class="detail-label">Success Rate</span><span class="detail-value" x-text="selectedManager._stats?.total ? Math.round((selectedManager._stats.success / selectedManager._stats.total) * 100) + '%' : '—'"></span></div>
+                      <div class="detail-row"><span class="detail-label">Last Run</span><span class="detail-value" x-text="selectedManager._stats?.lastRun ? formatDateTime(selectedManager._stats.lastRun) : '—'"></span></div>
+                    </div>
+                  </div>
+                </section>
+
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
@@ -3318,13 +3387,13 @@
           return [
             { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
             { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', collapsible: true, items: this.sortedChats().slice(0, 8).map((chat) => ({ id: chat.id, label: chat.title, href: `#/chat/${chat.id}`, active: this.route === 'chat-detail' && this.app.routeParam === chat.id, statusClass: this.chatStatusClass(chat) })) },
-            { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
-              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
-            ]},
             { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
+            ]},
+            { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
+              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
@@ -3347,6 +3416,45 @@
           return this.data.agents.filter((agent) => [agent.name, agent.config.group, agent.config.agent, agent.config.cwd, agent.id].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
+        agentGroups() {
+          const agents = this.filteredAgents();
+          const groups = {};
+          agents.forEach(agent => {
+            const g = agent.config.group || 'Ungrouped';
+            if (!groups[g]) groups[g] = [];
+            groups[g].push(agent);
+          });
+          // Sort: named groups first alphabetically, Ungrouped last
+          const keys = Object.keys(groups).sort((a, b) => {
+            if (a === 'Ungrouped') return 1;
+            if (b === 'Ungrouped') return -1;
+            return a.localeCompare(b);
+          });
+          return keys.map(k => ({ name: k, agents: groups[k] }));
+        },
+
+        allGroupNames() {
+          const names = new Set();
+          this.data.agents.forEach(a => { if (a.config.group) names.add(a.config.group); });
+          return [...names].sort();
+        },
+
+        async changeAgentGroup(agentId, newGroup) {
+          if (newGroup === '__new__') {
+            const name = prompt('Enter new group name:');
+            if (!name) { await this.refreshData(); return; }
+            newGroup = name.trim();
+          }
+          await this.request(`/api/agents/${encodeURIComponent(agentId)}/group`, {
+            method: 'PUT',
+            body: JSON.stringify({ group: newGroup })
+          });
+          await this.refreshData();
+          if (this.selectedAgent) {
+            this.selectedAgent.config.group = newGroup || undefined;
+          }
+        },
+
         filteredManagers() {
           const query = this.managerSearch.trim().toLowerCase();
           if (!query) return this.data.managers;
@@ -3360,6 +3468,7 @@
           // Tasks from the dedicated tasks.json store
           const agentTasks = (this.data.tasks || []).map((task) => {
             const agent = this.data.agents.find(a => a.id === task.agentId);
+            const isEnabled = agent ? (agent.enabled !== 0 && agent.status !== 'stopped') : true;
             return {
               taskKey: `task-${task.id}`,
               id: task.id,
@@ -3373,7 +3482,7 @@
               scheduleDraft: task.schedule || 'never',
               schedulePreset: this.resolveSchedulePreset(task.schedule),
               scheduleSummary: this.humanizeSchedule(task.schedule),
-              nextRun: this.computeNextRun(task.schedule),
+              nextRun: isEnabled ? this.computeNextRun(task.schedule) : null,
               lastRun: agent ? agent.lastRun : null,
               prompt: task.prompt || '',
               managerId: null,
@@ -3405,7 +3514,7 @@
 
         filteredTasks() {
           const query = this.taskSearch.trim().toLowerCase();
-          const tasks = this.allTasks();
+          const tasks = this.allTasks().filter(t => t.type === 'agent');
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
@@ -3540,6 +3649,31 @@
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
             this.activeChat = chat;
             if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
+            // Recovery: if manager chat's last message is user with no assistant reply, check for completed run
+            if (chat.targetType === 'manager' && chat.messages && chat.messages.length > 0) {
+              const lastMsg = chat.messages[chat.messages.length - 1];
+              if (lastMsg.role === 'user' && !this.typingChats[chatId] && !this._recoveryInProgress?.[chatId]) {
+                this._recoveryInProgress = { ...this._recoveryInProgress, [chatId]: true };
+                try {
+                  const history = await this.request(`/api/managers/${encodeURIComponent(chat.target)}/history?limit=1`);
+                  if (history && history.length > 0) {
+                    const lastRun = history[0];
+                    if (lastRun.status === 'completed' && lastRun.result) {
+                      await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+                        method: 'POST',
+                        body: JSON.stringify({ role: 'assistant', content: lastRun.result })
+                      });
+                      const updated = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
+                      this.activeChat = updated;
+                    } else if (lastRun.status === 'running') {
+                      this.typingChats[chatId] = true;
+                      this.pollManagerRun(chat.target, lastRun.id, chatId);
+                    }
+                  }
+                } catch { /* ignore recovery errors */ }
+                delete this._recoveryInProgress[chatId];
+              }
+            }
           } catch (error) {
             this.showToast('Chat failed', error.message, 'error');
           }
@@ -3897,11 +4031,34 @@
         async pollManagerRun(managerId, runId, chatId) {
           const key = `${managerId}-${runId}`;
           this.pollers[key] = true;
-          for (let attempt = 0; attempt < 120 && this.pollers[key]; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+          // Show initial activity
+          this.chatActivity = { ...this.chatActivity, [chatId]: { status: 'Manager is thinking…', steps: [{ type: 'thinking', content: 'Analyzing request…' }] } };
+          let seenSteps = 0;
+          for (let attempt = 0; attempt < 240 && this.pollers[key]; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
             try {
               const run = await this.request(`/api/managers/${encodeURIComponent(managerId)}/runs/${runId}`);
+              // Update live activity from run steps
+              const steps = run.steps || [];
+              if (steps.length > seenSteps) {
+                seenSteps = steps.length;
+                const activitySteps = steps.map(s => {
+                  if (s.action === 'thinking') return { type: 'thinking', content: 'Deciding next action…' };
+                  if (s.action === 'run_agent') return { type: 'tool_start', tool: `Running: ${s.agentId}`, success: null };
+                  if (s.action === 'agent_result') return { type: 'tool', tool: `Result from: ${s.agentId || 'agent'}`, success: true };
+                  if (s.action === 'complete') return { type: 'thinking', content: 'Composing final response…' };
+                  if (s.action === 'error') return { type: 'tool', tool: `Error: ${(s.error || '').substring(0, 60)}`, success: false };
+                  return { type: 'thinking', content: s.action || 'Working…' };
+                });
+                const lastStep = steps[steps.length - 1];
+                const status = lastStep.action === 'run_agent' ? `Running agent: ${lastStep.agentId}` :
+                               lastStep.action === 'agent_result' ? 'Analyzing agent output…' :
+                               lastStep.action === 'thinking' ? 'Manager is thinking…' : 'Working…';
+                this.chatActivity = { ...this.chatActivity, [chatId]: { status, steps: activitySteps } };
+              }
               if (run.status === 'completed' || run.status === 'error') {
+                delete this.chatActivity[chatId];
+                this.chatActivity = { ...this.chatActivity };
                 this.typingChats[chatId] = false;
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
@@ -3916,6 +4073,9 @@
               // keep polling
             }
           }
+          // Timeout — clean up
+          delete this.chatActivity[chatId];
+          this.chatActivity = { ...this.chatActivity };
           this.typingChats[chatId] = false;
           delete this.pollers[key];
         },
