@@ -2686,6 +2686,64 @@ app.get('/api/events/stream', (req, res) => {
     eventListener.removeListener('event', onEvent);
   });
 });
+
+// Local simulation endpoint — SSE streaming version for step-by-step progress
+app.post('/api/events/simulate/stream', express.json(), async (req, res) => {
+  const { senderId, content, correlationId } = req.body;
+  if (!content) return res.status(400).json({ error: 'content is required' });
+
+  const simCorrelationId = correlationId || `sim-${Date.now()}`;
+  const simSenderId = senderId || 'local-user';
+
+  // Set up SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Listen for manager step events
+  const stepHandler = (data) => {
+    sendEvent('step', data);
+  };
+  managerAgent.on('manager-step', stepHandler);
+
+  // Capture reply
+  let capturedReply = null;
+  const originalReply = eventListener._reply.bind(eventListener);
+  eventListener._reply = async (corrId, sender, payload) => {
+    if (corrId === simCorrelationId) {
+      capturedReply = payload;
+    }
+  };
+
+  try {
+    const fakeMessage = {
+      body: { senderId: simSenderId, correlationId: simCorrelationId, content },
+      correlationId: simCorrelationId,
+      applicationProperties: { senderId: simSenderId }
+    };
+
+    sendEvent('status', { message: 'Processing...' });
+    await eventListener._handleMessage(fakeMessage);
+
+    if (!capturedReply) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    sendEvent('reply', capturedReply || { status: 'pending', content: 'Execution started (async)' });
+  } catch (err) {
+    sendEvent('reply', { status: 'error', error: err.message });
+  } finally {
+    managerAgent.removeListener('manager-step', stepHandler);
+    eventListener._reply = originalReply;
+    res.end();
+  }
+});
 
 // Local simulation endpoint — bypasses Service Bus, exercises full routing pipeline
 app.post('/api/events/simulate', express.json(), async (req, res) => {

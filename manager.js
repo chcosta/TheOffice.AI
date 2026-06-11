@@ -246,6 +246,7 @@ class ManagerAgent extends EventEmitter {
       // Ask the manager agent to decide what to do next
       steps.push({ iteration, action: 'thinking', timestamp: new Date().toISOString() });
       this._persistSteps(runId, steps);
+      this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
       const decision = await this._askManager(managerConfig, currentPrompt);
       
@@ -256,6 +257,7 @@ class ManagerAgent extends EventEmitter {
         finalResult = action.result;
         steps.push({ iteration, action: 'complete', result: action.result, timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
+        this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
         break;
       }
 
@@ -272,11 +274,13 @@ class ManagerAgent extends EventEmitter {
 
         steps.push({ iteration, action: 'run_agent', agentId: action.agentId, prompt: action.prompt, timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
+        this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
         // Execute the sub-agent and gather output
         const agentResult = await this._runSubAgent(action.agentId, action.prompt);
         steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
+        this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
         // Feed result back to manager for next decision — include full output so manager can pass it forward
         context += `\n\n## Result from "${action.agentId}" (exit code: ${agentResult.exitCode})\n\`\`\`\n${agentResult.output}\n\`\`\``;

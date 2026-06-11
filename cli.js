@@ -125,9 +125,99 @@ class EventCLI {
       content
     });
 
-    const res = await this._httpPost(`${this.localUrl}/api/events/simulate`, body);
-    const result = JSON.parse(res);
-    return result.reply || { status: 'error', error: 'No reply from server' };
+    // Use streaming endpoint to show progress
+    return new Promise((resolve, reject) => {
+      const url = new URL(`${this.localUrl}/api/events/simulate/stream`);
+      const options = {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      };
+
+      const req = http.request(options, (res) => {
+        let reply = null;
+        let buffer = '';
+
+        res.on('data', (chunk) => {
+          buffer += chunk.toString();
+          // Parse SSE events from buffer
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line
+
+          let currentEvent = null;
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.substring(7);
+            } else if (line.startsWith('data: ') && currentEvent) {
+              try {
+                const data = JSON.parse(line.substring(6));
+                if (currentEvent === 'step') {
+                  this._printStep(data.step || data);
+                } else if (currentEvent === 'reply') {
+                  reply = data;
+                } else if (currentEvent === 'status') {
+                  // Initial status, ignore
+                }
+              } catch {}
+              currentEvent = null;
+            } else if (line === '') {
+              currentEvent = null;
+            }
+          }
+        });
+
+        res.on('end', () => {
+          resolve(reply || { status: 'error', error: 'No reply from server' });
+        });
+      });
+
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  _printStep(step) {
+    const icons = {
+      thinking: '🤔',
+      run_agent: '🚀',
+      agent_result: '📋',
+      complete: '✅',
+      error: '❌',
+      org_rejected: '🚫',
+      request_agent: '📨'
+    };
+    const icon = icons[step.action] || '•';
+
+    switch (step.action) {
+      case 'thinking':
+        process.stdout.write(`\r${icon} Step ${step.iteration}: Thinking...                    \n`);
+        break;
+      case 'run_agent':
+        process.stdout.write(`\r${icon} Step ${step.iteration}: Running agent "${step.agentId}"...\n`);
+        if (step.prompt) {
+          const shortPrompt = step.prompt.length > 120 ? step.prompt.substring(0, 120) + '...' : step.prompt;
+          process.stdout.write(`   Prompt: ${shortPrompt}\n`);
+        }
+        break;
+      case 'agent_result':
+        const status = step.exitCode === 0 ? 'succeeded' : `failed (exit ${step.exitCode})`;
+        process.stdout.write(`\r${icon} Step ${step.iteration}: Agent "${step.agentId}" ${status} (${step.outputLength} bytes)\n`);
+        break;
+      case 'complete':
+        // Don't print here — the final reply will be printed by _printReply
+        break;
+      case 'org_rejected':
+        process.stdout.write(`\r${icon} Step ${step.iteration}: Agent "${step.agentId}" rejected (not in org)\n`);
+        break;
+      case 'error':
+        process.stdout.write(`\r${icon} Step ${step.iteration}: Error: ${step.message}\n`);
+        break;
+      default:
+        process.stdout.write(`\r${icon} Step ${step.iteration}: ${step.action}\n`);
+    }
   }
 
   async _sendServiceBus(content) {
