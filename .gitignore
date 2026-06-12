@@ -2,7 +2,6 @@ node_modules/
 supervisor.db
 daemon/
 service.log
-plugins/.runtime/
 temp-terminal.bat
 .browse-folder.ps1
 .browse-result.txt
@@ -11,3 +10,9 @@ temp-email.eml
 .share-drafts/
 sync-config.json
 .config-backup/
+server-out.log
+server-err.log
+
+# Runtime plugin/mcp store now lives under ~/.copilot/agent-supervisor/
+/plugins/
+/mcp-configs/

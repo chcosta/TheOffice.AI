@@ -1,6 +1,0 @@
-{
-  "name": "teams-notifier",
-  "agents": "agents/",
-  "skills": "skills/",
-  "mcpServers": ".mcp.json"
-}

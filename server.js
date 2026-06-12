@@ -11,6 +11,35 @@ const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
 
+// Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
+// repo. The repo only ships built-in plugin seeds in builtin-plugins/.
+const SUPERVISOR_DATA_DIR = ConfigSync.SUPERVISOR_DATA_DIR;
+const PLUGINS_DIR = ConfigSync.PLUGINS_DIR;
+const MCP_CONFIGS_DIR = ConfigSync.MCP_CONFIGS_DIR;
+const BUILTIN_PLUGINS_DIR = path.join(__dirname, 'builtin-plugins');
+
+// One-time migration: move any legacy in-repo runtime dirs into the profile store.
+(function migrateRuntimeDirs() {
+  for (const dirName of ['plugins', 'mcp-configs']) {
+    const legacyDir = path.join(__dirname, dirName);
+    const targetDir = path.join(SUPERVISOR_DATA_DIR, dirName);
+    if (!fs.existsSync(legacyDir)) continue;
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+      for (const entry of fs.readdirSync(legacyDir, { withFileTypes: true })) {
+        // The built-in manager plugin is re-seeded separately; skip it.
+        if (dirName === 'plugins' && entry.name === 'manager') continue;
+        const dest = path.join(targetDir, entry.name);
+        if (fs.existsSync(dest)) continue; // don't clobber existing runtime data
+        fs.cpSync(path.join(legacyDir, entry.name), dest, { recursive: true });
+      }
+      console.log(`[supervisor] Migrated legacy ${dirName}/ into runtime store`);
+    } catch (e) {
+      console.warn(`[supervisor] Could not migrate ${dirName}/:`, e.message);
+    }
+  }
+})();
+
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
 const PORT = process.env.PORT || 3847;
@@ -39,17 +68,27 @@ if (!process.env.COPILOT_PATH) {
 (function ensureManagerPlugin() {
   const homeDir = process.env.USERPROFILE || process.env.HOME;
   const configPath = path.join(homeDir, '.copilot', 'config.json');
-  const pluginsDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
-  const managerPluginDir = path.join(__dirname, 'plugins', 'manager');
-  const targetDir = path.join(pluginsDir, 'manager');
+  const installedDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+  const builtinManager = path.join(BUILTIN_PLUGINS_DIR, 'manager');
+  const runtimeManager = path.join(PLUGINS_DIR, 'manager');
+  const targetDir = path.join(installedDir, 'manager');
 
-  if (!fs.existsSync(managerPluginDir)) return;
+  // Seed the built-in manager plugin from the repo into the runtime store.
+  try {
+    if (fs.existsSync(builtinManager) && !fs.existsSync(runtimeManager)) {
+      fs.mkdirSync(PLUGINS_DIR, { recursive: true });
+      fs.cpSync(builtinManager, runtimeManager, { recursive: true });
+      console.log('[supervisor] Seeded manager plugin into runtime store');
+    }
+  } catch (e) { console.warn('[supervisor] Could not seed manager plugin:', e.message); }
+
+  if (!fs.existsSync(runtimeManager)) return;
 
   // Create junction if missing
   if (!fs.existsSync(targetDir)) {
     try {
-      fs.mkdirSync(pluginsDir, { recursive: true });
-      require('child_process').execSync(`mklink /J "${targetDir}" "${managerPluginDir}"`, { shell: true });
+      fs.mkdirSync(installedDir, { recursive: true });
+      require('child_process').execSync(`mklink /J "${targetDir}" "${runtimeManager}"`, { shell: true });
       console.log('[supervisor] Created manager plugin junction');
     } catch (e) { console.warn('[supervisor] Could not create manager plugin junction:', e.message); }
   }
@@ -125,6 +164,19 @@ setInterval(() => eventListener.cleanupIdleSessions(), 60000);
 // Load agent configs
 function loadAgents() {
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  // Normalize any pluginDir still pointing at the legacy in-repo plugins/ folder
+  // to the relocated runtime store. Persist once so the scan/paths stay clean.
+  const legacyPluginsDir = path.join(__dirname, 'plugins');
+  let normalized = false;
+  for (const agent of agents) {
+    if (agent.pluginDir && agent.pluginDir.startsWith(legacyPluginsDir)) {
+      agent.pluginDir = path.join(PLUGINS_DIR, path.basename(agent.pluginDir));
+      normalized = true;
+    }
+  }
+  if (normalized) {
+    try { fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2)); } catch {}
+  }
   agents.forEach(agent => supervisor.register(agent));
   return agents;
 }
@@ -432,7 +484,7 @@ app.post('/api/plugins/install', (req, res) => {
       }
       const pluginMeta = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
       const pluginName = pluginMeta.name;
-      const overlayDir = path.join(__dirname, 'plugins', pluginName);
+      const overlayDir = path.join(PLUGINS_DIR, pluginName);
 
       // Copy plugin to overlay directory
       if (fs.existsSync(overlayDir)) {
@@ -1180,7 +1232,7 @@ app.post('/api/agents/:id/edit-source', (req, res) => {
   const config = entry.config;
   // Prefer sourceDir (original source), then infer from cwd, then pluginDir, then cwd
   let targetDir = config.sourceDir;
-  if (!targetDir && config.pluginDir && config.pluginDir.includes(path.join(__dirname, 'plugins'))) {
+  if (!targetDir && config.pluginDir && config.pluginDir.includes(PLUGINS_DIR)) {
     const pluginName = path.basename(config.pluginDir);
     const candidate = path.join(config.cwd || '', '.github', 'plugin', pluginName);
     if (fs.existsSync(candidate)) targetDir = candidate;
@@ -1203,7 +1255,7 @@ app.get('/api/agents/:id/check-update', (req, res) => {
   
   // If no explicit sourceDir, try to infer: if pluginDir is under our plugins/ folder,
   // check if there's a matching .github/plugin/<name> in the agent's cwd
-  if (!sourceDir && pluginDir && pluginDir.includes(path.join(__dirname, 'plugins'))) {
+  if (!sourceDir && pluginDir && pluginDir.includes(PLUGINS_DIR)) {
     const pluginName = path.basename(pluginDir);
     const candidate = path.join(config.cwd || '', '.github', 'plugin', pluginName);
     if (fs.existsSync(candidate)) sourceDir = candidate;
@@ -1268,7 +1320,7 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
   
   // If configured pluginDir doesn't exist, try resolving relative to server's plugins/ directory
   if (!fs.existsSync(pluginDir)) {
-    const localDir = path.join(__dirname, 'plugins', path.basename(pluginDir));
+    const localDir = path.join(PLUGINS_DIR, path.basename(pluginDir));
     if (fs.existsSync(localDir)) {
       pluginDir = localDir;
     }
@@ -2012,8 +2064,8 @@ app.get('/api/export', (req, res) => {
     zip.addFile(eventsConfigPath, 'events-config.json');
   }
 
-  // plugins directory
-  const pluginsDir = path.join(__dirname, 'plugins');
+  // plugins directory (runtime store in user profile)
+  const pluginsDir = PLUGINS_DIR;
   if (fs.existsSync(pluginsDir)) {
     const addDir = (dir, prefix) => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -2026,8 +2078,8 @@ app.get('/api/export', (req, res) => {
     addDir(pluginsDir, 'plugins');
   }
 
-  // mcp-configs directory
-  const mcpDir = path.join(__dirname, 'mcp-configs');
+  // mcp-configs directory (runtime store in user profile)
+  const mcpDir = MCP_CONFIGS_DIR;
   if (fs.existsSync(mcpDir)) {
     const addDir = (dir, prefix) => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -2111,7 +2163,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
         // Rewrite pluginDir to local plugins/ directory if it's an absolute path from another machine
         if (agent.pluginDir) {
           const pluginName = path.basename(agent.pluginDir);
-          const localPluginDir = path.join(__dirname, 'plugins', pluginName);
+          const localPluginDir = path.join(PLUGINS_DIR, pluginName);
           if (agent.pluginDir !== localPluginDir) {
             agent.pluginDir = localPluginDir;
           }
@@ -2145,7 +2197,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     let pluginCount = 0;
     for (const [filePath, content] of Object.entries(entries)) {
       if (filePath.startsWith('plugins/')) {
-        const destPath = path.join(__dirname, filePath.replace(/\//g, path.sep));
+        const destPath = path.join(SUPERVISOR_DATA_DIR, filePath.replace(/\//g, path.sep));
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         fs.writeFileSync(destPath, content);
         pluginCount++;
@@ -2157,7 +2209,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     if (pluginCount > 0 && copilotPath) {
       const { execSync } = require('child_process');
       const os = require('os');
-      const pluginsDir = path.join(__dirname, 'plugins');
+      const pluginsDir = PLUGINS_DIR;
       const pluginDirs = fs.readdirSync(pluginsDir, { withFileTypes: true })
         .filter(d => d.isDirectory())
         .map(d => path.join(pluginsDir, d.name));
@@ -2192,7 +2244,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     let mcpCount = 0;
     for (const [filePath, content] of Object.entries(entries)) {
       if (filePath.startsWith('mcp-configs/')) {
-        const destPath = path.join(__dirname, filePath.replace(/\//g, path.sep));
+        const destPath = path.join(SUPERVISOR_DATA_DIR, filePath.replace(/\//g, path.sep));
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         fs.writeFileSync(destPath, content);
         mcpCount++;
@@ -2626,7 +2678,7 @@ app.post('/api/managers/:id/edit-agent', (req, res) => {
   if (!entry) return res.status(404).json({ error: 'Manager not found' });
   const agentRef = entry.config.agent || 'manager:manager';
   const [plugin, agent] = agentRef.split(':');
-  const agentFile = path.join(__dirname, 'plugins', plugin, 'agents', `${agent}.agent.md`);
+  const agentFile = path.join(PLUGINS_DIR, plugin, 'agents', `${agent}.agent.md`);
   if (!fs.existsSync(agentFile)) return res.status(404).json({ error: `Agent file not found: ${agentFile}` });
   const { spawn: sp } = require('child_process');
   sp('code-insiders', [agentFile], { shell: true, detached: true, stdio: 'ignore' }).unref();
@@ -2635,7 +2687,7 @@ app.post('/api/managers/:id/edit-agent', (req, res) => {
 
 // List available manager agent variants
 app.get('/api/manager-agents', (req, res) => {
-  const agentsDir = path.join(__dirname, 'plugins', 'manager', 'agents');
+  const agentsDir = path.join(PLUGINS_DIR, 'manager', 'agents');
   if (!fs.existsSync(agentsDir)) return res.json([]);
   const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
   const variants = files.map(f => {

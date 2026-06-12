@@ -22,6 +22,23 @@ const LEADER_REQUEST_TTL = 120; // seconds — ignore handoff requests older tha
 const SYNCED_FILES = ['agents.json', 'managers.json', 'events-config.json'];
 const SYNCED_DIRS = ['plugins', 'mcp-configs'];
 
+// Synced directories (plugins, mcp-configs) are per-user runtime data, NOT repo
+// source. They live under the user profile and are still cloud-synced across
+// machines. Overridable via SUPERVISOR_DATA_DIR.
+const SUPERVISOR_DATA_DIR = process.env.SUPERVISOR_DATA_DIR
+  || path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'agent-supervisor');
+const PLUGINS_DIR = path.join(SUPERVISOR_DATA_DIR, 'plugins');
+
+// Map a synced dir name to its on-disk location under the runtime data dir.
+function syncedDirPath(dirName) {
+  return path.join(SUPERVISOR_DATA_DIR, dirName);
+}
+// Base dir used to build clean relative labels for a synced dir's files
+// (e.g. "plugins\\foo\\bar.md" rather than an absolute profile path).
+function syncedDirLabelBase() {
+  return SUPERVISOR_DATA_DIR;
+}
+
 class ConfigSync {
   constructor(opts = {}) {
     this._config = this._loadSyncConfig();
@@ -386,15 +403,15 @@ class ConfigSync {
         }
       }
     }
-    // Check plugins for absolute paths
-    const pluginsDir = path.join(__dirname, 'plugins');
+    // Check plugins for absolute paths (runtime store in user profile)
+    const pluginsDir = syncedDirPath('plugins');
     if (fs.existsSync(pluginsDir)) {
-      this._scanDirForPaths(pluginsDir, issues);
+      this._scanDirForPaths(pluginsDir, issues, syncedDirLabelBase());
     }
-    // Check mcp-configs for paths
-    const mcpDir = path.join(__dirname, 'mcp-configs');
+    // Check mcp-configs for paths (also under the runtime data dir)
+    const mcpDir = syncedDirPath('mcp-configs');
     if (fs.existsSync(mcpDir)) {
-      this._scanDirForPaths(mcpDir, issues);
+      this._scanDirForPaths(mcpDir, issues, syncedDirLabelBase());
     }
     return issues;
   }
@@ -508,9 +525,9 @@ class ConfigSync {
 
     // plugin/mcp files — replace the path string wherever it occurs.
     for (const dirName of ['plugins', 'mcp-configs']) {
-      const dirPath = path.join(__dirname, dirName);
+      const dirPath = syncedDirPath(dirName);
       if (!fs.existsSync(dirPath)) continue;
-      this._replacePathInDir(dirPath, oldPath, newPath, changedFiles);
+      this._replacePathInDir(dirPath, oldPath, newPath, changedFiles, syncedDirLabelBase());
     }
 
     // Leader pushes the fix so other machines pick it up.
@@ -518,17 +535,18 @@ class ConfigSync {
     return { success: true, existsOnDisk, changedAgents, changedFiles, remaining: this.scanUnresolvedPaths() };
   }
 
-  _replacePathInDir(dir, oldPath, newPath, changedFiles) {
+  _replacePathInDir(dir, oldPath, newPath, changedFiles, baseDir) {
+    baseDir = baseDir || __dirname;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        this._replacePathInDir(full, oldPath, newPath, changedFiles);
+        this._replacePathInDir(full, oldPath, newPath, changedFiles, baseDir);
       } else if (entry.name.endsWith('.json') || entry.name.endsWith('.md')) {
         try {
           const content = fs.readFileSync(full, 'utf-8');
           if (content.includes(oldPath)) {
             fs.writeFileSync(full, content.split(oldPath).join(newPath));
-            changedFiles.push(path.relative(__dirname, full));
+            changedFiles.push(path.relative(baseDir, full));
           }
         } catch {}
       }
@@ -917,7 +935,7 @@ class ConfigSync {
           const dl = await blob.download(0);
           const text = await this._streamToString(dl.readableStreamBody);
           const files = JSON.parse(text); // {relativePath: content} map
-          const destDir = path.join(__dirname, dirName);
+          const destDir = syncedDirPath(dirName);
           fs.mkdirSync(destDir, { recursive: true });
           for (const [relPath, content] of Object.entries(files)) {
             const fullPath = path.join(destDir, relPath.replace(/\//g, path.sep));
@@ -957,7 +975,7 @@ class ConfigSync {
     }
     // Synced directories (as JSON file maps — simpler than actual tar)
     for (const dirName of SYNCED_DIRS) {
-      const dirPath = path.join(__dirname, dirName);
+      const dirPath = syncedDirPath(dirName);
       if (fs.existsSync(dirPath)) {
         const files = {};
         this._collectFiles(dirPath, '', files);
@@ -1079,11 +1097,12 @@ class ConfigSync {
     }
   }
 
-  _scanDirForPaths(dir, issues) {
+  _scanDirForPaths(dir, issues, baseDir) {
+    baseDir = baseDir || __dirname;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        this._scanDirForPaths(fullPath, issues);
+        this._scanDirForPaths(fullPath, issues, baseDir);
       } else if (entry.name.endsWith('.json') || entry.name.endsWith('.md')) {
         try {
           const content = fs.readFileSync(fullPath, 'utf-8');
@@ -1093,11 +1112,11 @@ class ConfigSync {
           const unresolvedRefs = content.match(/\$\{[^}]+\}/g) || [];
           for (const p of [...winPaths, ...unixPaths]) {
             if (!fs.existsSync(p)) {
-              issues.push({ file: path.relative(__dirname, fullPath), field: 'content', path: p });
+              issues.push({ file: path.relative(baseDir, fullPath), field: 'content', path: p });
             }
           }
           for (const ref of unresolvedRefs) {
-            issues.push({ file: path.relative(__dirname, fullPath), field: 'unresolved-ref', path: ref });
+            issues.push({ file: path.relative(baseDir, fullPath), field: 'unresolved-ref', path: ref });
           }
         } catch {}
       }
@@ -1114,3 +1133,7 @@ class ConfigSync {
 }
 
 module.exports = ConfigSync;
+module.exports.SUPERVISOR_DATA_DIR = SUPERVISOR_DATA_DIR;
+module.exports.PLUGINS_DIR = PLUGINS_DIR;
+module.exports.MCP_CONFIGS_DIR = path.join(SUPERVISOR_DATA_DIR, 'mcp-configs');
+module.exports.syncedDirPath = syncedDirPath;

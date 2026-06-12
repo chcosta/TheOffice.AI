@@ -1,6 +1,0 @@
-{
-  "name": "email-sender",
-  "agents": "agents/",
-  "skills": "skills/",
-  "mcpServers": ".mcp.json"
-}

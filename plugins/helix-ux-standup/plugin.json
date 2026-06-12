@@ -1,7 +1,0 @@
-{
-  "name": "helix-ux-standup",
-  "description": "Helix UX Standup facilitator with AzDO integration",
-  "version": "1.0.0",
-  "agents": "agents/",
-  "mcpServers": ".mcp.json"
-}
