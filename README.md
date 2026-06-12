@@ -1,194 +1,307 @@
 # Copilot Agent Supervisor
 
-A local service that manages and schedules Copilot CLI agent sessions with a web dashboard.
+An intelligent orchestration platform for GitHub Copilot CLI agents. Schedule, monitor, and chain AI agents together — with Managers that coordinate multi-agent workflows, real-time chat, cloud sync, and a full web dashboard.
 
 ![Dashboard](docs/dashboard.png)
 
-## Prerequisites
+## Highlights
 
-- **Node.js** v18+ — [https://nodejs.org](https://nodejs.org)
-- **GitHub Copilot CLI** — installed globally via `npm install -g @githubnext/github-copilot-cli` (or available at a custom path set in `agents.json`)
-- **Windows 10/11** — the dashboard uses Windows-specific features (Scheduled Tasks, `start` command, PowerShell folder picker)
-- **Git** (optional) — for version-controlling your `agents.json` and plugin overlays
+- 🤖 **Manager Orchestration** — AI-powered managers coordinate multiple agents, analyzing output and routing work
+- 💬 **Interactive Chat** — Talk to any agent or manager in real-time with streaming responses and auto-retry
+- 📅 **Rich Scheduling** — Human-readable schedules, cron, intervals, and manager assignments
+- ☁️ **Cloud Sync** — Sync configuration across machines via Azure Blob Storage with leader election
+- 🔗 **Event System** — Azure Service Bus integration for cross-system event-driven automation
+- 📊 **Activity Timeline** — Full execution history with output capture and error visibility
+- 🔌 **Plugin System** — Extend agents with MCP servers for tools, APIs, and external integrations
+
+---
 
 ## Quick Start
 
 ```bash
-cd C:\repos\sessions
 npm install
 npm start
 ```
 
-Dashboard: http://localhost:3847
+Open **http://localhost:3847** in your browser.
 
-## Features
+## Prerequisites
 
-- **Rich scheduling** — simple intervals (`30m`, `1h`), human-readable (`weekdays at 9am`), or cron expressions
-- **Web dashboard** — view status, last results, errors, start/stop agents, change schedules
-- **Durable agents** — marked agents always restart on service boot and retry on failure
-- **Resume sessions** — the Terminal button drops you directly into the Copilot CLI session where an agent left off, so you can continue the conversation interactively
-- **Session browser** — view all past sessions grouped by agent, with timestamps, turn counts, and output previews
-- **Focus mode** — open any agent's last output in a clean, full-screen modal for easy reading
-- **Markdown rendering** — agent output is rendered as formatted markdown with headings, links, lists, and code blocks
-- **Template-driven triggers** — chain agents together and pass output/metadata between them using `{{ trigger.output }}` syntax
-- **Email reports** — send any agent's last output as a formatted HTML email with one click
-- **Inline editing** — double-click to edit agent names, prompts, and schedules directly in the dashboard
-- **Session recovery** — on restart, recovers last output from Copilot session history so no results are lost
-- **Auto-reload** — external edits to `agents.json` are picked up automatically (no restart needed)
-- **Error visibility** — stderr displayed in red, auto-expanded on errors
-- **Run history** — SQLite-backed log of all executions with output capture
-- **REST API** — full programmatic control
-- **VS Code integration** — button to open project in VS Code Insiders
+- **Node.js** v18+
+- **GitHub Copilot CLI** — installed globally or at a custom path
+- **Windows 10/11** — uses Windows-specific features (Scheduled Tasks, PowerShell)
+- **Azure account** (optional) — for Service Bus events and cloud sync
 
-### Session Browser
+---
 
-Browse all past agent sessions with filtering and search. Each session shows the prompt used, turn count, and a preview of the output.
+## Core Features
 
-![Sessions](docs/sessions.png)
+### 🏠 Dashboard
 
-### Focus Mode
+The home page provides a real-time overview of all running agents, recent activity, and system health at a glance.
 
-Open any agent's last output in a distraction-free full-screen view with rendered markdown.
+![Dashboard](docs/dashboard.png)
 
-![Focus Modal](docs/focus-modal.png)
+### 🤖 Managers
 
-## Install as Windows Scheduled Task (survives reboots/sleep)
+Managers are intelligent orchestrators that coordinate multiple agents. A manager can:
+- Run agents in sequence, passing output between them
+- Analyze results and make decisions about what to do next
+- Be assigned scheduled "assignments" (saved prompts on a schedule)
+- Be chatted with interactively for ad-hoc work
 
-Run from an **elevated (admin)** terminal:
+![Managers](docs/managers.png)
 
-```bash
-npm run install-service
+**Manager Detail** — Configure agents in the manager's organization, create assignments, view execution history:
+
+![Manager Detail](docs/manager-detail.png)
+
+### 🕵️ Agents
+
+Register and manage individual Copilot CLI agents. Each agent has a working directory, prompt, schedule, and optional triggers.
+
+![Agents](docs/agents.png)
+
+### 💬 Chat
+
+Interactive conversations with any agent or manager. Supports streaming responses, markdown rendering, auto-retry on failures, and a "Continue" button for recovering from errors.
+
+![Chat](docs/chat-conversation.png)
+
+### 📡 Events
+
+Azure Service Bus integration for event-driven automation. Configure listeners that trigger agents when messages arrive on specific topics/queues.
+
+![Events](docs/events.png)
+
+### 📊 Activity
+
+Reverse-chronological timeline of all agent and manager executions. Filter by status, see durations, and drill into output.
+
+![Activity](docs/activity.png)
+
+### ⚙️ Settings
+
+Cloud sync configuration, system info, and keyboard shortcuts. Configure Azure Blob Storage for multi-machine sync with automatic leader election.
+
+![Settings](docs/settings.png)
+
+---
+
+## Manager Orchestration
+
+Managers are the key differentiator — they're AI agents themselves that understand how to coordinate other agents.
+
+### Example: Azure Monitor → Email Alert
+
+```
+Manager: "Helix Ops Manager"
+Organization: [Azure Monitor Agent, Email Sender Agent]
+Assignment: "Check Azure health, if issues found, email chcosta@microsoft.com"
+Schedule: "every 15 minutes"
 ```
 
-This creates a Windows Scheduled Task with:
-- **Logon trigger** — starts when you sign in
-- **5-minute watchdog** — restarts the service if it dies (sleep, crash, etc.)
-- **`MultipleInstances=IgnoreNew`** — prevents duplicate processes
+The manager will:
+1. Run the Azure Monitor agent
+2. Analyze the output — is Azure healthy?
+3. If unhealthy → invoke the Email Sender agent with the health report
+4. All decisions are made by the manager's AI, not hardcoded logic
 
-To remove:
-```bash
-npm run uninstall-service
-```
-
-## Configuration
-
-Edit `agents.json` to add/remove agents:
+### Creating a Manager
 
 ```json
 {
-  "id": "my-agent",
-  "name": "My Agent Display Name",
-  "cwd": "C:\\repos\\my-repo",
-  "agent": "Agent Display Name",
-  "schedule": "weekdays at 9am",
-  "prompt": "do the thing",
-  "durable": true,
-  "copilotPath": "C:\\Users\\you\\AppData\\Roaming\\npm\\copilot.cmd",
-  "triggers": {
-    "onSuccess": ["other-agent-id"],
-    "onFailure": ["alert-agent-id"]
-  }
+  "id": "my-manager",
+  "name": "My Operations Manager",
+  "agents": ["agent-1", "agent-2"],
+  "plugins": ["mcp-server-tool"],
+  "assignments": [
+    {
+      "id": "daily-check",
+      "name": "Daily Health Check",
+      "prompt": "Run health check, summarize findings, alert if critical",
+      "schedule": "weekdays at 9am"
+    }
+  ]
 }
 ```
 
-### Conditional triggers
+---
 
-Agents can trigger other agents based on their exit status:
+## Cloud Sync & Leader Election
 
-```json
-"triggers": {
-  "onSuccess": ["deploy-agent"],
-  "onFailure": ["alert-agent", "rollback-agent"],
-  "onComplete": ["cleanup-agent"]
-}
-```
+Sync your configuration across multiple machines with only one running scheduled tasks at a time.
 
-| Trigger | Fires when |
-|---------|------------|
-| `onSuccess` | Agent exits with code 0 |
-| `onFailure` | Agent exits with non-zero code |
-| `onComplete` | Agent finishes regardless of exit code |
+### How it works
 
-Each trigger value can be a single agent ID string or an array. Triggers are displayed in the dashboard with colored badges (green for success, red for failure, blue for complete).
+1. **First machine** saves sync settings → acquires blob lease → becomes **Leader** → auto-pushes config
+2. **Second machine** connects → lease held → becomes **Standby** → pulls config from cloud
+3. **Leader dies** → lease expires (60s) → standby acquires lease → promoted to leader
+4. **Force takeover** — "Take Leadership" button for manual failover
 
-### Template variables in triggered prompts
+### What syncs
+- `agents.json`, `managers.json`, `events-config.json`
+- `plugins/` and `mcp-configs/` directories
+- Path profiles (machine-specific path mappings)
 
-Triggered agents can reference data from the agent that triggered them using `{{ }}` template syntax in their prompt:
+### What stays local
+- SQLite database (run history)
+- Chat sessions
+- `sync-config.json` (per-machine)
 
-```json
-{
-  "id": "alert-analyzer",
-  "prompt": "Here's our health report:\n\n{{ trigger.output }}\n\nAnalyze to see if we need to alert the team.",
-  "triggers": {}
-}
-```
+---
 
-**Available variables:**
+## Event-Driven Automation
 
-| Variable | Description |
-|----------|-------------|
-| `{{ trigger.output }}` | Full output from the triggering agent |
-| `{{ trigger.name }}` | Display name of the triggering agent |
-| `{{ trigger.id }}` | Agent ID of the triggering agent |
-| `{{ trigger.exitCode }}` | Exit code (0 = success) |
-| `{{ trigger.prompt }}` | Prompt that was used for the triggering run |
-| `{{ trigger.startedAt }}` | ISO timestamp when the triggering run started |
-| `{{ trigger.finishedAt }}` | ISO timestamp when it finished |
-| `{{ chain[N].output }}` | Output from the Nth agent in the chain (0 = earliest) |
-| `{{ chain[N].name }}` | Name of the Nth agent in the chain |
-| `{{ chain.length }}` | Number of prior agents in the chain |
+Connect to Azure Service Bus for cross-system event processing:
 
-**Chain context:** When triggers form a chain (A → B → C), each downstream agent sees the full history. Agent C's `trigger` is B, and `chain[0]` is A. Unresolved variables (typos, missing data) are left as-is.
+- **Topics & Subscriptions** — listen for events from external systems
+- **Agent Triggers** — automatically run agents when events arrive
+- **Dead Letter Handling** — failed events are preserved for debugging
 
-**Example chain:**
-```json
-[
-  { "id": "health-check", "prompt": "Check system health", "triggers": { "onComplete": ["analyzer"] } },
-  { "id": "analyzer", "prompt": "Report: {{ trigger.output }}. If critical, summarize for alerting.", "triggers": { "onSuccess": ["notifier"] } },
-  { "id": "notifier", "prompt": "Original health: {{ chain[0].output }}\nAnalysis: {{ trigger.output }}\nSend notification if needed." }
-]
-```
+---
+
+## Scheduling
 
 ### Schedule formats
 
 | Format | Example | Description |
 |--------|---------|-------------|
-| Simple interval | `30m`, `1h`, `2h` | Cron-aligned to clock boundaries |
-| Human-readable | `every hour at :30` | At 30 minutes past each hour |
-| Day schedule | `weekdays at 7am and 9pm` | Mon-Fri at 7am and 9pm |
+| Simple interval | `30m`, `1h`, `2h` | Aligned to clock boundaries |
+| Human-readable | `every hour at :30` | At 30 past each hour |
+| Day schedule | `weekdays at 7am and 9pm` | Mon–Fri at those times |
 | Day list | `M,T,W,Th,F at 9am` | Specific days |
-| Every N | `every 15 minutes` | Every 15 minutes |
-| Cron expression | `0 7,21 * * 1-5` | Standard 5-field cron |
+| Every N | `every 15 minutes` | Fixed interval |
+| Cron | `0 7,21 * * 1-5` | Standard 5-field cron |
 
-### Agent config fields
+---
+
+## Trigger Chains
+
+Agents can trigger other agents based on exit status with full output forwarding:
+
+```json
+"triggers": {
+  "onSuccess": ["deploy-agent"],
+  "onFailure": ["alert-agent"],
+  "onComplete": ["cleanup-agent"]
+}
+```
+
+### Template variables
+
+Triggered agents can reference output from upstream agents:
+
+| Variable | Description |
+|----------|-------------|
+| `{{ trigger.output }}` | Full output from the triggering agent |
+| `{{ trigger.name }}` | Name of the triggering agent |
+| `{{ trigger.exitCode }}` | Exit code (0 = success) |
+| `{{ chain[N].output }}` | Output from the Nth agent in the chain |
+| `{{ chain.length }}` | Number of prior agents in the chain |
+
+---
+
+## Configuration
+
+### Agent config (`agents.json`)
+
+```json
+{
+  "id": "my-agent",
+  "name": "My Agent",
+  "cwd": "C:\\repos\\my-repo",
+  "agent": "copilot-agent-name",
+  "schedule": "weekdays at 9am",
+  "prompt": "do the thing",
+  "durable": true,
+  "triggers": { "onSuccess": ["next-agent"] }
+}
+```
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `id` | Yes | Unique identifier |
-| `name` | Yes | Display name in dashboard |
-| `cwd` | Yes | Working directory for copilot CLI |
-| `agent` | Yes | Agent name (as shown in `copilot --help` or agent list) |
-| `schedule` | Yes | Schedule expression (see formats above) |
-| `prompt` | Yes | Prompt text sent to the agent each run |
-| `durable` | No | If `true`, always starts on boot regardless of DB state |
-| `copilotPath` | No | Full path to `copilot.cmd` (auto-resolved if omitted) |
-| `allowAll` | No | If `false`, omits `--yolo` flag (default: `true`) |
-| `triggers` | No | Conditional triggers: `{ onSuccess, onFailure, onComplete }` |
+| `name` | Yes | Display name |
+| `cwd` | Yes | Working directory |
+| `agent` | Yes | Copilot agent name |
+| `schedule` | Yes | Schedule expression |
+| `prompt` | Yes | Prompt text |
+| `durable` | No | Auto-start on boot |
+| `triggers` | No | `{ onSuccess, onFailure, onComplete }` |
+
+---
+
+## Install as Windows Service
+
+```bash
+npm run install-service    # Runs on logon + 5-min watchdog
+npm run uninstall-service  # Remove
+```
+
+---
+
+## CLI
+
+```bash
+npm start              # Start the server
+npm run dev            # Start with file watching
+npm run install-service   # Install as Windows Scheduled Task
+npm run uninstall-service # Remove scheduled task
+```
+
+---
 
 ## API
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/agents` | List all agents with status |
-| GET | `/api/agents/:id` | Get single agent status |
-| GET | `/api/agents/:id/history` | Get run history |
-| POST | `/api/agents/:id/start` | Start scheduled agent |
-| POST | `/api/agents/:id/stop` | Stop agent |
+| POST | `/api/agents` | Add new agent |
+| GET | `/api/agents/:id` | Get agent status |
 | POST | `/api/agents/:id/run` | Trigger immediate run |
-| PUT | `/api/agents/:id/schedule` | Update schedule (persists to `agents.json`) |
-| PUT | `/api/agents/:id/triggers` | Update triggers (persists to `agents.json`) |
-| POST | `/api/agents` | Add new agent (JSON body) |
-| DELETE | `/api/agents/:id` | Remove agent |
-| POST | `/api/reload` | Reload agents.json |
-| POST | `/api/schedule/describe` | Describe a schedule string |
-| POST | `/api/open-editor` | Open project in VS Code Insiders |
+| PUT | `/api/agents/:id/schedule` | Update schedule |
+| GET | `/api/managers` | List all managers |
+| POST | `/api/managers` | Create manager |
+| POST | `/api/managers/:id/chat` | Chat with manager |
+| POST | `/api/managers/:id/assignments/:aid/run` | Run assignment |
+| GET | `/api/chats` | List chat sessions |
+| GET | `/api/activity` | Execution timeline |
+| GET | `/api/sync/status` | Cloud sync status |
+| POST | `/api/sync/push` | Push config to cloud |
+| POST | `/api/sync/pull` | Pull config from cloud |
+| POST | `/api/export` | Export all configuration |
+| POST | `/api/import` | Import configuration |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Web Dashboard                      │
+│         (Alpine.js SPA @ localhost:3847)             │
+└──────────────────────┬──────────────────────────────┘
+                       │ REST + SSE
+┌──────────────────────▼──────────────────────────────┐
+│                   server.js                          │
+│        Express API + Real-time Event Stream         │
+├─────────────┬────────────────┬──────────────────────┤
+│ supervisor  │   manager.js   │   config-sync.js     │
+│   .js       │                │                      │
+│ Scheduling  │ Orchestration  │  Cloud Sync +        │
+│ & Execution │ & Chat         │  Leader Election     │
+├─────────────┴────────────────┴──────────────────────┤
+│            Copilot CLI (child processes)             │
+│         GitHub Copilot AI Agent Runtime             │
+└─────────────────────────────────────────────────────┘
+         │                              │
+    Azure Service Bus              Azure Blob Storage
+    (Event Listeners)              (Config Sync)
+```
+
+---
+
+## License
+
+Private — internal use only.
