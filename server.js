@@ -1293,6 +1293,60 @@ function saveTasks(tasks) {
   if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (tasks) failed:', e.message));
 }
 
+// ---- Task scheduler ----
+// Tasks are the unit of scheduled work for an agent (agents themselves are chatted
+// with, not self-scheduled). A scheduled task fires its agent with the task's prompt,
+// mirroring how the supervisor schedules agents and the manager schedules assignments.
+// Manual runs still work via POST /api/tasks/:id/run.
+const { Cron: TaskCron } = require('croner');
+const { parseSchedule: parseTaskSchedule } = require('./scheduler');
+const taskJobs = new Map(); // taskId -> { stop() }
+
+function runScheduledTask(task) {
+  if (!leaderCheck()) return;
+  const entry = supervisor.agents.get(task.agentId);
+  if (!entry) {
+    console.warn(`[task-scheduler] Agent "${task.agentId}" not found for task "${task.name}"`);
+    return;
+  }
+  const originalPrompt = entry.config.prompt;
+  entry.config.prompt = task.prompt;
+  try { supervisor._executeAgent(task.agentId); }
+  finally { entry.config.prompt = originalPrompt; }
+  broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId, scheduled: true });
+  console.log(`[task-scheduler] Ran scheduled task "${task.name}" → ${task.agentId}`);
+}
+
+function unscheduleTask(taskId) {
+  const job = taskJobs.get(taskId);
+  if (job) { try { job.stop(); } catch {} taskJobs.delete(taskId); }
+}
+
+function scheduleTask(task) {
+  unscheduleTask(task.id);
+  if (!task || task.enabled === false) return;
+  if (!task.schedule || String(task.schedule).toLowerCase() === 'never') return;
+  let parsed;
+  try { parsed = parseTaskSchedule(task.schedule); }
+  catch (e) { console.warn(`[task-scheduler] Bad schedule for "${task.name}": ${e.message}`); return; }
+  if (parsed.type === 'cron') {
+    taskJobs.set(task.id, new TaskCron(parsed.cron, () => runScheduledTask(task)));
+  } else if (parsed.type === 'interval') {
+    const timer = setInterval(() => runScheduledTask(task), parsed.ms);
+    taskJobs.set(task.id, { stop: () => clearInterval(timer) });
+  } else {
+    return;
+  }
+  console.log(`[task-scheduler] Scheduled task "${task.name}": ${parsed.description}`);
+}
+
+function rescheduleAllTasks() {
+  for (const id of [...taskJobs.keys()]) unscheduleTask(id);
+  for (const task of loadTasks()) scheduleTask(task);
+}
+// Activate schedules for any already-saved tasks at startup.
+rescheduleAllTasks();
+
 app.get('/api/tasks', (req, res) => {
   res.json(loadTasks());
 });
@@ -1317,6 +1371,7 @@ app.post('/api/tasks', (req, res) => {
   const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, createdAt: new Date().toISOString() };
   tasks.push(task);
   saveTasks(tasks);
+  scheduleTask(task);
   broadcastSSE('task-created', task);
   res.status(201).json(task);
 });
@@ -1339,6 +1394,7 @@ app.put('/api/tasks/:id', (req, res) => {
   if (enabled !== undefined) tasks[idx].enabled = enabled;
   tasks[idx].updatedAt = new Date().toISOString();
   saveTasks(tasks);
+  scheduleTask(tasks[idx]);
   broadcastSSE('task-updated', tasks[idx]);
   res.json(tasks[idx]);
 });
@@ -1348,6 +1404,7 @@ app.delete('/api/tasks/:id', (req, res) => {
   const filtered = tasks.filter(t => t.id !== req.params.id);
   if (filtered.length === tasks.length) return res.status(404).json({ error: 'Task not found' });
   saveTasks(filtered);
+  unscheduleTask(req.params.id);
   broadcastSSE('task-deleted', { id: req.params.id });
   res.json({ ok: true });
 });
