@@ -69,6 +69,8 @@ class MobileHandler extends EventEmitter {
         return this._runAgent(correlationId, sessionId, payload, replier);
       case 'chat':
         return this._chat(correlationId, sessionId, payload, replier);
+      case 'get-chat-history':
+        return this._getChatHistory(correlationId, sessionId, payload, replier);
       case 'get-activity':
         return this._getActivity(correlationId, payload, replier);
       case 'get-status':
@@ -320,7 +322,16 @@ class MobileHandler extends EventEmitter {
         result = await this.managerAgent.executePrompt(targetId, message, null, { sync: true });
         result = result?.result || result?.output || '(no output)';
       } else {
-        result = await this._executeAgentWithStreaming(targetId, message, correlationId, replier);
+        // Build prompt with conversation history for context
+        let fullPrompt = message;
+        if (session.messages.length > 1) {
+          const history = session.messages.slice(-10, -1); // last 10 msgs excluding current
+          const historyText = history.map(m => 
+            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+          ).join('\n\n');
+          fullPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}\n\nRespond to the user's latest message, using the conversation history for context.`;
+        }
+        result = await this._executeAgentWithStreaming(targetId, fullPrompt, correlationId, replier);
       }
 
       session.messages.push({ role: 'assistant', content: result, timestamp: new Date().toISOString() });
@@ -341,6 +352,28 @@ class MobileHandler extends EventEmitter {
       });
     }
 
+    return true;
+  }
+
+  async _getChatHistory(correlationId, sessionId, payload, replier) {
+    const { targetId } = payload || {};
+    if (!targetId) {
+      await replier(correlationId, { type: 'error', error: 'targetId is required' });
+      return true;
+    }
+
+    const chatKey = `${sessionId || 'default'}:${targetId}`;
+    const session = this.chatSessions.get(chatKey);
+
+    await replier(correlationId, {
+      type: 'result',
+      payload: {
+        messages: session ? session.messages : [],
+        targetId,
+        targetType: session?.targetType || 'agent',
+        startedAt: session?.startedAt || null
+      }
+    });
     return true;
   }
 

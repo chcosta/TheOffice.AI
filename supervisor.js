@@ -199,10 +199,24 @@ class Supervisor extends EventEmitter {
       args.push('--additional-mcp-config', useShell ? `"${mcpArg}"` : mcpArg);
     }
     args.push('--agent', useShell ? `"${config.agent}"` : config.agent);
-    // On Windows with shell:true, args are concatenated without escaping.
-    // Wrap prompt in double quotes and escape inner quotes for cmd.exe.
-    const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
-    args.push('--prompt', safePrompt);
+
+    // For prompts with newlines or very long prompts, write to a temp file
+    // to avoid Windows cmd.exe limitations with special characters
+    let promptTempFile = null;
+    if (useShell && (prompt.includes('\n') || prompt.includes('\r') || prompt.length > 4000)) {
+      const os = require('os');
+      promptTempFile = path.join(os.tmpdir(), `copilot-prompt-${agentId}-${Date.now()}.txt`);
+      fs.writeFileSync(promptTempFile, prompt, 'utf8');
+      triggerFiles.push(promptTempFile);
+      // Read prompt from file using cmd substitution isn't reliable;
+      // Use a simple approach: replace newlines with spaces for the CLI arg
+      const flatPrompt = prompt.replace(/[\r\n]+/g, ' ').replace(/"/g, '\\"');
+      const safePrompt = `"${flatPrompt}"`;
+      args.push('--prompt', safePrompt);
+    } else {
+      const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
+      args.push('--prompt', safePrompt);
+    }
     args.push('-s');
     if (perms) args.push(perms);
 
