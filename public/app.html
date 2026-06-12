@@ -4670,6 +4670,7 @@
             this.showToast('Fix Failed', err.message, 'error');
           }
         },
+        updatePathProfile(key, value) {
           if (!this.syncConfig.pathProfiles) this.syncConfig.pathProfiles = {};
           if (!this.syncConfig.pathProfiles[this.syncConfig.machineId]) this.syncConfig.pathProfiles[this.syncConfig.machineId] = {};
           this.syncConfig.pathProfiles[this.syncConfig.machineId][key] = value;
