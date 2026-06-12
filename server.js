@@ -3352,7 +3352,15 @@ function _recordRelayDevice(deviceId, type) {
 async function pollRelay() {
   relayStatus.lastPollAt = new Date().toISOString();
   try {
-    const resp = await fetch(`${RELAY_URL}/api/messages/receive`, {
+    // Identify ourselves so the relay only hands us messages addressed to this
+    // machine (the device's chosen "listener"). The leader additionally drains
+    // the shared default queue for devices that haven't picked a listener yet.
+    const machineId = configSync.enabled ? configSync.machineId : null;
+    const isLeader = !configSync.enabled || configSync.isLeader;
+    const qs = new URLSearchParams();
+    if (machineId) qs.set('machineId', machineId);
+    qs.set('leader', String(isLeader));
+    const resp = await fetch(`${RELAY_URL}/api/messages/receive?${qs.toString()}`, {
       headers: { 'Authorization': `Bearer ${RELAY_ADMIN_KEY}` },
     });
     if (!resp.ok) {

@@ -86,7 +86,11 @@ app.get('/api/auth-test', validateApiKey, (req, res) => {
 // --- Message relay ---
 const messageQueues = new Map(); // key → messages[]
 
-// Phone sends a message to the server
+// Phone sends a message to the server.
+// Messages are routed to a per-machine inbound queue based on body.targetMachineId
+// so each device deterministically reaches the machine it has chosen as its
+// "listener". Messages with no target (or the '__leader__' sentinel) go to the
+// shared default queue, which is drained only by the leader.
 app.post('/api/messages/send', validateApiKey, (req, res) => {
   const message = {
     id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -95,23 +99,41 @@ app.post('/api/messages/send', validateApiKey, (req, res) => {
     timestamp: new Date().toISOString(),
   };
 
-  if (!messageQueues.has('inbound')) messageQueues.set('inbound', []);
-  messageQueues.get('inbound').push(message);
+  const target = req.body && req.body.targetMachineId;
+  const key = (target && target !== '__leader__') ? `inbound-${target}` : 'inbound';
+  if (!messageQueues.has(key)) messageQueues.set(key, []);
+  messageQueues.get(key).push(message);
 
-  const q = messageQueues.get('inbound');
+  const q = messageQueues.get(key);
   if (q.length > 100) q.splice(0, q.length - 100);
 
-  console.log(`[relay] Inbound from ${req.deviceId}: ${JSON.stringify(req.body).slice(0, 80)}`);
+  console.log(`[relay] Inbound from ${req.deviceId} → ${key}: ${JSON.stringify(req.body).slice(0, 80)}`);
   res.json({ status: 'queued', messageId: message.id });
 });
 
-// Server polls for inbound messages from devices
+// Server polls for inbound messages from devices.
+//   ?machineId=X  — drain that machine's dedicated queue (inbound-X)
+//   ?leader=true  — also drain the shared default queue (unrouted / '__leader__')
+// Omitting both preserves legacy behavior (drain default queue) so an
+// un-updated server keeps working.
 app.get('/api/messages/receive', validateApiKey, (req, res) => {
   if (req.authType !== 'admin') {
     return res.status(403).json({ error: 'Only server can receive inbound messages' });
   }
-  const queue = messageQueues.get('inbound') || [];
-  const messages = queue.splice(0, 10);
+  const machineId = req.query.machineId ? String(req.query.machineId) : null;
+  const isLeader = req.query.leader === 'true' || req.query.leader === '1';
+  const messages = [];
+
+  if (machineId) {
+    const q = messageQueues.get(`inbound-${machineId}`);
+    if (q && q.length) messages.push(...q.splice(0, 10));
+  }
+  // Default/unrouted queue is owned by the leader (and by legacy callers that
+  // pass no machineId at all, i.e. single-machine setups).
+  if (isLeader || !machineId) {
+    const dq = messageQueues.get('inbound');
+    if (dq && dq.length) messages.push(...dq.splice(0, Math.max(0, 10 - messages.length)));
+  }
   res.json({ messages });
 });
 
