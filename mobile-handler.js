@@ -38,22 +38,7 @@ class MobileHandler extends EventEmitter {
   }
 
   _ensureDb() {
-    if (!this.db) return;
-    try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS activity_log (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          agent_id TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'running',
-          output TEXT,
-          trigger TEXT,
-          duration_ms INTEGER,
-          created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-      `);
-    } catch (err) {
-      console.error('[mobile-handler] DB init error:', err.message);
-    }
+    // No custom tables needed — we use agent_runs from the supervisor
   }
 
   /**
@@ -181,27 +166,32 @@ class MobileHandler extends EventEmitter {
       }
     }
 
-    // Recent completions from activity log
+    // Recent completions from agent_runs
     if (this.db) {
-      const recent = this.db.prepare(`
-        SELECT agent_id, status, output, created_at, duration_ms, trigger
-        FROM activity_log
-        ORDER BY id DESC LIMIT 20
-      `).all();
-      
-      for (const row of recent) {
-        if (!tasks.find(t => t.id === row.agent_id && t.status === 'running')) {
-          tasks.push({
-            id: row.agent_id,
-            name: row.agent_id,
-            status: row.status,
-            completedAt: row.created_at,
-            durationMs: row.duration_ms,
-            source: row.trigger || 'direct',
-            outputPreview: row.output ? row.output.substring(0, 150) : null
-          });
+      try {
+        const recent = this.db.prepare(`
+          SELECT id, agent_id, exit_code, output, error, started_at, finished_at, triggered_by
+          FROM agent_runs ORDER BY id DESC LIMIT 20
+        `).all();
+        
+        for (const row of recent) {
+          if (!tasks.find(t => t.id === row.agent_id && t.status === 'running')) {
+            const entry = this.supervisor?.agents?.get(row.agent_id);
+            const durationMs = (row.started_at && row.finished_at)
+              ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+              : null;
+            tasks.push({
+              id: row.agent_id,
+              name: entry?.config?.name || row.agent_id,
+              status: row.exit_code === 0 ? 'completed' : 'failed',
+              completedAt: row.finished_at,
+              durationMs,
+              source: row.triggered_by || 'direct',
+              outputPreview: (row.output || row.error || '').substring(0, 150)
+            });
+          }
         }
-      }
+      } catch {}
     }
 
     await replier(correlationId, { type: 'result', payload: { tasks } });
