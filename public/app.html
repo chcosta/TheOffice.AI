@@ -4427,9 +4427,9 @@
               method: 'PUT',
               body: JSON.stringify(this.eventsConfig)
             });
-            this.toast('Event listener configuration saved');
+            this.showToast('Events', 'Event listener configuration saved');
           } catch (e) {
-            this.toast('Failed to save config: ' + e.message, 'error');
+            this.showToast('Events', 'Failed to save config: ' + e.message, 'error');
           }
         },
 
@@ -4437,12 +4437,12 @@
           try {
             const result = await this.request('/api/events/test-connection', { method: 'POST', body: JSON.stringify({ connectionString: this.eventsConfig.connectionString, namespace: this.eventsConfig.namespace, queueName: this.eventsConfig.queueName }) });
             if (result && result.ok) {
-              this.toast('Connection successful!');
+              this.showToast('Events', 'Connection successful!');
             } else {
-              this.toast('Connection failed: ' + (result?.error || 'unknown'), 'error');
+              this.showToast('Events', 'Connection failed: ' + (result?.error || 'unknown'), 'error');
             }
           } catch (e) {
-            this.toast('Connection test failed: ' + e.message, 'error');
+            this.showToast('Events', 'Connection test failed: ' + e.message, 'error');
           }
         },
 
@@ -4472,9 +4472,9 @@
           try {
             await this.request(`/api/events/sessions/${sessionId}/close`, { method: 'POST' });
             this.eventsSessions = this.eventsSessions.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s);
-            this.toast('Session closed');
+            this.showToast('Events', 'Session closed');
           } catch (e) {
-            this.toast('Failed to close session', 'error');
+            this.showToast('Events', 'Failed to close session', 'error');
           }
         },
 
@@ -4493,7 +4493,7 @@
               this.eventsStats = result.stats || { total: 0, inbound: 0, outbound: 0, errors: 0 };
             }
           } catch (e) {
-            this.toast('Failed to load history', 'error');
+            this.showToast('Events', 'Failed to load history', 'error');
           }
         },
 
@@ -4527,7 +4527,7 @@
         },
 
         addEventUser() {
-          if (!this.newEventUser.name.trim()) { this.toast('User name is required', 'error'); return; }
+          if (!this.newEventUser.name.trim()) { this.showToast('Events', 'User name is required', 'error'); return; }
           const user = {
             id: this.newEventUser.name.trim().toLowerCase(),
             name: this.newEventUser.name.trim(),
