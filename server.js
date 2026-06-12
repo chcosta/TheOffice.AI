@@ -801,6 +801,37 @@ app.put('/api/agents/:id/prompt', (req, res) => {
   res.json({ ok: true });
 });
 
+// Update agent description and/or skills (used by managers to route requests)
+app.put('/api/agents/:id/details', (req, res) => {
+  const { description, skills } = req.body || {};
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+
+  // Normalize skills into a clean string array
+  let normalizedSkills;
+  if (skills !== undefined) {
+    if (Array.isArray(skills)) {
+      normalizedSkills = skills.map(s => String(s).trim()).filter(Boolean);
+    } else if (typeof skills === 'string') {
+      normalizedSkills = skills.split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+      return res.status(400).json({ error: 'skills must be an array or comma-separated string' });
+    }
+  }
+
+  if (description !== undefined) entry.config.description = String(description);
+  if (normalizedSkills !== undefined) entry.config.skills = normalizedSkills;
+
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const agent = agents.find(a => a.id === req.params.id);
+  if (agent) {
+    if (description !== undefined) agent.description = String(description);
+    if (normalizedSkills !== undefined) agent.skills = normalizedSkills;
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  }
+  res.json({ ok: true, description: entry.config.description || '', skills: entry.config.skills || [] });
+});
+
 // Update agent display name
 app.put('/api/agents/:id/name', (req, res) => {
   const { name } = req.body;
@@ -2717,7 +2748,7 @@ app.get('/api/events/health', (req, res) => {
   });
 });
 
-app.put('/api/events/config', express.json(), (req, res) => {
+app.put('/api/events/config', express.json(), async (req, res) => {
   const update = req.body;
   // Don't overwrite connection string with masked value
   if (update.connectionString && update.connectionString.includes('•••••')) {
@@ -2725,6 +2756,18 @@ app.put('/api/events/config', express.json(), (req, res) => {
   }
   Object.assign(eventListener.config, update);
   eventListener._saveConfig();
+  // Persist RBAC users / connected assets to the cloud so they survive restarts.
+  // Without this, the next _syncDown() overwrites events-config.json with the
+  // stale cloud snapshot and locally-defined RBAC users vanish.
+  if (configSync.enabled && configSync.isLeader) {
+    try {
+      await configSync.pushConfig();
+    } catch (err) {
+      console.warn('[events] config saved locally but cloud push failed:', err.message);
+    }
+  } else if (configSync.enabled) {
+    console.warn('[events] config saved locally; not leader, cloud push skipped (change may be overwritten on next sync)');
+  }
   res.json({ ok: true });
 });
 
@@ -2773,6 +2816,55 @@ app.post('/api/events/test-connection', express.json(), async (req, res) => {
     res.json({ ok: true, message: 'Successfully connected and verified queue access.' });
   } catch (err) {
     res.json({ ok: false, error: `Connection failed: ${err.message}` });
+  }
+});
+
+// Generate a mobile device pairing payload for a user
+app.post('/api/events/pair-device', express.json(), async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.json({ ok: false, error: 'userId is required' });
+  
+  const user = eventListener.config.users.find(u => u.id === userId);
+  if (!user) return res.json({ ok: false, error: `User '${userId}' not found` });
+  
+  // Call relay to generate a pairing token
+  const RELAY_URL = process.env.RELAY_URL || 'https://relay-agentsessions.lemondune-11ff5970.westus2.azurecontainerapps.io';
+  const RELAY_ADMIN_KEY = process.env.RELAY_ADMIN_KEY || 'gZ9oaNEMAJsLs6AIJ0H5WolbUTuJMzmNAefj6JeKIK0=';
+
+  try {
+    const pairResp = await fetch(`${RELAY_URL}/api/pair`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RELAY_ADMIN_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userId: user.id, deviceName: `${user.name} Mobile` }),
+    });
+
+    if (!pairResp.ok) {
+      const err = await pairResp.text();
+      return res.json({ ok: false, error: `Relay pairing failed: ${err}` });
+    }
+
+    const pairData = await pairResp.json();
+
+    const payload = {
+      v: 2,
+      relay: RELAY_URL,
+      token: pairData.deviceToken,
+      userId: user.id,
+      userName: user.name,
+      role: user.role,
+      exp: Date.now() + 10 * 60 * 1000,
+    };
+
+    // Generate QR code as data URL
+    const QRCode = require('qrcode');
+    const payloadStr = JSON.stringify(payload);
+    const qrDataUrl = await QRCode.toDataURL(payloadStr, { width: 280, margin: 1 });
+    res.json({ ok: true, payload: payloadStr, qrDataUrl });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
   }
 });
 
@@ -2992,6 +3084,92 @@ app.post('/api/mobile/:action', async (req, res) => {
     res.status(500).json({ type: 'error', error: err.message });
   }
 });
+
+// ============================================================
+// Relay Poller — polls the cloud relay for inbound mobile messages
+// ============================================================
+
+const RELAY_URL = process.env.RELAY_URL || 'https://relay-agentsessions.lemondune-11ff5970.westus2.azurecontainerapps.io';
+const RELAY_ADMIN_KEY = process.env.RELAY_ADMIN_KEY || 'gZ9oaNEMAJsLs6AIJ0H5WolbUTuJMzmNAefj6JeKIK0=';
+let relayPollerInterval = null;
+
+async function pollRelay() {
+  try {
+    const resp = await fetch(`${RELAY_URL}/api/messages/receive`, {
+      headers: { 'Authorization': `Bearer ${RELAY_ADMIN_KEY}` },
+    });
+    if (!resp.ok) return;
+
+    const data = await resp.json();
+    if (!data.messages || data.messages.length === 0) return;
+
+    console.log(`[relay-poller] Received ${data.messages.length} message(s)`);
+    for (const msg of data.messages) {
+      const body = msg.body;
+      if (!body || !body.type) { console.log('[relay-poller] Skip msg without type:', JSON.stringify(msg).slice(0, 100)); continue; }
+
+      const correlationId = body.correlationId || msg.id;
+      const sessionId = body.sessionId || `relay-${msg.from}`;
+      const mobileMsg = { type: body.type, correlationId, sessionId, payload: body.payload || body };
+
+      console.log(`[relay-poller] Processing: type=${body.type}, from=${msg.from}, corrId=${correlationId}`);
+
+      if (!mobileHandler.isMobileMessage(mobileMsg)) { console.log('[relay-poller] Not a mobile message, skipping'); continue; }
+
+      const replier = async (corrId, payload) => {
+        // Send reply back via relay
+        try {
+          const replyResp = await fetch(`${RELAY_URL}/api/messages/reply`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${RELAY_ADMIN_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              targetDeviceId: msg.from,
+              correlationId: corrId,
+              body: { correlationId: corrId, ...payload },
+            }),
+          });
+          console.log(`[relay-poller] Reply sent for ${corrId} → ${msg.from} (status: ${replyResp.status})`);
+        } catch (e) {
+          console.error('[relay-poller] Failed to send reply:', e.message);
+        }
+      };
+
+      try {
+        // RBAC enforcement: the relay sets msg.from to the paired device's userId.
+        // Only identities that map to an approved RBAC user may use the mobile
+        // channel. Deny EVERYTHING (including get-status) for unapproved users so
+        // an external session leaks no data and is fully refused.
+        const fromUser = msg.from;
+        if (!eventListener.isApprovedUser(fromUser)) {
+          console.warn(`[relay-poller] REJECTED unauthorized device user='${fromUser}' type=${body.type}`);
+          await replier(correlationId, {
+            type: 'error',
+            error: 'Unauthorized: this device is not linked to an approved user. Ask an admin to add you under RBAC in the web dashboard.',
+          });
+          continue;
+        }
+        await mobileHandler.handle(mobileMsg, replier);
+      } catch (err) {
+        console.error('[relay-poller] Handler error:', err.message);
+      }
+    }
+  } catch (err) {
+    // Silently ignore network errors (relay might be scaling up)
+  }
+}
+
+function startRelayPoller() {
+  if (relayPollerInterval) return;
+  console.log(`[relay-poller] Polling relay at ${RELAY_URL} every 3s`);
+  relayPollerInterval = setInterval(pollRelay, 3000);
+  pollRelay(); // immediate first poll
+}
+
+// Start the relay poller
+startRelayPoller();
 
 // SPA catch-all: serve app.html for any non-API route (must be last)
 app.get('*', (req, res) => {

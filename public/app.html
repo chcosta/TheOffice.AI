@@ -13,6 +13,7 @@
     })();
   </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -1793,6 +1794,33 @@
                   </div>
                 </section>
 
+                <section class="detail-panel" id="agent-capabilities">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Capabilities</h2>
+                      <div class="hint">Description &amp; skills help managers decide when to route requests to this agent.</div>
+                    </div>
+                  </div>
+                  <div class="config-grid">
+                    <div>
+                      <div class="field-label"><span>Description</span><span class="hint">What this agent does, in plain language</span></div>
+                      <textarea class="field-input field-area" x-model="selectedAgent.descriptionDraft" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
+                    </div>
+                    <div>
+                      <div class="field-label"><span>Skills</span><span class="hint">Comma-separated keywords (e.g. azure, monitoring, email)</span></div>
+                      <input class="field-input" type="text" x-model="selectedAgent.skillsDraft" placeholder="azure, status, monitoring" />
+                      <div class="split-meta" style="margin-top:8px;flex-wrap:wrap;gap:6px" x-show="selectedAgent.skillsDraft && selectedAgent.skillsDraft.trim()">
+                        <template x-for="s in selectedAgent.skillsDraft.split(',').map(x => x.trim()).filter(Boolean)" :key="s">
+                          <span class="tiny-badge" x-text="s"></span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="toolbar">
+                      <button class="btn accent" type="button" @click="saveAgentDetails()">Save capabilities</button>
+                    </div>
+                  </div>
+                </section>
+
                 <section class="detail-panel" id="agent-task-editor">
                   <div class="panel-header">
                     <div>
@@ -2693,6 +2721,7 @@
                     <span class="status-badge" :class="user.role === 'admin' ? 'success' : 'running'" x-text="user.role"></span>
                     <span class="hint" x-text="user.allowedAssets === '*' ? 'All assets' : user.allowedAssets"></span>
                     <span style="flex:1"></span>
+                    <button class="btn ghost small" type="button" @click="generatePairingQR(user.id)" title="Pair mobile device">📱</button>
                     <button class="btn ghost small" type="button" @click="removeEventUser(user.id)">✕</button>
                   </div>
                 </template>
@@ -3099,6 +3128,42 @@
       <div class="modal-footer">
         <button class="btn" type="button" @click="showAddUserModal = false">Cancel</button>
         <button class="btn primary" type="button" @click="addEventUser()">Add User</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Code Pairing Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="showPairingModal" x-transition.opacity @click.self="showPairingModal = false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:440px;text-align:center">
+      <div class="modal-header">
+        <h2 class="modal-title">📱 Pair Mobile Device</h2>
+        <button class="icon-button" type="button" @click="showPairingModal = false">✕</button>
+      </div>
+      <div style="padding:24px">
+        <!-- Step 1: Enter SAS key if not already embedded -->
+        <div x-show="!pairingPayload" style="text-align:left">
+          <p style="margin:0 0 12px;color:var(--text-muted)">Enter the Service Bus SAS key to embed in the pairing code for <strong x-text="pairingUser"></strong>:</p>
+          <div class="field-label">SAS Key</div>
+          <input class="field-input" type="password" x-model="pairingSasKey" placeholder="Paste your SharedAccessKey here" style="margin-bottom:10px;font-family:var(--font-mono);font-size:0.85rem" />
+          <div class="field-label">Key Name</div>
+          <input class="field-input" type="text" x-model="pairingSasKeyName" placeholder="RootManageSharedAccessKey" style="margin-bottom:16px" />
+          <button class="btn primary" type="button" style="width:100%" @click="generatePairingQRWithKey()">Generate QR Code</button>
+          <p class="hint" style="margin:10px 0 0;font-size:0.75rem">Get this from Azure Portal → Service Bus → Shared access policies</p>
+        </div>
+        <!-- Step 2: Show QR code -->
+        <div x-show="pairingPayload">
+          <p style="margin:0 0 8px;color:var(--text-muted)">Scan this QR code with the mobile app to connect as:</p>
+          <strong x-text="pairingUser" style="font-size:1.1rem"></strong>
+          <div style="margin:20px auto;width:256px;height:256px;background:white;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+            <img id="pairing-qr-img" style="width:240px;height:240px" />
+          </div>
+          <p class="hint" style="margin:12px 0 0">Code expires in <span x-text="pairingCountdown"></span>s</p>
+          <p class="hint" style="margin:4px 0 0;font-size:0.75rem">Contains: namespace, queues, SAS key, user identity</p>
+        </div>
+      </div>
+      <div class="modal-footer" x-show="pairingPayload">
+        <button class="btn" type="button" @click="showPairingModal = false">Close</button>
+        <button class="btn primary" type="button" @click="pairingPayload = ''">🔄 New Code</button>
       </div>
     </div>
   </div>
@@ -3511,6 +3576,13 @@
         eventsStats: { total: 0, inbound: 0, errors: 0 },
         showConnectAssetModal: false,
         showAddUserModal: false,
+        showPairingModal: false,
+        pairingUser: '',
+        pairingPayload: '',
+        pairingSasKey: '',
+        pairingSasKeyName: 'RootManageSharedAccessKey',
+        pairingCountdown: 600,
+        pairingTimer: null,
         connectAssetSearch: '',
         newEventUser: { name: '', role: 'operator', rateLimit: 20 },
 
@@ -3927,6 +3999,8 @@
             schedule,
             scheduleDraft: schedule,
             promptDraft: agent.config?.prompt || '',
+            descriptionDraft: agent.config?.description || '',
+            skillsDraft: Array.isArray(agent.config?.skills) ? agent.config.skills.join(', ') : (agent.config?.skills || ''),
             scheduleSummary: agent.scheduleDescription || this.humanizeSchedule(schedule),
             nextRun: this.computeNextRun(schedule),
             key: `agent-${id}`
@@ -4445,6 +4519,76 @@
         removeEventUser(userId) {
           this.eventsConfig.users = this.eventsConfig.users.filter(u => u.id !== userId);
           this.saveEventsConfig();
+        },
+
+        async generatePairingQR(userId) {
+          this.pairingUser = userId;
+          this.pairingPayload = '';
+          // Directly generate QR (no SAS key needed — relay handles auth)
+          try {
+            const data = await this.request('/api/events/pair-device', {
+              method: 'POST',
+              body: JSON.stringify({ userId })
+            });
+            if (!data.ok) { this.showToast('Pairing', data.error, 'error'); return; }
+            
+            this.pairingPayload = data.payload;
+            this.showPairingModal = true;
+            this.pairingCountdown = 600;
+            
+            if (this.pairingTimer) clearInterval(this.pairingTimer);
+            this.pairingTimer = setInterval(() => {
+              this.pairingCountdown--;
+              if (this.pairingCountdown <= 0) {
+                clearInterval(this.pairingTimer);
+                this.showPairingModal = false;
+                this.pairingPayload = '';
+              }
+            }, 1000);
+            
+            // Set QR image from server-generated data URL
+            this.$nextTick(() => {
+              const img = document.getElementById('pairing-qr-img');
+              if (img && data.qrDataUrl) img.src = data.qrDataUrl;
+            });
+          } catch (e) {
+            this.showToast('Pairing', e.message || 'Failed to generate QR code', 'error');
+          }
+        },
+
+        async generatePairingQRWithKey() {
+          try {
+            const data = await this.request('/api/events/pair-device', {
+              method: 'POST',
+              body: JSON.stringify({ 
+                userId: this.pairingUser, 
+                sasKey: this.pairingSasKey,
+                sasKeyName: this.pairingSasKeyName 
+              })
+            });
+            if (!data.ok) { this.showToast('Pairing', data.error, 'error'); return; }
+            
+            this.pairingPayload = data.payload;
+            this.pairingCountdown = 600;
+            
+            if (this.pairingTimer) clearInterval(this.pairingTimer);
+            this.pairingTimer = setInterval(() => {
+              this.pairingCountdown--;
+              if (this.pairingCountdown <= 0) {
+                clearInterval(this.pairingTimer);
+                this.showPairingModal = false;
+                this.pairingPayload = '';
+              }
+            }, 1000);
+            
+            // Set QR image from server-generated data URL
+            this.$nextTick(() => {
+              const img = document.getElementById('pairing-qr-img');
+              if (img && data.qrDataUrl) img.src = data.qrDataUrl;
+            });
+          } catch (e) {
+            this.showToast('Pairing', 'Failed to generate pairing code: ' + e.message, 'error');
+          }
         },
 
         filteredEventsLog() {
@@ -5434,6 +5578,23 @@
               body: JSON.stringify({ prompt: this.selectedAgent.promptDraft })
             });
             this.showToast('Prompt saved', 'Agent prompt updated.', 'info');
+            await this.loadAgentDetail(this.selectedAgent.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async saveAgentDetails() {
+          if (!this.selectedAgent) return;
+          try {
+            const skills = (this.selectedAgent.skillsDraft || '')
+              .split(',').map(s => s.trim()).filter(Boolean);
+            await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/details`, {
+              method: 'PUT',
+              body: JSON.stringify({ description: this.selectedAgent.descriptionDraft || '', skills })
+            });
+            this.showToast('Capabilities saved', 'Description & skills updated.', 'info');
             await this.loadAgentDetail(this.selectedAgent.id);
             await this.refreshAll(false);
           } catch (error) {

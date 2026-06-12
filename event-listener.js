@@ -687,11 +687,21 @@ class EventListener extends EventEmitter {
   }
 
   /**
+   * Check whether a userId/name corresponds to an approved RBAC user.
+   * This is the single source of truth for "is this identity allowed".
+   */
+  isApprovedUser(userId) {
+    if (!userId) return false;
+    if (!Array.isArray(this.config.users) || this.config.users.length === 0) return false;
+    return this.config.users.some(u => u.id === userId || u.name === userId);
+  }
+
+  /**
    * Validate sender has RBAC access
    */
   _validateSender(senderId) {
-    if (this.config.users.length === 0) return false; // No users = reject all
-    return this.config.users.some(u => u.id === senderId || u.name === senderId);
+    if (!Array.isArray(this.config.users) || this.config.users.length === 0) return false; // No users = reject all
+    return this.isApprovedUser(senderId);
   }
 
   /**

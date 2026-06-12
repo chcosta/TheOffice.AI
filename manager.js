@@ -132,14 +132,14 @@ class ManagerAgent extends EventEmitter {
   /**
    * Run an assignment by ID
    */
-  async runAssignment(managerId, assignmentId) {
+  async runAssignment(managerId, assignmentId, opts = {}) {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
 
     const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
     if (!assignment) throw new Error(`Unknown assignment: ${assignmentId}`);
 
-    return this.executePrompt(managerId, assignment.prompt, assignmentId);
+    return this.executePrompt(managerId, assignment.prompt, assignmentId, opts);
   }
 
   /**
@@ -323,9 +323,13 @@ class ManagerAgent extends EventEmitter {
   }
 
   _buildManagerSystemPrompt(managerConfig, orgAgents) {
-    const agentList = orgAgents.map(a => 
-      `- **${a.id}** (${a.name}): ${a.capability || 'General purpose agent'}`
-    ).join('\n');
+    const agentList = orgAgents.map(a => {
+      const desc = (a.description && a.description.trim()) || a.capability || 'General purpose agent';
+      const skills = Array.isArray(a.skills) && a.skills.length
+        ? `\n  - Skills: ${a.skills.join(', ')}`
+        : '';
+      return `- **${a.id}** (${a.name}): ${desc}${skills}`;
+    }).join('\n');
 
     return `You are "${managerConfig.name}", a PURE ORCHESTRATOR.
 ${managerConfig.description || ''}
@@ -543,16 +547,21 @@ REASON: <why you need this agent>
     return (entry.config.org || []).map(agentId => {
       const agentEntry = this.supervisor.agents.get(agentId);
       if (agentEntry) {
-        // Only show a brief capability description, NOT the agent's saved prompt
-        const capability = agentEntry.config.description || agentEntry.config.name || agentId;
+        // Surface a brief capability description + skills, NOT the agent's saved prompt
+        const cfg = agentEntry.config;
+        const capabilitySource = cfg.description || cfg.name || agentId;
+        const skills = Array.isArray(cfg.skills) ? cfg.skills.filter(Boolean) : [];
         return {
           id: agentId,
-          name: agentEntry.config.name,
-          capability: capability.split('\n')[0].substring(0, 100), // First line, max 100 chars
+          name: cfg.name,
+          // Full description (first ~300 chars) so the manager can route accurately
+          description: (cfg.description || '').trim().substring(0, 300),
+          capability: capabilitySource.split('\n')[0].substring(0, 100), // First line, max 100 chars
+          skills,
           status: agentEntry.running ? 'running' : 'idle'
         };
       }
-      return { id: agentId, name: agentId, capability: 'Not registered', status: 'unknown' };
+      return { id: agentId, name: agentId, description: '', capability: 'Not registered', skills: [], status: 'unknown' };
     });
   }
 

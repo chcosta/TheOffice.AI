@@ -134,6 +134,8 @@ class MobileHandler extends EventEmitter {
         return this._listChats(correlationId, sessionId, replier);
       case 'get-activity':
         return this._getActivity(correlationId, payload, replier);
+      case 'get-run-history':
+        return this._getRunHistory(correlationId, payload, replier);
       case 'get-status':
         return this._getStatus(correlationId, replier);
       default:
@@ -145,8 +147,12 @@ class MobileHandler extends EventEmitter {
   // --- List Handlers ---
 
   async _listManagers(correlationId, replier) {
+    const connectedAssets = this.eventListener?.config?.connectedAssets || [];
+    const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
+    
     const managers = [];
     for (const [id, entry] of this.managerAgent.managers) {
+      if (!connectedManagerIds.has(id)) continue;
       const config = entry.config;
       const assignments = config.assignments || [];
       const agents = config.agents || [];
@@ -168,13 +174,19 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listAgents(correlationId, replier) {
+    const connectedAssets = this.eventListener?.config?.connectedAssets || [];
+    const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
+    
     const agents = [];
     for (const [id, entry] of this.supervisor.agents) {
+      if (!connectedAgentIds.has(id)) continue;
       const config = entry.config;
       agents.push({
         id,
         name: config.name || id,
         icon: config.icon || '🕵️',
+        description: config.description || '',
+        skills: Array.isArray(config.skills) ? config.skills : [],
         schedule: config.schedule || null,
         status: entry.running ? 'running' : 'idle',
         lastRun: entry.lastRun || null,
@@ -187,13 +199,21 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listAssignments(correlationId, replier) {
+    const connectedAssets = this.eventListener?.config?.connectedAssets || [];
+    const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
+    const connectedAssignmentIds = new Set(connectedAssets.filter(a => a.type === 'assignment').map(a => a.id));
+
     const assignments = [];
     for (const [managerId, entry] of this.managerAgent.managers) {
       const config = entry.config;
+      const managerConnected = connectedManagerIds.has(managerId);
       for (const assignment of (config.assignments || [])) {
+        const assignmentKey = `${managerId}/${assignment.id}`;
+        // Include if the whole manager is connected, or this specific assignment is connected
+        if (!managerConnected && !connectedAssignmentIds.has(assignmentKey)) continue;
         const lastRun = this._getLastAssignmentRun(managerId, assignment.id);
         assignments.push({
-          id: `${managerId}/${assignment.id}`,
+          id: assignmentKey,
           name: assignment.name || assignment.id,
           managerId,
           managerName: config.name || managerId,
@@ -213,48 +233,41 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listTasks(correlationId, replier) {
-    // Tasks are running agent executions + recent completions
-    const tasks = [];
+    // Tasks are connected agents that can be run on-demand
+    const connectedAssets = this.eventListener?.config?.connectedAssets || [];
+    const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
     
-    // Currently running
+    const tasks = [];
+    const seenIds = new Set();
+    
+    // Currently running connected agents
     for (const [id, entry] of this.supervisor.agents) {
+      if (!connectedAgentIds.has(id)) continue;
       if (entry.running) {
+        seenIds.add(id);
         tasks.push({
           id,
+          agentId: id,
           name: entry.config.name || id,
           status: 'running',
           startedAt: entry.startedAt || null,
-          source: 'agent'
+          lastRun: this._getLastAgentRun(id),
         });
       }
     }
 
-    // Recent completions from agent_runs
-    if (this.db) {
-      try {
-        const recent = this.db.prepare(`
-          SELECT id, agent_id, exit_code, output, error, started_at, finished_at, triggered_by
-          FROM agent_runs ORDER BY id DESC LIMIT 20
-        `).all();
-        
-        for (const row of recent) {
-          if (!tasks.find(t => t.id === row.agent_id && t.status === 'running')) {
-            const entry = this.supervisor?.agents?.get(row.agent_id);
-            const durationMs = (row.started_at && row.finished_at)
-              ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
-              : null;
-            tasks.push({
-              id: row.agent_id,
-              name: entry?.config?.name || row.agent_id,
-              status: row.exit_code === 0 ? 'completed' : 'failed',
-              completedAt: row.finished_at,
-              durationMs,
-              source: row.triggered_by || 'direct',
-              outputPreview: (row.output || row.error || '').substring(0, 150)
-            });
-          }
-        }
-      } catch {}
+    // Connected agents that aren't currently running (available to execute)
+    for (const [id, entry] of this.supervisor.agents) {
+      if (seenIds.has(id)) continue;
+      if (!connectedAgentIds.has(id)) continue;
+      tasks.push({
+        id,
+        agentId: id,
+        name: entry.config.name || id,
+        status: 'idle',
+        schedule: entry.config.schedule || null,
+        lastRun: this._getLastAgentRun(id),
+      });
     }
 
     await replier(correlationId, { type: 'result', payload: { tasks } });
@@ -276,15 +289,42 @@ class MobileHandler extends EventEmitter {
       payload: { status: 'running', message: `Starting assignment: ${assignmentId}...` }
     });
 
-    try {
-      const result = await this.managerAgent.runAssignment(managerId, assignmentId, {
-        onProgress: async (msg) => {
-          await replier(correlationId, {
-            type: 'streaming-chunk',
-            payload: { text: msg, idx: Date.now() }
-          });
+    // Stream orchestration steps live as the manager works through them.
+    // Concurrency is reject_if_running (one run per manager), so filtering by
+    // managerId is sufficient to attribute steps to this run.
+    const onStep = async ({ managerId: mId, step }) => {
+      if (mId !== managerId || !step) return;
+      try {
+        if (step.action === 'thinking') {
+          await replier(correlationId, { type: 'status-update', payload: { status: 'running', message: `Thinking (step ${step.iteration})…` } });
+        } else if (step.action === 'run_agent') {
+          await replier(correlationId, { type: 'status-update', payload: { status: 'running', message: `Running agent: ${step.agentId}` } });
+          await replier(correlationId, { type: 'streaming-chunk', payload: { text: `\n▶ Running **${step.agentId}**…\n`, idx: Date.now() } });
+        } else if (step.action === 'agent_result') {
+          await replier(correlationId, { type: 'streaming-chunk', payload: { text: `✓ ${step.agentId} finished (exit ${step.exitCode})\n`, idx: Date.now() } });
+        } else if (step.action === 'org_rejected') {
+          await replier(correlationId, { type: 'streaming-chunk', payload: { text: `⛔ ${step.agentId} is not in this manager's org — skipped\n`, idx: Date.now() } });
+        } else if (step.action === 'request_agent') {
+          await replier(correlationId, { type: 'streaming-chunk', payload: { text: `❓ Requested unavailable agent: ${step.agentId}\n`, idx: Date.now() } });
+        } else if (step.action === 'complete') {
+          await replier(correlationId, { type: 'status-update', payload: { status: 'running', message: 'Finalizing…' } });
         }
-      });
+      } catch {}
+    };
+    this.managerAgent.on('manager-step', onStep);
+
+    try {
+      // sync:true → resolves when the orchestration actually finishes
+      const result = await this.managerAgent.runAssignment(managerId, assignmentId, { sync: true });
+
+      // _runOrchestration resolves (not rejects) on a caught error, surfacing { error }
+      if (result && result.error) {
+        await replier(correlationId, {
+          type: 'error',
+          payload: { status: 'failed', error: result.error }
+        });
+        return true;
+      }
 
       await replier(correlationId, {
         type: 'result',
@@ -292,6 +332,7 @@ class MobileHandler extends EventEmitter {
           status: 'completed',
           output: result?.result || result?.output || '(no output)',
           outputFormat: 'markdown',
+          runId: result?.runId || null,
           durationMs: result?.durationMs || null,
           agentsUsed: result?.agentsUsed || []
         }
@@ -301,6 +342,8 @@ class MobileHandler extends EventEmitter {
         type: 'error',
         payload: { status: 'failed', error: err.message }
       });
+    } finally {
+      this.managerAgent.off('manager-step', onStep);
     }
 
     return true;
@@ -381,8 +424,41 @@ class MobileHandler extends EventEmitter {
     try {
       let result;
       if (session.targetType === 'manager') {
-        result = await this.managerAgent.executePrompt(targetId, message, null, { sync: true });
-        result = result?.result || result?.output || '(no output)';
+        // Build prompt with conversation history so the manager has context
+        let fullPrompt = message;
+        if (session.messages.length > 1) {
+          const history = session.messages.slice(-20, -1); // last 20 msgs excluding current
+          const historyText = history.map(m => 
+            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+          ).join('\n\n');
+          fullPrompt = `## Conversation History\n${historyText}\n\n## Current Message\nUser: ${message}\n\nRespond to the user's latest message. Use the conversation history for context. If the user references something from earlier in the conversation, use that context.`;
+        }
+
+        // Listen for orchestration steps to relay progress to mobile
+        const stepHandler = (data) => {
+          if (data.managerId !== targetId) return;
+          const step = data.step;
+          const stepMsg = step?.action === 'run_agent'
+            ? `Running ${step.agentId || 'agent'}...`
+            : step?.action === 'thinking'
+            ? 'Thinking...'
+            : step?.action === 'complete'
+            ? 'Composing response...'
+            : step?.action === 'agent_result'
+            ? `Got results from ${step.agentId || 'agent'}`
+            : `Working... (${step?.action || 'step'})`;
+          replier(correlationId, {
+            type: 'status-update',
+            payload: { status: 'processing', message: stepMsg }
+          }).catch(() => {});
+        };
+        this.managerAgent.on('manager-step', stepHandler);
+        try {
+          result = await this.managerAgent.executePrompt(targetId, fullPrompt, null, { sync: true });
+          result = result?.result || result?.output || '(no output)';
+        } finally {
+          this.managerAgent.removeListener('manager-step', stepHandler);
+        }
       } else {
         // Build prompt with conversation history for context
         let fullPrompt = message;
@@ -521,9 +597,106 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  // --- Status Handler ---
+  /**
+   * Get recent runs for a single task (agent) or assignment (manager+assignment).
+   * Payload: { kind: 'task'|'assignment', agentId?, managerId?, assignmentId?, limit? }
+   * Returns normalized run rows matching the activity shape so the mobile
+   * ActivityDetail screen can render each run's output directly.
+   */
+  async _getRunHistory(correlationId, payload, replier) {
+    const { kind, agentId, managerId, assignmentId, limit = 20 } = payload || {};
+
+    if (!this.db) {
+      await replier(correlationId, { type: 'result', payload: { runs: [] } });
+      return true;
+    }
+
+    const runs = [];
+    try {
+      if (kind === 'assignment') {
+        if (!managerId) {
+          await replier(correlationId, { type: 'error', error: 'managerId is required' });
+          return true;
+        }
+        const entry = this.managerAgent?.managers?.get(managerId);
+        const managerName = entry?.config?.name || managerId;
+        let rows;
+        if (assignmentId) {
+          rows = this.db.prepare(
+            'SELECT * FROM manager_runs WHERE manager_id = ? AND assignment_id = ? ORDER BY id DESC LIMIT ?'
+          ).all(managerId, assignmentId, limit);
+        } else {
+          rows = this.db.prepare(
+            'SELECT * FROM manager_runs WHERE manager_id = ? ORDER BY id DESC LIMIT ?'
+          ).all(managerId, limit);
+        }
+        let assignmentName = assignmentId;
+        if (entry && assignmentId) {
+          const a = (entry.config.assignments || []).find(x => x.id === assignmentId);
+          assignmentName = a?.name || assignmentId;
+        }
+        for (const row of rows) {
+          const status = row.status === 'completed' ? 'completed'
+            : (row.status === 'error' || row.status === 'failed') ? 'failed'
+            : (row.status || 'running');
+          const durationMs = (row.started_at && row.finished_at)
+            ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+            : null;
+          runs.push({
+            id: row.id,
+            name: assignmentName || managerName,
+            status,
+            output: row.result || null,
+            outputFormat: 'markdown',
+            createdAt: row.started_at,
+            durationMs,
+            trigger: 'assignment'
+          });
+        }
+      } else {
+        // Default to task (agent) history
+        const id = agentId;
+        if (!id) {
+          await replier(correlationId, { type: 'error', error: 'agentId is required' });
+          return true;
+        }
+        const entry = this.supervisor?.agents?.get(id);
+        const name = entry?.config?.name || id;
+        const rows = this.db.prepare(
+          'SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT ?'
+        ).all(id, limit);
+        for (const row of rows) {
+          const status = row.exit_code === 0 ? 'completed' : 'failed';
+          const durationMs = (row.started_at && row.finished_at)
+            ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+            : null;
+          runs.push({
+            id: row.id,
+            agentId: row.agent_id,
+            name,
+            status,
+            output: row.output || row.error || null,
+            outputFormat: 'markdown',
+            createdAt: row.started_at,
+            durationMs,
+            trigger: row.triggered_by || 'direct'
+          });
+        }
+      }
+    } catch (e) {
+      await replier(correlationId, { type: 'error', error: `Failed to load run history: ${e.message}` });
+      return true;
+    }
+
+    await replier(correlationId, { type: 'result', payload: { runs } });
+    return true;
+  }
 
   async _getStatus(correlationId, replier) {
+    const connectedAssets = this.eventListener?.config?.connectedAssets || [];
+    const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
+    const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
+    
     const runningAgents = [];
     for (const [id, entry] of this.supervisor.agents) {
       if (entry.running) {
@@ -531,8 +704,11 @@ class MobileHandler extends EventEmitter {
       }
     }
 
-    const managerCount = this.managerAgent.managers.size;
-    const agentCount = this.supervisor.agents.size;
+    const managerCount = connectedManagerIds.size;
+    const agentCount = connectedAgentIds.size;
+    // Tasks are the runnable connected agents (see _listTasks), so the task
+    // count tracks the number of connected agents.
+    const taskCount = connectedAgentIds.size;
     
     let assignmentCount = 0;
     for (const [, entry] of this.managerAgent.managers) {
@@ -561,6 +737,7 @@ class MobileHandler extends EventEmitter {
         connected: true,
         managerCount,
         agentCount,
+        taskCount,
         assignmentCount,
         runningAgents,
         activityCounts,
@@ -638,6 +815,27 @@ class MobileHandler extends EventEmitter {
       // Trigger execution
       this.supervisor._executeAgent(agentId);
     });
+  }
+
+  /**
+   * Get last run info for an agent (task), normalized to { status, time, durationMs }.
+   */
+  _getLastAgentRun(agentId) {
+    if (!this.db) return null;
+    try {
+      const row = this.db.prepare(
+        'SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1'
+      ).get(agentId);
+      if (!row) return null;
+      const durationMs = (row.started_at && row.finished_at)
+        ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+        : null;
+      return {
+        status: row.exit_code === 0 ? 'completed' : 'failed',
+        time: row.started_at,
+        durationMs,
+      };
+    } catch { return null; }
   }
 
   /**

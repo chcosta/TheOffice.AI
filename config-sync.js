@@ -56,11 +56,17 @@ class ConfigSync {
       await this._initBlobClient();
       await this._ensureContainer();
       await this._tryAcquireLease();
-      await this._syncDown();
-      // Auto-push if we're leader and cloud is empty (bootstrap scenario)
-      if (this._isLeader && !this._lastManifestETag) {
-        console.log('[config-sync] Leader with empty cloud — auto-pushing local config');
+      if (this._isLeader) {
+        // Leader is authoritative. Do NOT pull-overwrite local config on startup —
+        // that would clobber local edits (RBAC users, connected assets, agent
+        // descriptions) with a potentially stale cloud snapshot. Instead, capture
+        // the remote manifest etag (for change polling) and push local config up so
+        // the cloud reflects this machine's source-of-truth state.
+        await this._captureManifestEtag();
+        console.log('[config-sync] Leader on startup — pushing local config (authoritative, not clobbering local)');
         await this.pushConfig();
+      } else {
+        await this._syncDown();
       }
       this._startPolling();
       console.log(`[config-sync] Started. Leader: ${this._isLeader}, Machine: ${this._machineId}`);
@@ -242,7 +248,7 @@ class ConfigSync {
     }
   }
 
-  async _tryAcquireLease(forceNewEpoch = false) {
+  async _tryAcquireLease(forceNewEpoch = false, _reclaimAttempted = false, _throwOnConflict = false) {
     const leaderBlob = this._containerClient.getBlockBlobClient(LEADER_BLOB);
     // Ensure blob exists
     try {
@@ -287,16 +293,46 @@ class ConfigSync {
       console.log(`[config-sync] Acquired leadership. Epoch: ${this._epoch}`);
     } catch (err) {
       if (err.statusCode === 409) {
-        // Lease held by another machine
-        this._isLeader = false;
-        this._leaseId = null;
-        // Read who the leader is
+        // If a caller is retrying a reclaim, let them handle the conflict via retry.
+        if (_throwOnConflict) throw err;
+
+        // Lease held — find out by whom
+        let leaderData = {};
         try {
           const dl = await leaderBlob.download(0);
           const text = await this._streamToString(dl.readableStreamBody);
-          const leaderData = JSON.parse(text);
-          this._epoch = leaderData.epoch || 0;
+          leaderData = JSON.parse(text);
         } catch {}
+
+        // If the stale lease belongs to THIS machine (e.g. a just-killed previous
+        // process of ours that didn't release the lease gracefully), reclaim it
+        // rather than demoting ourselves to standby and pulling stale cloud config.
+        if (!forceNewEpoch && !_reclaimAttempted && leaderData.machineId === this._machineId) {
+          console.log('[config-sync] Stale lease held by this machine — breaking and reclaiming leadership.');
+          try {
+            await leaderBlob.breakLease(0);
+          } catch (bErr) {
+            console.warn('[config-sync] breakLease failed (continuing):', bErr.message);
+          }
+          // Azure needs a moment after a break before a new acquire succeeds; retry a few times.
+          for (let attempt = 0; attempt < 6; attempt++) {
+            await new Promise(r => setTimeout(r, 1500));
+            try {
+              return await this._tryAcquireLease(false, true, true);
+            } catch (reErr) {
+              // 409/412 => lease not yet acquirable; keep retrying.
+              if (reErr.statusCode !== 409 && reErr.statusCode !== 412) {
+                console.warn('[config-sync] Reclaim attempt error:', reErr.message);
+              }
+            }
+          }
+          console.warn('[config-sync] Could not reclaim own lease after retries — running as standby.');
+        }
+
+        // Lease genuinely held by another machine (or reclaim exhausted)
+        this._isLeader = false;
+        this._leaseId = null;
+        this._epoch = leaderData.epoch || 0;
         this._onLeaderChange(false, this._epoch);
         console.log(`[config-sync] Another machine is leader. Running as standby.`);
       } else throw err;
@@ -360,6 +396,22 @@ class ConfigSync {
     }, POLL_INTERVAL);
   }
 
+  /** Read the remote manifest ETag without overwriting local files (used by leader on startup). */
+  async _captureManifestEtag() {
+    try {
+      const manifestBlob = this._containerClient.getBlockBlobClient(MANIFEST_BLOB);
+      const props = await manifestBlob.getProperties();
+      this._lastManifestETag = props.etag;
+    } catch (err) {
+      if (err.statusCode === 404) {
+        this._lastManifestETag = null;
+      } else {
+        // Don't fail startup over this — push will proceed without an ifMatch precondition.
+        this._lastManifestETag = null;
+      }
+    }
+  }
+
   async _checkForUpdates() {
     try {
       const manifestBlob = this._containerClient.getBlockBlobClient(MANIFEST_BLOB);
@@ -374,6 +426,99 @@ class ConfigSync {
         // No manifest yet — nothing to sync
         this._lastManifestETag = null;
       }
+    }
+  }
+
+  /**
+   * Capture machine-owned local data that must survive a config pull:
+   * RBAC users + connected assets (events-config.json) and agent capability
+   * metadata (agents.json description/skills). Returns a plain snapshot object.
+   */
+  _captureLocalOwnedData() {
+    const out = { users: null, connectedAssets: null, agentMeta: {} };
+    try {
+      const evPath = path.join(__dirname, 'events-config.json');
+      if (fs.existsSync(evPath)) {
+        const ev = JSON.parse(fs.readFileSync(evPath, 'utf-8'));
+        if (Array.isArray(ev.users)) out.users = ev.users;
+        if (Array.isArray(ev.connectedAssets)) out.connectedAssets = ev.connectedAssets;
+      }
+    } catch {}
+    try {
+      const agPath = path.join(__dirname, 'agents.json');
+      if (fs.existsSync(agPath)) {
+        const agents = JSON.parse(fs.readFileSync(agPath, 'utf-8'));
+        if (Array.isArray(agents)) {
+          for (const a of agents) {
+            if (!a || !a.id) continue;
+            if (a.description != null || a.skills != null) {
+              out.agentMeta[a.id] = { description: a.description, skills: a.skills };
+            }
+          }
+        }
+      }
+    } catch {}
+    return out;
+  }
+
+  /**
+   * Re-merge previously-captured machine-owned local data into the freshly-pulled
+   * files. Users and connected assets are unioned by id with LOCAL taking
+   * precedence (so cloud can add entries but never wipes local ones). Agent
+   * description/skills are restored from local when local had them.
+   */
+  _reapplyLocalOwnedData(preserved) {
+    if (!preserved) return;
+    // events-config.json — union users + connectedAssets (local wins)
+    try {
+      const evPath = path.join(__dirname, 'events-config.json');
+      if (fs.existsSync(evPath)) {
+        const ev = JSON.parse(fs.readFileSync(evPath, 'utf-8'));
+        let changed = false;
+        const unionById = (cloudArr, localArr) => {
+          const map = new Map();
+          for (const item of (Array.isArray(cloudArr) ? cloudArr : [])) {
+            if (item && item.id != null) map.set(item.id, item);
+          }
+          for (const item of (Array.isArray(localArr) ? localArr : [])) {
+            if (item && item.id != null) map.set(item.id, item); // local wins
+          }
+          return Array.from(map.values());
+        };
+        if (preserved.users) {
+          ev.users = unionById(ev.users, preserved.users);
+          changed = true;
+        }
+        if (preserved.connectedAssets) {
+          ev.connectedAssets = unionById(ev.connectedAssets, preserved.connectedAssets);
+          changed = true;
+        }
+        if (changed) fs.writeFileSync(evPath, JSON.stringify(ev, null, 2));
+      }
+    } catch (err) {
+      console.warn('[config-sync] Failed to reapply local users/assets:', err.message);
+    }
+    // agents.json — restore description/skills from local when present
+    try {
+      const meta = preserved.agentMeta || {};
+      if (Object.keys(meta).length) {
+        const agPath = path.join(__dirname, 'agents.json');
+        if (fs.existsSync(agPath)) {
+          const agents = JSON.parse(fs.readFileSync(agPath, 'utf-8'));
+          if (Array.isArray(agents)) {
+            let changed = false;
+            for (const a of agents) {
+              if (!a || !a.id || !meta[a.id]) continue;
+              const m = meta[a.id];
+              if (m.description != null && a.description == null) { a.description = m.description; changed = true; }
+              if (m.skills != null && (a.skills == null || (Array.isArray(a.skills) && a.skills.length === 0))) { a.skills = m.skills; changed = true; }
+            }
+            if (changed) fs.writeFileSync(agPath, JSON.stringify(agents, null, 2));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[config-sync] Failed to reapply local agent metadata:', err.message);
     }
   }
 
@@ -397,6 +542,12 @@ class ConfigSync {
       // Backup local files before overwriting
       this._backupLocal();
 
+      // Capture machine-owned local data that must survive a pull (RBAC users,
+      // connected assets, agent capability metadata). A blind overwrite from a
+      // stale cloud snapshot would otherwise wipe these and is the root cause of
+      // recurring "my user / connected assets / agent descriptions disappeared".
+      const preservedLocal = this._captureLocalOwnedData();
+
       // Download synced files
       for (const fileName of SYNCED_FILES) {
         try {
@@ -409,6 +560,9 @@ class ConfigSync {
           if (err.statusCode !== 404) console.warn(`[config-sync] Failed to pull ${fileName}:`, err.message);
         }
       }
+
+      // Re-merge machine-owned local data back into the freshly-pulled files.
+      this._reapplyLocalOwnedData(preservedLocal);
 
       // Download plugin/mcp tarballs and extract
       for (const dirName of SYNCED_DIRS) {
