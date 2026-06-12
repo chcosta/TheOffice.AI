@@ -2709,7 +2709,6 @@
                   <div><div class="hint">Last contact</div><strong x-text="relayStatus.lastOkAt ? formatRelative(relayStatus.lastOkAt) : 'never'"></strong></div>
                 </div>
                 <div class="hint" style="margin-top:10px;color:var(--cp-danger)" x-show="!relayStatus.reachable && relayStatus.lastError" x-text="'⚠️ ' + relayStatus.lastError"></div>
-                <div class="hint" style="margin-top:10px;color:var(--cp-warning)" x-show="relayStatus.reachable && !relayStatus.eventsActive">⚠️ This machine is on standby — it relays mobile requests but scheduled events fire only on the leader.</div>
               </div>
 
               <div class="card" style="margin-bottom:20px">
@@ -2925,16 +2924,15 @@
             <!-- Cloud Sync Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
-              <p class="hint" style="margin-bottom:16px">Each machine backs up its own agents, managers, tasks and event config to its own cloud namespace. Every machine runs its own schedules; leadership only decides which machine handles the shared event bus.</p>
+              <p class="hint" style="margin-bottom:16px">Each machine backs up its own agents, managers, tasks and event config to its own cloud namespace. Every machine runs its own schedules and responds to its own events independently.</p>
 
               <!-- Sync Status Banner -->
               <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-                <span class="status-badge" :class="syncStatus.enabled ? (syncStatus.isLeader ? 'success' : 'running') : 'stopped'"
-                  x-text="syncStatus.enabled ? (syncStatus.isLeader ? '🟢 Leader (handles event bus)' : '🟡 Synced (event bus on leader)') : '⚪ Disabled'"></span>
+                <span class="status-badge" :class="syncStatus.enabled ? 'success' : 'stopped'"
+                  x-text="syncStatus.enabled ? '🟢 Synced' : '⚪ Disabled'"></span>
                 <span class="hint" x-show="syncStatus.machineId" x-text="'This machine: ' + (syncStatus.hostname ? syncStatus.hostname + ' · ' : '') + syncStatus.machineId"></span>
-                <span class="hint" x-show="syncStatus.leaderInfo && !syncStatus.isLeader" x-text="'Event-bus leader: ' + (syncStatus.leaderInfo?.hostname || 'unknown')"></span>
               </div>
-              <p class="hint" x-show="syncStatus.enabled" style="margin:-8px 0 16px">Your config syncs automatically to this machine's own namespace. To change which machine handles events, use <strong>Active Machines</strong> below. To borrow agents from another machine, use <strong>Browse Other Machines</strong>.</p>
+              <p class="hint" x-show="syncStatus.enabled" style="margin:-8px 0 16px">Your config syncs automatically to this machine's own namespace. To borrow agents from another machine, use <strong>Browse Other Machines</strong>.</p>
 
               <!-- Config Form -->
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -2969,33 +2967,26 @@
             <!-- Active Machines -->
             <div class="card" style="margin-bottom:20px" x-show="syncStatus.enabled">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <h3 style="margin:0">🖥️ Active Machines</h3>
+                <h3 style="margin:0">🖥️ Connected Machines</h3>
                 <button class="btn ghost" type="button" @click="loadInstances()" style="font-size:0.8rem">↻ Refresh</button>
               </div>
-              <p class="hint" style="margin-bottom:12px">All machines running this app and sharing this cloud config. Pick which one should be the leader (runs schedules and responds to events).</p>
+              <p class="hint" style="margin-bottom:12px">All machines running this app and sharing this cloud config. Each runs its own schedules and events; your mobile device chooses which one to listen to.</p>
               <div x-show="!instances || instances.length === 0" class="hint">No machines registered yet…</div>
               <template x-for="m in (instances || [])" :key="m.machineId">
-                <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--cp-border);border-radius:10px;margin-bottom:8px;flex-wrap:wrap"
-                  :style="m.isLeader ? 'border-color:var(--cp-success)' : ''">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--cp-border);border-radius:10px;margin-bottom:8px;flex-wrap:wrap">
                   <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (m.alive ? 'var(--cp-success)' : 'var(--cp-text-muted)')"
                     :title="m.alive ? 'Online' : 'Offline'"></span>
                   <div style="display:flex;flex-direction:column;min-width:0">
                     <div style="font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                       <span x-text="m.hostname || m.machineId"></span>
-                      <span x-show="m.isLeader" class="status-badge success" style="font-size:0.7rem">Leader</span>
                       <span x-show="m.isSelf" class="channel-chip" style="font-size:0.7rem">this machine</span>
                     </div>
                     <div class="hint mono" style="font-size:0.75rem" x-text="m.machineId + (m.appVersion ? ' · v' + m.appVersion : '')"></div>
                     <div class="hint" style="font-size:0.75rem" x-text="m.alive ? ('seen ' + formatRelative(m.lastSeen)) : ('offline · last seen ' + formatRelative(m.lastSeen))"></div>
                   </div>
                   <span style="flex:1"></span>
-                  <button class="btn" type="button" x-show="!m.isLeader && m.alive" @click="requestLeader(m)" :disabled="leaderRequesting">
-                    <span x-show="!(leaderRequesting && leaderRequestTarget === m.machineId)">Make leader</span>
-                    <span x-show="leaderRequesting && leaderRequestTarget === m.machineId">Requesting…</span>
-                  </button>
                 </div>
               </template>
-              <div x-show="leaderRequestMsg" style="margin-top:8px;font-size:0.85rem;color:var(--cp-text-muted)" x-text="leaderRequestMsg"></div>
             </div>
 
             <!-- Browse Other Machines -->
@@ -3016,7 +3007,6 @@
                     <div style="min-width:0;flex:1">
                       <div style="font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                         <span x-text="m.hostname || m.machineId"></span>
-                        <span x-show="m.isLeader" class="status-badge success" style="font-size:0.7rem">Leader</span>
                       </div>
                       <div class="hint" style="font-size:0.75rem" x-text="(m.agentCount ?? (m.agents?.length || 0)) + ' agents · ' + (m.managerCount ?? (m.managers?.length || 0)) + ' managers'"></div>
                     </div>
@@ -3670,16 +3660,13 @@
         chatActivity: {},
         chatSessions: {},
         chatContinueInfo: null,
-        syncStatus: { enabled: false, isLeader: false, epoch: 0, machineId: '', hostname: '', leaderInfo: null },
+        syncStatus: { enabled: false, machineId: '', hostname: '' },
         syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '' },
         instances: [],
         otherMachines: [],
         machinesLoading: false,
         machinesMsg: '',
         installingKey: null,
-        leaderRequesting: false,
-        leaderRequestTarget: null,
-        leaderRequestMsg: '',
         refreshTimer: null,
         pollers: {},
         now: Date.now(),
@@ -4611,29 +4598,6 @@
             if (Array.isArray(list)) this.instances = list;
           } catch {}
         },
-        async requestLeader(m) {
-          if (!m || !m.machineId) return;
-          if (!confirm('Make "' + (m.hostname || m.machineId) + '" the event-bus leader? Service Bus event handling will move to that machine.')) return;
-          this.leaderRequesting = true;
-          this.leaderRequestTarget = m.machineId;
-          this.leaderRequestMsg = '';
-          try {
-            const res = await this.request('/api/sync/request-leader', { method: 'POST', body: JSON.stringify({ machineId: m.machineId }) });
-            if (res && res.mode === 'immediate') {
-              this.leaderRequestMsg = 'This machine is now the leader.';
-              this.showToast('Leadership', 'This machine is now the leader.', 'success');
-            } else {
-              this.leaderRequestMsg = (m.hostname || m.machineId) + ' will take over within ~30s.';
-              this.showToast('Leadership', this.leaderRequestMsg, 'info');
-            }
-            await this.loadSyncStatus();
-          } catch (err) {
-            this.showToast('Request Failed', err.message, 'error');
-          } finally {
-            this.leaderRequesting = false;
-            this.leaderRequestTarget = null;
-          }
-        },
         async saveSyncConfig() {
           try {
             await this.request('/api/sync/config', { method: 'PUT', body: JSON.stringify(this.syncConfig) });
@@ -4641,16 +4605,6 @@
             await this.loadSyncStatus();
           } catch (err) {
             this.showToast('Sync Error', err.message, 'error');
-          }
-        },
-        async forceLeader() {
-          if (!confirm('Take over event-bus leadership? Service Bus event handling will move to this machine.')) return;
-          try {
-            await this.request('/api/sync/force-leader', { method: 'POST' });
-            this.showToast('Leadership', 'This machine is now the leader.', 'success');
-            await this.loadSyncStatus();
-          } catch (err) {
-            this.showToast('Force Leader Failed', err.message, 'error');
           }
         },
         async syncPush() {

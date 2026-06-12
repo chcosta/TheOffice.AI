@@ -89,8 +89,10 @@ const messageQueues = new Map(); // key → messages[]
 // Phone sends a message to the server.
 // Messages are routed to a per-machine inbound queue based on body.targetMachineId
 // so each device deterministically reaches the machine it has chosen as its
-// "listener". Messages with no target (or the '__leader__' sentinel) go to the
-// shared default queue, which is drained only by the leader.
+// "listener". Messages with no target (or the legacy '__leader__' sentinel) go
+// to the shared default queue, which is drained by whichever machine polls first
+// — those are idempotent bootstrap reads (list-machines / get-status) before a
+// device has picked a listener, so any alive machine can answer.
 app.post('/api/messages/send', validateApiKey, (req, res) => {
   const message = {
     id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -113,27 +115,25 @@ app.post('/api/messages/send', validateApiKey, (req, res) => {
 
 // Server polls for inbound messages from devices.
 //   ?machineId=X  — drain that machine's dedicated queue (inbound-X)
-//   ?leader=true  — also drain the shared default queue (unrouted / '__leader__')
-// Omitting both preserves legacy behavior (drain default queue) so an
-// un-updated server keeps working.
+// Every poller also drains the shared default queue (unrouted bootstrap reads).
+// A message is spliced out by whichever machine grabs it first, so a single
+// default-queue message is still answered exactly once.
 app.get('/api/messages/receive', validateApiKey, (req, res) => {
   if (req.authType !== 'admin') {
     return res.status(403).json({ error: 'Only server can receive inbound messages' });
   }
   const machineId = req.query.machineId ? String(req.query.machineId) : null;
-  const isLeader = req.query.leader === 'true' || req.query.leader === '1';
   const messages = [];
 
   if (machineId) {
     const q = messageQueues.get(`inbound-${machineId}`);
     if (q && q.length) messages.push(...q.splice(0, 10));
   }
-  // Default/unrouted queue is owned by the leader (and by legacy callers that
-  // pass no machineId at all, i.e. single-machine setups).
-  if (isLeader || !machineId) {
-    const dq = messageQueues.get('inbound');
-    if (dq && dq.length) messages.push(...dq.splice(0, Math.max(0, 10 - messages.length)));
-  }
+  // Shared default queue: unrouted / legacy '__leader__' bootstrap reads,
+  // answered by whichever alive machine polls first.
+  const dq = messageQueues.get('inbound');
+  if (dq && dq.length) messages.push(...dq.splice(0, Math.max(0, 10 - messages.length)));
+
   res.json({ messages });
 });
 

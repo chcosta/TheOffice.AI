@@ -3095,13 +3095,11 @@ app.get('/api/events/log', (req, res) => {
 
 // Live mobile-relay channel status for the Event Listeners UI.
 app.get('/api/relay/status', (req, res) => {
-  let leaderEventsActive = true;
-  try {
-    leaderEventsActive = !configSync.enabled || configSync.isLeader;
-  } catch {}
+  // Every machine runs its own scheduled events locally now, so the relay
+  // channel is always "active" wherever the server is up.
   const devices = Array.from(relayDevices.values())
     .sort((a, b) => (b.lastSeen || '').localeCompare(a.lastSeen || ''));
-  res.json({ ...relayStatus, eventsActive: leaderEventsActive, devices });
+  res.json({ ...relayStatus, eventsActive: true, devices });
 });
 
 app.get('/api/events/sessions', (req, res) => {
@@ -3352,14 +3350,12 @@ function _recordRelayDevice(deviceId, type) {
 async function pollRelay() {
   relayStatus.lastPollAt = new Date().toISOString();
   try {
-    // Identify ourselves so the relay only hands us messages addressed to this
-    // machine (the device's chosen "listener"). The leader additionally drains
-    // the shared default queue for devices that haven't picked a listener yet.
+    // Identify ourselves so the relay hands us messages addressed to this
+    // machine (the device's chosen "listener"). Every poller also drains the
+    // shared default queue for devices that haven't picked a listener yet.
     const machineId = configSync.enabled ? configSync.machineId : null;
-    const isLeader = !configSync.enabled || configSync.isLeader;
     const qs = new URLSearchParams();
     if (machineId) qs.set('machineId', machineId);
-    qs.set('leader', String(isLeader));
     const resp = await fetch(`${RELAY_URL}/api/messages/receive?${qs.toString()}`, {
       headers: { 'Authorization': `Bearer ${RELAY_ADMIN_KEY}` },
     });
