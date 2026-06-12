@@ -1726,6 +1726,7 @@
               </div>
               <div class="toolbar">
                 <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
+                <button class="btn accent" type="button" @click="runAgentNow(selectedAgent.id)" :disabled="selectedAgent.status === 'running'">⚡ Run</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit</button>
                 <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
@@ -1741,6 +1742,18 @@
                   <button class="btn" type="button" @click="reinstallAgent(selectedAgent.id)">🔄 Reinstall from source</button>
                   <button class="btn ghost" type="button" @click="editAgentSource(selectedAgent.id)">View changes</button>
                 </div>
+              </div>
+            </div>
+            <!-- Live output panel (shown when agent is running) -->
+            <div x-show="liveOutput[selectedAgent?.id]" x-transition style="margin-bottom:16px">
+              <div class="card" style="border-left:3px solid var(--cp-accent)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <span x-show="liveOutput[selectedAgent?.id]?.active" class="pulse-dot"></span>
+                  <strong x-text="liveOutput[selectedAgent?.id]?.active ? '⚡ Running...' : '✓ Complete'"></strong>
+                  <span class="hint" x-show="!liveOutput[selectedAgent?.id]?.active" x-text="'Exit ' + (liveOutput[selectedAgent?.id]?.code ?? '?')"></span>
+                  <button class="btn ghost" style="margin-left:auto" type="button" @click="delete liveOutput[selectedAgent.id]; liveOutput = {...liveOutput}">✕ Dismiss</button>
+                </div>
+                <pre class="live-output-pre" style="max-height:300px;overflow:auto;font-size:0.8rem;white-space:pre-wrap;background:var(--cp-surface-soft);padding:12px;border-radius:8px" x-text="liveOutput[selectedAgent?.id]?.text || 'Waiting for output...'"></pre>
               </div>
             </div>
             <div class="detail-grid">
