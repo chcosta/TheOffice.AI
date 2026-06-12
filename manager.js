@@ -21,8 +21,12 @@ class ManagerAgent extends EventEmitter {
     this.db = db;
     this.supervisor = supervisor;
     this.managers = new Map(); // id -> { config, cronJobs, running }
+    this._leaderCheck = null;
     this._initDb();
   }
+
+  /** Set a leader check function. If set, scheduled assignments only fire when it returns true. */
+  setLeaderCheck(fn) { this._leaderCheck = fn; }
 
   _initDb() {
     this.db.exec(`
@@ -95,11 +99,13 @@ class ManagerAgent extends EventEmitter {
       const schedule = parseSchedule(assignment.schedule);
       if (schedule.type === 'cron') {
         const job = new Cron(schedule.cron, () => {
+          if (this._leaderCheck && !this._leaderCheck()) return;
           this.runAssignment(managerId, assignment.id);
         });
         entry.cronJobs.push({ assignmentId: assignment.id, job });
       } else if (schedule.type === 'interval') {
         const timer = setInterval(() => {
+          if (this._leaderCheck && !this._leaderCheck()) return;
           this.runAssignment(managerId, assignment.id);
         }, schedule.ms);
         entry.cronJobs.push({ assignmentId: assignment.id, timer });

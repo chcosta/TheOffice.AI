@@ -2801,6 +2801,72 @@
                 </template>
               </div>
             </div>
+
+            <!-- Cloud Sync Section -->
+            <div class="card" style="margin-top:24px">
+              <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
+              <p class="hint" style="margin-bottom:16px">Sync your configuration across machines via Azure Blob Storage. Only the leader machine runs schedules.</p>
+
+              <!-- Sync Status Banner -->
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+                <span class="status-badge" :class="syncStatus.enabled ? (syncStatus.isLeader ? 'success' : 'running') : 'stopped'"
+                  x-text="syncStatus.enabled ? (syncStatus.isLeader ? '🟢 Leader (schedules active)' : '🟡 Standby (synced, schedules paused)') : '⚪ Disabled'"></span>
+                <span class="hint" x-show="syncStatus.machineId" x-text="'Machine: ' + syncStatus.machineId"></span>
+                <span class="hint" x-show="syncStatus.leaderInfo && !syncStatus.isLeader" x-text="'Leader: ' + (syncStatus.leaderInfo?.hostname || 'unknown')"></span>
+                <span style="flex:1"></span>
+                <button class="btn" type="button" x-show="syncStatus.enabled && !syncStatus.isLeader" @click="forceLeader()" style="color:var(--cp-danger)">⚡ Take Leadership</button>
+                <button class="btn" type="button" x-show="syncStatus.enabled" @click="syncPush()">⬆ Push</button>
+                <button class="btn" type="button" x-show="syncStatus.enabled" @click="syncPull()">⬇ Pull</button>
+              </div>
+
+              <!-- Config Form -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+                <div>
+                  <label class="field-label">Storage Account</label>
+                  <input class="field-input" type="text" x-model="syncConfig.storageAccount" placeholder="e.g. mystorage" />
+                </div>
+                <div>
+                  <label class="field-label">Container Name</label>
+                  <input class="field-input" type="text" x-model="syncConfig.containerName" placeholder="agent-supervisor" />
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <label class="field-label">Machine ID</label>
+                <input class="field-input" type="text" x-model="syncConfig.machineId" placeholder="Auto-generated on first run" />
+              </div>
+
+              <!-- Path Profiles -->
+              <details style="margin-bottom:16px">
+                <summary style="cursor:pointer;font-weight:500;margin-bottom:8px">Path Profiles <span class="hint">(map logical paths to local directories)</span></summary>
+                <div style="margin-top:8px">
+                  <div class="hint" style="margin-bottom:8px">Define path variables for this machine. Agents store <code>${repoRoot}/project</code> and each machine resolves to its local path.</div>
+                  <template x-for="(value, key) in (syncConfig.pathProfiles?.[syncConfig.machineId] || {})" :key="key">
+                    <div style="display:grid;grid-template-columns:120px 1fr 30px;gap:8px;margin-bottom:6px;align-items:center">
+                      <input class="field-input mono" type="text" :value="key" disabled style="font-size:0.8rem" />
+                      <input class="field-input mono" type="text" :value="value" @change="updatePathProfile(key, $event.target.value)" style="font-size:0.8rem" />
+                      <button class="btn ghost" type="button" @click="removePathProfile(key)">✕</button>
+                    </div>
+                  </template>
+                  <div style="display:grid;grid-template-columns:120px 1fr 80px;gap:8px;align-items:center">
+                    <input class="field-input mono" type="text" x-model="newProfileKey" placeholder="repoRoot" style="font-size:0.8rem" />
+                    <input class="field-input mono" type="text" x-model="newProfileValue" placeholder="C:\repos" style="font-size:0.8rem" />
+                    <button class="btn" type="button" @click="addPathProfile()">Add</button>
+                  </div>
+                </div>
+              </details>
+
+              <!-- Path Issues -->
+              <div x-show="syncStatus.pathIssues && syncStatus.pathIssues.length > 0" style="margin-bottom:16px">
+                <div style="font-weight:500;color:var(--cp-warning);margin-bottom:6px">⚠️ Unresolved Paths</div>
+                <template x-for="issue in (syncStatus.pathIssues || [])" :key="issue.file + issue.field + issue.path">
+                  <div style="font-size:0.8rem;padding:4px 8px;background:var(--cp-surface-soft);border-radius:4px;margin-bottom:4px">
+                    <span class="mono" x-text="issue.file"></span> → <span class="mono" x-text="issue.path"></span>
+                  </div>
+                </template>
+              </div>
+
+              <button class="btn primary" type="button" @click="saveSyncConfig()">Save Sync Settings</button>
+            </div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'activity'" x-transition.opacity.duration.180ms>
@@ -3387,6 +3453,10 @@
         chatActivity: {},
         chatSessions: {},
         chatContinueInfo: null,
+        syncStatus: { enabled: false, isLeader: false, epoch: 0, machineId: '', leaderInfo: null, pathIssues: [] },
+        syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '', pathProfiles: {} },
+        newProfileKey: '',
+        newProfileValue: '',
         refreshTimer: null,
         pollers: {},
         now: Date.now(),
@@ -3798,6 +3868,7 @@
             await this.openChat(this.app.routeParam);
           } else if (this.route === 'events') {
             await this.loadEvents();
+            await this.loadSyncStatus();
           }
         },
 
@@ -4243,6 +4314,74 @@
           return this.data.activity
             .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff)
             .slice(0, 8);
+        },
+
+        // --- Cloud Sync methods ---
+        async loadSyncStatus() {
+          try {
+            const [status, config] = await Promise.all([
+              this.request('/api/sync/status'),
+              this.request('/api/sync/config')
+            ]);
+            if (status) this.syncStatus = status;
+            if (config) this.syncConfig = config;
+          } catch {}
+        },
+        async saveSyncConfig() {
+          try {
+            await this.request('/api/sync/config', { method: 'PUT', body: JSON.stringify(this.syncConfig) });
+            this.showToast('Sync Settings', 'Configuration saved. Sync will restart.', 'success');
+            await this.loadSyncStatus();
+          } catch (err) {
+            this.showToast('Sync Error', err.message, 'error');
+          }
+        },
+        async forceLeader() {
+          if (!confirm('Take over leadership? This will stop schedules on the current leader machine.')) return;
+          try {
+            await this.request('/api/sync/force-leader', { method: 'POST' });
+            this.showToast('Leadership', 'This machine is now the leader.', 'success');
+            await this.loadSyncStatus();
+          } catch (err) {
+            this.showToast('Force Leader Failed', err.message, 'error');
+          }
+        },
+        async syncPush() {
+          try {
+            await this.request('/api/sync/push', { method: 'POST' });
+            this.showToast('Sync', 'Config pushed to cloud.', 'success');
+          } catch (err) {
+            this.showToast('Push Failed', err.message, 'error');
+          }
+        },
+        async syncPull() {
+          try {
+            await this.request('/api/sync/pull', { method: 'POST' });
+            this.showToast('Sync', 'Config pulled from cloud and reloaded.', 'success');
+            await this.refreshAll();
+          } catch (err) {
+            this.showToast('Pull Failed', err.message, 'error');
+          }
+        },
+        updatePathProfile(key, value) {
+          if (!this.syncConfig.pathProfiles) this.syncConfig.pathProfiles = {};
+          if (!this.syncConfig.pathProfiles[this.syncConfig.machineId]) this.syncConfig.pathProfiles[this.syncConfig.machineId] = {};
+          this.syncConfig.pathProfiles[this.syncConfig.machineId][key] = value;
+        },
+        removePathProfile(key) {
+          if (this.syncConfig.pathProfiles?.[this.syncConfig.machineId]) {
+            delete this.syncConfig.pathProfiles[this.syncConfig.machineId][key];
+            this.syncConfig = { ...this.syncConfig };
+          }
+        },
+        addPathProfile() {
+          if (!this.newProfileKey.trim()) return;
+          if (!this.syncConfig.pathProfiles) this.syncConfig.pathProfiles = {};
+          if (!this.syncConfig.pathProfiles[this.syncConfig.machineId]) this.syncConfig.pathProfiles[this.syncConfig.machineId] = {};
+          this.syncConfig.pathProfiles[this.syncConfig.machineId][this.newProfileKey.trim()] = this.newProfileValue.trim();
+          this.newProfileKey = '';
+          this.newProfileValue = '';
+          this.syncConfig = { ...this.syncConfig };
         },
 
         // --- Event Listeners methods ---

@@ -10,8 +10,12 @@ class Supervisor extends EventEmitter {
     super();
     this.db = db;
     this.agents = new Map(); // id -> { config, timer/cronJob, running, process }
+    this._leaderCheck = null; // optional: () => boolean, set by config-sync
     this._initDb();
   }
+
+  /** Set a leader check function. If set, scheduled executions only fire when it returns true. */
+  setLeaderCheck(fn) { this._leaderCheck = fn; }
 
   _initDb() {
     this.db.exec(`
@@ -86,9 +90,15 @@ class Supervisor extends EventEmitter {
 
     // Set up recurring schedule (skip for trigger-only agents)
     if (schedule.type === 'cron') {
-      entry.cronJob = new Cron(schedule.cron, () => this._executeAgent(agentId));
+      entry.cronJob = new Cron(schedule.cron, () => {
+        if (this._leaderCheck && !this._leaderCheck()) return;
+        this._executeAgent(agentId);
+      });
     } else if (schedule.type === 'interval') {
-      entry.timer = setInterval(() => this._executeAgent(agentId), schedule.ms);
+      entry.timer = setInterval(() => {
+        if (this._leaderCheck && !this._leaderCheck()) return;
+        this._executeAgent(agentId);
+      }, schedule.ms);
     }
     // type === 'none' → no schedule, only runs via triggers or manual
 

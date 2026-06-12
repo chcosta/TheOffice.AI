@@ -8,6 +8,7 @@ const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
 const ManagerAgent = require('./manager');
 const EventListener = require('./event-listener');
+const ConfigSync = require('./config-sync');
 
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
@@ -133,6 +134,24 @@ function loadManagers() {
 
 loadAgents();
 loadManagers();
+
+// Config sync (cloud-based, leader election)
+const configSync = new ConfigSync({
+  onLeaderChange: (isLeader, epoch) => {
+    console.log(`[config-sync] Leadership changed: ${isLeader ? 'LEADER' : 'STANDBY'} (epoch ${epoch})`);
+  },
+  onConfigPulled: (version) => {
+    console.log(`[config-sync] Config pulled (v${version}), reloading...`);
+    loadAgents();
+    loadManagers();
+  }
+});
+// Wire leader check into scheduler (schedules only fire if leader or sync disabled)
+const leaderCheck = () => !configSync.enabled || configSync.isLeader;
+supervisor.setLeaderCheck(leaderCheck);
+managerAgent.setLeaderCheck(leaderCheck);
+// Start async (non-blocking)
+configSync.start().catch(err => console.log('[config-sync] Disabled:', err.message));
 
 // Auto-start managers that have scheduled assignments
 (() => {
@@ -1937,6 +1956,17 @@ app.get('/api/export', (req, res) => {
   // agents.json
   zip.addFile(AGENTS_PATH, 'agents.json');
 
+  // managers.json
+  if (fs.existsSync(MANAGERS_PATH)) {
+    zip.addFile(MANAGERS_PATH, 'managers.json');
+  }
+
+  // events-config.json
+  const eventsConfigPath = path.join(__dirname, 'events-config.json');
+  if (fs.existsSync(eventsConfigPath)) {
+    zip.addFile(eventsConfigPath, 'events-config.json');
+  }
+
   // plugins directory
   const pluginsDir = path.join(__dirname, 'plugins');
   if (fs.existsSync(pluginsDir)) {
@@ -2052,6 +2082,20 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
       results.imported.push(`agents.json: ${agents.length} agents`);
     }
 
+    // Import managers.json
+    if (entries['managers.json']) {
+      const managers = JSON.parse(entries['managers.json'].toString());
+      fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
+      results.imported.push(`managers.json: ${managers.length} managers`);
+    }
+
+    // Import events-config.json
+    if (entries['events-config.json']) {
+      const eventsPath = path.join(__dirname, 'events-config.json');
+      fs.writeFileSync(eventsPath, entries['events-config.json'].toString());
+      results.imported.push('events-config.json imported');
+    }
+
     // Import plugins
     let pluginCount = 0;
     for (const [filePath, content] of Object.entries(entries)) {
@@ -2133,6 +2177,82 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
   }
 
   res.json(results);
+});
+
+// ============ Config Sync API Routes ============
+
+// Get sync status
+app.get('/api/sync/status', async (req, res) => {
+  try {
+    const leaderInfo = configSync.enabled ? await configSync.getLeaderInfo() : null;
+    res.json({
+      enabled: configSync.enabled,
+      isLeader: configSync.isLeader,
+      epoch: configSync.epoch,
+      machineId: configSync.machineId,
+      leaderInfo,
+      pathIssues: configSync.enabled ? configSync.scanUnresolvedPaths() : []
+    });
+  } catch (err) {
+    res.json({ enabled: configSync.enabled, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, error: err.message });
+  }
+});
+
+// Get sync config
+app.get('/api/sync/config', (req, res) => {
+  res.json(configSync.getSyncConfig());
+});
+
+// Update sync config
+app.put('/api/sync/config', express.json(), async (req, res) => {
+  try {
+    const updated = configSync.saveSyncConfig(req.body);
+    // Restart sync if storage account changed
+    if (req.body.storageAccount) {
+      configSync.stop();
+      await configSync.start();
+    }
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Force this machine to become leader
+app.post('/api/sync/force-leader', async (req, res) => {
+  try {
+    const result = await configSync.forceLeader();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Push local config to cloud
+app.post('/api/sync/push', async (req, res) => {
+  try {
+    await configSync.pushConfig();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pull config from cloud
+app.post('/api/sync/pull', async (req, res) => {
+  try {
+    await configSync.pullConfig();
+    loadAgents();
+    loadManagers();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Scan for path issues
+app.get('/api/sync/path-issues', (req, res) => {
+  res.json(configSync.scanUnresolvedPaths());
 });
 
 // ============ Manager API Routes ============
@@ -2826,11 +2946,13 @@ server.on('error', (err) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('[supervisor] Shutting down...');
+  configSync.stop();
   supervisor.stopAll();
   db.close();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
+  configSync.stop();
   supervisor.stopAll();
   db.close();
   process.exit(0);

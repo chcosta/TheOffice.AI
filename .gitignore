@@ -9,3 +9,5 @@ temp-terminal.bat
 .test-browse.ps1
 temp-email.eml
 .share-drafts/
+sync-config.json
+.config-backup/
