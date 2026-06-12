@@ -38,7 +38,66 @@ class MobileHandler extends EventEmitter {
   }
 
   _ensureDb() {
-    // No custom tables needed — we use agent_runs from the supervisor
+    if (!this.db) return;
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS mobile_chats (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          target_type TEXT NOT NULL DEFAULT 'agent',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS mobile_chat_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (chat_id) REFERENCES mobile_chats(id)
+        );
+      `);
+      // Load existing chat sessions into memory
+      this._loadChatsFromDb();
+    } catch (err) {
+      console.error('[mobile-handler] DB init error:', err.message);
+    }
+  }
+
+  _loadChatsFromDb() {
+    if (!this.db) return;
+    try {
+      const chats = this.db.prepare('SELECT * FROM mobile_chats ORDER BY updated_at DESC LIMIT 50').all();
+      for (const chat of chats) {
+        const messages = this.db.prepare(
+          'SELECT role, content, timestamp FROM mobile_chat_messages WHERE chat_id = ? ORDER BY id'
+        ).all(chat.id);
+        this.chatSessions.set(chat.id, {
+          target: chat.target_id,
+          targetType: chat.target_type,
+          messages,
+          startedAt: chat.created_at
+        });
+      }
+    } catch {}
+  }
+
+  _persistChatMessage(chatKey, sessionId, targetId, targetType, role, content) {
+    if (!this.db) return;
+    try {
+      // Upsert chat session
+      this.db.prepare(`
+        INSERT OR IGNORE INTO mobile_chats (id, session_id, target_id, target_type)
+        VALUES (?, ?, ?, ?)
+      `).run(chatKey, sessionId, targetId, targetType);
+      this.db.prepare(`UPDATE mobile_chats SET updated_at = datetime('now') WHERE id = ?`).run(chatKey);
+      // Insert message
+      this.db.prepare(`
+        INSERT INTO mobile_chat_messages (chat_id, role, content, timestamp)
+        VALUES (?, ?, ?, datetime('now'))
+      `).run(chatKey, role, content);
+    } catch {}
   }
 
   /**
@@ -71,6 +130,8 @@ class MobileHandler extends EventEmitter {
         return this._chat(correlationId, sessionId, payload, replier);
       case 'get-chat-history':
         return this._getChatHistory(correlationId, sessionId, payload, replier);
+      case 'list-chats':
+        return this._listChats(correlationId, sessionId, replier);
       case 'get-activity':
         return this._getActivity(correlationId, payload, replier);
       case 'get-status':
@@ -309,6 +370,7 @@ class MobileHandler extends EventEmitter {
 
     const session = this.chatSessions.get(chatKey);
     session.messages.push({ role: 'user', content: message, timestamp: new Date().toISOString() });
+    this._persistChatMessage(chatKey, sessionId || 'default', targetId, targetType || 'agent', 'user', message);
 
     // Send typing indicator
     await replier(correlationId, {
@@ -335,6 +397,7 @@ class MobileHandler extends EventEmitter {
       }
 
       session.messages.push({ role: 'assistant', content: result, timestamp: new Date().toISOString() });
+      this._persistChatMessage(chatKey, sessionId || 'default', targetId, targetType || 'agent', 'assistant', result);
 
       await replier(correlationId, {
         type: 'result',
@@ -374,6 +437,36 @@ class MobileHandler extends EventEmitter {
         startedAt: session?.startedAt || null
       }
     });
+    return true;
+  }
+
+  async _listChats(correlationId, sessionId, replier) {
+    const chats = [];
+    for (const [key, session] of this.chatSessions) {
+      // Only return chats for this session or all if no session filter
+      const lastMsg = session.messages[session.messages.length - 1];
+      const entry = session.targetType === 'manager'
+        ? this.managerAgent.managers.get(session.target)
+        : this.supervisor.agents.get(session.target);
+      const name = session.targetType === 'manager'
+        ? (entry?.name || session.target)
+        : (entry?.config?.name || session.target);
+
+      chats.push({
+        id: key,
+        targetId: session.target,
+        targetType: session.targetType,
+        targetName: name,
+        messageCount: session.messages.length,
+        lastMessage: lastMsg ? lastMsg.content.substring(0, 100) : null,
+        lastMessageAt: lastMsg?.timestamp || session.startedAt,
+        startedAt: session.startedAt
+      });
+    }
+    // Sort by most recent activity
+    chats.sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+
+    await replier(correlationId, { type: 'result', payload: { chats } });
     return true;
   }
 
