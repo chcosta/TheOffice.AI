@@ -475,11 +475,12 @@ class MobileHandler extends EventEmitter {
       // Listen for streaming output if available
       const onOutput = (data) => {
         if (data.agentId !== agentId) return;
-        chunks.push(data.text);
-        // Send streaming chunk to mobile
+        const text = data.chunk || data.text || '';
+        chunks.push(text);
+        // Send streaming chunk to mobile with sequence number and content
         replier(correlationId, {
           type: 'streaming-chunk',
-          payload: { text: data.text, idx: chunks.length }
+          payload: { text, idx: chunks.length, stream: data.stream || 'stdout', isFinal: false }
         }).catch(() => {});
       };
 
@@ -487,7 +488,13 @@ class MobileHandler extends EventEmitter {
         if (data.agentId !== agentId) return;
         cleanup();
         entry.config.prompt = originalPrompt;
-        resolve(data.output || chunks.join('') || '(no output)');
+        const output = data.output || chunks.join('') || '(no output)';
+        // Send final chunk marker so mobile knows streaming is done
+        replier(correlationId, {
+          type: 'streaming-chunk',
+          payload: { text: '', idx: chunks.length + 1, isFinal: true }
+        }).catch(() => {});
+        resolve(output);
       };
 
       const onError = (data) => {
