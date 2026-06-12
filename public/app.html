@@ -2933,11 +2933,8 @@
                   x-text="syncStatus.enabled ? (syncStatus.isLeader ? '🟢 Leader (schedules active)' : '🟡 Standby (synced, schedules paused)') : '⚪ Disabled'"></span>
                 <span class="hint" x-show="syncStatus.machineId" x-text="'Machine: ' + syncStatus.machineId"></span>
                 <span class="hint" x-show="syncStatus.leaderInfo && !syncStatus.isLeader" x-text="'Leader: ' + (syncStatus.leaderInfo?.hostname || 'unknown')"></span>
-                <span style="flex:1"></span>
-                <button class="btn" type="button" x-show="syncStatus.enabled && !syncStatus.isLeader" @click="forceLeader()" style="color:var(--cp-danger)">⚡ Take Leadership</button>
-                <button class="btn" type="button" x-show="syncStatus.enabled" @click="syncPush()">⬆ Push</button>
-                <button class="btn" type="button" x-show="syncStatus.enabled" @click="syncPull()">⬇ Pull</button>
               </div>
+              <p class="hint" x-show="syncStatus.enabled" style="margin:-8px 0 16px">Sync is automatic — the leader pushes config changes and every other machine pulls them within ~30s. To change which machine is the leader, use <strong>Active Machines</strong> below.</p>
 
               <!-- Config Form -->
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -3003,6 +3000,17 @@
               </div>
 
               <button class="btn primary" type="button" @click="saveSyncConfig()">Save Sync Settings</button>
+
+              <details x-show="syncStatus.enabled" style="margin-top:16px">
+                <summary style="cursor:pointer;font-weight:500">Advanced — manual sync</summary>
+                <div style="margin-top:10px">
+                  <p class="hint" style="margin-bottom:10px">You normally don't need these — sync happens automatically. Use them only to force an immediate sync, e.g. after editing files on disk outside the app.</p>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn" type="button" @click="syncPush()" :disabled="!syncStatus.isLeader" :title="syncStatus.isLeader ? '' : 'Only the leader can push'">⬆ Push now</button>
+                    <button class="btn" type="button" @click="syncPull()">⬇ Pull now</button>
+                  </div>
+                </div>
+              </details>
             </div>
 
             <!-- Active Machines -->

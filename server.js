@@ -186,6 +186,10 @@ fs.watch(AGENTS_PATH, () => {
     try {
       console.log('[supervisor] agents.json changed, reloading...');
       loadAgents();
+      // Leader auto-pushes config changes so other machines pick them up.
+      if (configSync.enabled && configSync.isLeader) {
+        configSync.pushConfig().catch(e => console.warn('[sync] auto-push (agents) failed:', e.message));
+      }
     } catch (e) {
       console.error('[supervisor] Failed to reload agents.json:', e.message);
     }
@@ -201,6 +205,9 @@ if (fs.existsSync(MANAGERS_PATH)) {
       try {
         console.log('[supervisor] managers.json changed, reloading...');
         loadManagers();
+        if (configSync.enabled && configSync.isLeader) {
+          configSync.pushConfig().catch(e => console.warn('[sync] auto-push (managers) failed:', e.message));
+        }
       } catch (e) {
         console.error('[supervisor] Failed to reload managers.json:', e.message);
       }
