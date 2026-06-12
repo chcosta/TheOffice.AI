@@ -291,6 +291,40 @@ class EventListener extends EventEmitter {
   async _handleMessage(message) {
     const body = message.body;
     const correlationId = body?.correlationId || message.correlationId || Date.now().toString();
+
+    // Mobile protocol: structured JSON with a 'type' field
+    if (this.mobileHandler && this.mobileHandler.isMobileMessage(body)) {
+      const senderId = body.senderId || message.applicationProperties?.senderId || 'mobile';
+      this._logEvent('inbound', senderId, `[mobile] ${body.type}`, 'received');
+
+      // Validate sender (skip for get-status which is lightweight)
+      if (body.type !== 'get-status' && !this._validateSender(senderId)) {
+        this._logEvent('error', senderId, 'REJECTED: unknown sender', 'denied');
+        await this._reply(correlationId, senderId, { type: 'error', error: 'Unauthorized.' });
+        return;
+      }
+
+      // Rate limit
+      if (!this._checkRateLimit(senderId)) {
+        await this._reply(correlationId, senderId, { type: 'error', error: 'Rate limit exceeded.' });
+        return;
+      }
+
+      // Create a replier function that uses our reply queue
+      const replier = async (corrId, payload) => {
+        await this._reply(corrId, senderId, payload);
+      };
+
+      try {
+        await this.mobileHandler.handle(body, replier);
+      } catch (err) {
+        this._logEvent('error', 'mobile-handler', `Error: ${err.message}`, 'error');
+        await this._reply(correlationId, senderId, { type: 'error', error: err.message });
+      }
+      return;
+    }
+
+    // Legacy text-based protocol
     const content = (typeof body === 'string' ? body : body?.content || '').trim();
 
     if (!content) return;

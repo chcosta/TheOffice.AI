@@ -8,6 +8,7 @@ const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
 const ManagerAgent = require('./manager');
 const EventListener = require('./event-listener');
+const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
 
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
@@ -113,6 +114,10 @@ supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) =
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
 const eventListener = new EventListener(supervisor, managerAgent, db);
+
+// Mobile command handler — processes structured JSON messages from phone app
+const mobileHandler = new MobileHandler(supervisor, managerAgent, db, eventListener);
+eventListener.mobileHandler = mobileHandler;
 
 // Session cleanup interval for idle event listener sessions
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
@@ -2919,6 +2924,37 @@ app.post('/api/events/simulate', express.json(), async (req, res) => {
     });
   } finally {
     eventListener._reply = originalReply;
+  }
+});
+
+// ============================================================
+// Mobile REST API — same handlers as Service Bus, but over HTTP
+// (for local network access or development/testing)
+// ============================================================
+
+app.post('/api/mobile/:action', async (req, res) => {
+  const { action } = req.params;
+  const body = { type: action, ...req.body, correlationId: req.body.correlationId || Date.now().toString() };
+
+  if (!mobileHandler.isMobileMessage(body)) {
+    return res.status(400).json({ error: 'Invalid mobile message format' });
+  }
+
+  const replies = [];
+  const replier = async (corrId, payload) => {
+    replies.push({ correlationId: corrId, ...payload });
+  };
+
+  try {
+    await mobileHandler.handle(body, replier);
+    // Return last reply (the 'result' or 'error'), include streaming chunks
+    const finalReply = replies[replies.length - 1];
+    if (replies.length > 1) {
+      finalReply._streamingChunks = replies.slice(0, -1).filter(r => r.type === 'streaming-chunk');
+    }
+    res.json(finalReply);
+  } catch (err) {
+    res.status(500).json({ type: 'error', error: err.message });
   }
 });
 
