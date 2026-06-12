@@ -10,6 +10,7 @@ const ManagerAgent = require('./manager');
 const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
+const azdo = require('./azdo');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
 // repo. The repo only ships built-in plugin seeds in builtin-plugins/.
@@ -474,6 +475,43 @@ app.get('/api/discover', async (req, res) => {
 });
 
 // Install a plugin
+// Register a materialized local plugin directory into Copilot's config.json via
+// a directory junction. Shared by /api/plugins/install (copilot-local) and the
+// Azure DevOps install/reinstall paths.
+function registerLocalPluginInCopilot(pluginDir) {
+  const { execSync } = require('child_process');
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const configPath = path.join(homeDir, '.copilot', 'config.json');
+  const pluginsDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+  const pluginJsonPath = path.join(pluginDir, 'plugin.json');
+  if (!fs.existsSync(pluginJsonPath)) throw new Error('No plugin.json found in ' + pluginDir);
+  const pluginMeta = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
+  const pluginName = pluginMeta.name;
+  const targetDir = path.join(pluginsDir, pluginName);
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    execSync(`mklink /J "${targetDir}" "${pluginDir}"`, { shell: true });
+  }
+  const configRaw = fs.readFileSync(configPath, 'utf-8');
+  const configClean = configRaw.replace(/^\s*\/\/.*$/gm, '');
+  const config = JSON.parse(configClean);
+  if (!config.installedPlugins) config.installedPlugins = [];
+  const existing = config.installedPlugins.findIndex(p => p.name === pluginName);
+  const entry = {
+    name: pluginName,
+    marketplace: '',
+    version: pluginMeta.version || '1.0.0',
+    installed_at: new Date().toISOString(),
+    enabled: true,
+    cache_path: targetDir,
+    source: { source: 'local', path: pluginDir }
+  };
+  if (existing >= 0) config.installedPlugins[existing] = entry;
+  else config.installedPlugins.push(entry);
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return { pluginName, targetDir };
+}
+
 app.post('/api/plugins/install', (req, res) => {
   const { execSync } = require('child_process');
   const { installCmd, pluginDir, engine } = req.body;
@@ -624,6 +662,94 @@ app.post('/api/plugins/install', (req, res) => {
   }
 
   res.status(400).json({ error: 'installCmd or pluginDir required' });
+});
+
+// ---- Azure DevOps git: discover + install agents/plugins from a repo --------
+// Auth is secretless via the locally signed-in Azure CLI (see azdo.js).
+
+app.get('/api/azdo/repos', async (req, res) => {
+  const { org, project } = req.query;
+  if (!org || !project) return res.status(400).json({ error: 'org and project are required' });
+  try {
+    res.json({ repos: await azdo.listRepos(org, project) });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.get('/api/azdo/branches', async (req, res) => {
+  const { org, project, repo } = req.query;
+  if (!org || !project || !repo) return res.status(400).json({ error: 'org, project and repo are required' });
+  try {
+    res.json({ branches: await azdo.listBranches(org, project, repo) });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.get('/api/azdo/discover', async (req, res) => {
+  const { org, project, repo, branch } = req.query;
+  if (!org || !project || !repo || !branch) return res.status(400).json({ error: 'org, project, repo and branch are required' });
+  try {
+    const registeredIds = new Set();
+    try { JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8')).forEach(a => registeredIds.add(a.id)); } catch {}
+    const discovered = (await azdo.discover(org, project, repo, branch))
+      .map(d => ({ ...d, registered: registeredIds.has(d.id) }));
+    res.json({ discovered });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post('/api/azdo/install', async (req, res) => {
+  const { org, project, repo, branch, item, group } = req.body || {};
+  if (!org || !project || !repo || !branch || !item || !item.kind || !item.id) {
+    return res.status(400).json({ error: 'org, project, repo, branch and item{kind,id,path} are required' });
+  }
+  try {
+    const source = {
+      type: 'azdo', kind: item.kind, org, project, repo, branch,
+      path: item.path, objectId: item.objectId || null,
+      installedAt: new Date().toISOString()
+    };
+    let config;
+    if (item.kind === 'plugin') {
+      const { pluginDir, mcpConfig } = await azdo.materializePlugin(org, project, repo, branch, item);
+      registerLocalPluginInCopilot(pluginDir);
+      config = {
+        id: item.id,
+        name: item.displayName || item.name || item.id,
+        cwd: azdo.repoRoot(org, project, repo, branch),
+        pluginDir,
+        sourceDir: pluginDir,
+        agent: `${item.id}:${item.id}`,
+        schedule: 'never',
+        prompt: ' ',
+        durable: true,
+        group: group || 'Azure DevOps',
+        description: item.description || '',
+        source
+      };
+      if (mcpConfig) config.mcpConfig = mcpConfig;
+    } else {
+      const { cwd } = await azdo.materializeAgent(org, project, repo, branch, item.path);
+      config = {
+        id: item.id,
+        name: item.displayName || item.name || item.id,
+        cwd,
+        agent: item.agentRef || item.name || item.id,
+        schedule: 'never',
+        prompt: ' ',
+        durable: true,
+        group: group || 'Azure DevOps',
+        description: item.description || '',
+        source
+      };
+    }
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const existing = agents.findIndex(a => a.id === config.id);
+    if (existing >= 0) agents[existing] = config; else agents.push(config);
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    supervisor.register(config);
+    broadcastSSE('agent-update', { agentId: config.id });
+    res.json({ ok: true, agent: config });
+  } catch (e) {
+    res.status(500).json({ error: `Azure DevOps install failed: ${e.message}` });
+  }
 });
 
 // SPA — serve new unified app for all page routes
@@ -1002,13 +1128,43 @@ app.delete('/api/agents/:id', (req, res) => {
 });
 
 // Reinstall an agent (re-read source definition and re-register)
-app.post('/api/agents/:id/reinstall', (req, res) => {
+app.post('/api/agents/:id/reinstall', async (req, res) => {
   const agentId = req.params.id;
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const agent = agents.find(a => a.id === agentId);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
   try {
+    // Azure DevOps source: re-fetch the latest files from the same org/project/repo/branch.
+    if (agent.source && agent.source.type === 'azdo') {
+      const s = agent.source;
+      if (s.kind === 'plugin') {
+        let fresh = null;
+        try {
+          const items = await azdo.discover(s.org, s.project, s.repo, s.branch);
+          fresh = items.find(it => it.kind === 'plugin' && it.path === s.path);
+        } catch { /* fall back to stored file list below */ }
+        const target = fresh || { kind: 'plugin', id: agentId, path: s.path, files: null };
+        const { pluginDir, mcpConfig } = await azdo.materializePlugin(s.org, s.project, s.repo, s.branch, target);
+        registerLocalPluginInCopilot(pluginDir);
+        agent.pluginDir = pluginDir;
+        agent.sourceDir = pluginDir;
+        if (mcpConfig) agent.mcpConfig = mcpConfig;
+        agent.source = { ...s, objectId: (fresh && fresh.objectId) || s.objectId, installedAt: new Date().toISOString() };
+      } else {
+        const { cwd } = await azdo.materializeAgent(s.org, s.project, s.repo, s.branch, s.path);
+        agent.cwd = cwd;
+        const newOid = await azdo.getObjectId(s.org, s.project, s.repo, s.branch, s.path);
+        agent.source = { ...s, objectId: newOid || s.objectId, installedAt: new Date().toISOString() };
+      }
+      const azIdx = agents.findIndex(a => a.id === agentId);
+      agents[azIdx] = agent;
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+      supervisor.register(agent);
+      broadcastSSE('agent-update', { agentId });
+      return res.json({ ok: true, agent });
+    }
+
     // For plugins with a pluginDir, re-read the plugin.json and agent.md
     if (agent.pluginDir && fs.existsSync(agent.pluginDir)) {
       const pluginJsonPath = path.join(agent.pluginDir, 'plugin.json');
@@ -1252,10 +1408,37 @@ app.post('/api/agents/:id/edit-source', (req, res) => {
 });
 
 // Check if agent's installed plugin is out of date compared to source
-app.get('/api/agents/:id/check-update', (req, res) => {
+app.get('/api/agents/:id/check-update', async (req, res) => {
   const entry = supervisor.agents.get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'Agent not found' });
   const config = entry.config;
+
+  // Azure DevOps source: compare the stored objectId against the current one on the branch.
+  if (config.source && config.source.type === 'azdo') {
+    const s = config.source;
+    try {
+      let current = null;
+      if (s.kind === 'plugin') {
+        try {
+          const items = await azdo.discover(s.org, s.project, s.repo, s.branch);
+          const fresh = items.find(it => it.kind === 'plugin' && it.path === s.path);
+          current = (fresh && fresh.objectId) || null;
+        } catch {}
+        if (!current) current = await azdo.getObjectId(s.org, s.project, s.repo, s.branch, s.path + '/plugin.json');
+      } else {
+        current = await azdo.getObjectId(s.org, s.project, s.repo, s.branch, s.path);
+      }
+      return res.json({
+        upToDate: !current || !s.objectId || current === s.objectId,
+        reason: 'azdo',
+        source: s,
+        currentObjectId: current
+      });
+    } catch (e) {
+      return res.json({ upToDate: true, reason: 'azdo-error', error: e.message });
+    }
+  }
+
   let sourceDir = config.sourceDir;
   const pluginDir = config.pluginDir;
   

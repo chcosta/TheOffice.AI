@@ -1739,6 +1739,16 @@
                 <a class="btn ghost" href="#/agents">← Agents</a>
                 <h1 style="margin-top:14px" x-text="selectedAgent.name"></h1>
                 <p x-text="selectedAgent.config.group || selectedAgent.config.cwd || selectedAgent.id"></p>
+                <div class="split-meta" style="margin-top:8px;gap:8px;flex-wrap:wrap" x-show="selectedAgent.config.source">
+                  <template x-if="selectedAgent.config.source && selectedAgent.config.source.type === 'azdo'">
+                    <span class="source-badge source-plugin" :title="'objectId ' + (selectedAgent.config.source.objectId || '')">
+                      ☁ Azure DevOps · <span x-text="selectedAgent.config.source.org + '/' + selectedAgent.config.source.project + '/' + selectedAgent.config.source.repo"></span> @ <span x-text="selectedAgent.config.source.branch"></span> · <span class="mono" x-text="selectedAgent.config.source.path"></span> · <span x-text="selectedAgent.config.source.kind"></span>
+                    </span>
+                  </template>
+                  <template x-if="selectedAgent.config.source && selectedAgent.config.source.type !== 'azdo' && typeof selectedAgent.config.source === 'object'">
+                    <span class="source-badge" x-text="'Source: ' + (selectedAgent.config.source.source || selectedAgent.config.source.type || 'local')"></span>
+                  </template>
+                </div>
               </div>
               <div class="toolbar">
                 <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
@@ -3494,12 +3504,13 @@
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'marketplace' }" @click="agentDiscoveryTab = 'marketplace'">Marketplace</button>
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'repository' }" @click="agentDiscoveryTab = 'repository'">Repository</button>
           <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'managers' }" @click="agentDiscoveryTab = 'managers'">Managers</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'azdo' }" @click="agentDiscoveryTab = 'azdo'">Azure DevOps</button>
         </div>
 
         <div class="empty-state" x-show="agentDiscoveryLoading">Loading discovery results…</div>
         <div class="empty-state" x-show="!agentDiscoveryLoading && agentDiscoveryError" x-text="agentDiscoveryError"></div>
 
-        <div class="discovery-groups" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab !== 'managers' && filteredDiscoveryCount()">
+        <div class="discovery-groups" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab !== 'managers' && agentDiscoveryTab !== 'azdo' && filteredDiscoveryCount()">
           <template x-for="group in discoveryGroups()" :key="group.source">
             <section class="discovery-group" x-show="group.items.length">
               <button class="discovery-group-header" type="button" @click="toggleDiscoveryGroup(group.source)">
@@ -3534,6 +3545,56 @@
               </div>
             </section>
           </template>
+        </div>
+
+        <div class="stack" x-show="!agentDiscoveryLoading && agentDiscoveryTab === 'azdo'">
+          <div class="discovery-group">
+            <div class="hint">Connect to an Azure DevOps organization and project, pick a repository and branch, then install agents and plugins discovered under any <span class="mono">.github</span> folder. Reinstall re-fetches from the same repo/branch. Auth uses your signed-in Azure CLI — no token to enter.</div>
+            <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:12px">
+              <input class="field-input" type="text" placeholder="Organization (e.g. dnceng)" x-model="azdo.org" @keydown.enter.prevent="loadAzdoRepos()" />
+              <input class="field-input" type="text" placeholder="Project (e.g. internal)" x-model="azdo.project" @keydown.enter.prevent="loadAzdoRepos()" />
+              <button class="btn primary" type="button" :disabled="azdo.loadingRepos || !azdo.org.trim() || !azdo.project.trim()" @click="loadAzdoRepos()" x-text="azdo.loadingRepos ? 'Connecting…' : 'Connect'"></button>
+            </div>
+            <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:10px" x-show="azdo.repos.length">
+              <select class="field-input" x-model="azdo.repo" @change="onAzdoRepoChange()">
+                <option value="">Select repository…</option>
+                <template x-for="r in azdo.repos" :key="r.id"><option :value="r.name" x-text="r.name"></option></template>
+              </select>
+              <select class="field-input" x-model="azdo.branch" :disabled="azdo.loadingBranches || !azdo.branches.length">
+                <option value="" x-text="azdo.loadingBranches ? 'Loading branches…' : 'Select branch…'"></option>
+                <template x-for="b in azdo.branches" :key="b"><option :value="b" x-text="b"></option></template>
+              </select>
+              <button class="btn primary" type="button" :disabled="azdo.discovering || !azdo.repo || !azdo.branch" @click="discoverAzdo()" x-text="azdo.discovering ? 'Discovering…' : 'Discover'"></button>
+            </div>
+            <div class="empty-state" x-show="azdo.error" style="color:var(--cp-danger)" x-text="azdo.error"></div>
+          </div>
+
+          <div class="discovery-group" x-show="!azdo.discovering && azdo.discovered.length">
+            <div class="split-meta">
+              <strong>Discovered in <span class="mono" x-text="azdo.repo + ' @ ' + azdo.branch"></span></strong>
+              <span class="badge-count" x-text="azdo.discovered.length"></span>
+            </div>
+            <template x-for="item in azdo.discovered" :key="'azdo-' + item.kind + ':' + item.path">
+              <article class="discovery-item" :class="{ registered: item.registered }">
+                <div>
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <strong x-text="item.displayName || item.name || item.id"></strong>
+                    <span class="source-badge source-plugin" x-text="item.kind === 'plugin' ? 'AzDO Plugin' : 'AzDO Agent'"></span>
+                    <span class="source-badge" x-show="item.version" x-text="'v' + item.version"></span>
+                  </div>
+                  <div class="hint" style="margin-top:6px" x-text="item.description || item.id"></div>
+                  <div class="hint mono" style="margin-top:8px" x-text="item.path"></div>
+                </div>
+                <div class="discovery-actions">
+                  <button class="btn primary" type="button"
+                    :disabled="(azdo.actions[item.path] && azdo.actions[item.path].disabled) || item.registered"
+                    @click="installAzdo(item)"
+                    x-text="(azdo.actions[item.path] && azdo.actions[item.path].text) || (item.registered ? 'Installed' : 'Install')"></button>
+                </div>
+              </article>
+            </template>
+          </div>
+          <div class="empty-state" x-show="!azdo.discovering && azdo.repo && azdo.branch && azdo.attempted && !azdo.discovered.length && !azdo.error">No agents or plugins found under any .github folder on this branch.</div>
         </div>
 
         <div class="stack" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab === 'managers'">
@@ -3654,6 +3715,25 @@
         agentDiscoveryNewManager: { name: '', description: '' },
         agentDiscoveryCreatingManager: false,
         agentDiscoveryManagerFormOpen: false,
+        azdo: (() => {
+          let saved = {};
+          try { saved = JSON.parse(localStorage.getItem('azdo-conn') || '{}'); } catch {}
+          return {
+            org: saved.org || '',
+            project: saved.project || '',
+            repo: '',
+            branch: '',
+            repos: [],
+            branches: [],
+            discovered: [],
+            loadingRepos: false,
+            loadingBranches: false,
+            discovering: false,
+            error: '',
+            attempted: false,
+            actions: {}
+          };
+        })(),
         availableOrgAgents: [],
         toasts: [],
         typingChats: {},
@@ -4075,6 +4155,94 @@
           } catch (error) {
             this.agentDiscoveryActions[key] = { disabled: false, text: '' };
             this.showToast('Add failed', error.message, 'error');
+          }
+        },
+
+        saveAzdoConn() {
+          try { localStorage.setItem('azdo-conn', JSON.stringify({ org: this.azdo.org.trim(), project: this.azdo.project.trim() })); } catch {}
+        },
+
+        async loadAzdoRepos() {
+          const org = this.azdo.org.trim(), project = this.azdo.project.trim();
+          if (!org || !project) return;
+          this.azdo.error = '';
+          this.azdo.loadingRepos = true;
+          this.azdo.repos = [];
+          this.azdo.branches = [];
+          this.azdo.repo = '';
+          this.azdo.branch = '';
+          this.azdo.discovered = [];
+          this.azdo.attempted = false;
+          this.saveAzdoConn();
+          try {
+            const data = await this.request(`/api/azdo/repos?org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}`);
+            this.azdo.repos = data.repos || [];
+            if (!this.azdo.repos.length) this.azdo.error = 'No repositories found (or no access) for this project.';
+          } catch (error) {
+            this.azdo.error = error.message;
+          } finally {
+            this.azdo.loadingRepos = false;
+          }
+        },
+
+        async onAzdoRepoChange() {
+          this.azdo.branch = '';
+          this.azdo.branches = [];
+          this.azdo.discovered = [];
+          this.azdo.attempted = false;
+          if (!this.azdo.repo) return;
+          this.azdo.error = '';
+          this.azdo.loadingBranches = true;
+          try {
+            const r = this.azdo.repos.find(x => x.name === this.azdo.repo);
+            const data = await this.request(`/api/azdo/branches?org=${encodeURIComponent(this.azdo.org.trim())}&project=${encodeURIComponent(this.azdo.project.trim())}&repo=${encodeURIComponent(this.azdo.repo)}`);
+            this.azdo.branches = data.branches || [];
+            if (r && r.defaultBranch && this.azdo.branches.includes(r.defaultBranch)) {
+              this.azdo.branch = r.defaultBranch;
+            }
+          } catch (error) {
+            this.azdo.error = error.message;
+          } finally {
+            this.azdo.loadingBranches = false;
+          }
+        },
+
+        async discoverAzdo() {
+          if (!this.azdo.repo || !this.azdo.branch) return;
+          this.azdo.error = '';
+          this.azdo.discovering = true;
+          this.azdo.discovered = [];
+          this.azdo.actions = {};
+          try {
+            const qs = `org=${encodeURIComponent(this.azdo.org.trim())}&project=${encodeURIComponent(this.azdo.project.trim())}&repo=${encodeURIComponent(this.azdo.repo)}&branch=${encodeURIComponent(this.azdo.branch)}`;
+            const data = await this.request(`/api/azdo/discover?${qs}`);
+            this.azdo.discovered = data.discovered || [];
+          } catch (error) {
+            this.azdo.error = error.message;
+          } finally {
+            this.azdo.attempted = true;
+            this.azdo.discovering = false;
+          }
+        },
+
+        async installAzdo(item) {
+          this.azdo.actions = { ...this.azdo.actions, [item.path]: { disabled: true, text: 'Installing…' } };
+          try {
+            const payload = {
+              org: this.azdo.org.trim(),
+              project: this.azdo.project.trim(),
+              repo: this.azdo.repo,
+              branch: this.azdo.branch,
+              item
+            };
+            await this.request('/api/azdo/install', { method: 'POST', body: JSON.stringify(payload) });
+            item.registered = true;
+            this.azdo.actions = { ...this.azdo.actions, [item.path]: { disabled: true, text: 'Installed' } };
+            await this.refreshAll(false);
+            this.showToast('Agent installed', `${item.displayName || item.name || item.id} installed from Azure DevOps.`, 'info');
+          } catch (error) {
+            this.azdo.actions = { ...this.azdo.actions, [item.path]: { disabled: false, text: '' } };
+            this.showToast('Install failed', error.message, 'error');
           }
         },
 
