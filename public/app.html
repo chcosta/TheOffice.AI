@@ -7,9 +7,12 @@
   <script>
     (() => {
       const param = new URLSearchParams(window.location.search).get("scoutTheme");
-      const theme =
-        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      document.documentElement.setAttribute("data-theme", theme);
+      let pref = param;
+      if (!pref) { try { pref = localStorage.getItem("cp-theme"); } catch {} }
+      if (!pref || pref === "system") {
+        pref = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", pref === "dark" ? "dark" : "light");
     })();
   </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
@@ -1333,6 +1336,18 @@
       0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
       40% { transform: translateY(-4px); opacity: 1; }
     }
+    @keyframes flashHighlight {
+      0% { box-shadow: 0 0 0 0 var(--cp-accent); }
+      30% { box-shadow: 0 0 0 3px var(--cp-accent); }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    .flash-highlight { animation: flashHighlight 1.6s ease-out; }
+    .channel-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 0.7rem; padding: 1px 6px; border-radius: 999px;
+      border: 1px solid var(--cp-border); color: var(--cp-text-muted);
+    }
+    .channel-chip.mobile { border-color: var(--cp-accent); color: var(--cp-accent); }
     @media (max-width: 1200px) {
       .detail-grid,
       .home-grid {
@@ -2620,13 +2635,20 @@
 
             <!-- Status Banner -->
             <div class="card" style="margin-bottom:20px">
-              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                <span class="status-badge" :class="eventsConfig.connected ? 'success' : 'stopped'" x-text="eventsConfig.connected ? '● Connected' : '● Disconnected'"></span>
-                <span class="hint" x-show="eventsConfig.connected" x-text="'Queue: ' + (eventsConfig.queueName || 'not configured')"></span>
-                <span class="hint" x-show="eventsConfig.connected" x-text="eventsConfig.activeSessions + ' active session(s)'"></span>
+              <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <!-- Service Bus channel -->
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="status-badge" :class="sbStatusClass()" x-text="'🚌 Service Bus: ' + sbStatusLabel()"></span>
+                  <span class="hint" x-show="sbHealth.connected" x-text="'Queue: ' + (eventsConfig.queueName || 'not configured') + ' · ' + (sbHealth.activeSessions || 0) + ' session(s)'"></span>
+                </div>
+                <!-- Mobile Relay channel -->
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="status-badge" :class="relayStatusClass()" x-text="'📱 Mobile Relay: ' + relayStatusLabel()"></span>
+                  <span class="hint" x-show="relayStatus.reachable" x-text="(relayStatus.devices ? relayStatus.devices.length : 0) + ' device(s)'"></span>
+                </div>
                 <span style="flex:1"></span>
-                <button class="btn" type="button" x-show="eventsConfig.connected" @click="eventsConfig.connected = false">Disconnect</button>
-                <button class="btn primary" type="button" x-show="!eventsConfig.connected" @click="eventsTab = 'config'">Configure</button>
+                <button class="btn" type="button" x-show="sbHealth.connected" @click="disconnectEvents()">Disconnect</button>
+                <button class="btn primary" type="button" x-show="!sbHealth.connected" @click="focusSbConfig()">Configure Service Bus</button>
               </div>
             </div>
 
@@ -2640,8 +2662,11 @@
 
             <!-- CONFIG TAB -->
             <div x-show="eventsTab === 'config'">
-              <div class="card" style="margin-bottom:20px">
-                <h3 style="margin-bottom:14px">Service Bus Connection</h3>
+              <div class="card" id="sb-connection-card" style="margin-bottom:20px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                  <h3 style="margin:0">🚌 Service Bus Connection</h3>
+                  <span class="status-badge" :class="sbStatusClass()" x-text="sbStatusLabel()"></span>
+                </div>
                 <div class="form-grid">
                   <div>
                     <div class="field-label">Namespace <span class="hint">(Azure AD auth — recommended)</span></div>
@@ -2669,6 +2694,22 @@
                   <button class="btn primary" type="button" @click="saveEventsConfig()">Save &amp; Connect</button>
                   <button class="btn" type="button" @click="testEventsConnection()">Test Connection</button>
                 </div>
+              </div>
+
+              <div class="card" style="margin-bottom:20px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                  <h3 style="margin:0">📱 Mobile Relay</h3>
+                  <span class="status-badge" :class="relayStatusClass()" x-text="relayStatusLabel()"></span>
+                </div>
+                <p class="hint" style="margin-bottom:12px">The mobile app connects through the Azure relay. Devices are authorized via the RBAC users below (use the 📱 button to pair). Mobile traffic appears in the Live Log, Sessions, and History tabs.</p>
+                <div style="display:flex;flex-wrap:wrap;gap:18px;font-size:0.85rem">
+                  <div><div class="hint">Paired devices active</div><strong x-text="relayStatus.devices ? relayStatus.devices.length : 0"></strong></div>
+                  <div><div class="hint">Messages relayed</div><strong x-text="relayStatus.totalMessages || 0"></strong></div>
+                  <div><div class="hint">Last message</div><strong x-text="relayStatus.lastMessageAt ? formatRelative(relayStatus.lastMessageAt) : 'none'"></strong></div>
+                  <div><div class="hint">Last contact</div><strong x-text="relayStatus.lastOkAt ? formatRelative(relayStatus.lastOkAt) : 'never'"></strong></div>
+                </div>
+                <div class="hint" style="margin-top:10px;color:var(--cp-danger)" x-show="!relayStatus.reachable && relayStatus.lastError" x-text="'⚠️ ' + relayStatus.lastError"></div>
+                <div class="hint" style="margin-top:10px;color:var(--cp-warning)" x-show="relayStatus.reachable && !relayStatus.eventsActive">⚠️ This machine is on standby — it relays mobile requests but scheduled events fire only on the leader.</div>
               </div>
 
               <div class="card" style="margin-bottom:20px">
@@ -2747,17 +2788,18 @@
               <div class="card" style="padding:0;overflow:hidden">
                 <div style="max-height:500px;overflow-y:auto;font-family:var(--font-mono);font-size:0.8rem">
                   <div x-show="filteredEventsLog().length === 0" class="empty-state" style="padding:32px">
-                    <template x-if="eventsConfig.connected">
-                      <span>Listening for events… none received yet.</span>
+                    <template x-if="sbHealth.connected || relayStatus.reachable">
+                      <span>Listening for events (Service Bus + Mobile Relay)… none received yet.</span>
                     </template>
-                    <template x-if="!eventsConfig.connected">
-                      <span>Event listener is not connected. <a href="#/events" @click.prevent="eventsTab = 'config'">Configure connection</a> to start receiving events.</span>
+                    <template x-if="!sbHealth.connected && !relayStatus.reachable">
+                      <span>No active channels. <a href="#/events" @click.prevent="focusSbConfig()">Configure a connection</a> to start receiving events.</span>
                     </template>
                   </div>
                   <template x-for="ev in filteredEventsLog()" :key="ev.id">
-                    <div style="display:grid;grid-template-columns:130px 70px 100px 1fr 70px;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);align-items:center" @click="toggleExpanded('ev-' + ev.id)">
+                    <div style="display:grid;grid-template-columns:130px 70px 78px 100px 1fr 70px;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);align-items:center" @click="toggleExpanded('ev-' + ev.id)">
                       <span class="hint" x-text="ev.timestamp"></span>
                       <span class="status-badge small" :class="ev.type === 'inbound' ? 'running' : ev.type === 'outbound' ? 'success' : ev.type === 'error' ? 'stopped' : ''" x-text="ev.type"></span>
+                      <span class="channel-chip" :class="(ev.channel || 'bus') === 'mobile' ? 'mobile' : ''" x-text="(ev.channel || 'bus') === 'mobile' ? '📱 mobile' : '🚌 bus'"></span>
                       <span style="font-weight:500" x-text="ev.sender"></span>
                       <span class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="ev.content"></span>
                       <span class="hint" style="text-align:right" x-text="ev.status"></span>
@@ -2769,6 +2811,20 @@
 
             <!-- SESSIONS TAB -->
             <div x-show="eventsTab === 'sessions'">
+              <h3 style="margin-bottom:12px">📱 Mobile Devices</h3>
+              <div class="card" style="margin-bottom:20px">
+                <div x-show="relayDeviceSessions().length === 0" class="empty-state">No mobile devices have connected recently.</div>
+                <template x-for="dev in relayDeviceSessions()" :key="dev.id">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                    <span class="channel-chip mobile">📱 mobile</span>
+                    <strong x-text="dev.user" style="min-width:100px"></strong>
+                    <span class="hint" x-text="'last: ' + (dev.lastMessage || '—')" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                    <span class="hint" x-text="dev.messageCount + ' msgs'"></span>
+                    <span class="hint" x-text="dev.duration"></span>
+                  </div>
+                </template>
+              </div>
+
               <h3 style="margin-bottom:12px">Active Sessions</h3>
               <div class="card" style="margin-bottom:20px">
                 <div x-show="eventsSessions.filter(s => s.status === 'active').length === 0" class="empty-state">No active sessions.</div>
@@ -2834,9 +2890,10 @@
               <div class="card">
                 <div x-show="eventsHistory.length === 0" class="empty-state">No events found for the selected period.</div>
                 <template x-for="ev in eventsHistory" :key="ev.id">
-                  <div style="display:grid;grid-template-columns:150px 70px 100px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;font-size:0.85rem">
+                  <div style="display:grid;grid-template-columns:150px 70px 78px 100px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;font-size:0.85rem">
                     <span class="hint" x-text="ev.timestamp"></span>
                     <span class="status-badge small" :class="ev.type === 'inbound' ? 'running' : ev.type === 'outbound' ? 'success' : ev.type === 'error' ? 'stopped' : ''" x-text="ev.type"></span>
+                    <span class="channel-chip" :class="ev.channel === 'mobile' ? 'mobile' : ''" x-text="ev.channel === 'mobile' ? '📱 mobile' : '🚌 bus'"></span>
                     <span style="font-weight:500" x-text="ev.sender"></span>
                     <span class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="ev.content"></span>
                   </div>
@@ -2851,6 +2908,17 @@
               <div class="page-title">
                 <h1>⚙️ Settings</h1>
                 <p>Cloud sync, path profiles, and system configuration.</p>
+              </div>
+            </div>
+
+            <!-- Appearance Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🎨 Appearance</h3>
+              <p class="hint" style="margin-bottom:14px">Choose how the dashboard looks. "System" follows your operating system setting.</p>
+              <div class="filter-pills">
+                <button class="pill" type="button" :class="{ active: themePref === 'system' }" @click="setTheme('system')">🖥️ System</button>
+                <button class="pill" type="button" :class="{ active: themePref === 'light' }" @click="setTheme('light')">☀️ Light</button>
+                <button class="pill" type="button" :class="{ active: themePref === 'dark' }" @click="setTheme('dark')">🌙 Dark</button>
               </div>
             </div>
 
@@ -2909,15 +2977,64 @@
 
               <!-- Path Issues -->
               <div x-show="syncStatus.pathIssues && syncStatus.pathIssues.length > 0" style="margin-bottom:16px">
-                <div style="font-weight:500;color:var(--cp-warning);margin-bottom:6px">⚠️ Unresolved Paths</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-weight:500;color:var(--cp-warning)">⚠️ Unresolved Paths</div>
+                  <button class="btn ghost" type="button" @click="autoResolvePaths()" :disabled="autoResolving" style="font-size:0.8rem">
+                    <span x-show="!autoResolving">✨ Try auto-resolve</span>
+                    <span x-show="autoResolving">Resolving…</span>
+                  </button>
+                </div>
                 <template x-for="issue in (syncStatus.pathIssues || [])" :key="issue.file + issue.field + issue.path">
                   <div style="font-size:0.8rem;padding:4px 8px;background:var(--cp-surface-soft);border-radius:4px;margin-bottom:4px">
                     <span class="mono" x-text="issue.file"></span> → <span class="mono" x-text="issue.path"></span>
                   </div>
                 </template>
+                <div x-show="autoResolveResult" style="margin-top:8px;font-size:0.8rem;color:var(--cp-text-muted)">
+                  <div x-show="autoResolveResult?.resolved?.length" style="color:var(--cp-success)">
+                    ✓ Resolved <span x-text="autoResolveResult?.resolved?.length"></span> path(s).
+                  </div>
+                  <div x-show="autoResolveResult?.scaffolded?.length">
+                    Added <span x-text="autoResolveResult?.scaffolded?.length"></span> blank profile row(s) — fill in the value(s) and Save.
+                  </div>
+                  <div x-show="autoResolveResult?.unresolved?.length" style="color:var(--cp-warning)">
+                    <span x-text="autoResolveResult?.unresolved?.length"></span> still need manual action (no local match found).
+                  </div>
+                </div>
               </div>
 
               <button class="btn primary" type="button" @click="saveSyncConfig()">Save Sync Settings</button>
+            </div>
+
+            <!-- Active Machines -->
+            <div class="card" style="margin-bottom:20px" x-show="syncStatus.enabled">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <h3 style="margin:0">🖥️ Active Machines</h3>
+                <button class="btn ghost" type="button" @click="loadInstances()" style="font-size:0.8rem">↻ Refresh</button>
+              </div>
+              <p class="hint" style="margin-bottom:12px">All machines running this app and sharing this cloud config. Pick which one should be the leader (runs schedules and responds to events).</p>
+              <div x-show="!instances || instances.length === 0" class="hint">No machines registered yet…</div>
+              <template x-for="m in (instances || [])" :key="m.machineId">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--cp-border);border-radius:10px;margin-bottom:8px;flex-wrap:wrap"
+                  :style="m.isLeader ? 'border-color:var(--cp-success)' : ''">
+                  <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (m.alive ? 'var(--cp-success)' : 'var(--cp-text-muted)')"
+                    :title="m.alive ? 'Online' : 'Offline'"></span>
+                  <div style="display:flex;flex-direction:column;min-width:0">
+                    <div style="font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span x-text="m.hostname || m.machineId"></span>
+                      <span x-show="m.isLeader" class="status-badge success" style="font-size:0.7rem">Leader</span>
+                      <span x-show="m.isSelf" class="channel-chip" style="font-size:0.7rem">this machine</span>
+                    </div>
+                    <div class="hint mono" style="font-size:0.75rem" x-text="m.machineId + (m.appVersion ? ' · v' + m.appVersion : '')"></div>
+                    <div class="hint" style="font-size:0.75rem" x-text="m.alive ? ('seen ' + formatRelative(m.lastSeen)) : ('offline · last seen ' + formatRelative(m.lastSeen))"></div>
+                  </div>
+                  <span style="flex:1"></span>
+                  <button class="btn" type="button" x-show="!m.isLeader && m.alive" @click="requestLeader(m)" :disabled="leaderRequesting">
+                    <span x-show="!(leaderRequesting && leaderRequestTarget === m.machineId)">Make leader</span>
+                    <span x-show="leaderRequesting && leaderRequestTarget === m.machineId">Requesting…</span>
+                  </button>
+                </div>
+              </template>
+              <div x-show="leaderRequestMsg" style="margin-top:8px;font-size:0.85rem;color:var(--cp-text-muted)" x-text="leaderRequestMsg"></div>
             </div>
 
             <!-- System Info -->
@@ -3478,6 +3595,7 @@
       return {
         loading: false,
         errorMessage: '',
+        themePref: 'system',
         sseStatus: 'disconnected',
         mobileNavOpen: false,
         agentSearch: '',
@@ -3534,6 +3652,12 @@
         syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '', pathProfiles: {} },
         newProfileKey: '',
         newProfileValue: '',
+        autoResolving: false,
+        autoResolveResult: null,
+        instances: [],
+        leaderRequesting: false,
+        leaderRequestTarget: null,
+        leaderRequestMsg: '',
         refreshTimer: null,
         pollers: {},
         now: Date.now(),
@@ -3574,6 +3698,9 @@
         eventsHistoryTo: new Date().toISOString().split('T')[0],
         eventsHistoryUser: '',
         eventsStats: { total: 0, inbound: 0, errors: 0 },
+        sbHealth: { connectionState: '', connected: false, activeSessions: 0, reconnectAttempts: 0 },
+        relayStatus: { reachable: false, lastOkAt: null, lastMessageAt: null, lastError: null, consecutiveFailures: 0, totalMessages: 0, eventsActive: true, devices: [] },
+        _eventsHealthTimer: null,
         showConnectAssetModal: false,
         showAddUserModal: false,
         showPairingModal: false,
@@ -3591,11 +3718,36 @@
         get route() { return this.app.route; },
 
         async init() {
+          this.initTheme();
           this.applyZoom();
           this.setupRouting();
           await this.refreshAll();
           this.connectEvents();
           setInterval(() => { this.now = Date.now(); }, 1000);
+        },
+
+        initTheme() {
+          try { this.themePref = localStorage.getItem('cp-theme') || 'system'; } catch { this.themePref = 'system'; }
+          this.applyTheme();
+          // Live-update when the OS theme changes and we're following the system.
+          const mq = window.matchMedia('(prefers-color-scheme: dark)');
+          const handler = () => { if (this.themePref === 'system') this.applyTheme(); };
+          if (mq.addEventListener) mq.addEventListener('change', handler);
+          else if (mq.addListener) mq.addListener(handler);
+        },
+
+        applyTheme() {
+          let resolved = this.themePref;
+          if (resolved === 'system' || (resolved !== 'light' && resolved !== 'dark')) {
+            resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', resolved);
+        },
+
+        setTheme(pref) {
+          this.themePref = pref;
+          try { localStorage.setItem('cp-theme', pref); } catch {}
+          this.applyTheme();
         },
 
         async _continueAgentChat(chatId, agentId) {
@@ -4390,7 +4542,37 @@
             ]);
             if (status) this.syncStatus = status;
             if (config) this.syncConfig = config;
+            if (status && status.enabled) this.loadInstances();
           } catch {}
+        },
+        async loadInstances() {
+          try {
+            const list = await this.request('/api/sync/instances');
+            if (Array.isArray(list)) this.instances = list;
+          } catch {}
+        },
+        async requestLeader(m) {
+          if (!m || !m.machineId) return;
+          if (!confirm('Make "' + (m.hostname || m.machineId) + '" the leader? Schedules and event handling will move to that machine.')) return;
+          this.leaderRequesting = true;
+          this.leaderRequestTarget = m.machineId;
+          this.leaderRequestMsg = '';
+          try {
+            const res = await this.request('/api/sync/request-leader', { method: 'POST', body: JSON.stringify({ machineId: m.machineId }) });
+            if (res && res.mode === 'immediate') {
+              this.leaderRequestMsg = 'This machine is now the leader.';
+              this.showToast('Leadership', 'This machine is now the leader.', 'success');
+            } else {
+              this.leaderRequestMsg = (m.hostname || m.machineId) + ' will take over within ~30s.';
+              this.showToast('Leadership', this.leaderRequestMsg, 'info');
+            }
+            await this.loadSyncStatus();
+          } catch (err) {
+            this.showToast('Request Failed', err.message, 'error');
+          } finally {
+            this.leaderRequesting = false;
+            this.leaderRequestTarget = null;
+          }
         },
         async saveSyncConfig() {
           try {
@@ -4426,6 +4608,27 @@
             await this.refreshAll();
           } catch (err) {
             this.showToast('Pull Failed', err.message, 'error');
+          }
+        },
+        async autoResolvePaths() {
+          this.autoResolving = true;
+          this.autoResolveResult = null;
+          try {
+            const result = await this.request('/api/sync/auto-resolve', { method: 'POST' });
+            this.autoResolveResult = result;
+            const r = result?.resolved?.length || 0;
+            const s = result?.scaffolded?.length || 0;
+            const u = result?.unresolved?.length || 0;
+            this.showToast('Auto-resolve', `${r} resolved, ${s} scaffolded, ${u} need manual action.`, u > 0 ? 'info' : 'success');
+            await this.loadSyncStatus();
+            if (this.syncConfig) {
+              const cfg = await this.request('/api/sync/config');
+              if (cfg) this.syncConfig = cfg;
+            }
+          } catch (err) {
+            this.showToast('Auto-resolve Failed', err.message, 'error');
+          } finally {
+            this.autoResolving = false;
           }
         },
         updatePathProfile(key, value) {
@@ -4464,9 +4667,86 @@
             if (sessions) this.eventsSessions = sessions;
             // Start SSE stream for live events
             this._connectEventsStream();
+            // Live channel status (Service Bus + Mobile Relay) without manual testing
+            await this.loadChannelStatus();
+            if (this._eventsHealthTimer) clearInterval(this._eventsHealthTimer);
+            this._eventsHealthTimer = setInterval(() => {
+              if (this.route === 'events') this.loadChannelStatus();
+              else { clearInterval(this._eventsHealthTimer); this._eventsHealthTimer = null; }
+            }, 10000);
           } catch (e) {
             // Events not yet configured — that's OK
           }
+        },
+
+        async disconnectEvents() {
+          try {
+            await this.request('/api/events/disconnect', { method: 'POST' });
+            this.showToast('Events', 'Disconnected from Service Bus');
+          } catch (e) {
+            this.showToast('Events', 'Disconnect failed: ' + e.message, 'error');
+          }
+          await this.loadChannelStatus();
+        },
+
+        async loadChannelStatus() {
+          try {
+            const health = await this.request('/api/events/health');
+            if (health) {
+              this.sbHealth = health;
+              this.eventsConfig.connected = !!health.connected;
+            }
+          } catch {}
+          try {
+            const relay = await this.request('/api/relay/status');
+            if (relay) this.relayStatus = relay;
+          } catch {}
+        },
+
+        sbStatusLabel() {
+          const s = this.sbHealth.connectionState || (this.sbHealth.connected ? 'connected' : 'disconnected');
+          if (this.sbHealth.connected) return '🟢 Connected';
+          if (s === 'connecting' || s === 'reconnecting') return '🟡 ' + s;
+          return '🔴 Disconnected';
+        },
+        sbStatusClass() {
+          if (this.sbHealth.connected) return 'success';
+          const s = this.sbHealth.connectionState;
+          if (s === 'connecting' || s === 'reconnecting') return 'running';
+          return 'stopped';
+        },
+        relayStatusLabel() {
+          if (!this.relayStatus.reachable) return '🔴 Unreachable';
+          if (!this.relayStatus.eventsActive) return '🟡 Reachable (standby — events paused)';
+          return '🟢 Active';
+        },
+        relayStatusClass() {
+          if (!this.relayStatus.reachable) return 'stopped';
+          if (!this.relayStatus.eventsActive) return 'running';
+          return 'success';
+        },
+        relayDeviceSessions() {
+          return (this.relayStatus.devices || []).map(d => ({
+            id: d.deviceId,
+            user: d.deviceId,
+            target: 'Mobile Relay',
+            lastMessage: d.lastType || '',
+            duration: d.lastSeen ? this.formatRelative(d.lastSeen) : '',
+            messageCount: d.messageCount || 0,
+            channel: 'mobile',
+          }));
+        },
+
+        focusSbConfig() {
+          this.eventsTab = 'config';
+          this.$nextTick(() => {
+            const el = document.getElementById('sb-connection-card');
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('flash-highlight');
+              setTimeout(() => el.classList.remove('flash-highlight'), 1600);
+            }
+          });
         },
 
         _connectEventsStream() {
@@ -4623,7 +4903,8 @@
               this.eventsHistory = (result.events || []).map(e => ({
                 ...e,
                 timestamp: e.created_at || e.timestamp,
-                sender: e.source || e.sender_id
+                sender: e.sender_id || e.source,
+                channel: (e.source === 'mobile' || e.source === 'bus') ? e.source : 'bus'
               }));
               this.eventsStats = result.stats || { total: 0, inbound: 0, outbound: 0, errors: 0 };
             }

@@ -818,12 +818,14 @@ class EventListener extends EventEmitter {
    * Log an event to the in-memory event log
    */
   _logEvent(type, sender, content, status, extra = {}) {
+    const channel = extra.channel || 'bus';
     const event = {
       id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       type,
       sender,
       content,
       status,
+      channel,
       timestamp: new Date().toISOString().split('T')[1].split('.')[0] + '.' + Date.now().toString().slice(-3)
     };
     this.eventLog.unshift(event);
@@ -837,7 +839,7 @@ class EventListener extends EventEmitter {
       try {
         this.db.prepare(
           'INSERT INTO event_history (type, source, content, status, sender_id, correlation_id, target, target_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(type, sender, (content || '').substring(0, 2000), status || '', extra.senderId || sender, extra.correlationId || '', extra.target || '', extra.targetType || '', new Date().toISOString());
+        ).run(type, channel, (content || '').substring(0, 2000), status || '', extra.senderId || sender, extra.correlationId || '', extra.target || '', extra.targetType || '', new Date().toISOString());
       } catch (err) {
         console.error('[event-listener] Failed to persist event:', err.message);
       }

@@ -10,9 +10,13 @@ const { DefaultAzureCredential } = require('@azure/identity');
 const SYNC_CONFIG_PATH = path.join(__dirname, 'sync-config.json');
 const LEADER_BLOB = '_leader.json';
 const MANIFEST_BLOB = '_manifest.json';
+const INSTANCE_PREFIX = '_instances/'; // presence registry: one blob per running instance
+const LEADER_REQUEST_BLOB = '_leader-request.json'; // remote leadership-handoff request
 const LEASE_DURATION = 60; // seconds
 const RENEW_INTERVAL = 25000; // ms (renew well before 60s expiry)
 const POLL_INTERVAL = 30000; // ms
+const INSTANCE_STALE = 90; // seconds — an instance not seen within this window is "offline"
+const LEADER_REQUEST_TTL = 120; // seconds — ignore handoff requests older than this
 
 // Files that get synced
 const SYNCED_FILES = ['agents.json', 'managers.json', 'events-config.json'];
@@ -69,6 +73,7 @@ class ConfigSync {
         await this._syncDown();
       }
       this._startPolling();
+      this._registerPresence().catch(() => {});
       console.log(`[config-sync] Started. Leader: ${this._isLeader}, Machine: ${this._machineId}`);
     } catch (err) {
       console.error('[config-sync] Start failed:', err.message);
@@ -81,6 +86,10 @@ class ConfigSync {
     if (this._pollTimer) clearInterval(this._pollTimer);
     this._renewTimer = null;
     this._pollTimer = null;
+    // Best-effort: remove our presence so we drop off the machine list promptly.
+    if (this._enabled && this._containerClient) {
+      this._containerClient.getBlockBlobClient(INSTANCE_PREFIX + this._machineId + '.json').deleteIfExists().catch(() => {});
+    }
     this._releaseLease().catch(() => {});
     this._enabled = false;
   }
@@ -107,10 +116,139 @@ class ConfigSync {
       await this._tryAcquireLease(true);
       if (!this._isLeader) throw new Error('Failed to acquire lease after break');
       console.log(`[config-sync] Force-leader succeeded. Epoch: ${this._epoch}`);
+      this._registerPresence().catch(() => {});
       return { success: true, epoch: this._epoch, machineId: this._machineId };
     } catch (err) {
       console.error('[config-sync] Force-leader failed:', err.message);
       throw err;
+    }
+  }
+
+  /**
+   * Write this instance's presence to the shared registry so other machines can
+   * list who is online and choose a leader. One small blob per machineId.
+   */
+  async _registerPresence() {
+    if (!this._enabled || !this._containerClient) return;
+    try {
+      const blob = this._containerClient.getBlockBlobClient(INSTANCE_PREFIX + this._machineId + '.json');
+      const info = {
+        machineId: this._machineId,
+        hostname: os.hostname(),
+        appVersion: (() => { try { return require('./package.json').version || '1.0.0'; } catch { return '1.0.0'; } })(),
+        isLeader: this._isLeader,
+        epoch: this._epoch,
+        pid: process.pid,
+        lastSeen: new Date().toISOString()
+      };
+      const body = JSON.stringify(info, null, 2);
+      await blob.upload(body, body.length, { blobHTTPHeaders: { blobContentType: 'application/json' } });
+    } catch (err) {
+      // Non-critical — presence is best-effort.
+    }
+  }
+
+  /** List all instances that have registered presence, with liveness. */
+  async listInstances() {
+    if (!this._enabled || !this._containerClient) {
+      // Standalone: just this machine.
+      return [{
+        machineId: this._machineId,
+        hostname: os.hostname(),
+        appVersion: (() => { try { return require('./package.json').version || '1.0.0'; } catch { return '1.0.0'; } })(),
+        isLeader: true,
+        alive: true,
+        lastSeen: new Date().toISOString(),
+        staleSeconds: 0,
+        isSelf: true
+      }];
+    }
+    const now = Date.now();
+    let leaderMachineId = null;
+    try { const li = await this.getLeaderInfo(); leaderMachineId = li?.machineId || null; } catch {}
+    const out = [];
+    try {
+      for await (const item of this._containerClient.listBlobsFlat({ prefix: INSTANCE_PREFIX })) {
+        try {
+          const blob = this._containerClient.getBlockBlobClient(item.name);
+          const dl = await blob.download(0);
+          const text = await this._streamToString(dl.readableStreamBody);
+          const info = JSON.parse(text);
+          const seenMs = info.lastSeen ? Date.parse(info.lastSeen) : null;
+          const staleSeconds = seenMs ? Math.max(0, Math.round((now - seenMs) / 1000)) : null;
+          const alive = seenMs != null && (now - seenMs) < INSTANCE_STALE * 1000;
+          out.push({
+            machineId: info.machineId,
+            hostname: info.hostname || null,
+            appVersion: info.appVersion || null,
+            isLeader: leaderMachineId ? info.machineId === leaderMachineId : !!info.isLeader,
+            alive,
+            lastSeen: info.lastSeen || null,
+            staleSeconds,
+            isSelf: info.machineId === this._machineId
+          });
+        } catch {}
+      }
+    } catch (err) {
+      console.error('[config-sync] listInstances failed:', err.message);
+    }
+    // Sort: leader first, then alive, then hostname.
+    out.sort((a, b) => (b.isLeader - a.isLeader) || (b.alive - a.alive) || String(a.hostname).localeCompare(String(b.hostname)));
+    return out;
+  }
+
+  /**
+   * Request that a specific machine become leader. If the target is this
+   * machine, take leadership immediately. Otherwise write a handoff request the
+   * target picks up on its next poll.
+   */
+  async requestLeader(targetMachineId) {
+    if (!this._enabled) throw new Error('Sync not enabled');
+    if (!targetMachineId) throw new Error('targetMachineId is required');
+    if (targetMachineId === this._machineId) {
+      const r = await this.forceLeader();
+      await this._clearLeaderRequest();
+      return { ...r, mode: 'immediate' };
+    }
+    const req = { targetMachineId, requestedBy: this._machineId, requestedAt: new Date().toISOString() };
+    const body = JSON.stringify(req, null, 2);
+    const blob = this._containerClient.getBlockBlobClient(LEADER_REQUEST_BLOB);
+    await blob.upload(body, body.length, { blobHTTPHeaders: { blobContentType: 'application/json' } });
+    console.log(`[config-sync] Leadership handoff requested → ${targetMachineId} (by ${this._machineId})`);
+    return { success: true, mode: 'requested', targetMachineId };
+  }
+
+  async _clearLeaderRequest() {
+    try { await this._containerClient.getBlockBlobClient(LEADER_REQUEST_BLOB).deleteIfExists(); } catch {}
+  }
+
+  /**
+   * Honor a pending leadership-handoff request that targets this machine.
+   * Called from the poll loop on every instance.
+   */
+  async _checkLeaderRequest() {
+    if (!this._enabled || !this._containerClient) return;
+    let req = null;
+    try {
+      const blob = this._containerClient.getBlockBlobClient(LEADER_REQUEST_BLOB);
+      const dl = await blob.download(0);
+      req = JSON.parse(await this._streamToString(dl.readableStreamBody));
+    } catch (err) {
+      if (err.statusCode === 404) return;
+      return;
+    }
+    if (!req || !req.targetMachineId) return;
+    // Drop stale requests.
+    const ageMs = req.requestedAt ? (Date.now() - Date.parse(req.requestedAt)) : Infinity;
+    if (ageMs > LEADER_REQUEST_TTL * 1000) { await this._clearLeaderRequest(); return; }
+    if (req.targetMachineId !== this._machineId) return; // not for me
+    if (this._isLeader) { await this._clearLeaderRequest(); return; } // already leader
+    console.log(`[config-sync] Honoring leadership handoff request (target=${this._machineId})`);
+    try {
+      await this.forceLeader();
+      await this._clearLeaderRequest();
+    } catch (err) {
+      console.error('[config-sync] Failed to honor handoff request:', err.message);
     }
   }
 
@@ -145,6 +283,52 @@ class ConfigSync {
       if (err.statusCode === 404) return null;
       throw err;
     }
+  }
+
+  /**
+   * Normalized leader/liveness status for clients (mobile, SPA).
+   * Tells whether a leader is alive and therefore whether scheduled events
+   * will actually be addressed by the system.
+   */
+  async getLeaderStatus() {
+    const myHostname = os.hostname();
+    // Sync disabled → this single instance handles everything itself.
+    if (!this.enabled) {
+      return {
+        syncEnabled: false,
+        isLeader: true,
+        leaderAlive: true,
+        eventsActive: true,
+        thisHostname: myHostname,
+        thisMachineId: this._machineId,
+        leaderHostname: myHostname,
+        leaderMachineId: this._machineId,
+        lastHeartbeat: null,
+        staleSeconds: 0,
+        epoch: this._epoch
+      };
+    }
+    let info = null;
+    try { info = await this.getLeaderInfo(); } catch {}
+    const now = Date.now();
+    const hbMs = info?.lastHeartbeat ? Date.parse(info.lastHeartbeat) : null;
+    const staleSeconds = hbMs ? Math.max(0, Math.round((now - hbMs) / 1000)) : null;
+    // A leader is considered alive if this instance holds leadership, or the
+    // last heartbeat is fresher than the lease duration.
+    const leaderAlive = this._isLeader || (hbMs != null && (now - hbMs) < LEASE_DURATION * 1000);
+    return {
+      syncEnabled: true,
+      isLeader: this._isLeader,
+      leaderAlive,
+      eventsActive: leaderAlive, // events fire on the leader, wherever it is
+      thisHostname: myHostname,
+      thisMachineId: this._machineId,
+      leaderHostname: info?.hostname || null,
+      leaderMachineId: info?.machineId || null,
+      lastHeartbeat: info?.lastHeartbeat || null,
+      staleSeconds,
+      epoch: this._epoch
+    };
   }
 
   /** Get/set sync config */
@@ -213,6 +397,105 @@ class ConfigSync {
       this._scanDirForPaths(mcpDir, issues);
     }
     return issues;
+  }
+
+  /**
+   * Attempt to automatically resolve unresolved paths.
+   * - Absolute paths (agents.json cwd/pluginDir, plugin/mcp content) are rewritten
+   *   to a local equivalent if one can be found under this machine's path-profile roots.
+   * - Bare ${var} refs with no profile entry get a blank profile row scaffolded.
+   * - Anything with no confident local match is left untouched and reported.
+   * Returns { resolved, scaffolded, unresolved, remaining }.
+   */
+  autoResolvePaths() {
+    const issues = this.scanUnresolvedPaths();
+    const profiles = this._config.pathProfiles || {};
+    const myProfile = profiles[this._machineId] || {};
+    const roots = [...new Set(Object.values(myProfile).filter(Boolean))];
+
+    const resolved = [];
+    const scaffolded = [];
+    const unresolved = [];
+
+    const agentsPath = path.join(__dirname, 'agents.json');
+    let agents = null;
+    if (fs.existsSync(agentsPath)) {
+      try { agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8')); } catch {}
+    }
+    let agentsDirty = false;
+    const fileEdits = {}; // relativeFile -> updated content
+    let profileDirty = false;
+
+    for (const issue of issues) {
+      if (issue.field === 'unresolved-ref') {
+        const m = /^\$\{(\w+)\}/.exec(issue.path);
+        const varName = m && m[1];
+        if (varName && !(varName in myProfile)) {
+          myProfile[varName] = '';
+          profileDirty = true;
+          scaffolded.push({ ...issue, varName });
+        } else {
+          unresolved.push(issue);
+        }
+        continue;
+      }
+
+      const local = this._findLocalEquivalent(issue.path, roots);
+      if (!local) { unresolved.push(issue); continue; }
+
+      if (issue.file === 'agents.json' && agents) {
+        const a = agents.find(x => x.id === issue.agent);
+        if (a) {
+          a[issue.field] = local;
+          agentsDirty = true;
+          resolved.push({ ...issue, resolvedTo: local });
+          continue;
+        }
+        unresolved.push(issue);
+      } else {
+        const full = path.join(__dirname, issue.file);
+        try {
+          let content = fileEdits[issue.file] != null ? fileEdits[issue.file] : fs.readFileSync(full, 'utf-8');
+          content = content.split(issue.path).join(local);
+          fileEdits[issue.file] = content;
+          resolved.push({ ...issue, resolvedTo: local });
+        } catch {
+          unresolved.push(issue);
+        }
+      }
+    }
+
+    if (agentsDirty) fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
+    for (const [rel, content] of Object.entries(fileEdits)) {
+      fs.writeFileSync(path.join(__dirname, rel), content);
+    }
+    if (profileDirty) {
+      profiles[this._machineId] = myProfile;
+      this.saveSyncConfig({ pathProfiles: profiles });
+    }
+
+    return { resolved, scaffolded, unresolved, remaining: this.scanUnresolvedPaths() };
+  }
+
+  /**
+   * Find a local directory equivalent for an absolute path by matching its
+   * trailing path segments under the given local roots. Prefers the deepest
+   * (most specific) match to avoid false positives on generic folder names.
+   */
+  _findLocalEquivalent(absPath, roots) {
+    if (!absPath || !roots || !roots.length) return null;
+    const norm = absPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    const segs = norm.split('/').filter(Boolean);
+    if (!segs.length) return null;
+    const minK = Math.min(2, segs.length);
+    for (const root of roots) {
+      for (let k = segs.length; k >= minK; k--) {
+        const suffix = segs.slice(segs.length - k);
+        const candidate = path.join(root, ...suffix);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+    return null;
   }
 
   // --- Private methods ---
@@ -384,10 +667,14 @@ class ConfigSync {
     if (this._pollTimer) clearInterval(this._pollTimer);
     this._pollTimer = setInterval(async () => {
       try {
+        // Honor any pending leadership-handoff request targeting this machine.
+        await this._checkLeaderRequest();
         // If not leader, try to acquire
         if (!this._isLeader) {
           await this._tryAcquireLease();
         }
+        // Refresh this instance's presence in the shared registry.
+        await this._registerPresence();
         // Check for remote config changes
         await this._checkForUpdates();
       } catch (err) {

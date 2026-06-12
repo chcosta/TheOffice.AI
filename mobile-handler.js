@@ -32,6 +32,7 @@ class MobileHandler extends EventEmitter {
     this.managerAgent = managerAgent;
     this.db = db;
     this.eventListener = eventListener;
+    this.configSync = null; // set by server after ConfigSync is constructed
     // Track active mobile chat sessions: sessionId → { target, targetType, messages[] }
     this.chatSessions = new Map();
     this._ensureDb();
@@ -731,6 +732,11 @@ class MobileHandler extends EventEmitter {
       } catch {}
     }
 
+    let leader = null;
+    if (this.configSync) {
+      try { leader = await this.configSync.getLeaderStatus(); } catch {}
+    }
+
     await replier(correlationId, {
       type: 'result',
       payload: {
@@ -741,6 +747,7 @@ class MobileHandler extends EventEmitter {
         assignmentCount,
         runningAgents,
         activityCounts,
+        leader,
         timestamp: new Date().toISOString()
       }
     });

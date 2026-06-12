@@ -155,6 +155,8 @@ const configSync = new ConfigSync({
 const leaderCheck = () => !configSync.enabled || configSync.isLeader;
 supervisor.setLeaderCheck(leaderCheck);
 managerAgent.setLeaderCheck(leaderCheck);
+// Give the mobile handler access to leader/liveness status for get-status
+mobileHandler.configSync = configSync;
 // Start async (non-blocking)
 configSync.start().catch(err => console.log('[config-sync] Disabled:', err.message));
 
@@ -2264,6 +2266,26 @@ app.post('/api/sync/force-leader', async (req, res) => {
   }
 });
 
+// List all known SPA instances (presence registry) with liveness + leader flag.
+app.get('/api/sync/instances', async (req, res) => {
+  try {
+    res.json(await configSync.listInstances());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Request that a specific machine become the leader (remote handoff).
+app.post('/api/sync/request-leader', express.json(), async (req, res) => {
+  try {
+    const { machineId } = req.body || {};
+    if (!machineId) return res.status(400).json({ error: 'machineId is required' });
+    res.json(await configSync.requestLeader(machineId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Push local config to cloud
 app.post('/api/sync/push', async (req, res) => {
   try {
@@ -2289,6 +2311,16 @@ app.post('/api/sync/pull', async (req, res) => {
 // Scan for path issues
 app.get('/api/sync/path-issues', (req, res) => {
   res.json(configSync.scanUnresolvedPaths());
+});
+
+// Attempt to auto-resolve path issues
+app.post('/api/sync/auto-resolve', (req, res) => {
+  try {
+    if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
+    res.json(configSync.autoResolvePaths());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============ Manager API Routes ============
@@ -2872,6 +2904,17 @@ app.get('/api/events/log', (req, res) => {
   res.json(eventListener.eventLog);
 });
 
+// Live mobile-relay channel status for the Event Listeners UI.
+app.get('/api/relay/status', (req, res) => {
+  let leaderEventsActive = true;
+  try {
+    leaderEventsActive = !configSync.enabled || configSync.isLeader;
+  } catch {}
+  const devices = Array.from(relayDevices.values())
+    .sort((a, b) => (b.lastSeen || '').localeCompare(a.lastSeen || ''));
+  res.json({ ...relayStatus, eventsActive: leaderEventsActive, devices });
+});
+
 app.get('/api/events/sessions', (req, res) => {
   res.json(eventListener.getSessionsInfo());
 });
@@ -3093,12 +3136,47 @@ const RELAY_URL = process.env.RELAY_URL || 'https://relay-agentsessions.lemondun
 const RELAY_ADMIN_KEY = process.env.RELAY_ADMIN_KEY || 'gZ9oaNEMAJsLs6AIJ0H5WolbUTuJMzmNAefj6JeKIK0=';
 let relayPollerInterval = null;
 
+// Live relay/mobile-channel status, surfaced in the Event Listeners UI so the
+// mobile experience is a first-class channel alongside Service Bus.
+const relayStatus = {
+  reachable: false,
+  lastPollAt: null,
+  lastOkAt: null,
+  lastError: null,
+  consecutiveFailures: 0,
+  lastMessageAt: null,
+  totalMessages: 0,
+};
+const relayDevices = new Map(); // deviceId → { deviceId, user, lastSeen, messageCount, lastType }
+
+function _recordRelayDevice(deviceId, type) {
+  const now = new Date().toISOString();
+  const prev = relayDevices.get(deviceId) || { deviceId, messageCount: 0 };
+  relayDevices.set(deviceId, {
+    deviceId,
+    lastSeen: now,
+    messageCount: (prev.messageCount || 0) + 1,
+    lastType: type,
+  });
+}
+
 async function pollRelay() {
+  relayStatus.lastPollAt = new Date().toISOString();
   try {
     const resp = await fetch(`${RELAY_URL}/api/messages/receive`, {
       headers: { 'Authorization': `Bearer ${RELAY_ADMIN_KEY}` },
     });
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      relayStatus.reachable = false;
+      relayStatus.consecutiveFailures++;
+      relayStatus.lastError = `HTTP ${resp.status}`;
+      return;
+    }
+
+    relayStatus.reachable = true;
+    relayStatus.lastOkAt = relayStatus.lastPollAt;
+    relayStatus.consecutiveFailures = 0;
+    relayStatus.lastError = null;
 
     const data = await resp.json();
     if (!data.messages || data.messages.length === 0) return;
@@ -3116,6 +3194,16 @@ async function pollRelay() {
 
       if (!mobileHandler.isMobileMessage(mobileMsg)) { console.log('[relay-poller] Not a mobile message, skipping'); continue; }
 
+      relayStatus.lastMessageAt = new Date().toISOString();
+      relayStatus.totalMessages++;
+      _recordRelayDevice(msg.from, body.type);
+      // Surface inbound mobile traffic in the Event Listeners Live Log + History.
+      try {
+        eventListener._logEvent('inbound', msg.from, `[mobile] ${body.type}`, 'received', {
+          channel: 'mobile', senderId: msg.from, correlationId,
+        });
+      } catch {}
+
       const replier = async (corrId, payload) => {
         // Send reply back via relay
         try {
@@ -3132,6 +3220,11 @@ async function pollRelay() {
             }),
           });
           console.log(`[relay-poller] Reply sent for ${corrId} → ${msg.from} (status: ${replyResp.status})`);
+          try {
+            eventListener._logEvent('outbound', msg.from, `[mobile] ${payload && payload.type ? payload.type : 'reply'}`, 'sent', {
+              channel: 'mobile', senderId: msg.from, correlationId: corrId,
+            });
+          } catch {}
         } catch (e) {
           console.error('[relay-poller] Failed to send reply:', e.message);
         }
@@ -3145,6 +3238,11 @@ async function pollRelay() {
         const fromUser = msg.from;
         if (!eventListener.isApprovedUser(fromUser)) {
           console.warn(`[relay-poller] REJECTED unauthorized device user='${fromUser}' type=${body.type}`);
+          try {
+            eventListener._logEvent('error', msg.from, '[mobile] REJECTED: unauthorized device', 'denied', {
+              channel: 'mobile', senderId: msg.from, correlationId,
+            });
+          } catch {}
           await replier(correlationId, {
             type: 'error',
             error: 'Unauthorized: this device is not linked to an approved user. Ask an admin to add you under RBAC in the web dashboard.',
@@ -3157,7 +3255,10 @@ async function pollRelay() {
       }
     }
   } catch (err) {
-    // Silently ignore network errors (relay might be scaling up)
+    // Network error — relay may be scaling up. Track it for the UI status badge.
+    relayStatus.reachable = false;
+    relayStatus.consecutiveFailures++;
+    relayStatus.lastError = err.message;
   }
 }
 
