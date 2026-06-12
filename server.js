@@ -2239,7 +2239,7 @@ app.get('/api/sync/status', async (req, res) => {
       pathIssues: configSync.enabled ? configSync.scanUnresolvedPaths() : []
     });
   } catch (err) {
-    res.json({ enabled: configSync.enabled, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, error: err.message });
+    res.json({ enabled: configSync.enabled, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, pathIssues: [], error: err.message });
   }
 });
 

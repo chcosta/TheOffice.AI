@@ -478,35 +478,61 @@ class ConfigSync {
   }
 
   /**
-   * Apply a user-supplied local path for a single unresolved issue.
-   * - agents.json cwd/pluginDir: set the field on the matching agent.
-   * - plugin/mcp content: replace the old absolute path string with the new one.
-   * Returns { success, existsOnDisk, remaining }.
+   * Apply a user-supplied local path for an unresolved path, everywhere it
+   * appears. This is path-centric: a single oldPath may be referenced by
+   * multiple agents (cwd/pluginDir) and/or plugin/mcp files; all occurrences
+   * are updated in one call.
+   * Returns { success, existsOnDisk, changedAgents, changedFiles, remaining }.
    */
-  applyPathFix({ file, agent, field, oldPath, newPath }) {
-    if (!file) throw new Error('file is required');
+  applyPathFix({ oldPath, newPath }) {
+    if (!oldPath) throw new Error('oldPath is required');
     if (!newPath || !newPath.trim()) throw new Error('newPath is required');
     newPath = newPath.trim();
     const existsOnDisk = fs.existsSync(newPath);
+    let changedAgents = 0;
+    const changedFiles = [];
 
-    if (file === 'agents.json') {
-      const agentsPath = path.join(__dirname, 'agents.json');
-      const agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-      const a = agents.find(x => x.id === agent);
-      if (!a) throw new Error('Agent not found: ' + agent);
-      a[field || 'cwd'] = newPath;
-      fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
-    } else {
-      const full = path.join(__dirname, file);
-      if (!fs.existsSync(full)) throw new Error('File not found: ' + file);
-      let content = fs.readFileSync(full, 'utf-8');
-      if (oldPath) content = content.split(oldPath).join(newPath);
-      fs.writeFileSync(full, content);
+    // agents.json — update every agent whose cwd or pluginDir matches oldPath.
+    const agentsPath = path.join(__dirname, 'agents.json');
+    if (fs.existsSync(agentsPath)) {
+      try {
+        const agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
+        let dirty = false;
+        for (const a of agents) {
+          if (a.cwd === oldPath) { a.cwd = newPath; dirty = true; changedAgents++; }
+          if (a.pluginDir === oldPath) { a.pluginDir = newPath; dirty = true; changedAgents++; }
+        }
+        if (dirty) fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
+      } catch {}
+    }
+
+    // plugin/mcp files — replace the path string wherever it occurs.
+    for (const dirName of ['plugins', 'mcp-configs']) {
+      const dirPath = path.join(__dirname, dirName);
+      if (!fs.existsSync(dirPath)) continue;
+      this._replacePathInDir(dirPath, oldPath, newPath, changedFiles);
     }
 
     // Leader pushes the fix so other machines pick it up.
     if (this._enabled && this._isLeader) this.pushConfig().catch(() => {});
-    return { success: true, existsOnDisk, remaining: this.scanUnresolvedPaths() };
+    return { success: true, existsOnDisk, changedAgents, changedFiles, remaining: this.scanUnresolvedPaths() };
+  }
+
+  _replacePathInDir(dir, oldPath, newPath, changedFiles) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        this._replacePathInDir(full, oldPath, newPath, changedFiles);
+      } else if (entry.name.endsWith('.json') || entry.name.endsWith('.md')) {
+        try {
+          const content = fs.readFileSync(full, 'utf-8');
+          if (content.includes(oldPath)) {
+            fs.writeFileSync(full, content.split(oldPath).join(newPath));
+            changedFiles.push(path.relative(__dirname, full));
+          }
+        } catch {}
+      }
+    }
   }
 
   /**

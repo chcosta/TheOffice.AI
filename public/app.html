@@ -2973,43 +2973,30 @@
               </details>
 
               <!-- Path Issues -->
-              <div x-show="syncStatus.pathIssues && syncStatus.pathIssues.length > 0" style="margin-bottom:16px">
+              <div x-show="unresolvedGroups.length > 0" style="margin-bottom:16px">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                  <div style="font-weight:500;color:var(--cp-warning)">⚠️ Unresolved Paths</div>
+                  <div style="font-weight:500;color:var(--cp-warning)">⚠️ Unresolved Paths (<span x-text="unresolvedGroups.length"></span>)</div>
                   <button class="btn ghost" type="button" @click="autoResolvePaths()" :disabled="autoResolving" style="font-size:0.8rem">
                     <span x-show="!autoResolving">✨ Try auto-resolve</span>
                     <span x-show="autoResolving">Resolving…</span>
                   </button>
                 </div>
-                <template x-for="issue in (syncStatus.pathIssues || [])" :key="issue.file + issue.field + issue.path">
+                <p class="hint" style="margin-bottom:8px;font-size:0.78rem">These paths don't exist on this machine. Enter the matching local folder for each — the fix is applied to every agent/file that uses it.</p>
+                <template x-for="g in unresolvedGroups" :key="g.path">
                   <div style="padding:8px;background:var(--cp-surface-soft);border-radius:6px;margin-bottom:6px">
-                    <div style="font-size:0.8rem;margin-bottom:4px">
-                      <span class="mono" x-text="issue.file"></span>
-                      <span x-show="issue.agent" class="hint" x-text="' · ' + issue.agent + ' (' + issue.field + ')'"></span>
-                    </div>
-                    <div class="mono" style="font-size:0.78rem;color:var(--cp-warning);word-break:break-all;margin-bottom:6px" x-text="issue.path"></div>
+                    <div class="mono" style="font-size:0.78rem;color:var(--cp-warning);word-break:break-all;margin-bottom:4px" x-text="g.path"></div>
+                    <div class="hint" style="font-size:0.74rem;margin-bottom:6px" x-text="'Used by: ' + g.usedBy"></div>
                     <!-- ${var} refs are fixed via Path Profiles, not here -->
-                    <div x-show="issue.field === 'unresolved-ref'" class="hint" style="font-size:0.78rem">
-                      Define <span class="mono" x-text="issue.path"></span> under <strong>Path Profiles</strong> above, then Save.
+                    <div x-show="g.isRef" class="hint" style="font-size:0.78rem">
+                      Define this variable under <strong>Path Profiles</strong> above, then Save.
                     </div>
                     <!-- Absolute-path issues: let the user supply the local path -->
-                    <div x-show="issue.field !== 'unresolved-ref'" style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center">
-                      <input class="field-input mono" type="text" x-model="issue._newPath" placeholder="Local path on this machine, e.g. C:\repos\..." style="font-size:0.78rem" />
-                      <button class="btn" type="button" @click="resolvePath(issue)" :disabled="!issue._newPath">Fix</button>
+                    <div x-show="!g.isRef" style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center">
+                      <input class="field-input mono" type="text" x-model="g._newPath" placeholder="Local path on this machine, e.g. C:\repos\..." style="font-size:0.78rem" />
+                      <button class="btn" type="button" @click="resolvePathGroup(g)" :disabled="!g._newPath">Fix</button>
                     </div>
                   </div>
                 </template>
-                <div x-show="autoResolveResult" style="margin-top:8px;font-size:0.8rem;color:var(--cp-text-muted)">
-                  <div x-show="autoResolveResult?.resolved?.length" style="color:var(--cp-success)">
-                    ✓ Resolved <span x-text="autoResolveResult?.resolved?.length"></span> path(s).
-                  </div>
-                  <div x-show="autoResolveResult?.scaffolded?.length">
-                    Added <span x-text="autoResolveResult?.scaffolded?.length"></span> blank profile row(s) — fill in the value(s) and Save.
-                  </div>
-                  <div x-show="autoResolveResult?.unresolved?.length" style="color:var(--cp-warning)">
-                    <span x-text="autoResolveResult?.unresolved?.length"></span> still need manual action (no local match found).
-                  </div>
-                </div>
               </div>
 
               <button class="btn primary" type="button" @click="saveSyncConfig()">Save Sync Settings</button>
@@ -3675,6 +3662,7 @@
         newProfileValue: '',
         autoResolving: false,
         autoResolveResult: null,
+        unresolvedGroups: [],
         instances: [],
         leaderRequesting: false,
         leaderRequestTarget: null,
@@ -4563,8 +4551,24 @@
             ]);
             if (status) this.syncStatus = status;
             if (config) this.syncConfig = config;
+            this._rebuildUnresolvedGroups();
             if (status && status.enabled) this.loadInstances();
           } catch {}
+        },
+        _rebuildUnresolvedGroups() {
+          // Group pathIssues by their offending path so a path used by several
+          // agents/files shows once (avoids duplicate-key collapse) and one fix
+          // applies everywhere. Preserve any value the user already typed.
+          const prev = {};
+          for (const g of (this.unresolvedGroups || [])) prev[g.path] = g._newPath;
+          const map = new Map();
+          for (const i of (this.syncStatus.pathIssues || [])) {
+            if (!map.has(i.path)) {
+              map.set(i.path, { path: i.path, isRef: i.field === 'unresolved-ref', refs: [], _newPath: prev[i.path] || '' });
+            }
+            map.get(i.path).refs.push(i.agent ? (i.agent + ' (' + i.field + ')') : (i.file + ' (' + i.field + ')'));
+          }
+          this.unresolvedGroups = [...map.values()].map(g => ({ ...g, usedBy: g.refs.join(', ') }));
         },
         async loadInstances() {
           try {
@@ -4652,18 +4656,19 @@
             this.autoResolving = false;
           }
         },
-        async resolvePath(issue) {
-          const newPath = (issue._newPath || '').trim();
+        async resolvePathGroup(g) {
+          const newPath = (g._newPath || '').trim();
           if (!newPath) return;
           try {
             const res = await this.request('/api/sync/resolve-path', {
               method: 'POST',
-              body: JSON.stringify({ file: issue.file, agent: issue.agent, field: issue.field, oldPath: issue.path, newPath })
+              body: JSON.stringify({ oldPath: g.path, newPath })
             });
+            const n = (res?.changedAgents || 0) + (res?.changedFiles?.length || 0);
             if (res && res.existsOnDisk === false) {
-              this.showToast('Path saved', 'Saved, but that path doesn\'t exist on disk yet — create it or double-check.', 'info');
+              this.showToast('Path saved', `Updated ${n} reference(s), but that path doesn't exist on disk yet — create it or double-check.`, 'info');
             } else {
-              this.showToast('Path resolved', issue.file + ' updated.', 'success');
+              this.showToast('Path resolved', `Updated ${n} reference(s).`, 'success');
             }
             await this.loadSyncStatus();
           } catch (err) {
