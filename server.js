@@ -2644,26 +2644,53 @@ app.get('/api/activity', (req, res) => {
     });
   }
   
-  // Gather manager run history from in-memory (still memory-based for managers)
-  for (const [id, mgr] of managerAgent.managers) {
-    const runs = mgr.runs || [];
-    for (const run of runs.slice(-20)) {
+  // Gather manager run history from SQLite
+  try {
+    const mgrRuns = db.prepare('SELECT * FROM manager_runs ORDER BY id DESC LIMIT ?').all(limit);
+    for (const run of mgrRuns) {
+      const mgr = managerAgent.managers.get(run.manager_id);
       activities.push({
         type: 'manager',
-        entityId: id,
-        entityName: mgr.name || id,
-        action: run.assignmentId ? `assignment:${run.assignmentId}` : 'prompt',
+        entityId: run.manager_id,
+        entityName: mgr?.name || run.manager_id,
+        action: run.assignment_id ? `assignment:${run.assignment_id}` : 'prompt',
         status: run.status || 'completed',
-        timestamp: run.startedAt,
-        duration: run.duration,
-        output: (run.summary || '').slice(0, 500)
+        timestamp: run.started_at,
+        finishedAt: run.finished_at,
+        duration: (run.started_at && run.finished_at)
+          ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
+          : null,
+        output: (run.result || '').slice(0, 500)
       });
     }
-  }
+  } catch {}
   
   // Sort by timestamp descending
   activities.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
   res.json(activities.slice(0, limit));
+});
+
+// Single run detail
+app.get('/api/activity/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Run not found' });
+  const entry = supervisor.agents.get(row.agent_id);
+  res.json({
+    id: row.id,
+    agentId: row.agent_id,
+    agentName: entry?.config?.name || row.agent_id,
+    status: row.exit_code === 0 ? 'success' : (row.exit_code === null ? 'running' : 'failed'),
+    exitCode: row.exit_code,
+    output: row.output || '',
+    error: row.error || '',
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    durationMs: (row.started_at && row.finished_at)
+      ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+      : null,
+    triggeredBy: row.triggered_by || 'manual',
+    sessionId: row.session_id
+  });
 });
 
 // ─── Event Listeners API ───────────────────────────────────────────────────────
