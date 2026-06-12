@@ -1513,7 +1513,7 @@
           </template>
         </div>
         <div class="sidebar-bottom">
-          <a class="nav-link" href="#/settings" @click.prevent="settingsOpen = true">
+          <a class="nav-link" :class="{ active: route === 'settings' }" href="#/settings">
             <span>⚙</span>
             <span>Settings</span>
           </a>
@@ -2877,6 +2877,23 @@
 
               <button class="btn primary" type="button" @click="saveSyncConfig()">Save Sync Settings</button>
             </div>
+
+            <!-- System Info -->
+            <div class="card" style="margin-top:24px">
+              <h2 style="font-size:1rem;margin-bottom:12px">System Info</h2>
+              <div class="help-row"><strong>Version</strong><span class="mono" x-text="versionLabel()"></span></div>
+              <div class="help-row" style="margin-top:10px"><strong>Process</strong><span x-text="data.version?.pid ? 'PID ' + data.version.pid : 'Unknown'"></span></div>
+              <div class="help-row" style="margin-top:10px"><strong>Started</strong><span x-text="data.version?.startedAt ? formatDateTime(data.version.startedAt) : 'Unknown'"></span></div>
+              <div class="help-row" style="margin-top:10px"><strong>Realtime</strong><span x-text="sseStatusLabel()"></span></div>
+            </div>
+
+            <!-- Shortcuts -->
+            <div class="card" style="margin-top:16px">
+              <h2 style="font-size:1rem;margin-bottom:12px">Keyboard Shortcuts</h2>
+              <div class="help-row"><span>Open command palette</span><span class="kbd">Ctrl/⌘ + K</span></div>
+              <div class="help-row" style="margin-top:10px"><span>Command palette navigation</span><span class="kbd">↑ ↓ Enter</span></div>
+              <div class="help-row" style="margin-top:10px"><span>Close overlays</span><span class="kbd">Esc</span></div>
+            </div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'activity'" x-transition.opacity.duration.180ms>
@@ -3073,35 +3090,7 @@
     </div>
   </div>
 
-  <div class="modal-backdrop" x-show="settingsOpen" x-transition.opacity.duration.150ms @click.self="settingsOpen = false" x-cloak>
-    <section class="modal-card" style="max-width:720px">
-      <div class="modal-header">
-        <div>
-          <strong>Settings</strong>
-          <div class="hint" style="margin-top:6px">Supervisor metadata, connection status, and shortcuts.</div>
-        </div>
-        <button class="icon-button" type="button" @click="settingsOpen = false">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="card">
-          <div class="help-row"><strong>Version</strong><span class="mono" x-text="versionLabel()"></span></div>
-          <div class="help-row" style="margin-top:10px"><strong>Process</strong><span x-text="data.version?.pid ? 'PID ' + data.version.pid : 'Unknown' "></span></div>
-          <div class="help-row" style="margin-top:10px"><strong>Started</strong><span x-text="data.version?.startedAt ? formatDateTime(data.version.startedAt) : 'Unknown'"></span></div>
-          <div class="help-row" style="margin-top:10px"><strong>Realtime</strong><span x-text="sseStatusLabel()"></span></div>
-        </div>
-        <div class="card">
-          <strong>Shortcuts</strong>
-          <div class="help-row" style="margin-top:12px"><span>Open command palette</span><span class="kbd">Ctrl/⌘ + K</span></div>
-          <div class="help-row" style="margin-top:10px"><span>Command palette navigation</span><span class="kbd">↑ ↓ Enter</span></div>
-          <div class="help-row" style="margin-top:10px"><span>Close overlays</span><span class="kbd">Esc</span></div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn" type="button" @click="refreshAll(false)">Refresh data</button>
-        <button class="btn primary" type="button" @click="settingsOpen = false">Done</button>
-      </div>
-    </section>
-  </div>
+
 
   <div class="modal-backdrop" x-show="newTaskOpen" x-transition.opacity.duration.150ms @click.self="newTaskOpen = false" x-cloak>
     <section class="modal-card">
@@ -4110,8 +4099,7 @@
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
             { key: 'integrations', label: 'Integrations', collapsible: true, isGroup: true, children: [
-              { key: 'events', title: 'Events', icon: '📡', href: '#/events', routeGroup: 'events', items: [] },
-              { key: 'settings', title: 'Settings', icon: '⚙️', href: '#/settings', routeGroup: 'settings', items: [] }
+              { key: 'events', title: 'Events', icon: '📡', href: '#/events', routeGroup: 'events', items: [] }
             ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
