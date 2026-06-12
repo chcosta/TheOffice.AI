@@ -18,9 +18,14 @@ const POLL_INTERVAL = 30000; // ms
 const INSTANCE_STALE = 90; // seconds — an instance not seen within this window is "offline"
 const LEADER_REQUEST_TTL = 120; // seconds — ignore handoff requests older than this
 
-// Files that get synced
-const SYNCED_FILES = ['agents.json', 'managers.json', 'events-config.json'];
+// Files that get synced (within a machine's own cloud namespace)
+const SYNCED_FILES = ['agents.json', 'managers.json', 'tasks.json', 'events-config.json'];
 const SYNCED_DIRS = ['plugins', 'mcp-configs'];
+// Per-machine cloud namespace. Each machine owns machines/{machineId}/ and is the
+// sole writer of its own config. Other machines may only READ it (for browse/install).
+// This removes the need for cross-machine path rewriting entirely: a machine's config
+// only ever has to make sense on that machine.
+const MACHINES_PREFIX = 'machines/';
 
 // Synced directories (plugins, mcp-configs) are per-user runtime data, NOT repo
 // source. They live under the user profile and are still cloud-synced across
@@ -77,18 +82,13 @@ class ConfigSync {
       await this._initBlobClient();
       await this._ensureContainer();
       await this._tryAcquireLease();
-      if (this._isLeader) {
-        // Leader is authoritative. Do NOT pull-overwrite local config on startup —
-        // that would clobber local edits (RBAC users, connected assets, agent
-        // descriptions) with a potentially stale cloud snapshot. Instead, capture
-        // the remote manifest etag (for change polling) and push local config up so
-        // the cloud reflects this machine's source-of-truth state.
-        await this._captureManifestEtag();
-        console.log('[config-sync] Leader on startup — pushing local config (authoritative, not clobbering local)');
-        await this.pushConfig();
-      } else {
-        await this._syncDown();
-      }
+      // Each machine owns its own cloud namespace (machines/{machineId}/) and is the
+      // sole writer of its config. Local files are ALWAYS authoritative — we never
+      // pull-overwrite them on startup. Push local config up so the cloud mirror stays
+      // current and is browsable/installable by other machines. Leadership only gates
+      // shared event-bus handling, not a machine's own config or scheduled work.
+      await this._captureManifestEtag();
+      await this.pushConfig().catch(err => console.warn('[config-sync] Startup push failed:', err.message));
       this._startPolling();
       this._registerPresence().catch(() => {});
       console.log(`[config-sync] Started. Leader: ${this._isLeader}, Machine: ${this._machineId}`);
@@ -358,220 +358,88 @@ class ConfigSync {
     return this._config;
   }
 
-  /** Resolve a path reference using path profiles */
-  resolvePath(pathRef) {
-    if (!pathRef) return pathRef;
-    const profiles = this._config.pathProfiles || {};
-    const myProfile = profiles[this._machineId] || {};
-    // Replace ${varName} tokens
-    return pathRef.replace(/\$\{(\w+)\}/g, (_, key) => {
-      return myProfile[key] || `\${${key}}`;
-    });
-  }
+  // --- Cross-machine browse & install (per-machine cloud namespaces) ---
 
-  /** Convert an absolute path to a path reference */
-  toPathRef(absolutePath) {
-    if (!absolutePath) return absolutePath;
-    const profiles = this._config.pathProfiles || {};
-    const myProfile = profiles[this._machineId] || {};
-    // Try to match longest prefix first
-    const entries = Object.entries(myProfile).sort((a, b) => b[1].length - a[1].length);
-    for (const [key, value] of entries) {
-      const normalized = absolutePath.replace(/\\/g, '/');
-      const normalizedValue = value.replace(/\\/g, '/');
-      if (normalized.startsWith(normalizedValue)) {
-        const rest = normalized.slice(normalizedValue.length);
-        return `\${${key}}${rest}`;
-      }
-    }
-    return absolutePath;
+  _machinePrefix(machineId) {
+    return `${MACHINES_PREFIX}${machineId || this._machineId}/`;
   }
-
-  /** Scan for unresolved paths in config files */
-  scanUnresolvedPaths() {
-    const issues = [];
-    // Check agents.json
-    const agentsPath = path.join(__dirname, 'agents.json');
-    if (fs.existsSync(agentsPath)) {
-      const agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-      for (const agent of agents) {
-        if (agent.cwd && !fs.existsSync(agent.cwd)) {
-          issues.push({ file: 'agents.json', agent: agent.id, field: 'cwd', path: agent.cwd });
-        }
-        if (agent.pluginDir && !fs.existsSync(agent.pluginDir)) {
-          issues.push({ file: 'agents.json', agent: agent.id, field: 'pluginDir', path: agent.pluginDir });
-        }
-      }
-    }
-    // Check plugins for absolute paths (runtime store in user profile)
-    const pluginsDir = syncedDirPath('plugins');
-    if (fs.existsSync(pluginsDir)) {
-      this._scanDirForPaths(pluginsDir, issues, syncedDirLabelBase());
-    }
-    // Check mcp-configs for paths (also under the runtime data dir)
-    const mcpDir = syncedDirPath('mcp-configs');
-    if (fs.existsSync(mcpDir)) {
-      this._scanDirForPaths(mcpDir, issues, syncedDirLabelBase());
-    }
-    return issues;
+  _machineManifestName(machineId) {
+    return `${this._machinePrefix(machineId)}manifest.json`;
+  }
+  _machineProfileName(machineId) {
+    return `${this._machinePrefix(machineId)}profile.json`;
   }
 
   /**
-   * Attempt to automatically resolve unresolved paths.
-   * - Absolute paths (agents.json cwd/pluginDir, plugin/mcp content) are rewritten
-   *   to a local equivalent if one can be found under this machine's path-profile roots.
-   * - Bare ${var} refs with no profile entry get a blank profile row scaffolded.
-   * - Anything with no confident local match is left untouched and reported.
-   * Returns { resolved, scaffolded, unresolved, remaining }.
+   * List every machine that has published a config namespace in the cloud, with a
+   * lightweight catalog (agent/manager names) plus liveness/leader flags. Powers the
+   * SPA/mobile "Machines" browser. Read-only.
    */
-  autoResolvePaths() {
-    const issues = this.scanUnresolvedPaths();
-    const profiles = this._config.pathProfiles || {};
-    const myProfile = profiles[this._machineId] || {};
-    const roots = [...new Set(Object.values(myProfile).filter(Boolean))];
-
-    const resolved = [];
-    const scaffolded = [];
-    const unresolved = [];
-
-    const agentsPath = path.join(__dirname, 'agents.json');
-    let agents = null;
-    if (fs.existsSync(agentsPath)) {
-      try { agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8')); } catch {}
-    }
-    let agentsDirty = false;
-    const fileEdits = {}; // relativeFile -> updated content
-    let profileDirty = false;
-
-    for (const issue of issues) {
-      if (issue.field === 'unresolved-ref') {
-        const m = /^\$\{(\w+)\}/.exec(issue.path);
-        const varName = m && m[1];
-        if (varName && !(varName in myProfile)) {
-          myProfile[varName] = '';
-          profileDirty = true;
-          scaffolded.push({ ...issue, varName });
-        } else {
-          unresolved.push(issue);
-        }
-        continue;
-      }
-
-      const local = this._findLocalEquivalent(issue.path, roots);
-      if (!local) { unresolved.push(issue); continue; }
-
-      if (issue.file === 'agents.json' && agents) {
-        const a = agents.find(x => x.id === issue.agent);
-        if (a) {
-          a[issue.field] = local;
-          agentsDirty = true;
-          resolved.push({ ...issue, resolvedTo: local });
-          continue;
-        }
-        unresolved.push(issue);
-      } else {
-        const full = path.join(__dirname, issue.file);
+  async listMachines() {
+    if (!this._enabled) return [];
+    const out = [];
+    let leaderMachineId = null;
+    try { const li = await this.getLeaderInfo(); leaderMachineId = li?.machineId || null; } catch {}
+    const alive = new Map();
+    try { for (const inst of await this.listInstances()) alive.set(inst.machineId, inst); } catch {}
+    try {
+      for await (const item of this._containerClient.listBlobsFlat({ prefix: MACHINES_PREFIX })) {
+        if (!item.name.endsWith('/profile.json')) continue;
         try {
-          let content = fileEdits[issue.file] != null ? fileEdits[issue.file] : fs.readFileSync(full, 'utf-8');
-          content = content.split(issue.path).join(local);
-          fileEdits[issue.file] = content;
-          resolved.push({ ...issue, resolvedTo: local });
-        } catch {
-          unresolved.push(issue);
-        }
-      }
-    }
-
-    if (agentsDirty) fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
-    for (const [rel, content] of Object.entries(fileEdits)) {
-      fs.writeFileSync(path.join(__dirname, rel), content);
-    }
-    if (profileDirty) {
-      profiles[this._machineId] = myProfile;
-      this.saveSyncConfig({ pathProfiles: profiles });
-    }
-
-    return { resolved, scaffolded, unresolved, remaining: this.scanUnresolvedPaths() };
-  }
-
-  /**
-   * Apply a user-supplied local path for an unresolved path, everywhere it
-   * appears. This is path-centric: a single oldPath may be referenced by
-   * multiple agents (cwd/pluginDir) and/or plugin/mcp files; all occurrences
-   * are updated in one call.
-   * Returns { success, existsOnDisk, changedAgents, changedFiles, remaining }.
-   */
-  applyPathFix({ oldPath, newPath }) {
-    if (!oldPath) throw new Error('oldPath is required');
-    if (!newPath || !newPath.trim()) throw new Error('newPath is required');
-    newPath = newPath.trim();
-    const existsOnDisk = fs.existsSync(newPath);
-    let changedAgents = 0;
-    const changedFiles = [];
-
-    // agents.json — update every agent whose cwd or pluginDir matches oldPath.
-    const agentsPath = path.join(__dirname, 'agents.json');
-    if (fs.existsSync(agentsPath)) {
-      try {
-        const agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-        let dirty = false;
-        for (const a of agents) {
-          if (a.cwd === oldPath) { a.cwd = newPath; dirty = true; changedAgents++; }
-          if (a.pluginDir === oldPath) { a.pluginDir = newPath; dirty = true; changedAgents++; }
-        }
-        if (dirty) fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
-      } catch {}
-    }
-
-    // plugin/mcp files — replace the path string wherever it occurs.
-    for (const dirName of ['plugins', 'mcp-configs']) {
-      const dirPath = syncedDirPath(dirName);
-      if (!fs.existsSync(dirPath)) continue;
-      this._replacePathInDir(dirPath, oldPath, newPath, changedFiles, syncedDirLabelBase());
-    }
-
-    // Leader pushes the fix so other machines pick it up.
-    if (this._enabled && this._isLeader) this.pushConfig().catch(() => {});
-    return { success: true, existsOnDisk, changedAgents, changedFiles, remaining: this.scanUnresolvedPaths() };
-  }
-
-  _replacePathInDir(dir, oldPath, newPath, changedFiles, baseDir) {
-    baseDir = baseDir || __dirname;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        this._replacePathInDir(full, oldPath, newPath, changedFiles, baseDir);
-      } else if (entry.name.endsWith('.json') || entry.name.endsWith('.md')) {
-        try {
-          const content = fs.readFileSync(full, 'utf-8');
-          if (content.includes(oldPath)) {
-            fs.writeFileSync(full, content.split(oldPath).join(newPath));
-            changedFiles.push(path.relative(baseDir, full));
-          }
+          const blob = this._containerClient.getBlockBlobClient(item.name);
+          const dl = await blob.download(0);
+          const prof = JSON.parse(await this._streamToString(dl.readableStreamBody));
+          const inst = alive.get(prof.machineId);
+          out.push({
+            machineId: prof.machineId,
+            hostname: prof.hostname || null,
+            isSelf: prof.machineId === this._machineId,
+            isLeader: leaderMachineId ? prof.machineId === leaderMachineId : false,
+            alive: inst ? !!inst.alive : (prof.machineId === this._machineId),
+            updatedAt: prof.updatedAt || null,
+            agentCount: prof.agentCount != null ? prof.agentCount : (prof.agents ? prof.agents.length : 0),
+            managerCount: prof.managerCount != null ? prof.managerCount : (prof.managers ? prof.managers.length : 0),
+            agents: prof.agents || [],
+            managers: prof.managers || []
+          });
         } catch {}
       }
+    } catch (err) {
+      console.warn('[config-sync] listMachines failed:', err.message);
     }
+    out.sort((a, b) => (b.isSelf - a.isSelf) || (b.isLeader - a.isLeader) || String(a.hostname).localeCompare(String(b.hostname)));
+    return out;
   }
 
   /**
-   * Find a local directory equivalent for an absolute path by matching its
-   * trailing path segments under the given local roots. Prefers the deepest
-   * (most specific) match to avoid false positives on generic folder names.
+   * Download the full latest snapshot files for a given machine's namespace.
+   * Returns { machineId, version, files: { fileName: content } } including the synced
+   * JSON files and the plugins/mcp-configs ".tar.json" maps. Read-only; powers install.
    */
-  _findLocalEquivalent(absPath, roots) {
-    if (!absPath || !roots || !roots.length) return null;
-    const norm = absPath.replace(/\\/g, '/').replace(/\/+$/, '');
-    const segs = norm.split('/').filter(Boolean);
-    if (!segs.length) return null;
-    const minK = Math.min(2, segs.length);
-    for (const root of roots) {
-      for (let k = segs.length; k >= minK; k--) {
-        const suffix = segs.slice(segs.length - k);
-        const candidate = path.join(root, ...suffix);
-        if (fs.existsSync(candidate)) return candidate;
+  async getMachineSnapshotFiles(machineId) {
+    if (!this._enabled) throw new Error('Sync not enabled');
+    if (!machineId) throw new Error('machineId is required');
+    const manifestBlob = this._containerClient.getBlockBlobClient(this._machineManifestName(machineId));
+    let manifest;
+    try {
+      const dl = await manifestBlob.download(0);
+      manifest = JSON.parse(await this._streamToString(dl.readableStreamBody));
+    } catch (err) {
+      if (err.statusCode === 404) throw new Error(`No cloud config found for machine ${machineId}`);
+      throw err;
+    }
+    const prefix = `${this._machinePrefix(machineId)}snapshots/${manifest.version}/`;
+    const files = {};
+    for (const name of (manifest.files || [])) {
+      try {
+        const blob = this._containerClient.getBlockBlobClient(`${prefix}${name}`);
+        const dl = await blob.download(0);
+        files[name] = await this._streamToString(dl.readableStreamBody);
+      } catch (err) {
+        if (err.statusCode !== 404) console.warn(`[config-sync] getMachineSnapshotFiles ${name}:`, err.message);
       }
     }
-    return null;
+    return { machineId, version: manifest.version, files };
   }
 
   // --- Private methods ---
@@ -580,7 +448,7 @@ class ConfigSync {
     if (fs.existsSync(SYNC_CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(SYNC_CONFIG_PATH, 'utf-8'));
     }
-    return { storageAccount: '', machineId: '', pathProfiles: {}, containerName: 'agent-supervisor' };
+    return { storageAccount: '', machineId: '', containerName: 'agent-supervisor' };
   }
 
   _generateMachineId() {
@@ -751,44 +619,20 @@ class ConfigSync {
         }
         // Refresh this instance's presence in the shared registry.
         await this._registerPresence();
-        // Check for remote config changes
-        await this._checkForUpdates();
       } catch (err) {
         // Suppress polling errors
       }
     }, POLL_INTERVAL);
   }
 
-  /** Read the remote manifest ETag without overwriting local files (used by leader on startup). */
+  /** Read this machine's own manifest ETag (best-effort; informational only). */
   async _captureManifestEtag() {
     try {
-      const manifestBlob = this._containerClient.getBlockBlobClient(MANIFEST_BLOB);
+      const manifestBlob = this._containerClient.getBlockBlobClient(this._machineManifestName());
       const props = await manifestBlob.getProperties();
       this._lastManifestETag = props.etag;
     } catch (err) {
-      if (err.statusCode === 404) {
-        this._lastManifestETag = null;
-      } else {
-        // Don't fail startup over this — push will proceed without an ifMatch precondition.
-        this._lastManifestETag = null;
-      }
-    }
-  }
-
-  async _checkForUpdates() {
-    try {
-      const manifestBlob = this._containerClient.getBlockBlobClient(MANIFEST_BLOB);
-      const props = await manifestBlob.getProperties();
-      if (this._lastManifestETag && props.etag !== this._lastManifestETag) {
-        console.log('[config-sync] Remote config changed, pulling...');
-        await this._syncDown();
-      }
-      this._lastManifestETag = props.etag;
-    } catch (err) {
-      if (err.statusCode === 404) {
-        // No manifest yet — nothing to sync
-        this._lastManifestETag = null;
-      }
+      this._lastManifestETag = null;
     }
   }
 
@@ -887,7 +731,7 @@ class ConfigSync {
 
   async _syncDown() {
     try {
-      const manifestBlob = this._containerClient.getBlockBlobClient(MANIFEST_BLOB);
+      const manifestBlob = this._containerClient.getBlockBlobClient(this._machineManifestName());
       let manifest;
       try {
         const dl = await manifestBlob.download(0);
@@ -895,12 +739,12 @@ class ConfigSync {
         manifest = JSON.parse(text);
         this._lastManifestETag = (await manifestBlob.getProperties()).etag;
       } catch (err) {
-        if (err.statusCode === 404) return; // No config uploaded yet
+        if (err.statusCode === 404) return; // No config uploaded yet for this machine
         throw err;
       }
 
       const version = manifest.version;
-      const prefix = `snapshots/${version}/`;
+      const prefix = `${this._machinePrefix()}snapshots/${version}/`;
 
       // Backup local files before overwriting
       this._backupLocal();
@@ -947,9 +791,6 @@ class ConfigSync {
         }
       }
 
-      // Rewrite paths using local profile
-      this._rewritePathsOnPull();
-
       this._localVersion = version;
       this._dirty = false;
       this._onConfigPulled(version);
@@ -961,16 +802,11 @@ class ConfigSync {
 
   async _createSnapshot() {
     const snapshot = {};
-    // Synced JSON files
+    // Synced JSON files (raw — no path rewriting; configs are machine-local)
     for (const fileName of SYNCED_FILES) {
       const filePath = path.join(__dirname, fileName);
       if (fs.existsSync(filePath)) {
-        let content = fs.readFileSync(filePath, 'utf-8');
-        // Convert absolute paths to refs before uploading
-        if (fileName === 'agents.json') {
-          content = this._rewritePathsForUpload(content);
-        }
-        snapshot[fileName] = content;
+        snapshot[fileName] = fs.readFileSync(filePath, 'utf-8');
       }
     }
     // Synced directories (as JSON file maps — simpler than actual tar)
@@ -985,93 +821,60 @@ class ConfigSync {
     return snapshot;
   }
 
+  /**
+   * Build a lightweight catalog of this machine's agents/managers so other machines
+   * can browse capabilities without downloading the full snapshot.
+   */
+  _buildProfileCatalog() {
+    const readJson = (f) => {
+      try { return JSON.parse(fs.readFileSync(path.join(__dirname, f), 'utf-8')); } catch { return null; }
+    };
+    const agents = Array.isArray(readJson('agents.json')) ? readJson('agents.json') : [];
+    const managers = Array.isArray(readJson('managers.json')) ? readJson('managers.json') : [];
+    return {
+      machineId: this._machineId,
+      hostname: os.hostname(),
+      updatedAt: new Date().toISOString(),
+      agentCount: agents.length,
+      managerCount: managers.length,
+      agents: agents.map(a => ({ id: a.id, name: a.name || a.id, description: a.description || '' })),
+      managers: managers.map(m => ({ id: m.id, name: m.name || m.id, org: Array.isArray(m.org) ? m.org : [] }))
+    };
+  }
+
   async _uploadSnapshot(snapshot) {
     const version = Date.now();
-    const prefix = `snapshots/${version}/`;
+    const prefix = `${this._machinePrefix()}snapshots/${version}/`;
 
     // Upload each file in the snapshot
     for (const [name, content] of Object.entries(snapshot)) {
       const blob = this._containerClient.getBlockBlobClient(`${prefix}${name}`);
-      await blob.upload(content, Buffer.byteLength(content));
+      await blob.upload(content, Buffer.byteLength(content), { blobHTTPHeaders: { blobContentType: 'application/json' } });
     }
 
-    // Update manifest atomically (with ETag for optimistic concurrency)
+    // Update this machine's manifest. Single writer per namespace → no ifMatch needed.
     const manifest = {
       version,
       updatedAt: new Date().toISOString(),
       updatedBy: this._machineId,
       files: Object.keys(snapshot)
     };
-    const manifestBlob = this._containerClient.getBlockBlobClient(MANIFEST_BLOB);
+    const manifestBlob = this._containerClient.getBlockBlobClient(this._machineManifestName());
     const manifestContent = JSON.stringify(manifest, null, 2);
-    const uploadOpts = {};
-    if (this._lastManifestETag) {
-      uploadOpts.conditions = { ifMatch: this._lastManifestETag };
-    }
+    const result = await manifestBlob.upload(manifestContent, Buffer.byteLength(manifestContent), {
+      blobHTTPHeaders: { blobContentType: 'application/json' }
+    });
+    this._lastManifestETag = result.etag;
+    this._localVersion = version;
+
+    // Publish a lightweight capability catalog for cross-machine browse.
     try {
-      const result = await manifestBlob.upload(manifestContent, Buffer.byteLength(manifestContent), uploadOpts);
-      this._lastManifestETag = result.etag;
-      this._localVersion = version;
+      const catalog = JSON.stringify(this._buildProfileCatalog(), null, 2);
+      const profileBlob = this._containerClient.getBlockBlobClient(this._machineProfileName());
+      await profileBlob.upload(catalog, Buffer.byteLength(catalog), { blobHTTPHeaders: { blobContentType: 'application/json' } });
     } catch (err) {
-      if (err.statusCode === 412) {
-        throw new Error('Config conflict: another machine updated config simultaneously. Pull first, then retry.');
-      }
-      throw err;
+      console.warn('[config-sync] Failed to publish profile catalog:', err.message);
     }
-  }
-
-  _rewritePathsForUpload(agentsContent) {
-    const agents = JSON.parse(agentsContent);
-    const profiles = this._config.pathProfiles || {};
-    const myProfile = profiles[this._machineId] || {};
-    const entries = Object.entries(myProfile).sort((a, b) => b[1].length - a[1].length);
-
-    for (const agent of agents) {
-      if (agent.cwd) {
-        for (const [key, value] of entries) {
-          const norm = agent.cwd.replace(/\\/g, '/');
-          const normVal = value.replace(/\\/g, '/');
-          if (norm.startsWith(normVal)) {
-            agent.cwd = `\${${key}}${norm.slice(normVal.length)}`;
-            break;
-          }
-        }
-      }
-      if (agent.pluginDir) {
-        for (const [key, value] of entries) {
-          const norm = agent.pluginDir.replace(/\\/g, '/');
-          const normVal = value.replace(/\\/g, '/');
-          if (norm.startsWith(normVal)) {
-            agent.pluginDir = `\${${key}}${norm.slice(normVal.length)}`;
-            break;
-          }
-        }
-      }
-    }
-    return JSON.stringify(agents, null, 2);
-  }
-
-  _rewritePathsOnPull() {
-    const agentsPath = path.join(__dirname, 'agents.json');
-    if (!fs.existsSync(agentsPath)) return;
-    const agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-    const profiles = this._config.pathProfiles || {};
-    const myProfile = profiles[this._machineId] || {};
-
-    for (const agent of agents) {
-      if (agent.cwd && agent.cwd.includes('${')) {
-        agent.cwd = agent.cwd.replace(/\$\{(\w+)\}/g, (_, key) => myProfile[key] || `\${${key}}`);
-        // Normalize path separators for this OS
-        if (process.platform === 'win32') agent.cwd = agent.cwd.replace(/\//g, '\\');
-        else agent.cwd = agent.cwd.replace(/\\/g, '/');
-      }
-      if (agent.pluginDir && agent.pluginDir.includes('${')) {
-        agent.pluginDir = agent.pluginDir.replace(/\$\{(\w+)\}/g, (_, key) => myProfile[key] || `\${${key}}`);
-        if (process.platform === 'win32') agent.pluginDir = agent.pluginDir.replace(/\//g, '\\');
-        else agent.pluginDir = agent.pluginDir.replace(/\\/g, '/');
-      }
-    }
-    fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
   }
 
   _backupLocal() {
@@ -1093,32 +896,6 @@ class ConfigSync {
         this._collectFiles(fullPath, relPath, result);
       } else {
         result[relPath] = fs.readFileSync(fullPath, 'utf-8');
-      }
-    }
-  }
-
-  _scanDirForPaths(dir, issues, baseDir) {
-    baseDir = baseDir || __dirname;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        this._scanDirForPaths(fullPath, issues, baseDir);
-      } else if (entry.name.endsWith('.json') || entry.name.endsWith('.md')) {
-        try {
-          const content = fs.readFileSync(fullPath, 'utf-8');
-          // Look for absolute Windows paths or unresolved ${} refs
-          const winPaths = content.match(/[A-Z]:\\[^\s"',\]]+/g) || [];
-          const unixPaths = content.match(/\/(?:home|usr|opt|var|etc)\/[^\s"',\]]+/g) || [];
-          const unresolvedRefs = content.match(/\$\{[^}]+\}/g) || [];
-          for (const p of [...winPaths, ...unixPaths]) {
-            if (!fs.existsSync(p)) {
-              issues.push({ file: path.relative(baseDir, fullPath), field: 'content', path: p });
-            }
-          }
-          for (const ref of unresolvedRefs) {
-            issues.push({ file: path.relative(baseDir, fullPath), field: 'unresolved-ref', path: ref });
-          }
-        } catch {}
       }
     }
   }

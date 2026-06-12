@@ -203,8 +203,10 @@ const configSync = new ConfigSync({
     loadManagers();
   }
 });
-// Wire leader check into scheduler (schedules only fire if leader or sync disabled)
-const leaderCheck = () => !configSync.enabled || configSync.isLeader;
+// Each machine owns its own agents/managers/tasks and always runs its OWN scheduled
+// work locally. Leadership only gates shared event-bus / relay handling (below), not a
+// machine's own scheduled agents — so we never suppress local schedules.
+const leaderCheck = () => true;
 supervisor.setLeaderCheck(leaderCheck);
 managerAgent.setLeaderCheck(leaderCheck);
 // Give the mobile handler access to leader/liveness status for get-status
@@ -238,8 +240,8 @@ fs.watch(AGENTS_PATH, () => {
     try {
       console.log('[supervisor] agents.json changed, reloading...');
       loadAgents();
-      // Leader auto-pushes config changes so other machines pick them up.
-      if (configSync.enabled && configSync.isLeader) {
+      // Each machine pushes its OWN config changes to its own cloud namespace.
+      if (configSync.enabled) {
         configSync.pushConfig().catch(e => console.warn('[sync] auto-push (agents) failed:', e.message));
       }
     } catch (e) {
@@ -257,7 +259,7 @@ if (fs.existsSync(MANAGERS_PATH)) {
       try {
         console.log('[supervisor] managers.json changed, reloading...');
         loadManagers();
-        if (configSync.enabled && configSync.isLeader) {
+        if (configSync.enabled) {
           configSync.pushConfig().catch(e => console.warn('[sync] auto-push (managers) failed:', e.message));
         }
       } catch (e) {
@@ -1129,6 +1131,8 @@ function loadTasks() {
 }
 function saveTasks(tasks) {
   fs.writeFileSync(TASKS_PATH, JSON.stringify(tasks, null, 2));
+  // tasks.json is part of this machine's synced namespace — mirror to cloud.
+  if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (tasks) failed:', e.message));
 }
 
 app.get('/api/tasks', (req, res) => {
@@ -2287,11 +2291,11 @@ app.get('/api/sync/status', async (req, res) => {
       isLeader: configSync.isLeader,
       epoch: configSync.epoch,
       machineId: configSync.machineId,
-      leaderInfo,
-      pathIssues: configSync.enabled ? configSync.scanUnresolvedPaths() : []
+      hostname: require('os').hostname(),
+      leaderInfo
     });
   } catch (err) {
-    res.json({ enabled: configSync.enabled, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, pathIssues: [], error: err.message });
+    res.json({ enabled: configSync.enabled, isLeader: configSync.isLeader, epoch: configSync.epoch, machineId: configSync.machineId, error: err.message });
   }
 });
 
@@ -2367,29 +2371,138 @@ app.post('/api/sync/pull', async (req, res) => {
   }
 });
 
-// Scan for path issues
-app.get('/api/sync/path-issues', (req, res) => {
-  res.json(configSync.scanUnresolvedPaths());
-});
+// ============ Machines (per-machine cloud namespaces) ============
 
-// Attempt to auto-resolve path issues
-app.post('/api/sync/auto-resolve', (req, res) => {
+// List all machines that have published a config namespace to the cloud.
+app.get('/api/machines', async (req, res) => {
   try {
-    if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
-    res.json(configSync.autoResolvePaths());
+    if (!configSync.enabled) return res.json({ machines: [], selfId: null });
+    const machines = await configSync.listMachines();
+    res.json({ machines, selfId: configSync.machineId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Apply a user-supplied local path for a single unresolved issue.
-app.post('/api/sync/resolve-path', express.json(), (req, res) => {
+// Detail for a single machine: its published agents/managers catalog.
+app.get('/api/machines/:id', async (req, res) => {
   try {
     if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
-    const { file, agent, field, oldPath, newPath } = req.body || {};
-    res.json(configSync.applyPathFix({ file, agent, field, oldPath, newPath }));
+    const machines = await configSync.listMachines();
+    const machine = machines.find(m => m.machineId === req.params.id);
+    if (!machine) return res.status(404).json({ error: `Machine ${req.params.id} not found` });
+    res.json(machine);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Install one or more agents/managers from another machine into this machine's
+// own namespace. Body: { items: [{ type: 'agent'|'manager', id }] } (or a single
+// { type, id }). Copies any referenced plugin directory locally, rewrites pluginDir,
+// dedupes by id, reloads, and pushes the updated local namespace to the cloud.
+app.post('/api/machines/:id/install', express.json(), async (req, res) => {
+  try {
+    if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
+    if (req.params.id === configSync.machineId) return res.status(400).json({ error: 'Cannot install from this machine into itself' });
+
+    let items = req.body && Array.isArray(req.body.items) ? req.body.items : null;
+    if (!items && req.body && req.body.type && req.body.id) items = [{ type: req.body.type, id: req.body.id }];
+    if (!items || !items.length) return res.status(400).json({ error: 'No items specified (expected { items: [{ type, id }] })' });
+
+    const snap = await configSync.getMachineSnapshotFiles(req.params.id).catch(err => {
+      if (/No cloud config found/i.test(err.message)) { const e = new Error(err.message); e.status = 404; throw e; }
+      throw err;
+    });
+    const parse = (name) => { try { return JSON.parse(snap.files[name] || 'null'); } catch { return null; } };
+    const srcAgents = Array.isArray(parse('agents.json')) ? parse('agents.json') : [];
+    const srcManagers = Array.isArray(parse('managers.json')) ? parse('managers.json') : [];
+    const pluginFiles = parse('plugins.tar.json') || {};
+    const mcpFiles = parse('mcp-configs.tar.json') || {};
+
+    const localAgents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const localManagers = fs.existsSync(MANAGERS_PATH) ? JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8')) : [];
+    const localAgentIds = new Set(localAgents.map(a => a.id));
+    const localManagerIds = new Set(localManagers.map(m => m.id));
+    const results = { installed: [], skipped: [], warnings: [] };
+
+    // Write a plugin directory (by basename) out of the source plugins.tar.json map.
+    const installPluginDir = (pluginBase) => {
+      if (!pluginBase) return false;
+      let count = 0;
+      for (const [relPath, content] of Object.entries(pluginFiles)) {
+        const top = relPath.split('/')[0];
+        if (top !== pluginBase) continue;
+        const destPath = path.join(PLUGINS_DIR, relPath.replace(/\//g, path.sep));
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.writeFileSync(destPath, content);
+        count++;
+      }
+      return count > 0;
+    };
+
+    const installAgentById = (agentId) => {
+      if (localAgentIds.has(agentId)) { results.skipped.push(`agent ${agentId} (already installed)`); return; }
+      const src = srcAgents.find(a => a.id === agentId);
+      if (!src) { results.warnings.push(`agent ${agentId} not found on source machine`); return; }
+      const agent = JSON.parse(JSON.stringify(src));
+      delete agent.copilotPath;
+      if (agent.pluginDir) {
+        const base = path.basename(agent.pluginDir);
+        if (installPluginDir(base)) {
+          agent.pluginDir = path.join(PLUGINS_DIR, base);
+        } else {
+          results.warnings.push(`agent ${agentId}: plugin "${base}" not found in source snapshot`);
+          agent.pluginDir = path.join(PLUGINS_DIR, base);
+        }
+      }
+      if (agent.cwd && !fs.existsSync(agent.cwd)) {
+        results.warnings.push(`agent ${agentId}: cwd does not exist locally (${agent.cwd}) — edit after install`);
+      }
+      localAgents.push(agent);
+      localAgentIds.add(agentId);
+      results.installed.push(`agent ${agent.name || agentId}`);
+    };
+
+    for (const item of items) {
+      if (item.type === 'agent') {
+        installAgentById(item.id);
+      } else if (item.type === 'manager') {
+        if (localManagerIds.has(item.id)) { results.skipped.push(`manager ${item.id} (already installed)`); continue; }
+        const src = srcManagers.find(m => m.id === item.id);
+        if (!src) { results.warnings.push(`manager ${item.id} not found on source machine`); continue; }
+        const manager = JSON.parse(JSON.stringify(src));
+        // Pull in the manager's org agents too.
+        for (const orgId of (Array.isArray(manager.org) ? manager.org : [])) installAgentById(orgId);
+        localManagers.push(manager);
+        localManagerIds.add(item.id);
+        results.installed.push(`manager ${manager.name || item.id}`);
+      } else {
+        results.warnings.push(`unknown item type: ${item.type}`);
+      }
+    }
+
+    // Copy any referenced MCP configs (best-effort: install all referenced by installed agents).
+    for (const [relPath, content] of Object.entries(mcpFiles)) {
+      const destPath = path.join(MCP_CONFIGS_DIR, relPath.replace(/\//g, path.sep));
+      try {
+        if (fs.existsSync(destPath)) continue;
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.writeFileSync(destPath, content);
+      } catch { /* ignore */ }
+    }
+
+    if (results.installed.length) {
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(localAgents, null, 2));
+      fs.writeFileSync(MANAGERS_PATH, JSON.stringify(localManagers, null, 2));
+      loadAgents();
+      loadManagers();
+      configSync.pushConfig().catch(e => results.warnings.push(`cloud push failed: ${e.message}`));
+    }
+
+    res.json({ ok: true, ...results });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -2858,17 +2971,14 @@ app.put('/api/events/config', express.json(), async (req, res) => {
   }
   Object.assign(eventListener.config, update);
   eventListener._saveConfig();
-  // Persist RBAC users / connected assets to the cloud so they survive restarts.
-  // Without this, the next _syncDown() overwrites events-config.json with the
-  // stale cloud snapshot and locally-defined RBAC users vanish.
-  if (configSync.enabled && configSync.isLeader) {
+  // Persist RBAC users / connected assets to this machine's own cloud namespace so
+  // they survive restarts. Every machine owns its namespace, so any machine pushes.
+  if (configSync.enabled) {
     try {
       await configSync.pushConfig();
     } catch (err) {
       console.warn('[events] config saved locally but cloud push failed:', err.message);
     }
-  } else if (configSync.enabled) {
-    console.warn('[events] config saved locally; not leader, cloud push skipped (change may be overwritten on next sync)');
   }
   res.json({ ok: true });
 });

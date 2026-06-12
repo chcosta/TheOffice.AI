@@ -2925,16 +2925,16 @@
             <!-- Cloud Sync Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
-              <p class="hint" style="margin-bottom:16px">Sync your configuration across machines via Azure Blob Storage. Only the leader machine runs schedules.</p>
+              <p class="hint" style="margin-bottom:16px">Each machine backs up its own agents, managers, tasks and event config to its own cloud namespace. Every machine runs its own schedules; leadership only decides which machine handles the shared event bus.</p>
 
               <!-- Sync Status Banner -->
               <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
                 <span class="status-badge" :class="syncStatus.enabled ? (syncStatus.isLeader ? 'success' : 'running') : 'stopped'"
-                  x-text="syncStatus.enabled ? (syncStatus.isLeader ? '🟢 Leader (schedules active)' : '🟡 Standby (synced, schedules paused)') : '⚪ Disabled'"></span>
-                <span class="hint" x-show="syncStatus.machineId" x-text="'Machine: ' + syncStatus.machineId"></span>
-                <span class="hint" x-show="syncStatus.leaderInfo && !syncStatus.isLeader" x-text="'Leader: ' + (syncStatus.leaderInfo?.hostname || 'unknown')"></span>
+                  x-text="syncStatus.enabled ? (syncStatus.isLeader ? '🟢 Leader (handles event bus)' : '🟡 Synced (event bus on leader)') : '⚪ Disabled'"></span>
+                <span class="hint" x-show="syncStatus.machineId" x-text="'This machine: ' + (syncStatus.hostname ? syncStatus.hostname + ' · ' : '') + syncStatus.machineId"></span>
+                <span class="hint" x-show="syncStatus.leaderInfo && !syncStatus.isLeader" x-text="'Event-bus leader: ' + (syncStatus.leaderInfo?.hostname || 'unknown')"></span>
               </div>
-              <p class="hint" x-show="syncStatus.enabled" style="margin:-8px 0 16px">Sync is automatic — the leader pushes config changes and every other machine pulls them within ~30s. To change which machine is the leader, use <strong>Active Machines</strong> below.</p>
+              <p class="hint" x-show="syncStatus.enabled" style="margin:-8px 0 16px">Your config syncs automatically to this machine's own namespace. To change which machine handles events, use <strong>Active Machines</strong> below. To borrow agents from another machine, use <strong>Browse Other Machines</strong>.</p>
 
               <!-- Config Form -->
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -2952,62 +2952,15 @@
                 <input class="field-input" type="text" x-model="syncConfig.machineId" placeholder="Auto-generated on first run" />
               </div>
 
-              <!-- Path Profiles -->
-              <details style="margin-bottom:16px">
-                <summary style="cursor:pointer;font-weight:500;margin-bottom:8px">Path Profiles <span class="hint">(map logical paths to local directories)</span></summary>
-                <div style="margin-top:8px">
-                  <div class="hint" style="margin-bottom:8px">Define path variables for this machine. Agents store <code>${repoRoot}/project</code> and each machine resolves to its local path.</div>
-                  <template x-for="(value, key) in (syncConfig.pathProfiles?.[syncConfig.machineId] || {})" :key="key">
-                    <div style="display:grid;grid-template-columns:120px 1fr 30px;gap:8px;margin-bottom:6px;align-items:center">
-                      <input class="field-input mono" type="text" :value="key" disabled style="font-size:0.8rem" />
-                      <input class="field-input mono" type="text" :value="value" @change="updatePathProfile(key, $event.target.value)" style="font-size:0.8rem" />
-                      <button class="btn ghost" type="button" @click="removePathProfile(key)">✕</button>
-                    </div>
-                  </template>
-                  <div style="display:grid;grid-template-columns:120px 1fr 80px;gap:8px;align-items:center">
-                    <input class="field-input mono" type="text" x-model="newProfileKey" placeholder="repoRoot" style="font-size:0.8rem" />
-                    <input class="field-input mono" type="text" x-model="newProfileValue" placeholder="C:\repos" style="font-size:0.8rem" />
-                    <button class="btn" type="button" @click="addPathProfile()">Add</button>
-                  </div>
-                </div>
-              </details>
-
-              <!-- Path Issues -->
-              <div x-show="unresolvedGroups.length > 0" style="margin-bottom:16px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                  <div style="font-weight:500;color:var(--cp-warning)">⚠️ Unresolved Paths (<span x-text="unresolvedGroups.length"></span>)</div>
-                  <button class="btn ghost" type="button" @click="autoResolvePaths()" :disabled="autoResolving" style="font-size:0.8rem">
-                    <span x-show="!autoResolving">✨ Try auto-resolve</span>
-                    <span x-show="autoResolving">Resolving…</span>
-                  </button>
-                </div>
-                <p class="hint" style="margin-bottom:8px;font-size:0.78rem">These paths don't exist on this machine. Enter the matching local folder for each — the fix is applied to every agent/file that uses it.</p>
-                <template x-for="g in unresolvedGroups" :key="g.path">
-                  <div style="padding:8px;background:var(--cp-surface-soft);border-radius:6px;margin-bottom:6px">
-                    <div class="mono" style="font-size:0.78rem;color:var(--cp-warning);word-break:break-all;margin-bottom:4px" x-text="g.path"></div>
-                    <div class="hint" style="font-size:0.74rem;margin-bottom:6px" x-text="'Used by: ' + g.usedBy"></div>
-                    <!-- ${var} refs are fixed via Path Profiles, not here -->
-                    <div x-show="g.isRef" class="hint" style="font-size:0.78rem">
-                      Define this variable under <strong>Path Profiles</strong> above, then Save.
-                    </div>
-                    <!-- Absolute-path issues: let the user supply the local path -->
-                    <div x-show="!g.isRef" style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center">
-                      <input class="field-input mono" type="text" x-model="g._newPath" placeholder="Local path on this machine, e.g. C:\repos\..." style="font-size:0.78rem" />
-                      <button class="btn" type="button" @click="resolvePathGroup(g)" :disabled="!g._newPath">Fix</button>
-                    </div>
-                  </div>
-                </template>
-              </div>
-
               <button class="btn primary" type="button" @click="saveSyncConfig()">Save Sync Settings</button>
 
               <details x-show="syncStatus.enabled" style="margin-top:16px">
                 <summary style="cursor:pointer;font-weight:500">Advanced — manual sync</summary>
                 <div style="margin-top:10px">
-                  <p class="hint" style="margin-bottom:10px">You normally don't need these — sync happens automatically. Use them only to force an immediate sync, e.g. after editing files on disk outside the app.</p>
+                  <p class="hint" style="margin-bottom:10px">Sync happens automatically. <strong>Push</strong> forces an immediate backup of this machine's config to the cloud. <strong>Restore</strong> overwrites this machine's local config from its own latest cloud backup — use only for disaster recovery.</p>
                   <div style="display:flex;gap:8px;flex-wrap:wrap">
-                    <button class="btn" type="button" @click="syncPush()" :disabled="!syncStatus.isLeader" :title="syncStatus.isLeader ? '' : 'Only the leader can push'">⬆ Push now</button>
-                    <button class="btn" type="button" @click="syncPull()">⬇ Pull now</button>
+                    <button class="btn" type="button" @click="syncPush()">⬆ Push now</button>
+                    <button class="btn" type="button" @click="syncPull()">⬇ Restore from cloud</button>
                   </div>
                 </div>
               </details>
@@ -3043,6 +2996,67 @@
                 </div>
               </template>
               <div x-show="leaderRequestMsg" style="margin-top:8px;font-size:0.85rem;color:var(--cp-text-muted)" x-text="leaderRequestMsg"></div>
+            </div>
+
+            <!-- Browse Other Machines -->
+            <div class="card" style="margin-bottom:20px" x-show="syncStatus.enabled">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <h3 style="margin:0">🧰 Browse Other Machines</h3>
+                <button class="btn ghost" type="button" @click="loadMachines()" :disabled="machinesLoading" style="font-size:0.8rem">
+                  <span x-show="!machinesLoading">↻ Refresh</span>
+                  <span x-show="machinesLoading">Loading…</span>
+                </button>
+              </div>
+              <p class="hint" style="margin-bottom:12px">Each machine keeps its own agents and managers in the cloud. Install any of them into <strong>this</strong> machine's namespace to reuse them here.</p>
+              <div x-show="!machinesLoading && otherMachines.length === 0" class="hint">No other machines have published a config yet…</div>
+              <template x-for="m in otherMachines" :key="m.machineId">
+                <div style="border:1px solid var(--cp-border);border-radius:10px;margin-bottom:10px;overflow:hidden">
+                  <div style="display:flex;align-items:center;gap:10px;padding:10px;cursor:pointer;background:var(--cp-surface-soft)" @click="toggleExpanded('machine-' + m.machineId)">
+                    <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (m.alive ? 'var(--cp-success)' : 'var(--cp-text-muted)')"></span>
+                    <div style="min-width:0;flex:1">
+                      <div style="font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                        <span x-text="m.hostname || m.machineId"></span>
+                        <span x-show="m.isLeader" class="status-badge success" style="font-size:0.7rem">Leader</span>
+                      </div>
+                      <div class="hint" style="font-size:0.75rem" x-text="(m.agentCount ?? (m.agents?.length || 0)) + ' agents · ' + (m.managerCount ?? (m.managers?.length || 0)) + ' managers'"></div>
+                    </div>
+                    <span class="hint" x-text="isExpanded('machine-' + m.machineId) ? '▲' : '▼'"></span>
+                  </div>
+                  <div x-show="isExpanded('machine-' + m.machineId)" x-transition.opacity.duration.150ms style="padding:10px;border-top:1px solid var(--cp-border)">
+                    <div x-show="(m.agents || []).length" style="margin-bottom:10px">
+                      <div class="field-label" style="margin-bottom:6px">Agents</div>
+                      <template x-for="a in (m.agents || [])" :key="a.id">
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--cp-border)">
+                          <div style="min-width:0;flex:1">
+                            <div style="font-weight:500" x-text="a.name || a.id"></div>
+                            <div class="hint mono" style="font-size:0.72rem" x-text="a.id"></div>
+                          </div>
+                          <button class="btn" type="button" @click="installFromMachine(m, 'agent', a.id)" :disabled="installingKey === m.machineId + ':agent:' + a.id">
+                            <span x-show="installingKey !== m.machineId + ':agent:' + a.id">Install</span>
+                            <span x-show="installingKey === m.machineId + ':agent:' + a.id">…</span>
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                    <div x-show="(m.managers || []).length">
+                      <div class="field-label" style="margin-bottom:6px">Managers</div>
+                      <template x-for="mg in (m.managers || [])" :key="mg.id">
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--cp-border)">
+                          <div style="min-width:0;flex:1">
+                            <div style="font-weight:500" x-text="mg.name || mg.id"></div>
+                            <div class="hint" style="font-size:0.72rem" x-text="'org: ' + ((mg.org || []).join(', ') || '—')"></div>
+                          </div>
+                          <button class="btn" type="button" @click="installFromMachine(m, 'manager', mg.id)" :disabled="installingKey === m.machineId + ':manager:' + mg.id">
+                            <span x-show="installingKey !== m.machineId + ':manager:' + mg.id">Install + org</span>
+                            <span x-show="installingKey === m.machineId + ':manager:' + mg.id">…</span>
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div x-show="machinesMsg" style="margin-top:8px;font-size:0.85rem;color:var(--cp-text-muted)" x-text="machinesMsg"></div>
             </div>
 
             <!-- System Info -->
@@ -3656,14 +3670,13 @@
         chatActivity: {},
         chatSessions: {},
         chatContinueInfo: null,
-        syncStatus: { enabled: false, isLeader: false, epoch: 0, machineId: '', leaderInfo: null, pathIssues: [] },
-        syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '', pathProfiles: {} },
-        newProfileKey: '',
-        newProfileValue: '',
-        autoResolving: false,
-        autoResolveResult: null,
-        unresolvedGroups: [],
+        syncStatus: { enabled: false, isLeader: false, epoch: 0, machineId: '', hostname: '', leaderInfo: null },
+        syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '' },
         instances: [],
+        otherMachines: [],
+        machinesLoading: false,
+        machinesMsg: '',
+        installingKey: null,
         leaderRequesting: false,
         leaderRequestTarget: null,
         leaderRequestMsg: '',
@@ -4551,24 +4564,46 @@
             ]);
             if (status) this.syncStatus = status;
             if (config) this.syncConfig = config;
-            this._rebuildUnresolvedGroups();
-            if (status && status.enabled) this.loadInstances();
+            if (status && status.enabled) { this.loadInstances(); this.loadMachines(); }
           } catch {}
         },
-        _rebuildUnresolvedGroups() {
-          // Group pathIssues by their offending path so a path used by several
-          // agents/files shows once (avoids duplicate-key collapse) and one fix
-          // applies everywhere. Preserve any value the user already typed.
-          const prev = {};
-          for (const g of (this.unresolvedGroups || [])) prev[g.path] = g._newPath;
-          const map = new Map();
-          for (const i of (this.syncStatus.pathIssues || [])) {
-            if (!map.has(i.path)) {
-              map.set(i.path, { path: i.path, isRef: i.field === 'unresolved-ref', refs: [], _newPath: prev[i.path] || '' });
-            }
-            map.get(i.path).refs.push(i.agent ? (i.agent + ' (' + i.field + ')') : (i.file + ' (' + i.field + ')'));
+        async loadMachines() {
+          this.machinesLoading = true;
+          this.machinesMsg = '';
+          try {
+            const res = await this.request('/api/machines');
+            const all = Array.isArray(res?.machines) ? res.machines : [];
+            const selfId = res?.selfId;
+            this.otherMachines = all.filter(m => m.machineId !== selfId);
+          } catch (err) {
+            this.machinesMsg = 'Could not load machines: ' + err.message;
+          } finally {
+            this.machinesLoading = false;
           }
-          this.unresolvedGroups = [...map.values()].map(g => ({ ...g, usedBy: g.refs.join(', ') }));
+        },
+        async installFromMachine(m, type, id) {
+          if (!m || !m.machineId) return;
+          this.installingKey = m.machineId + ':' + type + ':' + id;
+          this.machinesMsg = '';
+          try {
+            const res = await this.request('/api/machines/' + encodeURIComponent(m.machineId) + '/install', {
+              method: 'POST',
+              body: JSON.stringify({ type, id })
+            });
+            const installed = (res?.installed || []).length;
+            const warnings = (res?.warnings || []);
+            if (installed) {
+              this.showToast('Installed', (res.installed || []).join(', ') + (warnings.length ? ' (with warnings)' : ''), warnings.length ? 'info' : 'success');
+            } else if ((res?.skipped || []).length) {
+              this.showToast('Already installed', (res.skipped || []).join(', '), 'info');
+            }
+            if (warnings.length) this.machinesMsg = 'Warnings: ' + warnings.join('; ');
+            await this.refreshAll();
+          } catch (err) {
+            this.showToast('Install Failed', err.message, 'error');
+          } finally {
+            this.installingKey = null;
+          }
         },
         async loadInstances() {
           try {
@@ -4578,7 +4613,7 @@
         },
         async requestLeader(m) {
           if (!m || !m.machineId) return;
-          if (!confirm('Make "' + (m.hostname || m.machineId) + '" the leader? Schedules and event handling will move to that machine.')) return;
+          if (!confirm('Make "' + (m.hostname || m.machineId) + '" the event-bus leader? Service Bus event handling will move to that machine.')) return;
           this.leaderRequesting = true;
           this.leaderRequestTarget = m.machineId;
           this.leaderRequestMsg = '';
@@ -4609,7 +4644,7 @@
           }
         },
         async forceLeader() {
-          if (!confirm('Take over leadership? This will stop schedules on the current leader machine.')) return;
+          if (!confirm('Take over event-bus leadership? Service Bus event handling will move to this machine.')) return;
           try {
             await this.request('/api/sync/force-leader', { method: 'POST' });
             this.showToast('Leadership', 'This machine is now the leader.', 'success');
@@ -4621,79 +4656,20 @@
         async syncPush() {
           try {
             await this.request('/api/sync/push', { method: 'POST' });
-            this.showToast('Sync', 'Config pushed to cloud.', 'success');
+            this.showToast('Sync', "This machine's config backed up to cloud.", 'success');
           } catch (err) {
             this.showToast('Push Failed', err.message, 'error');
           }
         },
         async syncPull() {
+          if (!confirm("Restore this machine's local config from its cloud backup? Local agents.json/managers.json/tasks.json will be overwritten.")) return;
           try {
             await this.request('/api/sync/pull', { method: 'POST' });
-            this.showToast('Sync', 'Config pulled from cloud and reloaded.', 'success');
+            this.showToast('Sync', 'Config restored from cloud and reloaded.', 'success');
             await this.refreshAll();
           } catch (err) {
-            this.showToast('Pull Failed', err.message, 'error');
+            this.showToast('Restore Failed', err.message, 'error');
           }
-        },
-        async autoResolvePaths() {
-          this.autoResolving = true;
-          this.autoResolveResult = null;
-          try {
-            const result = await this.request('/api/sync/auto-resolve', { method: 'POST' });
-            this.autoResolveResult = result;
-            const r = result?.resolved?.length || 0;
-            const s = result?.scaffolded?.length || 0;
-            const u = result?.unresolved?.length || 0;
-            this.showToast('Auto-resolve', `${r} resolved, ${s} scaffolded, ${u} need manual action.`, u > 0 ? 'info' : 'success');
-            await this.loadSyncStatus();
-            if (this.syncConfig) {
-              const cfg = await this.request('/api/sync/config');
-              if (cfg) this.syncConfig = cfg;
-            }
-          } catch (err) {
-            this.showToast('Auto-resolve Failed', err.message, 'error');
-          } finally {
-            this.autoResolving = false;
-          }
-        },
-        async resolvePathGroup(g) {
-          const newPath = (g._newPath || '').trim();
-          if (!newPath) return;
-          try {
-            const res = await this.request('/api/sync/resolve-path', {
-              method: 'POST',
-              body: JSON.stringify({ oldPath: g.path, newPath })
-            });
-            const n = (res?.changedAgents || 0) + (res?.changedFiles?.length || 0);
-            if (res && res.existsOnDisk === false) {
-              this.showToast('Path saved', `Updated ${n} reference(s), but that path doesn't exist on disk yet — create it or double-check.`, 'info');
-            } else {
-              this.showToast('Path resolved', `Updated ${n} reference(s).`, 'success');
-            }
-            await this.loadSyncStatus();
-          } catch (err) {
-            this.showToast('Fix Failed', err.message, 'error');
-          }
-        },
-        updatePathProfile(key, value) {
-          if (!this.syncConfig.pathProfiles) this.syncConfig.pathProfiles = {};
-          if (!this.syncConfig.pathProfiles[this.syncConfig.machineId]) this.syncConfig.pathProfiles[this.syncConfig.machineId] = {};
-          this.syncConfig.pathProfiles[this.syncConfig.machineId][key] = value;
-        },
-        removePathProfile(key) {
-          if (this.syncConfig.pathProfiles?.[this.syncConfig.machineId]) {
-            delete this.syncConfig.pathProfiles[this.syncConfig.machineId][key];
-            this.syncConfig = { ...this.syncConfig };
-          }
-        },
-        addPathProfile() {
-          if (!this.newProfileKey.trim()) return;
-          if (!this.syncConfig.pathProfiles) this.syncConfig.pathProfiles = {};
-          if (!this.syncConfig.pathProfiles[this.syncConfig.machineId]) this.syncConfig.pathProfiles[this.syncConfig.machineId] = {};
-          this.syncConfig.pathProfiles[this.syncConfig.machineId][this.newProfileKey.trim()] = this.newProfileValue.trim();
-          this.newProfileKey = '';
-          this.newProfileValue = '';
-          this.syncConfig = { ...this.syncConfig };
         },
 
         // --- Event Listeners methods ---
