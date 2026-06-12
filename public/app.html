@@ -2982,8 +2982,21 @@
                   </button>
                 </div>
                 <template x-for="issue in (syncStatus.pathIssues || [])" :key="issue.file + issue.field + issue.path">
-                  <div style="font-size:0.8rem;padding:4px 8px;background:var(--cp-surface-soft);border-radius:4px;margin-bottom:4px">
-                    <span class="mono" x-text="issue.file"></span> → <span class="mono" x-text="issue.path"></span>
+                  <div style="padding:8px;background:var(--cp-surface-soft);border-radius:6px;margin-bottom:6px">
+                    <div style="font-size:0.8rem;margin-bottom:4px">
+                      <span class="mono" x-text="issue.file"></span>
+                      <span x-show="issue.agent" class="hint" x-text="' · ' + issue.agent + ' (' + issue.field + ')'"></span>
+                    </div>
+                    <div class="mono" style="font-size:0.78rem;color:var(--cp-warning);word-break:break-all;margin-bottom:6px" x-text="issue.path"></div>
+                    <!-- ${var} refs are fixed via Path Profiles, not here -->
+                    <div x-show="issue.field === 'unresolved-ref'" class="hint" style="font-size:0.78rem">
+                      Define <span class="mono" x-text="issue.path"></span> under <strong>Path Profiles</strong> above, then Save.
+                    </div>
+                    <!-- Absolute-path issues: let the user supply the local path -->
+                    <div x-show="issue.field !== 'unresolved-ref'" style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center">
+                      <input class="field-input mono" type="text" x-model="issue._newPath" placeholder="Local path on this machine, e.g. C:\repos\..." style="font-size:0.78rem" />
+                      <button class="btn" type="button" @click="resolvePath(issue)" :disabled="!issue._newPath">Fix</button>
+                    </div>
                   </div>
                 </template>
                 <div x-show="autoResolveResult" style="margin-top:8px;font-size:0.8rem;color:var(--cp-text-muted)">
@@ -4639,7 +4652,24 @@
             this.autoResolving = false;
           }
         },
-        updatePathProfile(key, value) {
+        async resolvePath(issue) {
+          const newPath = (issue._newPath || '').trim();
+          if (!newPath) return;
+          try {
+            const res = await this.request('/api/sync/resolve-path', {
+              method: 'POST',
+              body: JSON.stringify({ file: issue.file, agent: issue.agent, field: issue.field, oldPath: issue.path, newPath })
+            });
+            if (res && res.existsOnDisk === false) {
+              this.showToast('Path saved', 'Saved, but that path doesn\'t exist on disk yet — create it or double-check.', 'info');
+            } else {
+              this.showToast('Path resolved', issue.file + ' updated.', 'success');
+            }
+            await this.loadSyncStatus();
+          } catch (err) {
+            this.showToast('Fix Failed', err.message, 'error');
+          }
+        },
           if (!this.syncConfig.pathProfiles) this.syncConfig.pathProfiles = {};
           if (!this.syncConfig.pathProfiles[this.syncConfig.machineId]) this.syncConfig.pathProfiles[this.syncConfig.machineId] = {};
           this.syncConfig.pathProfiles[this.syncConfig.machineId][key] = value;

@@ -2330,6 +2330,17 @@ app.post('/api/sync/auto-resolve', (req, res) => {
   }
 });
 
+// Apply a user-supplied local path for a single unresolved issue.
+app.post('/api/sync/resolve-path', express.json(), (req, res) => {
+  try {
+    if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
+    const { file, agent, field, oldPath, newPath } = req.body || {};
+    res.json(configSync.applyPathFix({ file, agent, field, oldPath, newPath }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ============ Manager API Routes ============
 
 // List all managers

@@ -478,6 +478,38 @@ class ConfigSync {
   }
 
   /**
+   * Apply a user-supplied local path for a single unresolved issue.
+   * - agents.json cwd/pluginDir: set the field on the matching agent.
+   * - plugin/mcp content: replace the old absolute path string with the new one.
+   * Returns { success, existsOnDisk, remaining }.
+   */
+  applyPathFix({ file, agent, field, oldPath, newPath }) {
+    if (!file) throw new Error('file is required');
+    if (!newPath || !newPath.trim()) throw new Error('newPath is required');
+    newPath = newPath.trim();
+    const existsOnDisk = fs.existsSync(newPath);
+
+    if (file === 'agents.json') {
+      const agentsPath = path.join(__dirname, 'agents.json');
+      const agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
+      const a = agents.find(x => x.id === agent);
+      if (!a) throw new Error('Agent not found: ' + agent);
+      a[field || 'cwd'] = newPath;
+      fs.writeFileSync(agentsPath, JSON.stringify(agents, null, 2));
+    } else {
+      const full = path.join(__dirname, file);
+      if (!fs.existsSync(full)) throw new Error('File not found: ' + file);
+      let content = fs.readFileSync(full, 'utf-8');
+      if (oldPath) content = content.split(oldPath).join(newPath);
+      fs.writeFileSync(full, content);
+    }
+
+    // Leader pushes the fix so other machines pick it up.
+    if (this._enabled && this._isLeader) this.pushConfig().catch(() => {});
+    return { success: true, existsOnDisk, remaining: this.scanUnresolvedPaths() };
+  }
+
+  /**
    * Find a local directory equivalent for an absolute path by matching its
    * trailing path segments under the given local roots. Prefers the deepest
    * (most specific) match to avoid false positives on generic folder names.
