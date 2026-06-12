@@ -57,6 +57,11 @@ class ConfigSync {
       await this._ensureContainer();
       await this._tryAcquireLease();
       await this._syncDown();
+      // Auto-push if we're leader and cloud is empty (bootstrap scenario)
+      if (this._isLeader && !this._lastManifestETag) {
+        console.log('[config-sync] Leader with empty cloud — auto-pushing local config');
+        await this.pushConfig();
+      }
       this._startPolling();
       console.log(`[config-sync] Started. Leader: ${this._isLeader}, Machine: ${this._machineId}`);
     } catch (err) {
