@@ -382,17 +382,22 @@ class MobileHandler extends EventEmitter {
 
     const rows = this.db.prepare(query).all(...params, limit, offset);
 
-    const activity = rows.map(row => ({
-      id: row.id,
-      agentId: row.agent_id,
-      name: row.agent_id, // Will be enriched client-side or via list calls
-      status: row.status,
-      output: row.output,
-      outputFormat: 'markdown',
-      createdAt: row.created_at,
-      durationMs: row.duration_ms,
-      trigger: row.trigger || 'direct'
-    }));
+    const activity = rows.map(row => {
+      // Resolve agent name from supervisor
+      const entry = this.supervisor?.agents?.get(row.agent_id);
+      const name = entry?.config?.name || row.agent_id;
+      return {
+        id: row.id,
+        agentId: row.agent_id,
+        name,
+        status: row.status,
+        output: row.output,
+        outputFormat: 'markdown',
+        createdAt: row.created_at,
+        durationMs: row.duration_ms,
+        trigger: row.trigger || 'direct'
+      };
+    });
 
     await replier(correlationId, { type: 'result', payload: { activity, total, limit, offset } });
     return true;

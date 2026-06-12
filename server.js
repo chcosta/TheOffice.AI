@@ -119,6 +119,45 @@ const eventListener = new EventListener(supervisor, managerAgent, db);
 const mobileHandler = new MobileHandler(supervisor, managerAgent, db, eventListener);
 eventListener.mobileHandler = mobileHandler;
 
+// Activity log persistence — write supervisor events into activity_log table
+supervisor.on('agent-running', (agentId) => {
+  try {
+    const entry = supervisor.agents.get(agentId);
+    const name = entry?.config?.name || agentId;
+    const trigger = entry?._triggeredBy || 'manual';
+    db.prepare(
+      `INSERT INTO activity_log (agent_id, status, trigger, created_at) VALUES (?, 'running', ?, datetime('now'))`
+    ).run(agentId, trigger);
+  } catch (err) {
+    console.error('[activity-log] Error writing running event:', err.message);
+  }
+});
+
+supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) => {
+  try {
+    const status = code === 0 ? 'completed' : 'failed';
+    const finalOutput = code === 0 ? (output || '').slice(-50000) : (error || output || '').slice(-50000);
+    // Update the most recent 'running' row for this agent
+    const row = db.prepare(
+      `SELECT id, created_at FROM activity_log WHERE agent_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1`
+    ).get(agentId);
+    if (row) {
+      const startTime = new Date(row.created_at + 'Z').getTime();
+      const durationMs = Date.now() - startTime;
+      db.prepare(
+        `UPDATE activity_log SET status = ?, output = ?, duration_ms = ? WHERE id = ?`
+      ).run(status, finalOutput, durationMs, row.id);
+    } else {
+      // No running row found — insert a completed row directly
+      db.prepare(
+        `INSERT INTO activity_log (agent_id, status, output, trigger, duration_ms, created_at) VALUES (?, ?, ?, 'unknown', 0, datetime('now'))`
+      ).run(agentId, status, finalOutput);
+    }
+  } catch (err) {
+    console.error('[activity-log] Error writing completed event:', err.message);
+  }
+});
+
 // Session cleanup interval for idle event listener sessions
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
 
@@ -2934,7 +2973,11 @@ app.post('/api/events/simulate', express.json(), async (req, res) => {
 
 app.post('/api/mobile/:action', async (req, res) => {
   const { action } = req.params;
-  const body = { type: action, ...req.body, correlationId: req.body.correlationId || Date.now().toString() };
+  const correlationId = req.body.correlationId || Date.now().toString();
+  const sessionId = req.body.sessionId || 'rest-session';
+  // Nest body contents under payload (excluding protocol fields)
+  const { correlationId: _c, sessionId: _s, payload: explicitPayload, ...rest } = req.body;
+  const body = { type: action, correlationId, sessionId, payload: explicitPayload || rest };
 
   if (!mobileHandler.isMobileMessage(body)) {
     return res.status(400).json({ error: 'Invalid mobile message format' });
