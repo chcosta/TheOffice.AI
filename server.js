@@ -119,45 +119,6 @@ const eventListener = new EventListener(supervisor, managerAgent, db);
 const mobileHandler = new MobileHandler(supervisor, managerAgent, db, eventListener);
 eventListener.mobileHandler = mobileHandler;
 
-// Activity log persistence — write supervisor events into activity_log table
-supervisor.on('agent-running', (agentId) => {
-  try {
-    const entry = supervisor.agents.get(agentId);
-    const name = entry?.config?.name || agentId;
-    const trigger = entry?._triggeredBy || 'manual';
-    db.prepare(
-      `INSERT INTO activity_log (agent_id, status, trigger, created_at) VALUES (?, 'running', ?, datetime('now'))`
-    ).run(agentId, trigger);
-  } catch (err) {
-    console.error('[activity-log] Error writing running event:', err.message);
-  }
-});
-
-supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) => {
-  try {
-    const status = code === 0 ? 'completed' : 'failed';
-    const finalOutput = code === 0 ? (output || '').slice(-50000) : (error || output || '').slice(-50000);
-    // Update the most recent 'running' row for this agent
-    const row = db.prepare(
-      `SELECT id, created_at FROM activity_log WHERE agent_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1`
-    ).get(agentId);
-    if (row) {
-      const startTime = new Date(row.created_at + 'Z').getTime();
-      const durationMs = Date.now() - startTime;
-      db.prepare(
-        `UPDATE activity_log SET status = ?, output = ?, duration_ms = ? WHERE id = ?`
-      ).run(status, finalOutput, durationMs, row.id);
-    } else {
-      // No running row found — insert a completed row directly
-      db.prepare(
-        `INSERT INTO activity_log (agent_id, status, output, trigger, duration_ms, created_at) VALUES (?, ?, ?, 'unknown', 0, datetime('now'))`
-      ).run(agentId, status, finalOutput);
-    }
-  } catch (err) {
-    console.error('[activity-log] Error writing completed event:', err.message);
-  }
-});
-
 // Session cleanup interval for idle event listener sessions
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
 
@@ -2659,27 +2620,31 @@ app.delete('/api/chats/:id', (req, res) => {
 
 // Unified activity feed across all agents and managers
 app.get('/api/activity', (req, res) => {
-  const limit = parseInt(req.query.limit) || 50;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = parseInt(req.query.offset) || 0;
   const activities = [];
   
-  // Gather agent run history
-  for (const [id, entry] of supervisor.agents) {
-    const history = entry.history || [];
-    for (const run of history.slice(-20)) {
-      activities.push({
-        type: 'agent',
-        entityId: id,
-        entityName: entry.config.name || id,
-        action: 'run',
-        status: run.status || (run.exitCode === 0 ? 'success' : 'failed'),
-        timestamp: run.startedAt || run.timestamp,
-        duration: run.duration,
-        output: (run.output || '').slice(0, 500)
-      });
-    }
+  // Gather agent run history from SQLite (persisted across restarts)
+  const agentRuns = db.prepare('SELECT * FROM agent_runs ORDER BY id DESC LIMIT ? OFFSET ?').all(limit, offset);
+  for (const run of agentRuns) {
+    const entry = supervisor.agents.get(run.agent_id);
+    activities.push({
+      type: 'agent',
+      entityId: run.agent_id,
+      entityName: entry?.config?.name || run.agent_id,
+      action: 'run',
+      status: run.exit_code === 0 ? 'success' : (run.exit_code === null ? 'running' : 'failed'),
+      timestamp: run.started_at,
+      finishedAt: run.finished_at,
+      duration: (run.started_at && run.finished_at)
+        ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
+        : null,
+      output: (run.output || '').slice(0, 500),
+      triggeredBy: run.triggered_by || 'manual'
+    });
   }
   
-  // Gather manager run history
+  // Gather manager run history from in-memory (still memory-based for managers)
   for (const [id, mgr] of managerAgent.managers) {
     const runs = mgr.runs || [];
     for (const run of runs.slice(-20)) {

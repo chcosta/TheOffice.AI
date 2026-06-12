@@ -364,38 +364,40 @@ class MobileHandler extends EventEmitter {
       return true;
     }
 
+    // Query from agent_runs (the canonical run history table used by the SPA too)
     let query, countQuery;
     const params = [];
 
     if (filterStatus) {
-      query = 'SELECT * FROM activity_log WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?';
-      countQuery = 'SELECT COUNT(*) as total FROM activity_log WHERE status = ?';
-      params.push(filterStatus);
+      // Map mobile status names to exit_code filter
+      const exitCodeFilter = filterStatus === 'completed' ? '= 0' : '!= 0';
+      query = `SELECT * FROM agent_runs WHERE exit_code ${exitCodeFilter} ORDER BY id DESC LIMIT ? OFFSET ?`;
+      countQuery = `SELECT COUNT(*) as total FROM agent_runs WHERE exit_code ${exitCodeFilter}`;
     } else {
-      query = 'SELECT * FROM activity_log ORDER BY id DESC LIMIT ? OFFSET ?';
-      countQuery = 'SELECT COUNT(*) as total FROM activity_log';
+      query = 'SELECT * FROM agent_runs ORDER BY id DESC LIMIT ? OFFSET ?';
+      countQuery = 'SELECT COUNT(*) as total FROM agent_runs';
     }
 
-    const total = filterStatus
-      ? this.db.prepare(countQuery).get(filterStatus)?.total || 0
-      : this.db.prepare(countQuery).get()?.total || 0;
-
+    const total = this.db.prepare(countQuery).get()?.total || 0;
     const rows = this.db.prepare(query).all(...params, limit, offset);
 
     const activity = rows.map(row => {
-      // Resolve agent name from supervisor
       const entry = this.supervisor?.agents?.get(row.agent_id);
       const name = entry?.config?.name || row.agent_id;
+      const status = row.exit_code === 0 ? 'completed' : 'failed';
+      const durationMs = (row.started_at && row.finished_at)
+        ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+        : null;
       return {
         id: row.id,
         agentId: row.agent_id,
         name,
-        status: row.status,
-        output: row.output,
+        status,
+        output: row.output || row.error || null,
         outputFormat: 'markdown',
-        createdAt: row.created_at,
-        durationMs: row.duration_ms,
-        trigger: row.trigger || 'direct'
+        createdAt: row.started_at,
+        durationMs,
+        trigger: row.triggered_by || 'direct'
       };
     });
 
@@ -421,18 +423,20 @@ class MobileHandler extends EventEmitter {
       assignmentCount += (entry.config.assignments || []).length;
     }
 
-    // Recent activity counts
+    // Recent activity counts from agent_runs
     let activityCounts = { success: 0, failed: 0, running: runningAgents.length };
     if (this.db) {
-      const today = new Date().toISOString().split('T')[0];
-      const stats = this.db.prepare(`
-        SELECT status, COUNT(*) as cnt FROM activity_log 
-        WHERE created_at >= ? GROUP BY status
-      `).all(today);
-      for (const row of stats) {
-        if (row.status === 'completed') activityCounts.success = row.cnt;
-        else if (row.status === 'failed' || row.status === 'error') activityCounts.failed += row.cnt;
-      }
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const successCount = this.db.prepare(
+          `SELECT COUNT(*) as cnt FROM agent_runs WHERE exit_code = 0 AND started_at >= ?`
+        ).get(today)?.cnt || 0;
+        const failedCount = this.db.prepare(
+          `SELECT COUNT(*) as cnt FROM agent_runs WHERE exit_code != 0 AND started_at >= ?`
+        ).get(today)?.cnt || 0;
+        activityCounts.success = successCount;
+        activityCounts.failed = failedCount;
+      } catch {}
     }
 
     await replier(correlationId, {
