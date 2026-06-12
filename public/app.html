@@ -2801,9 +2801,19 @@
                 </template>
               </div>
             </div>
+          </section>
+
+          <!-- Settings Page -->
+          <section x-show="!loading && !errorMessage && route === 'settings'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>⚙️ Settings</h1>
+                <p>Cloud sync, path profiles, and system configuration.</p>
+              </div>
+            </div>
 
             <!-- Cloud Sync Section -->
-            <div class="card" style="margin-top:24px">
+            <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
               <p class="hint" style="margin-bottom:16px">Sync your configuration across machines via Azure Blob Storage. Only the leader machine runs schedules.</p>
 
@@ -2823,7 +2833,7 @@
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
                 <div>
                   <label class="field-label">Storage Account</label>
-                  <input class="field-input" type="text" x-model="syncConfig.storageAccount" placeholder="e.g. mystorage" />
+                  <input class="field-input" type="text" x-model="syncConfig.storageAccount" placeholder="e.g. stagentsessions" />
                 </div>
                 <div>
                   <label class="field-label">Container Name</label>
@@ -3855,7 +3865,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'assignments', 'chat', 'activity', 'events'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'assignments', 'chat', 'activity', 'events', 'settings'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -3868,6 +3878,7 @@
             await this.openChat(this.app.routeParam);
           } else if (this.route === 'events') {
             await this.loadEvents();
+          } else if (this.route === 'settings') {
             await this.loadSyncStatus();
           }
         },
@@ -4099,7 +4110,8 @@
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
             { key: 'integrations', label: 'Integrations', collapsible: true, isGroup: true, children: [
-              { key: 'events', title: 'Events', icon: '📡', href: '#/events', routeGroup: 'events', items: [] }
+              { key: 'events', title: 'Events', icon: '📡', href: '#/events', routeGroup: 'events', items: [] },
+              { key: 'settings', title: 'Settings', icon: '⚙️', href: '#/settings', routeGroup: 'settings', items: [] }
             ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
