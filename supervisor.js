@@ -189,14 +189,20 @@ class Supervisor extends EventEmitter {
     // Build copilot CLI command safely using args array
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
+    // On Windows, shell:true is required to spawn .cmd shims (npm-installed binaries)
+    const useShell = process.platform === 'win32';
 
     const args = [];
     if (config.mcpConfig) {
       const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
-      args.push('--additional-mcp-config', `@${mcpPath}`);
+      const mcpArg = `@${mcpPath}`;
+      args.push('--additional-mcp-config', useShell ? `"${mcpArg}"` : mcpArg);
     }
-    args.push('--agent', config.agent);
-    args.push('--prompt', prompt);
+    args.push('--agent', useShell ? `"${config.agent}"` : config.agent);
+    // On Windows with shell:true, args are concatenated without escaping.
+    // Wrap prompt in double quotes and escape inner quotes for cmd.exe.
+    const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
+    args.push('--prompt', safePrompt);
     args.push('-s');
     if (perms) args.push(perms);
 
@@ -212,8 +218,6 @@ class Supervisor extends EventEmitter {
       this._saveRun(agentId, entry.lastRun);
       return;
     }
-    // On Windows, shell:true is required to spawn .cmd shims (npm-installed binaries)
-    const useShell = process.platform === 'win32';
     const proc = spawn(copilotCmd, args, {
       cwd: config.cwd,
       shell: useShell,
