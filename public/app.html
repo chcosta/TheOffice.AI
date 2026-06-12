@@ -3990,47 +3990,25 @@
         },
 
         async loadActivity() {
-          const agentRequests = this.data.agents.map((agent) => this.request(`/api/agents/${encodeURIComponent(agent.id)}/history?limit=6`).then((history) => ({ agent, history })).catch(() => ({ agent, history: [] })));
-          const managerRequests = this.data.managers.map((manager) => this.request(`/api/managers/${encodeURIComponent(manager.id)}/history?limit=6`).then((history) => ({ manager, history })).catch(() => ({ manager, history: [] })));
-          const results = await Promise.all([...agentRequests, ...managerRequests]);
-          const activity = [];
-          for (const result of results) {
-            if (result.agent) {
-              result.history.forEach((run) => {
-                activity.push({
-                  id: `agent-${run.id}`,
-                  entityType: 'Agent',
-                  entityName: result.agent.name,
-                  runType: 'Task',
-                  status: this.agentRunStatus(run),
-                  startedAt: run.started_at,
-                  finishedAt: run.finished_at,
-                  durationMs: this.durationBetween(run.started_at, run.finished_at),
-                  output: run.output || run.error || '',
-                  preview: this.preview(run.output || run.error || ''),
-                  route: `#/agents/${encodeURIComponent(result.agent.id)}`
-                });
-              });
-            }
-            if (result.manager) {
-              result.history.forEach((run) => {
-                activity.push({
-                  id: `manager-${run.id}`,
-                  entityType: 'Manager',
-                  entityName: result.manager.name,
-                  runType: 'Assignment',
-                  status: this.managerRunStatus(run),
-                  startedAt: run.started_at,
-                  finishedAt: run.finished_at,
-                  durationMs: this.durationBetween(run.started_at, run.finished_at),
-                  output: run.result || run.error || '',
-                  preview: this.preview(run.result || run.error || ''),
-                  route: `#/managers/${encodeURIComponent(result.manager.id)}`
-                });
-              });
-            }
+          try {
+            const items = await this.request('/api/activity?limit=100');
+            this.data.activity = items.map(item => ({
+              id: `${item.type}-${item.entityId}-${item.timestamp}`,
+              entityType: item.type === 'agent' ? 'Agent' : 'Manager',
+              entityName: item.entityName,
+              runType: item.type === 'agent' ? 'Task' : 'Assignment',
+              status: item.status,
+              startedAt: item.timestamp,
+              finishedAt: item.finishedAt || null,
+              durationMs: item.duration || null,
+              output: item.output || '',
+              preview: this.preview(item.output || ''),
+              route: `#/${item.type === 'agent' ? 'agents' : 'managers'}/${encodeURIComponent(item.entityId)}`
+            }));
+          } catch (err) {
+            console.error('Failed to load activity:', err);
+            this.data.activity = [];
           }
-          this.data.activity = activity.sort((a, b) => new Date(b.finishedAt || b.startedAt) - new Date(a.finishedAt || a.startedAt));
         },
 
         connectEvents() {
