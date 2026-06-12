@@ -139,6 +139,10 @@ class MobileHandler extends EventEmitter {
         return this._getRunHistory(correlationId, payload, replier);
       case 'get-status':
         return this._getStatus(correlationId, replier);
+      case 'list-machines':
+        return this._listMachines(correlationId, replier);
+      case 'install-from-machine':
+        return this._installFromMachine(correlationId, payload, replier);
       default:
         await replier(correlationId, { type: 'error', error: `Unknown message type: ${type}` });
         return true;
@@ -751,6 +755,39 @@ class MobileHandler extends EventEmitter {
         timestamp: new Date().toISOString()
       }
     });
+    return true;
+  }
+
+  // --- Machines (cross-machine browse + install) ---
+
+  async _listMachines(correlationId, replier) {
+    if (!this.configSync || !this.configSync.enabled) {
+      await replier(correlationId, { type: 'result', payload: { machines: [], selfId: null } });
+      return true;
+    }
+    try {
+      const machines = await this.configSync.listMachines();
+      await replier(correlationId, { type: 'result', payload: { machines, selfId: this.configSync.machineId } });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
+    return true;
+  }
+
+  async _installFromMachine(correlationId, payload, replier) {
+    if (typeof this.installFromMachine !== 'function') {
+      await replier(correlationId, { type: 'error', error: 'Install is not available on this server' });
+      return true;
+    }
+    const machineId = payload && payload.machineId;
+    let items = payload && Array.isArray(payload.items) ? payload.items : null;
+    if (!items && payload && payload.type && payload.id) items = [{ type: payload.type, id: payload.id }];
+    try {
+      const results = await this.installFromMachine(machineId, items);
+      await replier(correlationId, { type: 'result', payload: { ok: true, ...results } });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
     return true;
   }
 

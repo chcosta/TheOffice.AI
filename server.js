@@ -211,6 +211,8 @@ supervisor.setLeaderCheck(leaderCheck);
 managerAgent.setLeaderCheck(leaderCheck);
 // Give the mobile handler access to leader/liveness status for get-status
 mobileHandler.configSync = configSync;
+// Let the mobile handler install agents/managers from other machines (browse + install).
+mobileHandler.installFromMachine = installFromMachine;
 // Start async (non-blocking)
 configSync.start().catch(err => console.log('[config-sync] Disabled:', err.message));
 
@@ -2398,19 +2400,17 @@ app.get('/api/machines/:id', async (req, res) => {
 });
 
 // Install one or more agents/managers from another machine into this machine's
-// own namespace. Body: { items: [{ type: 'agent'|'manager', id }] } (or a single
-// { type, id }). Copies any referenced plugin directory locally, rewrites pluginDir,
-// dedupes by id, reloads, and pushes the updated local namespace to the cloud.
-app.post('/api/machines/:id/install', express.json(), async (req, res) => {
-  try {
-    if (!configSync.enabled) return res.status(400).json({ error: 'Cloud sync is not enabled' });
-    if (req.params.id === configSync.machineId) return res.status(400).json({ error: 'Cannot install from this machine into itself' });
+// own namespace. items: [{ type: 'agent'|'manager', id }]. Copies any referenced
+// plugin directory locally, rewrites pluginDir, dedupes by id, reloads, and pushes
+// the updated local namespace to the cloud. Shared by the REST endpoint and the
+// mobile protocol handler. Throws Error (with optional .status) on failure.
+async function installFromMachine(machineId, items) {
+  if (!configSync.enabled) { const e = new Error('Cloud sync is not enabled'); e.status = 400; throw e; }
+  if (machineId === configSync.machineId) { const e = new Error('Cannot install from this machine into itself'); e.status = 400; throw e; }
+  if (!Array.isArray(items) || !items.length) { const e = new Error('No items specified (expected [{ type, id }])'); e.status = 400; throw e; }
 
-    let items = req.body && Array.isArray(req.body.items) ? req.body.items : null;
-    if (!items && req.body && req.body.type && req.body.id) items = [{ type: req.body.type, id: req.body.id }];
-    if (!items || !items.length) return res.status(400).json({ error: 'No items specified (expected { items: [{ type, id }] })' });
-
-    const snap = await configSync.getMachineSnapshotFiles(req.params.id).catch(err => {
+  {
+    const snap = await configSync.getMachineSnapshotFiles(machineId).catch(err => {
       if (/No cloud config found/i.test(err.message)) { const e = new Error(err.message); e.status = 404; throw e; }
       throw err;
     });
@@ -2500,6 +2500,15 @@ app.post('/api/machines/:id/install', express.json(), async (req, res) => {
       configSync.pushConfig().catch(e => results.warnings.push(`cloud push failed: ${e.message}`));
     }
 
+    return results;
+  }
+}
+
+app.post('/api/machines/:id/install', express.json(), async (req, res) => {
+  try {
+    let items = req.body && Array.isArray(req.body.items) ? req.body.items : null;
+    if (!items && req.body && req.body.type && req.body.id) items = [{ type: req.body.type, id: req.body.id }];
+    const results = await installFromMachine(req.params.id, items);
     res.json({ ok: true, ...results });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
