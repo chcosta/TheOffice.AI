@@ -18,7 +18,11 @@ const { EventEmitter } = require('events');
  *   chat             → send a conversational message to a manager/agent
  *   get-activity     → get activity log (paginated)
  *   get-status       → get system status overview
- * 
+ *   list-chains      → list all task chains with last-run status
+ *   run-chain        → execute a chain (streams per-task output live)
+ *   get-chain-runs   → recent run history for a chain
+ *   get-chain-run    → full per-task output for one chain run
+ *
  * Reply types (outbound to phone):
  *   result           → final complete result
  *   streaming-chunk  → incremental text for live output
@@ -143,6 +147,14 @@ class MobileHandler extends EventEmitter {
         return this._listMachines(correlationId, replier);
       case 'install-from-machine':
         return this._installFromMachine(correlationId, payload, replier);
+      case 'list-chains':
+        return this._listChains(correlationId, replier);
+      case 'run-chain':
+        return this._runChain(correlationId, sessionId, payload, replier);
+      case 'get-chain-runs':
+        return this._getChainRuns(correlationId, payload, replier);
+      case 'get-chain-run':
+        return this._getChainRun(correlationId, payload, replier);
       default:
         await replier(correlationId, { type: 'error', error: `Unknown message type: ${type}` });
         return true;
@@ -720,6 +732,11 @@ class MobileHandler extends EventEmitter {
       assignmentCount += (entry.config.assignments || []).length;
     }
 
+    let chainCount = 0;
+    if (this.chainEngine) {
+      try { chainCount = (this.chainEngine.list() || []).length; } catch {}
+    }
+
     // Recent activity counts from agent_runs
     let activityCounts = { success: 0, failed: 0, running: runningAgents.length };
     if (this.db) {
@@ -749,6 +766,7 @@ class MobileHandler extends EventEmitter {
         agentCount,
         taskCount,
         assignmentCount,
+        chainCount,
         runningAgents,
         activityCounts,
         leader,
@@ -758,7 +776,270 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  // --- Machines (cross-machine browse + install) ---
+  // --- Chains (DAG of conditionally-triggered tasks) ---
+
+  async _listChains(correlationId, replier) {
+    const out = [];
+    if (this.chainEngine) {
+      try {
+        for (const chain of this.chainEngine.list()) {
+          let lastRun = null;
+          try {
+            const recent = this.chainEngine.recentRuns(chain.id, 1);
+            if (recent && recent[0]) {
+              lastRun = {
+                id: recent[0].id,
+                status: recent[0].status,
+                time: recent[0].started_at || recent[0].startedAt || null
+              };
+            }
+          } catch {}
+          out.push({
+            id: chain.id,
+            name: chain.name || chain.id,
+            description: chain.description || '',
+            enabled: chain.enabled !== false,
+            schedule: chain.schedule || null,
+            taskCount: (chain.steps || []).length,
+            lastRun
+          });
+        }
+      } catch (e) {
+        await replier(correlationId, { type: 'error', error: `Failed to list chains: ${e.message}` });
+        return true;
+      }
+    }
+    await replier(correlationId, { type: 'result', payload: { chains: out } });
+    return true;
+  }
+
+  // Build a readable markdown summary of all task outputs in a finished run.
+  _aggregateChainOutput(chain, run) {
+    const order = (chain?.steps || []).map(s => s.id);
+    const ids = order.length ? order : Object.keys(run.nodes || {});
+    const icon = { succeeded: '✅', failed: '❌', skipped: '⏭️', running: '⏳', pending: '○' };
+    const parts = [];
+    for (const sid of ids) {
+      const node = (run.nodes || {})[sid];
+      if (!node) continue;
+      const name = node.taskName || sid;
+      const mark = icon[node.status] || '•';
+      let head = `## ${mark} ${name}`;
+      if (node.code !== undefined && node.code !== null) head += ` (exit ${node.code})`;
+      parts.push(head);
+      if (node.reason) parts.push(`_${node.reason}_`);
+      parts.push(node.output ? String(node.output).trim() : '_(no output)_');
+      parts.push('');
+    }
+    return parts.join('\n').trim() || '_(no output)_';
+  }
+
+  async _runChain(correlationId, sessionId, payload, replier) {
+    const { chainId } = payload || {};
+    if (!this.chainEngine) {
+      await replier(correlationId, { type: 'error', error: 'Chains are not available on this server' });
+      return true;
+    }
+    if (!chainId) {
+      await replier(correlationId, { type: 'error', error: 'chainId is required' });
+      return true;
+    }
+    const chain = this.chainEngine.get(chainId);
+    if (!chain) {
+      await replier(correlationId, { type: 'error', error: `Chain "${chainId}" not found` });
+      return true;
+    }
+
+    await replier(correlationId, {
+      type: 'status-update',
+      payload: { status: 'running', message: `Starting chain: ${chain.name || chainId}…` }
+    });
+
+    let runId = null;
+    const sentLen = {}; // stepId -> chars already streamed
+
+    const onStep = (d) => {
+      if (!runId || d.runId !== runId) return;
+      const node = (this.chainEngine.runs.get(runId)?.nodes || {})[d.stepId] || {};
+      const name = node.taskName || d.stepId;
+      if (d.status === 'running') {
+        replier(correlationId, { type: 'streaming-chunk', payload: { text: `\n▶ **${name}**…\n`, idx: Date.now() } }).catch(() => {});
+        replier(correlationId, { type: 'status-update', payload: { status: 'running', message: `Running ${name}…` } }).catch(() => {});
+      } else if (d.status === 'succeeded') {
+        replier(correlationId, { type: 'streaming-chunk', payload: { text: `\n✅ ${name} succeeded\n`, idx: Date.now() } }).catch(() => {});
+      } else if (d.status === 'failed') {
+        replier(correlationId, { type: 'streaming-chunk', payload: { text: `\n❌ ${name} failed\n`, idx: Date.now() } }).catch(() => {});
+      } else if (d.status === 'skipped') {
+        replier(correlationId, { type: 'streaming-chunk', payload: { text: `\n⏭️ ${name} skipped\n`, idx: Date.now() } }).catch(() => {});
+      }
+    };
+    const onOutput = (d) => {
+      if (!runId || d.runId !== runId) return;
+      const full = d.output || '';
+      const prev = sentLen[d.stepId] || 0;
+      if (full.length > prev) {
+        const delta = full.slice(prev);
+        sentLen[d.stepId] = full.length;
+        replier(correlationId, { type: 'streaming-chunk', payload: { text: delta, idx: Date.now() } }).catch(() => {});
+      }
+    };
+    const onEdge = (d) => {
+      if (!runId || d.runId !== runId) return;
+      if (d.pass === false && d.reason) {
+        replier(correlationId, { type: 'streaming-chunk', payload: { text: `\n⤳ condition not met: ${d.reason}\n`, idx: Date.now() } }).catch(() => {});
+      }
+    };
+
+    let resolveFinished;
+    const finished = new Promise((resolve) => { resolveFinished = resolve; });
+    const onFinished = (run) => {
+      if (!runId || run.id !== runId) return;
+      resolveFinished(run);
+    };
+
+    this.chainEngine.on('chain-run-step', onStep);
+    this.chainEngine.on('chain-run-output', onOutput);
+    this.chainEngine.on('chain-run-edge', onEdge);
+    this.chainEngine.on('chain-run-finished', onFinished);
+
+    const cleanup = () => {
+      this.chainEngine.off('chain-run-step', onStep);
+      this.chainEngine.off('chain-run-output', onOutput);
+      this.chainEngine.off('chain-run-edge', onEdge);
+      this.chainEngine.off('chain-run-finished', onFinished);
+    };
+
+    try {
+      runId = this.chainEngine.runChain(chainId, { manual: true });
+      if (!runId) {
+        cleanup();
+        await replier(correlationId, { type: 'error', error: 'Chain is disabled or has no tasks' });
+        return true;
+      }
+
+      // Safety timeout so the mobile request always resolves.
+      const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 15 * 60 * 1000));
+      const run = await Promise.race([finished, timeout]);
+
+      if (!run) {
+        const live = this.chainEngine.getRun(runId);
+        await replier(correlationId, {
+          type: 'result',
+          payload: {
+            status: 'running',
+            output: live ? this._aggregateChainOutput(chain, live) : 'Chain is still running…',
+            outputFormat: 'markdown',
+            runId,
+            complete: false
+          }
+        });
+        return true;
+      }
+
+      await replier(correlationId, {
+        type: 'result',
+        payload: {
+          status: run.status === 'completed' ? 'completed' : 'failed',
+          output: this._aggregateChainOutput(chain, run),
+          outputFormat: 'markdown',
+          runId,
+          complete: true
+        }
+      });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', payload: { status: 'failed', error: err.message } });
+    } finally {
+      cleanup();
+    }
+    return true;
+  }
+
+  async _getChainRuns(correlationId, payload, replier) {
+    const { chainId, limit = 20 } = payload || {};
+    if (!this.chainEngine) {
+      await replier(correlationId, { type: 'result', payload: { runs: [] } });
+      return true;
+    }
+    if (!chainId) {
+      await replier(correlationId, { type: 'error', error: 'chainId is required' });
+      return true;
+    }
+    let runs = [];
+    try {
+      const rows = this.chainEngine.recentRuns(chainId, limit) || [];
+      runs = rows.map(r => {
+        const started = r.started_at || r.startedAt || null;
+        const finished = r.finished_at || r.finishedAt || null;
+        const status = r.status === 'completed' ? 'completed'
+          : (r.status === 'error' || r.status === 'failed') ? 'failed'
+          : (r.status || 'running');
+        const durationMs = (started && finished)
+          ? new Date(finished).getTime() - new Date(started).getTime()
+          : null;
+        return {
+          id: r.id,
+          name: r.name || chainId,
+          status,
+          createdAt: started,
+          durationMs,
+          trigger: r.trigger || 'chain'
+        };
+      });
+    } catch (e) {
+      await replier(correlationId, { type: 'error', error: `Failed to load chain runs: ${e.message}` });
+      return true;
+    }
+    await replier(correlationId, { type: 'result', payload: { runs } });
+    return true;
+  }
+
+  async _getChainRun(correlationId, payload, replier) {
+    const { runId } = payload || {};
+    if (!this.chainEngine) {
+      await replier(correlationId, { type: 'error', error: 'Chains are not available on this server' });
+      return true;
+    }
+    if (!runId) {
+      await replier(correlationId, { type: 'error', error: 'runId is required' });
+      return true;
+    }
+    const run = this.chainEngine.getRun(runId);
+    if (!run) {
+      await replier(correlationId, { type: 'error', error: `Run "${runId}" not found` });
+      return true;
+    }
+    const chain = this.chainEngine.get(run.chainId);
+    const order = (chain?.steps || []).map(s => s.id);
+    const ids = order.length ? order : Object.keys(run.nodes || {});
+    const tasks = ids.map(sid => {
+      const node = (run.nodes || {})[sid] || {};
+      return {
+        id: sid,
+        name: node.taskName || sid,
+        status: node.status || 'pending',
+        code: (node.code !== undefined ? node.code : null),
+        reason: node.reason || null,
+        output: node.output || null,
+        outputFormat: 'markdown'
+      };
+    });
+    await replier(correlationId, {
+      type: 'result',
+      payload: {
+        id: run.id,
+        chainId: run.chainId,
+        name: run.name,
+        status: run.status,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        trigger: run.trigger || null,
+        tasks,
+        output: this._aggregateChainOutput(chain, run),
+        outputFormat: 'markdown'
+      }
+    });
+    return true;
+  }
 
   async _listMachines(correlationId, replier) {
     if (!this.configSync || !this.configSync.enabled) {

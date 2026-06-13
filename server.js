@@ -1342,6 +1342,8 @@ const chainEngine = new ChainEngine({
   onPersist: () => { if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (chains) failed:', e.message)); }
 });
 
+mobileHandler.chainEngine = chainEngine;
+
 app.get('/api/chains', (req, res) => res.json(chainEngine.list()));
 
 app.get('/api/chains/:id', (req, res) => {

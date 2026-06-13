@@ -30,7 +30,13 @@ class ChainEngine extends EventEmitter {
     this.db = db;
     this.supervisor = supervisor;
     this.loadTasks = loadTasks;
-    this.broadcast = broadcast || (() => {});
+    const rawBroadcast = broadcast || (() => {});
+    // Broadcast to SSE clients AND re-emit locally so in-process consumers
+    // (e.g. the mobile handler) can subscribe to live chain run events.
+    this.broadcast = (event, data) => {
+      try { rawBroadcast(event, data); } catch {}
+      try { this.emit(event, data); } catch {}
+    };
     this.onPersist = onPersist || (() => {});
     this.runs = new Map();      // runId -> live run state
     this.jobs = new Map();      // chainId -> cron/interval handle
