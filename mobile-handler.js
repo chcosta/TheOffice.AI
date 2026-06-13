@@ -734,7 +734,10 @@ class MobileHandler extends EventEmitter {
 
     let chainCount = 0;
     if (this.chainEngine) {
-      try { chainCount = (this.chainEngine.list() || []).length; } catch {}
+      try {
+        const connectedChainIds = new Set(connectedAssets.filter(a => a.type === 'chain').map(a => a.id));
+        chainCount = (this.chainEngine.list() || []).filter(c => connectedChainIds.has(c.id)).length;
+      } catch {}
     }
 
     // Recent activity counts from agent_runs
@@ -779,10 +782,13 @@ class MobileHandler extends EventEmitter {
   // --- Chains (DAG of conditionally-triggered tasks) ---
 
   async _listChains(correlationId, replier) {
+    const connectedAssets = this.eventListener?.config?.connectedAssets || [];
+    const connectedChainIds = new Set(connectedAssets.filter(a => a.type === 'chain').map(a => a.id));
     const out = [];
     if (this.chainEngine) {
       try {
         for (const chain of this.chainEngine.list()) {
+          if (!connectedChainIds.has(chain.id)) continue;
           let lastRun = null;
           try {
             const recent = this.chainEngine.recentRuns(chain.id, 1);

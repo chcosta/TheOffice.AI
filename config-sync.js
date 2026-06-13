@@ -19,7 +19,7 @@ const INSTANCE_STALE = 90; // seconds — an instance not seen within this windo
 const LEADER_REQUEST_TTL = 120; // seconds — ignore handoff requests older than this
 
 // Files that get synced (within a machine's own cloud namespace)
-const SYNCED_FILES = ['agents.json', 'managers.json', 'tasks.json', 'events-config.json'];
+const SYNCED_FILES = ['agents.json', 'managers.json', 'tasks.json', 'chains.json', 'events-config.json'];
 const SYNCED_DIRS = ['plugins', 'mcp-configs'];
 // Per-machine cloud namespace. Each machine owns machines/{machineId}/ and is the
 // sole writer of its own config. Other machines may only READ it (for browse/install).

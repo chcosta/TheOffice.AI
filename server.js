@@ -202,6 +202,9 @@ const configSync = new ConfigSync({
     console.log(`[config-sync] Config pulled (v${version}), reloading...`);
     loadAgents();
     loadManagers();
+    // Chain definitions are read fresh from chains.json on each access, but cron
+    // schedules for pulled chains must be (re)registered.
+    try { if (typeof chainEngine !== 'undefined' && chainEngine) chainEngine.rescheduleAll(); } catch (e) { console.warn('[config-sync] chain reschedule failed:', e.message); }
   }
 });
 // Each machine owns its own agents/managers/tasks and always runs its OWN scheduled

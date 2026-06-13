@@ -2959,7 +2959,7 @@
                 <div style="display:flex;flex-wrap:wrap;gap:8px" x-show="eventsConfig.connectedAssets.length > 0">
                   <template x-for="asset in eventsConfig.connectedAssets" :key="asset.id">
                     <span class="pill active" style="display:inline-flex;align-items:center;gap:6px">
-                      <span x-text="asset.type === 'manager' ? '👔' : asset.type === 'agent' ? '🤖' : '⚡'"></span>
+                      <span x-text="asset.type === 'manager' ? '👔' : asset.type === 'agent' ? '🤖' : asset.type === 'chain' ? '🔗' : asset.type === 'assignment' ? '📋' : '⚡'"></span>
                       <span x-text="asset.name"></span>
                       <button type="button" style="background:none;border:none;cursor:pointer;opacity:0.6;padding:0 2px" @click="disconnectAsset(asset.id)">✕</button>
                     </span>
@@ -3386,7 +3386,7 @@
         <button class="icon-button" type="button" @click="showConnectAssetModal = false">✕</button>
       </div>
       <div style="padding:18px">
-        <p class="hint" style="margin-bottom:14px">Select agents, managers, tasks, or assignments to make addressable via the event listener.</p>
+        <p class="hint" style="margin-bottom:14px">Select agents, managers, tasks, assignments, or chains to make addressable via the event listener.</p>
         <input class="field-input" type="search" placeholder="Filter assets..." x-model="connectAssetSearch" style="margin-bottom:14px" />
 
         <div style="max-height:340px;overflow-y:auto">
@@ -3440,6 +3440,20 @@
                 <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
                   <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'assignment')" />
                   <span>📋</span>
+                  <span x-text="asset.name"></span>
+                </label>
+              </template>
+            </div>
+          </template>
+
+          <!-- Chains -->
+          <template x-if="connectableAssets('chain').length > 0">
+            <div style="margin-top:14px">
+              <div class="field-label">Chains (runnable via /run name)</div>
+              <template x-for="asset in connectableAssets('chain')" :key="asset.id">
+                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'chain')" />
+                  <span>🔗</span>
                   <span x-text="asset.name"></span>
                 </label>
               </template>
@@ -5337,6 +5351,8 @@
             items = (this.data.tasks || []).map(t => ({ id: t.id, name: t.name }));
           } else if (type === 'assignment') {
             items = this.data.managers.flatMap(m => (m.config.assignments || []).map(a => ({ id: `${m.id}/${a.id}`, name: `${a.name} (${m.name})` })));
+          } else if (type === 'chain') {
+            items = (this.data.chains || []).map(c => ({ id: c.id, name: c.name || c.id }));
           }
           if (q) items = items.filter(i => i.name.toLowerCase().includes(q));
           return items;
