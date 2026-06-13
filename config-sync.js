@@ -396,6 +396,7 @@ class ConfigSync {
             isSelf: prof.machineId === this._machineId,
             isLeader: leaderMachineId ? prof.machineId === leaderMachineId : false,
             alive: inst ? !!inst.alive : (prof.machineId === this._machineId),
+            lastSeen: inst ? (inst.lastSeen || null) : (prof.machineId === this._machineId ? new Date().toISOString() : null),
             updatedAt: prof.updatedAt || null,
             agentCount: prof.agentCount != null ? prof.agentCount : (prof.agents ? prof.agents.length : 0),
             managerCount: prof.managerCount != null ? prof.managerCount : (prof.managers ? prof.managers.length : 0),
