@@ -2360,11 +2360,11 @@
           <section x-show="!loading && !errorMessage && route === 'chains'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>Chains</h1>
+                <h1>Flows</h1>
                 <p>Wire tasks together into a conditional pipeline. When a task finishes, each outgoing flow rule is evaluated (status, output expression, or AI judgment) and matching downstream tasks run automatically.</p>
               </div>
               <div class="toolbar">
-                <button class="btn primary" type="button" @click="newChain()">＋ New Chain</button>
+                <button class="btn primary" type="button" @click="newChain()">＋ New Flow</button>
               </div>
             </div>
             <div class="assignment-list">
@@ -2419,7 +2419,7 @@
 
                         <!-- Tasks -->
                         <div>
-                          <div class="field-label"><span>Tasks</span><span class="hint">Each task runs in the chain. Tasks with no inbound arrow start the chain.</span></div>
+                          <div class="field-label"><span>Tasks</span><span class="hint">Each task runs in the flow. Tasks with no inbound arrow start the flow.</span></div>
                           <div class="hint" style="margin:-2px 0 8px;line-height:1.5">
                             In a prompt you can inject the previous task's result with variables:
                             <code>{{ trigger.output }}</code> (previous task's output),
@@ -2516,9 +2516,9 @@
                         </div>
 
                         <div class="inline-actions">
-                          <button class="btn primary" type="button" @click="saveChain()">Save chain</button>
+                          <button class="btn primary" type="button" @click="saveChain()">Save flow</button>
                           <button class="btn ghost" type="button" @click="selectedChainId = null; chainDraft = null">Cancel</button>
-                          <button class="btn danger" type="button" @click="deleteChain(chain)">Delete chain</button>
+                          <button class="btn danger" type="button" @click="deleteChain(chain)">Delete flow</button>
                         </div>
                       </div>
                     </template>
@@ -2570,7 +2570,7 @@
                 </article>
               </template>
             </div>
-            <div class="empty-state" x-show="!data.chains.length">No chains yet. Create one to orchestrate tasks conditionally.</div>
+            <div class="empty-state" x-show="!data.chains.length">No flows yet. Create one to orchestrate tasks conditionally.</div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'assignments'" x-transition.opacity.duration.180ms>
@@ -3386,7 +3386,7 @@
         <button class="icon-button" type="button" @click="showConnectAssetModal = false">✕</button>
       </div>
       <div style="padding:18px">
-        <p class="hint" style="margin-bottom:14px">Select agents, managers, tasks, assignments, or chains to make addressable via the event listener.</p>
+        <p class="hint" style="margin-bottom:14px">Select agents, managers, tasks, assignments, or flows to make addressable via the event listener.</p>
         <input class="field-input" type="search" placeholder="Filter assets..." x-model="connectAssetSearch" style="margin-bottom:14px" />
 
         <div style="max-height:340px;overflow-y:auto">
@@ -3449,7 +3449,7 @@
           <!-- Chains -->
           <template x-if="connectableAssets('chain').length > 0">
             <div style="margin-top:14px">
-              <div class="field-label">Chains (runnable via /run name)</div>
+              <div class="field-label">Flows (runnable via /run name)</div>
               <template x-for="asset in connectableAssets('chain')" :key="asset.id">
                 <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
                   <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'chain')" />
@@ -4766,7 +4766,7 @@
             { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', collapsible: true, items: this.sortedChats().slice(0, 8).map((chat) => ({ id: chat.id, label: chat.title, href: `#/chat/${chat.id}`, active: this.route === 'chat-detail' && this.app.routeParam === chat.id, statusClass: this.chatStatusClass(chat) })) },
             { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
-              { key: 'chains', title: 'Chains', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
+              { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
             ]},
             { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
@@ -6383,7 +6383,7 @@
           const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
           const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
           const chain = {
-            id, name: 'New chain', description: '', schedule: 'never', enabled: true,
+            id, name: 'New flow', description: '', schedule: 'never', enabled: true,
             steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
             edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
             _new: true
@@ -6453,7 +6453,7 @@
             } else {
               await this.request('/api/chains/' + encodeURIComponent(payload.id), { method: 'PUT', body: JSON.stringify(payload) });
             }
-            this.showToast('Chain saved', `"${payload.name}" saved.`, 'info');
+            this.showToast('Flow saved', `"${payload.name}" saved.`, 'info');
             this.selectedChainId = null;
             this.chainDraft = null;
             await this.loadChains();
@@ -6463,21 +6463,21 @@
         },
 
         async deleteChain(chain) {
-          if (!confirm(`Delete chain "${chain.name}"?`)) return;
+          if (!confirm(`Delete flow "${chain.name}"?`)) return;
           try {
             if (!chain._new) await this.request('/api/chains/' + encodeURIComponent(chain.id), { method: 'DELETE' });
             this.data.chains = this.data.chains.filter(c => c.id !== chain.id);
             this.selectedChainId = null;
             this.chainDraft = null;
-            this.showToast('Chain deleted', '', 'info');
+            this.showToast('Flow deleted', '', 'info');
           } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
         },
 
         async runChain(chain) {
-          if (chain._new) { this.showToast('Save first', 'Save the chain before running it.', 'error'); return; }
+          if (chain._new) { this.showToast('Save first', 'Save the flow before running it.', 'error'); return; }
           try {
             await this.request('/api/chains/' + encodeURIComponent(chain.id) + '/run', { method: 'POST', body: '{}' });
-            this.showToast('Chain started', `"${chain.name}" is running.`, 'info');
+            this.showToast('Flow started', `"${chain.name}" is running.`, 'info');
           } catch (e) { this.showToast('Run failed', e.message, 'error'); }
         },
 
