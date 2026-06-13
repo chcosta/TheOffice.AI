@@ -2361,7 +2361,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Chains</h1>
-                <p>Wire tasks together into a conditional pipeline. When a step finishes, each outgoing edge is evaluated (status, output expression, or AI judgment) and matching downstream steps run automatically.</p>
+                <p>Wire tasks together into a conditional pipeline. When a task finishes, each outgoing flow rule is evaluated (status, output expression, or AI judgment) and matching downstream tasks run automatically.</p>
               </div>
               <div class="toolbar">
                 <button class="btn primary" type="button" @click="newChain()">＋ New Chain</button>
@@ -2374,7 +2374,7 @@
                     <div>
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                         <strong x-text="chain.name"></strong>
-                        <span class="type-badge" x-text="(chain.steps?.length || 0) + ' steps'"></span>
+                        <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
                         <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
                         <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
                       </div>
@@ -2417,43 +2417,49 @@
                         </div>
                         <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
 
-                        <!-- Steps -->
+                        <!-- Tasks -->
                         <div>
-                          <div class="field-label"><span>Steps</span><span class="hint">Each step runs a task. Entry steps (no inbound edge) start the chain.</span></div>
+                          <div class="field-label"><span>Tasks</span><span class="hint">Each task runs in the chain. Tasks with no inbound arrow start the chain.</span></div>
+                          <div class="hint" style="margin:-2px 0 8px;line-height:1.5">
+                            In a prompt you can inject the previous task's result with variables:
+                            <code>{{ trigger.output }}</code> (previous task's output),
+                            <code>{{ trigger.name }}</code>, <code>{{ trigger.exitCode }}</code>.
+                            <span style="opacity:.8">These only resolve for tasks that have an inbound arrow; the first task runs its prompt as-is.</span>
+                          </div>
                           <div style="display:flex;flex-direction:column;gap:10px">
                             <template x-for="(step, si) in chainDraft.steps" :key="step.id">
                               <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
                                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                  <span class="hint" style="font-family:var(--mono,monospace)" x-text="step.id"></span>
-                                  <select class="field-input" style="flex:1;min-width:200px" x-model="step.taskId">
+                                  <span class="hint" :title="step.id" x-text="'Task ' + (si + 1)"></span>
+                                  <select class="field-input" style="flex:1;min-width:200px" x-model="step.taskId" x-init="$nextTick(() => { $el.value = step.taskId })">
                                     <option value="">— pick a task —</option>
                                     <template x-for="t in data.tasks" :key="'cs-' + step.id + '-' + t.id">
                                       <option :value="t.id" x-text="t.name"></option>
                                     </template>
                                   </select>
-                                  <button class="icon-button" type="button" title="Remove step" @click="removeChainStep(si)">✕</button>
+                                  <button class="icon-button" type="button" title="Remove task" @click="removeChainStep(si)">✕</button>
                                 </div>
-                                <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Optional prompt override. Use {{ task.output }} to inject the upstream step's output." x-model="step.prompt"></textarea>
+                                <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Optional prompt override. Use {{ trigger.output }} to inject the previous task's output." x-model="step.prompt"></textarea>
                               </div>
                             </template>
                           </div>
-                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainStep()">＋ Add step</button>
+                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainStep()">＋ Add task</button>
                         </div>
 
                         <!-- Edges -->
                         <div>
-                          <div class="field-label"><span>Edges</span><span class="hint">When the source step finishes and the condition passes, the target step runs.</span></div>
+                          <div class="field-label"><span>Flow</span><span class="hint">When the source task finishes and the condition passes, the target task runs.</span></div>
                           <div style="display:flex;flex-direction:column;gap:10px">
                             <template x-for="(edge, ei) in chainDraft.edges" :key="'ce-' + ei">
                               <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
                                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.from">
+                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.from" x-init="$nextTick(() => { $el.value = edge.from })">
                                     <template x-for="s in chainDraft.steps" :key="'ef-' + ei + '-' + s.id">
                                       <option :value="s.id" x-text="chainStepLabel(s)"></option>
                                     </template>
                                   </select>
                                   <span class="hint">→</span>
-                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.to">
+                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.to" x-init="$nextTick(() => { $el.value = edge.to })">
                                     <template x-for="s in chainDraft.steps" :key="'et-' + ei + '-' + s.id">
                                       <option :value="s.id" x-text="chainStepLabel(s)"></option>
                                     </template>
@@ -2494,7 +2500,7 @@
                                   <template x-if="edge.condition.type === 'ai'">
                                     <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">
                                       <input class="field-input" type="text" placeholder="Predicate, e.g. 'Azure reports an unhealthy or degraded service'" x-model="edge.condition.predicate" />
-                                      <select class="field-input" x-model="edge.condition.agentId">
+                                      <select class="field-input" x-model="edge.condition.agentId" x-init="$nextTick(() => { $el.value = edge.condition.agentId || '' })">
                                         <option value="">Built-in evaluator</option>
                                         <template x-for="a in data.agents" :key="'ai-' + ei + '-' + a.id">
                                           <option :value="a.id" x-text="'Custom: ' + a.name"></option>
@@ -2506,7 +2512,7 @@
                               </div>
                             </template>
                           </div>
-                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainEdge()">＋ Add edge</button>
+                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainEdge()">＋ Add flow rule</button>
                         </div>
 
                         <div class="inline-actions">
@@ -2520,15 +2526,45 @@
 
                   <!-- Last run detail -->
                   <div x-show="chainRunState[chain.id]" style="margin-top:14px">
-                    <div class="field-label"><span>Last run</span><span class="hint" x-text="chainRunState[chain.id] ? formatRelative(chainRunState[chain.id].startedAt) : ''"></span></div>
+                    <div class="field-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span>Last run</span>
+                      <span class="hint" x-text="chainRunState[chain.id] ? formatRelative(chainRunState[chain.id].startedAt) : ''"></span>
+                      <span class="status-badge" style="font-size:0.7rem" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
+                      <button class="btn ghost" style="font-size:0.72rem;margin-left:auto" type="button" @click="refreshChainRun(chain)">↻ Refresh</button>
+                    </div>
                     <div class="run-list" style="margin-top:6px">
                       <template x-for="(node, sid) in (chainRunState[chain.id]?.nodes || {})" :key="'rn-' + chain.id + '-' + sid">
-                        <div class="run-item" style="padding:8px 12px;display:flex;align-items:center;gap:10px">
-                          <span class="status-badge" style="font-size:0.7rem" :class="statusClass(node.status)" x-text="node.status"></span>
-                          <span x-text="node.taskName || sid"></span>
-                          <span class="hint" x-show="node.reason" x-text="'· ' + node.reason"></span>
+                        <div class="run-item" style="padding:0;flex-direction:column;align-items:stretch">
+                          <div style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="toggleChainNode(chain.id, sid)">
+                            <span class="hint" x-text="(expandedChainNodes[chain.id + '/' + sid]) ? '▾' : '▸'"></span>
+                            <span class="status-badge" style="font-size:0.7rem" :class="statusClass(node.status)" x-text="node.status"></span>
+                            <span x-text="node.taskName || sid"></span>
+                            <span class="hint" x-show="node.streaming && node.status === 'running'" style="color:var(--cp-accent)">● live</span>
+                            <span class="hint" x-show="node.code !== undefined && node.code !== null" x-text="'exit ' + node.code"></span>
+                            <span class="hint" x-show="node.reason" x-text="'· ' + node.reason"></span>
+                          </div>
+                          <div x-show="expandedChainNodes[chain.id + '/' + sid]" style="padding:0 12px 12px">
+                            <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+                              <button class="btn ghost" style="font-size:0.72rem" type="button" x-show="node.output" @click.stop="openShareModal(node.output, (node.taskName || sid) + ' — output', 'run-output')">📤 Share</button>
+                            </div>
+                            <div class="md-output" x-html="renderMarkdown(node.output || (node.status === 'running' ? 'Waiting for output…' : 'No output captured for this task (it may not have run).'))"></div>
+                          </div>
                         </div>
                       </template>
+                    </div>
+                    <!-- Recent runs -->
+                    <div style="margin-top:10px">
+                      <div class="field-label"><span>Recent runs</span><span class="hint">Load a past run to inspect its output.</span></div>
+                      <div class="run-list" style="margin-top:6px" x-show="(chainRuns[chain.id] || []).length">
+                        <template x-for="r in (chainRuns[chain.id] || [])" :key="'hist-' + r.id">
+                          <div class="run-item" style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="openChainRun(chain.id, r.id)">
+                            <span class="status-badge" style="font-size:0.7rem" :class="statusClass(r.status)" x-text="r.status"></span>
+                            <span x-text="formatDateTime(r.started_at || r.startedAt)"></span>
+                            <span class="hint" x-text="r.trigger ? ('· ' + r.trigger) : ''"></span>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="hint" x-show="!(chainRuns[chain.id] || []).length">No runs loaded yet. <a href="#" @click.prevent="loadChainRuns(chain.id)">Load history</a></div>
                     </div>
                   </div>
                 </article>
@@ -3862,6 +3898,8 @@
         selectedChainId: null,
         chainDraft: null,
         chainRunState: {},
+        chainRuns: {},
+        expandedChainNodes: {},
         activeChat: null,
         chatDraft: '',
         commandQuery: '',
@@ -4675,8 +4713,18 @@
               if (!this.chainRunState[cid].nodes[stepId]) this.chainRunState[cid].nodes[stepId] = {};
               this.chainRunState[cid].nodes[stepId].status = status;
               this.chainRunState = { ...this.chainRunState };
+              if (status === 'running') this.expandedChainNodes[cid + '/' + stepId] = true;
               const chain = this.data.chains.find(c => c.id === cid);
               if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+            });
+            source.addEventListener('chain-run-output', (event) => {
+              const { runId, stepId, output } = JSON.parse(event.data || '{}');
+              const cid = chainOf(runId);
+              if (!cid || !this.chainRunState[cid]) return;
+              if (!this.chainRunState[cid].nodes[stepId]) this.chainRunState[cid].nodes[stepId] = {};
+              this.chainRunState[cid].nodes[stepId].output = output;
+              this.chainRunState[cid].nodes[stepId].streaming = true;
+              this.chainRunState = { ...this.chainRunState };
             });
             source.addEventListener('chain-run-finished', (event) => {
               const run = JSON.parse(event.data || '{}');
@@ -6307,8 +6355,11 @@
         },
 
         chainStepLabel(step) {
+          const steps = (this.chainDraft && this.chainDraft.steps) || [];
+          const idx = steps.findIndex(s => s.id === step.id);
           const t = (this.data.tasks || []).find(x => x.id === step.taskId);
-          return (t ? t.name : (step.taskId || 'unassigned')) + ' (' + step.id + ')';
+          const name = t ? t.name : (step.taskId || 'unassigned');
+          return (idx >= 0 ? ('Task ' + (idx + 1) + ' · ') : '') + name;
         },
 
         newChain() {
@@ -6412,6 +6463,41 @@
             await this.request('/api/chains/' + encodeURIComponent(chain.id) + '/run', { method: 'POST', body: '{}' });
             this.showToast('Chain started', `"${chain.name}" is running.`, 'info');
           } catch (e) { this.showToast('Run failed', e.message, 'error'); }
+        },
+
+        toggleChainNode(chainId, sid) {
+          const key = chainId + '/' + sid;
+          this.expandedChainNodes[key] = !this.expandedChainNodes[key];
+          this.expandedChainNodes = { ...this.expandedChainNodes };
+        },
+
+        async refreshChainRun(chain) {
+          const run = this.chainRunState[chain.id];
+          if (!run || !run.id) { await this.loadChainRuns(chain.id); return; }
+          try {
+            const fresh = await this.request('/api/chain-runs/' + encodeURIComponent(run.id));
+            this.chainRunState[chain.id] = fresh;
+            this.chainRunState = { ...this.chainRunState };
+            this.$nextTick(() => this.renderChainDiagram(chain));
+          } catch (e) { this.showToast('Refresh failed', e.message, 'error'); }
+        },
+
+        async loadChainRuns(chainId) {
+          try {
+            const runs = await this.request('/api/chains/' + encodeURIComponent(chainId) + '/runs');
+            this.chainRuns[chainId] = Array.isArray(runs) ? runs : [];
+            this.chainRuns = { ...this.chainRuns };
+          } catch (e) { this.showToast('Could not load runs', e.message, 'error'); }
+        },
+
+        async openChainRun(chainId, runId) {
+          try {
+            const fresh = await this.request('/api/chain-runs/' + encodeURIComponent(runId));
+            this.chainRunState[chainId] = fresh;
+            this.chainRunState = { ...this.chainRunState };
+            const chain = this.data.chains.find(c => c.id === chainId);
+            if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+          } catch (e) { this.showToast('Could not load run', e.message, 'error'); }
         },
 
         renderChainDiagram(chain) {

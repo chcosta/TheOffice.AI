@@ -209,15 +209,23 @@ class ChainEngine extends EventEmitter {
     node.status = 'running';
     node.startedAt = new Date().toISOString();
     node.taskName = task.name;
+    node.output = '';
+    node.streaming = true;
     this._persist(run);
     this.broadcast('chain-run-step', { runId: run.id, stepId: step.id, status: 'running' });
 
-    this._runTaskAgent(task, { promptOverride: step.prompt, triggerContext: inputContext })
+    const onStream = (chunk, full) => {
+      node.output = full.slice(-20000);
+      this.broadcast('chain-run-output', { runId: run.id, stepId: step.id, output: node.output });
+    };
+
+    this._runTaskAgent(task, { promptOverride: step.prompt, triggerContext: inputContext, onStream })
       .then((res) => {
         node.status = res.code === 0 ? 'succeeded' : 'failed';
         node.finishedAt = new Date().toISOString();
         node.code = res.code;
         node.output = (res.output || '').slice(-20000);
+        node.streaming = false;
         if (res.busy) { node.status = 'skipped'; node.reason = res.output; }
         this._persist(run);
         this.broadcast('chain-run-step', { runId: run.id, stepId: step.id, status: node.status });
@@ -227,6 +235,7 @@ class ChainEngine extends EventEmitter {
         node.status = 'failed';
         node.finishedAt = new Date().toISOString();
         node.reason = err.message;
+        node.streaming = false;
         this._persist(run);
         this._stepFinished(chain, run, step, { code: -1, output: '' });
       });
@@ -367,15 +376,24 @@ class ChainEngine extends EventEmitter {
   // ---------- Task agent primitive ----------
   // Runs a task's agent (optionally with a prompt override and interpolated
   // trigger context) and resolves { code, output } once the run completes.
-  _runTaskAgent(task, { promptOverride = null, triggerContext = null } = {}) {
+  _runTaskAgent(task, { promptOverride = null, triggerContext = null, onStream = null } = {}) {
     return new Promise((resolve) => {
       const entry = this.supervisor.agents.get(task.agentId);
       if (!entry) return resolve({ code: -1, output: `Agent "${task.agentId}" not found`, error: true });
       if (entry.running) return resolve({ code: -1, output: `Agent "${task.agentId}" is busy`, busy: true });
 
+      let live = '';
+      const onOut = ({ agentId, chunk }) => {
+        if (agentId !== task.agentId) return;
+        live += chunk;
+        if (onStream) { try { onStream(chunk, live); } catch {} }
+      };
+      if (onStream) this.supervisor.on('agent-output', onOut);
+
       const onDone = ({ agentId, code, output }) => {
         if (agentId !== task.agentId) return;
         this.supervisor.off('agent-completed', onDone);
+        if (onStream) this.supervisor.off('agent-output', onOut);
         resolve({ code, output: output || '' });
       };
       this.supervisor.on('agent-completed', onDone);
@@ -386,6 +404,7 @@ class ChainEngine extends EventEmitter {
         this.supervisor._executeAgent(task.agentId, triggerContext);
       } catch (e) {
         this.supervisor.off('agent-completed', onDone);
+        if (onStream) this.supervisor.off('agent-output', onOut);
         entry.config.prompt = original;
         return resolve({ code: -1, output: String(e.message), error: true });
       }
