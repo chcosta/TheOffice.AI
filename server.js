@@ -1271,10 +1271,10 @@ const { Cron: TaskCron } = require('croner');
 const { parseSchedule: parseTaskSchedule } = require('./scheduler');
 const taskJobs = new Map(); // taskId -> { stop() }
 
-// Central task runner. Runs a task's agent, then fires any downstream task
-// triggers once the run completes. `triggerContext` carries the upstream task's
-// output for {{ task.* }} interpolation. `promptOverride` lets an inbound
-// trigger supply its own prompt instead of the task's default prompt.
+// Central task runner. Runs a task's agent standalone. Conditional follow-on
+// work is now expressed via Task Chains (see chains.js), not inline triggers.
+// `triggerContext` carries upstream output for {{ task.* }} interpolation;
+// `promptOverride` lets a caller supply its own prompt instead of the default.
 function executeTask(task, triggerContext = null, { scheduled = false, promptOverride = null } = {}) {
   const entry = supervisor.agents.get(task.agentId);
   if (!entry) {
@@ -1285,48 +1285,12 @@ function executeTask(task, triggerContext = null, { scheduled = false, promptOve
     console.warn(`[task-scheduler] Agent "${task.agentId}" is already running; skipping task "${task.name}"`);
     return false;
   }
-  // One-shot completion listener to fire this task's downstream triggers.
-  const onDone = ({ agentId, code, output }) => {
-    if (agentId !== task.agentId) return;
-    supervisor.off('agent-completed', onDone);
-    fireTaskTriggers(task, code, output, triggerContext);
-  };
-  supervisor.on('agent-completed', onDone);
-
   const originalPrompt = entry.config.prompt;
   entry.config.prompt = promptOverride || task.prompt;
   try { supervisor._executeAgent(task.agentId, triggerContext); }
-  catch (e) { supervisor.off('agent-completed', onDone); throw e; }
   finally { entry.config.prompt = originalPrompt; }
   broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId, scheduled });
   return true;
-}
-
-// After a source task completes, fire any tasks whose INBOUND triggers reference
-// it as a source and whose condition matches the outcome. Triggers live ON the
-// target task as an array of { source, condition, prompt }. Each trigger runs
-// the target task's agent with the trigger's own prompt, with the source task's
-// output exposed as {{ task.output }} / {{ trigger.output }}.
-function fireTaskTriggers(sourceTask, exitCode, output, priorContext) {
-  const succeeded = exitCode === 0;
-  const matches = (cond) =>
-    cond === 'onComplete' || (cond === 'onSuccess' && succeeded) || (cond === 'onFailure' && !succeeded);
-
-  const chain = [...(priorContext?.chain || [])];
-  if (priorContext?.trigger) chain.push(priorContext.trigger);
-  const payload = { id: sourceTask.id, name: sourceTask.name, output: output || '', exitCode, prompt: sourceTask.prompt };
-  const downstreamContext = { trigger: payload, task: payload, chain };
-
-  const allTasks = loadTasks();
-  for (const target of allTasks) {
-    if (!Array.isArray(target.triggers)) continue;
-    if (target.enabled === false) continue;
-    for (const trig of target.triggers) {
-      if (trig.source !== sourceTask.id || !matches(trig.condition)) continue;
-      console.log(`[task-trigger] "${sourceTask.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
-      executeTask(target, downstreamContext, { promptOverride: trig.prompt });
-    }
-  }
 }
 
 function runScheduledTask(task) {
@@ -1366,6 +1330,60 @@ function rescheduleAllTasks() {
 // Activate schedules for any already-saved tasks at startup.
 rescheduleAllTasks();
 
+// ---- Task Chains ----
+// A chain is a first-class, schedulable DAG of tasks connected by conditional
+// edges (status / expression / AI). It replaces the old inline per-task triggers.
+const { ChainEngine } = require('./chains');
+const chainEngine = new ChainEngine({
+  db,
+  supervisor,
+  loadTasks,
+  broadcast: broadcastSSE,
+  onPersist: () => { if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (chains) failed:', e.message)); }
+});
+
+app.get('/api/chains', (req, res) => res.json(chainEngine.list()));
+
+app.get('/api/chains/:id', (req, res) => {
+  const chain = chainEngine.get(req.params.id);
+  if (!chain) return res.status(404).json({ error: 'Chain not found' });
+  res.json(chain);
+});
+
+app.post('/api/chains', (req, res) => {
+  try { res.status(201).json(chainEngine.create(req.body || {})); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/chains/:id', (req, res) => {
+  try { res.json(chainEngine.update(req.params.id, req.body || {})); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/chains/:id', (req, res) => {
+  if (!chainEngine.remove(req.params.id)) return res.status(404).json({ error: 'Chain not found' });
+  res.json({ ok: true });
+});
+
+// Manually start a chain run
+app.post('/api/chains/:id/run', (req, res) => {
+  try {
+    const runId = chainEngine.runChain(req.params.id, { manual: true });
+    res.json({ ok: true, runId });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Live + historical run state for visualization
+app.get('/api/chains/:id/runs', (req, res) => {
+  res.json(chainEngine.recentRuns(req.params.id, Number(req.query.limit) || 10));
+});
+app.get('/api/chain-runs/:runId', (req, res) => {
+  const run = chainEngine.getRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+  res.json(run);
+});
+
+
 app.get('/api/tasks', (req, res) => {
   res.json(loadTasks());
 });
@@ -1378,7 +1396,7 @@ app.get('/api/tasks/:id', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { id, name, agentId, prompt, schedule, enabled, triggers } = req.body;
+  const { id, name, agentId, prompt, schedule, enabled } = req.body;
   if (!name || !agentId) return res.status(400).json({ error: 'name and agentId are required' });
   const tasks = loadTasks();
   const taskId = id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1388,7 +1406,6 @@ app.post('/api/tasks', (req, res) => {
     return res.status(409).json({ error: 'duplicate_name', existingId: existing.id, message: `A task named "${name}" already exists.` });
   }
   const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, createdAt: new Date().toISOString() };
-  if (triggers && Object.keys(triggers).length) task.triggers = triggers;
   tasks.push(task);
   saveTasks(tasks);
   scheduleTask(task);
@@ -1400,7 +1417,7 @@ app.put('/api/tasks/:id', (req, res) => {
   const tasks = loadTasks();
   const idx = tasks.findIndex(t => t.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Task not found' });
-  const { name, prompt, schedule, enabled, triggers } = req.body;
+  const { name, prompt, schedule, enabled } = req.body;
   // Check for name collision (excluding self)
   if (name) {
     const dup = tasks.find(t => t.id !== req.params.id && t.name.toLowerCase() === name.toLowerCase());
@@ -1412,10 +1429,6 @@ app.put('/api/tasks/:id', (req, res) => {
   if (prompt !== undefined) tasks[idx].prompt = prompt;
   if (schedule !== undefined) tasks[idx].schedule = schedule;
   if (enabled !== undefined) tasks[idx].enabled = enabled;
-  if (triggers !== undefined) {
-    if (triggers && Object.keys(triggers).length) tasks[idx].triggers = triggers;
-    else delete tasks[idx].triggers;
-  }
   tasks[idx].updatedAt = new Date().toISOString();
   saveTasks(tasks);
   scheduleTask(tasks[idx]);
@@ -2856,7 +2869,7 @@ app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
 
 // Add an assignment
 app.post('/api/managers/:id/assignments', (req, res) => {
-  const { id: assignmentId, name, prompt, schedule, enabled, triggers } = req.body;
+  const { id: assignmentId, name, prompt, schedule, enabled } = req.body;
   if (!assignmentId || !name || !prompt) {
     return res.status(400).json({ error: 'Missing required fields: id, name, prompt' });
   }
@@ -2866,11 +2879,7 @@ app.post('/api/managers/:id/assignments', (req, res) => {
 
   if (!entry.config.assignments) entry.config.assignments = [];
   const existingIdx = entry.config.assignments.findIndex(a => a.id === assignmentId);
-  // Preserve existing triggers on edit unless explicitly provided.
-  const prevTriggers = existingIdx >= 0 ? entry.config.assignments[existingIdx].triggers : undefined;
   const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false };
-  const effectiveTriggers = triggers !== undefined ? triggers : prevTriggers;
-  if (effectiveTriggers && Object.keys(effectiveTriggers).length) assignment.triggers = effectiveTriggers;
   if (existingIdx >= 0) {
     entry.config.assignments[existingIdx] = assignment;
   } else {
@@ -2941,22 +2950,9 @@ app.put('/api/managers/:id/assignments/:assignmentId/schedule', (req, res) => {
 
 // Update a single assignment's triggers (downstream assignment chaining)
 app.put('/api/managers/:id/assignments/:assignmentId/triggers', (req, res) => {
-  const { triggers } = req.body;
-  const entry = managerAgent.managers.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Manager not found' });
-
-  const assignment = (entry.config.assignments || []).find(a => a.id === req.params.assignmentId);
-  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
-
-  if (triggers && Object.keys(triggers).length) assignment.triggers = triggers;
-  else delete assignment.triggers;
-
-  let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
-  const mi = managers.findIndex(m => m.id === req.params.id);
-  if (mi >= 0) { managers[mi] = entry.config; }
-  fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
-
-  res.json({ ok: true, triggers: assignment.triggers || {} });
+  // Inline assignment triggers were replaced by Task Chains. Kept as a no-op
+  // for backward compatibility with any cached clients.
+  res.json({ ok: true, triggers: {} });
 });
 
 // Toggle assignment enabled/disabled

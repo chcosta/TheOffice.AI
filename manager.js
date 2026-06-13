@@ -168,40 +168,6 @@ class ManagerAgent extends EventEmitter {
   }
 
   /**
-   * After an assignment completes, fire any assignments whose inbound triggers
-   * reference it as a source and whose condition matches the outcome. Triggers
-   * live ON the target assignment as an array of { source, condition, prompt }.
-   * Sources are other assignments within the same manager.
-   */
-  _fireAssignmentTriggers(managerId, sourceAssignmentId, exitCode, output, priorContext) {
-    if (!sourceAssignmentId) return;
-    const entry = this.managers.get(managerId);
-    if (!entry) return;
-    const source = (entry.config.assignments || []).find(a => a.id === sourceAssignmentId);
-    if (!source) return;
-
-    const succeeded = exitCode === 0;
-    const matches = (cond) =>
-      cond === 'onComplete' || (cond === 'onSuccess' && succeeded) || (cond === 'onFailure' && !succeeded);
-
-    const chain = [...(priorContext?.chain || [])];
-    if (priorContext?.trigger) chain.push(priorContext.trigger);
-    const payload = { id: source.id, name: source.name, output: output || '', exitCode };
-    const downstreamContext = { trigger: payload, task: payload, chain };
-
-    for (const target of (entry.config.assignments || [])) {
-      if (!Array.isArray(target.triggers)) continue;
-      if (target.enabled === false) continue;
-      for (const trig of target.triggers) {
-        if (trig.source !== sourceAssignmentId || !matches(trig.condition)) continue;
-        console.log(`[manager] Assignment trigger: "${source.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
-        this.runAssignment(managerId, target.id, { triggerContext: downstreamContext, promptOverride: trig.prompt })
-          .catch(e => console.error(`[manager] Assignment trigger run failed: ${e.message}`));
-      }
-    }
-  }
-
-  /**
    * Execute an ad-hoc or assignment prompt.
    * Returns immediately with runId. Orchestration runs in background.
    * Poll /api/managers/:id/runs/:runId for live status.
@@ -270,9 +236,6 @@ class ManagerAgent extends EventEmitter {
       this.emit('manager-completed', { managerId, runId, result: orchestrationResult });
       console.log(`[manager] Orchestration run ${runId} completed`);
 
-      // Fire any downstream assignment triggers with this run's output as context
-      this._fireAssignmentTriggers(managerId, assignmentId, 0, orchestrationResult, triggerContext);
-
       return { runId, result: orchestrationResult, steps };
     } catch (err) {
       console.error(`[manager] Orchestration run ${runId} failed:`, err.message);
@@ -290,9 +253,6 @@ class ManagerAgent extends EventEmitter {
 
       this._addMessage(managerId, runId, 'assistant', `Error: ${err.message}`);
       this.emit('manager-error', { managerId, runId, error: err });
-
-      // Fire failure triggers with the error text as context
-      this._fireAssignmentTriggers(managerId, assignmentId, 1, err.message, triggerContext);
 
       return { runId, error: err.message, steps };
     }

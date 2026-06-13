@@ -17,6 +17,7 @@
   </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -2320,41 +2321,6 @@
                       <div class="field-label"><span>Prompt / description</span></div>
                       <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
                     </div>
-                    <!-- Triggers: run THIS task when another task meets a condition -->
-                    <div style="margin-top:16px">
-                      <div class="field-label"><span>Triggers</span><span class="hint">Run this <span x-text="task.type === 'assignment' ? 'assignment' : 'task'"></span> automatically when another finishes</span></div>
-                      <template x-if="!triggerCandidates(task).length">
-                        <div class="hint">No other <span x-text="task.type === 'assignment' ? 'assignments in this manager' : 'tasks'"></span> available to trigger from.</div>
-                      </template>
-                      <template x-if="triggerCandidates(task).length">
-                        <div style="display:flex;flex-direction:column;gap:10px">
-                          <template x-for="(rule, ri) in task.triggersDraft" :key="'tr-' + ri">
-                            <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
-                              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                <span class="hint">Trigger when</span>
-                                <select class="field-input" style="flex:1;min-width:160px" x-model="rule.source">
-                                  <template x-for="cand in triggerCandidates(task)" :key="'src-' + ri + '-' + cand.id">
-                                    <option :value="cand.id" x-text="cand.name"></option>
-                                  </template>
-                                </select>
-                                <select class="field-input" style="width:auto" x-model="rule.condition">
-                                  <option value="onSuccess">succeeds</option>
-                                  <option value="onFailure">fails</option>
-                                  <option value="onComplete">completes (either)</option>
-                                </select>
-                                <button class="icon-button" type="button" title="Remove" @click="removeTriggerRule(task, ri)">✕</button>
-                              </div>
-                              <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Prompt to run, e.g. Send email to chcosta@microsoft.com with body: {{ task.output }}" x-model="rule.prompt"></textarea>
-                            </div>
-                          </template>
-                          <div class="inline-actions">
-                            <button class="btn ghost" type="button" @click="addTriggerRule(task)">＋ Add trigger</button>
-                            <button class="btn primary" type="button" @click="saveTaskTriggers(task)">Save triggers</button>
-                          </div>
-                          <div class="hint">Use <code>{{ task.output }}</code> in a prompt to insert the output of the task that fired this trigger.</div>
-                        </div>
-                      </template>
-                    </div>
                     <!-- Recent run history -->
                     <div style="margin-top:16px">
                       <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
@@ -2388,6 +2354,187 @@
               </template>
             </div>
             <div class="empty-state" x-show="!filteredTasks().length">No tasks matched your filter.</div>
+          </section>
+
+          <!-- ===================== Chains ===================== -->
+          <section x-show="!loading && !errorMessage && route === 'chains'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Chains</h1>
+                <p>Wire tasks together into a conditional pipeline. When a step finishes, each outgoing edge is evaluated (status, output expression, or AI judgment) and matching downstream steps run automatically.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" type="button" @click="newChain()">＋ New Chain</button>
+              </div>
+            </div>
+            <div class="assignment-list">
+              <template x-for="chain in data.chains" :key="chain.id">
+                <article class="task-card">
+                  <div class="assignment-top">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong x-text="chain.name"></strong>
+                        <span class="type-badge" x-text="(chain.steps?.length || 0) + ' steps'"></span>
+                        <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
+                        <span class="status-badge" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
+                    </div>
+                    <div class="toolbar">
+                      <button class="btn" type="button" @click="toggleSelectedChain(chain)" x-text="selectedChainId === chain.id ? 'Collapse' : 'Edit'"></button>
+                      <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
+                    </div>
+                  </div>
+
+                  <!-- Inline flow visualization -->
+                  <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto"></div>
+
+                  <!-- Editor -->
+                  <div x-show="selectedChainId === chain.id && chainDraft" x-transition.opacity.duration.150ms style="margin-top:14px">
+                    <template x-if="chainDraft">
+                      <div style="display:flex;flex-direction:column;gap:16px">
+                        <div class="config-grid">
+                          <div>
+                            <div class="field-label"><span>Name</span></div>
+                            <input class="field-input" type="text" x-model="chainDraft.name" />
+                          </div>
+                          <div>
+                            <div class="field-label"><span>Schedule</span></div>
+                            <select class="field-input" x-model="chainDraft.schedule">
+                              <option value="never">Manual only</option>
+                              <option value="15m">Every 15 minutes</option>
+                              <option value="30m">Every 30 minutes</option>
+                              <option value="1h">Every hour</option>
+                              <option value="6h">Every 6 hours</option>
+                              <option value="24h">Daily</option>
+                              <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <div class="field-label"><span>Description</span></div>
+                          <input class="field-input" type="text" x-model="chainDraft.description" />
+                        </div>
+                        <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
+
+                        <!-- Steps -->
+                        <div>
+                          <div class="field-label"><span>Steps</span><span class="hint">Each step runs a task. Entry steps (no inbound edge) start the chain.</span></div>
+                          <div style="display:flex;flex-direction:column;gap:10px">
+                            <template x-for="(step, si) in chainDraft.steps" :key="step.id">
+                              <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                  <span class="hint" style="font-family:var(--mono,monospace)" x-text="step.id"></span>
+                                  <select class="field-input" style="flex:1;min-width:200px" x-model="step.taskId">
+                                    <option value="">— pick a task —</option>
+                                    <template x-for="t in data.tasks" :key="'cs-' + step.id + '-' + t.id">
+                                      <option :value="t.id" x-text="t.name"></option>
+                                    </template>
+                                  </select>
+                                  <button class="icon-button" type="button" title="Remove step" @click="removeChainStep(si)">✕</button>
+                                </div>
+                                <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Optional prompt override. Use {{ task.output }} to inject the upstream step's output." x-model="step.prompt"></textarea>
+                              </div>
+                            </template>
+                          </div>
+                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainStep()">＋ Add step</button>
+                        </div>
+
+                        <!-- Edges -->
+                        <div>
+                          <div class="field-label"><span>Edges</span><span class="hint">When the source step finishes and the condition passes, the target step runs.</span></div>
+                          <div style="display:flex;flex-direction:column;gap:10px">
+                            <template x-for="(edge, ei) in chainDraft.edges" :key="'ce-' + ei">
+                              <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.from">
+                                    <template x-for="s in chainDraft.steps" :key="'ef-' + ei + '-' + s.id">
+                                      <option :value="s.id" x-text="chainStepLabel(s)"></option>
+                                    </template>
+                                  </select>
+                                  <span class="hint">→</span>
+                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.to">
+                                    <template x-for="s in chainDraft.steps" :key="'et-' + ei + '-' + s.id">
+                                      <option :value="s.id" x-text="chainStepLabel(s)"></option>
+                                    </template>
+                                  </select>
+                                  <button class="icon-button" type="button" title="Remove edge" @click="removeChainEdge(ei)">✕</button>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+                                  <span class="hint">when</span>
+                                  <select class="field-input" style="width:auto" x-model="edge.condition.type">
+                                    <option value="status">status</option>
+                                    <option value="expression">output expression</option>
+                                    <option value="ai">AI judgment</option>
+                                  </select>
+                                  <!-- status -->
+                                  <template x-if="edge.condition.type === 'status'">
+                                    <select class="field-input" style="width:auto" x-model="edge.condition.status">
+                                      <option value="onSuccess">succeeds</option>
+                                      <option value="onFailure">fails</option>
+                                      <option value="onComplete">completes (either)</option>
+                                    </select>
+                                  </template>
+                                  <!-- expression -->
+                                  <template x-if="edge.condition.type === 'expression'">
+                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1">
+                                      <span class="hint">output</span>
+                                      <select class="field-input" style="width:auto" x-model="edge.condition.op">
+                                        <option value="contains">contains</option>
+                                        <option value="notContains">does not contain</option>
+                                        <option value="equals">equals</option>
+                                        <option value="regex">matches regex</option>
+                                        <option value="gt">number &gt;</option>
+                                        <option value="lt">number &lt;</option>
+                                      </select>
+                                      <input class="field-input" style="flex:1;min-width:120px" type="text" placeholder="value" x-model="edge.condition.value" />
+                                    </div>
+                                  </template>
+                                  <!-- ai -->
+                                  <template x-if="edge.condition.type === 'ai'">
+                                    <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">
+                                      <input class="field-input" type="text" placeholder="Predicate, e.g. 'Azure reports an unhealthy or degraded service'" x-model="edge.condition.predicate" />
+                                      <select class="field-input" x-model="edge.condition.agentId">
+                                        <option value="">Built-in evaluator</option>
+                                        <template x-for="a in data.agents" :key="'ai-' + ei + '-' + a.id">
+                                          <option :value="a.id" x-text="'Custom: ' + a.name"></option>
+                                        </template>
+                                      </select>
+                                    </div>
+                                  </template>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainEdge()">＋ Add edge</button>
+                        </div>
+
+                        <div class="inline-actions">
+                          <button class="btn primary" type="button" @click="saveChain()">Save chain</button>
+                          <button class="btn ghost" type="button" @click="selectedChainId = null; chainDraft = null">Cancel</button>
+                          <button class="btn danger" type="button" @click="deleteChain(chain)">Delete chain</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Last run detail -->
+                  <div x-show="chainRunState[chain.id]" style="margin-top:14px">
+                    <div class="field-label"><span>Last run</span><span class="hint" x-text="chainRunState[chain.id] ? formatRelative(chainRunState[chain.id].startedAt) : ''"></span></div>
+                    <div class="run-list" style="margin-top:6px">
+                      <template x-for="(node, sid) in (chainRunState[chain.id]?.nodes || {})" :key="'rn-' + chain.id + '-' + sid">
+                        <div class="run-item" style="padding:8px 12px;display:flex;align-items:center;gap:10px">
+                          <span class="status-badge" style="font-size:0.7rem" :class="statusClass(node.status)" x-text="node.status"></span>
+                          <span x-text="node.taskName || sid"></span>
+                          <span class="hint" x-show="node.reason" x-text="'· ' + node.reason"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="empty-state" x-show="!data.chains.length">No chains yet. Create one to orchestrate tasks conditionally.</div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'assignments'" x-transition.opacity.duration.180ms>
@@ -2497,41 +2644,6 @@
                       <div>
                         <div class="field-label"><span>Manager</span></div>
                         <a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(task.managerId))" style="color:var(--cp-link)" x-text="task.ownerName"></a>
-                      </div>
-                      <!-- Triggers: run THIS assignment when another in this manager meets a condition -->
-                      <div>
-                        <div class="field-label"><span>Triggers</span><span class="hint">Run this assignment when another in this manager finishes</span></div>
-                        <template x-if="!triggerCandidates(task).length">
-                          <div class="hint">No other assignments in this manager to trigger from.</div>
-                        </template>
-                        <template x-if="triggerCandidates(task).length">
-                          <div style="display:flex;flex-direction:column;gap:10px">
-                            <template x-for="(rule, ri) in task.triggersDraft" :key="'atr-' + ri">
-                              <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
-                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                  <span class="hint">Trigger when</span>
-                                  <select class="field-input" style="flex:1;min-width:160px" x-model="rule.source">
-                                    <template x-for="cand in triggerCandidates(task)" :key="'asrc-' + ri + '-' + cand.id">
-                                      <option :value="cand.id" x-text="cand.name"></option>
-                                    </template>
-                                  </select>
-                                  <select class="field-input" style="width:auto" x-model="rule.condition">
-                                    <option value="onSuccess">succeeds</option>
-                                    <option value="onFailure">fails</option>
-                                    <option value="onComplete">completes (either)</option>
-                                  </select>
-                                  <button class="icon-button" type="button" title="Remove" @click="removeTriggerRule(task, ri)">✕</button>
-                                </div>
-                                <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Prompt to run, e.g. Send email to chcosta@microsoft.com with body: {{ task.output }}" x-model="rule.prompt"></textarea>
-                              </div>
-                            </template>
-                            <div class="inline-actions">
-                              <button class="btn ghost" type="button" @click="addTriggerRule(task)">＋ Add trigger</button>
-                              <button class="btn primary" type="button" @click="saveTaskTriggers(task)">Save triggers</button>
-                            </div>
-                            <div class="hint">Use <code>{{ task.output }}</code> in a prompt to insert the output of the assignment that fired this trigger.</div>
-                          </div>
-                        </template>
                       </div>
                       <!-- Recent run history -->
                       <div style="margin-top:8px">
@@ -3718,6 +3830,7 @@
         agents: [],
         managers: [],
         tasks: [],
+        chains: [],
         activity: [],
         chats: [],
         version: null
@@ -3746,6 +3859,9 @@
         expanded: {},
         selectedTaskId: null,
         taskHistoryCache: {},
+        selectedChainId: null,
+        chainDraft: null,
+        chainRunState: {},
         activeChat: null,
         chatDraft: '',
         commandQuery: '',
@@ -3869,6 +3985,12 @@
         async init() {
           this.initTheme();
           this.applyZoom();
+          try {
+            if (typeof mermaid !== 'undefined') {
+              const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+              mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'loose' });
+            }
+          } catch {}
           this.setupRouting();
           await this.refreshAll();
           this.connectEvents();
@@ -4328,7 +4450,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'assignments', 'chat', 'activity', 'events', 'settings'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'chains', 'assignments', 'chat', 'activity', 'events', 'settings'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -4343,6 +4465,8 @@
             await this.loadEvents();
           } else if (this.route === 'settings') {
             await this.loadSyncStatus();
+          } else if (this.route === 'chains') {
+            this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           }
         },
 
@@ -4354,20 +4478,23 @@
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
-            const [agents, managers, version, chats, tasks] = await Promise.all([
+            const [agents, managers, version, chats, tasks, chains] = await Promise.all([
               this.request('/api/agents'),
               this.request('/api/managers'),
               this.request('/api/version'),
               this.request('/api/chats'),
-              this.request('/api/tasks')
+              this.request('/api/tasks'),
+              this.request('/api/chains')
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
             this.data.managers = managers.map((manager) => this.normalizeManager(manager));
             this.data.version = version;
             this.data.chats = chats;
             this.data.tasks = tasks || [];
+            this.data.chains = Array.isArray(chains) ? chains : [];
             await this.loadActivity();
             await this.handleRouteChange();
+            this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } catch (error) {
             this.errorMessage = error.message;
             this.showToast('Load failed', error.message, 'error');
@@ -4530,6 +4657,37 @@
               }
               this.scheduleRefresh();
             });
+            // Chain run lifecycle → live diagram + node states
+            const chainOf = (runId) => (this._chainRunIndex && this._chainRunIndex[runId]) || null;
+            source.addEventListener('chain-run-started', (event) => {
+              const run = JSON.parse(event.data || '{}');
+              if (!this._chainRunIndex) this._chainRunIndex = {};
+              this._chainRunIndex[run.id] = run.chainId;
+              this.chainRunState[run.chainId] = run;
+              this.chainRunState = { ...this.chainRunState };
+              const chain = this.data.chains.find(c => c.id === run.chainId);
+              if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+            });
+            source.addEventListener('chain-run-step', (event) => {
+              const { runId, stepId, status } = JSON.parse(event.data || '{}');
+              const cid = chainOf(runId);
+              if (!cid || !this.chainRunState[cid]) return;
+              if (!this.chainRunState[cid].nodes[stepId]) this.chainRunState[cid].nodes[stepId] = {};
+              this.chainRunState[cid].nodes[stepId].status = status;
+              this.chainRunState = { ...this.chainRunState };
+              const chain = this.data.chains.find(c => c.id === cid);
+              if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+            });
+            source.addEventListener('chain-run-finished', (event) => {
+              const run = JSON.parse(event.data || '{}');
+              this.chainRunState[run.chainId] = run;
+              this.chainRunState = { ...this.chainRunState };
+              const chain = this.data.chains.find(c => c.id === run.chainId);
+              if (chain) this.$nextTick(() => this.renderChainDiagram(chain));
+            });
+            ['chain-created', 'chain-updated', 'chain-deleted'].forEach((ev) => {
+              source.addEventListener(ev, () => this.scheduleRefresh());
+            });
           } catch {
             this.sseStatus = 'unavailable';
           }
@@ -4546,6 +4704,7 @@
             { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', collapsible: true, items: this.sortedChats().slice(0, 8).map((chat) => ({ id: chat.id, label: chat.title, href: `#/chat/${chat.id}`, active: this.route === 'chat-detail' && this.app.routeParam === chat.id, statusClass: this.chatStatusClass(chat) })) },
             { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
+              { key: 'chains', title: 'Chains', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
             ]},
             { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
@@ -6132,56 +6291,153 @@
           }
         },
 
-        // Candidate SOURCE tasks that can trigger this task. Agent-tasks may be
-        // triggered by any other agent-task; assignments by other assignments in
-        // the SAME manager.
-        triggerCandidates(task) {
-          if (task.type === 'assignment') {
-            const manager = this.data.managers.find(m => m.id === task.managerId);
-            return ((manager && manager.config.assignments) || [])
-              .filter(a => a.id !== task.assignmentId)
-              .map(a => ({ id: a.id, name: a.name }));
-          }
-          return (this.data.tasks || [])
-            .filter(t => t.id !== task.id)
-            .map(t => ({ id: t.id, name: t.name }));
-        },
-
-        triggerSourceName(task, sourceId) {
-          const c = this.triggerCandidates(task).find(x => x.id === sourceId);
-          return c ? c.name : (sourceId || 'a source');
-        },
-
-        addTriggerRule(task) {
-          if (!Array.isArray(task.triggersDraft)) task.triggersDraft = [];
-          const first = this.triggerCandidates(task)[0];
-          task.triggersDraft.push({ source: first ? first.id : '', condition: 'onSuccess', prompt: task.prompt || '' });
-        },
-
-        removeTriggerRule(task, idx) {
-          task.triggersDraft.splice(idx, 1);
-        },
-
-        async saveTaskTriggers(task) {
-          // Drop incomplete rows (no source selected).
-          const triggers = (task.triggersDraft || []).filter(r => r.source);
+        // ===================== Chains =====================
+        async loadChains() {
           try {
-            if (task.type === 'agent' && task.id) {
-              await this.request(`/api/tasks/${encodeURIComponent(task.id)}`, {
-                method: 'PUT',
-                body: JSON.stringify({ triggers })
-              });
-            } else if (task.type === 'assignment') {
-              await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/assignments/${encodeURIComponent(task.assignmentId)}/triggers`, {
-                method: 'PUT',
-                body: JSON.stringify({ triggers })
-              });
+            const chains = await this.request('/api/chains');
+            this.data.chains = Array.isArray(chains) ? chains : [];
+            this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
+          } catch (e) { /* ignore */ }
+        },
+
+        chainScheduleSummary(chain) {
+          const s = chain.schedule;
+          if (!s || String(s).toLowerCase() === 'never') return 'Manual only';
+          return 'Schedule: ' + s;
+        },
+
+        chainStepLabel(step) {
+          const t = (this.data.tasks || []).find(x => x.id === step.taskId);
+          return (t ? t.name : (step.taskId || 'unassigned')) + ' (' + step.id + ')';
+        },
+
+        newChain() {
+          const id = 'chain-' + Date.now().toString(36);
+          const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
+          const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
+          const chain = {
+            id, name: 'New chain', description: '', schedule: 'never', enabled: true,
+            steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
+            edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
+            _new: true
+          };
+          this.data.chains.unshift(chain);
+          this.selectedChainId = id;
+          this.chainDraft = JSON.parse(JSON.stringify(chain));
+        },
+
+        toggleSelectedChain(chain) {
+          if (this.selectedChainId === chain.id) { this.selectedChainId = null; this.chainDraft = null; return; }
+          this.selectedChainId = chain.id;
+          this.chainDraft = JSON.parse(JSON.stringify(chain));
+          // Ensure each edge has a condition object with all fields the UI binds to.
+          this.chainDraft.edges.forEach(e => {
+            e.condition = e.condition || { type: 'status', status: 'onSuccess' };
+            if (e.condition.status === undefined) e.condition.status = 'onSuccess';
+            if (e.condition.op === undefined) e.condition.op = 'contains';
+            if (e.condition.value === undefined) e.condition.value = '';
+            if (e.condition.predicate === undefined) e.condition.predicate = '';
+            if (e.condition.agentId === undefined) e.condition.agentId = '';
+          });
+        },
+
+        addChainStep() {
+          if (!this.chainDraft) return;
+          this.chainDraft.steps.push({ id: 'step-' + Math.random().toString(36).slice(2, 7), taskId: '', prompt: '' });
+        },
+        removeChainStep(idx) {
+          const step = this.chainDraft.steps[idx];
+          this.chainDraft.steps.splice(idx, 1);
+          if (step) this.chainDraft.edges = this.chainDraft.edges.filter(e => e.from !== step.id && e.to !== step.id);
+        },
+        addChainEdge() {
+          if (!this.chainDraft || this.chainDraft.steps.length < 2) return;
+          const steps = this.chainDraft.steps;
+          this.chainDraft.edges.push({ from: steps[0].id, to: steps[1].id, condition: { type: 'status', status: 'onSuccess', op: 'contains', value: '', predicate: '', agentId: '' } });
+        },
+        removeChainEdge(idx) { this.chainDraft.edges.splice(idx, 1); },
+
+        _cleanChainPayload(draft) {
+          return {
+            id: draft.id,
+            name: draft.name,
+            description: draft.description,
+            schedule: draft.schedule,
+            enabled: draft.enabled !== false,
+            steps: draft.steps.map(s => ({ id: s.id, taskId: s.taskId || null, prompt: s.prompt || '' })),
+            edges: draft.edges.map(e => {
+              const c = e.condition || {};
+              let condition;
+              if (c.type === 'expression') condition = { type: 'expression', op: c.op || 'contains', value: c.value || '' };
+              else if (c.type === 'ai') condition = { type: 'ai', predicate: c.predicate || '', agentId: c.agentId || null };
+              else condition = { type: 'status', status: c.status || 'onSuccess' };
+              return { from: e.from, to: e.to, condition };
+            })
+          };
+        },
+
+        async saveChain() {
+          if (!this.chainDraft) return;
+          const payload = this._cleanChainPayload(this.chainDraft);
+          const isNew = !!this.chainDraft._new;
+          try {
+            if (isNew) {
+              await this.request('/api/chains', { method: 'POST', body: JSON.stringify(payload) });
+            } else {
+              await this.request('/api/chains/' + encodeURIComponent(payload.id), { method: 'PUT', body: JSON.stringify(payload) });
             }
-            this.showToast('Triggers saved', 'Trigger rules updated.', 'info');
-            await this.refreshAll(false);
-          } catch (error) {
-            this.showToast('Save failed', error.message, 'error');
+            this.showToast('Chain saved', `"${payload.name}" saved.`, 'info');
+            this.selectedChainId = null;
+            this.chainDraft = null;
+            await this.loadChains();
+          } catch (e) {
+            this.showToast('Save failed', e.message, 'error');
           }
+        },
+
+        async deleteChain(chain) {
+          if (!confirm(`Delete chain "${chain.name}"?`)) return;
+          try {
+            if (!chain._new) await this.request('/api/chains/' + encodeURIComponent(chain.id), { method: 'DELETE' });
+            this.data.chains = this.data.chains.filter(c => c.id !== chain.id);
+            this.selectedChainId = null;
+            this.chainDraft = null;
+            this.showToast('Chain deleted', '', 'info');
+          } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
+        },
+
+        async runChain(chain) {
+          if (chain._new) { this.showToast('Save first', 'Save the chain before running it.', 'error'); return; }
+          try {
+            await this.request('/api/chains/' + encodeURIComponent(chain.id) + '/run', { method: 'POST', body: '{}' });
+            this.showToast('Chain started', `"${chain.name}" is running.`, 'info');
+          } catch (e) { this.showToast('Run failed', e.message, 'error'); }
+        },
+
+        renderChainDiagram(chain) {
+          const el = document.getElementById('chain-diagram-' + chain.id);
+          if (!el || typeof mermaid === 'undefined') return;
+          const run = this.chainRunState[chain.id];
+          const safe = (s) => (s || '').replace(/"/g, "'");
+          const lines = ['graph LR'];
+          (chain.steps || []).forEach(s => {
+            const t = (this.data.tasks || []).find(x => x.id === s.taskId);
+            const label = safe(t ? t.name : (s.taskId || 'unassigned'));
+            lines.push(`  ${s.id}["${label}"]`);
+            const st = run && run.nodes && run.nodes[s.id] && run.nodes[s.id].status;
+            if (st === 'succeeded') lines.push(`  style ${s.id} fill:#16a34a22,stroke:#16a34a`);
+            else if (st === 'failed') lines.push(`  style ${s.id} fill:#dc262622,stroke:#dc2626`);
+            else if (st === 'running') lines.push(`  style ${s.id} fill:#f59e0b22,stroke:#f59e0b`);
+          });
+          (chain.edges || []).forEach(e => {
+            const c = e.condition || {};
+            let lbl = c.type === 'expression' ? (c.op + ' ' + (c.value || '')) : c.type === 'ai' ? 'AI' : (c.status || 'onSuccess');
+            lines.push(`  ${e.from} -->|${safe(lbl)}| ${e.to}`);
+          });
+          const src = lines.join('\n');
+          try {
+            mermaid.render('mmd-' + chain.id + '-' + Date.now().toString(36), src).then(({ svg }) => { el.innerHTML = svg; }).catch(() => { el.innerHTML = ''; });
+          } catch { el.innerHTML = ''; }
         },
 
         async openOrgPicker() {
