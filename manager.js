@@ -139,17 +139,18 @@ class ManagerAgent extends EventEmitter {
     const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
     if (!assignment) throw new Error(`Unknown assignment: ${assignmentId}`);
 
-    // When fired by an upstream assignment trigger, interpolate {{ trigger.* }}
-    // variables (e.g. the upstream output) into this assignment's prompt.
-    let prompt = assignment.prompt;
+    // A trigger may supply its own prompt to run (overriding the assignment's
+    // default prompt). When fired by an upstream trigger, interpolate
+    // {{ task.* }} / {{ trigger.* }} variables (e.g. the upstream output).
+    let prompt = opts.promptOverride || assignment.prompt;
     if (opts.triggerContext) prompt = this._interpolatePrompt(prompt, opts.triggerContext);
 
     return this.executePrompt(managerId, prompt, assignmentId, opts);
   }
 
   /**
-   * Replace {{ trigger.output }} / {{ trigger.name }} / {{ chain[N].output }} etc.
-   * with values from an assignment trigger context. Unknown tokens are left intact.
+   * Replace {{ task.output }} / {{ trigger.output }} / {{ trigger.name }} etc.
+   * with values from a trigger context. Unknown tokens are left intact.
    */
   _interpolatePrompt(template, context) {
     if (!template || !context) return template;
@@ -167,40 +168,36 @@ class ManagerAgent extends EventEmitter {
   }
 
   /**
-   * Fire conditional triggers defined ON an assignment after it completes.
-   * Targets are other assignment IDs within the same manager. The completed
-   * assignment becomes the {{ trigger }} context for its downstream targets.
+   * After an assignment completes, fire any assignments whose inbound triggers
+   * reference it as a source and whose condition matches the outcome. Triggers
+   * live ON the target assignment as an array of { source, condition, prompt }.
+   * Sources are other assignments within the same manager.
    */
-  _fireAssignmentTriggers(managerId, assignmentId, exitCode, output, priorContext) {
-    if (!assignmentId) return;
+  _fireAssignmentTriggers(managerId, sourceAssignmentId, exitCode, output, priorContext) {
+    if (!sourceAssignmentId) return;
     const entry = this.managers.get(managerId);
     if (!entry) return;
-    const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
-    if (!assignment || !assignment.triggers) return;
+    const source = (entry.config.assignments || []).find(a => a.id === sourceAssignmentId);
+    if (!source) return;
 
     const succeeded = exitCode === 0;
-    const asArr = (v) => (v == null ? [] : (Array.isArray(v) ? v : [v]));
-    const targets = [];
-    if (succeeded) targets.push(...asArr(assignment.triggers.onSuccess));
-    if (!succeeded) targets.push(...asArr(assignment.triggers.onFailure));
-    targets.push(...asArr(assignment.triggers.onComplete));
-    const unique = [...new Set(targets)].filter(Boolean);
-    if (!unique.length) return;
+    const matches = (cond) =>
+      cond === 'onComplete' || (cond === 'onSuccess' && succeeded) || (cond === 'onFailure' && !succeeded);
 
     const chain = [...(priorContext?.chain || [])];
     if (priorContext?.trigger) chain.push(priorContext.trigger);
-    const downstreamContext = {
-      trigger: { id: assignment.id, name: assignment.name, output: output || '', exitCode },
-      chain
-    };
+    const payload = { id: source.id, name: source.name, output: output || '', exitCode };
+    const downstreamContext = { trigger: payload, task: payload, chain };
 
-    for (const targetId of unique) {
-      const target = (entry.config.assignments || []).find(a => a.id === targetId);
-      if (!target) { console.warn(`[manager] Assignment trigger target "${targetId}" not found`); continue; }
-      if (target.enabled === false) { console.log(`[manager] Assignment trigger target "${target.name}" disabled; skipping`); continue; }
-      console.log(`[manager] Assignment trigger: "${assignment.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
-      this.runAssignment(managerId, targetId, { triggerContext: downstreamContext }).catch(e =>
-        console.error(`[manager] Assignment trigger run failed: ${e.message}`));
+    for (const target of (entry.config.assignments || [])) {
+      if (!Array.isArray(target.triggers)) continue;
+      if (target.enabled === false) continue;
+      for (const trig of target.triggers) {
+        if (trig.source !== sourceAssignmentId || !matches(trig.condition)) continue;
+        console.log(`[manager] Assignment trigger: "${source.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
+        this.runAssignment(managerId, target.id, { triggerContext: downstreamContext, promptOverride: trig.prompt })
+          .catch(e => console.error(`[manager] Assignment trigger run failed: ${e.message}`));
+      }
     }
   }
 

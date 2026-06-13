@@ -1271,10 +1271,11 @@ const { Cron: TaskCron } = require('croner');
 const { parseSchedule: parseTaskSchedule } = require('./scheduler');
 const taskJobs = new Map(); // taskId -> { stop() }
 
-// Central task runner. Runs a task's agent with the task's prompt, then fires any
-// downstream task triggers once the run completes. `triggerContext` carries the
-// upstream task's output for {{ trigger.* }} interpolation in chained tasks.
-function executeTask(task, triggerContext = null, { scheduled = false } = {}) {
+// Central task runner. Runs a task's agent, then fires any downstream task
+// triggers once the run completes. `triggerContext` carries the upstream task's
+// output for {{ task.* }} interpolation. `promptOverride` lets an inbound
+// trigger supply its own prompt instead of the task's default prompt.
+function executeTask(task, triggerContext = null, { scheduled = false, promptOverride = null } = {}) {
   const entry = supervisor.agents.get(task.agentId);
   if (!entry) {
     console.warn(`[task-scheduler] Agent "${task.agentId}" not found for task "${task.name}"`);
@@ -1293,7 +1294,7 @@ function executeTask(task, triggerContext = null, { scheduled = false } = {}) {
   supervisor.on('agent-completed', onDone);
 
   const originalPrompt = entry.config.prompt;
-  entry.config.prompt = task.prompt;
+  entry.config.prompt = promptOverride || task.prompt;
   try { supervisor._executeAgent(task.agentId, triggerContext); }
   catch (e) { supervisor.off('agent-completed', onDone); throw e; }
   finally { entry.config.prompt = originalPrompt; }
@@ -1301,42 +1302,30 @@ function executeTask(task, triggerContext = null, { scheduled = false } = {}) {
   return true;
 }
 
-// Fire conditional triggers defined ON a task after it completes. Triggers list
-// downstream task IDs to run on success/failure/completion, mirroring the old
-// agent-level model but at the task layer.
-function fireTaskTriggers(task, exitCode, output, priorContext) {
-  const triggers = task.triggers;
-  if (!triggers) return;
+// After a source task completes, fire any tasks whose INBOUND triggers reference
+// it as a source and whose condition matches the outcome. Triggers live ON the
+// target task as an array of { source, condition, prompt }. Each trigger runs
+// the target task's agent with the trigger's own prompt, with the source task's
+// output exposed as {{ task.output }} / {{ trigger.output }}.
+function fireTaskTriggers(sourceTask, exitCode, output, priorContext) {
   const succeeded = exitCode === 0;
-  const asArr = (v) => (v == null ? [] : (Array.isArray(v) ? v : [v]));
-  const targets = [];
-  if (succeeded) targets.push(...asArr(triggers.onSuccess));
-  if (!succeeded) targets.push(...asArr(triggers.onFailure));
-  targets.push(...asArr(triggers.onComplete));
-  const unique = [...new Set(targets)].filter(Boolean);
-  if (!unique.length) return;
+  const matches = (cond) =>
+    cond === 'onComplete' || (cond === 'onSuccess' && succeeded) || (cond === 'onFailure' && !succeeded);
 
-  // Build downstream context: this task becomes the {{ trigger }} for its targets.
   const chain = [...(priorContext?.chain || [])];
   if (priorContext?.trigger) chain.push(priorContext.trigger);
-  const downstreamContext = {
-    trigger: {
-      id: task.id,
-      name: task.name,
-      output: output || '',
-      exitCode,
-      prompt: task.prompt
-    },
-    chain
-  };
+  const payload = { id: sourceTask.id, name: sourceTask.name, output: output || '', exitCode, prompt: sourceTask.prompt };
+  const downstreamContext = { trigger: payload, task: payload, chain };
 
   const allTasks = loadTasks();
-  for (const targetId of unique) {
-    const target = allTasks.find(t => t.id === targetId);
-    if (!target) { console.warn(`[task-trigger] Target task "${targetId}" not found`); continue; }
-    if (target.enabled === false) { console.log(`[task-trigger] Target task "${target.name}" disabled; skipping`); continue; }
-    console.log(`[task-trigger] "${task.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
-    executeTask(target, downstreamContext);
+  for (const target of allTasks) {
+    if (!Array.isArray(target.triggers)) continue;
+    if (target.enabled === false) continue;
+    for (const trig of target.triggers) {
+      if (trig.source !== sourceTask.id || !matches(trig.condition)) continue;
+      console.log(`[task-trigger] "${sourceTask.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
+      executeTask(target, downstreamContext, { promptOverride: trig.prompt });
+    }
   }
 }
 

@@ -2320,31 +2320,38 @@
                       <div class="field-label"><span>Prompt / description</span></div>
                       <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
                     </div>
-                    <!-- Triggers: chain this task to downstream tasks on completion -->
+                    <!-- Triggers: run THIS task when another task meets a condition -->
                     <div style="margin-top:16px">
-                      <div class="field-label"><span>Triggers</span><span class="hint" x-text="task.type === 'assignment' ? 'Chain to assignments in this manager' : 'Chain to other tasks'"></span></div>
-                      <div class="hint" style="margin-bottom:8px">When this <span x-text="task.type === 'assignment' ? 'assignment' : 'task'"></span> finishes, automatically run the selected downstream items. The upstream output is available to them as <code>{{ trigger.output }}</code>.</div>
+                      <div class="field-label"><span>Triggers</span><span class="hint">Run this <span x-text="task.type === 'assignment' ? 'assignment' : 'task'"></span> automatically when another finishes</span></div>
                       <template x-if="!triggerCandidates(task).length">
-                        <div class="hint">No other <span x-text="task.type === 'assignment' ? 'assignments in this manager' : 'tasks'"></span> available to chain to.</div>
+                        <div class="hint">No other <span x-text="task.type === 'assignment' ? 'assignments in this manager' : 'tasks'"></span> available to trigger from.</div>
                       </template>
                       <template x-if="triggerCandidates(task).length">
-                        <div style="display:flex;flex-direction:column;gap:12px">
-                          <template x-for="ev in [{key:'onSuccess',label:'On success'},{key:'onFailure',label:'On failure'},{key:'onComplete',label:'On complete (always)'}]" :key="ev.key">
-                            <div>
-                              <div class="hint" style="font-weight:600;margin-bottom:4px" x-text="ev.label"></div>
-                              <div style="display:flex;flex-wrap:wrap;gap:8px">
-                                <template x-for="cand in triggerCandidates(task)" :key="ev.key + '-' + cand.id">
-                                  <label class="trigger-chip" :class="isTriggerSet(task, ev.key, cand.id) ? 'on' : ''" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--cp-border);border-radius:999px;cursor:pointer;font-size:0.78rem">
-                                    <input type="checkbox" :checked="isTriggerSet(task, ev.key, cand.id)" @change="toggleTrigger(task, ev.key, cand.id)" style="margin:0" />
-                                    <span x-text="cand.name"></span>
-                                  </label>
-                                </template>
+                        <div style="display:flex;flex-direction:column;gap:10px">
+                          <template x-for="(rule, ri) in task.triggersDraft" :key="'tr-' + ri">
+                            <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
+                              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                <span class="hint">Trigger when</span>
+                                <select class="field-input" style="flex:1;min-width:160px" x-model="rule.source">
+                                  <template x-for="cand in triggerCandidates(task)" :key="'src-' + ri + '-' + cand.id">
+                                    <option :value="cand.id" x-text="cand.name"></option>
+                                  </template>
+                                </select>
+                                <select class="field-input" style="width:auto" x-model="rule.condition">
+                                  <option value="onSuccess">succeeds</option>
+                                  <option value="onFailure">fails</option>
+                                  <option value="onComplete">completes (either)</option>
+                                </select>
+                                <button class="icon-button" type="button" title="Remove" @click="removeTriggerRule(task, ri)">✕</button>
                               </div>
+                              <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Prompt to run, e.g. Send email to chcosta@microsoft.com with body: {{ task.output }}" x-model="rule.prompt"></textarea>
                             </div>
                           </template>
                           <div class="inline-actions">
+                            <button class="btn ghost" type="button" @click="addTriggerRule(task)">＋ Add trigger</button>
                             <button class="btn primary" type="button" @click="saveTaskTriggers(task)">Save triggers</button>
                           </div>
+                          <div class="hint">Use <code>{{ task.output }}</code> in a prompt to insert the output of the task that fired this trigger.</div>
                         </div>
                       </template>
                     </div>
@@ -2491,31 +2498,38 @@
                         <div class="field-label"><span>Manager</span></div>
                         <a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(task.managerId))" style="color:var(--cp-link)" x-text="task.ownerName"></a>
                       </div>
-                      <!-- Triggers: chain to other assignments in this manager -->
+                      <!-- Triggers: run THIS assignment when another in this manager meets a condition -->
                       <div>
-                        <div class="field-label"><span>Triggers</span><span class="hint">Chain to assignments in this manager</span></div>
-                        <div class="hint" style="margin-bottom:8px">When this assignment finishes, automatically run the selected downstream assignments. The upstream output is available as <code>{{ trigger.output }}</code>.</div>
+                        <div class="field-label"><span>Triggers</span><span class="hint">Run this assignment when another in this manager finishes</span></div>
                         <template x-if="!triggerCandidates(task).length">
-                          <div class="hint">No other assignments in this manager to chain to.</div>
+                          <div class="hint">No other assignments in this manager to trigger from.</div>
                         </template>
                         <template x-if="triggerCandidates(task).length">
-                          <div style="display:flex;flex-direction:column;gap:12px">
-                            <template x-for="ev in [{key:'onSuccess',label:'On success'},{key:'onFailure',label:'On failure'},{key:'onComplete',label:'On complete (always)'}]" :key="'a-' + ev.key">
-                              <div>
-                                <div class="hint" style="font-weight:600;margin-bottom:4px" x-text="ev.label"></div>
-                                <div style="display:flex;flex-wrap:wrap;gap:8px">
-                                  <template x-for="cand in triggerCandidates(task)" :key="'a-' + ev.key + '-' + cand.id">
-                                    <label class="trigger-chip" :class="isTriggerSet(task, ev.key, cand.id) ? 'on' : ''" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--cp-border);border-radius:999px;cursor:pointer;font-size:0.78rem">
-                                      <input type="checkbox" :checked="isTriggerSet(task, ev.key, cand.id)" @change="toggleTrigger(task, ev.key, cand.id)" style="margin:0" />
-                                      <span x-text="cand.name"></span>
-                                    </label>
-                                  </template>
+                          <div style="display:flex;flex-direction:column;gap:10px">
+                            <template x-for="(rule, ri) in task.triggersDraft" :key="'atr-' + ri">
+                              <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                  <span class="hint">Trigger when</span>
+                                  <select class="field-input" style="flex:1;min-width:160px" x-model="rule.source">
+                                    <template x-for="cand in triggerCandidates(task)" :key="'asrc-' + ri + '-' + cand.id">
+                                      <option :value="cand.id" x-text="cand.name"></option>
+                                    </template>
+                                  </select>
+                                  <select class="field-input" style="width:auto" x-model="rule.condition">
+                                    <option value="onSuccess">succeeds</option>
+                                    <option value="onFailure">fails</option>
+                                    <option value="onComplete">completes (either)</option>
+                                  </select>
+                                  <button class="icon-button" type="button" title="Remove" @click="removeTriggerRule(task, ri)">✕</button>
                                 </div>
+                                <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Prompt to run, e.g. Send email to chcosta@microsoft.com with body: {{ task.output }}" x-model="rule.prompt"></textarea>
                               </div>
                             </template>
                             <div class="inline-actions">
+                              <button class="btn ghost" type="button" @click="addTriggerRule(task)">＋ Add trigger</button>
                               <button class="btn primary" type="button" @click="saveTaskTriggers(task)">Save triggers</button>
                             </div>
+                            <div class="hint">Use <code>{{ task.output }}</code> in a prompt to insert the output of the assignment that fired this trigger.</div>
                           </div>
                         </template>
                       </div>
@@ -4634,8 +4648,8 @@
               prompt: task.prompt || '',
               managerId: null,
               assignmentId: null,
-              triggers: task.triggers || {},
-              triggersDraft: JSON.parse(JSON.stringify(task.triggers || {}))
+              triggers: Array.isArray(task.triggers) ? task.triggers : [],
+              triggersDraft: JSON.parse(JSON.stringify(Array.isArray(task.triggers) ? task.triggers : []))
             };
           });
           // Manager assignments
@@ -4657,8 +4671,8 @@
             lastRun: manager.lastRun,
             prompt: assignment.prompt || '',
             agentId: null,
-            triggers: assignment.triggers || {},
-            triggersDraft: JSON.parse(JSON.stringify(assignment.triggers || {}))
+            triggers: Array.isArray(assignment.triggers) ? assignment.triggers : [],
+            triggersDraft: JSON.parse(JSON.stringify(Array.isArray(assignment.triggers) ? assignment.triggers : []))
           })));
           return [...agentTasks, ...assignments];
         },
@@ -6118,9 +6132,9 @@
           }
         },
 
-        // Candidate downstream targets for a task's triggers.
-        // Agent-tasks can chain to any other agent-task; assignments chain to
-        // other assignments within the SAME manager.
+        // Candidate SOURCE tasks that can trigger this task. Agent-tasks may be
+        // triggered by any other agent-task; assignments by other assignments in
+        // the SAME manager.
         triggerCandidates(task) {
           if (task.type === 'assignment') {
             const manager = this.data.managers.find(m => m.id === task.managerId);
@@ -6133,22 +6147,24 @@
             .map(t => ({ id: t.id, name: t.name }));
         },
 
-        toggleTrigger(task, event, targetId) {
-          if (!task.triggersDraft) task.triggersDraft = {};
-          const list = task.triggersDraft[event] || [];
-          const idx = list.indexOf(targetId);
-          if (idx >= 0) list.splice(idx, 1);
-          else list.push(targetId);
-          if (list.length) task.triggersDraft[event] = list;
-          else delete task.triggersDraft[event];
+        triggerSourceName(task, sourceId) {
+          const c = this.triggerCandidates(task).find(x => x.id === sourceId);
+          return c ? c.name : (sourceId || 'a source');
         },
 
-        isTriggerSet(task, event, targetId) {
-          return !!(task.triggersDraft && task.triggersDraft[event] && task.triggersDraft[event].includes(targetId));
+        addTriggerRule(task) {
+          if (!Array.isArray(task.triggersDraft)) task.triggersDraft = [];
+          const first = this.triggerCandidates(task)[0];
+          task.triggersDraft.push({ source: first ? first.id : '', condition: 'onSuccess', prompt: task.prompt || '' });
+        },
+
+        removeTriggerRule(task, idx) {
+          task.triggersDraft.splice(idx, 1);
         },
 
         async saveTaskTriggers(task) {
-          const triggers = task.triggersDraft || {};
+          // Drop incomplete rows (no source selected).
+          const triggers = (task.triggersDraft || []).filter(r => r.source);
           try {
             if (task.type === 'agent' && task.id) {
               await this.request(`/api/tasks/${encodeURIComponent(task.id)}`, {
@@ -6161,7 +6177,7 @@
                 body: JSON.stringify({ triggers })
               });
             }
-            this.showToast('Triggers saved', 'Downstream chaining updated.', 'info');
+            this.showToast('Triggers saved', 'Trigger rules updated.', 'info');
             await this.refreshAll(false);
           } catch (error) {
             this.showToast('Save failed', error.message, 'error');
