@@ -370,6 +370,11 @@
       color: var(--cp-success);
       background: color-mix(in srgb, var(--cp-success) 14%, transparent);
     }
+    .trigger-chip.on {
+      border-color: var(--cp-accent) !important;
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
     .status-badge.idle {
       color: var(--cp-text-soft);
     }
@@ -1707,23 +1712,18 @@
                       <div class="entity-top">
                         <div>
                           <h3 class="entity-name" x-text="agent.name"></h3>
-                          <div class="entity-subtitle" x-text="agent.config.pluginDir ? 'Plugin' : 'Agent'"></div>
+                          <div class="entity-subtitle" x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></div>
                         </div>
-                        <span class="status-badge" :class="statusClass(agent.status)" x-text="statusLabel(agent.status)"></span>
                       </div>
-                      <div class="meta-grid">
+                      <div class="meta-grid" x-show="agent.config.description">
                         <div>
-                          <span class="meta-label">Last run</span>
-                          <div x-text="agent.lastRun ? formatRelative(agent.lastRun.finished_at || agent.lastRun.started_at) : 'Never'"></div>
-                        </div>
-                        <div>
-                          <span class="meta-label">Type</span>
-                          <div class="line-clamp" x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></div>
+                          <span class="meta-label">Description</span>
+                          <div class="line-clamp" x-text="agent.config.description"></div>
                         </div>
                       </div>
                       <div class="split-meta">
                         <span class="tiny-badge" x-text="agent.config.group || 'Ungrouped'"></span>
-                        <span class="nav-dot" :class="agent.status === 'running' ? 'running' : 'idle'"></span>
+                        <span class="hint" x-show="agent.status === 'running'">⚡ running</span>
                       </div>
                     </article>
                   </template>
@@ -2320,6 +2320,34 @@
                       <div class="field-label"><span>Prompt / description</span></div>
                       <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
                     </div>
+                    <!-- Triggers: chain this task to downstream tasks on completion -->
+                    <div style="margin-top:16px">
+                      <div class="field-label"><span>Triggers</span><span class="hint" x-text="task.type === 'assignment' ? 'Chain to assignments in this manager' : 'Chain to other tasks'"></span></div>
+                      <div class="hint" style="margin-bottom:8px">When this <span x-text="task.type === 'assignment' ? 'assignment' : 'task'"></span> finishes, automatically run the selected downstream items. The upstream output is available to them as <code>{{ trigger.output }}</code>.</div>
+                      <template x-if="!triggerCandidates(task).length">
+                        <div class="hint">No other <span x-text="task.type === 'assignment' ? 'assignments in this manager' : 'tasks'"></span> available to chain to.</div>
+                      </template>
+                      <template x-if="triggerCandidates(task).length">
+                        <div style="display:flex;flex-direction:column;gap:12px">
+                          <template x-for="ev in [{key:'onSuccess',label:'On success'},{key:'onFailure',label:'On failure'},{key:'onComplete',label:'On complete (always)'}]" :key="ev.key">
+                            <div>
+                              <div class="hint" style="font-weight:600;margin-bottom:4px" x-text="ev.label"></div>
+                              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                                <template x-for="cand in triggerCandidates(task)" :key="ev.key + '-' + cand.id">
+                                  <label class="trigger-chip" :class="isTriggerSet(task, ev.key, cand.id) ? 'on' : ''" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--cp-border);border-radius:999px;cursor:pointer;font-size:0.78rem">
+                                    <input type="checkbox" :checked="isTriggerSet(task, ev.key, cand.id)" @change="toggleTrigger(task, ev.key, cand.id)" style="margin:0" />
+                                    <span x-text="cand.name"></span>
+                                  </label>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                          <div class="inline-actions">
+                            <button class="btn primary" type="button" @click="saveTaskTriggers(task)">Save triggers</button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
                     <!-- Recent run history -->
                     <div style="margin-top:16px">
                       <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
@@ -2462,6 +2490,34 @@
                       <div>
                         <div class="field-label"><span>Manager</span></div>
                         <a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(task.managerId))" style="color:var(--cp-link)" x-text="task.ownerName"></a>
+                      </div>
+                      <!-- Triggers: chain to other assignments in this manager -->
+                      <div>
+                        <div class="field-label"><span>Triggers</span><span class="hint">Chain to assignments in this manager</span></div>
+                        <div class="hint" style="margin-bottom:8px">When this assignment finishes, automatically run the selected downstream assignments. The upstream output is available as <code>{{ trigger.output }}</code>.</div>
+                        <template x-if="!triggerCandidates(task).length">
+                          <div class="hint">No other assignments in this manager to chain to.</div>
+                        </template>
+                        <template x-if="triggerCandidates(task).length">
+                          <div style="display:flex;flex-direction:column;gap:12px">
+                            <template x-for="ev in [{key:'onSuccess',label:'On success'},{key:'onFailure',label:'On failure'},{key:'onComplete',label:'On complete (always)'}]" :key="'a-' + ev.key">
+                              <div>
+                                <div class="hint" style="font-weight:600;margin-bottom:4px" x-text="ev.label"></div>
+                                <div style="display:flex;flex-wrap:wrap;gap:8px">
+                                  <template x-for="cand in triggerCandidates(task)" :key="'a-' + ev.key + '-' + cand.id">
+                                    <label class="trigger-chip" :class="isTriggerSet(task, ev.key, cand.id) ? 'on' : ''" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--cp-border);border-radius:999px;cursor:pointer;font-size:0.78rem">
+                                      <input type="checkbox" :checked="isTriggerSet(task, ev.key, cand.id)" @change="toggleTrigger(task, ev.key, cand.id)" style="margin:0" />
+                                      <span x-text="cand.name"></span>
+                                    </label>
+                                  </template>
+                                </div>
+                              </div>
+                            </template>
+                            <div class="inline-actions">
+                              <button class="btn primary" type="button" @click="saveTaskTriggers(task)">Save triggers</button>
+                            </div>
+                          </div>
+                        </template>
                       </div>
                       <!-- Recent run history -->
                       <div style="margin-top:8px">
@@ -4577,7 +4633,9 @@
               lastRun: agent ? agent.lastRun : null,
               prompt: task.prompt || '',
               managerId: null,
-              assignmentId: null
+              assignmentId: null,
+              triggers: task.triggers || {},
+              triggersDraft: JSON.parse(JSON.stringify(task.triggers || {}))
             };
           });
           // Manager assignments
@@ -4598,7 +4656,9 @@
             nextRun: assignment.nextRun,
             lastRun: manager.lastRun,
             prompt: assignment.prompt || '',
-            agentId: null
+            agentId: null,
+            triggers: assignment.triggers || {},
+            triggersDraft: JSON.parse(JSON.stringify(assignment.triggers || {}))
           })));
           return [...agentTasks, ...assignments];
         },
@@ -6055,6 +6115,56 @@
             } catch (error) {
               this.showToast('Save failed', error.message, 'error');
             }
+          }
+        },
+
+        // Candidate downstream targets for a task's triggers.
+        // Agent-tasks can chain to any other agent-task; assignments chain to
+        // other assignments within the SAME manager.
+        triggerCandidates(task) {
+          if (task.type === 'assignment') {
+            const manager = this.data.managers.find(m => m.id === task.managerId);
+            return ((manager && manager.config.assignments) || [])
+              .filter(a => a.id !== task.assignmentId)
+              .map(a => ({ id: a.id, name: a.name }));
+          }
+          return (this.data.tasks || [])
+            .filter(t => t.id !== task.id)
+            .map(t => ({ id: t.id, name: t.name }));
+        },
+
+        toggleTrigger(task, event, targetId) {
+          if (!task.triggersDraft) task.triggersDraft = {};
+          const list = task.triggersDraft[event] || [];
+          const idx = list.indexOf(targetId);
+          if (idx >= 0) list.splice(idx, 1);
+          else list.push(targetId);
+          if (list.length) task.triggersDraft[event] = list;
+          else delete task.triggersDraft[event];
+        },
+
+        isTriggerSet(task, event, targetId) {
+          return !!(task.triggersDraft && task.triggersDraft[event] && task.triggersDraft[event].includes(targetId));
+        },
+
+        async saveTaskTriggers(task) {
+          const triggers = task.triggersDraft || {};
+          try {
+            if (task.type === 'agent' && task.id) {
+              await this.request(`/api/tasks/${encodeURIComponent(task.id)}`, {
+                method: 'PUT',
+                body: JSON.stringify({ triggers })
+              });
+            } else if (task.type === 'assignment') {
+              await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/assignments/${encodeURIComponent(task.assignmentId)}/triggers`, {
+                method: 'PUT',
+                body: JSON.stringify({ triggers })
+              });
+            }
+            this.showToast('Triggers saved', 'Downstream chaining updated.', 'info');
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
           }
         },
 

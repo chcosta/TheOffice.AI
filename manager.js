@@ -139,7 +139,69 @@ class ManagerAgent extends EventEmitter {
     const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
     if (!assignment) throw new Error(`Unknown assignment: ${assignmentId}`);
 
-    return this.executePrompt(managerId, assignment.prompt, assignmentId, opts);
+    // When fired by an upstream assignment trigger, interpolate {{ trigger.* }}
+    // variables (e.g. the upstream output) into this assignment's prompt.
+    let prompt = assignment.prompt;
+    if (opts.triggerContext) prompt = this._interpolatePrompt(prompt, opts.triggerContext);
+
+    return this.executePrompt(managerId, prompt, assignmentId, opts);
+  }
+
+  /**
+   * Replace {{ trigger.output }} / {{ trigger.name }} / {{ chain[N].output }} etc.
+   * with values from an assignment trigger context. Unknown tokens are left intact.
+   */
+  _interpolatePrompt(template, context) {
+    if (!template || !context) return template;
+    return template.replace(/\{\{\s*(.+?)\s*\}\}/g, (match, expr) => {
+      try {
+        const parts = expr.split(/\.|\[|\]/).filter(Boolean);
+        let value = context;
+        for (const part of parts) {
+          if (value == null) return match;
+          value = value[part];
+        }
+        return value == null ? match : String(value);
+      } catch { return match; }
+    });
+  }
+
+  /**
+   * Fire conditional triggers defined ON an assignment after it completes.
+   * Targets are other assignment IDs within the same manager. The completed
+   * assignment becomes the {{ trigger }} context for its downstream targets.
+   */
+  _fireAssignmentTriggers(managerId, assignmentId, exitCode, output, priorContext) {
+    if (!assignmentId) return;
+    const entry = this.managers.get(managerId);
+    if (!entry) return;
+    const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
+    if (!assignment || !assignment.triggers) return;
+
+    const succeeded = exitCode === 0;
+    const asArr = (v) => (v == null ? [] : (Array.isArray(v) ? v : [v]));
+    const targets = [];
+    if (succeeded) targets.push(...asArr(assignment.triggers.onSuccess));
+    if (!succeeded) targets.push(...asArr(assignment.triggers.onFailure));
+    targets.push(...asArr(assignment.triggers.onComplete));
+    const unique = [...new Set(targets)].filter(Boolean);
+    if (!unique.length) return;
+
+    const chain = [...(priorContext?.chain || [])];
+    if (priorContext?.trigger) chain.push(priorContext.trigger);
+    const downstreamContext = {
+      trigger: { id: assignment.id, name: assignment.name, output: output || '', exitCode },
+      chain
+    };
+
+    for (const targetId of unique) {
+      const target = (entry.config.assignments || []).find(a => a.id === targetId);
+      if (!target) { console.warn(`[manager] Assignment trigger target "${targetId}" not found`); continue; }
+      if (target.enabled === false) { console.log(`[manager] Assignment trigger target "${target.name}" disabled; skipping`); continue; }
+      console.log(`[manager] Assignment trigger: "${assignment.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.name}"`);
+      this.runAssignment(managerId, targetId, { triggerContext: downstreamContext }).catch(e =>
+        console.error(`[manager] Assignment trigger run failed: ${e.message}`));
+    }
   }
 
   /**
@@ -147,7 +209,7 @@ class ManagerAgent extends EventEmitter {
    * Returns immediately with runId. Orchestration runs in background.
    * Poll /api/managers/:id/runs/:runId for live status.
    */
-  executePrompt(managerId, prompt, assignmentId = null, { sync = false } = {}) {
+  executePrompt(managerId, prompt, assignmentId = null, { sync = false, triggerContext = null } = {}) {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
 
@@ -177,7 +239,7 @@ class ManagerAgent extends EventEmitter {
     this._addMessage(managerId, runId, 'user', prompt);
 
     // Run orchestration in background
-    const orchestrationPromise = this._runOrchestration(managerId, runId, entry, prompt);
+    const orchestrationPromise = this._runOrchestration(managerId, runId, entry, prompt, assignmentId, triggerContext);
 
     if (sync) {
       return orchestrationPromise;
@@ -187,7 +249,7 @@ class ManagerAgent extends EventEmitter {
     return { runId, status: 'running' };
   }
 
-  async _runOrchestration(managerId, runId, entry, prompt) {
+  async _runOrchestration(managerId, runId, entry, prompt, assignmentId = null, triggerContext = null) {
     const steps = [];
     try {
       console.log(`[manager] Starting orchestration run ${runId} for ${managerId}`);
@@ -211,6 +273,9 @@ class ManagerAgent extends EventEmitter {
       this.emit('manager-completed', { managerId, runId, result: orchestrationResult });
       console.log(`[manager] Orchestration run ${runId} completed`);
 
+      // Fire any downstream assignment triggers with this run's output as context
+      this._fireAssignmentTriggers(managerId, assignmentId, 0, orchestrationResult, triggerContext);
+
       return { runId, result: orchestrationResult, steps };
     } catch (err) {
       console.error(`[manager] Orchestration run ${runId} failed:`, err.message);
@@ -228,6 +293,10 @@ class ManagerAgent extends EventEmitter {
 
       this._addMessage(managerId, runId, 'assistant', `Error: ${err.message}`);
       this.emit('manager-error', { managerId, runId, error: err });
+
+      // Fire failure triggers with the error text as context
+      this._fireAssignmentTriggers(managerId, assignmentId, 1, err.message, triggerContext);
+
       return { runId, error: err.message, steps };
     }
   }

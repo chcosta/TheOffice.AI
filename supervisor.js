@@ -293,9 +293,6 @@ class Supervisor extends EventEmitter {
         if (code !== 0 && config.durable) {
           console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
         }
-
-        // Fire conditional triggers with output context
-        this._fireTriggers(agentId, code, fullOutput, triggerContext);
       }, 1000); // 1s delay to let session state flush
     });
 
@@ -418,82 +415,6 @@ class Supervisor extends EventEmitter {
     });
   }
 
-  _fireTriggers(agentId, exitCode, stdout, triggerContext) {
-    const entry = this.agents.get(agentId);
-    if (!entry) return;
-
-    const succeeded = exitCode === 0;
-
-    // Build trigger context for downstream agents
-    const lastRun = this.db.prepare('SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY finished_at DESC LIMIT 1').get(agentId);
-    const thisAgentContext = {
-      id: agentId,
-      name: entry.config.name || agentId,
-      output: stdout || lastRun?.output || '',
-      exitCode: exitCode,
-      prompt: entry.config.prompt,
-      startedAt: lastRun?.started_at || '',
-      finishedAt: lastRun?.finished_at || ''
-    };
-
-    // Accumulate chain: previous chain + this agent
-    const chain = [...(triggerContext?.chain || [])];
-    if (triggerContext?.trigger) {
-      chain.push(triggerContext.trigger);
-    }
-
-    const downstreamContext = {
-      trigger: thisAgentContext,
-      chain: chain
-    };
-
-    const targets = [];
-
-    // Method 1: Forward triggers — defined ON the source agent, listing targets to run after it
-    // Only applies to scheduled agents. Trigger-only agents use their triggers config
-    // to declare what triggers THEM (reverse direction), not what they trigger.
-    if (entry.config.triggers && (entry.config.schedule || '').toLowerCase() !== 'never') {
-      const triggers = entry.config.triggers;
-      if (succeeded && triggers.onSuccess) {
-        targets.push(...(Array.isArray(triggers.onSuccess) ? triggers.onSuccess : [triggers.onSuccess]));
-      }
-      if (!succeeded && triggers.onFailure) {
-        targets.push(...(Array.isArray(triggers.onFailure) ? triggers.onFailure : [triggers.onFailure]));
-      }
-      if (triggers.onComplete) {
-        targets.push(...(Array.isArray(triggers.onComplete) ? triggers.onComplete : [triggers.onComplete]));
-      }
-    }
-
-    // Method 2: Triggers defined on OTHER agents that reference this agent (reverse triggers)
-    for (const [otherId, other] of this.agents) {
-      if (otherId === agentId) continue;
-      const otherTriggers = other.config.triggers;
-      if (!otherTriggers) continue;
-      const matchesSrc = (arr) => {
-        if (!arr) return false;
-        const list = Array.isArray(arr) ? arr : [arr];
-        return list.includes(agentId);
-      };
-      if (succeeded && matchesSrc(otherTriggers.onSuccess)) targets.push(otherId);
-      if (!succeeded && matchesSrc(otherTriggers.onFailure)) targets.push(otherId);
-      if (matchesSrc(otherTriggers.onComplete)) targets.push(otherId);
-    }
-
-    // Deduplicate
-    const uniqueTargets = [...new Set(targets)];
-
-    for (const targetId of uniqueTargets) {
-      const target = this.agents.get(targetId);
-      if (target) {
-        console.log(`[supervisor] Trigger: "${entry.config.name}" (${succeeded ? 'success' : 'failure'}) -> "${target.config.name}"`);
-        this._executeAgent(targetId, downstreamContext);
-      } else {
-        console.warn(`[supervisor] Trigger target "${targetId}" not found`);
-      }
-    }
-  }
-
   getStatus(agentId) {
     const state = this.db.prepare('SELECT * FROM agent_state WHERE agent_id = ?').get(agentId);
     const lastRun = this.db.prepare(
@@ -514,10 +435,7 @@ class Supervisor extends EventEmitter {
       const entry = this.agents.get(state.agent_id);
       let scheduleDescription = '';
       try { scheduleDescription = parseSchedule(entry?.config?.schedule || state.schedule).description; } catch {}
-      const hasTriggers = !!(entry?.config?.triggers && (entry.config.triggers.onSuccess || entry.config.triggers.onFailure || entry.config.triggers.onComplete));
-      const isTriggerOnly = hasTriggers && (entry?.config?.schedule || '').toLowerCase() === 'never';
-      const triggerRuns = isTriggerOnly ? this.getLatestRunsPerTrigger(state.agent_id) : [];
-      return { ...state, lastRun, config: entry?.config || null, scheduleDescription, hasTriggers, isTriggerOnly, triggerRuns };
+      return { ...state, lastRun, config: entry?.config || null, scheduleDescription };
     });
   }
 
@@ -528,32 +446,6 @@ class Supervisor extends EventEmitter {
   }
 
   // Get latest run per trigger source for trigger-only agents
-  getLatestRunsPerTrigger(agentId) {
-    const entry = this.agents.get(agentId);
-    if (!entry) return [];
-    const triggers = entry.config.triggers || {};
-    // Collect all trigger source IDs
-    const sources = new Set();
-    for (const arr of [triggers.onSuccess, triggers.onFailure, triggers.onComplete]) {
-      if (!arr) continue;
-      const list = Array.isArray(arr) ? arr : [arr];
-      list.forEach(id => sources.add(id));
-    }
-    const results = [];
-    for (const srcId of sources) {
-      const srcEntry = this.agents.get(srcId);
-      const run = this.db.prepare(
-        'SELECT * FROM agent_runs WHERE agent_id = ? AND triggered_by = ? ORDER BY id DESC LIMIT 1'
-      ).get(agentId, srcId);
-      results.push({
-        sourceId: srcId,
-        sourceName: srcEntry?.config?.name || srcId,
-        lastRun: run || null
-      });
-    }
-    return results;
-  }
-
   getLiveOutput(agentId) {
     const entry = this.agents.get(agentId);
     if (!entry || !entry.running) return null;
