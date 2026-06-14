@@ -3876,6 +3876,14 @@ supervisor.startAll();
 
 const server = app.listen(PORT, () => {
   console.log(`[supervisor] Dashboard running at http://localhost:${PORT}`);
+  try {
+    const _rdr = require('./sdk-reader');
+    const _rnr = require('./sdk-runner');
+    const envRead = process.env.SDK_READ_MODE || 'shadow';
+    const envRun = process.env.SDK_RUN_MODE || 'off';
+    const runAgents = process.env.SDK_RUN_AGENTS || '';
+    console.log(`[supervisor] SDK modes — read: env=${envRead} effective=${_rdr.mode} | run: env=${envRun} effective=${_rnr.mode}${runAgents ? ' agents=[' + runAgents + ']' : ''} | node=${process.version} COPILOT_HOME=${process.env.COPILOT_HOME || '(default)'}`);
+  } catch (e) { console.warn('[supervisor] could not log SDK modes:', e.message); }
 });
 
 server.on('error', (err) => {
