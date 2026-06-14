@@ -1918,6 +1918,7 @@
                           <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
                           <option value="custom">Advanced (cron / custom)…</option>
                         </select>
+                        <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(selectedAgent.scheduleDraft, 'Task schedule', v => { selectedAgent.scheduleDraft = v; selectedAgent.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
                         <div x-show="selectedAgent.schedulePreset === 'custom'" x-transition style="margin-top:8px">
                           <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" placeholder="e.g. */15 * * * * or weekdays at 7am" />
                           <div class="hint" style="margin-top:4px">Supports: intervals (30m, 1h), human-readable (weekdays at 9am), or 5-field cron.</div>
@@ -2195,6 +2196,7 @@
                               <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
                               <option value="custom">Advanced (cron / custom)…</option>
                             </select>
+                            <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(assignment.scheduleDraft, 'Assignment schedule', v => { assignment.scheduleDraft = v; assignment.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
                             <div x-show="assignment.schedulePreset === 'custom'" x-transition style="margin-top:8px">
                               <input class="field-input mono" type="text" x-model="assignment.scheduleDraft" />
                             </div>
@@ -2241,6 +2243,7 @@
                           <option value="weekdays at 9am">Weekdays at 9 AM</option>
                           <option value="custom">Advanced (cron / custom)…</option>
                         </select>
+                        <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(selectedManager.assignmentScheduleDraft, 'Assignment schedule', v => { selectedManager.assignmentScheduleDraft = v; selectedManager.assignmentSchedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
                         <div x-show="selectedManager.assignmentSchedulePreset === 'custom'" x-transition style="margin-top:8px">
                           <input class="field-input mono" type="text" x-model="selectedManager.assignmentScheduleDraft" placeholder="e.g. */15 * * * *" />
                         </div>
@@ -2440,7 +2443,11 @@
                               <option value="6h">Every 6 hours</option>
                               <option value="24h">Daily</option>
                               <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                              <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
+                                <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
+                              </template>
                             </select>
+                            <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
                           </div>
                         </div>
                         <div>
@@ -3542,6 +3549,91 @@
     </div>
   </div>
 
+  <!-- Schedule Builder Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="schedModal.open" x-transition.opacity @click.self="schedModal.open = false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:540px">
+      <div class="modal-header">
+        <h2 class="modal-title">🕑 <span x-text="schedModal.title"></span></h2>
+        <button class="icon-button" type="button" @click="schedModal.open = false">✕</button>
+      </div>
+      <div style="padding:18px">
+        <!-- Mode selector -->
+        <div class="field-label">Frequency</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+          <template x-for="opt in [['off','Manual only'],['interval','Recurring interval'],['daily','Daily at times'],['weekly','Days of week'],['cron','Advanced (cron)']]" :key="opt[0]">
+            <button type="button" class="btn"
+              :class="schedModal.mode === opt[0] ? 'primary' : ''"
+              @click="schedModal.mode = opt[0]"
+              x-text="opt[1]" style="font-size:0.8rem;padding:5px 10px"></button>
+          </template>
+        </div>
+
+        <!-- Interval -->
+        <div x-show="schedModal.mode === 'interval'" x-transition style="margin-bottom:14px">
+          <div class="field-label">Run every</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="field-input" type="number" min="1" x-model.number="schedModal.intervalN" style="width:90px" />
+            <select class="field-input" x-model="schedModal.intervalUnit" style="width:auto">
+              <option value="m">minutes</option>
+              <option value="h">hours</option>
+              <option value="d">days</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Daily / Weekly: time list -->
+        <div x-show="schedModal.mode === 'daily' || schedModal.mode === 'weekly'" x-transition style="margin-bottom:14px">
+          <div class="field-label">Time(s) of day</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <template x-for="(t, ti) in schedModal.times" :key="'st-' + ti">
+              <div style="display:flex;gap:8px;align-items:center">
+                <input class="field-input" type="time" :value="schedModal.times[ti]" @input="schedModal.times[ti] = $event.target.value" style="width:auto" />
+                <button class="btn ghost" type="button" @click="removeSchedTime(ti)" x-show="schedModal.times.length > 1" style="padding:4px 8px">✕</button>
+              </div>
+            </template>
+            <button class="btn" type="button" @click="addSchedTime()" style="align-self:flex-start;font-size:0.8rem;padding:4px 10px">＋ Add time</button>
+          </div>
+        </div>
+
+        <!-- Weekly: day picker -->
+        <div x-show="schedModal.mode === 'weekly'" x-transition style="margin-bottom:14px">
+          <div class="field-label">Days of week</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <template x-for="d in [['Sun',0],['Mon',1],['Tue',2],['Wed',3],['Thu',4],['Fri',5],['Sat',6]]" :key="d[1]">
+              <button type="button" class="btn"
+                :class="schedModal.days.includes(d[1]) ? 'primary' : ''"
+                @click="toggleSchedDay(d[1])"
+                x-text="d[0]" style="font-size:0.78rem;padding:5px 9px;min-width:46px"></button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Advanced cron -->
+        <div x-show="schedModal.mode === 'cron'" x-transition style="margin-bottom:14px">
+          <div class="field-label">Cron expression (min hour day month weekday)</div>
+          <input class="field-input mono" type="text" x-model="schedModal.cron" placeholder="e.g. */15 * * * *  or  0 9,17 * * 1-5" />
+          <div class="hint" style="margin-top:4px">Standard 5-field cron. Also accepts free-text like "weekdays at 9am".</div>
+        </div>
+
+        <!-- Live preview -->
+        <div style="margin-top:8px;padding:12px;border-radius:8px;background:var(--cp-surface-soft);border:1px solid var(--cp-border)">
+          <div style="font-size:0.78rem;color:var(--cp-text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">Preview</div>
+          <div style="font-weight:600" x-text="describeScheduleHuman(schedModalValue())"></div>
+          <div class="mono" style="font-size:0.75rem;color:var(--cp-text-muted);margin-top:3px" x-text="schedModalValue()"></div>
+          <template x-if="schedModalValue() !== 'never'">
+            <div style="font-size:0.78rem;color:var(--cp-text-muted);margin-top:6px">
+              Next: <span x-text="nextRunsPreview(schedModalValue(), 3)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" type="button" @click="schedModal.open = false">Cancel</button>
+        <button class="btn primary" type="button" @click="applyScheduleModal()">Apply schedule</button>
+      </div>
+    </div>
+  </div>
+
   <!-- QR Code Pairing Modal -->
   <div class="modal-backdrop modal-overlay" x-show="showPairingModal" x-transition.opacity @click.self="showPairingModal = false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:440px;text-align:center">
@@ -3613,6 +3705,7 @@
                 <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
                 <option value="custom">Advanced (cron / custom)…</option>
               </select>
+              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, 'Task schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
               <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
                 <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
               </div>
@@ -3643,6 +3736,7 @@
                 <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
                 <option value="custom">Advanced (cron / custom)…</option>
               </select>
+              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, 'Assignment schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
               <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
                 <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
               </div>
@@ -3972,6 +4066,7 @@
         pendingFocus: null,
         selectedChainId: null,
         chainDraft: null,
+        schedModal: { open: false, title: 'Schedule', mode: 'off', intervalN: 15, intervalUnit: 'm', days: [1, 2, 3, 4, 5], times: ['09:00'], cron: '', _apply: null },
         chainRunState: {},
         chainRuns: {},
         expandedChainNodes: {},
@@ -7147,6 +7242,171 @@
             obj.scheduleDraft = value;
             obj.schedulePreset = value;
           }
+        },
+
+        // ---- Schedule builder modal ----
+        openSchedule(currentValue, title, applyFn) {
+          this.schedModal.title = title || 'Schedule';
+          this.schedModal._apply = applyFn;
+          this._loadScheduleIntoModal(currentValue);
+          this.schedModal.open = true;
+        },
+
+        _loadScheduleIntoModal(value) {
+          const m = this.schedModal;
+          // sensible defaults
+          m.intervalN = 15; m.intervalUnit = 'm';
+          m.days = [1, 2, 3, 4, 5];
+          m.times = ['09:00'];
+          m.cron = '';
+          const v = (value || 'never').toString().trim();
+          if (!v || v.toLowerCase() === 'never') { m.mode = 'off'; return; }
+          // simple interval e.g. 15m, 2h, 1d, 30s
+          const iv = v.match(/^(\d+)\s*([smhd])$/i);
+          if (iv) {
+            const unit = iv[2].toLowerCase();
+            m.mode = 'interval';
+            m.intervalN = Number(iv[1]) || 1;
+            m.intervalUnit = (unit === 's') ? 'm' : unit; // seconds collapse to minutes in UI
+            if (unit === 's') { m.mode = 'cron'; m.cron = v; }
+            return;
+          }
+          const parts = v.split(/\s+/);
+          if (parts.length === 5 && /^[\d*\/,-]+$/.test(parts[0])) {
+            const [mi, ho, dom, mon, dow] = parts;
+            const isList = (f) => /^\d+(,\d+)*$/.test(f);
+            // every-N-minutes -> interval
+            const everyMin = mi.match(/^\*\/(\d+)$/);
+            if (everyMin && ho === '*' && dom === '*' && mon === '*' && dow === '*') {
+              m.mode = 'interval'; m.intervalN = Number(everyMin[1]); m.intervalUnit = 'm'; return;
+            }
+            const everyHr = ho.match(/^\*\/(\d+)$/);
+            if (mi === '0' && everyHr && dom === '*' && mon === '*' && dow === '*') {
+              m.mode = 'interval'; m.intervalN = Number(everyHr[1]); m.intervalUnit = 'h'; return;
+            }
+            // explicit times of day, optionally on specific weekdays
+            if (dom === '*' && mon === '*' && isList(mi) && isList(ho)) {
+              const minutes = mi.split(',').map(Number);
+              const hours = ho.split(',').map(Number);
+              const pad = (n) => String(n).padStart(2, '0');
+              // reconstruct times: pair hour with the smallest minute when a single minute,
+              // otherwise expand the cartesian product so the UI is honest about runs
+              const times = [];
+              hours.forEach(h => minutes.forEach(mn => times.push(`${pad(h)}:${pad(mn)}`)));
+              m.times = [...new Set(times)];
+              if (dow === '*') { m.mode = 'daily'; return; }
+              const days = dow.split(',').flatMap(seg => {
+                const r = seg.match(/^(\d)-(\d)$/);
+                if (r) { const out = []; for (let d = Number(r[1]); d <= Number(r[2]); d++) out.push(d); return out; }
+                return /^\d$/.test(seg) ? [Number(seg)] : [];
+              });
+              if (days.length) { m.mode = 'weekly'; m.days = [...new Set(days)]; return; }
+            }
+          }
+          // fallback: advanced
+          m.mode = 'cron'; m.cron = v;
+        },
+
+        addSchedTime() { this.schedModal.times.push('12:00'); },
+        removeSchedTime(i) { if (this.schedModal.times.length > 1) this.schedModal.times.splice(i, 1); },
+        toggleSchedDay(d) {
+          const days = this.schedModal.days;
+          const i = days.indexOf(d);
+          if (i >= 0) days.splice(i, 1); else days.push(d);
+        },
+
+        schedModalValue() {
+          const m = this.schedModal;
+          if (m.mode === 'off') return 'never';
+          if (m.mode === 'cron') return (m.cron || '').trim() || 'never';
+          if (m.mode === 'interval') {
+            const n = Math.max(1, Number(m.intervalN) || 1);
+            return `${n}${m.intervalUnit}`;
+          }
+          // daily / weekly
+          const times = (m.times || []).filter(Boolean);
+          if (!times.length) return 'never';
+          const minutes = [...new Set(times.map(t => Number(t.split(':')[1]) || 0))].sort((a, b) => a - b);
+          const hours = [...new Set(times.map(t => Number(t.split(':')[0]) || 0))].sort((a, b) => a - b);
+          const dow = (m.mode === 'weekly')
+            ? ([...m.days].sort((a, b) => a - b).join(',') || '*')
+            : '*';
+          if (m.mode === 'weekly' && (!m.days || !m.days.length)) return 'never';
+          return `${minutes.join(',')} ${hours.join(',')} * * ${dow}`;
+        },
+
+        applyScheduleModal() {
+          const value = this.schedModalValue();
+          if (typeof this.schedModal._apply === 'function') this.schedModal._apply(value);
+          this.schedModal.open = false;
+        },
+
+        describeScheduleHuman(value) {
+          const v = (value || 'never').toString().trim();
+          if (!v || v.toLowerCase() === 'never') return 'Manual only (no scheduled runs)';
+          const iv = v.match(/^(\d+)\s*([smhd])$/i);
+          if (iv) {
+            const map = { s: 'second', m: 'minute', h: 'hour', d: 'day' };
+            const n = Number(iv[1]); const u = map[iv[2].toLowerCase()];
+            return `Every ${n} ${u}${n === 1 ? '' : 's'}`;
+          }
+          const parts = v.split(/\s+/);
+          if (parts.length === 5) {
+            const [mi, ho, dom, mon, dow] = parts;
+            const em = mi.match(/^\*\/(\d+)$/);
+            if (em && ho === '*' && dom === '*' && dow === '*') return `Every ${em[1]} minutes`;
+            const eh = ho.match(/^\*\/(\d+)$/);
+            if (mi === '0' && eh && dom === '*' && dow === '*') return `Every ${eh[1]} hours`;
+            const isList = (f) => /^\d+(,\d+)*$/.test(f);
+            if (dom === '*' && mon === '*' && isList(mi) && isList(ho)) {
+              const minutes = mi.split(',').map(Number);
+              const hours = ho.split(',').map(Number);
+              const pad = (n) => String(n).padStart(2, '0');
+              const times = [];
+              hours.forEach(h => minutes.forEach(mn => times.push(`${pad(h)}:${pad(mn)}`)));
+              const tStr = [...new Set(times)].sort().join(', ');
+              const dayNames = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+              if (dow === '*') return `Daily at ${tStr}`;
+              const days = dow.split(',').map(d => dayNames[Number(d)] || d).join(', ');
+              return `${days} at ${tStr}`;
+            }
+            return `Cron · ${v}`;
+          }
+          return v;
+        },
+
+        nextRunsPreview(value, count) {
+          const out = [];
+          let cursor = value;
+          let from = Date.now();
+          for (let i = 0; i < (count || 3); i++) {
+            const next = this._nextRunAfter(value, from);
+            if (!next) break;
+            out.push(this.formatDateTime(next));
+            from = new Date(next).getTime() + 1000;
+          }
+          return out.length ? out.join('  •  ') : '—';
+        },
+
+        _nextRunAfter(schedule, fromMs) {
+          const value = (schedule || '').trim();
+          if (!value || value.toLowerCase() === 'never') return null;
+          const now = new Date(fromMs || Date.now());
+          const interval = value.match(/^(\d+)\s*([smhdw])$/i);
+          if (interval) {
+            const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000, w: 604800000 };
+            return new Date(now.getTime() + Number(interval[1]) * mult[interval[2].toLowerCase()]).toISOString();
+          }
+          const cron = value.split(/\s+/);
+          if (cron.length === 5) {
+            const probe = new Date(now.getTime());
+            probe.setSeconds(0, 0);
+            for (let i = 0; i < 535000; i += 1) {
+              probe.setMinutes(probe.getMinutes() + 1);
+              if (this.matchesCron(probe, cron)) return probe.toISOString();
+            }
+          }
+          return this.computeNextRun(value);
         },
 
         computeNextRun(schedule) {
