@@ -3221,12 +3221,16 @@
               <template x-for="m in otherMachines" :key="m.machineId">
                 <div style="border:1px solid var(--cp-border);border-radius:10px;margin-bottom:10px;overflow:hidden">
                   <div style="display:flex;align-items:center;gap:10px;padding:10px;cursor:pointer;background:var(--cp-surface-soft)" @click="toggleExpanded('machine-' + m.machineId)">
-                    <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (m.alive ? 'var(--cp-success)' : 'var(--cp-text-muted)')"></span>
+                    <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (m.alive ? 'var(--cp-success)' : 'var(--cp-text-muted)')"
+                      :title="m.alive ? 'Online' : 'Offline'"></span>
                     <div style="min-width:0;flex:1">
                       <div style="font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                         <span x-text="m.hostname || m.machineId"></span>
+                        <span x-text="m.alive ? 'Online' : 'Offline'"
+                          :style="'font-size:0.68rem;font-weight:600;padding:1px 7px;border-radius:999px;' + (m.alive ? 'color:var(--cp-success);background:rgba(22,163,74,0.12)' : 'color:var(--cp-text-muted);background:var(--cp-surface-soft)')"></span>
                       </div>
                       <div class="hint" style="font-size:0.75rem" x-text="(m.agentCount ?? (m.agents?.length || 0)) + ' agents · ' + (m.managerCount ?? (m.managers?.length || 0)) + ' managers'"></div>
+                      <div class="hint" style="font-size:0.72rem" x-text="m.lastSeen ? ((m.alive ? 'seen ' : 'last seen ') + formatRelative(m.lastSeen)) : 'never seen online'"></div>
                     </div>
                     <span class="hint" x-text="isExpanded('machine-' + m.machineId) ? '▲' : '▼'"></span>
                   </div>
