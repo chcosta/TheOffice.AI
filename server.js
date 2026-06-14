@@ -3482,6 +3482,240 @@ app.post('/api/manager-template-assistant/chat', async (req, res) => {
 
 // ============ End Manager API Routes ============
 
+// ============ Execution "Design with AI" suggestions ============
+// AI looks at the available agents/tasks/flows and proposes creative NEW manual
+// tasks and flows. Suggestions are ephemeral (generated on demand) unless the
+// user pins them; pinned ones persist in suggestions.json. Users can try-run a
+// suggestion (ephemeral, nothing saved) or "save" it into the real Tasks/Flows.
+const SUGGESTIONS_PATH = path.join(__dirname, 'suggestions.json');
+function loadPinnedSuggestions() {
+  try { return JSON.parse(fs.readFileSync(SUGGESTIONS_PATH, 'utf-8')); }
+  catch { return []; }
+}
+function savePinnedSuggestions(list) {
+  fs.writeFileSync(SUGGESTIONS_PATH, JSON.stringify(list, null, 2));
+  if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (suggestions) failed:', e.message));
+}
+// Ephemeral try-run buffers, keyed by runId.
+const suggestionRuns = new Map();
+
+function suggestionAgentCatalog() {
+  return supervisor.getAllStatus().map(a => ({
+    id: a.agent_id,
+    name: (a.config && a.config.name) || a.agent_id,
+    description: (a.config && a.config.description) || '',
+    skills: (a.config && a.config.skills) || []
+  }));
+}
+
+// Pull a JSON array out of an AI reply (fenced ```json block, or first [...]).
+function parseSuggestionJson(text) {
+  if (!text) return null;
+  let body = null;
+  const fence = String(text).match(/```(?:json)?\s*\n([\s\S]*?)```/);
+  if (fence) body = fence[1];
+  if (!body) {
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    if (start >= 0 && end > start) body = text.slice(start, end + 1);
+  }
+  if (!body) return null;
+  try { const parsed = JSON.parse(body.trim()); return Array.isArray(parsed) ? parsed : null; }
+  catch { return null; }
+}
+
+function normalizeSuggestion(raw, validAgentIds) {
+  if (!raw || typeof raw !== 'object') return null;
+  const kind = raw.kind === 'flow' ? 'flow' : 'task';
+  const title = String(raw.title || '').trim();
+  if (!title) return null;
+  const base = {
+    id: 'sug-' + require('crypto').randomBytes(5).toString('hex'),
+    kind, title,
+    description: String(raw.description || '').trim()
+  };
+  if (kind === 'task') {
+    const agentId = String(raw.agentId || '').trim();
+    if (!validAgentIds.has(agentId)) return null;
+    base.agentId = agentId;
+    base.prompt = String(raw.prompt || '').trim();
+    if (!base.prompt) return null;
+  } else {
+    const steps = (Array.isArray(raw.steps) ? raw.steps : [])
+      .map(s => ({
+        agentId: String(s.agentId || '').trim(),
+        title: String(s.title || '').trim(),
+        prompt: String(s.prompt || '').trim()
+      }))
+      .filter(s => validAgentIds.has(s.agentId) && s.prompt);
+    if (steps.length < 2) return null; // a flow needs at least two steps
+    base.steps = steps;
+  }
+  return base;
+}
+
+app.post('/api/execution-suggestions/generate', async (req, res) => {
+  const agents = suggestionAgentCatalog();
+  if (!agents.length) return res.status(400).json({ error: 'No agents available to design with.' });
+  const validIds = new Set(agents.map(a => a.id));
+  const tasks = loadTasks().map(t => ({ name: t.name, agentId: t.agentId, prompt: String(t.prompt || '').slice(0, 200) }));
+  let chains = [];
+  try { chains = chainEngine.list().map(c => ({ name: c.name, description: c.description, steps: (c.steps || []).map(s => s.taskId) })); } catch (_) {}
+  const hint = String((req.body && req.body.hint) || '').trim();
+
+  const prompt = [
+    'You are an automation strategist for an agent-orchestration platform. Propose CREATIVE, GENUINELY USEFUL new things the user could run, by combining their existing agents in ways they may not have considered.',
+    '',
+    'AVAILABLE AGENTS (only ever reference these exact ids):',
+    JSON.stringify(agents, null, 2),
+    '',
+    'EXISTING TASKS (for context — do not just repeat these):',
+    JSON.stringify(tasks, null, 2),
+    '',
+    'EXISTING FLOWS (for context):',
+    JSON.stringify(chains, null, 2),
+    '',
+    hint ? ('USER FOCUS: ' + hint) : 'No specific focus — surprise the user with a useful mix.',
+    '',
+    'Propose 5 suggestions. Each is either:',
+    '- a "task": a single agent run with a specific, ready-to-run prompt, OR',
+    '- a "flow": 2-4 agents chained in sequence, where each step\'s output feeds the next. In a flow step prompt, use {{previous}} to reference the prior step\'s output.',
+    'All suggestions are MANUAL (run on demand, no schedules). Favor flows that turn raw monitoring/data agents into actionable outcomes (notify, summarize, file, decide).',
+    '',
+    'Respond with ONLY a JSON array (no prose) in this exact shape:',
+    '```json',
+    '[',
+    '  { "kind": "task", "title": "...", "description": "one line", "agentId": "<agent id>", "prompt": "..." },',
+    '  { "kind": "flow", "title": "...", "description": "one line", "steps": [ { "agentId": "<id>", "title": "step name", "prompt": "..." }, { "agentId": "<id>", "title": "step name", "prompt": "... {{previous}} ..." } ] }',
+    ']',
+    '```'
+  ].join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname,
+      onChunk: (c) => { acc += c; }
+    });
+    const text = acc.trim() ? acc : (result.output || '');
+    const arr = parseSuggestionJson(text);
+    if (!arr) return res.status(502).json({ error: 'Could not parse AI suggestions. Try refreshing.', raw: text.slice(0, 500) });
+    const suggestions = arr.map(s => normalizeSuggestion(s, validIds)).filter(Boolean);
+    if (!suggestions.length) return res.status(502).json({ error: 'AI returned no valid suggestions. Try refreshing.' });
+    res.json({ suggestions });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/execution-suggestions', (req, res) => {
+  res.json({ pinned: loadPinnedSuggestions() });
+});
+
+app.post('/api/execution-suggestions/pin', (req, res) => {
+  const sug = req.body && req.body.suggestion;
+  if (!sug || !sug.id || !sug.title) return res.status(400).json({ error: 'suggestion required' });
+  const list = loadPinnedSuggestions();
+  if (!list.some(s => s.id === sug.id)) { list.push({ ...sug, pinnedAt: new Date().toISOString() }); savePinnedSuggestions(list); }
+  res.json({ ok: true, pinned: list });
+});
+
+app.delete('/api/execution-suggestions/:id', (req, res) => {
+  const list = loadPinnedSuggestions();
+  const next = list.filter(s => s.id !== req.params.id);
+  savePinnedSuggestions(next);
+  res.json({ ok: true, pinned: next });
+});
+
+// Migrate a suggestion into the real Tasks/Flows sections (manual, no schedule).
+app.post('/api/execution-suggestions/save', (req, res) => {
+  const sug = req.body && req.body.suggestion;
+  if (!sug || !sug.kind) return res.status(400).json({ error: 'suggestion required' });
+  try {
+    if (sug.kind === 'task') {
+      if (!sug.agentId || !sug.prompt) return res.status(400).json({ error: 'task suggestion missing agent or prompt' });
+      const tasks = loadTasks();
+      const id = 'task-ai-' + require('crypto').randomBytes(4).toString('hex');
+      const task = { id, name: sug.title || 'AI Task', agentId: sug.agentId, prompt: sug.prompt, schedule: 'never', enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      tasks.push(task); saveTasks(tasks);
+      return res.json({ ok: true, type: 'task', id, name: task.name });
+    }
+    // flow: create a backing task per step, then a sequential onSuccess chain.
+    const steps = Array.isArray(sug.steps) ? sug.steps : [];
+    if (steps.length < 2) return res.status(400).json({ error: 'flow suggestion needs at least two steps' });
+    const tasks = loadTasks();
+    const chainSteps = [];
+    steps.forEach((st, i) => {
+      const tid = 'task-ai-' + require('crypto').randomBytes(4).toString('hex');
+      tasks.push({ id: tid, name: (st.title || (sug.title + ' step ' + (i + 1))), agentId: st.agentId, prompt: st.prompt, schedule: 'never', enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      chainSteps.push({ id: 's' + (i + 1), taskId: tid, prompt: st.prompt });
+    });
+    saveTasks(tasks);
+    const edges = [];
+    for (let i = 0; i < chainSteps.length - 1; i++) {
+      edges.push({ from: chainSteps[i].id, to: chainSteps[i + 1].id, condition: { type: 'status', status: 'onSuccess' } });
+    }
+    const chain = chainEngine.create({ name: sug.title || 'AI Flow', description: sug.description || '', schedule: 'never', enabled: true, steps: chainSteps, edges });
+    res.json({ ok: true, type: 'flow', id: chain.id, name: chain.name });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Ephemeral try-run: execute the suggestion now without persisting anything.
+function startSuggestionRun(suggestion) {
+  const runId = require('crypto').randomUUID();
+  const buf = { running: true, kind: suggestion.kind, title: suggestion.title, steps: [], startedAt: Date.now(), error: null };
+  suggestionRuns.set(runId, buf);
+  (async () => {
+    try {
+      const list = suggestion.kind === 'flow'
+        ? suggestion.steps
+        : [{ agentId: suggestion.agentId, title: suggestion.title, prompt: suggestion.prompt }];
+      let prev = '';
+      for (const st of list) {
+        const entry = supervisor.agents.get(st.agentId);
+        const stepRec = { agentId: st.agentId, title: st.title || st.agentId, running: true, output: '', ok: false };
+        buf.steps.push(stepRec);
+        if (!entry) { stepRec.running = false; stepRec.output = `Agent "${st.agentId}" is not installed.`; break; }
+        const p = String(st.prompt || '').replace(/\{\{\s*(?:previous|output|trigger\.output)\s*\}\}/gi, prev);
+        const r = await sdkRunner.runAgent({ config: entry.config, prompt: p, sessionId: require('crypto').randomUUID() });
+        stepRec.running = false;
+        stepRec.ok = !!r.ok;
+        stepRec.output = r.output || r.error || '(no output)';
+        prev = stepRec.output;
+        if (!r.ok) break;
+      }
+    } catch (e) {
+      buf.error = e.message;
+    } finally {
+      buf.running = false;
+      buf.finishedAt = Date.now();
+    }
+  })();
+  return runId;
+}
+
+app.post('/api/execution-suggestions/run', (req, res) => {
+  const sug = req.body && req.body.suggestion;
+  if (!sug || !sug.kind) return res.status(400).json({ error: 'suggestion required' });
+  if (sug.kind === 'task' && (!sug.agentId || !sug.prompt)) return res.status(400).json({ error: 'task suggestion missing agent or prompt' });
+  if (sug.kind === 'flow' && !(Array.isArray(sug.steps) && sug.steps.length)) return res.status(400).json({ error: 'flow suggestion has no steps' });
+  const runId = startSuggestionRun(sug);
+  res.json({ ok: true, runId });
+});
+
+app.get('/api/execution-suggestions/run/:runId', (req, res) => {
+  const buf = suggestionRuns.get(req.params.runId);
+  if (!buf) return res.status(404).json({ error: 'run not found' });
+  res.json({
+    running: buf.running, error: buf.error,
+    startedAt: buf.startedAt, finishedAt: buf.finishedAt || null,
+    steps: buf.steps.map(s => ({ agentId: s.agentId, title: s.title, running: s.running, ok: s.ok, output: String(s.output || '').slice(0, 8000) }))
+  });
+});
+
+
 // ============ Chat Persistence API ============
 const CHATS_DIR = path.join(__dirname, 'chats');
 if (!fs.existsSync(CHATS_DIR)) fs.mkdirSync(CHATS_DIR, { recursive: true });
