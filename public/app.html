@@ -3931,6 +3931,34 @@
         </div>
       </div>
       <div class="modal-body">
+        <!-- Shared Response Format: the action-block contract used by EVERY manager -->
+        <div style="border:1px solid var(--cp-border);border-radius:10px;margin-bottom:16px;background:var(--cp-surface-soft)">
+          <button class="selector-button" type="button" style="width:100%;border:none;background:transparent"
+            @click="templates.fmt.show = !templates.fmt.show">
+            <div class="split-meta" style="width:100%">
+              <div style="min-width:0">
+                <strong>⚙️ Response Format (shared)</strong>
+                <div class="hint" style="margin-top:4px">The action-block contract injected into every manager. Edit once here — it applies to all managers and is kept out of individual templates so they can't drift.</div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <span class="tiny-badge" x-show="templates.fmt.isDefault">default</span>
+                <span class="tiny-badge" x-show="!templates.fmt.isDefault">customized</span>
+                <span x-text="templates.fmt.show ? '▲' : '▼'"></span>
+              </div>
+            </div>
+          </button>
+          <div x-show="templates.fmt.show" x-cloak style="padding:0 14px 14px">
+            <textarea class="field-input mono" style="min-height:200px;line-height:1.5" x-model="templates.fmt.text"
+              :disabled="templates.fmt.loading"
+              placeholder="Loading…"></textarea>
+            <div class="hint" style="margin-top:6px">Must keep <code>RUN_AGENT</code>, <code>COMPLETE</code> and <code>REQUEST_AGENT</code> — the manager decision parser depends on them.</div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px">
+              <button class="btn" type="button" @click="resetResponseFormat()" :disabled="templates.fmt.isDefault">↺ Reset to default</button>
+              <button class="btn" type="button" @click="templates.fmt.text = templates.fmt.original" :disabled="templates.fmt.text === templates.fmt.original">Revert</button>
+              <button class="btn primary" type="button" @click="saveResponseFormat()" :disabled="templates.fmt.text === templates.fmt.original">Save format</button>
+            </div>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px">
           <!-- List -->
           <div class="stack" style="border-right:1px solid var(--cp-border);padding-right:16px">
@@ -4234,7 +4262,7 @@
         selectedManager: null,
         managerTemplates: [],
         managerEdit: { open: false, id: null, name: '', description: '', agent: '' },
-        templates: { open: false, draft: null },
+        templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false } },
         agentHistory: [],
         liveOutput: {},
         managerHistory: [],
@@ -6668,7 +6696,48 @@
           this.managerEdit.open = false;
           this.templates.open = true;
           this.templates.draft = null;
-          await this.loadManagerTemplates();
+          await Promise.all([this.loadManagerTemplates(), this.loadResponseFormat()]);
+        },
+
+        async loadResponseFormat() {
+          this.templates.fmt.loading = true;
+          try {
+            const r = await this.request('/api/manager-response-format');
+            this.templates.fmt.text = r.format || '';
+            this.templates.fmt.original = r.format || '';
+            this.templates.fmt.isDefault = !!r.isDefault;
+          } catch (error) {
+            this.showToast('Load failed', 'Could not load the shared response format: ' + error.message, 'error');
+          } finally {
+            this.templates.fmt.loading = false;
+          }
+        },
+
+        async saveResponseFormat() {
+          const f = this.templates.fmt;
+          if (!f.text || !f.text.trim()) { this.showToast('Required', 'Response format cannot be empty.', 'error'); return; }
+          try {
+            const r = await this.request('/api/manager-response-format', { method: 'PUT', body: JSON.stringify({ format: f.text }) });
+            f.text = r.format || f.text;
+            f.original = f.text;
+            f.isDefault = !!r.isDefault;
+            this.showToast('Saved', 'Shared response format updated for all managers.', 'info');
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async resetResponseFormat() {
+          if (!confirm('Reset the shared response format to the built-in default? This affects all managers.')) return;
+          try {
+            const r = await this.request('/api/manager-response-format', { method: 'DELETE' });
+            this.templates.fmt.text = r.format || '';
+            this.templates.fmt.original = this.templates.fmt.text;
+            this.templates.fmt.isDefault = true;
+            this.showToast('Reset', 'Response format restored to default.', 'info');
+          } catch (error) {
+            this.showToast('Reset failed', error.message, 'error');
+          }
         },
 
         async selectTemplate(name) {
@@ -6692,7 +6761,7 @@
         newTemplate() {
           this.templates.draft = {
             _new: true, name: '', description: '', toolsText: 'powershell',
-            body: '# Manager Agent\n\nYou are a Manager Agent that orchestrates sub-agents to accomplish tasks.\n\nRespond with exactly ONE action block per turn:\n\n```action\nRUN_AGENT: <agent_id>\nPROMPT: <prompt to send the agent>\n```\n\n```action\nCOMPLETE\nRESULT: <final summary for the user>\n```\n',
+            body: '# Manager Agent\n\nYou are a Manager Agent that orchestrates sub-agents to accomplish tasks.\n\nDescribe this manager\'s persona, what it is responsible for, and how it should decide which agents to run and in what order.\n\n> The action-block response format is shared across all managers and injected automatically — do NOT restate it here.\n',
             builtin: false, inUse: 0, usedBy: []
           };
         },
