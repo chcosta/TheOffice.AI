@@ -74,6 +74,15 @@ class MobileHandler extends EventEmitter {
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS mobile_thread_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          thread_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          speaker TEXT,
+          agent_id TEXT,
+          content TEXT NOT NULL,
+          timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
       `);
       // Load existing chat sessions into memory
       this._loadChatsFromDb();
@@ -457,33 +466,64 @@ class MobileHandler extends EventEmitter {
     try {
       let result;
       if (session.targetType === 'manager') {
-        // Build prompt with conversation history so the manager has context
+        const mgrEntry = this.managerAgent.managers.get(targetId);
+        const managerName = mgrEntry?.config?.name || mgrEntry?.name || targetId;
+
+        // Thread mode: persist the user turn and source history from the
+        // thread transcript so the conversation survives navigation/restart.
+        if (threadId) {
+          this._upsertChatThread(threadId, targetId, 'manager', message);
+          this._addThreadMessage(threadId, 'user', null, null, message);
+        }
+
+        // Build prompt with conversation history so the manager has context.
         let fullPrompt = message;
-        if (session.messages.length > 1) {
-          const history = session.messages.slice(-20, -1); // last 20 msgs excluding current
-          const historyText = history.map(m => 
+        const prior = threadId
+          ? this._getThreadMessages(threadId).filter(m => m.role === 'user' || m.role === 'assistant')
+          : session.messages;
+        const history = prior.slice(0, -1).slice(-20); // last 20 turns excluding current
+        if (history.length > 0) {
+          const historyText = history.map(m =>
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
           ).join('\n\n');
           fullPrompt = `## Conversation History\n${historyText}\n\n## Current Message\nUser: ${message}\n\nRespond to the user's latest message. Use the conversation history for context. If the user references something from earlier in the conversation, use that context.`;
         }
 
-        // Listen for orchestration steps to relay progress to mobile
+        // Relay orchestration steps to mobile. Sub-agent runs are surfaced as
+        // distinct, attributed messages ("agent-step") so the user can see
+        // which sub-agent is contributing, and the manager's own progress is
+        // surfaced as status updates.
         const stepHandler = (data) => {
           if (data.managerId !== targetId) return;
           const step = data.step;
-          const stepMsg = step?.action === 'run_agent'
-            ? `Running ${step.agentId || 'agent'}...`
-            : step?.action === 'thinking'
-            ? 'Thinking...'
-            : step?.action === 'complete'
-            ? 'Composing response...'
-            : step?.action === 'agent_result'
-            ? `Got results from ${step.agentId || 'agent'}`
-            : `Working... (${step?.action || 'step'})`;
-          replier(correlationId, {
-            type: 'status-update',
-            payload: { status: 'processing', message: stepMsg }
-          }).catch(() => {});
+          if (!step) return;
+          if (step.action === 'run_agent') {
+            const subName = this.supervisor.agents.get(step.agentId)?.config?.name || step.agentId || 'agent';
+            replier(correlationId, {
+              type: 'agent-step',
+              payload: { phase: 'start', agentId: step.agentId, speaker: subName, manager: managerName }
+            }).catch(() => {});
+          } else if (step.action === 'agent_result') {
+            const subName = this.supervisor.agents.get(step.agentId)?.config?.name || step.agentId || 'agent';
+            const out = step.output || '';
+            if (threadId) this._addThreadMessage(threadId, 'agent', subName, step.agentId, out);
+            replier(correlationId, {
+              type: 'agent-step',
+              payload: { phase: 'result', agentId: step.agentId, speaker: subName, manager: managerName, text: out, exitCode: step.exitCode }
+            }).catch(() => {});
+          } else {
+            const stepMsg = step.action === 'thinking'
+              ? `${managerName} is thinking…`
+              : step.action === 'complete'
+              ? `${managerName} is composing a response…`
+              : step.action === 'request_agent'
+              ? `${managerName} wants to add ${step.agentId || 'an agent'}…`
+              : `Working… (${step.action})`;
+            replier(correlationId, {
+              type: 'status-update',
+              payload: { status: 'processing', message: stepMsg }
+            }).catch(() => {});
+          }
         };
         this.managerAgent.on('manager-step', stepHandler);
         // Heartbeat keeps the mobile client's inactivity timer alive during
@@ -491,7 +531,7 @@ class MobileHandler extends EventEmitter {
         const heartbeat = setInterval(() => {
           replier(correlationId, {
             type: 'status-update',
-            payload: { status: 'processing', message: 'Still working…' }
+            payload: { status: 'processing', message: `${managerName} is still working…` }
           }).catch(() => {});
         }, 20000);
         try {
@@ -500,6 +540,14 @@ class MobileHandler extends EventEmitter {
         } finally {
           clearInterval(heartbeat);
           this.managerAgent.removeListener('manager-step', stepHandler);
+        }
+        if (threadId) {
+          this._addThreadMessage(threadId, 'assistant', managerName, null, result);
+          // Tell the client who authored the final answer for attribution.
+          await replier(correlationId, {
+            type: 'agent-step',
+            payload: { phase: 'manager-final', speaker: managerName }
+          });
         }
       } else {
         // Agent chat: a thread maps to a copilot session UUID. Passing the
@@ -553,8 +601,18 @@ class MobileHandler extends EventEmitter {
       return true;
     }
 
-    // Thread mode: history comes from the pinned copilot session's events log.
+    // Thread mode. Managers keep an attributed transcript (manager + each
+    // sub-agent) in the DB; agents resume from their copilot session log.
     if (threadId) {
+      const ttype = this._threadTargetType(threadId) || (payload.targetType || 'agent');
+      if (ttype === 'manager') {
+        const messages = this._getThreadMessages(threadId);
+        await replier(correlationId, {
+          type: 'result',
+          payload: { messages, targetId, targetType: 'manager', threadId }
+        });
+        return true;
+      }
       const messages = this._readSessionMessages(threadId);
       await replier(correlationId, {
         type: 'result',
@@ -631,6 +689,43 @@ class MobileHandler extends EventEmitter {
         "UPDATE mobile_chat_threads SET updated_at = datetime('now'), last_preview = ? WHERE id = ?"
       ).run((lastReply || '').replace(/\s+/g, ' ').trim().slice(0, 120), threadId);
     } catch (e) { /* non-fatal */ }
+  }
+
+  _threadTargetType(threadId) {
+    if (!this.db) return null;
+    try {
+      const row = this.db.prepare('SELECT target_type FROM mobile_chat_threads WHERE id = ?').get(threadId);
+      return row ? row.target_type : null;
+    } catch { return null; }
+  }
+
+  /**
+   * Persist a transcript message for a (manager) thread. Used to record the
+   * back-and-forth plus each sub-agent's contribution with attribution, so the
+   * conversation — and who said what — survives navigation and restarts.
+   */
+  _addThreadMessage(threadId, role, speaker, agentId, content) {
+    if (!this.db || !threadId) return;
+    try {
+      this.db.prepare(
+        'INSERT INTO mobile_thread_messages (thread_id, role, speaker, agent_id, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(threadId, role, speaker || null, agentId || null, content == null ? '' : String(content), new Date().toISOString());
+    } catch (e) { /* non-fatal */ }
+  }
+
+  _getThreadMessages(threadId) {
+    if (!this.db) return [];
+    try {
+      return this.db.prepare(
+        'SELECT role, speaker, agent_id, content, timestamp FROM mobile_thread_messages WHERE thread_id = ? ORDER BY id ASC'
+      ).all(threadId).map(r => ({
+        role: r.role,
+        speaker: r.speaker || undefined,
+        agentId: r.agent_id || undefined,
+        content: r.content,
+        timestamp: r.timestamp,
+      }));
+    } catch { return []; }
   }
 
   async _listChatThreads(correlationId, payload, replier) {
