@@ -939,21 +939,10 @@ app.get('/api/agents/:id/session', (req, res) => {
 });
 
 app.put('/api/agents/:id/schedule', (req, res) => {
-  const { schedule } = req.body;
-  if (!schedule) return res.status(400).json({ error: 'schedule required' });
-  try {
-    supervisor.updateSchedule(req.params.id, schedule);
-    // Persist to agents.json
-    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-    const agent = agents.find(a => a.id === req.params.id);
-    if (agent) {
-      agent.schedule = schedule;
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
+  // Policy: only tasks, assignments, and flows carry saved schedules. Agents run
+  // via tasks (scheduled prompts), triggers, or manual execution — never on their
+  // own saved schedule. This endpoint is intentionally disabled.
+  res.status(410).json({ error: 'Agents cannot be scheduled. Create a scheduled Task for this agent instead.' });
 });
 
 // Update agent group
@@ -3218,21 +3207,9 @@ app.get('/api/schedules', (req, res) => {
   const out = [];
 
   try {
-    // Agents that self-schedule (enabled state is persisted in agent_state)
-    const enabledRows = db.prepare('SELECT agent_id, enabled FROM agent_state').all();
-    const agentEnabled = new Map(enabledRows.map(r => [r.agent_id, r.enabled !== 0]));
-    for (const [id, entry] of supervisor.agents) {
-      const s = entry.config && entry.config.schedule;
-      if (!isScheduled(s)) continue;
-      const enabled = agentEnabled.has(id) ? agentEnabled.get(id) : (entry.config.enabled !== false);
-      const last = db.prepare('SELECT started_at, finished_at, exit_code FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(id);
-      out.push({
-        type: 'agent', id, name: entry.config.name || id, parentName: null,
-        schedule: s, scheduleDescription: describe(s), enabled,
-        nextRun: nextRunIso(s), lastRun: last ? last.started_at : null, lastStatus: agentStatus(last),
-        href: '#/agents/' + id
-      });
-    }
+    // Policy: only tasks, assignments, and flows have saved schedules. Agents are
+    // intentionally NOT enumerated here — an agent runs via its scheduled Tasks,
+    // triggers, or manual execution, never on its own saved schedule.
 
     // Scheduled tasks (fire an agent with the task prompt). Tasks are tracked
     // separately from the underlying agent via the task_id column on agent_runs.

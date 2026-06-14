@@ -6457,21 +6457,6 @@
           }
         },
 
-        async saveAgentSchedule() {
-          if (!this.selectedAgent) return;
-          try {
-            await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/schedule`, {
-              method: 'PUT',
-              body: JSON.stringify({ schedule: this.selectedAgent.scheduleDraft })
-            });
-            this.showToast('Schedule saved', 'Agent schedule updated.', 'info');
-            await this.loadAgentDetail(this.selectedAgent.id);
-            await this.refreshAll(false);
-          } catch (error) {
-            this.showToast('Save failed', error.message, 'error');
-          }
-        },
-
         async saveAgentPrompt() {
           if (!this.selectedAgent) return;
           try {

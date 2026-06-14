@@ -91,19 +91,11 @@ class Supervisor extends EventEmitter {
       this._executeAgent(agentId);
     }
 
-    // Set up recurring schedule (skip for trigger-only agents)
-    if (schedule.type === 'cron') {
-      entry.cronJob = new Cron(schedule.cron, () => {
-        if (this._leaderCheck && !this._leaderCheck()) return;
-        this._executeAgent(agentId);
-      });
-    } else if (schedule.type === 'interval') {
-      entry.timer = setInterval(() => {
-        if (this._leaderCheck && !this._leaderCheck()) return;
-        this._executeAgent(agentId);
-      }, schedule.ms);
-    }
-    // type === 'none' → no schedule, only runs via triggers or manual
+    // Policy: agents never run on their own saved schedule. Recurring execution
+    // comes from scheduled Tasks (server-side cron), Flows, or triggers. We keep
+    // manual/autoStart and trigger paths, but no longer create cron/interval jobs
+    // from config.schedule, even if a stray value is present in agents.json.
+    // (schedule.type === 'cron' | 'interval' is intentionally ignored.)
 
     this._updateNextRun(agentId);
     this.emit('agent-started', agentId);
