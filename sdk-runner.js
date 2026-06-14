@@ -155,6 +155,50 @@ class SdkRunner {
     return null;
   }
 
+  /** Compact a tool's arguments object into a short one-line summary. */
+  _summarizeArgs(args) {
+    if (!args || typeof args !== 'object') return '';
+    try {
+      const s = JSON.stringify(args);
+      return s.length > 300 ? s.slice(0, 300) + '…' : s;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /**
+   * Build an ordered, display-ready step list (sub-agent selection, extended
+   * thinking, and tool calls with outcomes) from a session's getEvents() output.
+   * Shape matches the frontend msg-activity renderer: { type, label, text }.
+   */
+  _buildSteps(events) {
+    const steps = [];
+    const toolStarts = Object.create(null);
+    for (const ev of events || []) {
+      const t = ev && ev.type;
+      const d = (ev && ev.data) || {};
+      if (t === 'subagent.selected') {
+        steps.push({ type: 'run_agent', label: '🤖 Agent: ' + (d.agentDisplayName || d.agentName || 'subagent'), text: '' });
+      } else if (t === 'assistant.reasoning' && d.content) {
+        steps.push({ type: 'thinking', label: '💭 Thinking', text: String(d.content).slice(0, 4000) });
+      } else if (t === 'tool.execution_start') {
+        if (d.toolCallId) toolStarts[d.toolCallId] = { name: d.toolName, args: d.arguments };
+      } else if (t === 'tool.execution_complete') {
+        const s = (d.toolCallId && toolStarts[d.toolCallId]) || {};
+        const name = s.name || d.toolName || 'tool';
+        const ok = d.success !== false && !d.error;
+        const errMsg = d.error && (d.error.message || d.error.name);
+        const argStr = this._summarizeArgs(s.args);
+        steps.push({
+          type: ok ? 'tool' : 'error',
+          label: '🔧 ' + name + (ok ? ' ✓' : ' ✗'),
+          text: ok ? argStr : (String(errMsg || 'failed').slice(0, 1000)),
+        });
+      }
+    }
+    return steps;
+  }
+
   /** Load mcpServers from config.mcpConfig (an .mcp.json path), if present. */
   _loadMcpServers(config) {
     if (!config.mcpConfig) return null;
@@ -240,6 +284,7 @@ class SdkRunner {
       // Authoritative output: assistant.message contents joined like the scraper.
       let output = '';
       let eventCount = 0;
+      let steps = [];
       try {
         const events = await session.getEvents();
         eventCount = events.length;
@@ -250,6 +295,7 @@ class SdkRunner {
           }
         }
         output = parts.join(SEP);
+        steps = this._buildSteps(events);
         // Surface a session-level error if sendAndWait succeeded but the run failed.
         if (code === 0) {
           const errEv = events.find(e => e.type === 'error' || e.type === 'session.error');
@@ -262,7 +308,7 @@ class SdkRunner {
         if (code === 0) { code = 1; error = `getEvents failed: ${e.message}`; }
       }
 
-      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount };
+      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps };
     } catch (e) {
       // createSession itself failed - fall back to the CLI spawn.
       return {

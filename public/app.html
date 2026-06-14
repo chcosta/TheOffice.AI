@@ -1830,14 +1830,44 @@
             </div>
             <!-- Live output panel (shown when agent is running) -->
             <div x-show="liveOutput[selectedAgent?.id]" x-transition style="margin-bottom:16px">
-              <div class="card" style="border-left:3px solid var(--cp-accent)">
+              <div class="card" :style="liveOutput[selectedAgent?.id]?.active ? 'border-left:3px solid var(--cp-accent)' : (liveOutput[selectedAgent?.id]?.code === 0 ? 'border-left:3px solid var(--cp-success)' : 'border-left:3px solid var(--cp-danger)')">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
                   <span x-show="liveOutput[selectedAgent?.id]?.active" class="pulse-dot"></span>
-                  <strong x-text="liveOutput[selectedAgent?.id]?.active ? '⚡ Running...' : '✓ Complete'"></strong>
+                  <strong x-text="liveOutput[selectedAgent?.id]?.active ? '⚡ Running…' : (liveOutput[selectedAgent?.id]?.code === 0 ? '✓ Complete' : '✕ Failed')"></strong>
                   <span class="hint" x-show="!liveOutput[selectedAgent?.id]?.active" x-text="'Exit ' + (liveOutput[selectedAgent?.id]?.code ?? '?')"></span>
                   <button class="btn ghost" style="margin-left:auto" type="button" @click="delete liveOutput[selectedAgent.id]; liveOutput = {...liveOutput}">✕ Dismiss</button>
                 </div>
-                <pre class="live-output-pre" style="max-height:300px;overflow:auto;font-size:0.8rem;white-space:pre-wrap;background:var(--cp-surface-soft);padding:12px;border-radius:8px" x-text="liveOutput[selectedAgent?.id]?.text || 'Waiting for output...'"></pre>
+                <template x-if="liveOutput[selectedAgent?.id]?.active">
+                  <div class="live-output-container" style="max-height:300px">
+                    <pre class="live-output-pre" style="font-size:0.8rem" x-text="liveOutput[selectedAgent?.id]?.text || 'Waiting for output…'" x-effect="liveOutput[selectedAgent?.id]?.text; $el.scrollTop = $el.scrollHeight"></pre>
+                  </div>
+                </template>
+                <template x-if="!liveOutput[selectedAgent?.id]?.active">
+                  <div>
+                    <div class="md-output" x-html="renderMarkdown(liveOutput[selectedAgent?.id]?.finalOutput || liveOutput[selectedAgent?.id]?.text || 'No output captured.')"></div>
+                    <template x-if="(liveOutput[selectedAgent?.id]?.steps || []).length">
+                      <details class="msg-activity">
+                        <summary>🔎 Reasoning &amp; steps (<span x-text="liveOutput[selectedAgent?.id]?.steps?.length"></span>)</summary>
+                        <div class="msg-activity-body">
+                          <template x-for="(st, ai) in (liveOutput[selectedAgent?.id]?.steps || [])" :key="'dstep-' + ai">
+                            <div class="msg-activity-step" :class="st.type">
+                              <div class="msg-activity-label" x-text="st.label"></div>
+                              <template x-if="st.text">
+                                <pre class="live-stream-pre" x-text="st.text"></pre>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </details>
+                    </template>
+                    <details class="msg-activity">
+                      <summary>📜 Raw stream</summary>
+                      <div class="msg-activity-body">
+                        <pre class="live-stream-pre" style="max-height:260px" x-text="liveOutput[selectedAgent?.id]?.text || '(no streamed output)'"></pre>
+                      </div>
+                    </details>
+                  </div>
+                </template>
               </div>
             </div>
             <div class="detail-grid">
@@ -2663,17 +2693,52 @@
                   <div class="live-exec-chat" x-show="activeChat && liveOutput[activeChat?.target]">
                     <div class="message-row">
                       <div class="message-bubble-wrap">
-                        <div class="message-bubble" style="border: 1px solid var(--cp-success); background: color-mix(in srgb, var(--cp-success) 5%, var(--cp-surface))">
-                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                            <span x-show="liveOutput[activeChat?.target]?.active" class="pulse-dot"></span>
-                            <strong x-text="liveOutput[activeChat?.target]?.active ? '⚡ Executing...' : '✓ Execution Complete'"></strong>
-                            <span class="hint" x-show="!liveOutput[activeChat?.target]?.active" x-text="'Exit ' + (liveOutput[activeChat?.target]?.code ?? '?')"></span>
+                        <template x-if="liveOutput[activeChat?.target]?.active">
+                          <!-- Streaming view: raw deltas, auto-scrolling -->
+                          <div class="message-bubble" style="border: 1px solid var(--cp-accent); background: color-mix(in srgb, var(--cp-accent) 4%, var(--cp-surface))">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                              <span class="pulse-dot"></span>
+                              <strong>⚡ Executing…</strong>
+                              <span class="hint" x-text="'started ' + formatRelative(liveOutput[activeChat?.target]?.startedAt)"></span>
+                            </div>
+                            <div class="live-output-container">
+                              <pre class="live-output-pre" x-text="liveOutput[activeChat?.target]?.text || 'Waiting for output…'" x-effect="liveOutput[activeChat?.target]?.text; $el.scrollTop = $el.scrollHeight"></pre>
+                            </div>
                           </div>
-                          <div class="live-output-container" x-ref="liveOutputBox">
-                            <pre class="live-output-pre" x-text="liveOutput[activeChat?.target]?.text || 'Waiting for output...'"></pre>
+                        </template>
+                        <template x-if="!liveOutput[activeChat?.target]?.active">
+                          <!-- Completed view: clean final response + drill-down (parity with chat) -->
+                          <div class="message-bubble" :style="liveOutput[activeChat?.target]?.code === 0 ? 'border: 1px solid var(--cp-success); background: color-mix(in srgb, var(--cp-success) 5%, var(--cp-surface))' : 'border: 1px solid var(--cp-danger); background: color-mix(in srgb, var(--cp-danger) 5%, var(--cp-surface))'">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                              <strong x-text="liveOutput[activeChat?.target]?.code === 0 ? '✓ Execution Complete' : '✕ Execution Failed'"></strong>
+                              <span class="hint" x-text="'Exit ' + (liveOutput[activeChat?.target]?.code ?? '?')"></span>
+                              <button class="btn ghost" style="margin-left:auto;padding:2px 8px" type="button" @click="delete liveOutput[activeChat.target]; liveOutput = {...liveOutput}" title="Dismiss this execution result">✕ Dismiss</button>
+                            </div>
+                            <div class="md-output" x-html="renderMarkdown(liveOutput[activeChat?.target]?.finalOutput || liveOutput[activeChat?.target]?.text || 'No output captured.')"></div>
+                            <template x-if="(liveOutput[activeChat?.target]?.steps || []).length">
+                              <details class="msg-activity">
+                                <summary>🔎 Reasoning &amp; steps (<span x-text="liveOutput[activeChat?.target]?.steps?.length"></span>)</summary>
+                                <div class="msg-activity-body">
+                                  <template x-for="(st, ai) in (liveOutput[activeChat?.target]?.steps || [])" :key="'xstep-' + ai">
+                                    <div class="msg-activity-step" :class="st.type">
+                                      <div class="msg-activity-label" x-text="st.label"></div>
+                                      <template x-if="st.text">
+                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                      </template>
+                                    </div>
+                                  </template>
+                                </div>
+                              </details>
+                            </template>
+                            <details class="msg-activity">
+                              <summary>📜 Raw stream</summary>
+                              <div class="msg-activity-body">
+                                <pre class="live-stream-pre" style="max-height:260px" x-text="liveOutput[activeChat?.target]?.text || '(no streamed output)'"></pre>
+                              </div>
+                            </details>
+                            <div class="message-meta" x-text="'started ' + formatDateTime(liveOutput[activeChat?.target]?.startedAt) + (liveOutput[activeChat?.target]?.finishedAt ? ' • finished ' + formatDateTime(liveOutput[activeChat?.target]?.finishedAt) : '')"></div>
                           </div>
-                          <div class="message-meta" x-text="'started ' + formatDateTime(liveOutput[activeChat?.target]?.startedAt)"></div>
-                        </div>
+                        </template>
                       </div>
                     </div>
                   </div>
@@ -4855,10 +4920,13 @@
               });
             });
             source.addEventListener('agent-completed', (event) => {
-              const { id, code, sessionId } = JSON.parse(event.data || '{}');
+              const { id, code, sessionId, output, steps } = JSON.parse(event.data || '{}');
               if (this.liveOutput[id]) {
                 this.liveOutput[id].active = false;
                 this.liveOutput[id].code = code;
+                this.liveOutput[id].finishedAt = new Date().toISOString();
+                if (typeof output === 'string' && output.length) this.liveOutput[id].finalOutput = output;
+                this.liveOutput[id].steps = Array.isArray(steps) ? steps : [];
                 this.liveOutput = { ...this.liveOutput };
               }
               // Store session ID so chat can resume the agent session

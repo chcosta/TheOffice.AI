@@ -148,8 +148,8 @@ supervisor.on('agent-running', (agentId) => {
 supervisor.on('agent-output', ({ agentId, stream, chunk }) => {
   broadcastSSE('agent-output', { id: agentId, stream, chunk });
 });
-supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId }) => {
-  broadcastSSE('agent-completed', { id: agentId, code, output: output?.slice(-10000), error: error?.slice(-2000), sessionId });
+supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, steps }) => {
+  broadcastSSE('agent-completed', { id: agentId, code, output: output?.slice(-10000), error: error?.slice(-2000), sessionId, steps: Array.isArray(steps) ? steps : [] });
 });
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);

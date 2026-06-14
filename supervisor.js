@@ -249,6 +249,7 @@ class Supervisor extends EventEmitter {
           error: res.error || '',
           sessionId: res.sessionId || pinnedSessionId,
           origin: 'sdk',
+          steps: Array.isArray(res.steps) ? res.steps : [],
         });
       })
       .catch((err) => {
@@ -379,7 +380,7 @@ class Supervisor extends EventEmitter {
    * agent-completed. Keeps the mobile/activity/SSE contract identical for both
    * runtimes.
    */
-  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId }) {
+  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps }) {
     const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
     entry.running = false;
     entry.process = null;
@@ -401,7 +402,7 @@ class Supervisor extends EventEmitter {
     else status = 'idle';
     this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
 
-    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId });
+    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId, steps: Array.isArray(steps) ? steps : [] });
     console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
 
     // Durable restart on failure
