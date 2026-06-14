@@ -4,6 +4,7 @@ const fs = require('fs');
 const EventEmitter = require('events');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const { Cron } = require('croner');
+const { repairConsoleMojibake } = require('./mojibake');
 
 /**
  * ManagerAgent - Orchestrates multiple sub-agents to complete complex tasks.
@@ -318,7 +319,7 @@ class ManagerAgent extends EventEmitter {
           runStep.partial = '';
           let lastPersist = 0;
           onChunk = (accumulated) => {
-            runStep.partial = accumulated.slice(-4000);
+            runStep.partial = repairConsoleMojibake(accumulated).slice(-4000);
             const now = Date.now();
             if (now - lastPersist > 1000) {
               lastPersist = now;
@@ -536,7 +537,11 @@ REASON: <why you need this agent>
       argParts.push(`-p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}"`);
       argParts.push('--yolo');
 
-      const cmdLine = `"${copilotCmd}" ${argParts.join(' ')}`;
+      const baseCmdLine = `"${copilotCmd}" ${argParts.join(' ')}`;
+      // On Windows, force the child console to UTF-8 (code page 65001) so the
+      // copilot CLI's bullets/box-drawing chars aren't mangled through the legacy
+      // OEM code page when captured from the pipe.
+      const cmdLine = process.platform === 'win32' ? `chcp 65001>nul & ${baseCmdLine}` : baseCmdLine;
       console.log(`[manager] Running sub-agent "${agentId}": ${prompt.substring(0, 150)}...`);
 
       const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
@@ -567,6 +572,7 @@ REASON: <why you need this agent>
           } else if (code !== 0 && stderr && !output.includes(stderr)) {
             output = `${output}\n[stderr] ${stderr}`;
           }
+          output = repairConsoleMojibake(output);
           resolve({ exitCode: code, output, stderr });
         }, 1000);
       });
@@ -580,7 +586,7 @@ REASON: <why you need this agent>
       setTimeout(() => {
         proc.kill();
         try { fs.unlinkSync(promptFile); } catch {}
-        resolve({ exitCode: -1, output: stdout, stderr: 'Timed out after 10 minutes' });
+        resolve({ exitCode: -1, output: repairConsoleMojibake(stdout), stderr: 'Timed out after 10 minutes' });
       }, 600000);
     });
   }

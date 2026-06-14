@@ -4,6 +4,7 @@ const fs = require('fs');
 const EventEmitter = require('events');
 const { Cron } = require('croner');
 const { parseSchedule, getNextRun } = require('./scheduler');
+const { repairConsoleMojibake } = require('./mojibake');
 
 class Supervisor extends EventEmitter {
   constructor(db) {
@@ -249,9 +250,9 @@ class Supervisor extends EventEmitter {
     let stderr = '';
 
     proc.stdout.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      this.emit('agent-output', { agentId, stream: 'stdout', chunk });
+      const raw = data.toString();
+      stdout += raw;
+      this.emit('agent-output', { agentId, stream: 'stdout', chunk: repairConsoleMojibake(raw) });
     });
     proc.stderr.on('data', (data) => {
       const chunk = data.toString();
@@ -273,7 +274,7 @@ class Supervisor extends EventEmitter {
       setTimeout(() => {
         // Try to get full output from session events (all assistant messages)
         const sessionResult = this._getSessionOutput(config);
-        let fullOutput = sessionResult.output || stdout;
+        let fullOutput = repairConsoleMojibake(sessionResult.output || stdout);
         const sessionId = sessionResult.sessionId || null;
         if (fullOutput === stdout && stdout.length < 200) {
           console.log(`[supervisor] Warning: "${config.name}" session output not found, using stdout (${stdout.length} chars)`);
