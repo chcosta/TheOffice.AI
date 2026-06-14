@@ -1599,117 +1599,124 @@
               </div>
             </div>
 
-            <div class="home-grid">
-              <section class="card">
-                <div class="card-header">
+            <div class="card-grid" style="margin-bottom:18px">
+              <article class="card">
+                <div class="hint">Running now</div>
+                <strong style="font-size:1.6rem" x-text="runningEntities().length"></strong>
+                <div class="hint" style="margin-top:2px" x-show="runningEntities().length" x-text="runningEntities().map(e => e.name).slice(0,3).join(', ')"></div>
+              </article>
+              <article class="card">
+                <div class="hint">Up next</div>
+                <template x-if="nextSchedule()">
                   <div>
-                    <h2 class="card-title">Running Now</h2>
-                    <div class="card-subtitle">Active agents and managers with live elapsed time.</div>
+                    <strong x-text="nextSchedule().name"></strong>
+                    <div class="mono" style="margin-top:4px" x-text="formatRelative(nextSchedule().nextRun)"></div>
                   </div>
-                </div>
-                <div class="stack" x-show="runningEntities().length">
-                  <template x-for="entry in runningEntities()" :key="entry.key">
-                    <div class="item-row">
-                      <div class="split-meta">
-                        <div>
-                          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                            <strong x-text="entry.name"></strong>
-                            <span class="status-badge running">Running</span>
-                            <span class="type-badge" x-text="entry.kind"></span>
-                          </div>
-                          <div class="hint" style="margin-top:6px" x-text="entry.summary"></div>
-                        </div>
-                        <div class="mono" x-text="elapsedSince(entry.startedAt)"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!runningEntities().length">Nothing is currently executing.</div>
-              </section>
-
-              <section class="card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Recent Activity</h2>
-                    <div class="card-subtitle">Latest completions across agents and managers.</div>
-                  </div>
-                </div>
-                <div class="timeline" x-show="recentCompletions().length">
-                  <template x-for="entry in recentCompletions()" :key="entry.id">
-                    <div class="item-row">
-                      <div class="split-meta">
-                        <div>
-                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span x-text="entry.status === 'success' ? '✅' : '❌'"></span>
-                            <strong x-text="entry.entityName"></strong>
-                            <span class="type-badge" x-text="entry.entityType"></span>
-                          </div>
-                          <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.finishedAt || entry.startedAt)"></div>
-                        </div>
-                        <div class="mono" x-text="formatDuration(entry.durationMs)"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!recentCompletions().length">No completed runs yet.</div>
-              </section>
-
-              <section class="card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Upcoming</h2>
-                    <div class="card-subtitle">Next scheduled tasks and assignments.</div>
-                  </div>
-                </div>
-                <div class="stack" x-show="upcomingTasks().length">
-                  <template x-for="task in upcomingTasks()" :key="task.taskKey">
-                    <div class="item-row">
-                      <div class="split-meta">
-                        <div>
-                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <strong x-text="task.name"></strong>
-                            <span class="type-badge" x-text="task.typeLabel"></span>
-                          </div>
-                          <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
-                        </div>
-                        <div>
-                          <div class="mono" x-text="formatCountdown(task.nextRun)"></div>
-                          <div class="hint" style="text-align:right;margin-top:4px" x-text="formatDateTime(task.nextRun)"></div>
-                        </div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!upcomingTasks().length">No future schedules detected.</div>
-              </section>
-
-              <section class="card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">Alerts</h2>
-                    <div class="card-subtitle">Failed runs in the last 24 hours that may need attention.</div>
-                  </div>
-                </div>
-                <div class="stack" x-show="alerts().length">
-                  <template x-for="entry in alerts()" :key="entry.id">
-                    <div class="item-row">
-                      <div class="split-meta">
-                        <div>
-                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span>⚠</span>
-                            <strong x-text="entry.entityName"></strong>
-                            <span class="status-badge failed">Failed</span>
-                          </div>
-                          <div class="hint" style="margin-top:6px" x-text="entry.preview"></div>
-                        </div>
-                        <div class="mono" x-text="formatRelative(entry.finishedAt || entry.startedAt)"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!alerts().length">No recent failures detected.</div>
-              </section>
+                </template>
+                <template x-if="!nextSchedule()">
+                  <strong>Nothing scheduled</strong>
+                </template>
+              </article>
+              <article class="card">
+                <div class="hint">Scheduled items</div>
+                <strong style="font-size:1.6rem" x-text="scheduleCounts().all"></strong>
+              </article>
+              <article class="card" :style="alerts().length ? 'border-color:var(--cp-danger)' : ''">
+                <div class="hint">Alerts (24h)</div>
+                <strong style="font-size:1.6rem" x-text="alerts().length"></strong>
+              </article>
             </div>
+
+            <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:12px">
+              <div class="filter-pills">
+                <template x-for="f in ['all','agent','task','assignment','flow']" :key="f">
+                  <button class="pill" type="button" :class="{ active: scheduleTypeFilter === f }" @click="scheduleTypeFilter = f">
+                    <span x-text="f === 'all' ? 'All' : scheduleTypeMeta(f).icon + ' ' + scheduleTypeMeta(f).label + 's'"></span>
+                    <span class="hint" x-text="'(' + (scheduleCounts()[f] ?? 0) + ')'"></span>
+                  </button>
+                </template>
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer" class="hint">
+                <input type="checkbox" x-model="scheduleHideDisabled" />
+                Hide disabled
+              </label>
+            </div>
+
+            <div class="sched-table-wrap" x-show="filteredSchedules().length">
+              <table class="sched-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Type</th>
+                    <th>Schedule</th>
+                    <th>Last run</th>
+                    <th>Next run</th>
+                    <th style="text-align:center">On</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in filteredSchedules()" :key="row.type + ':' + row.id">
+                    <tr :style="row.enabled === false ? 'opacity:0.55' : ''">
+                      <td>
+                        <a :href="row.href" style="text-decoration:none;color:inherit">
+                          <strong x-text="row.name"></strong>
+                        </a>
+                        <div class="hint" style="font-size:0.72rem" x-show="row.parentName" x-text="row.parentName"></div>
+                      </td>
+                      <td><span class="type-badge" x-text="scheduleTypeMeta(row.type).icon + ' ' + scheduleTypeMeta(row.type).label"></span></td>
+                      <td>
+                        <div x-text="row.scheduleDescription"></div>
+                        <div class="hint mono" style="font-size:0.7rem" x-text="row.schedule"></div>
+                      </td>
+                      <td>
+                        <span class="status-badge" :class="scheduleStatusClass(row.lastStatus)" x-text="scheduleStatusLabel(row.lastStatus)"></span>
+                        <div class="hint" style="font-size:0.72rem;margin-top:4px" x-show="row.lastRun" x-text="formatRelative(row.lastRun)"></div>
+                      </td>
+                      <td>
+                        <span x-show="row.enabled !== false && row.nextRun" class="mono" x-text="formatRelative(row.nextRun)"></span>
+                        <span x-show="row.enabled === false" class="hint">disabled</span>
+                        <span x-show="row.enabled !== false && !row.nextRun" class="hint">—</span>
+                        <div class="hint" style="font-size:0.7rem" x-show="row.enabled !== false && row.nextRun" x-text="formatDateTime(row.nextRun)"></div>
+                      </td>
+                      <td style="text-align:center">
+                        <label class="toggle-switch" :title="row.enabled === false ? 'Enable' : 'Disable'">
+                          <input type="checkbox" :checked="row.enabled !== false" @change="toggleSchedule(row, $event.target.checked)" />
+                          <span class="toggle-slider"></span>
+                        </label>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="empty-state" x-show="!schedulesLoading && !filteredSchedules().length">No scheduled items match this filter. Add a schedule to an agent, task, assignment, or flow to see it here.</div>
+            <div class="empty-state" x-show="schedulesLoading && !(data.schedules || []).length">Loading schedules…</div>
+
+            <section class="card" style="margin-top:18px" x-show="alerts().length">
+              <div class="card-header">
+                <div>
+                  <h2 class="card-title">Alerts</h2>
+                  <div class="card-subtitle">Failed runs in the last 24 hours that may need attention.</div>
+                </div>
+              </div>
+              <div class="stack">
+                <template x-for="entry in alerts()" :key="entry.id">
+                  <div class="item-row">
+                    <div class="split-meta">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <span>⚠</span>
+                          <strong x-text="entry.entityName"></strong>
+                          <span class="status-badge failed">Failed</span>
+                        </div>
+                        <div class="hint" style="margin-top:6px" x-text="entry.preview"></div>
+                      </div>
+                      <div class="mono" x-text="formatRelative(entry.finishedAt || entry.startedAt)"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </section>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'agents'" x-transition.opacity.duration.180ms>
@@ -3372,95 +3379,6 @@
             <div class="empty-state" x-show="!filteredActivity().length">No activity matched this filter.</div>
           </section>
 
-          <!-- Schedules: unified view of every scheduled item -->
-          <section x-show="!loading && !errorMessage && route === 'schedules'" x-transition.opacity.duration.180ms>
-            <div class="page-header">
-              <div class="page-title">
-                <h1>Schedules</h1>
-                <p>Every agent, task, assignment, and flow with an active schedule — sorted by what runs next. Manual-only items are hidden.</p>
-              </div>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="loadSchedules()">↻ Refresh</button>
-              </div>
-            </div>
-
-            <div class="card-grid" style="margin-bottom:18px" x-show="(data.schedules || []).length">
-              <article class="card">
-                <div class="hint">Up next</div>
-                <template x-if="nextSchedule()">
-                  <div>
-                    <strong x-text="nextSchedule().name"></strong>
-                    <div class="mono" style="margin-top:4px" x-text="formatRelative(nextSchedule().nextRun)"></div>
-                  </div>
-                </template>
-                <template x-if="!nextSchedule()">
-                  <strong>Nothing scheduled</strong>
-                </template>
-              </article>
-              <article class="card">
-                <div class="hint">Scheduled items</div>
-                <strong style="font-size:1.6rem" x-text="scheduleCounts().all"></strong>
-              </article>
-            </div>
-
-            <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:12px">
-              <div class="filter-pills">
-                <template x-for="f in ['all','agent','task','assignment','flow']" :key="f">
-                  <button class="pill" type="button" :class="{ active: scheduleTypeFilter === f }" @click="scheduleTypeFilter = f">
-                    <span x-text="f === 'all' ? 'All' : scheduleTypeMeta(f).icon + ' ' + scheduleTypeMeta(f).label + 's'"></span>
-                    <span class="hint" x-text="'(' + (scheduleCounts()[f] ?? 0) + ')'"></span>
-                  </button>
-                </template>
-              </div>
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer" class="hint">
-                <input type="checkbox" x-model="scheduleHideDisabled" />
-                Hide disabled
-              </label>
-            </div>
-
-            <div class="sched-table-wrap" x-show="filteredSchedules().length">
-              <table class="sched-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Type</th>
-                    <th>Schedule</th>
-                    <th>Last run</th>
-                    <th>Next run</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template x-for="row in filteredSchedules()" :key="row.type + ':' + row.id">
-                    <tr :style="row.enabled === false ? 'opacity:0.5' : ''">
-                      <td>
-                        <a :href="row.href" style="text-decoration:none;color:inherit">
-                          <strong x-text="row.name"></strong>
-                        </a>
-                        <div class="hint" style="font-size:0.72rem" x-show="row.parentName" x-text="row.parentName"></div>
-                      </td>
-                      <td><span class="type-badge" x-text="scheduleTypeMeta(row.type).icon + ' ' + scheduleTypeMeta(row.type).label"></span></td>
-                      <td>
-                        <div x-text="row.scheduleDescription"></div>
-                        <div class="hint mono" style="font-size:0.7rem" x-text="row.schedule"></div>
-                      </td>
-                      <td>
-                        <span class="status-badge" :class="scheduleStatusClass(row.lastStatus)" x-text="scheduleStatusLabel(row.lastStatus)"></span>
-                        <div class="hint" style="font-size:0.72rem;margin-top:4px" x-show="row.lastRun" x-text="formatRelative(row.lastRun)"></div>
-                      </td>
-                      <td>
-                        <span x-show="row.enabled !== false && row.nextRun" class="mono" x-text="formatRelative(row.nextRun)"></span>
-                        <span x-show="row.enabled === false" class="hint">disabled</span>
-                        <span x-show="row.enabled !== false && !row.nextRun" class="hint">—</span>
-                        <div class="hint" style="font-size:0.7rem" x-show="row.enabled !== false && row.nextRun" x-text="formatDateTime(row.nextRun)"></div>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-            <div class="empty-state" x-show="!schedulesLoading && !filteredSchedules().length">No scheduled items match this filter. Add a schedule to an agent, task, assignment, or flow to see it here.</div>
-            <div class="empty-state" x-show="schedulesLoading">Loading schedules…</div>
-          </section>
         </div>
       </main>
     </div>
@@ -4646,7 +4564,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'chains', 'assignments', 'chat', 'activity', 'events', 'settings', 'schedules'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'chains', 'assignments', 'chat', 'activity', 'events', 'settings'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -4663,7 +4581,7 @@
             await this.loadSyncStatus();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
-          } else if (this.route === 'schedules') {
+          } else if (this.route === 'home') {
             await this.loadSchedules();
           }
         },
@@ -4905,7 +4823,7 @@
           clearTimeout(this.refreshTimer);
           this.refreshTimer = setTimeout(() => {
             this.refreshAll(false);
-            if (this.route === 'schedules') this.loadSchedules();
+            if (this.route === 'home') this.loadSchedules();
           }, 400);
         },
 
@@ -4922,7 +4840,6 @@
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
-            { key: 'schedules', label: 'Schedule', title: 'Schedules', icon: '🗓️', href: '#/schedules', routeGroup: 'schedules', items: [], collapsible: false },
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
         },
@@ -5236,6 +5153,26 @@
             this.data.schedules = [];
           } finally {
             this.schedulesLoading = false;
+          }
+        },
+
+        async toggleSchedule(row, enabled) {
+          const prev = row.enabled;
+          row.enabled = enabled; // optimistic
+          try {
+            if (row.type === 'agent') {
+              await this.request(`/api/agents/${encodeURIComponent(row.id)}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+            } else if (row.type === 'task') {
+              await this.request(`/api/tasks/${encodeURIComponent(row.id)}`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+            } else if (row.type === 'assignment') {
+              await this.request(`/api/managers/${encodeURIComponent(row.managerId)}/assignments/${encodeURIComponent(row.assignmentId)}/toggle`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+            } else if (row.type === 'flow') {
+              await this.request(`/api/chains/${encodeURIComponent(row.id)}`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+            }
+            await this.loadSchedules();
+          } catch (e) {
+            row.enabled = prev; // revert on failure
+            this.showToast('Schedule update failed', e.message || String(e), 'error');
           }
         },
 

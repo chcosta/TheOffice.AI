@@ -42,6 +42,9 @@ class Supervisor extends EventEmitter {
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN session_id TEXT'); } catch {}
     // Migration: add triggered_by column if missing
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN triggered_by TEXT'); } catch {}
+    // Migration: add task_id column so task-triggered runs can be tracked
+    // separately from an agent's own (manual/scheduled) runs.
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN task_id TEXT'); } catch {}
   }
 
 
@@ -171,6 +174,11 @@ class Supervisor extends EventEmitter {
 
     entry.running = true;
     entry._triggeredBy = triggerContext?.trigger?.id || null;
+    // Consume a one-shot task id stamped by executeTask() so this run is
+    // attributed to the task that fired it (cleared immediately so a later
+    // manual/scheduled run of the same agent isn't mis-attributed).
+    const taskId = entry._taskId || null;
+    entry._taskId = null;
     const { config } = entry;
     const startedAt = new Date().toISOString();
 
@@ -276,8 +284,8 @@ class Supervisor extends EventEmitter {
 
         // Store result
         this.db.prepare(
-          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000), sessionId, entry._triggeredBy || null);
+          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000), sessionId, entry._triggeredBy || null, taskId);
 
         // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
         let status;
@@ -302,8 +310,8 @@ class Supervisor extends EventEmitter {
       const finishedAt = new Date().toISOString();
 
       this.db.prepare(
-        'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(agentId, startedAt, finishedAt, -1, '', err.message);
+        'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, task_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(agentId, startedAt, finishedAt, -1, '', err.message, taskId);
 
       this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run('error', agentId);
       this.emit('agent-error', { agentId, error: err });

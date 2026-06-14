@@ -1290,6 +1290,7 @@ function executeTask(task, triggerContext = null, { scheduled = false, promptOve
   }
   const originalPrompt = entry.config.prompt;
   entry.config.prompt = promptOverride || task.prompt;
+  entry._taskId = task.id;
   try { supervisor._executeAgent(task.agentId, triggerContext); }
   finally { entry.config.prompt = originalPrompt; }
   broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId, scheduled });
@@ -1460,6 +1461,23 @@ app.post('/api/tasks/:id/run', (req, res) => {
   const started = executeTask(task, null);
   if (!started) return res.status(409).json({ error: `Agent "${task.agentId}" is busy or unavailable` });
   res.json({ ok: true, message: `Task "${task.name}" started on agent "${task.agentId}"` });
+});
+
+// Run history for a single task (task-triggered agent runs, tracked via task_id)
+app.get('/api/tasks/:id/runs', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  try {
+    const rows = db.prepare(
+      'SELECT id, agent_id, started_at, finished_at, exit_code, session_id FROM agent_runs WHERE task_id = ? ORDER BY id DESC LIMIT ?'
+    ).all(req.params.id, limit);
+    res.json(rows.map(r => ({
+      id: r.id, agentId: r.agent_id, startedAt: r.started_at, finishedAt: r.finished_at,
+      exitCode: r.exit_code, sessionId: r.session_id,
+      status: r.finished_at == null && r.exit_code == null ? 'running' : (r.exit_code === 0 ? 'success' : 'failed')
+    })));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Describe a schedule string
@@ -3157,8 +3175,9 @@ app.delete('/api/chats/:id', (req, res) => {
 // ============ End Chat API ============
 
 // Unified view of every scheduled item (agents, tasks, manager assignments, flows).
-// Manual / "never" items are excluded. Returns last run + computed next run, sorted
-// soonest-first so the dashboard can surface what's about to fire.
+// Only manual / "never" items are excluded — disabled-but-scheduled items are
+// included (flagged enabled:false) so they can be re-enabled from the dashboard.
+// Returns last run + computed next run, sorted soonest-first.
 app.get('/api/schedules', (req, res) => {
   const { getNextRun, parseSchedule } = require('./scheduler');
   const isScheduled = (s) => s && String(s).trim().toLowerCase() !== 'never';
@@ -3172,24 +3191,28 @@ app.get('/api/schedules', (req, res) => {
   const out = [];
 
   try {
-    // Agents that self-schedule
+    // Agents that self-schedule (enabled state is persisted in agent_state)
+    const enabledRows = db.prepare('SELECT agent_id, enabled FROM agent_state').all();
+    const agentEnabled = new Map(enabledRows.map(r => [r.agent_id, r.enabled !== 0]));
     for (const [id, entry] of supervisor.agents) {
       const s = entry.config && entry.config.schedule;
-      if (!isScheduled(s) || (entry.config && entry.config.enabled === false)) continue;
+      if (!isScheduled(s)) continue;
+      const enabled = agentEnabled.has(id) ? agentEnabled.get(id) : (entry.config.enabled !== false);
       const last = db.prepare('SELECT started_at, finished_at, exit_code FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(id);
       out.push({
         type: 'agent', id, name: entry.config.name || id, parentName: null,
-        schedule: s, scheduleDescription: describe(s), enabled: entry.config.enabled !== false,
+        schedule: s, scheduleDescription: describe(s), enabled,
         nextRun: nextRunIso(s), lastRun: last ? last.started_at : null, lastStatus: agentStatus(last),
         href: '#/agents/' + id
       });
     }
 
-    // Scheduled tasks (fire an agent with the task prompt)
+    // Scheduled tasks (fire an agent with the task prompt). Tasks are tracked
+    // separately from the underlying agent via the task_id column on agent_runs.
     for (const task of loadTasks()) {
-      if (!isScheduled(task.schedule) || task.enabled === false) continue;
+      if (!isScheduled(task.schedule)) continue;
       const agentEntry = supervisor.agents.get(task.agentId);
-      const last = db.prepare('SELECT started_at, finished_at, exit_code FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(task.agentId);
+      const last = db.prepare('SELECT started_at, finished_at, exit_code FROM agent_runs WHERE task_id = ? ORDER BY id DESC LIMIT 1').get(task.id);
       out.push({
         type: 'task', id: task.id, name: task.name,
         parentName: agentEntry ? (agentEntry.config.name || task.agentId) : task.agentId,
@@ -3203,10 +3226,10 @@ app.get('/api/schedules', (req, res) => {
     for (const [mid, entry] of managerAgent.managers) {
       const mgrName = (entry.config && entry.config.name) || mid;
       for (const a of (entry.config.assignments || [])) {
-        if (!isScheduled(a.schedule) || a.enabled === false) continue;
+        if (!isScheduled(a.schedule)) continue;
         const last = db.prepare('SELECT started_at, finished_at, status FROM manager_runs WHERE manager_id = ? AND assignment_id = ? ORDER BY id DESC LIMIT 1').get(mid, a.id);
         out.push({
-          type: 'assignment', id: mid + '/' + a.id, name: a.name, parentName: mgrName,
+          type: 'assignment', id: mid + '/' + a.id, managerId: mid, assignmentId: a.id, name: a.name, parentName: mgrName,
           schedule: a.schedule, scheduleDescription: describe(a.schedule), enabled: a.enabled !== false,
           nextRun: nextRunIso(a.schedule), lastRun: last ? last.started_at : null,
           lastStatus: last ? last.status : null, href: '#/managers/' + mid
@@ -3217,7 +3240,7 @@ app.get('/api/schedules', (req, res) => {
     // Flows (chains)
     try {
       for (const chain of chainEngine.load()) {
-        if (!isScheduled(chain.schedule) || chain.enabled === false) continue;
+        if (!isScheduled(chain.schedule)) continue;
         const last = db.prepare('SELECT started_at, finished_at, status FROM chain_runs WHERE chain_id = ? ORDER BY started_at DESC LIMIT 1').get(chain.id);
         out.push({
           type: 'flow', id: chain.id, name: chain.name, parentName: null,
