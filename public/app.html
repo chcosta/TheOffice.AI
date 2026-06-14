@@ -822,7 +822,9 @@
       max-width: 320px;
     }
     .chat-shell {
-      min-height: 68vh;
+      height: calc(100vh - 210px);
+      min-height: 480px;
+      max-height: calc(100vh - 150px);
       display: grid;
       grid-template-columns: 300px 1fr;
       overflow: hidden;
@@ -2572,6 +2574,14 @@
                     <div class="hint" style="margin-top:6px" x-text="activeChat ? chatHeaderSubtitle(activeChat) : ''"></div>
                   </div>
                   <div class="toolbar" x-show="activeChat">
+                    <template x-if="threadsForActive().length > 1">
+                      <select class="btn ghost" style="max-width:220px" @change="openChat($event.target.value)" title="Switch to a previous conversation for this target">
+                        <template x-for="t in threadsForActive()" :key="t.id">
+                          <option :value="t.id" :selected="activeChat && activeChat.id === t.id" x-text="t.title + ' • ' + (t.updatedAt ? formatRelative(t.updatedAt) : 'new')"></option>
+                        </template>
+                      </select>
+                    </template>
+                    <button class="btn ghost" type="button" @click="newConversationForActive()" title="Start a fresh conversation thread with this manager/agent">＋ New conversation</button>
                     <template x-if="activeChat && activeChat.targetType === 'manager'">
                       <div style="display:flex;gap:6px">
                         <button class="btn ghost" type="button" @click="toggleChatVerbose()" :style="chatVerbose ? 'border-color:var(--cp-accent);color:var(--cp-accent)' : ''" :title="chatVerbose ? 'Showing sub-agent steps' : 'Steps hidden'" x-text="chatVerbose ? '🔎 Steps: on' : '🔎 Steps: off'"></button>
@@ -5665,16 +5675,38 @@
             this.goTo(`#/chat/${existing.id}`);
             return;
           }
+          return this._createChatThread(targetType, target);
+        },
+
+        async _createChatThread(targetType, target) {
           const baseName = targetType === 'manager'
             ? (this.data.managers.find((manager) => manager.id === target)?.name || target)
             : (this.data.agents.find((agent) => agent.id === target)?.name || target);
+          const sameTarget = this.data.chats.filter((chat) => chat.targetType === targetType && chat.target === target).length;
+          const title = sameTarget > 0 ? `Chat with ${baseName} #${sameTarget + 1}` : `Chat with ${baseName}`;
           const chatId = `${targetType}-${target.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${Date.now().toString(36)}`;
           const chat = await this.request('/api/chats', {
             method: 'POST',
-            body: JSON.stringify({ id: chatId, title: `Chat with ${baseName}`, target, targetType })
+            body: JSON.stringify({ id: chatId, title, target, targetType })
           });
           this.data.chats = [chat, ...this.data.chats];
           this.goTo(`#/chat/${chat.id}`);
+          return chat;
+        },
+
+        // Conversation threads that share the active chat's target (manager/agent),
+        // so the user can start a fresh thread or jump back to a previous one
+        // on a per-manager/agent basis.
+        threadsForActive() {
+          if (!this.activeChat) return [];
+          return this.data.chats
+            .filter((chat) => chat.targetType === this.activeChat.targetType && chat.target === this.activeChat.target)
+            .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+        },
+
+        async newConversationForActive() {
+          if (!this.activeChat) return;
+          await this._createChatThread(this.activeChat.targetType, this.activeChat.target);
         },
 
         async openChat(chatId, navigate = true) {
@@ -6142,7 +6174,7 @@
                 const activitySteps = steps.map((s, idx) => {
                   const isLast = idx === steps.length - 1;
                   const partial = (this.chatLive && isLast && s.streaming) ? (s.partial || '') : '';
-                  if (s.action === 'thinking') return { type: 'thinking', content: 'Deciding next action…' };
+                  if (s.action === 'thinking') return { type: 'thinking', content: partial ? 'Manager reasoning…' : 'Deciding next action…', partial };
                   if (s.action === 'run_agent') return { type: 'tool_start', tool: `Running: ${s.agentId}`, success: null, partial };
                   if (s.action === 'agent_result') return { type: 'tool', tool: `Result from: ${s.agentId || 'agent'}`, success: true };
                   if (s.action === 'complete') return { type: 'thinking', content: 'Composing final response…' };

@@ -281,7 +281,32 @@ class ManagerAgent extends EventEmitter {
       this._persistSteps(runId, steps);
       this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
-      const decision = await this._askManager(managerConfig, currentPrompt);
+      // In live-stream mode, forward the manager's own reasoning (the copilot
+      // CLI's incremental stdout) so the UI can show what the manager is
+      // actually thinking instead of a static "thinking…" placeholder.
+      const thinkingStep = steps[steps.length - 1];
+      let mgrOnChunk = null;
+      if (liveStream) {
+        thinkingStep.streaming = true;
+        thinkingStep.partial = '';
+        let lastPersist = 0;
+        mgrOnChunk = (accumulated) => {
+          thinkingStep.partial = repairConsoleMojibake(accumulated).slice(-4000);
+          const now = Date.now();
+          if (now - lastPersist > 800) {
+            lastPersist = now;
+            this._persistSteps(runId, steps);
+            this.emit('manager-step', { managerId: managerConfig.id, runId, step: thinkingStep, live: true });
+          }
+        };
+      }
+
+      const decision = await this._askManager(managerConfig, currentPrompt, mgrOnChunk);
+      if (thinkingStep.streaming) {
+        thinkingStep.streaming = false;
+        delete thinkingStep.partial;
+        this._persistSteps(runId, steps);
+      }
       
       // Parse the decision
       const action = this._parseDecision(decision);
@@ -457,7 +482,7 @@ REASON: <why you need this agent>
   /**
    * Ask the manager agent to make an orchestration decision
    */
-  async _askManager(managerConfig, prompt) {
+  async _askManager(managerConfig, prompt, onChunk = null) {
     return new Promise((resolve, reject) => {
       const copilotCmd = managerConfig.copilotPath || process.env.COPILOT_PATH || 'copilot';
       // Write prompt to temp file to avoid command line length limits
@@ -467,7 +492,9 @@ REASON: <why you need this agent>
       
       // Use configured agent for decisions — it has the right context/tools
       const agentName = managerConfig.agent || 'manager:manager';
-      const cmdLine = `"${copilotCmd}" --agent "${agentName}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`;
+      const baseCmdLine = `"${copilotCmd}" --agent "${agentName}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`;
+      // Force the child console to UTF-8 on Windows so reasoning output isn't mangled.
+      const cmdLine = process.platform === 'win32' ? `chcp 65001>nul & ${baseCmdLine}` : baseCmdLine;
 
       const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
       const proc = spawn(cmdLine, [], {
@@ -479,7 +506,10 @@ REASON: <why you need this agent>
 
       let stdout = '';
       let stderr = '';
-      proc.stdout.on('data', d => { stdout += d.toString(); });
+      proc.stdout.on('data', d => {
+        stdout += d.toString();
+        if (onChunk) { try { onChunk(stdout); } catch {} }
+      });
       proc.stderr.on('data', d => { stderr += d.toString(); });
 
       proc.on('close', (code) => {
