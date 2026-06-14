@@ -5684,14 +5684,21 @@
                   const history = await this.request(`/api/managers/${encodeURIComponent(chat.target)}/history?limit=1`);
                   if (history && history.length > 0) {
                     const lastRun = history[0];
-                    if (lastRun.status === 'completed' && lastRun.result) {
+                    // Only backfill when the latest completed run actually answers
+                    // THIS dangling user message — match the prompt and require the
+                    // run to have finished at/after the message was posted. Otherwise
+                    // we'd attach an unrelated previous answer as a duplicate.
+                    const runFinished = new Date(lastRun.finished_at || lastRun.started_at || 0).getTime();
+                    const msgTime = new Date(lastMsg.timestamp || 0).getTime();
+                    const matchesPrompt = (lastRun.prompt || '').trim() === (lastMsg.content || '').trim();
+                    if (lastRun.status === 'completed' && lastRun.result && matchesPrompt && runFinished >= msgTime) {
                       await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                         method: 'POST',
                         body: JSON.stringify({ role: 'assistant', content: lastRun.result })
                       });
                       const updated = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
                       this.activeChat = updated;
-                    } else if (lastRun.status === 'running') {
+                    } else if (lastRun.status === 'running' && matchesPrompt) {
                       this.typingChats[chatId] = true;
                       this.pollManagerRun(chat.target, lastRun.id, chatId);
                     }
@@ -5918,6 +5925,10 @@
             method: 'POST',
             body: JSON.stringify({ role: 'user', content })
           });
+          // Mark this chat as "typing" BEFORE refreshing so the recovery logic in
+          // openChat() doesn't mistake the just-posted user message for a dangling
+          // turn and backfill the manager's previous run as a stale assistant reply.
+          this.typingChats[this.activeChat.id] = true;
           await this.openChat(this.activeChat.id, false);
 
           if (this.activeChat.targetType === 'manager') {
