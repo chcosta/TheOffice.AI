@@ -945,6 +945,15 @@
       border-collapse: collapse;
       font-size: 13px;
     }
+    @keyframes focusFlash {
+      0% { box-shadow: 0 0 0 0 var(--cp-accent); }
+      30% { box-shadow: 0 0 0 3px var(--cp-accent); }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    .focus-flash {
+      animation: focusFlash 1.8s ease-out;
+      border-color: var(--cp-accent) !important;
+    }
     .sched-table th,
     .sched-table td {
       padding: 12px 14px;
@@ -1658,8 +1667,8 @@
                   <template x-for="row in filteredSchedules()" :key="row.type + ':' + row.id">
                     <tr :style="row.enabled === false ? 'opacity:0.55' : ''">
                       <td>
-                        <a :href="row.href" style="text-decoration:none;color:inherit">
-                          <strong x-text="row.name"></strong>
+                        <a href="#" @click.prevent="openScheduleItem(row)" style="text-decoration:none;color:inherit;cursor:pointer">
+                          <strong x-text="row.name" style="border-bottom:1px dotted var(--cp-border-strong)"></strong>
                         </a>
                         <div class="hint" style="font-size:0.72rem" x-show="row.parentName" x-text="row.parentName"></div>
                       </td>
@@ -2290,7 +2299,7 @@
             </div>
             <div class="assignment-list">
               <template x-for="task in filteredTasks()" :key="task.taskKey">
-                <article class="task-card">
+                <article class="task-card" :id="'sched-focus-' + task.taskKey">
                   <div class="assignment-top">
                     <div>
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -2403,7 +2412,7 @@
             </div>
             <div class="assignment-list">
               <template x-for="chain in data.chains" :key="chain.id">
-                <article class="task-card">
+                <article class="task-card" :id="'sched-focus-chain-' + chain.id">
                   <div class="assignment-top">
                     <div>
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -2670,7 +2679,7 @@
             </div>
             <div class="assignment-list">
               <template x-for="task in filteredAssignments()" :key="task.taskKey">
-                <article class="task-card">
+                <article class="task-card" :id="'sched-focus-' + task.taskKey">
                   <div class="assignment-top">
                     <div>
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -3971,6 +3980,7 @@
         expanded: {},
         selectedTaskId: null,
         taskHistoryCache: {},
+        pendingFocus: null,
         selectedChainId: null,
         chainDraft: null,
         chainRunState: {},
@@ -4584,6 +4594,12 @@
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
+          // Deep-link focus requested from the schedules dashboard.
+          if (this.pendingFocus && this.pendingFocus.route === this.route) {
+            const pf = this.pendingFocus;
+            this.pendingFocus = null;
+            this.$nextTick(() => this.applyScheduleFocus(pf));
+          }
         },
 
         goTo(hash) {
@@ -5173,6 +5189,43 @@
           } catch (e) {
             row.enabled = prev; // revert on failure
             this.showToast('Schedule update failed', e.message || String(e), 'error');
+          }
+        },
+
+        // Navigate from a schedules row straight to the page where that item can
+        // be viewed/configured, expanding the specific item once we get there.
+        openScheduleItem(row) {
+          if (row.type === 'agent') {
+            this.goTo('#/agents/' + encodeURIComponent(row.id));
+          } else if (row.type === 'task') {
+            this.pendingFocus = { route: 'tasks', taskKey: 'task-' + row.id };
+            this.goTo('#/tasks');
+          } else if (row.type === 'assignment') {
+            this.pendingFocus = { route: 'assignments', taskKey: 'assignment-' + row.managerId + '-' + row.assignmentId };
+            this.goTo('#/assignments');
+          } else if (row.type === 'flow') {
+            this.pendingFocus = { route: 'chains', chainId: row.id };
+            this.goTo('#/chains');
+          }
+        },
+
+        applyScheduleFocus(pf) {
+          const flash = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('focus-flash');
+            setTimeout(() => el.classList.remove('focus-flash'), 1800);
+          };
+          if (pf.route === 'tasks' || pf.route === 'assignments') {
+            const task = this.allTasks().find(t => t.taskKey === pf.taskKey);
+            this.selectedTaskId = pf.taskKey;
+            if (task && !this.taskHistoryCache[pf.taskKey]) this.loadTaskHistory(task);
+            this.$nextTick(() => flash('sched-focus-' + pf.taskKey));
+          } else if (pf.route === 'chains') {
+            const chain = (this.data.chains || []).find(c => c.id === pf.chainId);
+            if (chain && this.selectedChainId !== chain.id) this.toggleSelectedChain(chain);
+            this.$nextTick(() => flash('sched-focus-chain-' + pf.chainId));
           }
         },
 
