@@ -21,6 +21,11 @@ const LEADER_REQUEST_TTL = 120; // seconds — ignore handoff requests older tha
 // Files that get synced (within a machine's own cloud namespace)
 const SYNCED_FILES = ['agents.json', 'managers.json', 'tasks.json', 'chains.json', 'events-config.json'];
 const SYNCED_DIRS = ['plugins', 'mcp-configs'];
+// Id-keyed array collections that must never lose locally-present entries to a
+// stale cloud pull. On _syncDown these are unioned by id (cloud wins for shared
+// ids; local-only entries are restored) so sync can never silently delete a
+// locally-created agent, manager, task or flow.
+const CONFIGSYNC_COLLECTION_FILES = ['agents.json', 'managers.json', 'tasks.json', 'chains.json'];
 // Per-machine cloud namespace. Each machine owns machines/{machineId}/ and is the
 // sole writer of its own config. Other machines may only READ it (for browse/install).
 // This removes the need for cross-machine path rewriting entirely: a machine's config
@@ -643,7 +648,7 @@ class ConfigSync {
    * metadata (agents.json description/skills). Returns a plain snapshot object.
    */
   _captureLocalOwnedData() {
-    const out = { users: null, connectedAssets: null, agentMeta: {}, localAgents: [] };
+    const out = { users: null, connectedAssets: null, agentMeta: {}, collections: {} };
     try {
       const evPath = path.join(__dirname, 'events-config.json');
       if (fs.existsSync(evPath)) {
@@ -652,28 +657,28 @@ class ConfigSync {
         if (Array.isArray(ev.connectedAssets)) out.connectedAssets = ev.connectedAssets;
       }
     } catch {}
-    try {
-      const agPath = path.join(__dirname, 'agents.json');
-      if (fs.existsSync(agPath)) {
-        const agents = JSON.parse(fs.readFileSync(agPath, 'utf-8'));
-        if (Array.isArray(agents)) {
-          // Capture the FULL current local agent set. Any agent present here at
-          // pull-start but missing from the freshly-pulled (possibly stale)
-          // cloud snapshot is re-added in _reapplyLocalOwnedData so a sync pull
-          // can never silently delete a locally-installed agent (e.g. one added
-          // via the Azure DevOps install path). Because this snapshot is taken
-          // from the CURRENT local file, an agent the user just deleted is
-          // already absent here and will not be resurrected.
-          out.localAgents = agents.filter(a => a && a.id);
-          for (const a of agents) {
-            if (!a || !a.id) continue;
-            if (a.description != null || a.skills != null) {
-              out.agentMeta[a.id] = { description: a.description, skills: a.skills };
-            }
-          }
-        }
+    // Capture the FULL current local set for each id-keyed collection. Any entry
+    // present here at pull-start but missing from the freshly-pulled (possibly
+    // stale) cloud snapshot is re-added in _reapplyLocalOwnedData, so a sync pull
+    // can never silently delete a locally-created agent, manager, task or flow
+    // (e.g. an agent added via the Azure DevOps install path, or tasks that only
+    // exist on this machine). Because this is read from the CURRENT local file,
+    // anything the user just deleted is already absent and is not resurrected.
+    for (const fileName of CONFIGSYNC_COLLECTION_FILES) {
+      try {
+        const p = path.join(__dirname, fileName);
+        if (!fs.existsSync(p)) continue;
+        const arr = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (Array.isArray(arr)) out.collections[fileName] = arr.filter(x => x && x.id != null);
+      } catch {}
+    }
+    // Agent capability metadata (description/skills) is additionally preserved
+    // local-wins for agents that exist in both local and cloud.
+    for (const a of (out.collections['agents.json'] || [])) {
+      if (a.description != null || a.skills != null) {
+        out.agentMeta[a.id] = { description: a.description, skills: a.skills };
       }
-    } catch {}
+    }
     return out;
   }
 
@@ -714,38 +719,40 @@ class ConfigSync {
     } catch (err) {
       console.warn('[config-sync] Failed to reapply local users/assets:', err.message);
     }
-    // agents.json — re-add locally-present agents the pull dropped, then
-    // restore description/skills from local when present.
-    try {
-      const agPath = path.join(__dirname, 'agents.json');
-      if (fs.existsSync(agPath)) {
-        const agents = JSON.parse(fs.readFileSync(agPath, 'utf-8'));
-        if (Array.isArray(agents)) {
-          let changed = false;
-          // Union: re-add any agent that existed locally at pull-start but is
-          // absent from the freshly-pulled snapshot. The pulled (cloud) version
-          // wins for ids present in both; local-only agents are restored so a
-          // sync pull never deletes an installed agent.
-          const pulledIds = new Set(agents.map(a => a && a.id).filter(Boolean));
-          for (const local of (preserved.localAgents || [])) {
-            if (local && local.id && !pulledIds.has(local.id)) {
-              agents.push(local);
-              pulledIds.add(local.id);
-              changed = true;
-            }
+    // Collection files (agents/managers/tasks/chains) — re-add any locally-present
+    // entry the pull dropped. The pulled (cloud) entry wins for ids present in
+    // both; local-only entries are restored so a sync pull never deletes a
+    // locally-created agent, manager, task or flow. Then restore agent
+    // description/skills from local when present.
+    for (const fileName of CONFIGSYNC_COLLECTION_FILES) {
+      try {
+        const localArr = preserved.collections ? preserved.collections[fileName] : null;
+        const p = path.join(__dirname, fileName);
+        if (!fs.existsSync(p)) continue;
+        const arr = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (!Array.isArray(arr)) continue;
+        let changed = false;
+        const pulledIds = new Set(arr.map(x => x && x.id).filter(v => v != null));
+        for (const local of (localArr || [])) {
+          if (local && local.id != null && !pulledIds.has(local.id)) {
+            arr.push(local);
+            pulledIds.add(local.id);
+            changed = true;
           }
+        }
+        if (fileName === 'agents.json') {
           const meta = preserved.agentMeta || {};
-          for (const a of agents) {
-            if (!a || !a.id || !meta[a.id]) continue;
+          for (const a of arr) {
+            if (!a || a.id == null || !meta[a.id]) continue;
             const m = meta[a.id];
             if (m.description != null && a.description == null) { a.description = m.description; changed = true; }
             if (m.skills != null && (a.skills == null || (Array.isArray(a.skills) && a.skills.length === 0))) { a.skills = m.skills; changed = true; }
           }
-          if (changed) fs.writeFileSync(agPath, JSON.stringify(agents, null, 2));
         }
+        if (changed) fs.writeFileSync(p, JSON.stringify(arr, null, 2));
+      } catch (err) {
+        console.warn(`[config-sync] Failed to reapply local data for ${fileName}:`, err.message);
       }
-    } catch (err) {
-      console.warn('[config-sync] Failed to reapply local agent metadata:', err.message);
     }
   }
 
