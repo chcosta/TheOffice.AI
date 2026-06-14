@@ -6250,14 +6250,17 @@
             // Agent chat — start a real copilot session
             try {
               this.typingChats[this.activeChat.id] = true;
-              this.chatActivity[this.activeChat.id] = { status: 'Starting agent...', steps: [] };
               const existingSession = this.chatSessions[this.activeChat.id] || null;
-              await this.request(`/api/agents/${encodeURIComponent(this.activeChat.target)}/chat`, {
+              this.chatActivity[this.activeChat.id] = { status: existingSession ? 'Agent is thinking...' : 'Starting agent...', steps: [] };
+              const chatResp = await this.request(`/api/agents/${encodeURIComponent(this.activeChat.target)}/chat`, {
                 method: 'POST',
                 body: JSON.stringify({ message: content, sessionId: existingSession })
               });
+              // The chat POST returns the pinned session id — remember it so we can
+              // poll it directly and keep reusing the same open session next turn.
+              if (chatResp && chatResp.sessionId) this.chatSessions[this.activeChat.id] = chatResp.sessionId;
               // Start polling for the agent session
-              this.pollAgentChat(this.activeChat.target, this.activeChat.id);
+              this.pollAgentChat(this.activeChat.target, this.activeChat.id, 0, chatResp && chatResp.sessionId);
             } catch (error) {
               this.typingChats[this.activeChat.id] = false;
               delete this.chatActivity[this.activeChat.id];
@@ -6270,20 +6273,25 @@
           }
         },
 
-        async pollAgentChat(agentId, chatId, retryCount = 0) {
+        async pollAgentChat(agentId, chatId, retryCount = 0, knownSessionId = null) {
           const MAX_RETRIES = 2;
-          
-          // Wait a moment for session to be created
-          await new Promise(r => setTimeout(r, 2000));
-          
-          // Find the session
-          let sessionInfo = null;
-          for (let attempt = 0; attempt < 10; attempt++) {
-            try {
-              sessionInfo = await this.request(`/api/agents/${encodeURIComponent(agentId)}/session`);
-              if (sessionInfo.sessionId) break;
-            } catch {}
-            await new Promise(r => setTimeout(r, 1500));
+
+          // If the chat POST already gave us the pinned session id, poll it
+          // directly — no need to wait + scan for the session to appear.
+          let sessionInfo = knownSessionId ? { sessionId: knownSessionId } : null;
+
+          if (!sessionInfo) {
+            // Wait a moment for session to be created
+            await new Promise(r => setTimeout(r, 2000));
+
+            // Find the session
+            for (let attempt = 0; attempt < 10; attempt++) {
+              try {
+                sessionInfo = await this.request(`/api/agents/${encodeURIComponent(agentId)}/session`);
+                if (sessionInfo.sessionId) break;
+              } catch {}
+              await new Promise(r => setTimeout(r, 1500));
+            }
           }
           
           if (!sessionInfo || !sessionInfo.sessionId) {

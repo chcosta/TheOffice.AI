@@ -64,6 +64,32 @@ class SdkRunner {
     this._starting = null;
     this._failures = 0;
     this._available = !!SDK;
+    // Live interactive-chat sessions kept connected between turns so each new
+    // message reuses the same agent process instead of re-spinning it ("starting
+    // agent" on every turn). Keyed by sessionId -> { session, lastUsed, timer }.
+    // Evicted (disconnected) after SDK_CHAT_IDLE_MS of inactivity.
+    this._liveSessions = new Map();
+    this._liveTtlMs = parseInt(process.env.SDK_CHAT_IDLE_MS || '', 10) || 600000; // 10 min
+  }
+
+  /** (Re)arm the idle eviction timer for a kept-alive chat session. */
+  _scheduleEvict(sessionId, entry) {
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = setTimeout(async () => {
+      this._liveSessions.delete(sessionId);
+      try { await entry.session.disconnect(); } catch (_) { /* ignore */ }
+    }, this._liveTtlMs);
+    if (entry.timer && entry.timer.unref) entry.timer.unref();
+  }
+
+  /** Explicitly close a kept-alive chat session (e.g. when a chat is closed). */
+  async closeChatSession(sessionId) {
+    const entry = this._liveSessions.get(sessionId);
+    if (!entry) return false;
+    this._liveSessions.delete(sessionId);
+    if (entry.timer) clearTimeout(entry.timer);
+    try { await entry.session.disconnect(); } catch (_) { /* ignore */ }
+    return true;
   }
 
   get mode() {
@@ -304,6 +330,7 @@ class SdkRunner {
     if (resume) {
       // Resuming a persisted session: the agent/tools are already wired in.
       opts.__resume = true;
+      opts.__keepAlive = true;
       return this._execute(opts, prompt, sessionId, onChunk);
     }
     // New session: resolve the agent wiring (same rules as runAgent). If nothing
@@ -320,6 +347,7 @@ class SdkRunner {
         if (mcp) opts.mcpServers = mcp;
       }
     }
+    opts.__keepAlive = true;
     return this._execute(opts, prompt, sessionId, onChunk);
   }
 
@@ -336,22 +364,37 @@ class SdkRunner {
     }
 
     const resume = !!opts.__resume;
+    const keepAlive = !!opts.__keepAlive;
     const sessionOpts = { ...opts };
     delete sessionOpts.__resume;
+    delete sessionOpts.__keepAlive;
 
     let session = null;
+    let entry = null;
+    let onDelta = null;
     try {
-      session = resume
-        ? await client.resumeSession(sessionId, sessionOpts)
-        : await client.createSession(sessionOpts);
+      // Reuse a still-connected chat session if we have one — this is what keeps
+      // the agent "open" between turns instead of re-resuming each message.
+      if (keepAlive && this._liveSessions.has(sessionId)) {
+        entry = this._liveSessions.get(sessionId);
+        if (entry.timer) clearTimeout(entry.timer);
+        session = entry.session;
+      } else {
+        session = resume
+          ? await client.resumeSession(sessionId, sessionOpts)
+          : await client.createSession(sessionOpts);
+      }
 
       if (typeof onChunk === 'function') {
-        session.on('assistant.message_delta', (ev) => {
+        // Register per-turn so reused sessions don't accumulate listeners
+        // (which would fire onChunk multiple times per delta).
+        onDelta = (ev) => {
           const txt = ev?.data?.deltaContent ?? ev?.data?.content ?? ev?.data?.delta ?? '';
           if (txt) {
             try { onChunk(String(txt)); } catch (_) { /* ignore */ }
           }
-        });
+        };
+        session.on('assistant.message_delta', onDelta);
       }
 
       let code = 0;
@@ -361,6 +404,15 @@ class SdkRunner {
       } catch (e) {
         code = 1;
         error = e && e.message ? e.message : String(e);
+      }
+
+      // Detach the per-turn listener before we may reuse this session again.
+      if (onDelta) {
+        try {
+          const off = session.off || session.removeListener;
+          if (off) off.call(session, 'assistant.message_delta', onDelta);
+        } catch (_) { /* ignore */ }
+        onDelta = null;
       }
 
       // Authoritative output: assistant.message contents joined like the scraper.
@@ -390,10 +442,21 @@ class SdkRunner {
         if (code === 0) { code = 1; error = `getEvents failed: ${e.message}`; }
       }
 
+      // Keep the session connected and (re)arm its idle timer so the next turn
+      // reuses it. One-shot runs (runAgent/runPrompt) disconnect in finally.
+      if (keepAlive) {
+        if (!entry) entry = {};
+        entry.session = session;
+        entry.lastUsed = Date.now();
+        this._liveSessions.set(sessionId, entry);
+        this._scheduleEvict(sessionId, entry);
+      }
+
       return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps };
     } catch (e) {
       // createSession/resumeSession failed - return fallback so the caller can
       // record a terminal failure (no CLI fallback remains).
+      if (keepAlive) this._liveSessions.delete(sessionId);
       return {
         ok: false,
         fallback: true,
@@ -403,7 +466,15 @@ class SdkRunner {
         sessionId,
       };
     } finally {
-      if (session) {
+      if (onDelta && session) {
+        try {
+          const off = session.off || session.removeListener;
+          if (off) off.call(session, 'assistant.message_delta', onDelta);
+        } catch (_) { /* ignore */ }
+      }
+      // Only one-shot runs disconnect here; kept-alive chat sessions stay open
+      // and are closed by the idle timer or closeChatSession().
+      if (session && !keepAlive) {
         try { await session.disconnect(); } catch (_) { /* preserves disk */ }
       }
     }
