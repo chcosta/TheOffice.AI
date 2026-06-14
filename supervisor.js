@@ -7,6 +7,7 @@ const { Cron } = require('croner');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const { repairConsoleMojibake } = require('./mojibake');
 const sdkReader = require('./sdk-reader');
+const sdkRunner = require('./sdk-runner');
 
 class Supervisor extends EventEmitter {
   constructor(db) {
@@ -189,6 +190,78 @@ class Supervisor extends EventEmitter {
     let triggerFiles = [];
     let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext, agentId, triggerFiles) : config.prompt;
 
+    // Pin the copilot session UUID so the session is deterministically
+    // addressable. Chat threads reuse their id to resume natively; regular runs
+    // get a fresh id so the SDK read/run layers (and the scraper) can fetch
+    // output by id instead of guessing the session-state dir by name + recency.
+    const pinnedSessionId = entry._chatSessionId || crypto.randomUUID();
+
+    // Validate CWD exists (applies to both the CLI spawn and SDK runner paths)
+    if (config.cwd && !fs.existsSync(config.cwd)) {
+      const errMsg = `Working directory does not exist: ${config.cwd}`;
+      console.error(`[supervisor] Agent "${config.name}" failed: ${errMsg}`);
+      entry.status = 'error';
+      entry.lastRun = { started_at: startedAt, ended_at: new Date().toISOString(), exit_code: 1, error: errMsg, output: '' };
+      this._saveRun(agentId, entry.lastRun);
+      for (const f of triggerFiles) { try { fs.unlinkSync(f); } catch {} }
+      return;
+    }
+
+    const ctx = { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId };
+
+    // Phase 2 migration: run via the @github/copilot-sdk when this agent opts in
+    // (SDK_RUN_MODE=canary + opt-in, or =all). Any resolution failure transparently
+    // falls back to the CLI spawn so behaviour can never regress.
+    if (sdkRunner.shouldUse(config)) {
+      this._executeViaSdk(ctx);
+    } else {
+      this._spawnCliRun(ctx);
+    }
+  }
+
+  /**
+   * Run an agent via the @github/copilot-sdk (Phase 2). Streams assistant deltas
+   * as agent-output events to preserve the live SSE contract, then records the
+   * completion through the shared path. Falls back to the CLI spawn if the SDK
+   * runner can't resolve/start the agent.
+   */
+  _executeViaSdk(ctx) {
+    const { agentId, entry, config, startedAt, prompt, pinnedSessionId } = ctx;
+    console.log(`[supervisor] Executing agent "${config.name}" via SDK runner at ${startedAt}`);
+    entry.process = null; // no child process under the SDK path
+
+    const onChunk = (chunk) => {
+      this.emit('agent-output', { agentId, stream: 'stdout', chunk: repairConsoleMojibake(chunk) });
+    };
+
+    sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk })
+      .then((res) => {
+        if (res.fallback) {
+          // Could not resolve/start the agent via the SDK - run the CLI instead.
+          console.warn(`[supervisor] SDK runner fell back to CLI for "${config.name}": ${res.error}`);
+          this._spawnCliRun(ctx);
+          return;
+        }
+        this._recordCompletion(ctx, {
+          finishedAt: new Date().toISOString(),
+          code: res.code,
+          output: repairConsoleMojibake(res.output || ''),
+          error: res.error || '',
+          sessionId: res.sessionId || pinnedSessionId,
+          origin: 'sdk',
+        });
+      })
+      .catch((err) => {
+        // Unexpected runner error - fall back to the CLI spawn for safety.
+        console.error(`[supervisor] SDK runner threw for "${config.name}", falling back to CLI: ${err.message}`);
+        this._spawnCliRun(ctx);
+      });
+  }
+
+  /** Spawn the copilot CLI (the original runner). */
+  _spawnCliRun(ctx) {
+    const { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId } = ctx;
+
     // Build copilot CLI command safely using args array
     const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
     const perms = config.allowAll !== false ? '--yolo' : '';
@@ -220,11 +293,6 @@ class Supervisor extends EventEmitter {
       const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
       args.push('--prompt', safePrompt);
     }
-    // Pin the copilot session UUID so the session is deterministically
-    // addressable. Chat threads reuse their id to resume natively; regular runs
-    // get a fresh id so the SDK read layer (and the scraper) can fetch output by
-    // id instead of guessing the session-state dir by display-name + recency.
-    const pinnedSessionId = entry._chatSessionId || crypto.randomUUID();
     args.push('--session-id', useShell ? `"${pinnedSessionId}"` : pinnedSessionId);
     args.push('-s');
     if (perms) args.push(perms);
@@ -232,15 +300,6 @@ class Supervisor extends EventEmitter {
     console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
     console.log(`[supervisor] Command: ${copilotCmd} ${args.map(a => a.length > 80 ? a.substring(0, 80) + '...' : a).join(' ')}`);
 
-    // Validate CWD exists
-    if (config.cwd && !fs.existsSync(config.cwd)) {
-      const errMsg = `Working directory does not exist: ${config.cwd}`;
-      console.error(`[supervisor] Agent "${config.name}" failed: ${errMsg}`);
-      entry.status = 'error';
-      entry.lastRun = { started_at: startedAt, ended_at: new Date().toISOString(), exit_code: 1, error: errMsg, output: '' };
-      this._saveRun(agentId, entry.lastRun);
-      return;
-    }
     const proc = spawn(copilotCmd, args, {
       cwd: config.cwd,
       shell: useShell,
@@ -264,15 +323,7 @@ class Supervisor extends EventEmitter {
     });
 
     proc.on('close', (code) => {
-      entry.running = false;
-      entry.process = null;
       const finishedAt = new Date().toISOString();
-
-      // Clean up trigger temp files
-      for (const f of triggerFiles) {
-        try { fs.unlinkSync(f); } catch {}
-      }
-
       // Small delay to let session state flush to disk before reading
       setTimeout(async () => {
         // Scraper path (still authoritative by default).
@@ -283,11 +334,9 @@ class Supervisor extends EventEmitter {
         // scraper's display-name guess; fall back to the guess if unset.
         let sessionId = pinnedSessionId || sessionResult.sessionId || null;
 
-        // SDK read layer (Phase 1 of the @github/copilot-sdk migration). In
-        // shadow mode we read via getEvents() and log a parity record but keep
-        // the scraper output (zero behaviour change). In authoritative mode we
-        // use the SDK output when the read succeeds. Any failure transparently
-        // falls back to the scraper.
+        // SDK read layer (Phase 1). Shadow mode logs a parity record but keeps
+        // the scraper output; authoritative mode uses the SDK output when the
+        // read succeeds. Any failure falls back to the scraper.
         if (sdkReader.enabled && pinnedSessionId) {
           try {
             const sdk = await sdkReader.getSessionOutput(pinnedSessionId);
@@ -305,25 +354,7 @@ class Supervisor extends EventEmitter {
           console.log(`[supervisor] Warning: "${config.name}" session output not found, using stdout (${stdout.length} chars)`);
         }
 
-        // Store result
-        this.db.prepare(
-          'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), stderr.slice(-5000), sessionId, entry._triggeredBy || null, taskId);
-
-        // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
-        let status;
-        if (code !== 0) status = 'error';
-        else if (entry.cronJob || entry.timer) status = 'scheduled';
-        else status = 'idle';
-        this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
-
-        this.emit('agent-completed', { agentId, code, output: fullOutput, error: stderr, sessionId });
-        console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
-
-        // Durable restart on failure
-        if (code !== 0 && config.durable) {
-          console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
-        }
+        this._recordCompletion(ctx, { finishedAt, code, output: fullOutput, error: stderr, sessionId, origin: 'cli' });
       }, 1000); // 1s delay to let session state flush
     });
 
@@ -340,6 +371,43 @@ class Supervisor extends EventEmitter {
       this.emit('agent-error', { agentId, error: err });
       console.error(`[supervisor] Agent "${config.name}" spawn error: ${err.message}`);
     });
+  }
+
+  /**
+   * Shared run-completion path used by both the CLI spawn and the SDK runner.
+   * Cleans up temp files, persists the agent_runs row, updates status, and emits
+   * agent-completed. Keeps the mobile/activity/SSE contract identical for both
+   * runtimes.
+   */
+  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId }) {
+    const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
+    entry.running = false;
+    entry.process = null;
+
+    // Clean up trigger/prompt temp files now that the run is done.
+    for (const f of triggerFiles) {
+      try { fs.unlinkSync(f); } catch {}
+    }
+
+    const fullOutput = output || '';
+    this.db.prepare(
+      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId);
+
+    // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
+    let status;
+    if (code !== 0) status = 'error';
+    else if (entry.cronJob || entry.timer) status = 'scheduled';
+    else status = 'idle';
+    this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
+
+    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId });
+    console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
+
+    // Durable restart on failure
+    if (code !== 0 && config.durable) {
+      console.log(`[supervisor] Durable agent "${config.name}" failed, will retry next cycle`);
+    }
   }
 
   _updateNextRun(agentId) {
