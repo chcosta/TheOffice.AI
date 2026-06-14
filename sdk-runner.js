@@ -1,17 +1,18 @@
 // sdk-runner.js
 // Phase 2 of the @github/copilot-sdk migration.
 //
-// Replaces the `copilot` CLI child_process.spawn in supervisor.js with the
-// official SDK's createSession()/sendAndWait()/getEvents() API. Rolled out
-// behind a CANARY flag so the CLI spawn stays the default until per-agent
-// (or global) opt-in is proven in production.
+// The official SDK's createSession()/resumeSession()/sendAndWait()/getEvents()
+// API is now the SOLE runtime for agent runs, chains, the manager, and
+// interactive chat. The legacy `copilot` CLI child_process.spawn was removed in
+// Phase 5 — there is no longer a CLI fallback.
 //
-// Behaviour is gated by SDK_RUN_MODE:
-//   off  (default) - never use the SDK runner; supervisor uses the CLI spawn
-//   canary         - use the SDK runner only for agents that opt in, either via
-//                    config.runtime === 'sdk' or by listing the agent id in
-//                    SDK_RUN_AGENTS (comma-separated)
-//   all            - use the SDK runner for every agent
+// SDK_RUN_MODE is retained only as vestigial gating for run-routing helpers
+// (shouldUse / mode), used by chains and the manager. In production it is 'all'.
+//   off            - shouldUse() returns false (legacy gate; runs still SDK-only)
+//   canary         - opt-in via config.runtime === 'sdk' or SDK_RUN_AGENTS
+//   all            - every agent routes through the SDK runner
+// Note: interactive chat (runChat) ignores this gate and runs whenever the SDK
+// package is available.
 //
 // Agent resolution (proven by experiments/sdk-spike/phase2-spike2.mjs):
 //   - PLUGIN agents (config.pluginDir set): loaded via pluginDirectories; the
@@ -21,9 +22,9 @@
 //     frontmatter name/description/tools + markdown body = prompt) into a
 //     CustomAgentConfig and pass via customAgents + agent.
 //
-// The module degrades gracefully: createSession resolution failures return
-// { ok:false, fallback:true } so the supervisor can transparently fall back to
-// the CLI spawn. It never throws.
+// The module degrades gracefully: resolution/start failures return
+// { ok:false, fallback:true } so the caller can record a terminal failure
+// (the CLI spawn fallback was removed in Phase 5). It never throws.
 
 const fs = require('fs');
 const path = require('path');
@@ -78,7 +79,9 @@ class SdkRunner {
   }
 
   async _getClient() {
-    if (!this._available || this._mode === 'off') return null;
+    // Client availability is decoupled from SDK_RUN_MODE: interactive chat
+    // (runChat) needs a client even when the run-routing gate is 'off'.
+    if (!this._available) return null;
     if (this._client) return this._client;
     if (this._starting) return this._starting;
     this._starting = (async () => {
@@ -217,8 +220,8 @@ class SdkRunner {
    * Run an agent via the SDK. Streams assistant deltas through onChunk(text).
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number}>}
-   * On a resolution failure the result has fallback:true so the caller can run
-   * the CLI spawn instead.
+   * On a resolution failure the result has fallback:true so the caller can
+   * record a terminal failure (no CLI fallback remains).
    */
   async runAgent({ config, prompt, sessionId, onChunk }) {
     if (this.mode === 'off') {
@@ -278,9 +281,53 @@ class SdkRunner {
   }
 
   /**
-   * Shared createSession -> sendAndWait -> getEvents core for runAgent/runPrompt.
-   * Streams assistant deltas through onChunk(text) and returns the standard
-   * result shape. createSession failures degrade to { fallback:true }.
+   * Interactive chat turn via the SDK. For a NEW session pass resume:false and a
+   * config (agent wiring is resolved exactly like runAgent); for a follow-up turn
+   * pass resume:true and the existing sessionId (the agent is already baked into
+   * the persisted session, so no wiring is needed). Streams assistant deltas
+   * through onChunk(deltaText). Same result/fallback contract as runAgent.
+   * Unlike runAgent/runPrompt, chat is NOT gated by SDK_RUN_MODE — it runs
+   * whenever the SDK package is available.
+   * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
+   *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
+   */
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk }) {
+    if (!this._available) {
+      return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
+    }
+    const opts = {
+      sessionId,
+      workingDirectory: (config && config.cwd) || cwd || process.cwd(),
+      streaming: true,
+      onPermissionRequest: (config && config.allowAll === false) ? deny : approveAll,
+    };
+    if (resume) {
+      // Resuming a persisted session: the agent/tools are already wired in.
+      opts.__resume = true;
+      return this._execute(opts, prompt, sessionId, onChunk);
+    }
+    // New session: resolve the agent wiring (same rules as runAgent). If nothing
+    // resolves, the chat still runs as the default copilot.
+    if (config && config.pluginDir && fs.existsSync(config.pluginDir)) {
+      opts.pluginDirectories = [config.pluginDir];
+      opts.agent = config.agent;
+    } else if (config) {
+      const agentCfg = this._resolveProjectAgent(config);
+      if (agentCfg) {
+        opts.customAgents = [agentCfg];
+        opts.agent = agentCfg.name;
+        const mcp = this._loadMcpServers(config);
+        if (mcp) opts.mcpServers = mcp;
+      }
+    }
+    return this._execute(opts, prompt, sessionId, onChunk);
+  }
+
+  /**
+   * Shared createSession/resumeSession -> sendAndWait -> getEvents core for
+   * runAgent/runPrompt/runChat. Streams assistant deltas through onChunk(text)
+   * and returns the standard result shape. A session start failure degrades to
+   * { fallback:true }.
    */
   async _execute(opts, prompt, sessionId, onChunk) {
     const client = await this._getClient();
@@ -288,9 +335,15 @@ class SdkRunner {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: no client', sessionId };
     }
 
+    const resume = !!opts.__resume;
+    const sessionOpts = { ...opts };
+    delete sessionOpts.__resume;
+
     let session = null;
     try {
-      session = await client.createSession(opts);
+      session = resume
+        ? await client.resumeSession(sessionId, sessionOpts)
+        : await client.createSession(sessionOpts);
 
       if (typeof onChunk === 'function') {
         session.on('assistant.message_delta', (ev) => {
@@ -339,13 +392,14 @@ class SdkRunner {
 
       return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps };
     } catch (e) {
-      // createSession itself failed - fall back to the CLI spawn.
+      // createSession/resumeSession failed - return fallback so the caller can
+      // record a terminal failure (no CLI fallback remains).
       return {
         ok: false,
         fallback: true,
         code: -1,
         output: '',
-        error: `sdk-runner: createSession failed: ${e && e.message ? e.message : String(e)}`,
+        error: `sdk-runner: session start failed: ${e && e.message ? e.message : String(e)}`,
         sessionId,
       };
     } finally {

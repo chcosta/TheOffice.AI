@@ -223,7 +223,13 @@ class Supervisor extends EventEmitter {
     console.log(`[supervisor] Executing agent "${config.name}" via SDK runner at ${startedAt}`);
     entry.process = null; // no child process under the SDK runtime
 
+    // Live accumulator for the pull-based getLiveOutput endpoint (the SDK flushes
+    // events.jsonl only on disconnect, so disk can't serve in-flight output).
+    entry._live = { acc: '', startedAt: Date.now(), lastUpdate: Date.now(), sessionId: pinnedSessionId };
+
     const onChunk = (chunk) => {
+      entry._live.acc += chunk;
+      entry._live.lastUpdate = Date.now();
       this.emit('agent-output', { agentId, stream: 'stdout', chunk });
     };
 
@@ -277,6 +283,7 @@ class Supervisor extends EventEmitter {
     const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
     entry.running = false;
     entry.process = null;
+    entry._live = null;
 
     // Clean up trigger/prompt temp files now that the run is done.
     for (const f of triggerFiles) {
@@ -385,62 +392,22 @@ class Supervisor extends EventEmitter {
     ).all(agentId, limit);
   }
 
-  // Get latest run per trigger source for trigger-only agents
+  // Live output for a running agent, served from the in-memory accumulator the
+  // SDK runner streams into (see _executeViaSdk). The SDK flushes events.jsonl
+  // to disk only on session disconnect, so there is no disk to scrape mid-run.
   getLiveOutput(agentId) {
     const entry = this.agents.get(agentId);
     if (!entry || !entry.running) return null;
-    
-    // Find the most recent session that's actively being written
-    const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
-    if (!fs.existsSync(SESSION_STATE_DIR)) return null;
-    
-    try {
-      const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => ({ name: d.name, mtime: fs.statSync(path.join(SESSION_STATE_DIR, d.name)).mtime }))
-        .sort((a, b) => b.mtime - a.mtime)
-        .slice(0, 5);
-
-      for (const dir of dirs) {
-        const eventsPath = path.join(SESSION_STATE_DIR, dir.name, 'events.jsonl');
-        if (!fs.existsSync(eventsPath)) continue;
-        
-        const stat = fs.statSync(eventsPath);
-        // Only consider sessions modified within last 60 seconds (actively running)
-        if (Date.now() - stat.mtime.getTime() > 60000) continue;
-        
-        const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
-        let isMatch = false;
-        const assistantMessages = [];
-        
-        for (const line of lines) {
-          try {
-            const ev = JSON.parse(line);
-            if (ev.type === 'subagent.selected' && ev.data) {
-              const name = ev.data.agentDisplayName || ev.data.agentName || '';
-              if (name.toLowerCase().includes((entry.config.name || '').toLowerCase()) ||
-                  (entry.config.agent && name.toLowerCase().includes(entry.config.agent.split(':').pop().toLowerCase()))) {
-                isMatch = true;
-              }
-            }
-            if (ev.type === 'assistant.message' && ev.data?.content) {
-              assistantMessages.push(ev.data.content);
-            }
-          } catch { }
-        }
-        
-        if (isMatch && assistantMessages.length > 0) {
-          return {
-            output: assistantMessages.join('\n\n---\n\n'),
-            messageCount: assistantMessages.length,
-            lastModified: stat.mtime.toISOString(),
-            isActive: (Date.now() - stat.mtime.getTime()) < 15000,
-            sessionId: dir.name
-          };
-        }
-      }
-    } catch { }
-    return null;
+    const live = entry._live;
+    if (!live) return null;
+    const out = live.acc || '';
+    return {
+      output: out,
+      messageCount: out ? 1 : 0,
+      lastModified: new Date(live.lastUpdate || live.startedAt).toISOString(),
+      isActive: true,
+      sessionId: live.sessionId || null,
+    };
   }
 
   startAll() {
@@ -478,58 +445,13 @@ class Supervisor extends EventEmitter {
   }
 
   _recoverLastRun(agentId) {
-    // Look for the most recent copilot session matching this agent's prompt/cwd
-    try {
-      const entry = this.agents.get(agentId);
-      if (!entry) return;
-      const sessionDir = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
-      const fs = require('fs');
-      if (!fs.existsSync(sessionDir)) return;
-
-      const dirs = fs.readdirSync(sessionDir, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => ({ name: d.name, mtime: fs.statSync(path.join(sessionDir, d.name)).mtimeMs }))
-        .sort((a, b) => b.mtime - a.mtime)
-        .slice(0, 20); // check last 20 sessions
-
-      for (const dir of dirs) {
-        const eventsFile = path.join(sessionDir, dir.name, 'events.jsonl');
-        if (!fs.existsSync(eventsFile)) continue;
-        const lines = fs.readFileSync(eventsFile, 'utf-8').split('\n').filter(Boolean);
-        
-        // Check if this session matches our agent
-        let matches = false;
-        let lastAssistantContent = '';
-        for (const line of lines) {
-          try {
-            const evt = JSON.parse(line);
-            if (evt.type === 'subagent.selected' && entry.config.agent &&
-                (evt.data?.agentName === entry.config.agent || evt.data?.agentDisplayName === entry.config.name)) {
-              matches = true;
-            }
-            if (evt.type === 'assistant.message' && evt.data?.content) {
-              lastAssistantContent = evt.data.content;
-            }
-          } catch {}
-        }
-        
-        if (matches && lastAssistantContent) {
-          const now = new Date().toISOString();
-          // Check if we already have a more recent run recorded
-          const existing = this.db.prepare('SELECT started_at FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(agentId);
-          if (!existing || new Date(existing.started_at) < new Date(dir.mtime - 300000)) {
-            this.db.prepare(
-              'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error) VALUES (?, ?, ?, ?, ?, ?)'
-            ).run(agentId, new Date(dir.mtime).toISOString(), new Date(dir.mtime).toISOString(), 0, lastAssistantContent, '');
-            this.db.prepare('UPDATE agent_state SET last_run = ? WHERE agent_id = ?').run(new Date(dir.mtime).toISOString(), agentId);
-            console.log(`[supervisor] Recovered output for "${agentId}" from session ${dir.name}`);
-          }
-          return;
-        }
-      }
-    } catch (err) {
-      console.error(`[supervisor] Recovery failed for "${agentId}": ${err.message}`);
-    }
+    // Historically this scanned ~/.copilot/session-state for the most recent
+    // session whose name/agent matched, to backfill run history. That heuristic
+    // correlation was removed in Phase 6: the SDK runner records a real
+    // session_id into agent_runs for every run, so run history is authoritative
+    // in the DB and needs no disk scraping. Retained as a no-op so existing
+    // callers (startAll recovery/hydration) stay valid.
+    return;
   }
 
   stopAll() {

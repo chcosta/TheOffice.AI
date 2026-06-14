@@ -141,6 +141,184 @@ const db = await openDatabase(DB_PATH);
 // Initialize supervisor
 const supervisor = new Supervisor(db);
 
+// --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
+const sdkRunner = require('./sdk-runner');
+const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+// In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
+// disk only on session disconnect, so disk reads lag the live stream — live
+// (in-progress) turns are served from here, completed turns from the flushed
+// file by id. { running, userPrompt, acc, startedAt, lastUpdate, finishedAt,
+//   error, priorTurns }
+const liveChatBuffers = new Map();
+// Most-recent chat session id per agent — replaces the brittle session-dir
+// name/recency correlation that /api/agents/:id/session used to do.
+const agentChatSessions = new Map();
+// Track chat errors per session for surfacing in poll.
+const chatErrors = new Map();
+
+// Parse a session's events.jsonl lines into the /poll turn structure. Operates
+// on the same {type,data} event shape the SDK getEvents() returns, so the SDK's
+// on-disk log and live stream share one parser.
+function buildPollTurns(lines, verbose) {
+  let turnCount = 0;
+  let lastAssistant = '';
+  const allTurns = [];
+  let currentUser = null;
+  let currentSteps = [];
+  let subTurnCount = 0;
+  let lastAssistantMsg = '';
+  let currentModel = null;
+  let sessionMeta = null;
+  let tokenStats = null;
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line);
+      if (verbose && ev.type === 'session.start' && ev.data) {
+        sessionMeta = {
+          cwd: ev.data.context?.cwd,
+          branch: ev.data.context?.branch,
+          repo: ev.data.context?.repository,
+          agent: ev.data.context?.agentName,
+          copilotVersion: ev.data.copilotVersion
+        };
+      }
+      if (verbose && ev.type === 'session.resume' && ev.data) {
+        if (!sessionMeta) sessionMeta = {};
+        sessionMeta.cwd = sessionMeta.cwd || ev.data.context?.cwd;
+        sessionMeta.branch = sessionMeta.branch || ev.data.context?.branch;
+        sessionMeta.repo = sessionMeta.repo || ev.data.context?.repository;
+      }
+      if (verbose && ev.type === 'subagent.selected' && ev.data) {
+        if (!sessionMeta) sessionMeta = {};
+        sessionMeta.agent = ev.data.agentDisplayName || ev.data.agentName;
+      }
+      if (verbose && ev.type === 'session.model_change' && ev.data) {
+        currentModel = ev.data.newModel;
+      }
+      if (verbose && ev.type === 'session.shutdown' && ev.data) {
+        tokenStats = {
+          premiumRequests: ev.data.totalPremiumRequests,
+          apiDurationMs: ev.data.totalApiDurationMs,
+          input: ev.data.tokenDetails?.input?.tokenCount || 0,
+          cacheRead: ev.data.tokenDetails?.cache_read?.tokenCount || 0,
+          cacheWrite: ev.data.tokenDetails?.cache_write?.tokenCount || 0,
+          output: ev.data.tokenDetails?.output?.tokenCount || 0,
+          linesAdded: ev.data.codeChanges?.linesAdded,
+          linesRemoved: ev.data.codeChanges?.linesRemoved
+        };
+      }
+      if (ev.type === 'user.message') {
+        if (currentUser !== null || lastAssistantMsg) {
+          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
+        }
+        turnCount++;
+        currentUser = ev.data?.content || '';
+        currentSteps = [];
+        subTurnCount = 0;
+        lastAssistantMsg = '';
+      }
+      if (ev.type === 'assistant.turn_start') {
+        subTurnCount++;
+      }
+      if (verbose && ev.type === 'assistant.message') {
+        if (ev.data?.model) currentModel = ev.data.model;
+        if (ev.data?.content) {
+          if (subTurnCount > 1 || currentSteps.length > 0) {
+            currentSteps.push({ type: 'comment', content: ev.data.content });
+          }
+          lastAssistantMsg = ev.data.content;
+          lastAssistant = ev.data.content;
+        }
+      }
+      if (!verbose && ev.type === 'assistant.message' && ev.data?.content) {
+        lastAssistantMsg = ev.data.content;
+        lastAssistant = ev.data.content;
+      }
+      if (verbose && ev.type === 'tool.execution_start' && ev.data) {
+        currentSteps.push({ type: 'tool_start', tool: ev.data.toolName, args: ev.data.arguments, toolCallId: ev.data.toolCallId });
+      }
+      if (verbose && ev.type === 'tool.execution_complete' && ev.data) {
+        const step = currentSteps.find(s => s.toolCallId === ev.data.toolCallId);
+        if (step) {
+          step.type = 'tool';
+          step.success = ev.data.success;
+          step.result = (ev.data.result?.content || '').substring(0, 2000);
+          if (ev.data.result?.detailedContent) step.detail = ev.data.result.detailedContent.substring(0, 500);
+        } else {
+          currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
+        }
+      }
+    } catch { }
+  }
+  if (currentUser !== null || lastAssistantMsg) {
+    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
+  }
+  if (verbose) {
+    for (const turn of allTurns) {
+      if (turn.steps && turn.steps.length > 0 && turn.assistant) {
+        const lastStep = turn.steps[turn.steps.length - 1];
+        if (lastStep.type === 'comment' && lastStep.content === turn.assistant) {
+          turn.steps.pop();
+        }
+      }
+    }
+  }
+  return { turnCount, lastAssistant, turns: allTurns, sessionMeta, tokenStats };
+}
+
+// Snapshot the committed (flushed-to-disk) turns for a session id — used to seed
+// the live-chat view so prior turns stay visible while a new turn streams.
+function snapshotPriorTurns(sessionId, verbose) {
+  try {
+    const ep = path.join(STATE_DIR, sessionId, 'events.jsonl');
+    if (!fs.existsSync(ep)) return [];
+    const lines = fs.readFileSync(ep, 'utf-8').split('\n').filter(Boolean);
+    return buildPollTurns(lines, verbose).turns;
+  } catch { return []; }
+}
+
+// Run one interactive chat turn through the SDK runner, maintaining the live
+// in-memory buffer that /poll overlays. `agentId` is set for agent chats so the
+// pinned session id is tracked for /api/agents/:id/session.
+function runChatTurn({ sessionId, message, config, resume, agentId }) {
+  const buf = {
+    running: true,
+    userPrompt: message,
+    acc: '',
+    steps: [],
+    startedAt: Date.now(),
+    lastUpdate: Date.now(),
+    priorTurns: resume ? snapshotPriorTurns(sessionId, true) : [],
+    error: null,
+  };
+  liveChatBuffers.set(sessionId, buf);
+  chatErrors.delete(sessionId);
+  if (agentId) agentChatSessions.set(agentId, sessionId);
+
+  const onChunk = (chunk) => {
+    buf.acc += chunk;
+    buf.lastUpdate = Date.now();
+  };
+
+  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk })
+    .then((res) => {
+      buf.running = false;
+      buf.finishedAt = Date.now();
+      if (!res.ok) {
+        buf.error = res.error || 'chat failed';
+        chatErrors.set(sessionId, { error: buf.error, code: res.code, time: Date.now() });
+      }
+      if (agentId) broadcastSSE('agent-chat-complete', { agentId, code: res.code });
+    })
+    .catch((err) => {
+      buf.running = false;
+      buf.finishedAt = Date.now();
+      buf.error = err.message;
+      chatErrors.set(sessionId, { error: err.message, time: Date.now() });
+      if (agentId) broadcastSSE('agent-chat-complete', { agentId, code: 1 });
+    });
+}
+
 // Forward supervisor events to SSE clients
 supervisor.on('agent-running', (agentId) => {
   broadcastSSE('agent-status', { id: agentId, status: 'running' });
@@ -843,55 +1021,52 @@ app.post('/api/agents/:id/run', (req, res) => {
   }
 });
 
-// Chat with an agent — starts/resumes a copilot session and sends a prompt
+// Chat with an agent — starts/resumes an SDK session and sends a prompt.
 app.post('/api/agents/:id/chat', (req, res) => {
   const { message, sessionId: existingSessionId } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
-  
+
   const agentEntry = supervisor.agents.get(req.params.id);
   if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
-  
-  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const agentConfig = agentEntry.config;
-  const cwd = agentConfig.cwd || __dirname;
-  const escapedMsg = message.replace(/"/g, '\\"');
-  const { spawn } = require('child_process');
-  
-  let cmd;
-  if (existingSessionId) {
-    // Resume existing session
-    cmd = `${copilotCmd} --resume=${existingSessionId} -p "${escapedMsg}" -s --yolo`;
-  } else {
-    // Start new session with the agent
-    const agentFlag = agentConfig.agent ? `--agent "${agentConfig.agent}"` : '';
-    cmd = `${copilotCmd} ${agentFlag} -p "${escapedMsg}" -s --yolo`;
-  }
-  
-  const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-  const proc = spawn(cmd, [], { cwd, shell: shellPath, stdio: ['ignore', 'ignore', 'pipe'] });
-  
-  let stderrBuf = '';
-  proc.stderr.on('data', d => { stderrBuf += d; });
-  proc.on('error', e => {
-    console.error(`[agent-chat] spawn error: ${e.message}`);
-  });
-  proc.on('close', code => {
-    console.log(`[agent-chat] agent ${req.params.id} chat exited (${code})`);
-    broadcastSSE('agent-chat-complete', { agentId: req.params.id, code });
-  });
-  proc.unref();
-  
-  // Try to find the session ID that was just created (will appear after a moment)
-  // Return immediately — client will poll for the session
-  res.json({ ok: true, started: true, existingSessionId: existingSessionId || null });
+
+  const config = agentEntry.config;
+  const resume = !!existingSessionId;
+  const sessionId = existingSessionId || crypto.randomUUID();
+
+  runChatTurn({ sessionId, message, config, resume, agentId: req.params.id });
+
+  // Return the pinned session id immediately so the client can poll it directly
+  // (no session-dir correlation needed). The turn streams in the background.
+  res.json({ ok: true, started: true, sessionId, existingSessionId: existingSessionId || null });
 });
 
-// Find the most recent session for an agent (by matching agent name in session start events)
+// Find the chat session for an agent. Prefers the pinned id tracked when chat
+// started; falls back to a legacy session-dir scan for sessions created before
+// this server started (e.g. external/older sessions).
 app.get('/api/agents/:id/session', (req, res) => {
   const agentEntry = supervisor.agents.get(req.params.id);
   if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
-  
-  const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
+
+  // Authoritative: the id we pinned when this agent's chat last ran.
+  const tracked = agentChatSessions.get(req.params.id);
+  if (tracked) {
+    const buf = liveChatBuffers.get(tracked);
+    let isActive = !!(buf && buf.running);
+    let lastModified = new Date((buf && buf.lastUpdate) || Date.now()).toISOString();
+    if (!isActive) {
+      try {
+        const ep = path.join(STATE_DIR, tracked, 'events.jsonl');
+        if (fs.existsSync(ep)) {
+          const stat = fs.statSync(ep);
+          isActive = (Date.now() - stat.mtime.getTime()) < 30000;
+          lastModified = stat.mtime.toISOString();
+        }
+      } catch {}
+    }
+    return res.json({ sessionId: tracked, isActive, lastModified });
+  }
+
+  const SESSION_STATE_DIR = STATE_DIR;
   if (!fs.existsSync(SESSION_STATE_DIR)) return res.json({ sessionId: null });
   
   const agentName = agentEntry.config.agent || agentEntry.config.name || req.params.id;
@@ -2131,9 +2306,6 @@ app.get('/api/sessions/:id', (req, res) => {
   res.json({ ...meta, agentName, ...conversation });
 });
 
-// Track chat errors per session for surfacing in poll
-const chatErrors = new Map();
-
 app.post('/api/sessions/:id/chat', (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
@@ -2141,163 +2313,86 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
 
   const meta = readSessionMeta(sessionDir);
-  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const escapedMsg = message.replace(/"/g, '\\"');
-  const { spawn } = require('child_process');
-  const cmd = `${copilotCmd} --resume=${req.params.id} -p "${escapedMsg}" -s --yolo`;
-  const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-  const proc = spawn(cmd, [], { cwd: meta.cwd || undefined, shell: shellPath, stdio: ['ignore', 'ignore', 'pipe'] });
-  let stderrBuf = '';
-  proc.stderr.on('data', d => { stderrBuf += d; console.error(`[chat] stderr: ${d}`); });
-  proc.on('error', e => {
-    console.error(`[chat] spawn error: ${e.message}`);
-    chatErrors.set(req.params.id, { error: e.message, time: Date.now() });
+  // Resume the existing SDK session by id. The agent/tools are already baked
+  // into the persisted session, so only the working directory is supplied.
+  runChatTurn({
+    sessionId: req.params.id,
+    message,
+    config: { cwd: meta.cwd || undefined },
+    resume: true,
   });
-  proc.on('close', code => {
-    console.log(`[chat] session ${req.params.id.substring(0,8)} exited (${code})`);
-    if (code !== 0 && stderrBuf.trim()) {
-      chatErrors.set(req.params.id, { error: stderrBuf.trim(), code, time: Date.now() });
-    }
-  });
-  proc.unref();
-  // Clear any previous error for this session
-  chatErrors.delete(req.params.id);
-  // Return immediately — client polls for live updates
+  // Return immediately — client polls /poll for live updates.
   res.json({ ok: true, started: true });
 });
 
 // Poll a session for latest state (turn count + last assistant message)
 app.get('/api/sessions/:id/poll', (req, res) => {
-  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
-  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+  const sessionId = req.params.id;
+  const verbose = req.query.verbose === '1';
+  const buf = liveChatBuffers.get(sessionId);
+
+  // While a chat turn is streaming the SDK has not flushed events.jsonl to disk,
+  // so serve the in-progress turn from the live in-memory buffer (prior turns
+  // were snapshotted from the flushed file when the turn started).
+  if (buf && buf.running) {
+    const turns = [...(buf.priorTurns || [])];
+    turns.push({
+      content: buf.userPrompt || '',
+      assistant: buf.acc || null,
+      model: verbose ? null : undefined,
+      steps: verbose ? (buf.steps || []) : undefined,
+    });
+    return res.json({
+      turnCount: turns.length,
+      lastAssistant: buf.acc || '',
+      isActive: true,
+      lastModified: new Date(buf.lastUpdate || buf.startedAt).toISOString(),
+      turns,
+    });
+  }
+
+  const sessionDir = path.join(SESSION_STATE_DIR, sessionId);
+  if (!fs.existsSync(sessionDir)) {
+    // A brand-new session whose turn failed before any disk flush.
+    if (buf) {
+      const turns = [...(buf.priorTurns || []), { content: buf.userPrompt || '', assistant: null, steps: verbose ? [] : undefined }];
+      const response = { turnCount: turns.length, lastAssistant: '', isActive: false, lastModified: new Date(buf.finishedAt || Date.now()).toISOString(), turns };
+      if (buf.error) response.chatError = buf.error;
+      liveChatBuffers.delete(sessionId);
+      return res.json(response);
+    }
+    return res.status(404).json({ error: 'Session not found' });
+  }
   const eventsPath = path.join(sessionDir, 'events.jsonl');
   if (!fs.existsSync(eventsPath)) return res.json({ turnCount: 0, lastAssistant: '', isActive: false, turns: [] });
-  
-  const verbose = req.query.verbose === '1';
+
   const stat = fs.statSync(eventsPath);
   const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
-  let turnCount = 0;
-  let lastAssistant = '';
-  const allTurns = [];
-  let currentUser = null;
-  let currentSteps = [];
-  let subTurnCount = 0; // track assistant sub-turns within a user turn
-  let lastAssistantMsg = '';
-  let currentModel = null; // track model per assistant message
-  // Session-level metadata (verbose only)
-  let sessionMeta = null;
-  let tokenStats = null;
-  let modelChanges = [];
-  for (const line of lines) {
-    try {
-      const ev = JSON.parse(line);
-      if (verbose && ev.type === 'session.start' && ev.data) {
-        sessionMeta = {
-          cwd: ev.data.context?.cwd,
-          branch: ev.data.context?.branch,
-          repo: ev.data.context?.repository,
-          agent: ev.data.context?.agentName,
-          copilotVersion: ev.data.copilotVersion
-        };
-      }
-      if (verbose && ev.type === 'session.resume' && ev.data) {
-        // Update meta on resume if not set
-        if (!sessionMeta) sessionMeta = {};
-        sessionMeta.cwd = sessionMeta.cwd || ev.data.context?.cwd;
-        sessionMeta.branch = sessionMeta.branch || ev.data.context?.branch;
-        sessionMeta.repo = sessionMeta.repo || ev.data.context?.repository;
-      }
-      if (verbose && ev.type === 'subagent.selected' && ev.data) {
-        if (!sessionMeta) sessionMeta = {};
-        sessionMeta.agent = ev.data.agentDisplayName || ev.data.agentName;
-      }
-      if (verbose && ev.type === 'session.model_change' && ev.data) {
-        currentModel = ev.data.newModel;
-        modelChanges.push(ev.data.newModel);
-      }
-      if (verbose && ev.type === 'session.shutdown' && ev.data) {
-        tokenStats = {
-          premiumRequests: ev.data.totalPremiumRequests,
-          apiDurationMs: ev.data.totalApiDurationMs,
-          input: ev.data.tokenDetails?.input?.tokenCount || 0,
-          cacheRead: ev.data.tokenDetails?.cache_read?.tokenCount || 0,
-          cacheWrite: ev.data.tokenDetails?.cache_write?.tokenCount || 0,
-          output: ev.data.tokenDetails?.output?.tokenCount || 0,
-          linesAdded: ev.data.codeChanges?.linesAdded,
-          linesRemoved: ev.data.codeChanges?.linesRemoved
-        };
-      }
-      if (ev.type === 'user.message') {
-        // Flush previous turn
-        if (currentUser !== null || lastAssistantMsg) {
-          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
-        }
-        turnCount++;
-        currentUser = ev.data?.content || '';
-        currentSteps = [];
-        subTurnCount = 0;
-        lastAssistantMsg = '';
-      }
-      if (ev.type === 'assistant.turn_start') {
-        subTurnCount++;
-      }
-      if (verbose && ev.type === 'assistant.message') {
-        if (ev.data?.model) currentModel = ev.data.model;
-        if (ev.data?.content) {
-          if (subTurnCount > 1 || currentSteps.length > 0) {
-            currentSteps.push({ type: 'comment', content: ev.data.content });
-          }
-          lastAssistantMsg = ev.data.content;
-          lastAssistant = ev.data.content;
-        }
-      }
-      if (!verbose && ev.type === 'assistant.message' && ev.data?.content) {
-        lastAssistantMsg = ev.data.content;
-        lastAssistant = ev.data.content;
-      }
-      if (verbose && ev.type === 'tool.execution_start' && ev.data) {
-        currentSteps.push({ type: 'tool_start', tool: ev.data.toolName, args: ev.data.arguments, toolCallId: ev.data.toolCallId });
-      }
-      if (verbose && ev.type === 'tool.execution_complete' && ev.data) {
-        const step = currentSteps.find(s => s.toolCallId === ev.data.toolCallId);
-        if (step) {
-          step.type = 'tool';
-          step.success = ev.data.success;
-          step.result = (ev.data.result?.content || '').substring(0, 2000);
-          if (ev.data.result?.detailedContent) step.detail = ev.data.result.detailedContent.substring(0, 500);
-        } else {
-          currentSteps.push({ type: 'tool', tool: ev.data.toolName || '?', success: ev.data.success, result: (ev.data.result?.content || '').substring(0, 2000) });
-        }
-      }
-    } catch { }
-  }
-  // Flush last turn
-  if (currentUser !== null || lastAssistantMsg) {
-    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
-  }
-  // Remove duplicate: if last step is a comment matching the final assistant response, drop it
+  const parsed = buildPollTurns(lines, verbose);
+
+  // A just-finished chat turn: the file is now flushed and complete, so report
+  // completion deterministically (don't wait out the mtime window) and clear
+  // the one-shot live buffer.
+  let isActive = (Date.now() - stat.mtime.getTime()) < 30000;
+  if (buf && !buf.running) isActive = false;
+
+  const response = {
+    turnCount: parsed.turnCount,
+    lastAssistant: parsed.lastAssistant,
+    isActive,
+    lastModified: stat.mtime.toISOString(),
+    turns: parsed.turns,
+  };
   if (verbose) {
-    for (const turn of allTurns) {
-      if (turn.steps && turn.steps.length > 0 && turn.assistant) {
-        const lastStep = turn.steps[turn.steps.length - 1];
-        if (lastStep.type === 'comment' && lastStep.content === turn.assistant) {
-          turn.steps.pop();
-        }
-      }
-    }
+    if (parsed.sessionMeta) response.sessionMeta = parsed.sessionMeta;
+    if (parsed.tokenStats) response.tokenStats = parsed.tokenStats;
   }
-  const isActive = (Date.now() - stat.mtime.getTime()) < 30000;
-  // Include any chat error for this session
-  const chatErr = chatErrors.get(req.params.id);
-  const response = { turnCount, lastAssistant, isActive, lastModified: stat.mtime.toISOString(), turns: allTurns };
-  if (verbose) {
-    if (sessionMeta) response.sessionMeta = sessionMeta;
-    if (tokenStats) response.tokenStats = tokenStats;
-  }
+  const chatErr = chatErrors.get(sessionId);
   if (chatErr) {
     response.chatError = chatErr.error;
-    chatErrors.delete(req.params.id);
+    chatErrors.delete(sessionId);
   }
+  if (buf && !buf.running) liveChatBuffers.delete(sessionId);
   res.json(response);
 });
 
