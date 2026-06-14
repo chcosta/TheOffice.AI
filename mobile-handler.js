@@ -470,10 +470,19 @@ class MobileHandler extends EventEmitter {
           }).catch(() => {});
         };
         this.managerAgent.on('manager-step', stepHandler);
+        // Heartbeat keeps the mobile client's inactivity timer alive during
+        // long, quiet orchestration stretches (e.g. a multi-minute agent run).
+        const heartbeat = setInterval(() => {
+          replier(correlationId, {
+            type: 'status-update',
+            payload: { status: 'processing', message: 'Still working…' }
+          }).catch(() => {});
+        }, 20000);
         try {
           result = await this.managerAgent.executePrompt(targetId, fullPrompt, null, { sync: true });
           result = result?.result || result?.output || '(no output)';
         } finally {
+          clearInterval(heartbeat);
           this.managerAgent.removeListener('manager-step', stepHandler);
         }
       } else {
@@ -1134,10 +1143,20 @@ class MobileHandler extends EventEmitter {
 
       const cleanup = () => {
         clearTimeout(timeout);
+        clearInterval(heartbeat);
         this.supervisor.removeListener('agent-output', onOutput);
         this.supervisor.removeListener('agent-completed', onCompleted);
         this.supervisor.removeListener('agent-error', onError);
       };
+
+      // Heartbeat keeps the mobile client's inactivity timer alive during long,
+      // silent agent runs that emit no streaming output for a while.
+      const heartbeat = setInterval(() => {
+        replier(correlationId, {
+          type: 'status-update',
+          payload: { status: 'processing', message: 'Still working…' }
+        }).catch(() => {});
+      }, 20000);
 
       this.supervisor.on('agent-output', onOutput);
       this.supervisor.on('agent-completed', onCompleted);
