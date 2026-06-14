@@ -1334,6 +1334,33 @@ function rescheduleAllTasks() {
 // Activate schedules for any already-saved tasks at startup.
 rescheduleAllTasks();
 
+// Backfill task attribution on historical agent runs. The task_id column was
+// added later, so runs that predate it have task_id = NULL. When an agent is
+// driven by exactly one task and has no schedule of its own, every run of that
+// agent is unambiguously that task's run, so we can safely attribute them.
+// Idempotent: only touches rows where task_id IS NULL.
+function backfillTaskRunAttribution() {
+  try {
+    const tasksByAgent = new Map();
+    for (const t of loadTasks()) {
+      if (!t.agentId) continue;
+      if (!tasksByAgent.has(t.agentId)) tasksByAgent.set(t.agentId, []);
+      tasksByAgent.get(t.agentId).push(t);
+    }
+    for (const [agentId, list] of tasksByAgent) {
+      if (list.length !== 1) continue; // multiple tasks → ambiguous
+      const entry = supervisor.agents.get(agentId);
+      const agentSchedule = entry && entry.config && entry.config.schedule;
+      if (agentSchedule && String(agentSchedule).toLowerCase() !== 'never') continue; // self-scheduling → ambiguous
+      const result = db.prepare('UPDATE agent_runs SET task_id = ? WHERE agent_id = ? AND task_id IS NULL').run(list[0].id, agentId);
+      if (result.changes) console.log(`[backfill] Attributed ${result.changes} historical run(s) of "${agentId}" to task "${list[0].id}"`);
+    }
+  } catch (e) {
+    console.warn('[backfill] Task run attribution failed:', e.message);
+  }
+}
+backfillTaskRunAttribution();
+
 // ---- Task Chains ----
 // A chain is a first-class, schedulable DAG of tasks connected by conditional
 // edges (status / expression / AI). It replaces the old inline per-task triggers.
