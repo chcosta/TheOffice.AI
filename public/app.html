@@ -1795,6 +1795,7 @@
                 </div>
               </div>
               <div class="toolbar">
+                <button class="btn primary" type="button" @click="newAgentTask()">＋ New Task</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit</button>
                 <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
@@ -1859,34 +1860,39 @@
                       <h2 class="panel-title">Capabilities</h2>
                       <div class="hint">Description &amp; skills help managers decide when to route requests to this agent.</div>
                     </div>
+                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing — click to lock' : '🔒 Unlock to edit'"></button>
                   </div>
                   <div class="config-grid">
                     <div>
                       <div class="field-label"><span>Description</span><span class="hint">What this agent does, in plain language</span></div>
-                      <textarea class="field-input field-area" x-model="selectedAgent.descriptionDraft" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
+                      <textarea class="field-input field-area" x-model="selectedAgent.descriptionDraft" :disabled="!selectedAgent.capsUnlocked" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
                     </div>
                     <div>
                       <div class="field-label"><span>Skills</span><span class="hint">Comma-separated keywords (e.g. azure, monitoring, email)</span></div>
-                      <input class="field-input" type="text" x-model="selectedAgent.skillsDraft" placeholder="azure, status, monitoring" />
+                      <input class="field-input" type="text" x-model="selectedAgent.skillsDraft" :disabled="!selectedAgent.capsUnlocked" placeholder="azure, status, monitoring" />
                       <div class="split-meta" style="margin-top:8px;flex-wrap:wrap;gap:6px" x-show="selectedAgent.skillsDraft && selectedAgent.skillsDraft.trim()">
                         <template x-for="s in selectedAgent.skillsDraft.split(',').map(x => x.trim()).filter(Boolean)" :key="s">
                           <span class="tiny-badge" x-text="s"></span>
                         </template>
                       </div>
                     </div>
-                    <div class="toolbar">
-                      <button class="btn accent" type="button" @click="saveAgentDetails()">Save capabilities</button>
+                    <div class="toolbar" x-show="selectedAgent.capsUnlocked">
+                      <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save capabilities</button>
+                      <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = false">Cancel</button>
                     </div>
                   </div>
                 </section>
 
-                <section class="detail-panel" id="agent-task-editor">
+                <section class="detail-panel" id="agent-task-editor" x-show="selectedAgent.showTaskEditor" x-transition>
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title" x-text="selectedAgent.editingTaskId ? 'Edit Task' : 'Create Task'"></h2>
                       <div class="hint">Define a named task with a prompt and schedule for this agent.</div>
                     </div>
-                    <button class="btn" type="button" x-show="selectedAgent.editingTaskId" @click="selectedAgent.editingTaskId = null; selectedAgent.taskNameDraft = ''; selectedAgent.promptDraft = ''; selectedAgent.scheduleDraft = 'never'; selectedAgent.schedulePreset = 'never'">＋ New</button>
+                    <div class="toolbar">
+                      <button class="btn" type="button" x-show="selectedAgent.editingTaskId" @click="newAgentTask()">＋ New</button>
+                      <button class="btn ghost" type="button" @click="closeTaskEditor()">✕ Close</button>
+                    </div>
                   </div>
                   <div class="config-grid">
                     <div>
@@ -1949,7 +1955,7 @@
                       </div>
                     </template>
                   </div>
-                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">No tasks yet. Create one using the form below.</div>
+                  <div class="empty-state" x-show="!tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length">No tasks yet. Click <strong>＋ New Task</strong> at the top to create one.</div>
                 </section>
 
                 <section class="detail-panel" x-show="tasksForAgent(selectedAgent.id).filter(t => t.type === 'assignment').length">
@@ -4675,6 +4681,8 @@
             this.selectedAgent.schedulePreset = 'never';
             this.selectedAgent.taskNameDraft = '';
             this.selectedAgent.editingTaskId = null;
+            this.selectedAgent.showTaskEditor = false;
+            this.selectedAgent.capsUnlocked = false;
             this.agentHistory = history;
             // Check for source updates in background
             this.checkAgentUpdate(id).then(hasUpdate => {
@@ -6270,10 +6278,32 @@
           this.selectedAgent.taskNameDraft = task.name;
           this.selectedAgent.promptDraft = task.prompt || '';
           this.selectedAgent.scheduleDraft = task.scheduleDraft || task.schedule || 'never';
-          this.selectedAgent.schedulePreset = this.resolveSchedulePreset(task.schedule);
+          this.selectedAgent.schedulePreset = this.resolveSchedulePreset(task.scheduleDraft || task.schedule);
           this.selectedAgent.editingTaskId = task.id;
-          // Scroll to the form
-          document.getElementById('agent-task-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          this.selectedAgent.showTaskEditor = true;
+          // Reveal and scroll to the form
+          this.$nextTick(() => document.getElementById('agent-task-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        },
+
+        newAgentTask() {
+          if (!this.selectedAgent) return;
+          this.selectedAgent.editingTaskId = null;
+          this.selectedAgent.taskNameDraft = '';
+          this.selectedAgent.promptDraft = '';
+          this.selectedAgent.scheduleDraft = 'never';
+          this.selectedAgent.schedulePreset = 'never';
+          this.selectedAgent.showTaskEditor = true;
+          this.$nextTick(() => document.getElementById('agent-task-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        },
+
+        closeTaskEditor() {
+          if (!this.selectedAgent) return;
+          this.selectedAgent.showTaskEditor = false;
+          this.selectedAgent.editingTaskId = null;
+          this.selectedAgent.taskNameDraft = '';
+          this.selectedAgent.promptDraft = '';
+          this.selectedAgent.scheduleDraft = 'never';
+          this.selectedAgent.schedulePreset = 'never';
         },
 
         applyManagerAssignmentSchedulePreset(value) {
