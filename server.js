@@ -3211,18 +3211,161 @@ app.post('/api/managers/:id/edit-agent', (req, res) => {
   res.json({ ok: true, file: agentFile });
 });
 
-// List available manager agent variants
+// ----- Manager Templates (the built-in "backing agents" managers derive from) -----
+// A template is a <name>.agent.md file under builtin-plugins/manager/agents/.
+// Managers reference one via config.agent === `manager:<name>`.
+const MANAGER_AGENTS_DIR = path.join(PLUGINS_DIR, 'manager', 'agents');
+const PROTECTED_MANAGER_TEMPLATES = new Set(['manager']);
+
+function ensureManagerAgentsDir() {
+  if (!fs.existsSync(MANAGER_AGENTS_DIR)) fs.mkdirSync(MANAGER_AGENTS_DIR, { recursive: true });
+}
+
+// Split a .agent.md into { frontmatter (raw), body, fields }
+function parseManagerAgentFile(content) {
+  content = String(content).replace(/\r\n?/g, '\n');
+  const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if (!m) return { fields: {}, tools: [], body: content.trim() };
+  const fm = m[1];
+  const body = (m[2] || '').replace(/^\n+/, '');
+  const fields = {};
+  const tools = [];
+  let inTools = false;
+  for (const line of fm.split('\n')) {
+    const toolItem = line.match(/^\s*-\s*['"]?([^'"]+)['"]?\s*$/);
+    if (inTools && toolItem) { tools.push(toolItem[1].trim()); continue; }
+    inTools = false;
+    const kv = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
+    if (!kv) continue;
+    const key = kv[1].trim();
+    const val = kv[2].trim();
+    if (key === 'tools' && val === '') { inTools = true; continue; }
+    fields[key] = val.replace(/^['"]|['"]$/g, '');
+  }
+  return { fields, tools, body };
+}
+
+function buildManagerAgentFile({ name, description, tools, body }) {
+  const toolList = (Array.isArray(tools) ? tools : [])
+    .map(t => String(t).trim()).filter(Boolean);
+  const lines = ['---', `name: ${name}`];
+  if (description) lines.push(`description: ${description}`);
+  if (toolList.length) {
+    lines.push('tools:');
+    for (const t of toolList) lines.push(`  - '${t}'`);
+  }
+  lines.push('---', '', (body || '').trim(), '');
+  return lines.join('\n');
+}
+
+function managerTemplateUsage(name) {
+  let managers = [];
+  try {
+    if (fs.existsSync(MANAGERS_PATH)) managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+  } catch { managers = []; }
+  const ref = `manager:${name}`;
+  const usedBy = managers.filter(m => (m.agent || 'manager:manager') === ref).map(m => ({ id: m.id, name: m.name }));
+  return usedBy;
+}
+
+function readManagerTemplate(name) {
+  const file = path.join(MANAGER_AGENTS_DIR, `${name}.agent.md`);
+  if (!fs.existsSync(file)) return null;
+  const content = fs.readFileSync(file, 'utf-8');
+  const parsed = parseManagerAgentFile(content);
+  const usedBy = managerTemplateUsage(name);
+  return {
+    id: `manager:${name}`,
+    name,
+    description: parsed.fields.description || '',
+    tools: parsed.tools,
+    body: parsed.body,
+    raw: content,
+    builtin: PROTECTED_MANAGER_TEMPLATES.has(name),
+    inUse: usedBy.length,
+    usedBy
+  };
+}
+
+// List available manager templates (a.k.a. backing agent variants)
 app.get('/api/manager-agents', (req, res) => {
-  const agentsDir = path.join(PLUGINS_DIR, 'manager', 'agents');
-  if (!fs.existsSync(agentsDir)) return res.json([]);
-  const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+  ensureManagerAgentsDir();
+  if (!fs.existsSync(MANAGER_AGENTS_DIR)) return res.json([]);
+  const files = fs.readdirSync(MANAGER_AGENTS_DIR).filter(f => f.endsWith('.agent.md'));
   const variants = files.map(f => {
     const name = f.replace('.agent.md', '');
-    const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
-    const descMatch = content.match(/description:\s*(.+)/);
-    return { id: `manager:${name}`, name, description: descMatch?.[1]?.trim() || '' };
+    const t = readManagerTemplate(name);
+    return {
+      id: `manager:${name}`,
+      name,
+      description: t?.description || '',
+      builtin: t?.builtin || false,
+      inUse: t?.inUse || 0,
+      usedBy: t?.usedBy || []
+    };
   });
   res.json(variants);
+});
+
+// Get a single manager template (full content)
+app.get('/api/manager-agents/:name', (req, res) => {
+  const t = readManagerTemplate(req.params.name);
+  if (!t) return res.status(404).json({ error: 'Template not found' });
+  res.json(t);
+});
+
+// Create a new manager template
+app.post('/api/manager-agents', (req, res) => {
+  ensureManagerAgentsDir();
+  const { name, description, tools, body } = req.body || {};
+  const clean = String(name || '').trim().toLowerCase();
+  if (!clean || !/^[a-z0-9][a-z0-9-]*$/.test(clean)) {
+    return res.status(400).json({ error: 'Template name must be lowercase letters, numbers, and dashes (e.g. "incident-manager").' });
+  }
+  const file = path.join(MANAGER_AGENTS_DIR, `${clean}.agent.md`);
+  if (fs.existsSync(file)) return res.status(409).json({ error: `A template named "${clean}" already exists.` });
+  if (!body || !String(body).trim()) return res.status(400).json({ error: 'Template body (the orchestration instructions) is required.' });
+  const content = buildManagerAgentFile({
+    name: clean,
+    description: String(description || '').trim(),
+    tools: tools && tools.length ? tools : ['powershell'],
+    body
+  });
+  fs.writeFileSync(file, content);
+  res.json(readManagerTemplate(clean));
+});
+
+// Update an existing manager template (name is immutable to preserve references)
+app.put('/api/manager-agents/:name', (req, res) => {
+  const name = req.params.name;
+  const file = path.join(MANAGER_AGENTS_DIR, `${name}.agent.md`);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Template not found' });
+  const { description, tools, body } = req.body || {};
+  if (!body || !String(body).trim()) return res.status(400).json({ error: 'Template body is required.' });
+  const content = buildManagerAgentFile({
+    name,
+    description: String(description || '').trim(),
+    tools: tools && tools.length ? tools : ['powershell'],
+    body
+  });
+  fs.writeFileSync(file, content);
+  res.json(readManagerTemplate(name));
+});
+
+// Delete a manager template (blocked if built-in or actively used by a manager)
+app.delete('/api/manager-agents/:name', (req, res) => {
+  const name = req.params.name;
+  const file = path.join(MANAGER_AGENTS_DIR, `${name}.agent.md`);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Template not found' });
+  if (PROTECTED_MANAGER_TEMPLATES.has(name)) {
+    return res.status(409).json({ error: 'The default Manager Template cannot be removed.' });
+  }
+  const usedBy = managerTemplateUsage(name);
+  if (usedBy.length) {
+    return res.status(409).json({ error: `Template is in use by ${usedBy.length} manager(s): ${usedBy.map(m => m.name).join(', ')}. Reassign them first.` });
+  }
+  fs.unlinkSync(file);
+  res.json({ ok: true });
 });
 
 // ============ End Manager API Routes ============

@@ -2041,6 +2041,7 @@
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="data.managers.length + ' total'"></span>
+                <button class="btn" type="button" @click="openManagerTemplates()">🧩 Manager Templates</button>
                 <button class="btn primary" type="button" @click="openCreateManager()">＋ Add Manager</button>
               </div>
             </div>
@@ -2087,7 +2088,7 @@
               <div class="toolbar">
                 <span class="status-badge" :class="managerActiveCount(selectedManager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(selectedManager) + ' active'"></span>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="focusConfigSection('manager-assignments')">⚙ Edit</button>
+                <button class="btn" type="button" @click="openManagerEdit()">⚙ Edit</button>
                 <button class="btn danger" type="button" @click="removeManager(selectedManager.id)">🗑 Remove</button>
               </div>
             </div>
@@ -3858,7 +3859,127 @@
     </section>
   </div>
 
-  <div class="modal-backdrop" x-show="agentDiscoveryOpen" x-transition.opacity.duration.150ms @click.self="agentDiscoveryOpen = false" x-cloak>
+  <!-- Edit Manager modal: name, description, backing template -->
+  <div class="modal-backdrop" x-show="managerEdit.open" x-transition.opacity.duration.150ms @click.self="managerEdit.open = false" x-cloak>
+    <section class="modal-card" style="max-width:640px">
+      <div class="modal-header">
+        <div>
+          <strong>Edit Manager</strong>
+          <div class="hint" style="margin-top:6px">Change the manager's name, description, or the built-in template that backs it.</div>
+        </div>
+        <button class="icon-button" type="button" @click="managerEdit.open = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div>
+            <div class="field-label"><span>Name</span></div>
+            <input class="field-input" type="text" x-model="managerEdit.name" placeholder="Manager name" />
+          </div>
+          <div>
+            <div class="field-label"><span>Description</span></div>
+            <input class="field-input" type="text" x-model="managerEdit.description" placeholder="What this manager is responsible for" />
+          </div>
+          <div>
+            <div class="field-label"><span>Backing Template</span><span class="hint">The built-in manager agent that provides this manager's orchestration brain.</span></div>
+            <select class="field-input" x-model="managerEdit.agent">
+              <template x-for="t in managerTemplates" :key="'me-' + t.id">
+                <option :value="t.id" x-text="t.name + (t.description ? ' — ' + t.description : '')"></option>
+              </template>
+            </select>
+            <div class="hint" style="margin-top:8px">
+              <a href="#" @click.prevent="openManagerTemplates()" style="color:var(--cp-link)">Manage templates →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--cp-border)">
+        <button class="btn" type="button" @click="managerEdit.open = false">Cancel</button>
+        <button class="btn primary" type="button" @click="saveManagerEdit()">Save</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Manager Templates modal: full CRUD over the built-in backing agents -->
+  <div class="modal-backdrop" x-show="templates.open" x-transition.opacity.duration.150ms @click.self="templates.open = false" x-cloak>
+    <section class="modal-card" style="max-width:980px">
+      <div class="modal-header">
+        <div>
+          <strong>Manager Templates</strong>
+          <div class="hint" style="margin-top:6px">Built-in agents that back your managers. View, create, edit, and remove the orchestration brains. A template in use by a manager can't be removed.</div>
+        </div>
+        <div class="toolbar">
+          <button class="btn" type="button" @click="loadManagerTemplates()">↻ Refresh</button>
+          <button class="icon-button" type="button" @click="templates.open = false">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div style="display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px">
+          <!-- List -->
+          <div class="stack" style="border-right:1px solid var(--cp-border);padding-right:16px">
+            <button class="btn primary" type="button" style="width:100%" @click="newTemplate()">＋ New Template</button>
+            <template x-for="t in managerTemplates" :key="'tpl-' + t.id">
+              <button class="selector-button" type="button" :class="{ active: templates.draft && templates.draft.name === t.name && !templates.draft._new }" @click="selectTemplate(t.name)">
+                <div class="split-meta">
+                  <div style="min-width:0">
+                    <strong x-text="t.name"></strong>
+                    <div class="hint line-clamp" style="margin-top:4px" x-text="t.description || 'No description'"></div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+                    <span class="tiny-badge" x-show="t.builtin">built-in</span>
+                    <span class="tiny-badge" x-show="t.inUse > 0" x-text="t.inUse + ' in use'"></span>
+                  </div>
+                </div>
+              </button>
+            </template>
+            <div class="empty-state" x-show="!managerTemplates.length">No templates yet.</div>
+          </div>
+          <!-- Editor -->
+          <div>
+            <template x-if="!templates.draft">
+              <div class="empty-state">Select a template to view or edit, or create a new one.</div>
+            </template>
+            <template x-if="templates.draft">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div>
+                  <div class="field-label"><span>Name</span><span class="hint" x-show="!templates.draft._new">Immutable — referenced by managers via manager:&lt;name&gt;</span></div>
+                  <input class="field-input mono" type="text" x-model="templates.draft.name" :disabled="!templates.draft._new" placeholder="e.g. incident-manager" />
+                </div>
+                <div>
+                  <div class="field-label"><span>Description</span></div>
+                  <input class="field-input" type="text" x-model="templates.draft.description" placeholder="Short summary shown when picking a backing template" />
+                </div>
+                <div>
+                  <div class="field-label"><span>Tools</span><span class="hint">Comma-separated tools the backing agent may use (e.g. powershell).</span></div>
+                  <input class="field-input mono" type="text" x-model="templates.draft.toolsText" placeholder="powershell" />
+                </div>
+                <div>
+                  <div class="field-label"><span>Orchestration instructions (prompt)</span><span class="hint">Markdown persona for this manager brain.</span></div>
+                  <textarea class="field-input mono" style="min-height:320px;line-height:1.5" x-model="templates.draft.body" placeholder="# Manager Agent&#10;You are a manager that..."></textarea>
+                </div>
+                <div x-show="templates.draft.usedBy && templates.draft.usedBy.length" class="hint">
+                  In use by: <span x-text="(templates.draft.usedBy || []).map(m => m.name).join(', ')"></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+                  <button class="btn danger" type="button"
+                    x-show="!templates.draft._new"
+                    :disabled="templates.draft.builtin || (templates.draft.inUse > 0)"
+                    :title="templates.draft.builtin ? 'The default template cannot be removed' : (templates.draft.inUse > 0 ? 'Reassign managers before removing' : 'Remove this template')"
+                    @click="deleteTemplate(templates.draft.name)">🗑 Remove</button>
+                  <span x-show="templates.draft._new"></span>
+                  <div style="display:flex;gap:10px">
+                    <button class="btn" type="button" @click="templates.draft = null">Cancel</button>
+                    <button class="btn primary" type="button" @click="saveTemplate()" x-text="templates.draft._new ? 'Create' : 'Save'"></button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+
     <section class="modal-card" style="max-width:920px">
       <div class="modal-header">
         <div>
@@ -4093,6 +4214,9 @@
         schedulesLoading: false,
         selectedAgent: null,
         selectedManager: null,
+        managerTemplates: [],
+        managerEdit: { open: false, id: null, name: '', description: '', agent: '' },
+        templates: { open: false, draft: null },
         agentHistory: [],
         liveOutput: {},
         managerHistory: [],
@@ -6433,6 +6557,125 @@
             this.scheduleRefresh();
           } catch (error) {
             this.showToast('Toggle failed', error.message, 'error');
+          }
+        },
+
+        async loadManagerTemplates() {
+          try {
+            this.managerTemplates = await this.request('/api/manager-agents');
+          } catch (error) {
+            this.managerTemplates = [];
+            this.showToast('Templates failed', error.message, 'error');
+          }
+        },
+
+        async openManagerEdit() {
+          if (!this.selectedManager) return;
+          await this.loadManagerTemplates();
+          const cfg = this.selectedManager.config || {};
+          this.managerEdit = {
+            open: true,
+            id: this.selectedManager.id,
+            name: this.selectedManager.name || '',
+            description: cfg.description || '',
+            agent: cfg.agent || 'manager:manager'
+          };
+        },
+
+        async saveManagerEdit() {
+          const e = this.managerEdit;
+          if (!e.id) return;
+          if (!e.name || !e.name.trim()) { this.showToast('Name required', 'Give the manager a name.', 'error'); return; }
+          const cfg = this.selectedManager.config || {};
+          const payload = {
+            ...cfg,
+            id: e.id,
+            name: e.name.trim(),
+            description: (e.description || '').trim(),
+            agent: e.agent || 'manager:manager',
+            org: cfg.org || [],
+            assignments: (cfg.assignments || []).map(a => ({
+              id: a.id, name: a.name, prompt: a.prompt,
+              schedule: a.schedule || a.scheduleDraft || 'never',
+              enabled: a.enabled, triggers: a.triggers
+            }))
+          };
+          try {
+            await this.request('/api/managers', { method: 'POST', body: JSON.stringify(payload) });
+            this.managerEdit.open = false;
+            this.showToast('Manager updated', `${payload.name} saved.`, 'info');
+            await this.loadManagerDetail(e.id);
+            await this.refreshAll(false);
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async openManagerTemplates() {
+          this.managerEdit.open = false;
+          this.templates.open = true;
+          this.templates.draft = null;
+          await this.loadManagerTemplates();
+        },
+
+        async selectTemplate(name) {
+          try {
+            const t = await this.request('/api/manager-agents/' + encodeURIComponent(name));
+            this.templates.draft = {
+              _new: false,
+              name: t.name,
+              description: t.description || '',
+              toolsText: (t.tools || []).join(', '),
+              body: t.body || '',
+              builtin: t.builtin,
+              inUse: t.inUse || 0,
+              usedBy: t.usedBy || []
+            };
+          } catch (error) {
+            this.showToast('Load failed', error.message, 'error');
+          }
+        },
+
+        newTemplate() {
+          this.templates.draft = {
+            _new: true, name: '', description: '', toolsText: 'powershell',
+            body: '# Manager Agent\n\nYou are a Manager Agent that orchestrates sub-agents to accomplish tasks.\n\nRespond with exactly ONE action block per turn:\n\n```action\nRUN_AGENT: <agent_id>\nPROMPT: <prompt to send the agent>\n```\n\n```action\nCOMPLETE\nRESULT: <final summary for the user>\n```\n',
+            builtin: false, inUse: 0, usedBy: []
+          };
+        },
+
+        async saveTemplate() {
+          const d = this.templates.draft;
+          if (!d) return;
+          if (!d.body || !d.body.trim()) { this.showToast('Body required', 'Add orchestration instructions.', 'error'); return; }
+          const tools = (d.toolsText || '').split(',').map(s => s.trim()).filter(Boolean);
+          const body = { description: (d.description || '').trim(), tools, body: d.body };
+          try {
+            if (d._new) {
+              if (!d.name || !d.name.trim()) { this.showToast('Name required', 'Give the template a name.', 'error'); return; }
+              const created = await this.request('/api/manager-agents', { method: 'POST', body: JSON.stringify({ name: d.name.trim(), ...body }) });
+              this.showToast('Template created', `${created.name} is ready to use.`, 'info');
+              await this.loadManagerTemplates();
+              await this.selectTemplate(created.name);
+            } else {
+              const saved = await this.request('/api/manager-agents/' + encodeURIComponent(d.name), { method: 'PUT', body: JSON.stringify(body) });
+              this.showToast('Template saved', `${saved.name} updated.`, 'info');
+              await this.loadManagerTemplates();
+            }
+          } catch (error) {
+            this.showToast('Save failed', error.message, 'error');
+          }
+        },
+
+        async deleteTemplate(name) {
+          if (!confirm(`Remove the "${name}" manager template? This cannot be undone.`)) return;
+          try {
+            await this.request('/api/manager-agents/' + encodeURIComponent(name), { method: 'DELETE' });
+            this.showToast('Template removed', `${name} deleted.`, 'info');
+            this.templates.draft = null;
+            await this.loadManagerTemplates();
+          } catch (error) {
+            this.showToast('Remove failed', error.message, 'error');
           }
         },
 
