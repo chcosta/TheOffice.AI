@@ -5,6 +5,8 @@ const EventEmitter = require('events');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const { Cron } = require('croner');
 const { repairConsoleMojibake } = require('./mojibake');
+const sdkRunner = require('./sdk-runner');
+const { PLUGINS_DIR } = require('./config-sync');
 
 /**
  * ManagerAgent - Orchestrates multiple sub-agents to complete complex tasks.
@@ -486,6 +488,43 @@ REASON: <why you need this agent>
    * Ask the manager agent to make an orchestration decision
    */
   async _askManager(managerConfig, prompt, onChunk = null) {
+    // Prefer the @github/copilot-sdk runner when this manager opts into the
+    // canary (SDK_RUN_MODE=all, managerConfig.runtime==='sdk', or its id is in
+    // SDK_RUN_AGENTS). Any miss/failure transparently falls back to the CLI so
+    // the manager's decision transport can never regress.
+    if (sdkRunner.shouldUse({ id: managerConfig.id, runtime: managerConfig.runtime })) {
+      const out = await this._askManagerSdk(managerConfig, prompt, onChunk);
+      if (out != null) return out;
+    }
+    return this._askManagerCli(managerConfig, prompt, onChunk);
+  }
+
+  // SDK transport for the manager decision step. Returns the manager's raw
+  // output string on success, or null to signal a CLI fallback. Never throws.
+  async _askManagerSdk(managerConfig, prompt, onChunk) {
+    try {
+      const { randomUUID } = require('crypto');
+      const cfg = {
+        id: managerConfig.id,
+        runtime: managerConfig.runtime,
+        agent: managerConfig.agent || 'manager:manager',
+        pluginDir: path.join(PLUGINS_DIR, 'manager'),
+        cwd: managerConfig.cwd || __dirname,
+      };
+      // The manager loop's onChunk expects CUMULATIVE text; the SDK streams
+      // deltas, so accumulate before forwarding.
+      let acc = '';
+      const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
+      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap });
+      if (!res || res.fallback) return null;
+      if (res.code !== 0 || !(res.output && res.output.trim())) return null;
+      return res.output;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async _askManagerCli(managerConfig, prompt, onChunk = null) {
     return new Promise((resolve, reject) => {
       const copilotCmd = managerConfig.copilotPath || process.env.COPILOT_PATH || 'copilot';
       // Write prompt to temp file to avoid command line length limits
@@ -545,6 +584,35 @@ REASON: <why you need this agent>
    * Run a sub-agent and return its output
    */
   async _runSubAgent(agentId, prompt, onChunk = null) {
+    const entry = this.supervisor.agents.get(agentId);
+    if (!entry) {
+      return { exitCode: -1, output: `Agent "${agentId}" not found in supervisor` };
+    }
+    // SDK runner when the sub-agent opts into the canary; fall back to CLI on miss.
+    if (sdkRunner.shouldUse(entry.config)) {
+      const r = await this._runSubAgentSdk(entry, prompt, onChunk);
+      if (r != null) return r;
+    }
+    return this._runSubAgentCli(agentId, prompt, onChunk);
+  }
+
+  // SDK transport for a manager sub-agent run. Returns { exitCode, output,
+  // stderr } on success, or null to signal a CLI fallback. Never throws.
+  async _runSubAgentSdk(entry, prompt, onChunk) {
+    try {
+      const { randomUUID } = require('crypto');
+      // onChunk expects CUMULATIVE text; the SDK streams deltas, so accumulate.
+      let acc = '';
+      const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
+      const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap });
+      if (!res || res.fallback) return null;
+      return { exitCode: res.code, output: res.output || '', stderr: res.error || '' };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async _runSubAgentCli(agentId, prompt, onChunk = null) {
     return new Promise((resolve) => {
       const entry = this.supervisor.agents.get(agentId);
       if (!entry) {
