@@ -3156,6 +3156,92 @@ app.delete('/api/chats/:id', (req, res) => {
 
 // ============ End Chat API ============
 
+// Unified view of every scheduled item (agents, tasks, manager assignments, flows).
+// Manual / "never" items are excluded. Returns last run + computed next run, sorted
+// soonest-first so the dashboard can surface what's about to fire.
+app.get('/api/schedules', (req, res) => {
+  const { getNextRun, parseSchedule } = require('./scheduler');
+  const isScheduled = (s) => s && String(s).trim().toLowerCase() !== 'never';
+  const describe = (s) => { try { return parseSchedule(s).description; } catch { return String(s); } };
+  const nextRunIso = (s) => { try { const n = getNextRun(s); return n ? n.toISOString() : null; } catch { return null; } };
+  const agentStatus = (row) => {
+    if (!row) return null;
+    if (row.finished_at == null && row.exit_code == null) return 'running';
+    return row.exit_code === 0 ? 'success' : 'failed';
+  };
+  const out = [];
+
+  try {
+    // Agents that self-schedule
+    for (const [id, entry] of supervisor.agents) {
+      const s = entry.config && entry.config.schedule;
+      if (!isScheduled(s) || (entry.config && entry.config.enabled === false)) continue;
+      const last = db.prepare('SELECT started_at, finished_at, exit_code FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(id);
+      out.push({
+        type: 'agent', id, name: entry.config.name || id, parentName: null,
+        schedule: s, scheduleDescription: describe(s), enabled: entry.config.enabled !== false,
+        nextRun: nextRunIso(s), lastRun: last ? last.started_at : null, lastStatus: agentStatus(last),
+        href: '#/agents/' + id
+      });
+    }
+
+    // Scheduled tasks (fire an agent with the task prompt)
+    for (const task of loadTasks()) {
+      if (!isScheduled(task.schedule) || task.enabled === false) continue;
+      const agentEntry = supervisor.agents.get(task.agentId);
+      const last = db.prepare('SELECT started_at, finished_at, exit_code FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT 1').get(task.agentId);
+      out.push({
+        type: 'task', id: task.id, name: task.name,
+        parentName: agentEntry ? (agentEntry.config.name || task.agentId) : task.agentId,
+        schedule: task.schedule, scheduleDescription: describe(task.schedule), enabled: task.enabled !== false,
+        nextRun: nextRunIso(task.schedule), lastRun: last ? last.started_at : null, lastStatus: agentStatus(last),
+        href: '#/tasks'
+      });
+    }
+
+    // Manager assignments (a manager is "scheduled" when it has scheduled assignments)
+    for (const [mid, entry] of managerAgent.managers) {
+      const mgrName = (entry.config && entry.config.name) || mid;
+      for (const a of (entry.config.assignments || [])) {
+        if (!isScheduled(a.schedule) || a.enabled === false) continue;
+        const last = db.prepare('SELECT started_at, finished_at, status FROM manager_runs WHERE manager_id = ? AND assignment_id = ? ORDER BY id DESC LIMIT 1').get(mid, a.id);
+        out.push({
+          type: 'assignment', id: mid + '/' + a.id, name: a.name, parentName: mgrName,
+          schedule: a.schedule, scheduleDescription: describe(a.schedule), enabled: a.enabled !== false,
+          nextRun: nextRunIso(a.schedule), lastRun: last ? last.started_at : null,
+          lastStatus: last ? last.status : null, href: '#/managers/' + mid
+        });
+      }
+    }
+
+    // Flows (chains)
+    try {
+      for (const chain of chainEngine.load()) {
+        if (!isScheduled(chain.schedule) || chain.enabled === false) continue;
+        const last = db.prepare('SELECT started_at, finished_at, status FROM chain_runs WHERE chain_id = ? ORDER BY started_at DESC LIMIT 1').get(chain.id);
+        out.push({
+          type: 'flow', id: chain.id, name: chain.name, parentName: null,
+          schedule: chain.schedule, scheduleDescription: describe(chain.schedule), enabled: chain.enabled !== false,
+          nextRun: nextRunIso(chain.schedule), lastRun: last ? last.started_at : null,
+          lastStatus: last ? last.status : null, href: '#/chains'
+        });
+      }
+    } catch (e) { console.warn('[schedules] chain enumeration failed:', e.message); }
+
+    out.sort((a, b) => {
+      if (!a.nextRun && !b.nextRun) return 0;
+      if (!a.nextRun) return 1;
+      if (!b.nextRun) return -1;
+      return new Date(a.nextRun) - new Date(b.nextRun);
+    });
+
+    res.json(out);
+  } catch (e) {
+    console.error('[schedules] failed:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Unified activity feed across all agents and managers
 app.get('/api/activity', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);

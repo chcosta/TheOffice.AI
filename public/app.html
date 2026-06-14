@@ -934,6 +934,34 @@
       margin: 6px 0;
       padding-left: 20px;
     }
+    .sched-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--cp-border);
+      border-radius: 12px;
+      background: var(--cp-surface);
+    }
+    .sched-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .sched-table th,
+    .sched-table td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--cp-border);
+      vertical-align: top;
+    }
+    .sched-table th {
+      font-weight: 600;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      background: var(--cp-surface-soft);
+    }
+    .sched-table tbody tr:last-child td { border-bottom: none; }
+    .sched-table tbody tr:hover td { background: var(--cp-accent-soft); }
     .message-bubble .md-list li { margin: 3px 0; }
     .message-bubble .md-quote {
       border-left: 3px solid var(--cp-accent);
@@ -3343,6 +3371,96 @@
             </div>
             <div class="empty-state" x-show="!filteredActivity().length">No activity matched this filter.</div>
           </section>
+
+          <!-- Schedules: unified view of every scheduled item -->
+          <section x-show="!loading && !errorMessage && route === 'schedules'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Schedules</h1>
+                <p>Every agent, task, assignment, and flow with an active schedule — sorted by what runs next. Manual-only items are hidden.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="loadSchedules()">↻ Refresh</button>
+              </div>
+            </div>
+
+            <div class="card-grid" style="margin-bottom:18px" x-show="(data.schedules || []).length">
+              <article class="card">
+                <div class="hint">Up next</div>
+                <template x-if="nextSchedule()">
+                  <div>
+                    <strong x-text="nextSchedule().name"></strong>
+                    <div class="mono" style="margin-top:4px" x-text="formatRelative(nextSchedule().nextRun)"></div>
+                  </div>
+                </template>
+                <template x-if="!nextSchedule()">
+                  <strong>Nothing scheduled</strong>
+                </template>
+              </article>
+              <article class="card">
+                <div class="hint">Scheduled items</div>
+                <strong style="font-size:1.6rem" x-text="scheduleCounts().all"></strong>
+              </article>
+            </div>
+
+            <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:12px">
+              <div class="filter-pills">
+                <template x-for="f in ['all','agent','task','assignment','flow']" :key="f">
+                  <button class="pill" type="button" :class="{ active: scheduleTypeFilter === f }" @click="scheduleTypeFilter = f">
+                    <span x-text="f === 'all' ? 'All' : scheduleTypeMeta(f).icon + ' ' + scheduleTypeMeta(f).label + 's'"></span>
+                    <span class="hint" x-text="'(' + (scheduleCounts()[f] ?? 0) + ')'"></span>
+                  </button>
+                </template>
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer" class="hint">
+                <input type="checkbox" x-model="scheduleHideDisabled" />
+                Hide disabled
+              </label>
+            </div>
+
+            <div class="sched-table-wrap" x-show="filteredSchedules().length">
+              <table class="sched-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Type</th>
+                    <th>Schedule</th>
+                    <th>Last run</th>
+                    <th>Next run</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in filteredSchedules()" :key="row.type + ':' + row.id">
+                    <tr :style="row.enabled === false ? 'opacity:0.5' : ''">
+                      <td>
+                        <a :href="row.href" style="text-decoration:none;color:inherit">
+                          <strong x-text="row.name"></strong>
+                        </a>
+                        <div class="hint" style="font-size:0.72rem" x-show="row.parentName" x-text="row.parentName"></div>
+                      </td>
+                      <td><span class="type-badge" x-text="scheduleTypeMeta(row.type).icon + ' ' + scheduleTypeMeta(row.type).label"></span></td>
+                      <td>
+                        <div x-text="row.scheduleDescription"></div>
+                        <div class="hint mono" style="font-size:0.7rem" x-text="row.schedule"></div>
+                      </td>
+                      <td>
+                        <span class="status-badge" :class="scheduleStatusClass(row.lastStatus)" x-text="scheduleStatusLabel(row.lastStatus)"></span>
+                        <div class="hint" style="font-size:0.72rem;margin-top:4px" x-show="row.lastRun" x-text="formatRelative(row.lastRun)"></div>
+                      </td>
+                      <td>
+                        <span x-show="row.enabled !== false && row.nextRun" class="mono" x-text="formatRelative(row.nextRun)"></span>
+                        <span x-show="row.enabled === false" class="hint">disabled</span>
+                        <span x-show="row.enabled !== false && !row.nextRun" class="hint">—</span>
+                        <div class="hint" style="font-size:0.7rem" x-show="row.enabled !== false && row.nextRun" x-text="formatDateTime(row.nextRun)"></div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="empty-state" x-show="!schedulesLoading && !filteredSchedules().length">No scheduled items match this filter. Add a schedule to an agent, task, assignment, or flow to see it here.</div>
+            <div class="empty-state" x-show="schedulesLoading">Loading schedules…</div>
+          </section>
         </div>
       </main>
     </div>
@@ -3904,6 +4022,7 @@
         tasks: [],
         chains: [],
         activity: [],
+        schedules: [],
         chats: [],
         version: null
       });
@@ -3923,6 +4042,9 @@
         newAssignmentOpen: false,
         newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
         activityFilter: 'all',
+        scheduleTypeFilter: 'all',
+        scheduleHideDisabled: false,
+        schedulesLoading: false,
         selectedAgent: null,
         selectedManager: null,
         agentHistory: [],
@@ -4524,7 +4646,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'chains', 'assignments', 'chat', 'activity', 'events', 'settings'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'chains', 'assignments', 'chat', 'activity', 'events', 'settings', 'schedules'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -4541,6 +4663,8 @@
             await this.loadSyncStatus();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
+          } else if (this.route === 'schedules') {
+            await this.loadSchedules();
           }
         },
 
@@ -4779,7 +4903,10 @@
 
         scheduleRefresh() {
           clearTimeout(this.refreshTimer);
-          this.refreshTimer = setTimeout(() => this.refreshAll(false), 400);
+          this.refreshTimer = setTimeout(() => {
+            this.refreshAll(false);
+            if (this.route === 'schedules') this.loadSchedules();
+          }, 400);
         },
 
         sidebarSections() {
@@ -4795,6 +4922,7 @@
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
+            { key: 'schedules', label: 'Schedule', title: 'Schedules', icon: '🗓️', href: '#/schedules', routeGroup: 'schedules', items: [], collapsible: false },
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
         },
@@ -5096,6 +5224,68 @@
           } catch (err) {
             this.showToast('Restore Failed', err.message, 'error');
           }
+        },
+
+        // --- Schedules (unified scheduled-items view) ---
+        async loadSchedules() {
+          this.schedulesLoading = true;
+          try {
+            const rows = await this.request('/api/schedules');
+            this.data.schedules = Array.isArray(rows) ? rows : [];
+          } catch (e) {
+            this.data.schedules = [];
+          } finally {
+            this.schedulesLoading = false;
+          }
+        },
+
+        scheduleTypeMeta(type) {
+          const map = {
+            agent: { label: 'Agent', icon: '🤖' },
+            task: { label: 'Task', icon: '⚡' },
+            assignment: { label: 'Assignment', icon: '📋' },
+            flow: { label: 'Flow', icon: '🔗' },
+            manager: { label: 'Manager', icon: '👔' }
+          };
+          return map[type] || { label: type, icon: '•' };
+        },
+
+        filteredSchedules() {
+          let rows = this.data.schedules || [];
+          if (this.scheduleTypeFilter !== 'all') rows = rows.filter(r => r.type === this.scheduleTypeFilter);
+          if (this.scheduleHideDisabled) rows = rows.filter(r => r.enabled !== false);
+          return rows;
+        },
+
+        scheduleCounts() {
+          const rows = this.data.schedules || [];
+          const counts = { all: rows.length, agent: 0, task: 0, assignment: 0, flow: 0 };
+          for (const r of rows) { if (counts[r.type] !== undefined) counts[r.type]++; }
+          return counts;
+        },
+
+        nextSchedule() {
+          const upcoming = (this.data.schedules || [])
+            .filter(r => r.enabled !== false && r.nextRun)
+            .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun));
+          return upcoming[0] || null;
+        },
+
+        scheduleStatusClass(status) {
+          const v = (status || '').toLowerCase();
+          if (v === 'success' || v === 'complete' || v === 'completed' || v === 'done') return 'success';
+          if (v === 'failed' || v === 'error') return 'failed';
+          if (v === 'running') return 'running';
+          return 'idle';
+        },
+
+        scheduleStatusLabel(status) {
+          if (!status) return 'Never run';
+          const v = status.toLowerCase();
+          if (v === 'success' || v === 'complete' || v === 'completed' || v === 'done') return 'Success';
+          if (v === 'failed' || v === 'error') return 'Failed';
+          if (v === 'running') return 'Running';
+          return status.charAt(0).toUpperCase() + status.slice(1);
         },
 
         // --- Event Listeners methods ---
