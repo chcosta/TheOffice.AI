@@ -6,6 +6,47 @@ const { Cron } = require('croner');
 const sdkRunner = require('./sdk-runner');
 const { PLUGINS_DIR } = require('./config-sync');
 
+// ---------------------------------------------------------------------------
+// Shared manager "Response Format" (the action-block contract).
+//
+// This contract is what _parseDecision() relies on, so it MUST be identical for
+// every manager regardless of which template/persona backs it. It is therefore
+// defined ONCE here and injected into every manager turn by
+// _buildManagerSystemPrompt — individual template .agent.md files must NOT carry
+// their own copy (which could drift and break orchestration).
+//
+// The text is editable at runtime via builtin-plugins/manager/response-format.md
+// (managed by the GET/PUT /api/manager-response-format endpoints). If that file
+// is missing we fall back to DEFAULT_RESPONSE_FORMAT below.
+const RESPONSE_FORMAT_PATH = path.join(PLUGINS_DIR, 'manager', 'response-format.md');
+const DEFAULT_RESPONSE_FORMAT = `EVERY response MUST contain EXACTLY ONE of these action blocks:
+
+\`\`\`action
+RUN_AGENT: <agent_id>
+PROMPT: <your custom prompt with full context>
+\`\`\`
+
+\`\`\`action
+COMPLETE
+RESULT: <summary of agent findings OR explanation of missing capability>
+\`\`\`
+
+\`\`\`action
+REQUEST_AGENT: <agent_id>
+REASON: <why you need this agent>
+\`\`\``;
+
+/** Read the shared response-format contract (file override or built-in default). */
+function loadResponseFormat() {
+  try {
+    if (fs.existsSync(RESPONSE_FORMAT_PATH)) {
+      const txt = fs.readFileSync(RESPONSE_FORMAT_PATH, 'utf8').replace(/\r\n?/g, '\n').trim();
+      if (txt) return txt;
+    }
+  } catch (_) { /* fall through to default */ }
+  return DEFAULT_RESPONSE_FORMAT;
+}
+
 /**
  * ManagerAgent - Orchestrates multiple sub-agents to complete complex tasks.
  * 
@@ -427,22 +468,7 @@ ${agentList}
 4. Can NO agent in my org handle this? → COMPLETE explaining what's missing
 
 ## Response Format
-EVERY response MUST contain EXACTLY ONE of these action blocks:
-
-\`\`\`action
-RUN_AGENT: <agent_id>
-PROMPT: <your custom prompt with full context>
-\`\`\`
-
-\`\`\`action
-COMPLETE
-RESULT: <summary of agent findings OR explanation of missing capability>
-\`\`\`
-
-\`\`\`action
-REQUEST_AGENT: <agent_id>
-REASON: <why you need this agent>
-\`\`\``;
+${loadResponseFormat()}`;
   }
 
   _parseDecision(text) {
@@ -694,3 +720,6 @@ REASON: <why you need this agent>
 }
 
 module.exports = ManagerAgent;
+module.exports.RESPONSE_FORMAT_PATH = RESPONSE_FORMAT_PATH;
+module.exports.DEFAULT_RESPONSE_FORMAT = DEFAULT_RESPONSE_FORMAT;
+module.exports.loadResponseFormat = loadResponseFormat;

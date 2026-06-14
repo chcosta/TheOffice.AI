@@ -3258,6 +3258,28 @@ function buildManagerAgentFile({ name, description, tools, body }) {
   return lines.join('\n');
 }
 
+// Remove any "## Response Format" section from a template body. The action-block
+// contract is shared across all managers and injected at runtime, so it must
+// never live in (or be editable from) an individual template — that would let a
+// template drift and break orchestration. Strips the heading through the next
+// heading of any level (or end of body).
+function stripResponseFormatSection(body) {
+  if (!body) return body;
+  const lines = String(body).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      const title = h[2].trim().toLowerCase();
+      if (title === 'response format') { skipping = true; continue; }
+      if (skipping) skipping = false; // next heading ends the skipped section
+    }
+    if (!skipping) out.push(line);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function managerTemplateUsage(name) {
   let managers = [];
   try {
@@ -3329,7 +3351,7 @@ app.post('/api/manager-agents', (req, res) => {
     name: clean,
     description: String(description || '').trim(),
     tools: tools && tools.length ? tools : ['powershell'],
-    body
+    body: stripResponseFormatSection(body)
   });
   fs.writeFileSync(file, content);
   res.json(readManagerTemplate(clean));
@@ -3346,7 +3368,7 @@ app.put('/api/manager-agents/:name', (req, res) => {
     name,
     description: String(description || '').trim(),
     tools: tools && tools.length ? tools : ['powershell'],
-    body
+    body: stripResponseFormatSection(body)
   });
   fs.writeFileSync(file, content);
   res.json(readManagerTemplate(name));
@@ -3366,6 +3388,41 @@ app.delete('/api/manager-agents/:name', (req, res) => {
   }
   fs.unlinkSync(file);
   res.json({ ok: true });
+});
+
+// ===== Shared manager Response Format (the action-block contract) =====
+// One definition, used by every manager via manager.js _buildManagerSystemPrompt,
+// so editing it can't break orchestration for one template while leaving others.
+app.get('/api/manager-response-format', (req, res) => {
+  const format = ManagerAgent.loadResponseFormat();
+  const isDefault = format.trim() === String(ManagerAgent.DEFAULT_RESPONSE_FORMAT).trim();
+  res.json({ format, isDefault, default: ManagerAgent.DEFAULT_RESPONSE_FORMAT });
+});
+
+app.put('/api/manager-response-format', (req, res) => {
+  const { format } = req.body || {};
+  const txt = String(format == null ? '' : format).replace(/\r\n?/g, '\n').trim();
+  if (!txt) return res.status(400).json({ error: 'Response format cannot be empty.' });
+  // Guard: the manager decision parser keys off these verbs — refuse a format
+  // that drops any of them so a manager can never be left unable to act.
+  for (const verb of ['RUN_AGENT', 'COMPLETE', 'REQUEST_AGENT']) {
+    if (!txt.includes(verb)) {
+      return res.status(400).json({ error: `Response format must still define ${verb} — the manager parser depends on it.` });
+    }
+  }
+  try {
+    fs.mkdirSync(path.dirname(ManagerAgent.RESPONSE_FORMAT_PATH), { recursive: true });
+    fs.writeFileSync(ManagerAgent.RESPONSE_FORMAT_PATH, txt + '\n');
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to save response format: ' + e.message });
+  }
+  res.json({ ok: true, format: txt, isDefault: txt === String(ManagerAgent.DEFAULT_RESPONSE_FORMAT).trim() });
+});
+
+// Reset the shared response format to the built-in default.
+app.delete('/api/manager-response-format', (req, res) => {
+  try { if (fs.existsSync(ManagerAgent.RESPONSE_FORMAT_PATH)) fs.unlinkSync(ManagerAgent.RESPONSE_FORMAT_PATH); } catch (_) {}
+  res.json({ ok: true, format: ManagerAgent.DEFAULT_RESPONSE_FORMAT, isDefault: true });
 });
 
 // ============ End Manager API Routes ============
