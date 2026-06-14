@@ -1,10 +1,8 @@
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const EventEmitter = require('events');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const { Cron } = require('croner');
-const { repairConsoleMojibake } = require('./mojibake');
 const sdkRunner = require('./sdk-runner');
 const { PLUGINS_DIR } = require('./config-sync');
 
@@ -293,7 +291,7 @@ class ManagerAgent extends EventEmitter {
         thinkingStep.partial = '';
         let lastPersist = 0;
         mgrOnChunk = (accumulated) => {
-          thinkingStep.partial = repairConsoleMojibake(accumulated).slice(-4000);
+          thinkingStep.partial = accumulated.slice(-4000);
           const now = Date.now();
           if (now - lastPersist > 800) {
             lastPersist = now;
@@ -349,7 +347,7 @@ class ManagerAgent extends EventEmitter {
           runStep.partial = '';
           let lastPersist = 0;
           onChunk = (accumulated) => {
-            runStep.partial = repairConsoleMojibake(accumulated).slice(-4000);
+            runStep.partial = accumulated.slice(-4000);
             const now = Date.now();
             if (now - lastPersist > 1000) {
               lastPersist = now;
@@ -488,19 +486,18 @@ REASON: <why you need this agent>
    * Ask the manager agent to make an orchestration decision
    */
   async _askManager(managerConfig, prompt, onChunk = null) {
-    // Prefer the @github/copilot-sdk runner when this manager opts into the
-    // canary (SDK_RUN_MODE=all, managerConfig.runtime==='sdk', or its id is in
-    // SDK_RUN_AGENTS). Any miss/failure transparently falls back to the CLI so
-    // the manager's decision transport can never regress.
-    if (sdkRunner.shouldUse({ id: managerConfig.id, runtime: managerConfig.runtime })) {
-      const out = await this._askManagerSdk(managerConfig, prompt, onChunk);
-      if (out != null) return out;
+    // The @github/copilot-sdk runner is the sole transport for the manager's
+    // decision step. A miss/failure throws — the orchestration wrapper records
+    // the run as errored.
+    const out = await this._askManagerSdk(managerConfig, prompt, onChunk);
+    if (out == null) {
+      throw new Error('Manager decision failed: SDK runner returned no output');
     }
-    return this._askManagerCli(managerConfig, prompt, onChunk);
+    return out;
   }
 
   // SDK transport for the manager decision step. Returns the manager's raw
-  // output string on success, or null to signal a CLI fallback. Never throws.
+  // output string on success, or null on miss/failure. Never throws.
   async _askManagerSdk(managerConfig, prompt, onChunk) {
     try {
       const { randomUUID } = require('crypto');
@@ -524,62 +521,6 @@ REASON: <why you need this agent>
     }
   }
 
-  async _askManagerCli(managerConfig, prompt, onChunk = null) {
-    return new Promise((resolve, reject) => {
-      const copilotCmd = managerConfig.copilotPath || process.env.COPILOT_PATH || 'copilot';
-      // Write prompt to temp file to avoid command line length limits
-      const os = require('os');
-      const promptFile = path.join(os.tmpdir(), `manager-prompt-${managerConfig.id}-${Date.now()}.md`);
-      fs.writeFileSync(promptFile, prompt, 'utf-8');
-      
-      // Use configured agent for decisions — it has the right context/tools
-      const agentName = managerConfig.agent || 'manager:manager';
-      const baseCmdLine = `"${copilotCmd}" --agent "${agentName}" -p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}" --yolo`;
-      // Force the child console to UTF-8 on Windows so reasoning output isn't mangled.
-      const cmdLine = process.platform === 'win32' ? `chcp 65001>nul & ${baseCmdLine}` : baseCmdLine;
-
-      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-      const proc = spawn(cmdLine, [], {
-        cwd: managerConfig.cwd || __dirname,
-        shell: shellPath,
-        env: { ...process.env },
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', d => {
-        stdout += d.toString();
-        if (onChunk) { try { onChunk(stdout); } catch {} }
-      });
-      proc.stderr.on('data', d => { stderr += d.toString(); });
-
-      proc.on('close', (code) => {
-        // Clean up prompt file
-        try { fs.unlinkSync(promptFile); } catch {}
-        if (code === 0) {
-          // Prefer stdout, fall back to stderr if stdout is empty
-          resolve(stdout || stderr || '(no output from copilot process)');
-        } else {
-          const errDetail = stderr || stdout || '(no output)';
-          reject(new Error(`Manager agent exited with code ${code}: ${errDetail.substring(0, 2000)}`));
-        }
-      });
-
-      proc.on('error', (err) => {
-        try { fs.unlinkSync(promptFile); } catch {}
-        reject(err);
-      });
-
-      // Timeout after 5 minutes per step
-      setTimeout(() => {
-        proc.kill();
-        try { fs.unlinkSync(promptFile); } catch {}
-        reject(new Error('Manager decision timed out (5min)'));
-      }, 300000);
-    });
-  }
-
   /**
    * Run a sub-agent and return its output
    */
@@ -588,16 +529,14 @@ REASON: <why you need this agent>
     if (!entry) {
       return { exitCode: -1, output: `Agent "${agentId}" not found in supervisor` };
     }
-    // SDK runner when the sub-agent opts into the canary; fall back to CLI on miss.
-    if (sdkRunner.shouldUse(entry.config)) {
-      const r = await this._runSubAgentSdk(entry, prompt, onChunk);
-      if (r != null) return r;
-    }
-    return this._runSubAgentCli(agentId, prompt, onChunk);
+    // The @github/copilot-sdk runner is the sole transport for sub-agent runs.
+    const r = await this._runSubAgentSdk(entry, prompt, onChunk);
+    if (r != null) return r;
+    return { exitCode: -1, output: `Sub-agent "${agentId}" failed: SDK runner returned no output`, stderr: '' };
   }
 
   // SDK transport for a manager sub-agent run. Returns { exitCode, output,
-  // stderr } on success, or null to signal a CLI fallback. Never throws.
+  // stderr } on success, or null on miss/failure. Never throws.
   async _runSubAgentSdk(entry, prompt, onChunk) {
     try {
       const { randomUUID } = require('crypto');
@@ -610,86 +549,6 @@ REASON: <why you need this agent>
     } catch (e) {
       return null;
     }
-  }
-
-  async _runSubAgentCli(agentId, prompt, onChunk = null) {
-    return new Promise((resolve) => {
-      const entry = this.supervisor.agents.get(agentId);
-      if (!entry) {
-        resolve({ exitCode: -1, output: `Agent "${agentId}" not found in supervisor` });
-        return;
-      }
-
-      const config = entry.config;
-      const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
-
-      // Write prompt to temp file to avoid command line length limits
-      const os = require('os');
-      const promptFile = path.join(os.tmpdir(), `mgr-subagent-${agentId}-${Date.now()}.md`);
-      fs.writeFileSync(promptFile, prompt, 'utf-8');
-
-      // Build args array safely (no shell interpolation)
-      const argParts = [];
-      if (config.mcpConfig) {
-        const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
-        argParts.push(`--additional-mcp-config "@${mcpPath}"`);
-      }
-      argParts.push(`--agent "${config.agent}"`);
-      argParts.push(`-p "Follow instructions in file: ${promptFile.replace(/\\/g, '/')}"`);
-      argParts.push('--yolo');
-
-      const baseCmdLine = `"${copilotCmd}" ${argParts.join(' ')}`;
-      // On Windows, force the child console to UTF-8 (code page 65001) so the
-      // copilot CLI's bullets/box-drawing chars aren't mangled through the legacy
-      // OEM code page when captured from the pipe.
-      const cmdLine = process.platform === 'win32' ? `chcp 65001>nul & ${baseCmdLine}` : baseCmdLine;
-      console.log(`[manager] Running sub-agent "${agentId}": ${prompt.substring(0, 150)}...`);
-
-      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-      const proc = spawn(cmdLine, [], {
-        cwd: config.cwd,
-        shell: shellPath,
-        env: { ...process.env },
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', d => {
-        stdout += d.toString();
-        if (onChunk) { try { onChunk(stdout); } catch {} }
-      });
-      proc.stderr.on('data', d => { stderr += d.toString(); });
-
-      proc.on('close', (code) => {
-        try { fs.unlinkSync(promptFile); } catch {}
-        // Try to get session output (richer than stdout)
-        setTimeout(() => {
-          const sessionResult = this.supervisor._getSessionOutput(config);
-          let output = sessionResult.output || stdout;
-          // If output is empty and we have stderr (common on failure), include it
-          if (!output && stderr) {
-            output = `[stderr] ${stderr}`;
-          } else if (code !== 0 && stderr && !output.includes(stderr)) {
-            output = `${output}\n[stderr] ${stderr}`;
-          }
-          output = repairConsoleMojibake(output);
-          resolve({ exitCode: code, output, stderr });
-        }, 1000);
-      });
-
-      proc.on('error', (err) => {
-        try { fs.unlinkSync(promptFile); } catch {}
-        resolve({ exitCode: -1, output: '', stderr: err.message });
-      });
-
-      // Timeout after 10 minutes per agent run
-      setTimeout(() => {
-        proc.kill();
-        try { fs.unlinkSync(promptFile); } catch {}
-        resolve({ exitCode: -1, output: repairConsoleMojibake(stdout), stderr: 'Timed out after 10 minutes' });
-      }, 600000);
-    });
   }
 
   /**

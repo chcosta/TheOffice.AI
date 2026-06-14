@@ -1,12 +1,9 @@
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const EventEmitter = require('events');
 const { Cron } = require('croner');
 const { parseSchedule, getNextRun } = require('./scheduler');
-const { repairConsoleMojibake } = require('./mojibake');
-const sdkReader = require('./sdk-reader');
 const sdkRunner = require('./sdk-runner');
 
 class Supervisor extends EventEmitter {
@@ -196,7 +193,7 @@ class Supervisor extends EventEmitter {
     // output by id instead of guessing the session-state dir by name + recency.
     const pinnedSessionId = entry._chatSessionId || crypto.randomUUID();
 
-    // Validate CWD exists (applies to both the CLI spawn and SDK runner paths)
+    // Validate CWD exists
     if (config.cwd && !fs.existsSync(config.cwd)) {
       const errMsg = `Working directory does not exist: ${config.cwd}`;
       console.error(`[supervisor] Agent "${config.name}" failed: ${errMsg}`);
@@ -209,43 +206,47 @@ class Supervisor extends EventEmitter {
 
     const ctx = { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId };
 
-    // Phase 2 migration: run via the @github/copilot-sdk when this agent opts in
-    // (SDK_RUN_MODE=canary + opt-in, or =all). Any resolution failure transparently
-    // falls back to the CLI spawn so behaviour can never regress.
-    if (sdkRunner.shouldUse(config)) {
-      this._executeViaSdk(ctx);
-    } else {
-      this._spawnCliRun(ctx);
-    }
+    // The @github/copilot-sdk runner is the sole agent runtime. Any
+    // resolution/start/run failure is recorded as a failed run by _executeViaSdk.
+    this._executeViaSdk(ctx);
   }
 
   /**
-   * Run an agent via the @github/copilot-sdk (Phase 2). Streams assistant deltas
-   * as agent-output events to preserve the live SSE contract, then records the
-   * completion through the shared path. Falls back to the CLI spawn if the SDK
-   * runner can't resolve/start the agent.
+   * Run an agent via the @github/copilot-sdk — the sole runtime. Streams
+   * assistant deltas as agent-output events to preserve the live SSE contract,
+   * then records the completion through the shared path. A resolution/start
+   * failure (res.fallback) or an unexpected runner error is recorded as a failed
+   * run (exit 1) — there is no longer a CLI fallback.
    */
   _executeViaSdk(ctx) {
     const { agentId, entry, config, startedAt, prompt, pinnedSessionId } = ctx;
     console.log(`[supervisor] Executing agent "${config.name}" via SDK runner at ${startedAt}`);
-    entry.process = null; // no child process under the SDK path
+    entry.process = null; // no child process under the SDK runtime
 
     const onChunk = (chunk) => {
-      this.emit('agent-output', { agentId, stream: 'stdout', chunk: repairConsoleMojibake(chunk) });
+      this.emit('agent-output', { agentId, stream: 'stdout', chunk });
     };
 
     sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk })
       .then((res) => {
         if (res.fallback) {
-          // Could not resolve/start the agent via the SDK - run the CLI instead.
-          console.warn(`[supervisor] SDK runner fell back to CLI for "${config.name}": ${res.error}`);
-          this._spawnCliRun(ctx);
+          const msg = res.error || 'agent could not be resolved/started via the SDK runner';
+          console.error(`[supervisor] SDK runner could not run "${config.name}": ${msg}`);
+          this._recordCompletion(ctx, {
+            finishedAt: new Date().toISOString(),
+            code: 1,
+            output: res.output || '',
+            error: msg,
+            sessionId: pinnedSessionId,
+            origin: 'sdk',
+            steps: [],
+          });
           return;
         }
         this._recordCompletion(ctx, {
           finishedAt: new Date().toISOString(),
           code: res.code,
-          output: repairConsoleMojibake(res.output || ''),
+          output: res.output || '',
           error: res.error || '',
           sessionId: res.sessionId || pinnedSessionId,
           origin: 'sdk',
@@ -253,129 +254,21 @@ class Supervisor extends EventEmitter {
         });
       })
       .catch((err) => {
-        // Unexpected runner error - fall back to the CLI spawn for safety.
-        console.error(`[supervisor] SDK runner threw for "${config.name}", falling back to CLI: ${err.message}`);
-        this._spawnCliRun(ctx);
+        console.error(`[supervisor] SDK runner threw for "${config.name}": ${err.message}`);
+        this._recordCompletion(ctx, {
+          finishedAt: new Date().toISOString(),
+          code: 1,
+          output: '',
+          error: err.message,
+          sessionId: pinnedSessionId,
+          origin: 'sdk',
+          steps: [],
+        });
       });
   }
 
-  /** Spawn the copilot CLI (the original runner). */
-  _spawnCliRun(ctx) {
-    const { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId } = ctx;
-
-    // Build copilot CLI command safely using args array
-    const copilotCmd = config.copilotPath || process.env.COPILOT_PATH || 'copilot';
-    const perms = config.allowAll !== false ? '--yolo' : '';
-    // On Windows, shell:true is required to spawn .cmd shims (npm-installed binaries)
-    const useShell = process.platform === 'win32';
-
-    const args = [];
-    if (config.mcpConfig) {
-      const mcpPath = path.isAbsolute(config.mcpConfig) ? config.mcpConfig : path.resolve(config.cwd, config.mcpConfig);
-      const mcpArg = `@${mcpPath}`;
-      args.push('--additional-mcp-config', useShell ? `"${mcpArg}"` : mcpArg);
-    }
-    args.push('--agent', useShell ? `"${config.agent}"` : config.agent);
-
-    // For prompts with newlines or very long prompts, write to a temp file
-    // to avoid Windows cmd.exe limitations with special characters
-    let promptTempFile = null;
-    if (useShell && (prompt.includes('\n') || prompt.includes('\r') || prompt.length > 4000)) {
-      const os = require('os');
-      promptTempFile = path.join(os.tmpdir(), `copilot-prompt-${agentId}-${Date.now()}.txt`);
-      fs.writeFileSync(promptTempFile, prompt, 'utf8');
-      triggerFiles.push(promptTempFile);
-      // Read prompt from file using cmd substitution isn't reliable;
-      // Use a simple approach: replace newlines with spaces for the CLI arg
-      const flatPrompt = prompt.replace(/[\r\n]+/g, ' ').replace(/"/g, '\\"');
-      const safePrompt = `"${flatPrompt}"`;
-      args.push('--prompt', safePrompt);
-    } else {
-      const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
-      args.push('--prompt', safePrompt);
-    }
-    args.push('--session-id', useShell ? `"${pinnedSessionId}"` : pinnedSessionId);
-    args.push('-s');
-    if (perms) args.push(perms);
-
-    console.log(`[supervisor] Executing agent "${config.name}" at ${startedAt}`);
-    console.log(`[supervisor] Command: ${copilotCmd} ${args.map(a => a.length > 80 ? a.substring(0, 80) + '...' : a).join(' ')}`);
-
-    const proc = spawn(copilotCmd, args, {
-      cwd: config.cwd,
-      shell: useShell,
-      env: { ...process.env, PATH: process.env.PATH || 'C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem' },
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    entry.process = proc;
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      const raw = data.toString();
-      stdout += raw;
-      this.emit('agent-output', { agentId, stream: 'stdout', chunk: repairConsoleMojibake(raw) });
-    });
-    proc.stderr.on('data', (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      this.emit('agent-output', { agentId, stream: 'stderr', chunk });
-    });
-
-    proc.on('close', (code) => {
-      const finishedAt = new Date().toISOString();
-      // Small delay to let session state flush to disk before reading
-      setTimeout(async () => {
-        // Scraper path (still authoritative by default).
-        const sessionResult = this._getSessionOutput(config);
-        const scraperOutput = repairConsoleMojibake(sessionResult.output || stdout);
-        let fullOutput = scraperOutput;
-        // Prefer the pinned session id (the real copilot session) over the
-        // scraper's display-name guess; fall back to the guess if unset.
-        let sessionId = pinnedSessionId || sessionResult.sessionId || null;
-
-        // SDK read layer (Phase 1). Shadow mode logs a parity record but keeps
-        // the scraper output; authoritative mode uses the SDK output when the
-        // read succeeds. Any failure falls back to the scraper.
-        if (sdkReader.enabled && pinnedSessionId) {
-          try {
-            const sdk = await sdkReader.getSessionOutput(pinnedSessionId);
-            const cmp = sdkReader.comparison(scraperOutput, sdk);
-            sdkReader.logParity({ agentId, agent: config.name, sessionId: pinnedSessionId, mode: sdkReader.mode, ...cmp });
-            if (sdkReader.mode === 'authoritative' && sdk.ok) {
-              fullOutput = sdk.output;
-            }
-          } catch (e) {
-            console.error(`[supervisor] sdk-reader error for "${config.name}": ${e.message}`);
-          }
-        }
-
-        if (fullOutput === stdout && stdout.length < 200) {
-          console.log(`[supervisor] Warning: "${config.name}" session output not found, using stdout (${stdout.length} chars)`);
-        }
-
-        this._recordCompletion(ctx, { finishedAt, code, output: fullOutput, error: stderr, sessionId, origin: 'cli' });
-      }, 1000); // 1s delay to let session state flush
-    });
-
-    proc.on('error', (err) => {
-      entry.running = false;
-      entry.process = null;
-      const finishedAt = new Date().toISOString();
-
-      this.db.prepare(
-        'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, task_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(agentId, startedAt, finishedAt, -1, '', err.message, taskId);
-
-      this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run('error', agentId);
-      this.emit('agent-error', { agentId, error: err });
-      console.error(`[supervisor] Agent "${config.name}" spawn error: ${err.message}`);
-    });
-  }
-
   /**
-   * Shared run-completion path used by both the CLI spawn and the SDK runner.
+   * Shared run-completion path used by the SDK runner.
    * Cleans up temp files, persists the agent_runs row, updates status, and emits
    * agent-completed. Keeps the mobile/activity/SSE contract identical for both
    * runtimes.
@@ -418,59 +311,6 @@ class Supervisor extends EventEmitter {
     if (nextRun) {
       this.db.prepare('UPDATE agent_state SET next_run = ? WHERE agent_id = ?').run(nextRun.toISOString(), agentId);
     }
-  }
-
-  _getSessionOutput(config) {
-    // Find the most recent session for this agent and extract the full conversation
-    // Returns { output, sessionId } or { output: '', sessionId: null }
-    const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
-    if (!fs.existsSync(SESSION_STATE_DIR)) return { output: '', sessionId: null };
-    try {
-      const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => ({ name: d.name, mtime: fs.statSync(path.join(SESSION_STATE_DIR, d.name)).mtime }))
-        .sort((a, b) => b.mtime - a.mtime)
-        .slice(0, 10);
-
-      for (const dir of dirs) {
-        const eventsPath = path.join(SESSION_STATE_DIR, dir.name, 'events.jsonl');
-        if (!fs.existsSync(eventsPath)) continue;
-        const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
-        // Check if this session matches our agent
-        let isMatch = false;
-        const turns = [];
-        for (const line of lines) {
-          try {
-            const ev = JSON.parse(line);
-            if (ev.type === 'subagent.selected' && ev.data) {
-              const name = ev.data.agentDisplayName || ev.data.agentName || '';
-              if (name.toLowerCase().includes((config.name || '').toLowerCase()) ||
-                  (config.agent && name.toLowerCase().includes(config.agent.split(':').pop().toLowerCase()))) {
-                isMatch = true;
-              }
-            }
-            if (ev.type === 'user.message' && ev.data?.content) {
-              turns.push({ role: 'user', content: ev.data.content });
-            }
-            if (ev.type === 'assistant.message' && ev.data?.content) {
-              turns.push({ role: 'assistant', content: ev.data.content });
-            }
-          } catch { }
-        }
-        if (isMatch && turns.length > 0) {
-          const parts = [];
-          for (const turn of turns) {
-            if (turn.role === 'assistant') {
-              parts.push(turn.content);
-            }
-          }
-          return { output: parts.join('\n\n---\n\n'), sessionId: dir.name };
-        }
-      }
-    } catch (e) {
-      console.error(`[supervisor] Error reading session output: ${e.message}`);
-    }
-    return { output: '', sessionId: null };
   }
 
   _interpolatePrompt(template, context, agentId, triggerFiles) {

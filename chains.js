@@ -17,7 +17,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const { Cron } = require('croner');
 const { parseSchedule } = require('./scheduler');
@@ -326,8 +325,9 @@ class ChainEngine extends EventEmitter {
 
   // Built-in shared evaluator: ask copilot to judge a predicate against output.
   // Optionally routes through a custom condition agent (agentId).
-  // Runtime: prefers the @github/copilot-sdk runner (gated by SDK_RUN_MODE) and
-  // transparently falls back to the legacy CLI spawn on any miss/failure.
+  // Runtime: the @github/copilot-sdk runner is the sole evaluator. On any
+  // runner miss/failure the verdict defaults to { pass: false } so a failed
+  // evaluation never fires the downstream action.
   _evaluateAI(predicate, output, agentId) {
     const prompt = this._buildJudgePrompt(predicate, output);
 
@@ -337,20 +337,10 @@ class ChainEngine extends EventEmitter {
       if (e && e.config) agentEntry = e;
     }
 
-    // With a condition agent: respect its canary opt-in. Default (no agent)
-    // judge only migrates when the runner is fully enabled (mode 'all').
-    const useSdk = agentEntry
-      ? sdkRunner.shouldUse(agentEntry.config)
-      : sdkRunner.mode === 'all';
-
-    if (useSdk) {
-      return this._evaluateAiSdk(prompt, agentEntry).then((verdict) => {
-        if (verdict) return verdict;
-        // null = the SDK path missed/fell back; run the CLI evaluator instead.
-        return this._evaluateAiCli(prompt, agentId);
-      });
-    }
-    return this._evaluateAiCli(prompt, agentId);
+    return this._evaluateAiSdk(prompt, agentEntry).then((verdict) => {
+      if (verdict) return verdict;
+      return { pass: false, reason: 'evaluator unavailable (SDK runner returned no verdict)' };
+    });
   }
 
   // Build the strict deterministic judge instructions sent to the evaluator.
@@ -389,37 +379,6 @@ class ChainEngine extends EventEmitter {
     } catch (e) {
       return null;
     }
-  }
-
-  // Legacy CLI evaluator: writes the prompt to a temp file and spawns `copilot`.
-  _evaluateAiCli(prompt, agentId) {
-    return new Promise((resolve) => {
-      const os = require('os');
-      const file = path.join(os.tmpdir(), `chain-cond-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.md`);
-      fs.writeFileSync(file, prompt, 'utf-8');
-
-      const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-      let agentFlag = '';
-      let cwd = __dirname;
-      if (agentId) {
-        const entry = this.supervisor.agents.get(agentId);
-        if (entry && entry.config) {
-          agentFlag = `--agent "${entry.config.agent}" `;
-          cwd = entry.config.cwd || __dirname;
-        }
-      }
-      const cmdLine = `"${copilotCmd}" ${agentFlag}-p "Follow instructions in file: ${file.replace(/\\/g, '/')}" --yolo`;
-      const shellPath = process.env.ComSpec || (process.platform === 'win32' ? 'C:\\Windows\\system32\\cmd.exe' : '/bin/sh');
-      const proc = spawn(cmdLine, [], { cwd, shell: shellPath, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] });
-
-      let out = '';
-      proc.stdout.on('data', d => { out += d.toString(); });
-      proc.stderr.on('data', d => { out += d.toString(); });
-      const finish = (verdict) => { try { fs.unlinkSync(file); } catch {} resolve(verdict); };
-      proc.on('close', () => finish(this._parseVerdict(out)));
-      proc.on('error', (e) => finish({ pass: false, reason: 'evaluator failed: ' + e.message }));
-      setTimeout(() => { try { proc.kill(); } catch {} finish({ pass: false, reason: 'evaluator timed out' }); }, 180000);
-    });
   }
 
   _parseVerdict(text) {
