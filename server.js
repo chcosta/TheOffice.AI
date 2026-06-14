@@ -899,7 +899,6 @@ app.post('/api/azdo/install', async (req, res) => {
         sourceDir: pluginDir,
         agent: `${item.id}:${item.id}`,
         schedule: 'never',
-        prompt: ' ',
         durable: true,
         group: group || 'Azure DevOps',
         description: item.description || '',
@@ -914,7 +913,6 @@ app.post('/api/azdo/install', async (req, res) => {
         cwd,
         agent: item.agentRef || item.name || item.id,
         schedule: 'never',
-        prompt: ' ',
         durable: true,
         group: group || 'Azure DevOps',
         description: item.description || '',
@@ -1139,18 +1137,9 @@ app.put('/api/agents/:id/group', (req, res) => {
 
 // Update agent prompt
 app.put('/api/agents/:id/prompt', (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: 'prompt required' });
-  const entry = supervisor.agents.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Agent not found' });
-  entry.config.prompt = prompt;
-  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-  const agent = agents.find(a => a.id === req.params.id);
-  if (agent) {
-    agent.prompt = prompt;
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
-  }
-  res.json({ ok: true });
+  // Deprecated: agents no longer carry a definition prompt. Prompts come from
+  // tasks, assignments, and chains/flows. Kept as a 410 so old clients fail loud.
+  res.status(410).json({ error: 'Agents no longer have a definition prompt. Create a Task, assignment, or flow instead.' });
 });
 
 // Update agent description and/or skills (used by managers to route requests)
@@ -1239,9 +1228,12 @@ app.put('/api/agents/:id/autostart', (req, res) => {
 
 app.post('/api/agents', (req, res) => {
   const config = req.body;
-  if (!config.id || !config.name || !config.cwd || !config.agent || !config.schedule || !config.prompt) {
-    return res.status(400).json({ error: 'Missing required fields: id, name, cwd, agent, schedule, prompt' });
+  if (!config.id || !config.name || !config.cwd || !config.agent || !config.schedule) {
+    return res.status(400).json({ error: 'Missing required fields: id, name, cwd, agent, schedule' });
   }
+  // Agents no longer carry a definition prompt — prompts come from tasks,
+  // assignments, and chains/flows. Strip any legacy prompt before persisting.
+  delete config.prompt;
   // Save to agents.json
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const existing = agents.findIndex(a => a.id === config.id);

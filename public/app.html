@@ -2622,12 +2622,6 @@
                       </select>
                     </template>
                     <button class="btn ghost" type="button" @click="newConversationForActive()" title="Start a fresh conversation thread with this manager/agent">＋ New conversation</button>
-                    <template x-if="activeChat && activeChat.targetType === 'manager'">
-                      <div style="display:flex;gap:6px">
-                        <button class="btn ghost" type="button" @click="toggleChatVerbose()" :style="chatVerbose ? 'border-color:var(--cp-accent);color:var(--cp-accent)' : ''" :title="chatVerbose ? 'Showing sub-agent steps' : 'Steps hidden'" x-text="chatVerbose ? '🔎 Steps: on' : '🔎 Steps: off'"></button>
-                        <button class="btn ghost" type="button" @click="toggleChatLive()" :style="chatLive ? 'border-color:var(--cp-accent);color:var(--cp-accent)' : ''" :title="chatLive ? 'Streaming sub-agent output live (experimental)' : 'Live streaming off'" x-text="chatLive ? '📡 Live: on' : '📡 Live: off'"></button>
-                      </div>
-                    </template>
                     <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
                   </div>
@@ -2759,7 +2753,7 @@
                   <div x-show="chatContinueInfo && chatContinueInfo.chatId === (activeChat && activeChat.id)" style="margin-bottom:8px">
                     <button class="btn primary" type="button" @click="_continueAgentChat(chatContinueInfo.chatId, chatContinueInfo.agentId); chatContinueInfo = null;">▶ Continue — retry the unfinished task</button>
                   </div>
-                  <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.ctrl.enter.prevent="sendChat()" @keydown.meta.enter.prevent="sendChat()"></textarea>
+                  <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }"></textarea>
                   <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
                 </div>
               </section>
@@ -3073,6 +3067,17 @@
                 <button class="pill" type="button" :class="{ active: themePref === 'light' }" @click="setTheme('light')">☀️ Light</button>
                 <button class="pill" type="button" :class="{ active: themePref === 'dark' }" @click="setTheme('dark')">🌙 Dark</button>
               </div>
+            </div>
+
+            <!-- Chat Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">💬 Chat</h3>
+              <p class="hint" style="margin-bottom:14px">Applies to every agent and manager conversation. Both are on by default.</p>
+              <div class="filter-pills">
+                <button class="pill" type="button" :class="{ active: chatVerbose }" @click="toggleChatVerbose()" x-text="chatVerbose ? '🔎 Reasoning & steps: on' : '🔎 Reasoning & steps: off'"></button>
+                <button class="pill" type="button" :class="{ active: chatLive }" @click="toggleChatLive()" x-text="chatLive ? '📡 Live updates: on' : '📡 Live updates: off'"></button>
+              </div>
+              <p class="hint" style="margin-top:10px"><strong>Reasoning &amp; steps</strong> shows the model's thinking and tool calls inline. <strong>Live updates</strong> polls faster while a response streams.</p>
             </div>
 
             <!-- Cloud Sync Section -->
@@ -4156,7 +4161,7 @@
         typingChats: {},
         chatActivity: {},
         chatVerbose: true,
-        chatLive: false,
+        chatLive: true,
         chatSessions: {},
         chatContinueInfo: null,
         syncStatus: { enabled: false, machineId: '', hostname: '' },
@@ -4232,7 +4237,7 @@
           this.applyZoom();
           try {
             this.chatVerbose = localStorage.getItem('chatVerbose') !== '0';
-            this.chatLive = localStorage.getItem('chatLive') === '1';
+            this.chatLive = localStorage.getItem('chatLive') !== '0';
           } catch {}
           try {
             if (typeof mermaid !== 'undefined') {
@@ -4549,18 +4554,9 @@
             cwd: item.cwd || item.pluginDir || '',
             agent: this.discoveryAgentRef(item),
             schedule: 'never',
-            prompt: '',
             durable: true
           };
-          try {
-            return await this.request('/api/agents', { method: 'POST', body: JSON.stringify(payload) });
-          } catch (error) {
-            if ((error.status === 400 || error.status === 422) && /prompt/i.test(error.message)) {
-              payload.prompt = ' ';
-              return await this.request('/api/agents', { method: 'POST', body: JSON.stringify(payload) });
-            }
-            throw error;
-          }
+          return await this.request('/api/agents', { method: 'POST', body: JSON.stringify(payload) });
         },
 
         async performDiscoveryAction(item) {
@@ -4771,7 +4767,7 @@
             config: agent.config || {},
             schedule,
             scheduleDraft: schedule,
-            promptDraft: agent.config?.prompt || '',
+            promptDraft: '',
             descriptionDraft: agent.config?.description || '',
             skillsDraft: Array.isArray(agent.config?.skills) ? agent.config.skills.join(', ') : (agent.config?.skills || ''),
             scheduleSummary: agent.scheduleDescription || this.humanizeSchedule(schedule),
@@ -5819,6 +5815,21 @@
           }).filter(Boolean);
         },
 
+        // Flatten an agent turn's poll steps into the same compact activity
+        // trace shape used for managers, so agent chat gets the identical
+        // "Reasoning & steps" drill-down (reasoning text + tool calls).
+        mapAgentSteps(steps) {
+          return (steps || []).map((s) => {
+            const isTool = s.type === 'tool' || s.type === 'tool_start';
+            if (isTool) {
+              const ok = s.success === false ? ' ✗' : (s.success === true ? ' ✓' : '');
+              return { type: 'tool', label: '🔧 ' + (s.tool || 'tool') + ok, text: (s.content || '').trim() };
+            }
+            const text = (s.content || s.reasoning || '').trim();
+            return text ? { type: 'thinking', label: 'Agent reasoning', text } : null;
+          }).filter(Boolean);
+        },
+
         async openChat(chatId, navigate = true) {
           try {
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
@@ -6168,7 +6179,7 @@
           
           // Poll the session for live activity
           for (let attempt = 0; attempt < 180; attempt++) {
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, this.chatLive ? 700 : 1500));
             try {
               const poll = await this.request(`/api/sessions/${sessionId}/poll?verbose=1`);
               
@@ -6218,32 +6229,28 @@
                   return;
                 }
                 
-                // Build final response
+                // Build final response — attach a structured activity trace so
+                // agent chat gets the same "Reasoning & steps" drill-down managers
+                // have, instead of an inline "Tools used:" line.
                 this.typingChats[chatId] = false;
                 delete this.chatActivity[chatId];
-                
+
+                const activity = this.mapAgentSteps(lastTurn?.steps);
                 let richResponse = '';
-                if (lastTurn?.steps && lastTurn.steps.length > 0) {
-                  const tools = lastTurn.steps.filter(s => s.type === 'tool');
-                  if (tools.length > 0) {
-                    richResponse += '**Tools used:** ' + tools.map(t => '`' + t.tool + '`').join(', ') + '\n\n';
-                  }
-                }
-                
                 if (response) {
-                  richResponse += response;
+                  richResponse = response;
                 } else if (isCrash) {
                   // All retries exhausted
-                  richResponse += `⚠️ Agent terminated after ${toolCount} tool call(s) and ${MAX_RETRIES + 1} attempts. The task may be too large for a single session.`;
+                  richResponse = `⚠️ Agent terminated after ${toolCount} tool call(s) and ${MAX_RETRIES + 1} attempts. The task may be too large for a single session.`;
                   // Store continue info for the button
                   this.chatContinueInfo = { chatId, agentId };
                 } else {
-                  richResponse += '⚠️ Agent completed without producing a response.';
+                  richResponse = '⚠️ Agent completed without producing a response.';
                 }
-                
+
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
-                  body: JSON.stringify({ role: 'assistant', content: richResponse })
+                  body: JSON.stringify({ role: 'assistant', content: richResponse, activity })
                 });
                 if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
                 this.scheduleRefresh();
@@ -6704,21 +6711,6 @@
             } else {
               this.showToast('Save failed', error.message, 'error');
             }
-          }
-        },
-
-        async saveAgentPrompt() {
-          if (!this.selectedAgent) return;
-          try {
-            await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/prompt`, {
-              method: 'PUT',
-              body: JSON.stringify({ prompt: this.selectedAgent.promptDraft })
-            });
-            this.showToast('Prompt saved', 'Agent prompt updated.', 'info');
-            await this.loadAgentDetail(this.selectedAgent.id);
-            await this.refreshAll(false);
-          } catch (error) {
-            this.showToast('Save failed', error.message, 'error');
           }
         },
 
@@ -7358,7 +7350,7 @@
 
         agentCommandPreview(agent) {
           if (!agent) return '';
-          return [`cwd: ${agent.config.cwd || ''}`, `agent: ${agent.config.agent || ''}`, `prompt: ${agent.config.prompt || ''}`].join('\n');
+          return [`cwd: ${agent.config.cwd || ''}`, `agent: ${agent.config.agent || ''}`].join('\n');
         },
 
         durationBetween(start, end) {

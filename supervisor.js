@@ -185,7 +185,7 @@ class Supervisor extends EventEmitter {
     // Interpolate template variables in prompt if trigger context provided
     // Large values are written to temp files to avoid Windows 8191-char cmd limit
     let triggerFiles = [];
-    let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext, agentId, triggerFiles) : config.prompt;
+    let prompt = triggerContext ? this._interpolatePrompt(config.prompt, triggerContext, agentId, triggerFiles) : (config.prompt || '');
 
     // Pin the copilot session UUID so the session is deterministically
     // addressable. Chat threads reuse their id to resume natively; regular runs
