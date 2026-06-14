@@ -759,6 +759,16 @@
     .caps-divider { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--cp-border); }
     .caps-divider-label { font-weight: 600; font-size: 0.9rem; color: var(--cp-text); }
     .live-stream-pre { margin: 6px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; font-family: Consolas, "Courier New", monospace; font-size: 0.72rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 8px; color: var(--cp-text-muted); }
+    .msg-activity { margin-top: 10px; border-top: 1px dashed var(--cp-border); padding-top: 8px; }
+    .msg-activity > summary { cursor: pointer; font-size: 0.78rem; color: var(--cp-text-muted); user-select: none; list-style: revert; }
+    .msg-activity > summary:hover { color: var(--cp-accent); }
+    .msg-activity-body { margin-top: 8px; display: grid; gap: 8px; }
+    .msg-activity-step { border-left: 2px solid var(--cp-border); padding-left: 10px; }
+    .msg-activity-step.run_agent { border-left-color: var(--cp-link); }
+    .msg-activity-step.agent_result { border-left-color: var(--cp-success); }
+    .msg-activity-step.error { border-left-color: var(--cp-danger); }
+    .msg-activity-step.complete { border-left-color: var(--cp-accent); }
+    .msg-activity-label { font-size: 0.74rem; font-weight: 600; color: var(--cp-text-soft); }
     .detail-row { display: flex; align-items: baseline; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .detail-row:last-child { border-bottom: none; }
     .detail-label { flex: 0 0 140px; font-size: 0.82em; color: var(--muted); font-weight: 500; }
@@ -2600,6 +2610,21 @@
                         <div class="message-bubble-wrap">
                           <div class="message-bubble">
                             <div x-html="renderMessageContent(message)"></div>
+                            <template x-if="message.role !== 'user' && message.activity && message.activity.length">
+                              <details class="msg-activity">
+                                <summary>🔎 Reasoning &amp; steps (<span x-text="message.activity.length"></span>)</summary>
+                                <div class="msg-activity-body">
+                                  <template x-for="(st, ai) in message.activity" :key="'act-' + ai">
+                                    <div class="msg-activity-step" :class="st.type">
+                                      <div class="msg-activity-label" x-text="st.label"></div>
+                                      <template x-if="st.text">
+                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                      </template>
+                                    </div>
+                                  </template>
+                                </div>
+                              </details>
+                            </template>
                             <div class="message-meta" x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></div>
                           </div>
                           <button class="btn ghost message-share-btn" type="button" @click="openShareModal(message.content || '', 'Chat message — ' + formatDateTime(message.timestamp), 'chat-message')">📤</button>
@@ -2629,7 +2654,7 @@
                           </div>
                         </template>
                         <template x-if="step.partial">
-                          <pre class="live-stream-pre" x-text="step.partial"></pre>
+                          <pre class="live-stream-pre" x-text="step.partial" x-effect="step.partial; $el.scrollTop = $el.scrollHeight"></pre>
                         </template>
                       </div>
                     </template>
@@ -5709,6 +5734,23 @@
           await this._createChatThread(this.activeChat.targetType, this.activeChat.target);
         },
 
+        // Flatten a manager run's persisted steps into a compact, reviewable
+        // activity trace (reasoning + sub-agent prompts/outputs) that gets saved
+        // alongside the assistant message so it survives reloads.
+        mapRunSteps(steps) {
+          if (typeof steps === 'string') { try { steps = JSON.parse(steps); } catch { steps = []; } }
+          return (steps || []).map((s) => {
+            if (s.action === 'thinking') return s.reasoning ? { type: 'thinking', label: 'Manager reasoning', text: s.reasoning } : null;
+            if (s.action === 'run_agent') return { type: 'run_agent', label: `▶ Ran ${s.agentId}`, text: s.prompt || '' };
+            if (s.action === 'agent_result') return { type: 'agent_result', label: `✓ Output from ${s.agentId || 'agent'} (exit ${s.exitCode ?? '?'})`, text: s.output || '' };
+            if (s.action === 'complete') return { type: 'complete', label: '🏁 Composed final response' };
+            if (s.action === 'error') return { type: 'error', label: 'Error', text: s.error || s.message || '' };
+            if (s.action === 'org_rejected') return { type: 'error', label: `⛔ Rejected (not in org): ${s.agentId}` };
+            if (s.action === 'request_agent') return { type: 'note', label: `Requested agent: ${s.agentId}`, text: s.reason || '' };
+            return null;
+          }).filter(Boolean);
+        },
+
         async openChat(chatId, navigate = true) {
           try {
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
@@ -5738,7 +5780,7 @@
                     if (lastRun.status === 'completed' && lastRun.result && matchesPrompt && runFinished >= msgTime) {
                       await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                         method: 'POST',
-                        body: JSON.stringify({ role: 'assistant', content: lastRun.result })
+                        body: JSON.stringify({ role: 'assistant', content: lastRun.result, runId: lastRun.id, activity: this.mapRunSteps(lastRun.steps) })
                       });
                       const updated = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
                       this.activeChat = updated;
@@ -6193,7 +6235,7 @@
                 this.typingChats[chatId] = false;
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
-                  body: JSON.stringify({ role: 'assistant', content: run.result || run.error || 'Run finished.' })
+                  body: JSON.stringify({ role: 'assistant', content: run.result || run.error || 'Run finished.', runId, activity: this.mapRunSteps(run.steps) })
                 });
                 if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
                 delete this.pollers[key];

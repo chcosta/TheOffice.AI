@@ -304,6 +304,9 @@ class ManagerAgent extends EventEmitter {
       const decision = await this._askManager(managerConfig, currentPrompt, mgrOnChunk);
       if (thinkingStep.streaming) {
         thinkingStep.streaming = false;
+        // Retain the reasoning so the verbose trace can be reviewed after the
+        // run completes (collapsed in the UI) instead of being discarded.
+        if (thinkingStep.partial) thinkingStep.reasoning = thinkingStep.partial.slice(-4000);
         delete thinkingStep.partial;
         this._persistSteps(runId, steps);
       }

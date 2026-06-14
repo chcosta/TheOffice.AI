@@ -3175,6 +3175,10 @@ app.post('/api/chats/:id/messages', (req, res) => {
   if (!fs.existsSync(chatFile)) return res.status(404).json({ error: 'Chat not found' });
   const chat = JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
   const msg = { role: req.body.role || 'user', content: req.body.content, timestamp: new Date().toISOString() };
+  // Persist optional captured reasoning/step activity so the verbose/live trace
+  // survives reloads and can be reviewed (collapsed) under the response.
+  if (req.body.activity && Array.isArray(req.body.activity) && req.body.activity.length) msg.activity = req.body.activity;
+  if (req.body.runId) msg.runId = req.body.runId;
   chat.messages.push(msg);
   chat.updatedAt = msg.timestamp;
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
