@@ -1,0 +1,4 @@
+# Throwaway Phase 0 spike — do not commit deps or generated findings
+node_modules/
+spike-findings.json
+package-lock.json

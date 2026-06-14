@@ -1,0 +1,9 @@
+{
+  "name": "sdk-spike",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Throwaway spike to validate @github/copilot-sdk before migration (Phase 0)",
+  "dependencies": {
+    "@github/copilot-sdk": "^1.0.1"
+  }
+}
