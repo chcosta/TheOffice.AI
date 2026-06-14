@@ -217,6 +217,11 @@ class Supervisor extends EventEmitter {
       const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
       args.push('--prompt', safePrompt);
     }
+    // For chat threads, pin the copilot session UUID so the conversation
+    // persists and resumes natively (set by _executeAgentWithStreaming).
+    if (entry._chatSessionId) {
+      args.push('--session-id', useShell ? `"${entry._chatSessionId}"` : entry._chatSessionId);
+    }
     args.push('-s');
     if (perms) args.push(perms);
 

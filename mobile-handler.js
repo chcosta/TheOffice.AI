@@ -1,6 +1,9 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 /**
  * Mobile Command Handler
@@ -61,6 +64,15 @@ class MobileHandler extends EventEmitter {
           content TEXT NOT NULL,
           timestamp TEXT NOT NULL DEFAULT (datetime('now')),
           FOREIGN KEY (chat_id) REFERENCES mobile_chats(id)
+        );
+        CREATE TABLE IF NOT EXISTS mobile_chat_threads (
+          id TEXT PRIMARY KEY,
+          target_id TEXT NOT NULL,
+          target_type TEXT NOT NULL DEFAULT 'agent',
+          title TEXT,
+          last_preview TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
       `);
       // Load existing chat sessions into memory
@@ -135,6 +147,10 @@ class MobileHandler extends EventEmitter {
         return this._chat(correlationId, sessionId, payload, replier);
       case 'get-chat-history':
         return this._getChatHistory(correlationId, sessionId, payload, replier);
+      case 'list-chat-threads':
+        return this._listChatThreads(correlationId, payload, replier);
+      case 'new-chat-thread':
+        return this._newChatThread(correlationId, payload, replier);
       case 'list-chats':
         return this._listChats(correlationId, sessionId, replier);
       case 'get-activity':
@@ -411,7 +427,7 @@ class MobileHandler extends EventEmitter {
   // --- Chat Handler ---
 
   async _chat(correlationId, sessionId, payload, replier) {
-    const { targetId, targetType, message } = payload || {};
+    const { targetId, targetType, message, threadId } = payload || {};
     if (!targetId || !message) {
       await replier(correlationId, { type: 'error', error: 'targetId and message are required' });
       return true;
@@ -486,17 +502,27 @@ class MobileHandler extends EventEmitter {
           this.managerAgent.removeListener('manager-step', stepHandler);
         }
       } else {
-        // Build prompt with conversation history for context
-        let fullPrompt = message;
-        if (session.messages.length > 1) {
-          const history = session.messages.slice(-10, -1); // last 10 msgs excluding current
-          const historyText = history.map(m => 
-            `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-          ).join('\n\n');
-          fullPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}\n\nRespond to the user's latest message, using the conversation history for context.`;
+        // Agent chat: a thread maps to a copilot session UUID. Passing the
+        // threadId as the session id lets copilot persist and resume the
+        // conversation natively — no need to re-inject prior turns.
+        if (threadId) {
+          this._upsertChatThread(threadId, targetId, 'agent', message);
+          result = await this._executeAgentWithStreaming(targetId, message, correlationId, replier, threadId);
+        } else {
+          // Fallback (no thread): build prompt with conversation history.
+          let fullPrompt = message;
+          if (session.messages.length > 1) {
+            const history = session.messages.slice(-10, -1); // last 10 msgs excluding current
+            const historyText = history.map(m =>
+              `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+            ).join('\n\n');
+            fullPrompt = `Previous conversation:\n${historyText}\n\nUser: ${message}\n\nRespond to the user's latest message, using the conversation history for context.`;
+          }
+          result = await this._executeAgentWithStreaming(targetId, fullPrompt, correlationId, replier);
         }
-        result = await this._executeAgentWithStreaming(targetId, fullPrompt, correlationId, replier);
       }
+
+      if (threadId) this._touchChatThread(threadId, result);
 
       session.messages.push({ role: 'assistant', content: result, timestamp: new Date().toISOString() });
       this._persistChatMessage(chatKey, sessionId || 'default', targetId, targetType || 'agent', 'assistant', result);
@@ -521,9 +547,19 @@ class MobileHandler extends EventEmitter {
   }
 
   async _getChatHistory(correlationId, sessionId, payload, replier) {
-    const { targetId } = payload || {};
-    if (!targetId) {
-      await replier(correlationId, { type: 'error', error: 'targetId is required' });
+    const { targetId, threadId } = payload || {};
+    if (!targetId && !threadId) {
+      await replier(correlationId, { type: 'error', error: 'targetId or threadId is required' });
+      return true;
+    }
+
+    // Thread mode: history comes from the pinned copilot session's events log.
+    if (threadId) {
+      const messages = this._readSessionMessages(threadId);
+      await replier(correlationId, {
+        type: 'result',
+        payload: { messages, targetId, targetType: 'agent', threadId }
+      });
       return true;
     }
 
@@ -539,6 +575,99 @@ class MobileHandler extends EventEmitter {
         startedAt: session?.startedAt || null
       }
     });
+    return true;
+  }
+
+  // --- Chat Threads (copilot-session-backed) ---
+
+  _sessionStateDir() {
+    return path.join(require('os').homedir(), '.copilot', 'session-state');
+  }
+
+  /**
+   * Read a thread's conversation from its copilot session events.jsonl.
+   * Returns [{ role, content, timestamp }] in order.
+   */
+  _readSessionMessages(threadId) {
+    try {
+      const file = path.join(this._sessionStateDir(), threadId, 'events.jsonl');
+      if (!fs.existsSync(file)) return [];
+      const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+      const messages = [];
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        const ts = ev.timestamp || ev.data?.timestamp || null;
+        if (ev.type === 'user.message' && ev.data?.content) {
+          messages.push({ role: 'user', content: ev.data.content, timestamp: ts });
+        } else if (ev.type === 'assistant.message' && ev.data?.content) {
+          messages.push({ role: 'assistant', content: ev.data.content, timestamp: ts });
+        }
+      }
+      return messages;
+    } catch {
+      return [];
+    }
+  }
+
+  _upsertChatThread(threadId, targetId, targetType, firstMessage) {
+    if (!this.db) return;
+    try {
+      const existing = this.db.prepare('SELECT id, title FROM mobile_chat_threads WHERE id = ?').get(threadId);
+      if (!existing) {
+        const title = (firstMessage || '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
+        this.db.prepare(
+          'INSERT INTO mobile_chat_threads (id, target_id, target_type, title, last_preview) VALUES (?, ?, ?, ?, ?)'
+        ).run(threadId, targetId, targetType || 'agent', title, (firstMessage || '').slice(0, 120));
+      }
+    } catch (e) { /* non-fatal */ }
+  }
+
+  _touchChatThread(threadId, lastReply) {
+    if (!this.db) return;
+    try {
+      this.db.prepare(
+        "UPDATE mobile_chat_threads SET updated_at = datetime('now'), last_preview = ? WHERE id = ?"
+      ).run((lastReply || '').replace(/\s+/g, ' ').trim().slice(0, 120), threadId);
+    } catch (e) { /* non-fatal */ }
+  }
+
+  async _listChatThreads(correlationId, payload, replier) {
+    const { targetId } = payload || {};
+    if (!targetId) {
+      await replier(correlationId, { type: 'error', error: 'targetId is required' });
+      return true;
+    }
+    let threads = [];
+    if (this.db) {
+      try {
+        threads = this.db.prepare(
+          'SELECT id, target_id, target_type, title, last_preview, created_at, updated_at FROM mobile_chat_threads WHERE target_id = ? ORDER BY updated_at DESC'
+        ).all(targetId).map(r => ({
+          threadId: r.id,
+          targetId: r.target_id,
+          targetType: r.target_type,
+          title: r.title,
+          lastPreview: r.last_preview,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at
+        }));
+      } catch (e) { threads = []; }
+    }
+    await replier(correlationId, { type: 'result', payload: { threads } });
+    return true;
+  }
+
+  async _newChatThread(correlationId, payload, replier) {
+    const { targetId, targetType } = payload || {};
+    if (!targetId) {
+      await replier(correlationId, { type: 'error', error: 'targetId is required' });
+      return true;
+    }
+    const threadId = crypto.randomUUID();
+    this._upsertChatThread(threadId, targetId, targetType || 'agent', '');
+    await replier(correlationId, { type: 'result', payload: { threadId, targetId, targetType: targetType || 'agent' } });
     return true;
   }
 
@@ -1092,18 +1221,25 @@ class MobileHandler extends EventEmitter {
   /**
    * Execute an agent and stream output chunks back to mobile
    */
-  async _executeAgentWithStreaming(agentId, prompt, correlationId, replier) {
+  async _executeAgentWithStreaming(agentId, prompt, correlationId, replier, threadId) {
     const entry = this.supervisor.agents.get(agentId);
     if (!entry) throw new Error(`Agent ${agentId} not found`);
     if (entry.running) throw new Error(`Agent ${agentId} is already running`);
 
     const originalPrompt = entry.config.prompt;
     entry.config.prompt = prompt;
+    // Pin the copilot session so the conversation resumes/persists natively.
+    if (threadId) entry._chatSessionId = threadId;
+
+    const restore = () => {
+      entry.config.prompt = originalPrompt;
+      delete entry._chatSessionId;
+    };
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         cleanup();
-        entry.config.prompt = originalPrompt;
+        restore();
         reject(new Error(`Agent ${agentId} timed out after 5 minutes`));
       }, 5 * 60 * 1000);
 
@@ -1124,7 +1260,7 @@ class MobileHandler extends EventEmitter {
       const onCompleted = (data) => {
         if (data.agentId !== agentId) return;
         cleanup();
-        entry.config.prompt = originalPrompt;
+        restore();
         const output = data.output || chunks.join('') || '(no output)';
         // Send final chunk marker so mobile knows streaming is done
         replier(correlationId, {
@@ -1137,7 +1273,7 @@ class MobileHandler extends EventEmitter {
       const onError = (data) => {
         if (data.agentId !== agentId) return;
         cleanup();
-        entry.config.prompt = originalPrompt;
+        restore();
         reject(new Error(data.error || 'Agent execution failed'));
       };
 
