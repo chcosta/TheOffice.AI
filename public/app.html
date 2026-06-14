@@ -3997,16 +3997,19 @@
                   <template x-for="(m, i) in templates.assistant.messages" :key="'am-' + i">
                     <div :style="m.role === 'user' ? 'align-self:flex-end;max-width:85%' : 'align-self:flex-start;max-width:95%'">
                       <div class="hint" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
-                      <div style="white-space:pre-wrap;padding:8px 12px;border-radius:10px;margin-top:2px"
+                      <div class="md-output" style="padding:8px 12px;border-radius:10px;margin-top:2px"
                         :style="m.role === 'user' ? 'background:var(--cp-accent-soft)' : 'background:var(--cp-surface-soft)'"
-                        x-text="m.text"></div>
+                        x-html="renderMarkdown(m.text)"></div>
                       <div x-show="m.proposal" style="margin-top:8px;padding:10px;border:1px dashed var(--cp-border-strong);border-radius:10px;background:var(--cp-surface-soft)">
                         <div class="split-meta">
                           <div style="min-width:0">
                             <strong x-text="m.proposal && m.proposal.name"></strong>
                             <div class="hint" x-text="m.proposal && m.proposal.description"></div>
                           </div>
-                          <button class="btn primary" type="button" @click="applyProposal(m.proposal)">Apply →</button>
+                          <div style="display:flex;gap:8px;flex-shrink:0">
+                            <button class="btn" type="button" @click="applyProposal(m.proposal)" title="Load into the editor to tweak before creating">✎ Edit first</button>
+                            <button class="btn primary" type="button" @click="acceptProposal(m.proposal)" title="Approve and create this template now">✓ Accept &amp; Create</button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -6846,6 +6849,23 @@
           };
           this.templates.assistant.active = false;
           this.showToast('Loaded', 'Review the proposed template, then click Create.', 'info');
+        },
+
+        async acceptProposal(p) {
+          if (!p) return;
+          if (!p.name || !p.body) { this.showToast('Incomplete', 'The proposal is missing a name or body.', 'error'); return; }
+          try {
+            const created = await this.request('/api/manager-agents', { method: 'POST', body: JSON.stringify({
+              name: p.name, description: p.description || '',
+              tools: (p.tools && p.tools.length) ? p.tools : ['powershell'], body: p.body
+            }) });
+            this.showToast('Template created', `${created.name} is ready to use.`, 'info');
+            await this.loadManagerTemplates();
+            this.templates.assistant.active = false;
+            await this.selectTemplate(created.name);
+          } catch (error) {
+            this.showToast('Create failed', error.message, 'error');
+          }
         },
 
         async selectTemplate(name) {
