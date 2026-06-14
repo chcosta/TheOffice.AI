@@ -172,7 +172,7 @@ class ManagerAgent extends EventEmitter {
    * Returns immediately with runId. Orchestration runs in background.
    * Poll /api/managers/:id/runs/:runId for live status.
    */
-  executePrompt(managerId, prompt, assignmentId = null, { sync = false, triggerContext = null } = {}) {
+  executePrompt(managerId, prompt, assignmentId = null, { sync = false, triggerContext = null, liveStream = false } = {}) {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
 
@@ -202,7 +202,7 @@ class ManagerAgent extends EventEmitter {
     this._addMessage(managerId, runId, 'user', prompt);
 
     // Run orchestration in background
-    const orchestrationPromise = this._runOrchestration(managerId, runId, entry, prompt, assignmentId, triggerContext);
+    const orchestrationPromise = this._runOrchestration(managerId, runId, entry, prompt, assignmentId, triggerContext, { liveStream });
 
     if (sync) {
       return orchestrationPromise;
@@ -212,12 +212,12 @@ class ManagerAgent extends EventEmitter {
     return { runId, status: 'running' };
   }
 
-  async _runOrchestration(managerId, runId, entry, prompt, assignmentId = null, triggerContext = null) {
+  async _runOrchestration(managerId, runId, entry, prompt, assignmentId = null, triggerContext = null, { liveStream = false } = {}) {
     const steps = [];
     try {
       console.log(`[manager] Starting orchestration run ${runId} for ${managerId}`);
       const orgAgents = this._getOrgAgentDetails(managerId);
-      const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps);
+      const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps, { liveStream });
 
       const finishedAt = new Date().toISOString();
       this.db.prepare(
@@ -262,7 +262,7 @@ class ManagerAgent extends EventEmitter {
    * Core orchestration loop. Uses the copilot CLI as the manager's "brain"
    * to decide which agents to run and how to interpret results.
    */
-  async _orchestrate(managerConfig, userPrompt, orgAgents, runId, steps) {
+  async _orchestrate(managerConfig, userPrompt, orgAgents, runId, steps, { liveStream = false } = {}) {
     const maxIterations = 10;
     let iteration = 0;
     let context = '';
@@ -308,8 +308,27 @@ class ManagerAgent extends EventEmitter {
         this._persistSteps(runId, steps);
         this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
-        // Execute the sub-agent and gather output
-        const agentResult = await this._runSubAgent(action.agentId, action.prompt);
+        // Execute the sub-agent and gather output. In live-stream mode, forward
+        // incremental stdout so the UI can watch the sub-agent's output fill in
+        // as it runs (throttled persistence to avoid hammering the DB).
+        const runStep = steps[steps.length - 1];
+        let onChunk = null;
+        if (liveStream) {
+          runStep.streaming = true;
+          runStep.partial = '';
+          let lastPersist = 0;
+          onChunk = (accumulated) => {
+            runStep.partial = accumulated.slice(-4000);
+            const now = Date.now();
+            if (now - lastPersist > 1000) {
+              lastPersist = now;
+              this._persistSteps(runId, steps);
+              this.emit('manager-step', { managerId: managerConfig.id, runId, step: runStep, live: true });
+            }
+          };
+        }
+        const agentResult = await this._runSubAgent(action.agentId, action.prompt, onChunk);
+        if (runStep.streaming) { runStep.streaming = false; delete runStep.partial; }
         steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
         this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
@@ -491,7 +510,7 @@ REASON: <why you need this agent>
   /**
    * Run a sub-agent and return its output
    */
-  async _runSubAgent(agentId, prompt) {
+  async _runSubAgent(agentId, prompt, onChunk = null) {
     return new Promise((resolve) => {
       const entry = this.supervisor.agents.get(agentId);
       if (!entry) {
@@ -530,7 +549,10 @@ REASON: <why you need this agent>
 
       let stdout = '';
       let stderr = '';
-      proc.stdout.on('data', d => { stdout += d.toString(); });
+      proc.stdout.on('data', d => {
+        stdout += d.toString();
+        if (onChunk) { try { onChunk(stdout); } catch {} }
+      });
       proc.stderr.on('data', d => { stderr += d.toString(); });
 
       proc.on('close', (code) => {

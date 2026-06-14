@@ -3031,10 +3031,10 @@ function _restartManagerSchedules(managerId) {
 
 // Ad-hoc prompt to a manager (async — returns immediately with runId)
 app.post('/api/managers/:id/prompt', (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, liveStream } = req.body;
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
   try {
-    const result = managerAgent.executePrompt(req.params.id, prompt);
+    const result = managerAgent.executePrompt(req.params.id, prompt, null, { liveStream: !!liveStream });
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -4363,6 +4363,10 @@ function getManagersPageHtml() {
               <input type="checkbox" x-model="chat.verbose" @change="toggleChatVerbose()">
               🔧 Verbose
             </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:#8b949e;cursor:pointer;" title="Stream sub-agent output live as it runs (experimental)">
+              <input type="checkbox" x-model="chat.live" @change="toggleChatLive()">
+              📡 Live
+            </label>
             <button class="btn" style="padding:4px 10px;font-size:1rem;line-height:1;" @click="closeManagerChat()">&times;</button>
           </div>
         </div>
@@ -4390,6 +4394,9 @@ function getManagersPageHtml() {
               <div class="mgr-chat-role">🤖 Manager</div>
               <template x-if="chat.verbose && chat.pending.steps && chat.pending.steps.length">
                 <div class="mgr-steps" x-html="renderSteps(chat.pending.steps)"></div>
+              </template>
+              <template x-if="!chat.verbose && chat.live && chat.pending.steps && chat.pending.steps.length">
+                <div class="mgr-steps" x-html="renderSteps(chat.pending.steps.filter(s => s.streaming))"></div>
               </template>
               <div class="mgr-chat-content assistant-md" :style="'color:' + chat.pending.color" x-text="chat.pending.text"></div>
             </div>
@@ -4451,12 +4458,14 @@ function getManagersPageHtml() {
           pending: null,
           runId: null,
           verbose: false,
+          live: false,
           poller: null,
           loading: false
         },
 
         async init() {
           this.chat.verbose = localStorage.getItem('mgrVerbose') === 'true';
+          this.chat.live = localStorage.getItem('mgrLive') === 'true';
           document.addEventListener('keydown', this.handleGlobalKeydown.bind(this));
           await this.refresh();
           const self = this;
@@ -4998,6 +5007,13 @@ function getManagersPageHtml() {
           }
         },
 
+        toggleChatLive() {
+          localStorage.setItem('mgrLive', this.chat.live ? 'true' : 'false');
+          if (this.chat.runId) {
+            this.startChatPolling();
+          }
+        },
+
         async loadChatHistory(managerId) {
           const messages = await this.request('/api/managers/' + managerId + '/messages?limit=30');
           this.chat.messages = (Array.isArray(messages) ? messages : []).map((msg) => ({
@@ -5037,6 +5053,9 @@ function getManagersPageHtml() {
               detail = 'Analyzing...';
             } else if (step.action === 'run_agent') {
               detail = 'Running <strong>' + escapeHtml(step.agentId || '') + '</strong>: ' + escapeHtml((step.prompt || '').substring(0, 100));
+              if (step.streaming && step.partial) {
+                detail += '<pre style="margin:6px 0 0;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;max-height:240px;overflow:auto;white-space:pre-wrap;color:#8b949e;font-size:0.75rem;">' + escapeHtml(step.partial) + '<span style="color:#3fb950;">▋</span></pre>';
+              }
             } else if (step.action === 'agent_result') {
               detail = '<strong>' + escapeHtml(step.agentId || '') + '</strong> returned (exit ' + escapeHtml(String(step.exitCode ?? '')) + ', ' + escapeHtml(String(step.outputLength ?? '0')) + ' chars)';
             } else if (step.action === 'complete') {
@@ -5093,7 +5112,7 @@ function getManagersPageHtml() {
             const data = await this.request('/api/managers/' + this.chat.managerId + '/prompt', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: prompt })
+              body: JSON.stringify({ prompt: prompt, liveStream: !!this.chat.live })
             });
             if (data && data.runId) {
               this.chat.runId = data.runId;
@@ -5124,7 +5143,8 @@ function getManagersPageHtml() {
         startChatPolling() {
           this.stopChatPolling();
           const self = this;
-          this.chat.poller = setInterval(function() { self.pollChatRun(); }, 2000);
+          const interval = this.chat.live ? 1000 : 2000;
+          this.chat.poller = setInterval(function() { self.pollChatRun(); }, interval);
           this.pollChatRun();
         },
 
