@@ -2297,6 +2297,7 @@
                 <p>Create, edit, run, and monitor agent tasks: status, schedule, next/last run, and history.</p>
               </div>
               <div class="toolbar">
+                <button class="btn" type="button" @click="openExecAi()">✨ Design with AI</button>
                 <button class="btn primary" type="button" @click="openTaskModal()">＋ New Task</button>
               </div>
             </div>
@@ -2401,6 +2402,7 @@
                 <p>Wire tasks together into a conditional pipeline. When a task finishes, each outgoing flow rule is evaluated (status, output expression, or AI judgment) and matching downstream tasks run automatically.</p>
               </div>
               <div class="toolbar">
+                <button class="btn" type="button" @click="openExecAi()">✨ Design with AI</button>
                 <button class="btn primary" type="button" @click="newChain()">＋ New Flow</button>
               </div>
             </div>
@@ -4070,6 +4072,128 @@
   </div>
 
 
+  <!-- Design with AI: AI-suggested manual Tasks/Flows for the executions area -->
+  <div class="modal-backdrop" x-show="execAi.open" x-transition.opacity.duration.150ms @click.self="execAi.open = false" x-cloak>
+    <section class="modal-card" style="max-width:980px">
+      <div class="modal-header">
+        <div>
+          <strong>✨ Design with AI</strong>
+          <div class="hint" style="margin-top:6px">Creative, ready-to-run Tasks &amp; Flows built from your existing agents. Try them, save the keepers, or pin for later.</div>
+        </div>
+        <button class="icon-button" type="button" @click="execAi.open = false">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="field-input" type="text" style="flex:1;min-width:240px" placeholder="Optional focus — e.g. 'queue health', 'morning digest'…" x-model="execAi.hint" @keydown.enter="generateExecAi()" />
+          <button class="btn primary" type="button" @click="generateExecAi()" :disabled="execAi.loading" x-text="execAi.loading ? 'Designing…' : '✨ Suggest'"></button>
+          <button class="btn" type="button" @click="generateExecAi()" :disabled="execAi.loading" title="Refresh suggestions">↻ Refresh</button>
+        </div>
+        <div class="hint" x-show="execAi.error" style="color:var(--danger,#dc2626)" x-text="execAi.error"></div>
+
+        <!-- Pinned -->
+        <template x-if="execAi.pinned.length">
+          <div>
+            <div class="field-label"><span>📌 Pinned</span><span class="hint" x-text="execAi.pinned.length + ' saved'"></span></div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <template x-for="s in execAi.pinned" :key="'pin-' + s.id">
+                <article class="task-card" style="padding:14px">
+                  <div class="assignment-top" style="align-items:flex-start">
+                    <div style="flex:1">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong x-text="s.title"></strong>
+                        <span class="type-badge" x-text="s.kind === 'flow' ? ((s.steps?.length || 0) + '-step flow') : 'task'"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="s.description"></div>
+                    </div>
+                    <div class="toolbar">
+                      <button class="btn" type="button" @click="tryRunExecAi(s)" :disabled="execAi.runs[s.id]?.running">▶ Try</button>
+                      <button class="btn primary" type="button" @click="saveExecAi(s)">💾 Save</button>
+                      <button class="btn" type="button" @click="unpinExecAi(s)" title="Remove from pinned">📌 Unpin</button>
+                    </div>
+                  </div>
+                  <details style="margin-top:8px" x-show="s.kind === 'flow'">
+                    <summary class="hint" style="cursor:pointer">Steps</summary>
+                    <ol style="margin:6px 0 0 18px;padding:0">
+                      <template x-for="(st, i) in (s.steps || [])" :key="'ps-' + s.id + '-' + i">
+                        <li style="margin-bottom:4px"><strong x-text="st.title || st.agentId"></strong> <span class="hint mono" x-text="'(' + st.agentId + ')'"></span></li>
+                      </template>
+                    </ol>
+                  </details>
+                  <div class="hint mono" style="margin-top:8px;white-space:pre-wrap" x-show="s.kind === 'task'" x-text="s.prompt"></div>
+                  <template x-if="execAi.runs[s.id]">
+                    <div style="margin-top:10px;border-top:1px solid var(--cp-border,#dedede);padding-top:8px">
+                      <div class="hint" x-show="execAi.runs[s.id].running">Running…</div>
+                      <template x-for="(rs, i) in execAi.runs[s.id].steps" :key="'prs-' + s.id + '-' + i">
+                        <div style="margin-bottom:8px">
+                          <div style="display:flex;align-items:center;gap:6px">
+                            <span x-text="rs.running ? '⏳' : (rs.ok ? '✅' : '❌')"></span>
+                            <strong x-text="rs.title"></strong>
+                          </div>
+                          <div class="md-output" style="margin-top:4px" x-html="renderMarkdown(rs.output)"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </article>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- Generated -->
+        <div>
+          <div class="field-label"><span>💡 Suggestions</span><span class="hint" x-show="execAi.items.length" x-text="execAi.items.length + ' ideas'"></span></div>
+          <div class="empty-state" x-show="!execAi.items.length && !execAi.loading">Click <strong>✨ Suggest</strong> to have AI propose new things to run.</div>
+          <div class="hint" x-show="execAi.loading">Reviewing your agents and tasks…</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <template x-for="s in execAi.items" :key="'sug-' + s.id">
+              <article class="task-card" style="padding:14px">
+                <div class="assignment-top" style="align-items:flex-start">
+                  <div style="flex:1">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <strong x-text="s.title"></strong>
+                      <span class="type-badge" x-text="s.kind === 'flow' ? ((s.steps?.length || 0) + '-step flow') : 'task'"></span>
+                    </div>
+                    <div class="hint" style="margin-top:6px" x-text="s.description"></div>
+                  </div>
+                  <div class="toolbar">
+                    <button class="btn" type="button" @click="tryRunExecAi(s)" :disabled="execAi.runs[s.id]?.running">▶ Try</button>
+                    <button class="btn primary" type="button" @click="saveExecAi(s)">💾 Save</button>
+                    <button class="btn" type="button" @click="pinExecAi(s)" :disabled="execAi.pinned.some(p => p.id === s.id)" title="Keep for later">📌 Pin</button>
+                  </div>
+                </div>
+                <details style="margin-top:8px" x-show="s.kind === 'flow'">
+                  <summary class="hint" style="cursor:pointer">Steps</summary>
+                  <ol style="margin:6px 0 0 18px;padding:0">
+                    <template x-for="(st, i) in (s.steps || [])" :key="'gs-' + s.id + '-' + i">
+                      <li style="margin-bottom:4px"><strong x-text="st.title || st.agentId"></strong> <span class="hint mono" x-text="'(' + st.agentId + ')'"></span></li>
+                    </template>
+                  </ol>
+                </details>
+                <div class="hint mono" style="margin-top:8px;white-space:pre-wrap" x-show="s.kind === 'task'" x-text="s.prompt"></div>
+                <template x-if="execAi.runs[s.id]">
+                  <div style="margin-top:10px;border-top:1px solid var(--cp-border,#dedede);padding-top:8px">
+                    <div class="hint" x-show="execAi.runs[s.id].running">Running…</div>
+                    <template x-for="(rs, i) in execAi.runs[s.id].steps" :key="'grs-' + s.id + '-' + i">
+                      <div style="margin-bottom:8px">
+                        <div style="display:flex;align-items:center;gap:6px">
+                          <span x-text="rs.running ? '⏳' : (rs.ok ? '✅' : '❌')"></span>
+                          <strong x-text="rs.title"></strong>
+                        </div>
+                        <div class="md-output" style="margin-top:4px" x-html="renderMarkdown(rs.output)"></div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </article>
+            </template>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+
     <section class="modal-card" style="max-width:920px">
       <div class="modal-header">
         <div>
@@ -4307,6 +4431,7 @@
         managerTemplates: [],
         managerEdit: { open: false, id: null, name: '', description: '', agent: '' },
         templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false }, assistant: { active: false, sessionId: null, busy: false, input: '', messages: [] } },
+        execAi: { open: false, loading: false, error: '', hint: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
         liveOutput: {},
         managerHistory: [],
@@ -6865,6 +6990,77 @@
             await this.selectTemplate(created.name);
           } catch (error) {
             this.showToast('Create failed', error.message, 'error');
+          }
+        },
+
+        // ===== Design with AI (executions) =====
+        async openExecAi() {
+          this.execAi.open = true;
+          this.execAi.error = '';
+          try {
+            const r = await this.request('/api/execution-suggestions');
+            this.execAi.pinned = (r && r.pinned) || [];
+          } catch (_) { this.execAi.pinned = []; }
+          if (!this.execAi.items.length) await this.generateExecAi();
+        },
+
+        async generateExecAi() {
+          this.execAi.loading = true;
+          this.execAi.error = '';
+          try {
+            const r = await this.request('/api/execution-suggestions/generate', {
+              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '' })
+            });
+            this.execAi.items = (r && r.suggestions) || [];
+          } catch (error) {
+            this.execAi.error = error.message || 'Could not generate suggestions.';
+          } finally {
+            this.execAi.loading = false;
+          }
+        },
+
+        async pinExecAi(s) {
+          try {
+            const r = await this.request('/api/execution-suggestions/pin', { method: 'POST', body: JSON.stringify({ suggestion: s }) });
+            this.execAi.pinned = (r && r.pinned) || this.execAi.pinned;
+            this.showToast('Pinned', `"${s.title}" saved for later.`, 'info');
+          } catch (error) { this.showToast('Pin failed', error.message, 'error'); }
+        },
+
+        async unpinExecAi(s) {
+          try {
+            const r = await this.request('/api/execution-suggestions/' + encodeURIComponent(s.id), { method: 'DELETE' });
+            this.execAi.pinned = (r && r.pinned) || this.execAi.pinned.filter(p => p.id !== s.id);
+          } catch (error) { this.showToast('Unpin failed', error.message, 'error'); }
+        },
+
+        async saveExecAi(s) {
+          try {
+            const r = await this.request('/api/execution-suggestions/save', { method: 'POST', body: JSON.stringify({ suggestion: s }) });
+            this.showToast('Saved', `${r.type === 'flow' ? 'Flow' : 'Task'} "${r.name}" added.`, 'info');
+            await this.refreshAll();
+          } catch (error) { this.showToast('Save failed', error.message, 'error'); }
+        },
+
+        async tryRunExecAi(s) {
+          this.execAi.runs[s.id] = { running: true, steps: [] };
+          try {
+            const r = await this.request('/api/execution-suggestions/run', { method: 'POST', body: JSON.stringify({ suggestion: s }) });
+            const runId = r.runId;
+            const poll = async () => {
+              try {
+                const st = await this.request('/api/execution-suggestions/run/' + encodeURIComponent(runId));
+                this.execAi.runs[s.id] = { running: st.running, steps: st.steps || [], error: st.error };
+                if (st.running) { setTimeout(poll, 1500); }
+                else if (st.error) { this.showToast('Run error', st.error, 'error'); }
+              } catch (e) {
+                this.execAi.runs[s.id] = { running: false, steps: this.execAi.runs[s.id].steps, error: e.message };
+              }
+            };
+            setTimeout(poll, 1200);
+          } catch (error) {
+            this.execAi.runs[s.id] = { running: false, steps: [], error: error.message };
+            this.showToast('Run failed', error.message, 'error');
           }
         },
 
