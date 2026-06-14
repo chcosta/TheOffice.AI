@@ -756,6 +756,9 @@
     .panel-stack { display: grid; gap: 16px; }
     .config-grid { display: grid; gap: 14px; }
     .detail-table { display: grid; gap: 6px; }
+    .caps-divider { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--cp-border); }
+    .caps-divider-label { font-weight: 600; font-size: 0.9rem; color: var(--cp-text); }
+    .live-stream-pre { margin: 6px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; font-family: Consolas, "Courier New", monospace; font-size: 0.72rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 8px; color: var(--cp-text-muted); }
     .detail-row { display: flex; align-items: baseline; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .detail-row:last-child { border-bottom: none; }
     .detail-label { flex: 0 0 140px; font-size: 0.82em; color: var(--muted); font-weight: 500; }
@@ -1831,8 +1834,9 @@
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Details</h2>
-                      <div class="hint">Agent identity and source.</div>
+                      <div class="hint">Agent identity, source, and capabilities.</div>
                     </div>
+                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing — click to lock' : '🔒 Unlock to edit'"></button>
                   </div>
                   <div class="config-grid">
                     <div class="detail-table">
@@ -1851,18 +1855,11 @@
                         </select>
                       </span></div>
                     </div>
-                  </div>
-                </section>
 
-                <section class="detail-panel" id="agent-capabilities">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Capabilities</h2>
-                      <div class="hint">Description &amp; skills help managers decide when to route requests to this agent.</div>
+                    <div class="caps-divider">
+                      <span class="caps-divider-label">Capabilities</span>
+                      <span class="hint">Description &amp; skills help managers decide when to route requests to this agent.</span>
                     </div>
-                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing — click to lock' : '🔒 Unlock to edit'"></button>
-                  </div>
-                  <div class="config-grid">
                     <div>
                       <div class="field-label"><span>Description</span><span class="hint">What this agent does, in plain language</span></div>
                       <textarea class="field-input field-area" x-model="selectedAgent.descriptionDraft" :disabled="!selectedAgent.capsUnlocked" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
@@ -2575,6 +2572,12 @@
                     <div class="hint" style="margin-top:6px" x-text="activeChat ? chatHeaderSubtitle(activeChat) : ''"></div>
                   </div>
                   <div class="toolbar" x-show="activeChat">
+                    <template x-if="activeChat && activeChat.targetType === 'manager'">
+                      <div style="display:flex;gap:6px">
+                        <button class="btn ghost" type="button" @click="toggleChatVerbose()" :style="chatVerbose ? 'border-color:var(--cp-accent);color:var(--cp-accent)' : ''" :title="chatVerbose ? 'Showing sub-agent steps' : 'Steps hidden'" x-text="chatVerbose ? '🔎 Steps: on' : '🔎 Steps: off'"></button>
+                        <button class="btn ghost" type="button" @click="toggleChatLive()" :style="chatLive ? 'border-color:var(--cp-accent);color:var(--cp-accent)' : ''" :title="chatLive ? 'Streaming sub-agent output live (experimental)' : 'Live streaming off'" x-text="chatLive ? '📡 Live: on' : '📡 Live: off'"></button>
+                      </div>
+                    </template>
                     <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
                   </div>
@@ -2600,7 +2603,7 @@
                       <span class="activity-pulse"></span>
                       <strong x-text="chatActivity[activeChat?.id]?.status || 'Running...'"></strong>
                     </div>
-                    <template x-for="(step, si) in (chatActivity[activeChat?.id]?.steps || [])" :key="'step-' + si">
+                    <template x-for="(step, si) in (chatVerbose ? (chatActivity[activeChat?.id]?.steps || []) : [])" :key="'step-' + si">
                       <div class="activity-step" :class="step.type">
                         <template x-if="step.type === 'tool' || step.type === 'tool_start'">
                           <div class="tool-step">
@@ -2614,6 +2617,9 @@
                             <span>💭</span>
                             <span class="thinking-text" x-text="step.content"></span>
                           </div>
+                        </template>
+                        <template x-if="step.partial">
+                          <pre class="live-stream-pre" x-text="step.partial"></pre>
                         </template>
                       </div>
                     </template>
@@ -4049,6 +4055,8 @@
         toasts: [],
         typingChats: {},
         chatActivity: {},
+        chatVerbose: true,
+        chatLive: false,
         chatSessions: {},
         chatContinueInfo: null,
         syncStatus: { enabled: false, machineId: '', hostname: '' },
@@ -4122,6 +4130,10 @@
         async init() {
           this.initTheme();
           this.applyZoom();
+          try {
+            this.chatVerbose = localStorage.getItem('chatVerbose') !== '0';
+            this.chatLive = localStorage.getItem('chatLive') === '1';
+          } catch {}
           try {
             if (typeof mermaid !== 'undefined') {
               const dark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -5917,6 +5929,16 @@
           return target && target.status === 'running' ? 'running' : 'idle';
         },
 
+        toggleChatVerbose() {
+          this.chatVerbose = !this.chatVerbose;
+          try { localStorage.setItem('chatVerbose', this.chatVerbose ? '1' : '0'); } catch {}
+        },
+
+        toggleChatLive() {
+          this.chatLive = !this.chatLive;
+          try { localStorage.setItem('chatLive', this.chatLive ? '1' : '0'); } catch {}
+        },
+
         async sendChat() {
           if (!this.activeChat || !this.chatDraft.trim()) return;
           const content = this.chatDraft.trim();
@@ -5936,7 +5958,7 @@
               this.typingChats[this.activeChat.id] = true;
               const run = await this.request(`/api/managers/${encodeURIComponent(this.activeChat.target)}/prompt`, {
                 method: 'POST',
-                body: JSON.stringify({ prompt: content })
+                body: JSON.stringify({ prompt: content, liveStream: !!this.chatLive })
               });
               this.pollManagerRun(this.activeChat.target, run.runId, this.activeChat.id);
             } catch (error) {
@@ -6106,17 +6128,22 @@
           // Show initial activity
           this.chatActivity = { ...this.chatActivity, [chatId]: { status: 'Manager is thinking…', steps: [{ type: 'thinking', content: 'Analyzing request…' }] } };
           let seenSteps = 0;
-          for (let attempt = 0; attempt < 240 && this.pollers[key]; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+          const pollDelay = this.chatLive ? 1000 : 2000;
+          for (let attempt = 0; attempt < 480 && this.pollers[key]; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, pollDelay));
             try {
               const run = await this.request(`/api/managers/${encodeURIComponent(managerId)}/runs/${runId}`);
               // Update live activity from run steps
               const steps = run.steps || [];
-              if (steps.length > seenSteps) {
+              const lastRaw = steps[steps.length - 1];
+              const livePartial = (this.chatLive && lastRaw && lastRaw.streaming) ? (lastRaw.partial || '') : '';
+              if (steps.length > seenSteps || livePartial) {
                 seenSteps = steps.length;
-                const activitySteps = steps.map(s => {
+                const activitySteps = steps.map((s, idx) => {
+                  const isLast = idx === steps.length - 1;
+                  const partial = (this.chatLive && isLast && s.streaming) ? (s.partial || '') : '';
                   if (s.action === 'thinking') return { type: 'thinking', content: 'Deciding next action…' };
-                  if (s.action === 'run_agent') return { type: 'tool_start', tool: `Running: ${s.agentId}`, success: null };
+                  if (s.action === 'run_agent') return { type: 'tool_start', tool: `Running: ${s.agentId}`, success: null, partial };
                   if (s.action === 'agent_result') return { type: 'tool', tool: `Result from: ${s.agentId || 'agent'}`, success: true };
                   if (s.action === 'complete') return { type: 'thinking', content: 'Composing final response…' };
                   if (s.action === 'error') return { type: 'tool', tool: `Error: ${(s.error || '').substring(0, 60)}`, success: false };
