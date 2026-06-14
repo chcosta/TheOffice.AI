@@ -3425,6 +3425,61 @@ app.delete('/api/manager-response-format', (req, res) => {
   res.json({ ok: true, format: ManagerAgent.DEFAULT_RESPONSE_FORMAT, isDefault: true });
 });
 
+// ===== Manager Template dev assistant =====
+// A copilot-backed chat that helps the user design a manager template persona and,
+// once aligned, emits a ```template JSON block the UI can apply. The shared action
+// contract is injected globally, so the assistant is told NOT to include it.
+const MANAGER_TEMPLATE_ASSISTANT_PERSONA = [
+  'You are the Manager Template Dev Assistant for an agent-orchestration platform.',
+  'Your job is to help the user design a "manager template" — the persona/brain for a Manager that ORCHESTRATES other agents (it never does work itself; it decides which sub-agent to run and in what order).',
+  '',
+  'Key facts about how managers work here:',
+  '- A manager runs ONE sub-agent per turn, reviews the output, then decides the next action.',
+  '- The machine-readable action-block response format (RUN_AGENT / COMPLETE / REQUEST_AGENT) is injected automatically at runtime and is shared across ALL managers. NEVER include it, restate it, or describe its syntax in the template body — that would duplicate and risk breaking it.',
+  '- The template body should focus on: persona/identity, what this manager is responsible for, decision guidelines (when to run which kind of agent, how to sequence them, how to pass context forward), tone, and how to summarize results for the user.',
+  '',
+  'How to collaborate:',
+  '- Ask brief clarifying questions about the manager\'s purpose, the kinds of agents it will coordinate, and any decision rules.',
+  '- Keep replies concise and conversational.',
+  '- When (and only when) you and the user are aligned on the design, output the proposal as a single fenced code block tagged `template` containing JSON with keys: name (kebab-case slug), description (one line), tools (array, default ["powershell"]), body (the markdown persona, WITHOUT any response-format/action-block section). Example:',
+  '```template',
+  '{',
+  '  "name": "incident-manager",',
+  '  "description": "Coordinates monitoring and notification agents during incidents",',
+  '  "tools": ["powershell"],',
+  '  "body": "# Incident Manager\\n\\nYou coordinate ..."',
+  '}',
+  '```',
+  '- Before emitting the block, briefly confirm with the user. After emitting it, tell them they can review and click Apply to create/update the template.',
+].join('\n');
+
+app.post('/api/manager-template-assistant/chat', async (req, res) => {
+  const { message, sessionId: incomingId, resume } = req.body || {};
+  if (!message || !String(message).trim()) return res.status(400).json({ error: 'message required' });
+  const sessionId = incomingId || require('crypto').randomUUID();
+  const isResume = !!resume && !!incomingId;
+  const prompt = isResume
+    ? String(message)
+    : MANAGER_TEMPLATE_ASSISTANT_PERSONA + '\n\n## User\n' + String(message);
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId, resume: isResume, cwd: __dirname,
+      onChunk: (c) => { acc += c; }
+    });
+    // Deltas fire only for the current turn, so `acc` is just this reply. The
+    // result.output joins ALL assistant messages in the session (every prior
+    // turn too) — only fall back to it when no deltas streamed.
+    const output = acc.trim() ? acc : (result.output || '');
+    if (!result.ok && !output) {
+      return res.status(500).json({ error: result.error || 'assistant failed', sessionId });
+    }
+    res.json({ sessionId, output, steps: Array.isArray(result.steps) ? result.steps : [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message, sessionId });
+  }
+});
+
 // ============ End Manager API Routes ============
 
 // ============ Chat Persistence API ============

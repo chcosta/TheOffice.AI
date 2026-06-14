@@ -3963,6 +3963,7 @@
           <!-- List -->
           <div class="stack" style="border-right:1px solid var(--cp-border);padding-right:16px">
             <button class="btn primary" type="button" style="width:100%" @click="newTemplate()">＋ New Template</button>
+            <button class="btn" type="button" style="width:100%" @click="toggleAssistant()" :class="{ active: templates.assistant.active }">🪄 Design with AI</button>
             <template x-for="t in managerTemplates" :key="'tpl-' + t.id">
               <button class="selector-button" type="button" :class="{ active: templates.draft && templates.draft.name === t.name && !templates.draft._new }" @click="selectTemplate(t.name)">
                 <div class="split-meta">
@@ -3981,10 +3982,50 @@
           </div>
           <!-- Editor -->
           <div>
-            <template x-if="!templates.draft">
-              <div class="empty-state">Select a template to view or edit, or create a new one.</div>
+            <!-- AI dev assistant: helps design a template, then proposes it for review -->
+            <template x-if="templates.assistant.active">
+              <div style="display:flex;flex-direction:column;gap:10px;height:560px">
+                <div class="split-meta">
+                  <div>
+                    <strong>🪄 Template Design Assistant</strong>
+                    <div class="hint" style="margin-top:4px">Describe the manager you want. The assistant asks questions, then proposes a template you can review and apply.</div>
+                  </div>
+                  <button class="btn" type="button" @click="templates.assistant.active = false">✕ Close</button>
+                </div>
+                <div style="flex:1;overflow:auto;border:1px solid var(--cp-border);border-radius:10px;padding:12px;background:var(--cp-surface);display:flex;flex-direction:column;gap:12px">
+                  <div class="empty-state" x-show="!templates.assistant.messages.length">Say what you want this manager to do — e.g. "watch Azure and email me on failures".</div>
+                  <template x-for="(m, i) in templates.assistant.messages" :key="'am-' + i">
+                    <div :style="m.role === 'user' ? 'align-self:flex-end;max-width:85%' : 'align-self:flex-start;max-width:95%'">
+                      <div class="hint" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
+                      <div style="white-space:pre-wrap;padding:8px 12px;border-radius:10px;margin-top:2px"
+                        :style="m.role === 'user' ? 'background:var(--cp-accent-soft)' : 'background:var(--cp-surface-soft)'"
+                        x-text="m.text"></div>
+                      <div x-show="m.proposal" style="margin-top:8px;padding:10px;border:1px dashed var(--cp-border-strong);border-radius:10px;background:var(--cp-surface-soft)">
+                        <div class="split-meta">
+                          <div style="min-width:0">
+                            <strong x-text="m.proposal && m.proposal.name"></strong>
+                            <div class="hint" x-text="m.proposal && m.proposal.description"></div>
+                          </div>
+                          <button class="btn primary" type="button" @click="applyProposal(m.proposal)">Apply →</button>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="hint" x-show="templates.assistant.busy">Assistant is thinking…</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:flex-end">
+                  <textarea class="field-input" style="min-height:54px;flex:1" x-model="templates.assistant.input"
+                    @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); sendAssistant(); }"
+                    placeholder="Message the assistant… (Enter to send, Shift+Enter for newline)"></textarea>
+                  <button class="btn primary" type="button" @click="sendAssistant()" :disabled="templates.assistant.busy || !templates.assistant.input.trim()">Send</button>
+                </div>
+                <div class="hint">New session: <button type="button" style="background:none;border:none;color:var(--cp-link);cursor:pointer;padding:0;font:inherit" @click="resetAssistant()">start over</button></div>
+              </div>
             </template>
-            <template x-if="templates.draft">
+            <template x-if="!templates.assistant.active && !templates.draft">
+              <div class="empty-state">Select a template to view or edit, create a new one, or design one with AI.</div>
+            </template>
+            <template x-if="!templates.assistant.active && templates.draft">
               <div style="display:flex;flex-direction:column;gap:14px">
                 <div>
                   <div class="field-label"><span>Name</span><span class="hint" x-show="!templates.draft._new">Immutable — referenced by managers via manager:&lt;name&gt;</span></div>
@@ -4262,7 +4303,7 @@
         selectedManager: null,
         managerTemplates: [],
         managerEdit: { open: false, id: null, name: '', description: '', agent: '' },
-        templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false } },
+        templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false }, assistant: { active: false, sessionId: null, busy: false, input: '', messages: [] } },
         agentHistory: [],
         liveOutput: {},
         managerHistory: [],
@@ -6738,6 +6779,73 @@
           } catch (error) {
             this.showToast('Reset failed', error.message, 'error');
           }
+        },
+
+        toggleAssistant() {
+          this.templates.assistant.active = !this.templates.assistant.active;
+        },
+
+        resetAssistant() {
+          this.templates.assistant.sessionId = null;
+          this.templates.assistant.messages = [];
+          this.templates.assistant.input = '';
+          this.templates.assistant.busy = false;
+        },
+
+        // Pull a ```template JSON block out of the assistant reply, returning the
+        // visible text (block removed) plus the parsed proposal (or null).
+        parseTemplateProposal(text) {
+          const m = String(text || '').match(/```template\s*\n([\s\S]*?)```/);
+          if (!m) return { clean: text, proposal: null };
+          let proposal = null;
+          try {
+            const obj = JSON.parse(m[1].trim());
+            if (obj && obj.name && obj.body) {
+              proposal = {
+                name: String(obj.name).trim(),
+                description: String(obj.description || '').trim(),
+                tools: Array.isArray(obj.tools) ? obj.tools : ['powershell'],
+                body: String(obj.body || '')
+              };
+            }
+          } catch (_) { /* leave proposal null on bad JSON */ }
+          const clean = text.replace(/```template\s*\n[\s\S]*?```/, '').trim();
+          return { clean, proposal };
+        },
+
+        async sendAssistant() {
+          const a = this.templates.assistant;
+          const msg = (a.input || '').trim();
+          if (!msg || a.busy) return;
+          a.messages.push({ role: 'user', text: msg });
+          a.input = '';
+          a.busy = true;
+          try {
+            const payload = { message: msg };
+            if (a.sessionId) { payload.sessionId = a.sessionId; payload.resume = true; }
+            const r = await this.request('/api/manager-template-assistant/chat', { method: 'POST', body: JSON.stringify(payload) });
+            a.sessionId = r.sessionId || a.sessionId;
+            const { clean, proposal } = this.parseTemplateProposal(r.output || '');
+            a.messages.push({ role: 'assistant', text: clean || '(no response)', proposal });
+          } catch (error) {
+            a.messages.push({ role: 'assistant', text: '⚠️ ' + error.message });
+          } finally {
+            a.busy = false;
+          }
+        },
+
+        applyProposal(p) {
+          if (!p) return;
+          this.templates.draft = {
+            _new: true,
+            name: p.name || '',
+            description: p.description || '',
+            toolsText: (p.tools && p.tools.length ? p.tools : ['powershell']).join(', '),
+            body: p.body || '',
+            builtin: false, inUse: 0, usedBy: []
+          };
+          this.templates.assistant.active = false;
+          this.showToast('Loaded', 'Review the proposed template, then click Create.', 'info');
         },
 
         async selectTemplate(name) {
