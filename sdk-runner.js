@@ -254,6 +254,35 @@ class SdkRunner {
       if (mcp) opts.mcpServers = mcp;
     }
 
+    return this._execute(opts, prompt, sessionId, onChunk);
+  }
+
+  /**
+   * Run a one-off prompt with NO custom agent (the default copilot), e.g. the
+   * chain AI judge / condition evaluator. Same result/fallback contract as
+   * runAgent. Only enabled when mode !== 'off'.
+   * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
+   *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
+   */
+  async runPrompt({ prompt, cwd, sessionId, onChunk }) {
+    if (this.mode === 'off') {
+      return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
+    }
+    const opts = {
+      sessionId,
+      workingDirectory: cwd || process.cwd(),
+      streaming: true,
+      onPermissionRequest: approveAll,
+    };
+    return this._execute(opts, prompt, sessionId, onChunk);
+  }
+
+  /**
+   * Shared createSession -> sendAndWait -> getEvents core for runAgent/runPrompt.
+   * Streams assistant deltas through onChunk(text) and returns the standard
+   * result shape. createSession failures degrade to { fallback:true }.
+   */
+  async _execute(opts, prompt, sessionId, onChunk) {
     const client = await this._getClient();
     if (!client) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: no client', sessionId };

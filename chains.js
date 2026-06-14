@@ -21,6 +21,7 @@ const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const { Cron } = require('croner');
 const { parseSchedule } = require('./scheduler');
+const sdkRunner = require('./sdk-runner');
 
 const CHAINS_PATH = path.join(__dirname, 'chains.json');
 
@@ -325,28 +326,77 @@ class ChainEngine extends EventEmitter {
 
   // Built-in shared evaluator: ask copilot to judge a predicate against output.
   // Optionally routes through a custom condition agent (agentId).
+  // Runtime: prefers the @github/copilot-sdk runner (gated by SDK_RUN_MODE) and
+  // transparently falls back to the legacy CLI spawn on any miss/failure.
   _evaluateAI(predicate, output, agentId) {
+    const prompt = this._buildJudgePrompt(predicate, output);
+
+    let agentEntry = null;
+    if (agentId) {
+      const e = this.supervisor.agents.get(agentId);
+      if (e && e.config) agentEntry = e;
+    }
+
+    // With a condition agent: respect its canary opt-in. Default (no agent)
+    // judge only migrates when the runner is fully enabled (mode 'all').
+    const useSdk = agentEntry
+      ? sdkRunner.shouldUse(agentEntry.config)
+      : sdkRunner.mode === 'all';
+
+    if (useSdk) {
+      return this._evaluateAiSdk(prompt, agentEntry).then((verdict) => {
+        if (verdict) return verdict;
+        // null = the SDK path missed/fell back; run the CLI evaluator instead.
+        return this._evaluateAiCli(prompt, agentId);
+      });
+    }
+    return this._evaluateAiCli(prompt, agentId);
+  }
+
+  // Build the strict deterministic judge instructions sent to the evaluator.
+  _buildJudgePrompt(predicate, output) {
+    return [
+      'You are a strict, deterministic condition evaluator inside an automation pipeline.',
+      'Decide whether the PREDICATE is TRUE for the given task OUTPUT.',
+      'Judge ONLY from the OUTPUT. Do not run tools or gather new information unless explicitly required by the predicate.',
+      '',
+      '## PREDICATE',
+      predicate || '(no predicate provided)',
+      '',
+      '## OUTPUT',
+      '```',
+      String(output || '').slice(0, 20000),
+      '```',
+      '',
+      '## RESPONSE',
+      'Respond with ONLY a single-line JSON object and nothing else:',
+      '{"pass": true|false, "reason": "<one short sentence>"}'
+    ].join('\n');
+  }
+
+  // SDK evaluator. Resolves a verdict via the copilot-sdk runner.
+  // Returns null (NOT a verdict) when the runner falls back or errors, so the
+  // caller can run the CLI evaluator instead — never throws.
+  async _evaluateAiSdk(prompt, agentEntry) {
+    try {
+      const { randomUUID } = require('crypto');
+      const sessionId = randomUUID();
+      const res = agentEntry
+        ? await sdkRunner.runAgent({ config: agentEntry.config, prompt, sessionId })
+        : await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId });
+      if (!res || res.fallback) return null;
+      return this._parseVerdict(res.output || '');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Legacy CLI evaluator: writes the prompt to a temp file and spawns `copilot`.
+  _evaluateAiCli(prompt, agentId) {
     return new Promise((resolve) => {
       const os = require('os');
       const file = path.join(os.tmpdir(), `chain-cond-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.md`);
-      const instructions = [
-        'You are a strict, deterministic condition evaluator inside an automation pipeline.',
-        'Decide whether the PREDICATE is TRUE for the given task OUTPUT.',
-        'Judge ONLY from the OUTPUT. Do not run tools or gather new information unless explicitly required by the predicate.',
-        '',
-        '## PREDICATE',
-        predicate || '(no predicate provided)',
-        '',
-        '## OUTPUT',
-        '```',
-        String(output || '').slice(0, 20000),
-        '```',
-        '',
-        '## RESPONSE',
-        'Respond with ONLY a single-line JSON object and nothing else:',
-        '{"pass": true|false, "reason": "<one short sentence>"}'
-      ].join('\n');
-      fs.writeFileSync(file, instructions, 'utf-8');
+      fs.writeFileSync(file, prompt, 'utf-8');
 
       const copilotCmd = process.env.COPILOT_PATH || 'copilot';
       let agentFlag = '';
