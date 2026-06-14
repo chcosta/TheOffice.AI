@@ -2287,10 +2287,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Tasks</h1>
-                <p>Unified view of agent tasks and manager assignments with quick scheduling edits.</p>
-              </div>
-              <div class="toolbar">
-                <button class="btn primary" type="button" @click="newTaskOpen = true">＋ New Task</button>
+                <p>Monitor agent tasks: status, schedule, next/last run, and history. Create or edit a task from its agent's detail page.</p>
               </div>
             </div>
             <div class="search-row">
@@ -2336,33 +2333,19 @@
                   <!-- Expanded detail panel -->
                   <div x-show="selectedTaskId === task.taskKey" x-transition.opacity.duration.150ms style="margin-top:14px">
                     <div class="config-grid">
+                      <div class="detail-table">
+                        <div class="detail-row"><span class="detail-label">Schedule</span><span class="detail-value" x-text="task.scheduleSummary"></span></div>
+                        <div class="detail-row"><span class="detail-label">Next run</span><span class="detail-value" x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span></div>
+                        <div class="detail-row"><span class="detail-label">Agent</span><span class="detail-value" x-text="task.ownerName"></span></div>
+                      </div>
                       <div>
-                        <div class="field-label"><span>Schedule</span><span class="hint" x-text="task.nextRun ? 'Next ' + formatCountdown(task.nextRun) : 'No next run'"></span></div>
-                      <div class="schedule-picker">
-                        <select class="field-input" x-model="task.schedulePreset" @change="applySchedulePresetTo(task, $event.target.value)">
-                          <option value="never">Manual only</option>
-                          <option value="5m">Every 5 minutes</option>
-                          <option value="15m">Every 15 minutes</option>
-                          <option value="30m">Every 30 minutes</option>
-                          <option value="1h">Every hour</option>
-                          <option value="6h">Every 6 hours</option>
-                          <option value="24h">Daily</option>
-                          <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                          <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
-                          <option value="custom">Advanced (cron / custom)…</option>
-                        </select>
-                        <div x-show="task.schedulePreset === 'custom'" x-transition style="margin-top:8px">
-                          <input class="field-input mono" type="text" x-model="task.scheduleDraft" />
-                        </div>
+                        <div class="field-label"><span>Prompt</span></div>
+                        <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
                       </div>
                       <div class="inline-actions">
-                        <button class="btn primary" type="button" @click="saveTaskSchedule(task)">Save schedule</button>
-                        <button class="btn ghost" type="button" @click="task.type === 'agent' ? goTo('#/agents/' + encodeURIComponent(task.agentId)) : goTo('#/managers/' + encodeURIComponent(task.managerId))">Open detail</button>
+                        <button class="btn primary" type="button" @click="editTaskOnAgent(task)">✏️ Edit on agent page</button>
+                        <span class="hint">Schedule &amp; prompt are configured on the agent.</span>
                       </div>
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Prompt / description</span></div>
-                      <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
                     </div>
                     <!-- Recent run history -->
                     <div style="margin-top:16px">
@@ -5209,6 +5192,13 @@
           }
         },
 
+        // From the read-only Tasks page, jump to the agent's detail page and load
+        // this task into the agent's task editor (single canonical edit surface).
+        editTaskOnAgent(task) {
+          this.pendingFocus = { route: 'agent-detail', editTaskId: task.id };
+          this.goTo('#/agents/' + encodeURIComponent(task.agentId));
+        },
+
         applyScheduleFocus(pf) {
           const flash = (id) => {
             const el = document.getElementById(id);
@@ -5226,6 +5216,9 @@
             const chain = (this.data.chains || []).find(c => c.id === pf.chainId);
             if (chain && this.selectedChainId !== chain.id) this.toggleSelectedChain(chain);
             this.$nextTick(() => flash('sched-focus-chain-' + pf.chainId));
+          } else if (pf.route === 'agent-detail') {
+            const task = this.allTasks().find(t => t.type === 'agent' && t.id === pf.editTaskId);
+            if (task) this.$nextTick(() => this.editTaskInForm(task));
           }
         },
 
