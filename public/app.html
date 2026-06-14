@@ -769,6 +769,9 @@
     .msg-activity-step.error { border-left-color: var(--cp-danger); }
     .msg-activity-step.complete { border-left-color: var(--cp-accent); }
     .msg-activity-label { font-size: 0.74rem; font-weight: 600; color: var(--cp-text-soft); }
+    .msg-activity-substep > summary { cursor: pointer; font-size: 0.74rem; font-weight: 600; color: var(--cp-text-soft); user-select: none; list-style: revert; }
+    .msg-activity-substep > summary:hover { color: var(--cp-accent); }
+    .msg-activity-substep[open] > summary { color: var(--cp-accent); }
     .detail-row { display: flex; align-items: baseline; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .detail-row:last-child { border-bottom: none; }
     .detail-label { flex: 0 0 140px; font-size: 0.82em; color: var(--muted); font-weight: 500; }
@@ -1851,9 +1854,14 @@
                         <div class="msg-activity-body">
                           <template x-for="(st, ai) in (liveOutput[selectedAgent?.id]?.steps || [])" :key="'dstep-' + ai">
                             <div class="msg-activity-step" :class="st.type">
-                              <div class="msg-activity-label" x-text="st.label"></div>
                               <template x-if="st.text">
-                                <pre class="live-stream-pre" x-text="st.text"></pre>
+                                <details class="msg-activity-substep">
+                                  <summary x-text="st.label"></summary>
+                                  <pre class="live-stream-pre" x-text="st.text"></pre>
+                                </details>
+                              </template>
+                              <template x-if="!st.text">
+                                <div class="msg-activity-label" x-text="st.label"></div>
                               </template>
                             </div>
                           </template>
@@ -2641,9 +2649,14 @@
                                 <div class="msg-activity-body">
                                   <template x-for="(st, ai) in message.activity" :key="'act-' + ai">
                                     <div class="msg-activity-step" :class="st.type">
-                                      <div class="msg-activity-label" x-text="st.label"></div>
                                       <template x-if="st.text">
-                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                        <details class="msg-activity-substep">
+                                          <summary x-text="st.label"></summary>
+                                          <pre class="live-stream-pre" x-text="st.text"></pre>
+                                        </details>
+                                      </template>
+                                      <template x-if="!st.text">
+                                        <div class="msg-activity-label" x-text="st.label"></div>
                                       </template>
                                     </div>
                                   </template>
@@ -2716,9 +2729,14 @@
                                 <div class="msg-activity-body">
                                   <template x-for="(st, ai) in (liveOutput[activeChat?.target]?.steps || [])" :key="'xstep-' + ai">
                                     <div class="msg-activity-step" :class="st.type">
-                                      <div class="msg-activity-label" x-text="st.label"></div>
                                       <template x-if="st.text">
-                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                        <details class="msg-activity-substep">
+                                          <summary x-text="st.label"></summary>
+                                          <pre class="live-stream-pre" x-text="st.text"></pre>
+                                        </details>
+                                      </template>
+                                      <template x-if="!st.text">
+                                        <div class="msg-activity-label" x-text="st.label"></div>
                                       </template>
                                     </div>
                                   </template>
@@ -5941,17 +5959,44 @@
 
         // Flatten an agent turn's poll steps into the same compact activity
         // trace shape used for managers, so agent chat gets the identical
-        // "Reasoning & steps" drill-down (reasoning text + tool calls).
+        // "Reasoning & steps" drill-down (reasoning text + tool calls). Each tool
+        // step carries its command (args) and output (result) so the user can
+        // expand it to see exactly what was run.
         mapAgentSteps(steps) {
           return (steps || []).map((s) => {
             const isTool = s.type === 'tool' || s.type === 'tool_start';
             if (isTool) {
               const ok = s.success === false ? ' ✗' : (s.success === true ? ' ✓' : '');
-              return { type: 'tool', label: '🔧 ' + (s.tool || 'tool') + ok, text: (s.content || '').trim() };
+              const parts = [];
+              const cmd = this.formatToolArgs(s.tool, s.args);
+              if (cmd) parts.push('▶ ' + cmd);
+              const out = (s.result || s.content || '').trim();
+              if (out) parts.push(out);
+              if (s.detail) parts.push(String(s.detail).trim());
+              return { type: 'tool', label: '🔧 ' + (s.tool || 'tool') + ok, text: parts.join('\n\n') };
             }
             const text = (s.content || s.reasoning || '').trim();
             return text ? { type: 'thinking', label: 'Agent reasoning', text } : null;
           }).filter(Boolean);
+        },
+
+        // Render a tool call's arguments as a readable command line for the
+        // expandable step view (powershell command, file path, query, etc.).
+        formatToolArgs(tool, args) {
+          if (!args) return '';
+          if (typeof args === 'string') return args;
+          if (typeof args === 'object') {
+            if (args.command) return String(args.command);
+            if (args.cmd) return String(args.cmd);
+            if (args.script) return String(args.script);
+            if (args.path && args.content !== undefined) return `${tool || 'write'} ${args.path}`;
+            if (args.path) return `${tool || 'read'} ${args.path}`;
+            if (args.pattern) return `${tool || 'search'} ${args.pattern}`;
+            if (args.query) return String(args.query);
+            if (args.url) return String(args.url);
+            try { return JSON.stringify(args); } catch { return ''; }
+          }
+          return '';
         },
 
         async openChat(chatId, navigate = true) {
