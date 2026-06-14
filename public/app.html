@@ -1782,7 +1782,7 @@
               <div class="page-title">
                 <a class="btn ghost" href="#/agents">← Agents</a>
                 <h1 style="margin-top:14px" x-text="selectedAgent.name"></h1>
-                <p x-text="selectedAgent.config.group || selectedAgent.config.cwd || selectedAgent.id"></p>
+                <p x-text="selectedAgent.config.group ? ('Group · ' + selectedAgent.config.group) : (selectedAgent.config.cwd || selectedAgent.id)"></p>
                 <div class="split-meta" style="margin-top:8px;gap:8px;flex-wrap:wrap" x-show="selectedAgent.config.source">
                   <template x-if="selectedAgent.config.source && selectedAgent.config.source.type === 'azdo'">
                     <span class="source-badge source-plugin" :title="'objectId ' + (selectedAgent.config.source.objectId || '')">
@@ -4675,14 +4675,30 @@
               this.request(`/api/agents/${encodeURIComponent(id)}`),
               this.request(`/api/agents/${encodeURIComponent(id)}/history?limit=10`)
             ]);
+            // Preserve ephemeral editor/UI state across background refreshes of the
+            // same agent, so opening the task editor (or unlocking Capabilities)
+            // isn't wiped out by a polling/SSE-driven reload.
+            const prev = (this.selectedAgent && this.selectedAgent.id === id) ? this.selectedAgent : null;
             this.selectedAgent = this.normalizeAgent(agent);
-            this.selectedAgent.promptDraft = '';
-            this.selectedAgent.scheduleDraft = 'never';
-            this.selectedAgent.schedulePreset = 'never';
-            this.selectedAgent.taskNameDraft = '';
-            this.selectedAgent.editingTaskId = null;
-            this.selectedAgent.showTaskEditor = false;
-            this.selectedAgent.capsUnlocked = false;
+            if (prev) {
+              this.selectedAgent.promptDraft = prev.promptDraft || '';
+              this.selectedAgent.scheduleDraft = prev.scheduleDraft || 'never';
+              this.selectedAgent.schedulePreset = prev.schedulePreset || 'never';
+              this.selectedAgent.taskNameDraft = prev.taskNameDraft || '';
+              this.selectedAgent.editingTaskId = prev.editingTaskId || null;
+              this.selectedAgent.showTaskEditor = !!prev.showTaskEditor;
+              this.selectedAgent.capsUnlocked = !!prev.capsUnlocked;
+              this.selectedAgent.descriptionDraft = prev.capsUnlocked ? prev.descriptionDraft : this.selectedAgent.descriptionDraft;
+              this.selectedAgent.skillsDraft = prev.capsUnlocked ? prev.skillsDraft : this.selectedAgent.skillsDraft;
+            } else {
+              this.selectedAgent.promptDraft = '';
+              this.selectedAgent.scheduleDraft = 'never';
+              this.selectedAgent.schedulePreset = 'never';
+              this.selectedAgent.taskNameDraft = '';
+              this.selectedAgent.editingTaskId = null;
+              this.selectedAgent.showTaskEditor = false;
+              this.selectedAgent.capsUnlocked = false;
+            }
             this.agentHistory = history;
             // Check for source updates in background
             this.checkAgentUpdate(id).then(hasUpdate => {
