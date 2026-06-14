@@ -1795,7 +1795,7 @@
                 </div>
               </div>
               <div class="toolbar">
-                <button class="btn primary" type="button" @click="newAgentTask()">＋ New Task</button>
+                <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit</button>
                 <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
@@ -1883,56 +1883,6 @@
                   </div>
                 </section>
 
-                <section class="detail-panel" id="agent-task-editor" x-show="selectedAgent.showTaskEditor" x-transition>
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title" x-text="selectedAgent.editingTaskId ? 'Edit Task' : 'Create Task'"></h2>
-                      <div class="hint">Define a named task with a prompt and schedule for this agent.</div>
-                    </div>
-                    <div class="toolbar">
-                      <button class="btn" type="button" x-show="selectedAgent.editingTaskId" @click="newAgentTask()">＋ New</button>
-                      <button class="btn ghost" type="button" @click="closeTaskEditor()">✕ Close</button>
-                    </div>
-                  </div>
-                  <div class="config-grid">
-                    <div>
-                      <div class="field-label"><span>Task name</span><span class="hint">Displayed in the Tasks section</span></div>
-                      <input class="field-input" type="text" x-model="selectedAgent.taskNameDraft" placeholder="e.g. Daily standup report" />
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Prompt</span><span class="hint">What the agent should do</span></div>
-                      <textarea class="field-input field-area" x-model="selectedAgent.promptDraft" placeholder="Describe the task for this agent..."></textarea>
-                    </div>
-                    <div>
-                      <div class="field-label"><span>Schedule</span></div>
-                      <div class="schedule-picker">
-                        <select class="field-input" x-model="selectedAgent.schedulePreset" @change="applySchedulePreset($event.target.value, 'agent')">
-                          <option value="never">Manual only (no schedule)</option>
-                          <option value="5m">Every 5 minutes</option>
-                          <option value="15m">Every 15 minutes</option>
-                          <option value="30m">Every 30 minutes</option>
-                          <option value="1h">Every hour</option>
-                          <option value="6h">Every 6 hours</option>
-                          <option value="24h">Daily</option>
-                          <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                          <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
-                          <option value="custom">Advanced (cron / custom)…</option>
-                        </select>
-                        <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(selectedAgent.scheduleDraft, 'Task schedule', v => { selectedAgent.scheduleDraft = v; selectedAgent.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
-                        <div x-show="selectedAgent.schedulePreset === 'custom'" x-transition style="margin-top:8px">
-                          <input class="field-input mono" type="text" x-model="selectedAgent.scheduleDraft" placeholder="e.g. */15 * * * * or weekdays at 7am" />
-                          <div class="hint" style="margin-top:4px">Supports: intervals (30m, 1h), human-readable (weekdays at 9am), or 5-field cron.</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="inline-actions">
-                      <button class="btn primary" type="button" @click="saveAgentTask()">Save Task</button>
-                      <span class="hint" x-show="selectedAgent.promptDraft && selectedAgent.scheduleDraft !== 'never'">Will appear in Tasks with the specified schedule.</span>
-                      <span class="hint" x-show="!selectedAgent.promptDraft || selectedAgent.scheduleDraft === 'never'">Set both a prompt and schedule to create a recurring task.</span>
-                    </div>
-                  </div>
-                </section>
-
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
@@ -1949,7 +1899,7 @@
                             <div class="hint" style="margin-top:6px" x-text="task.scheduleSummary"></div>
                           </div>
                           <div class="toolbar">
-                            <button class="btn" type="button" @click="editTaskInForm(task)">✏️</button>
+                            <button class="btn" type="button" @click="openTaskModal(task)">✏️</button>
                             <button class="btn" type="button" @click="runTask(task)">▶ Run</button>
                           </div>
                         </div>
@@ -2296,7 +2246,10 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Tasks</h1>
-                <p>Monitor agent tasks: status, schedule, next/last run, and history. Create or edit a task from its agent's detail page.</p>
+                <p>Create, edit, run, and monitor agent tasks: status, schedule, next/last run, and history.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" type="button" @click="openTaskModal()">＋ New Task</button>
               </div>
             </div>
             <div class="search-row">
@@ -2317,6 +2270,7 @@
                     </div>
                     <div class="toolbar">
                       <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Details'"></button>
+                      <button class="btn" type="button" @click="openTaskModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
                   </div>
@@ -2352,8 +2306,8 @@
                         <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
                       </div>
                       <div class="inline-actions">
-                        <button class="btn primary" type="button" @click="editTaskOnAgent(task)">✏️ Edit on agent page</button>
-                        <span class="hint">Schedule &amp; prompt are configured on the agent.</span>
+                        <button class="btn primary" type="button" @click="openTaskModal(task)">✏️ Edit</button>
+                        <button class="btn danger" type="button" @click="deleteTaskById(task.id, task.name)">🗑 Delete</button>
                       </div>
                     </div>
                     <!-- Recent run history -->
@@ -2402,8 +2356,12 @@
                 <button class="btn primary" type="button" @click="newChain()">＋ New Flow</button>
               </div>
             </div>
+            <div class="search-row">
+              <input class="field-input" type="search" placeholder="Filter by flow name or description…" x-model="chainSearch" @input.debounce.200ms="$nextTick(() => filteredChains().forEach(c => renderChainDiagram(c)))" />
+              <div class="hint" x-text="filteredChains().length + ' shown'"></div>
+            </div>
             <div class="assignment-list">
-              <template x-for="chain in data.chains" :key="chain.id">
+              <template x-for="chain in filteredChains()" :key="chain.id">
                 <article class="task-card" :id="'sched-focus-chain-' + chain.id">
                   <div class="assignment-top">
                     <div>
@@ -2416,7 +2374,8 @@
                       <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="toggleSelectedChain(chain)" x-text="selectedChainId === chain.id ? 'Collapse' : 'Edit'"></button>
+                      <button class="btn" type="button" @click="toggleSelectedChain(chain)" x-text="selectedChainId === chain.id ? 'Collapse' : 'Details'"></button>
+                      <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
                     </div>
                   </div>
@@ -2424,147 +2383,8 @@
                   <!-- Inline flow visualization -->
                   <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto"></div>
 
-                  <!-- Editor -->
-                  <div x-show="selectedChainId === chain.id && chainDraft" x-transition.opacity.duration.150ms style="margin-top:14px">
-                    <template x-if="chainDraft">
-                      <div style="display:flex;flex-direction:column;gap:16px">
-                        <div class="config-grid">
-                          <div>
-                            <div class="field-label"><span>Name</span></div>
-                            <input class="field-input" type="text" x-model="chainDraft.name" />
-                          </div>
-                          <div>
-                            <div class="field-label"><span>Schedule</span></div>
-                            <select class="field-input" x-model="chainDraft.schedule">
-                              <option value="never">Manual only</option>
-                              <option value="15m">Every 15 minutes</option>
-                              <option value="30m">Every 30 minutes</option>
-                              <option value="1h">Every hour</option>
-                              <option value="6h">Every 6 hours</option>
-                              <option value="24h">Daily</option>
-                              <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                              <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
-                                <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
-                              </template>
-                            </select>
-                            <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
-                          </div>
-                        </div>
-                        <div>
-                          <div class="field-label"><span>Description</span></div>
-                          <input class="field-input" type="text" x-model="chainDraft.description" />
-                        </div>
-                        <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
-
-                        <!-- Tasks -->
-                        <div>
-                          <div class="field-label"><span>Tasks</span><span class="hint">Each task runs in the flow. Tasks with no inbound arrow start the flow.</span></div>
-                          <div class="hint" style="margin:-2px 0 8px;line-height:1.5">
-                            In a prompt you can inject the previous task's result with variables:
-                            <code>{{ trigger.output }}</code> (previous task's output),
-                            <code>{{ trigger.name }}</code>, <code>{{ trigger.exitCode }}</code>.
-                            <span style="opacity:.8">These only resolve for tasks that have an inbound arrow; the first task runs its prompt as-is.</span>
-                          </div>
-                          <div style="display:flex;flex-direction:column;gap:10px">
-                            <template x-for="(step, si) in chainDraft.steps" :key="step.id">
-                              <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
-                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                  <span class="hint" :title="step.id" x-text="'Task ' + (si + 1)"></span>
-                                  <select class="field-input" style="flex:1;min-width:200px" x-model="step.taskId" x-init="$nextTick(() => { $el.value = step.taskId })">
-                                    <option value="">— pick a task —</option>
-                                    <template x-for="t in data.tasks" :key="'cs-' + step.id + '-' + t.id">
-                                      <option :value="t.id" x-text="t.name"></option>
-                                    </template>
-                                  </select>
-                                  <button class="icon-button" type="button" title="Remove task" @click="removeChainStep(si)">✕</button>
-                                </div>
-                                <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Optional prompt override. Use {{ trigger.output }} to inject the previous task's output." x-model="step.prompt"></textarea>
-                              </div>
-                            </template>
-                          </div>
-                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainStep()">＋ Add task</button>
-                        </div>
-
-                        <!-- Edges -->
-                        <div>
-                          <div class="field-label"><span>Flow</span><span class="hint">When the source task finishes and the condition passes, the target task runs.</span></div>
-                          <div style="display:flex;flex-direction:column;gap:10px">
-                            <template x-for="(edge, ei) in chainDraft.edges" :key="'ce-' + ei">
-                              <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
-                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.from" x-init="$nextTick(() => { $el.value = edge.from })">
-                                    <template x-for="s in chainDraft.steps" :key="'ef-' + ei + '-' + s.id">
-                                      <option :value="s.id" x-text="chainStepLabel(s)"></option>
-                                    </template>
-                                  </select>
-                                  <span class="hint">→</span>
-                                  <select class="field-input" style="flex:1;min-width:140px" x-model="edge.to" x-init="$nextTick(() => { $el.value = edge.to })">
-                                    <template x-for="s in chainDraft.steps" :key="'et-' + ei + '-' + s.id">
-                                      <option :value="s.id" x-text="chainStepLabel(s)"></option>
-                                    </template>
-                                  </select>
-                                  <button class="icon-button" type="button" title="Remove edge" @click="removeChainEdge(ei)">✕</button>
-                                </div>
-                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
-                                  <span class="hint">when</span>
-                                  <select class="field-input" style="width:auto" x-model="edge.condition.type">
-                                    <option value="status">status</option>
-                                    <option value="expression">output expression</option>
-                                    <option value="ai">AI judgment</option>
-                                  </select>
-                                  <!-- status -->
-                                  <template x-if="edge.condition.type === 'status'">
-                                    <select class="field-input" style="width:auto" x-model="edge.condition.status">
-                                      <option value="onSuccess">succeeds</option>
-                                      <option value="onFailure">fails</option>
-                                      <option value="onComplete">completes (either)</option>
-                                    </select>
-                                  </template>
-                                  <!-- expression -->
-                                  <template x-if="edge.condition.type === 'expression'">
-                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1">
-                                      <span class="hint">output</span>
-                                      <select class="field-input" style="width:auto" x-model="edge.condition.op">
-                                        <option value="contains">contains</option>
-                                        <option value="notContains">does not contain</option>
-                                        <option value="equals">equals</option>
-                                        <option value="regex">matches regex</option>
-                                        <option value="gt">number &gt;</option>
-                                        <option value="lt">number &lt;</option>
-                                      </select>
-                                      <input class="field-input" style="flex:1;min-width:120px" type="text" placeholder="value" x-model="edge.condition.value" />
-                                    </div>
-                                  </template>
-                                  <!-- ai -->
-                                  <template x-if="edge.condition.type === 'ai'">
-                                    <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">
-                                      <input class="field-input" type="text" placeholder="Predicate, e.g. 'Azure reports an unhealthy or degraded service'" x-model="edge.condition.predicate" />
-                                      <select class="field-input" x-model="edge.condition.agentId" x-init="$nextTick(() => { $el.value = edge.condition.agentId || '' })">
-                                        <option value="">Built-in evaluator</option>
-                                        <template x-for="a in data.agents" :key="'ai-' + ei + '-' + a.id">
-                                          <option :value="a.id" x-text="'Custom: ' + a.name"></option>
-                                        </template>
-                                      </select>
-                                    </div>
-                                  </template>
-                                </div>
-                              </div>
-                            </template>
-                          </div>
-                          <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainEdge()">＋ Add flow rule</button>
-                        </div>
-
-                        <div class="inline-actions">
-                          <button class="btn primary" type="button" @click="saveChain()">Save flow</button>
-                          <button class="btn ghost" type="button" @click="selectedChainId = null; chainDraft = null">Cancel</button>
-                          <button class="btn danger" type="button" @click="deleteChain(chain)">Delete flow</button>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-
                   <!-- Last run detail -->
-                  <div x-show="chainRunState[chain.id]" style="margin-top:14px">
+                  <div x-show="chainRunState[chain.id] || selectedChainId === chain.id" style="margin-top:14px">
                     <div class="field-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                       <span>Last run</span>
                       <span class="hint" x-text="chainRunState[chain.id] ? formatRelative(chainRunState[chain.id].startedAt) : ''"></span>
@@ -2619,56 +2439,10 @@
                 <p>Manager assignments — orchestrated prompts that chain multiple agents together.</p>
               </div>
               <div class="toolbar">
-                <button class="btn primary" type="button" @click="newAssignmentOpen = !newAssignmentOpen">＋ New Assignment</button>
+                <button class="btn primary" type="button" @click="openAssignmentModal()">＋ New Assignment</button>
               </div>
             </div>
 
-            <!-- Inline New Assignment Form -->
-            <div class="card" x-show="newAssignmentOpen" x-transition.opacity.duration.150ms style="margin-bottom:20px">
-              <div class="card-header">
-                <div>
-                  <h2 class="card-title">Create Assignment</h2>
-                  <div class="card-subtitle">Define an orchestrated prompt for a manager to execute.</div>
-                </div>
-                <button class="icon-button" type="button" @click="newAssignmentOpen = false">✕</button>
-              </div>
-              <div class="config-grid" style="padding:18px">
-                <div>
-                  <div class="field-label">Manager</div>
-                  <select class="field-input" x-model="newAssignmentForm.managerId">
-                    <option value="">Select a manager…</option>
-                    <template x-for="m in data.managers" :key="m.id">
-                      <option :value="m.id" x-text="m.name"></option>
-                    </template>
-                  </select>
-                </div>
-                <div>
-                  <div class="field-label">Assignment Name</div>
-                  <input class="field-input" type="text" placeholder="e.g. Monitor Azure Status" x-model="newAssignmentForm.name" />
-                </div>
-                <div>
-                  <div class="field-label">Prompt</div>
-                  <textarea class="field-input" rows="3" placeholder="Describe what the manager should do…" x-model="newAssignmentForm.prompt"></textarea>
-                </div>
-                <div>
-                  <div class="field-label">Schedule</div>
-                  <select class="field-input" x-model="newAssignmentForm.schedule">
-                    <option value="never">Manual only</option>
-                    <option value="5m">Every 5 minutes</option>
-                    <option value="15m">Every 15 minutes</option>
-                    <option value="30m">Every 30 minutes</option>
-                    <option value="1h">Every hour</option>
-                    <option value="6h">Every 6 hours</option>
-                    <option value="24h">Daily</option>
-                    <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                  </select>
-                </div>
-                <div class="inline-actions">
-                  <button class="btn primary" type="button" @click="saveNewAssignment()">Create Assignment</button>
-                  <button class="btn ghost" type="button" @click="newAssignmentOpen = false">Cancel</button>
-                </div>
-              </div>
-            </div>
             <div class="search-row">
               <input class="field-input" type="search" placeholder="Filter by assignment name, manager, or prompt…" x-model="assignmentSearch" />
               <div class="hint" x-text="filteredAssignments().length + ' shown'"></div>
@@ -2687,6 +2461,7 @@
                     </div>
                     <div class="toolbar">
                       <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Details'"></button>
+                      <button class="btn" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
                   </div>
@@ -2720,6 +2495,10 @@
                         <div class="field-label"><span>Manager</span></div>
                         <a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(task.managerId))" style="color:var(--cp-link)" x-text="task.ownerName"></a>
                       </div>
+                      <div class="inline-actions">
+                        <button class="btn primary" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
+                        <button class="btn danger" type="button" @click="deleteAssignmentById(task.managerId, task.assignmentId, task.name)">🗑 Delete</button>
+                      </div>
                       <!-- Recent run history -->
                       <div style="margin-top:8px">
                         <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
@@ -2752,7 +2531,7 @@
                 </article>
               </template>
             </div>
-            <div class="empty-state" x-show="!filteredAssignments().length">No assignments matched your filter. Create assignments from the Manager detail page.</div>
+            <div class="empty-state" x-show="!filteredAssignments().length">No assignments matched your filter. Click <strong>＋ New Assignment</strong> to create one.</div>
           </section>
 
           <section x-show="!loading && !errorMessage && (route === 'chat' || route === 'chat-detail')" x-transition.opacity.duration.180ms>
@@ -3672,26 +3451,53 @@
 
 
 
-  <div class="modal-backdrop" x-show="newTaskOpen" x-transition.opacity.duration.150ms @click.self="newTaskOpen = false" x-cloak>
+  <div class="modal-backdrop" x-show="newTaskOpen" x-transition.opacity.duration.150ms @click.self="closeItemModal()" x-cloak>
     <section class="modal-card">
       <div class="modal-header">
         <div>
-          <strong>New Task</strong>
-          <div class="hint" style="margin-top:6px">Create a standalone agent task or a manager assignment.</div>
+          <strong x-text="itemModalTitle()"></strong>
+          <div class="hint" style="margin-top:6px" x-text="newTaskForm.kind === 'assignment' ? 'A manager assignment orchestrates one or more agents from a saved prompt.' : 'A scheduled prompt that runs on a single agent.'"></div>
         </div>
-        <button class="icon-button" type="button" @click="newTaskOpen = false">✕</button>
+        <button class="icon-button" type="button" @click="closeItemModal()">✕</button>
       </div>
       <div class="modal-body">
-        <div class="filter-pills">
+        <div class="filter-pills" x-show="!newTaskForm.editingId">
           <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'agent' }" @click="newTaskForm.kind = 'agent'">Task</button>
           <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'assignment' }" @click="newTaskForm.kind = 'assignment'">Assignment</button>
         </div>
-        <template x-if="newTaskForm.kind === 'agent'">
-          <div class="config-grid">
-            <input class="field-input" type="text" placeholder="Task name" x-model="newTaskForm.name" />
-            <input class="field-input mono" type="text" placeholder="task-id" x-model="newTaskForm.id" />
-            <input class="field-input" type="text" placeholder="Agent reference (e.g. manager:manager)" x-model="newTaskForm.agent" />
-            <input class="field-input" type="text" placeholder="Working directory" x-model="newTaskForm.cwd" />
+        <div class="config-grid">
+          <template x-if="newTaskForm.kind === 'agent'">
+            <div>
+              <div class="field-label"><span>Agent</span><span class="hint">Which agent runs this task</span></div>
+              <select class="field-input" x-model="newTaskForm.agentId" :disabled="!!newTaskForm.editingId">
+                <option value="">Select agent…</option>
+                <template x-for="a in data.agents" :key="'tm-' + a.id">
+                  <option :value="a.id" x-text="a.name"></option>
+                </template>
+              </select>
+            </div>
+          </template>
+          <template x-if="newTaskForm.kind === 'assignment'">
+            <div>
+              <div class="field-label"><span>Manager</span><span class="hint">Which manager owns this assignment</span></div>
+              <select class="field-input" x-model="newTaskForm.managerId" :disabled="!!newTaskForm.editingId">
+                <option value="">Select manager…</option>
+                <template x-for="manager in data.managers" :key="'mm-' + manager.id">
+                  <option :value="manager.id" x-text="manager.name"></option>
+                </template>
+              </select>
+            </div>
+          </template>
+          <div>
+            <div class="field-label"><span>Name</span></div>
+            <input class="field-input" type="text" x-model="newTaskForm.name" :placeholder="newTaskForm.kind === 'assignment' ? 'e.g. Monitor Azure Status' : 'e.g. Daily standup report'" />
+          </div>
+          <div>
+            <div class="field-label"><span>Prompt</span><span class="hint" x-text="newTaskForm.kind === 'assignment' ? 'What the manager should do' : 'What the agent should do'"></span></div>
+            <textarea class="field-input field-area" x-model="newTaskForm.prompt" placeholder="Describe the work…"></textarea>
+          </div>
+          <div>
+            <div class="field-label"><span>Schedule</span></div>
             <div class="schedule-picker">
               <select class="field-input" x-model="newTaskForm.schedulePreset" @change="applySchedulePresetTo(newTaskForm, $event.target.value)">
                 <option value="never">Manual only (no schedule)</option>
@@ -3705,50 +3511,169 @@
                 <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
                 <option value="custom">Advanced (cron / custom)…</option>
               </select>
-              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, 'Task schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
+              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, newTaskForm.kind === 'assignment' ? 'Assignment schedule' : 'Task schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
               <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
                 <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
               </div>
             </div>
-            <textarea class="field-input field-area" placeholder="Prompt" x-model="newTaskForm.prompt"></textarea>
           </div>
-        </template>
-        <template x-if="newTaskForm.kind === 'assignment'">
-          <div class="config-grid">
-            <select class="field-input" x-model="newTaskForm.managerId">
-              <option value="">Select manager…</option>
-              <template x-for="manager in data.managers" :key="manager.id">
-                <option :value="manager.id" x-text="manager.name"></option>
-              </template>
-            </select>
-            <input class="field-input" type="text" placeholder="Assignment name" x-model="newTaskForm.name" />
-            <input class="field-input mono" type="text" placeholder="assignment-id" x-model="newTaskForm.id" />
-            <div class="schedule-picker">
-              <select class="field-input" x-model="newTaskForm.schedulePreset" @change="applySchedulePresetTo(newTaskForm, $event.target.value)">
-                <option value="never">Manual only (no schedule)</option>
-                <option value="5m">Every 5 minutes</option>
-                <option value="15m">Every 15 minutes</option>
-                <option value="30m">Every 30 minutes</option>
-                <option value="1h">Every hour</option>
-                <option value="6h">Every 6 hours</option>
-                <option value="24h">Daily</option>
-                <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
-                <option value="custom">Advanced (cron / custom)…</option>
-              </select>
-              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, 'Assignment schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
-              <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
-                <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
-              </div>
-            </div>
-            <textarea class="field-input field-area" placeholder="Prompt" x-model="newTaskForm.prompt"></textarea>
-          </div>
-        </template>
+        </div>
       </div>
       <div class="modal-footer">
-        <button class="btn" type="button" @click="newTaskOpen = false">Cancel</button>
-        <button class="btn primary" type="button" @click="submitNewTask()">Create</button>
+        <button class="btn danger" type="button" x-show="newTaskForm.editingId" @click="deleteItemFromModal()" style="margin-right:auto">🗑 Delete</button>
+        <button class="btn" type="button" @click="closeItemModal()">Cancel</button>
+        <button class="btn primary" type="button" @click="submitNewTask()" x-text="newTaskForm.editingId ? 'Save' : 'Create'"></button>
       </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" x-show="chainModalOpen" x-transition.opacity.duration.150ms @click.self="closeChainModal()" x-cloak>
+    <section class="modal-card" style="max-width:860px" x-show="chainDraft">
+      <template x-if="chainDraft">
+        <div style="display:contents">
+          <div class="modal-header">
+            <div>
+              <strong x-text="chainDraft._new ? 'New Flow' : 'Edit Flow'"></strong>
+              <div class="hint" style="margin-top:6px">Wire tasks together into a conditional pipeline.</div>
+            </div>
+            <button class="icon-button" type="button" @click="closeChainModal()">✕</button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex;flex-direction:column;gap:16px">
+              <div class="config-grid">
+                <div>
+                  <div class="field-label"><span>Name</span></div>
+                  <input class="field-input" type="text" x-model="chainDraft.name" />
+                </div>
+                <div>
+                  <div class="field-label"><span>Schedule</span></div>
+                  <select class="field-input" x-model="chainDraft.schedule">
+                    <option value="never">Manual only</option>
+                    <option value="15m">Every 15 minutes</option>
+                    <option value="30m">Every 30 minutes</option>
+                    <option value="1h">Every hour</option>
+                    <option value="6h">Every 6 hours</option>
+                    <option value="24h">Daily</option>
+                    <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                    <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
+                      <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
+                    </template>
+                  </select>
+                  <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
+                </div>
+              </div>
+              <div>
+                <div class="field-label"><span>Description</span></div>
+                <input class="field-input" type="text" x-model="chainDraft.description" />
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
+
+              <!-- Tasks -->
+              <div>
+                <div class="field-label"><span>Tasks</span><span class="hint">Each task runs in the flow. Tasks with no inbound arrow start the flow.</span></div>
+                <div class="hint" style="margin:-2px 0 8px;line-height:1.5">
+                  In a prompt you can inject the previous task's result with variables:
+                  <code>{{ trigger.output }}</code> (previous task's output),
+                  <code>{{ trigger.name }}</code>, <code>{{ trigger.exitCode }}</code>.
+                  <span style="opacity:.8">These only resolve for tasks that have an inbound arrow; the first task runs its prompt as-is.</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <template x-for="(step, si) in chainDraft.steps" :key="step.id">
+                    <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="hint" :title="step.id" x-text="'Task ' + (si + 1)"></span>
+                        <select class="field-input" style="flex:1;min-width:200px" x-model="step.taskId" x-init="$nextTick(() => { $el.value = step.taskId })">
+                          <option value="">— pick a task —</option>
+                          <template x-for="t in data.tasks" :key="'cs-' + step.id + '-' + t.id">
+                            <option :value="t.id" x-text="t.name"></option>
+                          </template>
+                        </select>
+                        <button class="icon-button" type="button" title="Remove task" @click="removeChainStep(si)">✕</button>
+                      </div>
+                      <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Optional prompt override. Use {{ trigger.output }} to inject the previous task's output." x-model="step.prompt"></textarea>
+                    </div>
+                  </template>
+                </div>
+                <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainStep()">＋ Add task</button>
+              </div>
+
+              <!-- Edges -->
+              <div>
+                <div class="field-label"><span>Flow</span><span class="hint">When the source task finishes and the condition passes, the target task runs.</span></div>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <template x-for="(edge, ei) in chainDraft.edges" :key="'ce-' + ei">
+                    <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <select class="field-input" style="flex:1;min-width:140px" x-model="edge.from" x-init="$nextTick(() => { $el.value = edge.from })">
+                          <template x-for="s in chainDraft.steps" :key="'ef-' + ei + '-' + s.id">
+                            <option :value="s.id" x-text="chainStepLabel(s)"></option>
+                          </template>
+                        </select>
+                        <span class="hint">→</span>
+                        <select class="field-input" style="flex:1;min-width:140px" x-model="edge.to" x-init="$nextTick(() => { $el.value = edge.to })">
+                          <template x-for="s in chainDraft.steps" :key="'et-' + ei + '-' + s.id">
+                            <option :value="s.id" x-text="chainStepLabel(s)"></option>
+                          </template>
+                        </select>
+                        <button class="icon-button" type="button" title="Remove edge" @click="removeChainEdge(ei)">✕</button>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+                        <span class="hint">when</span>
+                        <select class="field-input" style="width:auto" x-model="edge.condition.type">
+                          <option value="status">status</option>
+                          <option value="expression">output expression</option>
+                          <option value="ai">AI judgment</option>
+                        </select>
+                        <!-- status -->
+                        <template x-if="edge.condition.type === 'status'">
+                          <select class="field-input" style="width:auto" x-model="edge.condition.status">
+                            <option value="onSuccess">succeeds</option>
+                            <option value="onFailure">fails</option>
+                            <option value="onComplete">completes (either)</option>
+                          </select>
+                        </template>
+                        <!-- expression -->
+                        <template x-if="edge.condition.type === 'expression'">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1">
+                            <span class="hint">output</span>
+                            <select class="field-input" style="width:auto" x-model="edge.condition.op">
+                              <option value="contains">contains</option>
+                              <option value="notContains">does not contain</option>
+                              <option value="equals">equals</option>
+                              <option value="regex">matches regex</option>
+                              <option value="gt">number &gt;</option>
+                              <option value="lt">number &lt;</option>
+                            </select>
+                            <input class="field-input" style="flex:1;min-width:120px" type="text" placeholder="value" x-model="edge.condition.value" />
+                          </div>
+                        </template>
+                        <!-- ai -->
+                        <template x-if="edge.condition.type === 'ai'">
+                          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">
+                            <input class="field-input" type="text" placeholder="Predicate, e.g. 'Azure reports an unhealthy or degraded service'" x-model="edge.condition.predicate" />
+                            <select class="field-input" x-model="edge.condition.agentId" x-init="$nextTick(() => { $el.value = edge.condition.agentId || '' })">
+                              <option value="">Built-in evaluator</option>
+                              <template x-for="a in data.agents" :key="'ai-' + ei + '-' + a.id">
+                                <option :value="a.id" x-text="'Custom: ' + a.name"></option>
+                              </template>
+                            </select>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainEdge()">＋ Add flow rule</button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn danger" type="button" x-show="!chainDraft._new" @click="deleteChain(chainDraft)" style="margin-right:auto">🗑 Delete</button>
+            <button class="btn" type="button" @click="closeChainModal()">Cancel</button>
+            <button class="btn primary" type="button" @click="saveChain()" x-text="chainDraft._new ? 'Create flow' : 'Save flow'"></button>
+          </div>
+        </div>
+      </template>
     </section>
   </div>
 
@@ -4080,6 +4005,8 @@
         shareSubject: '',
         shareContext: '',
         newTaskOpen: false,
+        chainModalOpen: false,
+        chainSearch: '',
         chatPickerOpen: false,
         orgPickerOpen: false,
         agentDiscoveryOpen: false,
@@ -4136,7 +4063,9 @@
         now: Date.now(),
         newTaskForm: {
           kind: 'agent',
+          editingId: '',
           managerId: '',
+          agentId: '',
           id: '',
           name: '',
           agent: '',
@@ -5333,11 +5262,11 @@
             this.$nextTick(() => flash('sched-focus-' + pf.taskKey));
           } else if (pf.route === 'chains') {
             const chain = (this.data.chains || []).find(c => c.id === pf.chainId);
-            if (chain && this.selectedChainId !== chain.id) this.toggleSelectedChain(chain);
+            if (chain) this.$nextTick(() => this.openChainModal(chain));
             this.$nextTick(() => flash('sched-focus-chain-' + pf.chainId));
           } else if (pf.route === 'agent-detail') {
             const task = this.allTasks().find(t => t.type === 'agent' && t.id === pf.editTaskId);
-            if (task) this.$nextTick(() => this.editTaskInForm(task));
+            if (task) this.$nextTick(() => this.openTaskModal(task));
           }
         },
 
@@ -6696,27 +6625,39 @@
           return (idx >= 0 ? ('Task ' + (idx + 1) + ' · ') : '') + name;
         },
 
-        newChain() {
-          const id = 'chain-' + Date.now().toString(36);
-          const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
-          const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
-          const chain = {
-            id, name: 'New flow', description: '', schedule: 'never', enabled: true,
-            steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
-            edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
-            _new: true
-          };
-          this.data.chains.unshift(chain);
-          this.selectedChainId = id;
-          this.chainDraft = JSON.parse(JSON.stringify(chain));
+        filteredChains() {
+          const q = (this.chainSearch || '').trim().toLowerCase();
+          const list = this.data.chains || [];
+          if (!q) return list;
+          return list.filter(c => (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q));
         },
 
+        newChain() { this.openChainModal(null); },
+
+        // Read-only Details toggle for a flow card (reveals last-run panel + run history).
         toggleSelectedChain(chain) {
-          if (this.selectedChainId === chain.id) { this.selectedChainId = null; this.chainDraft = null; return; }
+          if (this.selectedChainId === chain.id) { this.selectedChainId = null; return; }
           this.selectedChainId = chain.id;
-          this.chainDraft = JSON.parse(JSON.stringify(chain));
+          if (!(this.chainRuns && this.chainRuns[chain.id])) this.loadChainRuns(chain.id);
+        },
+
+        openChainModal(chain = null) {
+          if (chain) {
+            this.chainDraft = JSON.parse(JSON.stringify(chain));
+            this.chainDraft._new = false;
+          } else {
+            const id = 'chain-' + Date.now().toString(36);
+            const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
+            const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
+            this.chainDraft = {
+              id, name: 'New flow', description: '', schedule: 'never', enabled: true,
+              steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
+              edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
+              _new: true
+            };
+          }
           // Ensure each edge has a condition object with all fields the UI binds to.
-          this.chainDraft.edges.forEach(e => {
+          (this.chainDraft.edges || []).forEach(e => {
             e.condition = e.condition || { type: 'status', status: 'onSuccess' };
             if (e.condition.status === undefined) e.condition.status = 'onSuccess';
             if (e.condition.op === undefined) e.condition.op = 'contains';
@@ -6724,7 +6665,10 @@
             if (e.condition.predicate === undefined) e.condition.predicate = '';
             if (e.condition.agentId === undefined) e.condition.agentId = '';
           });
+          this.chainModalOpen = true;
         },
+
+        closeChainModal() { this.chainModalOpen = false; this.chainDraft = null; },
 
         addChainStep() {
           if (!this.chainDraft) return;
@@ -6772,7 +6716,7 @@
               await this.request('/api/chains/' + encodeURIComponent(payload.id), { method: 'PUT', body: JSON.stringify(payload) });
             }
             this.showToast('Flow saved', `"${payload.name}" saved.`, 'info');
-            this.selectedChainId = null;
+            this.chainModalOpen = false;
             this.chainDraft = null;
             await this.loadChains();
           } catch (e) {
@@ -6785,6 +6729,7 @@
           try {
             if (!chain._new) await this.request('/api/chains/' + encodeURIComponent(chain.id), { method: 'DELETE' });
             this.data.chains = this.data.chains.filter(c => c.id !== chain.id);
+            this.chainModalOpen = false;
             this.selectedChainId = null;
             this.chainDraft = null;
             this.showToast('Flow deleted', '', 'info');
@@ -6898,42 +6843,127 @@
           }
         },
 
-        async submitNewTask() {
-          const resolvedSchedule = this.newTaskForm.schedulePreset === 'custom'
-            ? (this.newTaskForm.schedule || 'never')
-            : this.newTaskForm.schedulePreset;
+        resetItemForm() {
+          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '' };
+        },
+
+        closeItemModal() {
+          this.newTaskOpen = false;
+          this.resetItemForm();
+        },
+
+        itemModalTitle() {
+          const editing = !!this.newTaskForm.editingId;
+          if (this.newTaskForm.kind === 'assignment') return editing ? 'Edit Assignment' : 'New Assignment';
+          return editing ? 'Edit Task' : 'New Task';
+        },
+
+        openTaskModal(task = null, presetAgentId = null) {
+          this.resetItemForm();
+          this.newTaskForm.kind = 'agent';
+          if (task) {
+            this.newTaskForm.editingId = task.id;
+            this.newTaskForm.agentId = task.agentId || presetAgentId || '';
+            this.newTaskForm.name = task.name || '';
+            this.newTaskForm.prompt = task.prompt || '';
+            const sched = task.schedule || task.scheduleDraft || 'never';
+            this.newTaskForm.schedule = sched;
+            this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
+          } else if (presetAgentId) {
+            this.newTaskForm.agentId = presetAgentId;
+          }
+          this.newTaskOpen = true;
+        },
+
+        openAssignmentModal(assignment = null, presetManagerId = null) {
+          this.resetItemForm();
+          this.newTaskForm.kind = 'assignment';
+          if (assignment) {
+            this.newTaskForm.editingId = assignment.assignmentId || assignment.id;
+            this.newTaskForm.managerId = assignment.managerId || presetManagerId || '';
+            this.newTaskForm.name = assignment.name || '';
+            this.newTaskForm.prompt = assignment.prompt || '';
+            const sched = assignment.schedule || assignment.scheduleDraft || 'never';
+            this.newTaskForm.schedule = sched;
+            this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
+          } else if (presetManagerId) {
+            this.newTaskForm.managerId = presetManagerId;
+          }
+          this.newTaskOpen = true;
+        },
+
+        deleteItemFromModal() {
+          const f = this.newTaskForm;
+          if (!f.editingId) return;
+          if (f.kind === 'agent') this.deleteTaskById(f.editingId, f.name);
+          else this.deleteAssignmentById(f.managerId, f.editingId, f.name);
+        },
+
+        async deleteTaskById(taskId, name) {
+          if (!confirm(`Delete task "${name || taskId}"? This cannot be undone.`)) return;
           try {
-            if (this.newTaskForm.kind === 'agent') {
-              await this.request('/api/agents', {
-                method: 'POST',
-                body: JSON.stringify({
-                  id: this.newTaskForm.id,
-                  name: this.newTaskForm.name,
-                  cwd: this.newTaskForm.cwd,
-                  agent: this.newTaskForm.agent,
-                  schedule: resolvedSchedule,
-                  prompt: this.newTaskForm.prompt,
-                  durable: true
-                })
-              });
+            await this.request(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+            this.showToast('Task deleted', '', 'info');
+            this.closeItemModal();
+            await this.refreshAll(false);
+            if (this.route === 'agent-detail' && this.selectedAgent) await this.loadAgentDetail(this.selectedAgent.id);
+          } catch (error) {
+            this.showToast('Delete failed', error.message, 'error');
+          }
+        },
+
+        async deleteAssignmentById(managerId, assignmentId, name) {
+          if (!managerId) { this.showToast('Delete failed', 'Missing manager reference.', 'error'); return; }
+          if (!confirm(`Delete assignment "${name || assignmentId}"? This cannot be undone.`)) return;
+          try {
+            await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments/${encodeURIComponent(assignmentId)}`, { method: 'DELETE' });
+            this.showToast('Assignment deleted', '', 'info');
+            this.closeItemModal();
+            await this.refreshAll(false);
+            if (this.route === 'manager-detail' && this.selectedManager) await this.loadManagerDetail(this.selectedManager.id);
+          } catch (error) {
+            this.showToast('Delete failed', error.message, 'error');
+          }
+        },
+
+        async submitNewTask() {
+          const f = this.newTaskForm;
+          const name = (f.name || '').trim();
+          const prompt = (f.prompt || '').trim();
+          const resolvedSchedule = f.schedulePreset === 'custom'
+            ? (f.schedule || 'never')
+            : f.schedulePreset;
+          if (!name) { this.showToast('Name required', 'Please enter a name.', 'error'); return; }
+          if (!prompt) { this.showToast('Prompt required', 'Please enter a prompt.', 'error'); return; }
+          try {
+            if (f.kind === 'agent') {
+              if (!f.agentId) { this.showToast('Agent required', 'Select which agent runs this task.', 'error'); return; }
+              if (f.editingId) {
+                await this.request(`/api/tasks/${encodeURIComponent(f.editingId)}`, {
+                  method: 'PUT',
+                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule })
+                });
+              } else {
+                await this.request('/api/tasks', {
+                  method: 'POST',
+                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule })
+                });
+              }
             } else {
-              await this.request(`/api/managers/${encodeURIComponent(this.newTaskForm.managerId)}/assignments`, {
+              if (!f.managerId) { this.showToast('Manager required', 'Select which manager owns this assignment.', 'error'); return; }
+              const assignmentId = f.editingId || this.slugifyId(name, 'assignment');
+              await this.request(`/api/managers/${encodeURIComponent(f.managerId)}/assignments`, {
                 method: 'POST',
-                body: JSON.stringify({
-                  id: this.newTaskForm.id,
-                  name: this.newTaskForm.name,
-                  prompt: this.newTaskForm.prompt,
-                  schedule: resolvedSchedule,
-                  enabled: true
-                })
+                body: JSON.stringify({ id: assignmentId, name, prompt, schedule: resolvedSchedule, enabled: true })
               });
             }
-            this.showToast('Created', 'New workload saved.', 'info');
-            this.newTaskOpen = false;
-            this.newTaskForm = { kind: 'agent', managerId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '' };
+            this.showToast(f.editingId ? 'Saved' : 'Created', f.kind === 'assignment' ? 'Assignment saved.' : 'Task saved.', 'info');
+            this.closeItemModal();
             await this.refreshAll(false);
+            if (this.route === 'agent-detail' && this.selectedAgent) await this.loadAgentDetail(this.selectedAgent.id);
+            if (this.route === 'manager-detail' && this.selectedManager) await this.loadManagerDetail(this.selectedManager.id);
           } catch (error) {
-            this.showToast('Create failed', error.message, 'error');
+            this.showToast('Save failed', error.message, 'error');
           }
         },
 
