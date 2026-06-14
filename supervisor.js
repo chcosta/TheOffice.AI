@@ -1,10 +1,12 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const EventEmitter = require('events');
 const { Cron } = require('croner');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const { repairConsoleMojibake } = require('./mojibake');
+const sdkReader = require('./sdk-reader');
 
 class Supervisor extends EventEmitter {
   constructor(db) {
@@ -218,11 +220,12 @@ class Supervisor extends EventEmitter {
       const safePrompt = useShell ? `"${prompt.replace(/"/g, '\\"')}"` : prompt;
       args.push('--prompt', safePrompt);
     }
-    // For chat threads, pin the copilot session UUID so the conversation
-    // persists and resumes natively (set by _executeAgentWithStreaming).
-    if (entry._chatSessionId) {
-      args.push('--session-id', useShell ? `"${entry._chatSessionId}"` : entry._chatSessionId);
-    }
+    // Pin the copilot session UUID so the session is deterministically
+    // addressable. Chat threads reuse their id to resume natively; regular runs
+    // get a fresh id so the SDK read layer (and the scraper) can fetch output by
+    // id instead of guessing the session-state dir by display-name + recency.
+    const pinnedSessionId = entry._chatSessionId || crypto.randomUUID();
+    args.push('--session-id', useShell ? `"${pinnedSessionId}"` : pinnedSessionId);
     args.push('-s');
     if (perms) args.push(perms);
 
@@ -271,11 +274,33 @@ class Supervisor extends EventEmitter {
       }
 
       // Small delay to let session state flush to disk before reading
-      setTimeout(() => {
-        // Try to get full output from session events (all assistant messages)
+      setTimeout(async () => {
+        // Scraper path (still authoritative by default).
         const sessionResult = this._getSessionOutput(config);
-        let fullOutput = repairConsoleMojibake(sessionResult.output || stdout);
-        const sessionId = sessionResult.sessionId || null;
+        const scraperOutput = repairConsoleMojibake(sessionResult.output || stdout);
+        let fullOutput = scraperOutput;
+        // Prefer the pinned session id (the real copilot session) over the
+        // scraper's display-name guess; fall back to the guess if unset.
+        let sessionId = pinnedSessionId || sessionResult.sessionId || null;
+
+        // SDK read layer (Phase 1 of the @github/copilot-sdk migration). In
+        // shadow mode we read via getEvents() and log a parity record but keep
+        // the scraper output (zero behaviour change). In authoritative mode we
+        // use the SDK output when the read succeeds. Any failure transparently
+        // falls back to the scraper.
+        if (sdkReader.enabled && pinnedSessionId) {
+          try {
+            const sdk = await sdkReader.getSessionOutput(pinnedSessionId);
+            const cmp = sdkReader.comparison(scraperOutput, sdk);
+            sdkReader.logParity({ agentId, agent: config.name, sessionId: pinnedSessionId, mode: sdkReader.mode, ...cmp });
+            if (sdkReader.mode === 'authoritative' && sdk.ok) {
+              fullOutput = sdk.output;
+            }
+          } catch (e) {
+            console.error(`[supervisor] sdk-reader error for "${config.name}": ${e.message}`);
+          }
+        }
+
         if (fullOutput === stdout && stdout.length < 200) {
           console.log(`[supervisor] Warning: "${config.name}" session output not found, using stdout (${stdout.length} chars)`);
         }
