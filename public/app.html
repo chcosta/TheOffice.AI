@@ -1490,7 +1490,7 @@
                         </a>
                         <button class="section-chevron-btn" type="button"
                                 x-show="child.items && child.items.length"
-                                @click.prevent.stop="app.sidebarCollapsed[child.key] = !app.sidebarCollapsed[child.key]"
+                                @click.prevent.stop="app.toggleNav(child.key)"
                                 x-text="app.sidebarCollapsed[child.key] ? '▸' : '▾'"
                                 :title="app.sidebarCollapsed[child.key] ? 'Expand' : 'Collapse'">
                         </button>
@@ -1535,7 +1535,7 @@
           </template>
         </div>
         <div class="sidebar-bottom">
-          <a class="nav-link" :class="{ active: route === 'settings' }" href="#/settings">
+          <a class="nav-link" :class="{ active: route === 'settings' || route === 'events' }" href="#/settings">
             <span>⚙</span>
             <span>Settings</span>
           </a>
@@ -2846,9 +2846,15 @@
           <section x-show="!loading && !errorMessage && route === 'events'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>📡 Event Listeners</h1>
-                <p>External message bus integration — connect agents and managers to Service Bus for CLI, Teams, or webhook-driven interactions.</p>
+                <h1>⚙️ Settings</h1>
+                <p>Cloud sync, path profiles, system configuration, and event listeners.</p>
               </div>
+            </div>
+
+            <!-- Settings sub-page tabs -->
+            <div class="filter-pills" style="margin-bottom:18px">
+              <button class="pill" type="button" :class="{ active: route === 'settings' }" @click="goTo('#/settings')">General</button>
+              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">📡 Event Listeners</button>
             </div>
 
             <!-- Status Banner -->
@@ -3124,8 +3130,14 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>⚙️ Settings</h1>
-                <p>Cloud sync, path profiles, and system configuration.</p>
+                <p>Cloud sync, path profiles, system configuration, and event listeners.</p>
               </div>
+            </div>
+
+            <!-- Settings sub-page tabs -->
+            <div class="filter-pills" style="margin-bottom:18px">
+              <button class="pill" type="button" :class="{ active: route === 'settings' }" @click="goTo('#/settings')">General</button>
+              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">📡 Event Listeners</button>
             </div>
 
             <!-- Appearance Section -->
@@ -3876,7 +3888,14 @@
       Alpine.store('app', {
         route: 'home',
         routeParam: null,
-        sidebarCollapsed: { chat: false, resources: false, execution: false, agents: false, managers: false },
+        sidebarCollapsed: (() => {
+          const defaults = { chat: false, resources: false, execution: false, agents: false, managers: false };
+          try { return Object.assign(defaults, JSON.parse(localStorage.getItem('sidebar-collapsed') || '{}')); } catch { return defaults; }
+        })(),
+        toggleNav(key) {
+          this.sidebarCollapsed[key] = !this.sidebarCollapsed[key];
+          try { localStorage.setItem('sidebar-collapsed', JSON.stringify(this.sidebarCollapsed)); } catch {}
+        },
         commandPaletteOpen: false
       });
 
@@ -4777,15 +4796,12 @@
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
-            { key: 'integrations', label: 'Integrations', collapsible: true, isGroup: true, children: [
-              { key: 'events', title: 'Events', icon: '📡', href: '#/events', routeGroup: 'events', items: [] }
-            ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
           ];
         },
 
         toggleSidebar(key) {
-          this.app.sidebarCollapsed[key] = !this.app.sidebarCollapsed[key];
+          this.app.toggleNav(key);
         },
 
         isRouteGroup(group) {
