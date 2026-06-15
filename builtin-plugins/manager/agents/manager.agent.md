@@ -1,8 +1,7 @@
 ---
 name: manager
 description: Orchestrating manager agent that coordinates sub-agents to accomplish complex multi-step tasks
-tools:
-  - 'powershell'
+tools: []
 ---
 
 # Manager Agent

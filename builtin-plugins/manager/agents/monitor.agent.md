@@ -1,8 +1,7 @@
 ---
 name: monitor
 description: Monitoring-focused manager agent that checks system health and alerts on issues
-tools:
-  - 'powershell'
+tools: []
 ---
 
 # Monitor Manager Agent
