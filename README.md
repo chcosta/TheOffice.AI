@@ -1,4 +1,4 @@
-# Copilot Agent Supervisor
+# TheOffice.AI
 
 An intelligent orchestration platform for GitHub Copilot CLI agents. Schedule, monitor, and chain AI agents together — with Managers that coordinate multi-agent workflows, real-time chat, cloud sync, and a full web dashboard.
 

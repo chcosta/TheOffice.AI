@@ -1,5 +1,5 @@
 @echo off
-echo Starting Copilot Agent Supervisor...
+echo Starting TheOffice.AI...
 REM Register task if it doesn't exist (requires admin first time only)
 schtasks /Query /TN "CopilotAgentSupervisor" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (

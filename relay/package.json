@@ -1,7 +1,7 @@
 {
   "name": "agent-supervisor-relay",
   "version": "1.0.0",
-  "description": "Lightweight message relay for Agent Supervisor mobile connectivity",
+  "description": "Lightweight message relay for TheOffice.AI mobile connectivity",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

@@ -240,6 +240,6 @@ app.get('/api/devices', validateApiKey, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[relay] Agent Supervisor Relay running on port ${PORT}`);
+  console.log(`[relay] TheOffice.AI Relay running on port ${PORT}`);
   console.log(`[relay] Use RELAY_ADMIN_KEY env var to set a persistent admin key`);
 });

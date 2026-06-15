@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Copilot Agent Supervisor</title>
+  <title>TheOffice.AI</title>
   <script>
     (() => {
       const param = new URLSearchParams(window.location.search).get("scoutTheme");
@@ -1587,7 +1587,7 @@
       <div class="brand">
         <button class="icon-button nav-toggle-btn" type="button" @click="toggleMainNav()" :aria-label="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" :title="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">☰</button>
         <div class="brand-mark">⚡</div>
-        <div>Agent Supervisor</div>
+        <div>TheOffice.AI</div>
       </div>
       <button class="search-trigger" type="button" @click="openCommandPalette()">
         <span>Search agents, managers, tasks…</span>
@@ -6625,7 +6625,7 @@
 
         openShareModal(content, subject, context) {
           this.shareContent = content == null ? '' : String(content);
-          this.shareSubject = subject || 'Shared from Agent Supervisor';
+          this.shareSubject = subject || 'Shared from TheOffice.AI';
           this.shareContext = context || '';
           this.shareModalOpen = true;
         },

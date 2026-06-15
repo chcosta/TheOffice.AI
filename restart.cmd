@@ -6,6 +6,6 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3847 ^| findstr LISTENING') 
 timeout /t 2 /nobreak >nul
 echo Starting supervisor...
 cd /d %~dp0
-start "Copilot Agent Supervisor" node server.js
+start "TheOffice.AI" node server.js
 timeout /t 3 /nobreak >nul
 echo Dashboard: http://localhost:3847

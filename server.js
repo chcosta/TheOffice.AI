@@ -956,7 +956,7 @@ function serveSpa(req, res) {
     res.sendFile(SPA_PATH);
   } else {
     // SPA asset missing (degraded state). The legacy embedded dashboard has been removed.
-    res.status(503).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Copilot Agent Supervisor</title></head><body style="font-family:system-ui;padding:40px"><h1>Copilot Agent Supervisor</h1><p>The SPA bundle (<code>public/app.html</code>) was not found. Please restore it and reload.</p></body></html>');
+    res.status(503).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>TheOffice.AI</title></head><body style="font-family:system-ui;padding:40px"><h1>TheOffice.AI</h1><p>The SPA bundle (<code>public/app.html</code>) was not found. Please restore it and reload.</p></body></html>');
   }
 }
 ['/', '/agents', '/dashboard', '/managers', '/tasks', '/chat', '/activity'].forEach(route => {
@@ -2040,7 +2040,7 @@ th, td { border: 1px solid #ddd; padding: 6px 10px; }
 
   const boundary = `----=_Part_${Date.now()}`;
   const eml = [
-    `Subject: ${subject || 'Shared from Agent Supervisor'}`,
+    `Subject: ${subject || 'Shared from TheOffice.AI'}`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     `X-Unsent: 1`,
@@ -2083,9 +2083,9 @@ app.post('/api/share/teams', (req, res) => {
     '@type': 'MessageCard',
     '@context': 'http://schema.org/extensions',
     themeColor: 'b11f4b',
-    summary: subject || 'Shared from Agent Supervisor',
+    summary: subject || 'Shared from TheOffice.AI',
     sections: [{
-      activityTitle: subject || 'Shared from Agent Supervisor',
+      activityTitle: subject || 'Shared from TheOffice.AI',
       activitySubtitle: new Date().toLocaleString(),
       text: content.length > 5000 ? `${content.substring(0, 5000)}\n\n...(truncated)` : content,
       markdown: true
@@ -4710,7 +4710,7 @@ function getManagersPageHtml() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Managers — Copilot Agent Supervisor</title>
+  <title>Managers — TheOffice.AI</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -4899,7 +4899,7 @@ function getManagersPageHtml() {
 </head>
 <body>
   <nav class="top-nav">
-    <span class="nav-title">Copilot Agent Supervisor</span>
+    <span class="nav-title">TheOffice.AI</span>
     <a href="/" class="nav-link active">Managers</a>
     <a href="/agents" class="nav-link">Agents</a>
   </nav>
