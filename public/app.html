@@ -1849,7 +1849,7 @@
               <div class="toolbar">
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit</button>
+                <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit in VSCode</button>
                 <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
                 <button class="btn" type="button" @click="reinstallAgent(selectedAgent.id)">🔄 Reinstall</button>
                 <button class="btn danger" type="button" @click="removeAgent(selectedAgent.id)">🗑 Remove</button>
@@ -1924,7 +1924,11 @@
                   </div>
                   <div class="config-grid">
                     <div class="detail-table">
-                      <div class="detail-row"><span class="detail-label">Agent Name</span><span class="detail-value" x-text="selectedAgent.config?.agent || selectedAgent.config?.name || selectedAgent.id"></span></div>
+                      <div class="detail-row"><span class="detail-label">Display Name</span><span class="detail-value">
+                        <span x-show="!selectedAgent.capsUnlocked" x-text="selectedAgent.name"></span>
+                        <input x-show="selectedAgent.capsUnlocked" class="field-input" style="display:inline-block;width:auto;min-width:240px;padding:2px 8px;font-size:0.9em" type="text" x-model="selectedAgent.nameDraft" placeholder="e.g. Email Sender" />
+                      </span></div>
+                      <div class="detail-row"><span class="detail-label">Backing Agent</span><span class="detail-value" x-text="selectedAgent.config?.agent || selectedAgent.config?.name || selectedAgent.id"></span></div>
                       <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedAgent.id"></span></div>
                       <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></span></div>
                       <div class="detail-row"><span class="detail-label">Source Location</span><span class="detail-value mono" style="font-size:0.82em;word-break:break-all" x-text="selectedAgent.config?.pluginDir || (selectedAgent.config?.cwd ? selectedAgent.config.cwd + '\\.github\\agents\\' + selectedAgent.id + '.agent.md' : '—')"></span></div>
@@ -1958,7 +1962,7 @@
                       </div>
                     </div>
                     <div class="toolbar" x-show="selectedAgent.capsUnlocked">
-                      <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save capabilities</button>
+                      <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save changes</button>
                       <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = false">Cancel</button>
                     </div>
                   </div>
@@ -5361,6 +5365,7 @@
             ...agent,
             id,
             name: agent.config?.name || agent.name || id,
+            nameDraft: agent.config?.name || agent.name || id,
             status: (agent.status || 'idle').toLowerCase(),
             config: agent.config || {},
             schedule,
@@ -5420,6 +5425,7 @@
               this.selectedAgent.capsUnlocked = !!prev.capsUnlocked;
               this.selectedAgent.descriptionDraft = prev.capsUnlocked ? prev.descriptionDraft : this.selectedAgent.descriptionDraft;
               this.selectedAgent.skillsDraft = prev.capsUnlocked ? prev.skillsDraft : this.selectedAgent.skillsDraft;
+              this.selectedAgent.nameDraft = prev.capsUnlocked ? prev.nameDraft : this.selectedAgent.nameDraft;
             } else {
               this.selectedAgent.promptDraft = '';
               this.selectedAgent.scheduleDraft = 'never';
@@ -7721,11 +7727,18 @@
           try {
             const skills = (this.selectedAgent.skillsDraft || '')
               .split(',').map(s => s.trim()).filter(Boolean);
+            const newName = (this.selectedAgent.nameDraft || '').trim();
+            if (newName && newName !== this.selectedAgent.name) {
+              await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/name`, {
+                method: 'PUT',
+                body: JSON.stringify({ name: newName })
+              });
+            }
             await this.request(`/api/agents/${encodeURIComponent(this.selectedAgent.id)}/details`, {
               method: 'PUT',
               body: JSON.stringify({ description: this.selectedAgent.descriptionDraft || '', skills })
             });
-            this.showToast('Capabilities saved', 'Description & skills updated.', 'info');
+            this.showToast('Agent updated', 'Name, description & skills saved.', 'info');
             await this.loadAgentDetail(this.selectedAgent.id);
             await this.refreshAll(false);
           } catch (error) {
