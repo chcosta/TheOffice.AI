@@ -101,6 +101,13 @@ class ManagerAgent extends EventEmitter {
 
     // Migration: add model column so manager run history shows the brain model.
     try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN model TEXT'); } catch {}
+    // Migrations: aggregated per-run usage/billing metrics for the Reports system.
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN premium_requests REAL'); } catch {}
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN api_duration_ms INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN input_tokens INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN output_tokens INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN cache_read_tokens INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN cache_write_tokens INTEGER'); } catch {}
 
     // Clean up orphaned runs from previous server instance
     const orphaned = this.db.prepare("SELECT id, manager_id FROM manager_runs WHERE status = 'running'").all();
@@ -261,15 +268,17 @@ class ManagerAgent extends EventEmitter {
   async _runOrchestration(managerId, runId, entry, prompt, assignmentId = null, triggerContext = null, { liveStream = false } = {}) {
     const steps = [];
     this._lastBrainModel = '';
+    const usageAcc = { premiumRequests: 0, apiDurationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     try {
       console.log(`[manager] Starting orchestration run ${runId} for ${managerId}`);
       const orgAgents = this._getOrgAgentDetails(managerId);
-      const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps, { liveStream });
+      const orchestrationResult = await this._orchestrate(entry.config, prompt, orgAgents, runId, steps, { liveStream, usageAcc });
 
       const finishedAt = new Date().toISOString();
       this.db.prepare(
-        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ?, model = ? WHERE id = ?'
-      ).run(finishedAt, JSON.stringify(steps), orchestrationResult, 'completed', this._lastBrainModel || null, runId);
+        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ?, model = ?, premium_requests = ?, api_duration_ms = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ? WHERE id = ?'
+      ).run(finishedAt, JSON.stringify(steps), orchestrationResult, 'completed', this._lastBrainModel || null,
+        usageAcc.premiumRequests, usageAcc.apiDurationMs, usageAcc.inputTokens, usageAcc.outputTokens, usageAcc.cacheReadTokens, usageAcc.cacheWriteTokens, runId);
 
       // Only mark idle if no other runs are still active
       const otherActive = this.db.prepare(
@@ -283,13 +292,16 @@ class ManagerAgent extends EventEmitter {
       this.emit('manager-completed', { managerId, runId, result: orchestrationResult });
       console.log(`[manager] Orchestration run ${runId} completed`);
 
+      this._recordManagerUsage(managerId, finishedAt, this._lastBrainModel, 'success', usageAcc);
+
       return { runId, result: orchestrationResult, steps };
     } catch (err) {
       console.error(`[manager] Orchestration run ${runId} failed:`, err.message);
       const finishedAt = new Date().toISOString();
       this.db.prepare(
-        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ?, model = ? WHERE id = ?'
-      ).run(finishedAt, JSON.stringify(steps), err.message, 'error', this._lastBrainModel || null, runId);
+        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ?, model = ?, premium_requests = ?, api_duration_ms = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ? WHERE id = ?'
+      ).run(finishedAt, JSON.stringify(steps), err.message, 'error', this._lastBrainModel || null,
+        usageAcc.premiumRequests, usageAcc.apiDurationMs, usageAcc.inputTokens, usageAcc.outputTokens, usageAcc.cacheReadTokens, usageAcc.cacheWriteTokens, runId);
 
       const otherActive = this.db.prepare(
         "SELECT COUNT(*) as count FROM manager_runs WHERE manager_id = ? AND status = 'running' AND id != ?"
@@ -301,6 +313,8 @@ class ManagerAgent extends EventEmitter {
       this._addMessage(managerId, runId, 'assistant', `Error: ${err.message}`);
       this.emit('manager-error', { managerId, runId, error: err });
 
+      this._recordManagerUsage(managerId, finishedAt, this._lastBrainModel, 'error', usageAcc);
+
       return { runId, error: err.message, steps };
     }
   }
@@ -309,7 +323,7 @@ class ManagerAgent extends EventEmitter {
    * Core orchestration loop. Uses the copilot CLI as the manager's "brain"
    * to decide which agents to run and how to interpret results.
    */
-  async _orchestrate(managerConfig, userPrompt, orgAgents, runId, steps, { liveStream = false } = {}) {
+  async _orchestrate(managerConfig, userPrompt, orgAgents, runId, steps, { liveStream = false, usageAcc = null } = {}) {
     const maxIterations = 10;
     let iteration = 0;
     let context = '';
@@ -348,6 +362,7 @@ class ManagerAgent extends EventEmitter {
       }
 
       const decision = await this._askManager(managerConfig, currentPrompt, mgrOnChunk);
+      if (usageAcc) this._addUsage(usageAcc, this._lastBrainUsage);
       if (thinkingStep.streaming) {
         thinkingStep.streaming = false;
         // Retain the reasoning so the verbose trace can be reviewed after the
@@ -403,6 +418,7 @@ class ManagerAgent extends EventEmitter {
           };
         }
         const agentResult = await this._runSubAgent(action.agentId, action.prompt, onChunk);
+        if (usageAcc) this._addUsage(usageAcc, agentResult.usage);
         if (runStep.streaming) { runStep.streaming = false; delete runStep.partial; }
         steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
@@ -440,6 +456,28 @@ class ManagerAgent extends EventEmitter {
   _persistSteps(runId, steps) {
     this.db.prepare('UPDATE manager_runs SET steps = ? WHERE id = ?')
       .run(JSON.stringify(steps), runId);
+  }
+
+  // Accumulate per-call SDK usage totals into a run-level aggregate.
+  _addUsage(acc, u) {
+    if (!acc || !u) return;
+    acc.premiumRequests += Number(u.premiumRequests) || 0;
+    acc.apiDurationMs += Number(u.apiDurationMs) || 0;
+    acc.inputTokens += Number(u.inputTokens) || 0;
+    acc.outputTokens += Number(u.outputTokens) || 0;
+    acc.cacheReadTokens += Number(u.cacheReadTokens) || 0;
+    acc.cacheWriteTokens += Number(u.cacheWriteTokens) || 0;
+  }
+
+  // Append a manager run's aggregated usage to the canonical ledger (one row per run).
+  _recordManagerUsage(managerId, ts, model, status, usageAcc) {
+    try {
+      const entry = this.managers.get(managerId);
+      const label = (entry && entry.config && entry.config.name) || managerId;
+      this.supervisor.recordUsage({ ts, source: 'manager', refId: managerId, label, model: model || '', status, usage: usageAcc });
+    } catch (e) {
+      console.error('[manager] usage ledger write failed:', e.message);
+    }
   }
 
   _buildManagerSystemPrompt(managerConfig, orgAgents) {
@@ -547,6 +585,7 @@ ${loadResponseFormat()}`;
       if (!res || res.fallback) return null;
       if (res.code !== 0 || !(res.output && res.output.trim())) return null;
       if (res.model) this._lastBrainModel = res.model;
+      this._lastBrainUsage = res.usage || null;
       return res.output;
     } catch (e) {
       return null;
@@ -577,7 +616,7 @@ ${loadResponseFormat()}`;
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
       const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('execution', entry.config) });
       if (!res || res.fallback) return null;
-      return { exitCode: res.code, output: res.output || '', stderr: res.error || '' };
+      return { exitCode: res.code, output: res.output || '', stderr: res.error || '', usage: res.usage || null };
     } catch (e) {
       return null;
     }

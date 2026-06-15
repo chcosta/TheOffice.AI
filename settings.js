@@ -26,6 +26,9 @@ const DEFAULTS = {
   chatModel: '',
   executionModel: '',
   systemModel: '',
+  // Reports: equivalent USD cost per premium request (AIC). GitHub's documented
+  // overage rate is $0.04/premium request; adjust in Settings to match your plan.
+  costPerPremiumRequest: 0.04,
 };
 
 let cache = null;
@@ -55,7 +58,12 @@ function updateSettings(patch) {
   const next = { ...cur };
   for (const k of Object.keys(DEFAULTS)) {
     if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-      next[k] = typeof patch[k] === 'string' ? patch[k] : (patch[k] == null ? '' : String(patch[k]));
+      if (typeof DEFAULTS[k] === 'number') {
+        const n = Number(patch[k]);
+        next[k] = Number.isFinite(n) ? n : DEFAULTS[k];
+      } else {
+        next[k] = typeof patch[k] === 'string' ? patch[k] : (patch[k] == null ? '' : String(patch[k]));
+      }
     }
   }
   try {
@@ -88,6 +96,12 @@ function resolveModel(category, config) {
   return def || undefined;
 }
 
+// Equivalent USD cost per premium request (AIC) used by the Reports system.
+function getCostPerPremiumRequest() {
+  const v = Number(getSettings().costPerPremiumRequest);
+  return Number.isFinite(v) && v >= 0 ? v : DEFAULTS.costPerPremiumRequest;
+}
+
 module.exports = {
   SETTINGS_PATH,
   DEFAULTS,
@@ -95,4 +109,5 @@ module.exports = {
   reload,
   updateSettings,
   resolveModel,
+  getCostPerPremiumRequest,
 };

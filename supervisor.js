@@ -49,6 +49,56 @@ class Supervisor extends EventEmitter {
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN task_id TEXT'); } catch {}
     // Migration: add model column so run history shows which model served the run.
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN model TEXT'); } catch {}
+    // Migrations: per-run usage/billing metrics for the Reports system.
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN premium_requests REAL'); } catch {}
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN api_duration_ms INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN input_tokens INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN output_tokens INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN cache_read_tokens INTEGER'); } catch {}
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN cache_write_tokens INTEGER'); } catch {}
+
+    // Canonical usage ledger — the single source of truth for the Reports system.
+    // Every billable run path writes exactly one row here (agent/task/manager/chat/flow),
+    // so aggregations never double-count. Per-run usage columns above remain for
+    // per-run badges/detail; this table is for reporting.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        source TEXT NOT NULL,
+        ref_id TEXT,
+        label TEXT,
+        model TEXT,
+        status TEXT,
+        premium_requests REAL,
+        api_duration_ms INTEGER,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cache_read_tokens INTEGER,
+        cache_write_tokens INTEGER
+      );
+    `);
+    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_ts ON usage_events(ts)'); } catch {}
+  }
+
+  /**
+   * Append a row to the canonical usage ledger. Called once per billable run from
+   * every run path so the Reports system can aggregate usage/cost exhaustively.
+   * ev: { ts, source, refId, label, model, status, usage:{premiumRequests,apiDurationMs,
+   *       inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens} }
+   */
+  recordUsage(ev) {
+    try {
+      const u = (ev && ev.usage) || {};
+      this.db.prepare(
+        'INSERT INTO usage_events (ts, source, ref_id, label, model, status, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        ev.ts || new Date().toISOString(), ev.source, ev.refId || null, ev.label || null, ev.model || null, ev.status || null,
+        u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null
+      );
+    } catch (e) {
+      console.error('[usage] ledger write failed:', e.message);
+    }
   }
 
 
@@ -261,6 +311,7 @@ class Supervisor extends EventEmitter {
           origin: 'sdk',
           steps: Array.isArray(res.steps) ? res.steps : [],
           model: res.model || '',
+          usage: res.usage || null,
         });
       })
       .catch((err) => {
@@ -283,7 +334,7 @@ class Supervisor extends EventEmitter {
    * agent-completed. Keeps the mobile/activity/SSE contract identical for both
    * runtimes.
    */
-  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps, model }) {
+  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps, model, usage }) {
     const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
     entry.running = false;
     entry.process = null;
@@ -294,10 +345,12 @@ class Supervisor extends EventEmitter {
       try { fs.unlinkSync(f); } catch {}
     }
 
+    const u = usage || {};
     const fullOutput = output || '';
     this.db.prepare(
-      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId, model || null);
+      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, model, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId, model || null,
+      u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null);
 
     // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
     let status;
@@ -308,6 +361,17 @@ class Supervisor extends EventEmitter {
 
     this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId, steps: Array.isArray(steps) ? steps : [], model: model || '' });
     console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
+
+    // Append to the canonical usage ledger (task vs. ad-hoc agent run by task_id).
+    this.recordUsage({
+      ts: finishedAt,
+      source: taskId ? 'task' : 'agent',
+      refId: taskId || agentId,
+      label: config.name || agentId,
+      model: model || '',
+      status: code === 0 ? 'success' : 'error',
+      usage,
+    });
 
     // Durable restart on failure
     if (code !== 0 && config.durable) {

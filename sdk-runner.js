@@ -434,6 +434,25 @@ class SdkRunner {
         session.on('assistant.message_delta', onDelta);
       }
 
+      // assistant.usage events carry authoritative per-API-call billing metrics
+      // (tokens, model multiplier as `cost`, duration). They are emitted live and
+      // are NOT persisted in getEvents(), so we must accumulate them off the live
+      // stream. Registered per-turn so reused chat sessions count only this turn.
+      const usageAcc = { premiumRequests: 0, apiDurationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 0 };
+      const onUsage = (ev) => {
+        const d = ev && ev.data;
+        if (!d) return;
+        usageAcc.calls += 1;
+        const mult = Number(d.cost);
+        usageAcc.premiumRequests += Number.isFinite(mult) && mult > 0 ? mult : 1;
+        usageAcc.apiDurationMs += Number(d.duration) || 0;
+        usageAcc.inputTokens += Number(d.inputTokens) || 0;
+        usageAcc.outputTokens += Number(d.outputTokens) || 0;
+        usageAcc.cacheReadTokens += Number(d.cacheReadTokens) || 0;
+        usageAcc.cacheWriteTokens += Number(d.cacheWriteTokens) || 0;
+      };
+      try { session.on('assistant.usage', onUsage); } catch (_) { /* ignore */ }
+
       let code = 0;
       let error = '';
       try {
@@ -443,7 +462,7 @@ class SdkRunner {
         error = e && e.message ? e.message : String(e);
       }
 
-      // Detach the per-turn listener before we may reuse this session again.
+      // Detach the per-turn listeners before we may reuse this session again.
       if (onDelta) {
         try {
           const off = session.off || session.removeListener;
@@ -451,16 +470,22 @@ class SdkRunner {
         } catch (_) { /* ignore */ }
         onDelta = null;
       }
+      try {
+        const off = session.off || session.removeListener;
+        if (off) off.call(session, 'assistant.usage', onUsage);
+      } catch (_) { /* ignore */ }
 
       // Authoritative output: assistant.message contents joined like the scraper.
       let output = '';
       let eventCount = 0;
       let steps = [];
       let usedModel = '';
+      let usage = null;
       try {
         const events = await session.getEvents();
         eventCount = events.length;
         const parts = [];
+        let shutdownUsage = null;
         for (const ev of events) {
           if (ev.type === 'assistant.message' && ev.data && ev.data.content) {
             parts.push(ev.data.content);
@@ -471,6 +496,34 @@ class SdkRunner {
           if (ev.data && typeof ev.data.model === 'string' && ev.data.model) {
             usedModel = ev.data.model;
           }
+          // session.shutdown carries authoritative billing/usage totals for the
+          // run. Rarely present before we read (it flushes on teardown), but prefer
+          // it when available.
+          if (ev.type === 'session.shutdown' && ev.data) {
+            const td = ev.data.tokenDetails || {};
+            shutdownUsage = {
+              premiumRequests: Number(ev.data.totalPremiumRequests) || 0,
+              apiDurationMs: Number(ev.data.totalApiDurationMs) || 0,
+              inputTokens: Number(td.input?.tokenCount) || 0,
+              outputTokens: Number(td.output?.tokenCount) || 0,
+              cacheReadTokens: Number(td.cache_read?.tokenCount) || 0,
+              cacheWriteTokens: Number(td.cache_write?.tokenCount) || 0,
+            };
+          }
+        }
+        // Prefer shutdown totals (if the session already tore down); otherwise use
+        // the live assistant.usage accumulation for this turn.
+        if (shutdownUsage && shutdownUsage.premiumRequests > 0) {
+          usage = shutdownUsage;
+        } else if (usageAcc.calls > 0) {
+          usage = {
+            premiumRequests: +usageAcc.premiumRequests.toFixed(4),
+            apiDurationMs: usageAcc.apiDurationMs,
+            inputTokens: usageAcc.inputTokens,
+            outputTokens: usageAcc.outputTokens,
+            cacheReadTokens: usageAcc.cacheReadTokens,
+            cacheWriteTokens: usageAcc.cacheWriteTokens,
+          };
         }
         output = parts.join(SEP);
         steps = this._buildSteps(events);
@@ -496,7 +549,7 @@ class SdkRunner {
         this._scheduleEvict(sessionId, entry);
       }
 
-      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '' };
+      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '', usage };
     } catch (e) {
       // createSession/resumeSession failed - return fallback so the caller can
       // record a terminal failure (no CLI fallback remains).

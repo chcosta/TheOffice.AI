@@ -310,10 +310,22 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
     .then((res) => {
       buf.running = false;
       buf.finishedAt = Date.now();
+      buf.usedModel = res.model || buf.requestedModel || '';
       if (!res.ok) {
         buf.error = res.error || 'chat failed';
         chatErrors.set(sessionId, { error: buf.error, code: res.code, time: Date.now() });
       }
+      // Canonical usage ledger: one row per chat turn (agent/ad-hoc chats; manager
+      // chats are recorded via the manager run path, so no double counting).
+      supervisor.recordUsage({
+        ts: new Date().toISOString(),
+        source: 'chat',
+        refId: agentId || 'chat',
+        label: (config && config.name) || agentId || 'Chat',
+        model: res.model || buf.requestedModel || '',
+        status: res.ok ? 'success' : 'error',
+        usage: res.usage || null,
+      });
       if (agentId) broadcastSSE('agent-chat-complete', { agentId, code: res.code });
     })
     .catch((err) => {
@@ -2722,6 +2734,100 @@ app.put('/api/settings', (req, res) => {
     // Persist into this machine's cloud config too, if sync is on and we lead.
     try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
     res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Reports / Usage analytics ----------------------------------------------
+// Exhaustive usage + cost reporting backed by the canonical usage_events ledger.
+// Returns aggregate totals plus per-day, per-model and per-source breakdowns for
+// a time window (default: last 30 days). Every billable run path (agent, task,
+// manager, chat) writes exactly one ledger row, so nothing is double-counted.
+app.get('/api/reports', (req, res) => {
+  try {
+    const reqDays = parseInt(req.query.days, 10);
+    const days = Math.min(Math.max(Number.isFinite(reqDays) ? reqDays : 30, 1), 365);
+    const now = new Date();
+    let to = req.query.to ? String(req.query.to) : now.toISOString();
+    let from = req.query.from ? String(req.query.from) : new Date(now.getTime() - days * 86400000).toISOString();
+    const rate = settings.getCostPerPremiumRequest();
+    const decorate = (rows) => rows.map(r => ({ ...r, cost: +(((r.premiumRequests || 0) * rate).toFixed(4)) }));
+
+    const SUMS = `
+        COUNT(*) AS runs,
+        COALESCE(SUM(premium_requests),0) AS premiumRequests,
+        COALESCE(SUM(api_duration_ms),0) AS apiDurationMs,
+        COALESCE(SUM(input_tokens),0) AS inputTokens,
+        COALESCE(SUM(output_tokens),0) AS outputTokens,
+        COALESCE(SUM(cache_read_tokens),0) AS cacheReadTokens,
+        COALESCE(SUM(cache_write_tokens),0) AS cacheWriteTokens`;
+
+    const agg = db.prepare(`SELECT ${SUMS},
+        SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success,
+        SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS error
+      FROM usage_events WHERE ts >= ? AND ts <= ?`).get(from, to) || {};
+
+    const bySource = db.prepare(`SELECT source, ${SUMS}
+      FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY source ORDER BY premiumRequests DESC`).all(from, to);
+
+    const byModel = db.prepare(`SELECT COALESCE(NULLIF(model,''),'(runtime default)') AS model, ${SUMS}
+      FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY model ORDER BY premiumRequests DESC, runs DESC`).all(from, to);
+
+    const daily = db.prepare(`SELECT substr(ts,1,10) AS day, ${SUMS}
+      FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day ORDER BY day ASC`).all(from, to);
+
+    const dailyBySource = db.prepare(`SELECT substr(ts,1,10) AS day, source, COUNT(*) AS runs,
+        COALESCE(SUM(premium_requests),0) AS premiumRequests
+      FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day, source ORDER BY day ASC`).all(from, to);
+
+    // Per-source counts for the headline cards.
+    const srcCount = {};
+    for (const r of bySource) srcCount[r.source] = r.runs;
+
+    // Flows: chain_runs is a separate table (not in the ledger).
+    let flowsRun = 0;
+    try { flowsRun = db.prepare(`SELECT COUNT(*) AS c FROM chain_runs WHERE started_at >= ? AND started_at <= ?`).get(from, to)?.c || 0; } catch {}
+
+    // Total conversations (all-time): SPA chat files + mobile threads.
+    let spaChats = 0;
+    try { spaChats = fs.readdirSync(CHATS_DIR).filter(f => f.endsWith('.json')).length; } catch {}
+    let mobileThreads = 0;
+    try { mobileThreads = db.prepare(`SELECT COUNT(*) AS c FROM mobile_chat_threads`).get()?.c || 0; } catch {}
+
+    const totals = {
+      runs: agg.runs || 0,
+      success: agg.success || 0,
+      error: agg.error || 0,
+      premiumRequests: +(agg.premiumRequests || 0).toFixed(4),
+      apiDurationMs: agg.apiDurationMs || 0,
+      inputTokens: agg.inputTokens || 0,
+      outputTokens: agg.outputTokens || 0,
+      cacheReadTokens: agg.cacheReadTokens || 0,
+      cacheWriteTokens: agg.cacheWriteTokens || 0,
+      totalTokens: (agg.inputTokens || 0) + (agg.outputTokens || 0),
+      cost: +(((agg.premiumRequests || 0) * rate).toFixed(2)),
+    };
+
+    res.json({
+      window: { from, to, days },
+      rate,
+      totals,
+      counts: {
+        agentRuns: srcCount.agent || 0,
+        taskRuns: srcCount.task || 0,
+        managerRuns: srcCount.manager || 0,
+        chatTurns: srcCount.chat || 0,
+        flowsRun,
+        totalConversations: spaChats + mobileThreads,
+        spaChats,
+        mobileThreads,
+      },
+      bySource: decorate(bySource),
+      byModel: decorate(byModel),
+      daily: decorate(daily),
+      dailyBySource,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

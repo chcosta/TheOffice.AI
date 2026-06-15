@@ -86,6 +86,9 @@ class MobileHandler extends EventEmitter {
           timestamp TEXT NOT NULL DEFAULT (datetime('now'))
         );
       `);
+      // Migration: per-message model so the mobile transcript can show which
+      // model produced each assistant/agent turn.
+      try { this.db.exec('ALTER TABLE mobile_thread_messages ADD COLUMN model TEXT'); } catch {}
       // Load existing chat sessions into memory
       this._loadChatsFromDb();
     } catch (err) {
@@ -467,6 +470,7 @@ class MobileHandler extends EventEmitter {
 
     try {
       let result;
+      let responseModel = '';
       if (session.targetType === 'manager') {
         const mgrEntry = this.managerAgent.managers.get(targetId);
         const managerName = mgrEntry?.config?.name || mgrEntry?.name || targetId;
@@ -538,13 +542,14 @@ class MobileHandler extends EventEmitter {
         }, 20000);
         try {
           result = await this.managerAgent.executePrompt(targetId, fullPrompt, null, { sync: true });
+          responseModel = result?.model || '';
           result = result?.result || result?.output || '(no output)';
         } finally {
           clearInterval(heartbeat);
           this.managerAgent.removeListener('manager-step', stepHandler);
         }
         if (threadId) {
-          this._addThreadMessage(threadId, 'assistant', managerName, null, result);
+          this._addThreadMessage(threadId, 'assistant', managerName, null, result, responseModel);
           // Tell the client who authored the final answer for attribution.
           await replier(correlationId, {
             type: 'agent-step',
@@ -563,8 +568,10 @@ class MobileHandler extends EventEmitter {
           const agentName = this.supervisor.agents.get(targetId)?.config?.name || targetId;
           this._upsertChatThread(threadId, targetId, 'agent', message);
           this._addThreadMessage(threadId, 'user', null, null, message);
-          result = await this._executeAgentChatTurn(targetId, threadId, message, correlationId, replier);
-          this._addThreadMessage(threadId, 'assistant', agentName, targetId, result);
+          const turn = await this._executeAgentChatTurn(targetId, threadId, message, correlationId, replier);
+          result = turn.output;
+          responseModel = turn.model || '';
+          this._addThreadMessage(threadId, 'assistant', agentName, targetId, result, responseModel);
         } else {
           // Fallback (no thread): build prompt with conversation history.
           let fullPrompt = message;
@@ -590,6 +597,7 @@ class MobileHandler extends EventEmitter {
           status: 'completed',
           output: result,
           outputFormat: 'markdown',
+          model: responseModel || undefined,
           complete: true
         }
       });
@@ -724,12 +732,12 @@ class MobileHandler extends EventEmitter {
    * back-and-forth plus each sub-agent's contribution with attribution, so the
    * conversation — and who said what — survives navigation and restarts.
    */
-  _addThreadMessage(threadId, role, speaker, agentId, content) {
+  _addThreadMessage(threadId, role, speaker, agentId, content, model = null) {
     if (!this.db || !threadId) return;
     try {
       this.db.prepare(
-        'INSERT INTO mobile_thread_messages (thread_id, role, speaker, agent_id, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(threadId, role, speaker || null, agentId || null, content == null ? '' : String(content), new Date().toISOString());
+        'INSERT INTO mobile_thread_messages (thread_id, role, speaker, agent_id, content, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(threadId, role, speaker || null, agentId || null, content == null ? '' : String(content), new Date().toISOString(), model || null);
     } catch (e) { /* non-fatal */ }
   }
 
@@ -737,13 +745,14 @@ class MobileHandler extends EventEmitter {
     if (!this.db) return [];
     try {
       return this.db.prepare(
-        'SELECT role, speaker, agent_id, content, timestamp FROM mobile_thread_messages WHERE thread_id = ? ORDER BY id ASC'
+        'SELECT role, speaker, agent_id, content, timestamp, model FROM mobile_thread_messages WHERE thread_id = ? ORDER BY id ASC'
       ).all(threadId).map(r => ({
         role: r.role,
         speaker: r.speaker || undefined,
         agentId: r.agent_id || undefined,
         content: r.content,
         timestamp: r.timestamp,
+        model: r.model || undefined,
       }));
     } catch { return []; }
   }
@@ -1408,12 +1417,31 @@ class MobileHandler extends EventEmitter {
           cwd: config && config.cwd, onChunk, model: chatModel,
         }).catch(() => null);
         if (retry && !retry.fallback && retry.ok !== false) {
-          return retry.output || '(no output)';
+          this._recordChatUsage(targetId, config, retry);
+          return { output: retry.output || '(no output)', model: retry.model || chatModel || '', usage: retry.usage || null };
         }
       }
       throw new Error(errMsg);
     }
-    return res.output || '(no output)';
+    this._recordChatUsage(agentId, config, res);
+    return { output: res.output || '(no output)', model: res.model || chatModel || '', usage: res.usage || null };
+  }
+
+  // Append a mobile agent chat turn to the canonical usage ledger.
+  _recordChatUsage(agentId, config, res) {
+    try {
+      if (this.supervisor && typeof this.supervisor.recordUsage === 'function') {
+        this.supervisor.recordUsage({
+          ts: new Date().toISOString(),
+          source: 'chat',
+          refId: agentId || 'chat',
+          label: (config && config.name) || agentId || 'Mobile Chat',
+          model: res.model || '',
+          status: res.ok === false ? 'error' : 'success',
+          usage: res.usage || null,
+        });
+      }
+    } catch (e) { /* non-fatal */ }
   }
 
   /**

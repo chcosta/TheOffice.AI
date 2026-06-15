@@ -385,6 +385,25 @@
       color: var(--cp-success);
       background: color-mix(in srgb, var(--cp-success) 14%, transparent);
     }
+    .report-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .report-stat { padding: 16px 18px; }
+    .report-stat-label { font-size: 12px; color: var(--cp-text-muted); font-weight: 600; }
+    .report-stat-value { font-size: 26px; font-weight: 700; margin: 6px 0 4px; color: var(--cp-text); letter-spacing: -0.01em; }
+    .report-chart svg { width: 100%; height: auto; display: block; }
+    .report-chart .bar { fill: var(--cp-accent); transition: fill .15s; }
+    .report-chart .bar:hover { fill: var(--cp-accent-hover); }
+    .report-chart .axis { stroke: var(--cp-border); stroke-width: 1; }
+    .report-chart .lbl { fill: var(--cp-text-muted); font-size: 10px; }
+    .table-wrap { overflow-x: auto; }
+    table.report-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.report-table th, table.report-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--cp-border); }
+    table.report-table th { color: var(--cp-text-muted); font-weight: 600; font-size: 12px; }
+    table.report-table td.num, table.report-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.report-table tbody tr:last-child td { border-bottom: none; }
     .trigger-chip.on {
       border-color: var(--cp-accent) !important;
       background: var(--cp-accent-soft);
@@ -3491,6 +3510,151 @@
             <div class="empty-state" x-show="!filteredActivity().length">No activity matched this filter.</div>
           </section>
 
+          <!-- Reports -->
+          <section x-show="!loading && !errorMessage && route === 'reports'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>📊 Reports</h1>
+                <p>Usage and cost analytics across agents, tasks, managers, flows, and chats.</p>
+              </div>
+              <div class="toolbar">
+                <div class="filter-pills">
+                  <template x-for="r in [7, 30, 90]" :key="r">
+                    <button class="pill" type="button" :class="{ active: reportRange === r }" @click="setReportRange(r)" x-text="'Last ' + r + 'd'"></button>
+                  </template>
+                </div>
+                <button class="btn" type="button" @click="loadReports()" :disabled="reportsLoading">↻ Refresh</button>
+              </div>
+            </div>
+
+            <div class="empty-state" x-show="reportsLoading">Loading usage…</div>
+
+            <template x-if="!reportsLoading && reports">
+              <div>
+                <!-- Headline stat cards -->
+                <div class="report-grid" style="margin-bottom:20px">
+                  <div class="card report-stat">
+                    <div class="report-stat-label">💵 Equivalent cost</div>
+                    <div class="report-stat-value" x-text="formatCost(reports.totals.cost)"></div>
+                    <div class="hint" x-text="formatNumber(reports.totals.premiumRequests) + ' premium requests × ' + formatCost(reports.rate)"></div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">🪙 AIC (premium requests)</div>
+                    <div class="report-stat-value" x-text="formatNumber(reports.totals.premiumRequests)"></div>
+                    <div class="hint">AI credit usage</div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">▶️ Total runs</div>
+                    <div class="report-stat-value" x-text="formatNumber(reports.totals.runs)"></div>
+                    <div class="hint"><span x-text="formatNumber(reports.totals.success)"></span> ok · <span x-text="formatNumber(reports.totals.error)"></span> failed</div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">🔤 Tokens (in / out)</div>
+                    <div class="report-stat-value" x-text="formatTokens(reports.totals.inputTokens) + ' / ' + formatTokens(reports.totals.outputTokens)"></div>
+                    <div class="hint"><span x-text="formatTokens(reports.totals.totalTokens)"></span> total · <span x-text="formatTokens(reports.totals.cacheReadTokens)"></span> cache read</div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">⚡ Tasks run</div>
+                    <div class="report-stat-value" x-text="formatNumber(reports.counts.taskRuns)"></div>
+                    <div class="hint"><span x-text="formatNumber(reports.counts.agentRuns)"></span> ad-hoc agent runs</div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">🔗 Flows run</div>
+                    <div class="report-stat-value" x-text="formatNumber(reports.counts.flowsRun)"></div>
+                    <div class="hint"><span x-text="formatNumber(reports.counts.managerRuns)"></span> manager runs</div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">💬 Chat turns</div>
+                    <div class="report-stat-value" x-text="formatNumber(reports.counts.chatTurns)"></div>
+                    <div class="hint"><span x-text="formatNumber(reports.counts.totalConversations)"></span> conversations all-time</div>
+                  </div>
+                  <div class="card report-stat">
+                    <div class="report-stat-label">⏱️ API time</div>
+                    <div class="report-stat-value" x-text="formatDuration(reports.totals.apiDurationMs)"></div>
+                    <div class="hint">across all runs</div>
+                  </div>
+                </div>
+
+                <!-- Daily chart -->
+                <div class="card" style="margin-bottom:20px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+                    <h3 style="margin:0">Daily usage</h3>
+                    <div class="filter-pills">
+                      <button class="pill" type="button" :class="{ active: reportMetric === 'cost' }" @click="reportMetric = 'cost'">Cost</button>
+                      <button class="pill" type="button" :class="{ active: reportMetric === 'premiumRequests' }" @click="reportMetric = 'premiumRequests'">AIC</button>
+                      <button class="pill" type="button" :class="{ active: reportMetric === 'runs' }" @click="reportMetric = 'runs'">Runs</button>
+                      <button class="pill" type="button" :class="{ active: reportMetric === 'tokens' }" @click="reportMetric = 'tokens'">Tokens</button>
+                    </div>
+                  </div>
+                  <div class="report-chart" x-html="renderReportChart()"></div>
+                  <div class="empty-state" x-show="!reports.daily.length" style="padding:24px">No usage recorded in this window yet.</div>
+                </div>
+
+                <!-- By model -->
+                <div class="card" style="margin-bottom:20px">
+                  <h3 style="margin-bottom:14px">By model</h3>
+                  <div class="table-wrap">
+                    <table class="report-table">
+                      <thead>
+                        <tr><th>Model</th><th class="num">Runs</th><th class="num">AIC</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th></tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="row in reports.byModel" :key="row.model">
+                          <tr>
+                            <td><span class="model-badge" x-text="'🧠 ' + formatModelName(row.model)"></span></td>
+                            <td class="num" x-text="formatNumber(row.runs)"></td>
+                            <td class="num" x-text="formatNumber(row.premiumRequests)"></td>
+                            <td class="num" x-text="formatTokens(row.inputTokens)"></td>
+                            <td class="num" x-text="formatTokens(row.outputTokens)"></td>
+                            <td class="num" x-text="formatCost(row.cost)"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                    <div class="empty-state" x-show="!reports.byModel.length" style="padding:18px">No model usage yet.</div>
+                  </div>
+                </div>
+
+                <!-- By source -->
+                <div class="card" style="margin-bottom:20px">
+                  <h3 style="margin-bottom:14px">By source</h3>
+                  <div class="table-wrap">
+                    <table class="report-table">
+                      <thead>
+                        <tr><th>Source</th><th class="num">Runs</th><th class="num">AIC</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th></tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="row in reports.bySource" :key="row.source">
+                          <tr>
+                            <td><span class="type-badge" x-text="reportSourceLabel(row.source)"></span></td>
+                            <td class="num" x-text="formatNumber(row.runs)"></td>
+                            <td class="num" x-text="formatNumber(row.premiumRequests)"></td>
+                            <td class="num" x-text="formatTokens(row.inputTokens)"></td>
+                            <td class="num" x-text="formatTokens(row.outputTokens)"></td>
+                            <td class="num" x-text="formatCost(row.cost)"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                    <div class="empty-state" x-show="!reports.bySource.length" style="padding:18px">No usage yet.</div>
+                  </div>
+                </div>
+
+                <!-- Cost rate setting -->
+                <div class="card">
+                  <h3 style="margin-bottom:10px">💲 Cost rate</h3>
+                  <p class="hint" style="margin-bottom:12px">Equivalent USD cost is computed as <strong>premium requests × rate</strong>. Set the rate to match your plan's overage price (GitHub's documented rate is $0.04 / premium request).</p>
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <span class="hint">$</span>
+                    <input class="field-input" type="number" step="0.001" min="0" style="max-width:140px" x-model.number="reportRate" />
+                    <span class="hint">per premium request</span>
+                    <button class="btn primary" type="button" @click="saveReportRate()" :disabled="reportsLoading">Save</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </section>
+
         </div>
       </main>
     </div>
@@ -4501,6 +4665,11 @@
         newAssignmentOpen: false,
         newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
         activityFilter: 'all',
+        reports: null,
+        reportsLoading: false,
+        reportRange: 30,
+        reportMetric: 'cost',
+        reportRate: 0.04,
         scheduleTypeFilter: 'all',
         scheduleHideDisabled: false,
         schedulesLoading: false,
@@ -5117,7 +5286,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'chains', 'design', 'assignments', 'chat', 'activity', 'events', 'settings'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'chains', 'design', 'assignments', 'chat', 'activity', 'events', 'settings', 'reports'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -5138,6 +5307,9 @@
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
             await this.loadExecAi();
+          } else if (this.route === 'reports') {
+            this.loadModels();
+            await this.loadReports();
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
@@ -5425,7 +5597,8 @@
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
-            { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false }
+            { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false },
+            { key: 'reports', label: 'Reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [], collapsible: false }
           ];
         },
 
@@ -8240,6 +8413,116 @@
           const delta = new Date(timestamp).getTime() - this.now;
           if (delta <= 0) return 'due now';
           return `in ${this.formatDuration(delta)}`;
+        },
+
+        // ---- Reports ----
+        async loadReports() {
+          this.reportsLoading = true;
+          try {
+            const res = await fetch(`/api/reports?days=${this.reportRange}`);
+            if (!res.ok) throw new Error('reports ' + res.status);
+            const data = await res.json();
+            this.reports = data;
+            if (typeof data.rate === 'number') this.reportRate = data.rate;
+          } catch (err) {
+            console.error('loadReports failed', err);
+            this.reports = null;
+          } finally {
+            this.reportsLoading = false;
+          }
+        },
+
+        setReportRange(days) {
+          this.reportRange = days;
+          this.loadReports();
+        },
+
+        async saveReportRate() {
+          this.reportsLoading = true;
+          try {
+            await fetch('/api/settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ costPerPremiumRequest: Number(this.reportRate) || 0 })
+            });
+            await this.loadReports();
+          } catch (err) {
+            console.error('saveReportRate failed', err);
+          } finally {
+            this.reportsLoading = false;
+          }
+        },
+
+        reportSourceLabel(src) {
+          const map = { agent: 'Agent', task: 'Task', manager: 'Manager', chat: 'Chat' };
+          return map[src] || (src || 'unknown');
+        },
+
+        formatNumber(n) {
+          const v = Number(n || 0);
+          if (!isFinite(v)) return '0';
+          if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+          return (Math.round(v * 10) / 10).toString();
+        },
+
+        formatCost(n) {
+          const v = Number(n || 0);
+          return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        },
+
+        formatTokens(n) {
+          const v = Number(n || 0);
+          if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+          if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+          if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+          return String(Math.round(v));
+        },
+
+        reportMetricValue(day) {
+          switch (this.reportMetric) {
+            case 'premiumRequests': return Number(day.premiumRequests || 0);
+            case 'runs': return Number(day.runs || 0);
+            case 'tokens': return Number(day.totalTokens || (Number(day.inputTokens || 0) + Number(day.outputTokens || 0)));
+            case 'cost':
+            default: return Number(day.cost || 0);
+          }
+        },
+
+        renderReportChart() {
+          const days = (this.reports && this.reports.daily) || [];
+          if (!days.length) return '';
+          const W = 720, H = 220, padL = 8, padR = 8, padT = 14, padB = 26;
+          const plotW = W - padL - padR, plotH = H - padT - padB;
+          const vals = days.map(d => this.reportMetricValue(d));
+          const max = Math.max(...vals, 0.0001);
+          const n = days.length;
+          const gap = 2;
+          const bw = Math.max(1, (plotW / n) - gap);
+          const fmt = (v) => this.reportMetric === 'cost' ? this.formatCost(v)
+            : this.reportMetric === 'tokens' ? this.formatTokens(v)
+            : this.formatNumber(v);
+          let bars = '';
+          days.forEach((d, i) => {
+            const v = vals[i];
+            const h = max > 0 ? (v / max) * plotH : 0;
+            const x = padL + i * (plotW / n);
+            const y = padT + (plotH - h);
+            const title = `${d.day}: ${fmt(v)}`;
+            bars += `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" rx="2"><title>${title}</title></rect>`;
+          });
+          // x-axis labels: first, middle, last
+          const labelIdx = [0, Math.floor(n / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i);
+          let labels = '';
+          labelIdx.forEach(i => {
+            const x = padL + i * (plotW / n) + bw / 2;
+            const lbl = (days[i].day || '').slice(5);
+            const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+            labels += `<text class="lbl" x="${x.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}">${lbl}</text>`;
+          });
+          const axisY = padT + plotH + 0.5;
+          const maxLbl = `<text class="lbl" x="${padL}" y="${padT - 2}" text-anchor="start">peak ${fmt(max)}</text>`;
+          return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily usage chart">`
+            + `${maxLbl}<line class="axis" x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}"/>${bars}${labels}</svg>`;
         },
 
         humanizeSchedule(schedule) {
