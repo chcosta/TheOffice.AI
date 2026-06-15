@@ -375,6 +375,7 @@ function loadAgents() {
     try { fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2)); } catch {}
   }
   agents.forEach(agent => supervisor.register(agent));
+  supervisor.pruneOrphans(agents.map(a => a.id));
   return agents;
 }
 
@@ -1266,7 +1267,7 @@ app.post('/api/agents', (req, res) => {
 });
 
 app.delete('/api/agents/:id', (req, res) => {
-  supervisor.stop(req.params.id);
+  supervisor.unregister(req.params.id);
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const filtered = agents.filter(a => a.id !== req.params.id);
   fs.writeFileSync(AGENTS_PATH, JSON.stringify(filtered, null, 2));

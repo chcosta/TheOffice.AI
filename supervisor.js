@@ -181,6 +181,19 @@ class Supervisor extends EventEmitter {
     console.log(`[supervisor] Agent "${entry.config.name}" stopped`);
   }
 
+  // Fully remove an agent from the live registry: stop it, drop its in-memory
+  // entry, and delete its agent_state row so it no longer surfaces in
+  // getAllStatus(). Run history (agent_runs) is intentionally retained.
+  unregister(agentId) {
+    const entry = this.agents.get(agentId);
+    const name = entry?.config?.name || agentId;
+    this.stop(agentId, { persist: false });
+    this.agents.delete(agentId);
+    try { this.db.prepare('DELETE FROM agent_state WHERE agent_id = ?').run(agentId); } catch {}
+    this.emit('agent-unregistered', agentId);
+    console.log(`[supervisor] Agent "${name}" unregistered`);
+  }
+
   updateSchedule(agentId, newSchedule) {
     const entry = this.agents.get(agentId);
     if (!entry) throw new Error(`Unknown agent: ${agentId}`);
@@ -439,6 +452,27 @@ class Supervisor extends EventEmitter {
     let scheduleDescription = '';
     try { scheduleDescription = parseSchedule(entry?.config?.schedule || state.schedule).description; } catch {}
     return { ...state, lastRun, config: entry?.config || null, scheduleDescription };
+  }
+
+  // Remove any in-memory entries and agent_state rows for agents that are no
+  // longer present in the authoritative set (agents.json). Keeps getAllStatus()
+  // from surfacing agents deleted while a prior server build was running.
+  pruneOrphans(validIds) {
+    const valid = validIds instanceof Set ? validIds : new Set(validIds || []);
+    let removed = 0;
+    try {
+      const rows = this.db.prepare('SELECT agent_id FROM agent_state').all();
+      for (const row of rows) {
+        if (!valid.has(row.agent_id)) {
+          this.stop(row.agent_id, { persist: false });
+          this.agents.delete(row.agent_id);
+          this.db.prepare('DELETE FROM agent_state WHERE agent_id = ?').run(row.agent_id);
+          removed++;
+        }
+      }
+    } catch {}
+    if (removed) console.log(`[supervisor] Pruned ${removed} orphaned agent state row(s)`);
+    return removed;
   }
 
   getAllStatus() {
