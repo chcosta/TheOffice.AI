@@ -16,3 +16,6 @@ server-err.log
 # Runtime plugin/mcp store now lives under ~/.copilot/agent-supervisor/
 /plugins/
 /mcp-configs/
+settings.json
+service.out.log
+service.err.log

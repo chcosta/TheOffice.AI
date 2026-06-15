@@ -143,6 +143,7 @@ const supervisor = new Supervisor(db);
 
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
+const settings = require('./settings');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
 // disk only on session disconnect, so disk reads lag the live stream — live
@@ -300,7 +301,7 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
     buf.lastUpdate = Date.now();
   };
 
-  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk })
+  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk, model: settings.resolveModel('chat', config) })
     .then((res) => {
       buf.running = false;
       buf.finishedAt = Date.now();
@@ -2682,6 +2683,45 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
 // ============ Config Sync API Routes ============
 
 // Get sync status
+// --- Global settings: model selection (chat / executions / system AI) --------
+// Persisted server-side (settings.json) so schedules, triggers, chat and the
+// manager brain all honor the chosen models — not just the browser.
+
+// List available models from the SDK (id, name, cost multiplier, reasoning).
+app.get('/api/models', async (req, res) => {
+  try {
+    const models = await sdkRunner.listModels();
+    res.json({
+      models: (models || []).map(m => ({
+        id: m.id,
+        name: m.name || m.id,
+        multiplier: (m.billing && typeof m.billing.multiplier === 'number') ? m.billing.multiplier : null,
+        reasoningEfforts: Array.isArray(m.supportedReasoningEfforts) ? m.supportedReasoningEfforts : [],
+        defaultReasoningEffort: m.defaultReasoningEffort || null,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ models: [], error: err.message });
+  }
+});
+
+// Read the global settings (model selections).
+app.get('/api/settings', (req, res) => {
+  res.json(settings.getSettings());
+});
+
+// Update the global settings. Body may include chatModel/executionModel/systemModel.
+app.put('/api/settings', (req, res) => {
+  try {
+    const next = settings.updateSettings(req.body || {});
+    // Persist into this machine's cloud config too, if sync is on and we lead.
+    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/sync/status', async (req, res) => {
   try {
     const leaderInfo = configSync.enabled ? await configSync.getLeaderInfo() : null;

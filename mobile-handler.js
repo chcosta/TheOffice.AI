@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const sdkRunner = require('./sdk-runner');
+const settings = require('./settings');
 
 /**
  * Mobile Command Handler
@@ -1355,6 +1356,7 @@ class MobileHandler extends EventEmitter {
       } catch { return false; }
     };
     const resume = sdkRunner.hasLiveChat(threadId) || sessionExistsOnDisk();
+    const chatModel = settings.resolveModel('chat', config);
 
     let chunkIdx = 0;
     const onChunk = (text) => {
@@ -1384,6 +1386,7 @@ class MobileHandler extends EventEmitter {
         resume,
         cwd: config && config.cwd,
         onChunk,
+        model: chatModel,
       });
     } finally {
       clearInterval(heartbeat);
@@ -1402,7 +1405,7 @@ class MobileHandler extends EventEmitter {
       if (resume) {
         const retry = await sdkRunner.runChat({
           config, prompt: message, sessionId: threadId, resume: false,
-          cwd: config && config.cwd, onChunk,
+          cwd: config && config.cwd, onChunk, model: chatModel,
         }).catch(() => null);
         if (retry && !retry.fallback && retry.ok !== false) {
           return retry.output || '(no output)';

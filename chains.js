@@ -21,6 +21,7 @@ const { EventEmitter } = require('events');
 const { Cron } = require('croner');
 const { parseSchedule } = require('./scheduler');
 const sdkRunner = require('./sdk-runner');
+const settings = require('./settings');
 
 const CHAINS_PATH = path.join(__dirname, 'chains.json');
 
@@ -372,8 +373,8 @@ class ChainEngine extends EventEmitter {
       const { randomUUID } = require('crypto');
       const sessionId = randomUUID();
       const res = agentEntry
-        ? await sdkRunner.runAgent({ config: agentEntry.config, prompt, sessionId })
-        : await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId });
+        ? await sdkRunner.runAgent({ config: agentEntry.config, prompt, sessionId, model: settings.resolveModel('system', agentEntry.config) })
+        : await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId, model: settings.resolveModel('system', null) });
       if (!res || res.fallback) return null;
       return this._parseVerdict(res.output || '');
     } catch (e) {

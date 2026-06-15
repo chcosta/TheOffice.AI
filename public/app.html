@@ -3232,6 +3232,46 @@
               <p class="hint" style="margin-top:10px"><strong>Reasoning &amp; steps</strong> shows the model's thinking and tool calls inline. <strong>Live updates</strong> polls faster while a response streams.</p>
             </div>
 
+            <!-- Models Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🧠 Models</h3>
+              <p class="hint" style="margin-bottom:14px">Pick which Copilot model powers each kind of work. These apply everywhere — manual runs, schedules, triggers, chat and manager orchestration. A per-agent model override (if set on an agent) always wins. Leave a category on <strong>Runtime default</strong> to use Copilot's default model.</p>
+              <div style="display:grid;grid-template-columns:1fr;gap:14px;max-width:520px">
+                <div>
+                  <label class="field-label">💬 Chat</label>
+                  <select class="field-input" x-model="modelSettings.chatModel" @change="saveModelSettings()">
+                    <option value="">Runtime default</option>
+                    <template x-for="m in models" :key="m.id">
+                      <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
+                    </template>
+                  </select>
+                  <p class="hint" style="margin-top:6px">Ad-hoc agent &amp; manager conversations (SPA and mobile).</p>
+                </div>
+                <div>
+                  <label class="field-label">⚙️ Executions</label>
+                  <select class="field-input" x-model="modelSettings.executionModel" @change="saveModelSettings()">
+                    <option value="">Runtime default</option>
+                    <template x-for="m in models" :key="m.id">
+                      <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
+                    </template>
+                  </select>
+                  <p class="hint" style="margin-top:6px">Scheduled/triggered agent runs, tasks, flow steps and manager sub-agents.</p>
+                </div>
+                <div>
+                  <label class="field-label">🤖 System AI</label>
+                  <select class="field-input" x-model="modelSettings.systemModel" @change="saveModelSettings()">
+                    <option value="">Runtime default</option>
+                    <template x-for="m in models" :key="m.id">
+                      <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
+                    </template>
+                  </select>
+                  <p class="hint" style="margin-top:6px">The manager "brain" and flow AI condition/judge evaluators.</p>
+                </div>
+              </div>
+              <p class="hint" x-show="modelsError" style="margin-top:12px;color:var(--danger,#dc2626)" x-text="modelsError"></p>
+              <p class="hint" x-show="modelsSaved" style="margin-top:12px">✅ Saved.</p>
+            </div>
+
             <!-- Cloud Sync Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
@@ -4517,6 +4557,10 @@
         chatSessions: {},
         chatContinueInfo: null,
         syncStatus: { enabled: false, machineId: '', hostname: '' },
+        models: [],
+        modelSettings: { chatModel: '', executionModel: '', systemModel: '' },
+        modelsError: '',
+        modelsSaved: false,
         syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '' },
         instances: [],
         otherMachines: [],
@@ -5062,6 +5106,8 @@
             await this.loadEvents();
           } else if (this.route === 'settings') {
             await this.loadSyncStatus();
+            this.loadModels();
+            this.loadModelSettings();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
@@ -5570,6 +5616,44 @@
           return this.data.activity
             .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff)
             .slice(0, 8);
+        },
+
+        // --- Model settings methods ---
+        async loadModels() {
+          try {
+            const res = await this.request('/api/models');
+            this.models = Array.isArray(res?.models) ? res.models : [];
+            this.modelsError = this.models.length ? '' : 'No models reported by the Copilot runtime.';
+          } catch (err) {
+            this.models = [];
+            this.modelsError = 'Could not load models: ' + err.message;
+          }
+        },
+        async loadModelSettings() {
+          try {
+            const s = await this.request('/api/settings');
+            if (s) this.modelSettings = {
+              chatModel: s.chatModel || '',
+              executionModel: s.executionModel || '',
+              systemModel: s.systemModel || ''
+            };
+          } catch {}
+        },
+        async saveModelSettings() {
+          this.modelsSaved = false;
+          try {
+            const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify(this.modelSettings) });
+            if (next) this.modelSettings = {
+              chatModel: next.chatModel || '',
+              executionModel: next.executionModel || '',
+              systemModel: next.systemModel || ''
+            };
+            this.modelsError = '';
+            this.modelsSaved = true;
+            setTimeout(() => { this.modelsSaved = false; }, 2500);
+          } catch (err) {
+            this.modelsError = 'Could not save: ' + err.message;
+          }
         },
 
         // --- Cloud Sync methods ---

@@ -19,7 +19,7 @@ const INSTANCE_STALE = 90; // seconds — an instance not seen within this windo
 const LEADER_REQUEST_TTL = 120; // seconds — ignore handoff requests older than this
 
 // Files that get synced (within a machine's own cloud namespace)
-const SYNCED_FILES = ['agents.json', 'managers.json', 'tasks.json', 'chains.json', 'events-config.json'];
+const SYNCED_FILES = ['agents.json', 'managers.json', 'tasks.json', 'chains.json', 'events-config.json', 'settings.json'];
 const SYNCED_DIRS = ['plugins', 'mcp-configs'];
 // Id-keyed array collections that must never lose locally-present entries to a
 // stale cloud pull. On _syncDown these are unioned by id (cloud wins for shared

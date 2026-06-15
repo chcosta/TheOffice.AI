@@ -70,6 +70,10 @@ class SdkRunner {
     // Evicted (disconnected) after SDK_CHAT_IDLE_MS of inactivity.
     this._liveSessions = new Map();
     this._liveTtlMs = parseInt(process.env.SDK_CHAT_IDLE_MS || '', 10) || 600000; // 10 min
+    // Cached model catalog from client.listModels().
+    this._modelsCache = null;
+    this._modelsCacheAt = 0;
+    this._modelsTtlMs = parseInt(process.env.SDK_MODELS_TTL_MS || '', 10) || 300000; // 5 min
   }
 
   /** (Re)arm the idle eviction timer for a kept-alive chat session. */
@@ -85,6 +89,31 @@ class SdkRunner {
   /** True if a kept-alive chat session for this id is still connected in-memory. */
   hasLiveChat(sessionId) {
     return !!sessionId && this._liveSessions.has(sessionId);
+  }
+
+  /**
+   * List available models with metadata (id, name, capabilities, billing
+   * multiplier, supported reasoning efforts). Cached for a few minutes since the
+   * catalog rarely changes within a process lifetime. Returns [] if the SDK is
+   * unavailable or the call fails (callers degrade to the runtime default).
+   */
+  async listModels() {
+    if (!this._available) return [];
+    const now = Date.now();
+    if (this._modelsCache && (now - this._modelsCacheAt) < this._modelsTtlMs) {
+      return this._modelsCache;
+    }
+    const client = await this._getClient();
+    if (!client || typeof client.listModels !== 'function') return this._modelsCache || [];
+    try {
+      const models = await client.listModels();
+      this._modelsCache = Array.isArray(models) ? models : [];
+      this._modelsCacheAt = now;
+      return this._modelsCache;
+    } catch (e) {
+      console.error('[sdk-runner] listModels failed:', e.message);
+      return this._modelsCache || [];
+    }
   }
 
   /** Explicitly close a kept-alive chat session (e.g. when a chat is closed). */
@@ -254,7 +283,7 @@ class SdkRunner {
    * On a resolution failure the result has fallback:true so the caller can
    * record a terminal failure (no CLI fallback remains).
    */
-  async runAgent({ config, prompt, sessionId, onChunk }) {
+  async runAgent({ config, prompt, sessionId, onChunk, model }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -266,6 +295,7 @@ class SdkRunner {
       streaming: true,
       onPermissionRequest: config.allowAll !== false ? approveAll : deny,
     };
+    if (model) opts.model = model;
 
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
       opts.pluginDirectories = [config.pluginDir];
@@ -298,7 +328,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runPrompt({ prompt, cwd, sessionId, onChunk }) {
+  async runPrompt({ prompt, cwd, sessionId, onChunk, model }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -308,6 +338,7 @@ class SdkRunner {
       streaming: true,
       onPermissionRequest: approveAll,
     };
+    if (model) opts.model = model;
     return this._execute(opts, prompt, sessionId, onChunk);
   }
 
@@ -322,7 +353,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, model }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
@@ -332,6 +363,7 @@ class SdkRunner {
       streaming: true,
       onPermissionRequest: (config && config.allowAll === false) ? deny : approveAll,
     };
+    if (model) opts.model = model;
     if (resume) {
       // Resuming a persisted session: the agent/tools are already wired in.
       opts.__resume = true;

@@ -4,6 +4,7 @@ const EventEmitter = require('events');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const { Cron } = require('croner');
 const sdkRunner = require('./sdk-runner');
+const settings = require('./settings');
 const { PLUGINS_DIR } = require('./config-sync');
 
 // ---------------------------------------------------------------------------
@@ -538,7 +539,7 @@ ${loadResponseFormat()}`;
       // deltas, so accumulate before forwarding.
       let acc = '';
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
-      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap });
+      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('system', cfg) });
       if (!res || res.fallback) return null;
       if (res.code !== 0 || !(res.output && res.output.trim())) return null;
       return res.output;
@@ -569,7 +570,7 @@ ${loadResponseFormat()}`;
       // onChunk expects CUMULATIVE text; the SDK streams deltas, so accumulate.
       let acc = '';
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
-      const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap });
+      const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('execution', entry.config) });
       if (!res || res.fallback) return null;
       return { exitCode: res.code, output: res.output || '', stderr: res.error || '' };
     } catch (e) {

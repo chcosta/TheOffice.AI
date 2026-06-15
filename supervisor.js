@@ -5,6 +5,7 @@ const EventEmitter = require('events');
 const { Cron } = require('croner');
 const { parseSchedule, getNextRun } = require('./scheduler');
 const sdkRunner = require('./sdk-runner');
+const settings = require('./settings');
 
 class Supervisor extends EventEmitter {
   constructor(db) {
@@ -233,7 +234,7 @@ class Supervisor extends EventEmitter {
       this.emit('agent-output', { agentId, stream: 'stdout', chunk });
     };
 
-    sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk })
+    sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk, model: settings.resolveModel('execution', config) })
       .then((res) => {
         if (res.fallback) {
           const msg = res.error || 'agent could not be resolved/started via the SDK runner';
