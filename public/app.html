@@ -906,6 +906,27 @@
     }
     .trigger-chip-label { color: var(--cp-text); }
     .trigger-chip-go { color: var(--cp-accent); font-weight: 700; }
+    .cascade-group {
+      margin-bottom: 12px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .cascade-head {
+      padding: 8px 12px;
+      background: var(--cp-surface-soft);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--cp-text);
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .cascade-item {
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      color: var(--cp-text-muted);
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .cascade-item:last-child { border-bottom: none; }
     .field-label {
       display: flex;
       align-items: center;
@@ -3854,6 +3875,79 @@
     </div>
   </div>
 
+  <!-- Remove Agent (cascade) confirmation -->
+  <div class="modal-backdrop modal-overlay" x-show="removeAgentModal.open" x-transition.opacity @click.self="if(!removeAgentModal.busy) removeAgentModal.open=false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:560px">
+      <div class="modal-header">
+        <h2 class="modal-title">🗑 Remove agent</h2>
+        <button class="icon-button" type="button" @click="removeAgentModal.open=false" :disabled="removeAgentModal.busy">✕</button>
+      </div>
+      <div style="padding:18px">
+        <p style="margin-bottom:14px">
+          Remove <strong x-text="removeAgentModal.agent?.name"></strong>? This unregisters the agent and deletes its configuration.
+        </p>
+
+        <div x-show="removeAgentModal.loading" class="hint" style="margin-bottom:8px">Checking what depends on this agent…</div>
+
+        <template x-if="!removeAgentModal.loading && removeAgentModal.deps">
+          <div>
+            <template x-if="!removeAgentModal.deps.managers.length && !removeAgentModal.deps.tasks.length && !removeAgentModal.deps.flows.length">
+              <div class="hint" style="padding:10px 12px;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface-soft)">
+                ✓ Nothing else references this agent. Safe to remove.
+              </div>
+            </template>
+
+            <template x-if="removeAgentModal.deps.managers.length || removeAgentModal.deps.tasks.length || removeAgentModal.deps.flows.length">
+              <div>
+                <div class="field-label" style="margin-bottom:8px">The following will be cleaned up automatically:</div>
+
+                <template x-if="removeAgentModal.deps.managers.length">
+                  <div class="cascade-group">
+                    <div class="cascade-head">👔 <span x-text="removeAgentModal.deps.managers.length"></span> manager org<span x-show="removeAgentModal.deps.managers.length>1">s</span> — agent removed from org</div>
+                    <template x-for="m in removeAgentModal.deps.managers" :key="'rm-mgr-'+m.id">
+                      <div class="cascade-item" x-text="m.name"></div>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-if="removeAgentModal.deps.tasks.length">
+                  <div class="cascade-group">
+                    <div class="cascade-head">🗒 <span x-text="removeAgentModal.deps.tasks.length"></span> task<span x-show="removeAgentModal.deps.tasks.length>1">s</span> — will be disabled</div>
+                    <template x-for="t in removeAgentModal.deps.tasks" :key="'rm-task-'+t.id">
+                      <div class="cascade-item" x-text="t.name"></div>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-if="removeAgentModal.deps.flows.length">
+                  <div class="cascade-group">
+                    <div class="cascade-head">🔗 <span x-text="removeAgentModal.deps.flows.length"></span> flow<span x-show="removeAgentModal.deps.flows.length>1">s</span> — will be disabled</div>
+                    <template x-for="f in removeAgentModal.deps.flows" :key="'rm-flow-'+f.id">
+                      <div class="cascade-item" x-text="f.name"></div>
+                    </template>
+                  </div>
+                </template>
+
+                <p class="hint" style="margin-top:12px">Disabled tasks and flows are kept (not deleted) so you can re-point them at another agent and re-enable them.</p>
+              </div>
+            </template>
+
+            <template x-if="removeAgentModal.deps._error">
+              <div class="hint" style="color:var(--cp-danger);margin-top:8px" x-text="'Could not load dependents: ' + removeAgentModal.deps._error"></div>
+            </template>
+          </div>
+        </template>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" type="button" @click="removeAgentModal.open=false" :disabled="removeAgentModal.busy">Cancel</button>
+        <button class="btn danger" type="button" @click="confirmRemoveAgent()" :disabled="removeAgentModal.loading || removeAgentModal.busy">
+          <span x-show="!removeAgentModal.busy">🗑 Remove agent</span>
+          <span x-show="removeAgentModal.busy">Removing…</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Connect Asset Modal -->
   <div class="modal-backdrop modal-overlay" x-show="showConnectAssetModal" x-transition.opacity @click.self="showConnectAssetModal = false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:560px">
@@ -4849,6 +4943,7 @@
         commandIndex: 0,
         settingsOpen: false,
         shareModalOpen: false,
+        removeAgentModal: { open: false, agent: null, deps: null, loading: false, busy: false },
         shareContent: '',
         shareSubject: '',
         shareContext: '',
@@ -7248,14 +7343,36 @@
 
         async removeAgent(id) {
           const agent = this.data.agents.find(a => a.id === id);
-          const name = agent ? agent.name : id;
-          if (!confirm(`Remove agent "${name}"?\n\nThis will unregister the agent and delete its configuration. Any tasks linked to this agent will become orphaned.`)) return;
+          this.removeAgentModal = { open: true, agent: agent || { id, name: id }, deps: null, loading: true, busy: false };
           try {
-            await this.request(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
-            this.showToast('Agent removed', `${name} has been unregistered.`, 'info');
+            const deps = await this.request(`/api/agents/${encodeURIComponent(id)}/dependents`);
+            this.removeAgentModal.deps = deps;
+          } catch (e) {
+            this.removeAgentModal.deps = { managers: [], tasks: [], flows: [], _error: e.message };
+          } finally {
+            this.removeAgentModal.loading = false;
+          }
+        },
+
+        async confirmRemoveAgent() {
+          const m = this.removeAgentModal;
+          if (!m.agent) return;
+          const id = m.agent.id;
+          const name = m.agent.name || id;
+          m.busy = true;
+          try {
+            const result = await this.request(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            const c = result && result.cascade ? result.cascade : { managersUpdated: [], tasksDisabled: [], flowsDisabled: [] };
+            const parts = [];
+            if (c.managersUpdated?.length) parts.push(`${c.managersUpdated.length} manager org${c.managersUpdated.length > 1 ? 's' : ''} updated`);
+            if (c.tasksDisabled?.length) parts.push(`${c.tasksDisabled.length} task${c.tasksDisabled.length > 1 ? 's' : ''} disabled`);
+            if (c.flowsDisabled?.length) parts.push(`${c.flowsDisabled.length} flow${c.flowsDisabled.length > 1 ? 's' : ''} disabled`);
+            this.showToast('Agent removed', parts.length ? `${name} unregistered · ${parts.join(', ')}.` : `${name} has been unregistered.`, 'info');
+            this.removeAgentModal = { open: false, agent: null, deps: null, loading: false, busy: false };
             await this.refreshAll(false);
             this.goTo('#/agents');
           } catch (error) {
+            m.busy = false;
             this.showToast('Remove failed', error.message, 'error');
           }
         },

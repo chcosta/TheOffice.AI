@@ -1266,12 +1266,91 @@ app.post('/api/agents', (req, res) => {
   res.json({ ok: true });
 });
 
+// Compute everything that references an agent so we can warn before deletion
+// and cascade-clean afterwards. Managers keep the agent id in their `org`
+// array; tasks reference it via `agentId`; flows reference it indirectly via a
+// step's task, or directly via an AI edge condition's `agentId`.
+function computeAgentDependents(agentId) {
+  const managers = [];
+  try {
+    if (fs.existsSync(MANAGERS_PATH)) {
+      for (const m of JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'))) {
+        if (Array.isArray(m.org) && m.org.includes(agentId)) managers.push({ id: m.id, name: m.name || m.id });
+      }
+    }
+  } catch {}
+  const allTasks = loadTasks();
+  const tasks = allTasks.filter(t => t.agentId === agentId).map(t => ({ id: t.id, name: t.name || t.id }));
+  const taskIds = new Set(tasks.map(t => t.id));
+  const flows = [];
+  try {
+    for (const c of chainEngine.list()) {
+      const viaStep = (c.steps || []).some(s => taskIds.has(s.taskId));
+      const viaCond = (c.edges || []).some(e => e.condition && e.condition.type === 'ai' && e.condition.agentId === agentId);
+      if (viaStep || viaCond) flows.push({ id: c.id, name: c.name || c.id });
+    }
+  } catch {}
+  return { managers, tasks, flows };
+}
+
+// What references this agent? Powers the pre-delete confirmation in the SPA.
+app.get('/api/agents/:id/dependents', (req, res) => {
+  res.json(computeAgentDependents(req.params.id));
+});
+
 app.delete('/api/agents/:id', (req, res) => {
-  supervisor.unregister(req.params.id);
+  const agentId = req.params.id;
+  const deps = computeAgentDependents(agentId);
+
+  // Cascade 1: strip the agent from every manager's org (runtime + managers.json)
+  // so managers stop advertising a tool they can no longer invoke.
+  const managersUpdated = [];
+  if (deps.managers.length) {
+    let managers = [];
+    try { managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8')); } catch {}
+    for (const m of deps.managers) {
+      try { managerAgent.removeFromOrg(m.id, agentId); } catch {}
+      const mi = managers.findIndex(x => x.id === m.id);
+      if (mi >= 0) {
+        const runtime = managerAgent.managers.get(m.id);
+        managers[mi].org = runtime ? runtime.config.org : (managers[mi].org || []).filter(x => x !== agentId);
+      }
+      managersUpdated.push(m);
+    }
+    try { fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2)); } catch {}
+  }
+
+  // Cascade 2: disable tasks that target the agent (they would silently no-op
+  // on every fire) and stop their schedules.
+  const tasksDisabled = [];
+  if (deps.tasks.length) {
+    const tasks = loadTasks();
+    for (const dt of deps.tasks) {
+      const t = tasks.find(x => x.id === dt.id);
+      if (t) { t.enabled = false; t.updatedAt = new Date().toISOString(); }
+      try { unscheduleTask(dt.id); } catch {}
+      tasksDisabled.push(dt);
+    }
+    saveTasks(tasks);
+    for (const dt of tasksDisabled) {
+      const t = tasks.find(x => x.id === dt.id);
+      if (t) broadcastSSE('task-updated', t);
+    }
+  }
+
+  // Cascade 3: disable flows that depend on the agent (a step or AI condition
+  // would error every run). chainEngine.update re-normalizes and reschedules.
+  const flowsDisabled = [];
+  for (const f of deps.flows) {
+    try { chainEngine.update(f.id, { enabled: false }); flowsDisabled.push(f); } catch {}
+  }
+
+  // Finally remove the agent itself.
+  supervisor.unregister(agentId);
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-  const filtered = agents.filter(a => a.id !== req.params.id);
+  const filtered = agents.filter(a => a.id !== agentId);
   fs.writeFileSync(AGENTS_PATH, JSON.stringify(filtered, null, 2));
-  res.json({ ok: true });
+  res.json({ ok: true, cascade: { managersUpdated, tasksDisabled, flowsDisabled } });
 });
 
 // Reinstall an agent (re-read source definition and re-register)
