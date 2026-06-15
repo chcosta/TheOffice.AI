@@ -512,10 +512,10 @@ class MobileHandler extends EventEmitter {
           } else if (step.action === 'agent_result') {
             const subName = this.supervisor.agents.get(step.agentId)?.config?.name || step.agentId || 'agent';
             const out = step.output || '';
-            if (threadId) this._addThreadMessage(threadId, 'agent', subName, step.agentId, out);
+            if (threadId) this._addThreadMessage(threadId, 'agent', subName, step.agentId, out, step.model);
             replier(correlationId, {
               type: 'agent-step',
-              payload: { phase: 'result', agentId: step.agentId, speaker: subName, manager: managerName, text: out, exitCode: step.exitCode }
+              payload: { phase: 'result', agentId: step.agentId, speaker: subName, manager: managerName, text: out, exitCode: step.exitCode, model: step.model }
             }).catch(() => {});
           } else {
             const stepMsg = step.action === 'thinking'

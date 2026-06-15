@@ -420,7 +420,7 @@ class ManagerAgent extends EventEmitter {
         const agentResult = await this._runSubAgent(action.agentId, action.prompt, onChunk);
         if (usageAcc) this._addUsage(usageAcc, agentResult.usage);
         if (runStep.streaming) { runStep.streaming = false; delete runStep.partial; }
-        steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
+        steps.push({ iteration, action: 'agent_result', agentId: action.agentId, exitCode: agentResult.exitCode, model: agentResult.model, outputLength: agentResult.output.length, output: agentResult.output.substring(0, 5000), timestamp: new Date().toISOString() });
         this._persistSteps(runId, steps);
         this.emit('manager-step', { managerId: managerConfig.id, runId, step: steps[steps.length - 1] });
 
@@ -616,7 +616,7 @@ ${loadResponseFormat()}`;
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
       const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('execution', entry.config) });
       if (!res || res.fallback) return null;
-      return { exitCode: res.code, output: res.output || '', stderr: res.error || '', usage: res.usage || null };
+      return { exitCode: res.code, output: res.output || '', stderr: res.error || '', usage: res.usage || null, model: res.model || '' };
     } catch (e) {
       return null;
     }
