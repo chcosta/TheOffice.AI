@@ -456,6 +456,7 @@ class SdkRunner {
       let output = '';
       let eventCount = 0;
       let steps = [];
+      let usedModel = '';
       try {
         const events = await session.getEvents();
         eventCount = events.length;
@@ -463,6 +464,12 @@ class SdkRunner {
         for (const ev of events) {
           if (ev.type === 'assistant.message' && ev.data && ev.data.content) {
             parts.push(ev.data.content);
+          }
+          // The runtime stamps each assistant.message (and some tool events) with
+          // the model that actually served it — authoritative even when we let the
+          // runtime default apply (opts.model was empty). Keep the last one seen.
+          if (ev.data && typeof ev.data.model === 'string' && ev.data.model) {
+            usedModel = ev.data.model;
           }
         }
         output = parts.join(SEP);
@@ -489,7 +496,7 @@ class SdkRunner {
         this._scheduleEvict(sessionId, entry);
       }
 
-      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps };
+      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '' };
     } catch (e) {
       // createSession/resumeSession failed - return fallback so the caller can
       // record a terminal failure (no CLI fallback remains).

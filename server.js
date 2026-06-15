@@ -174,6 +174,10 @@ function buildPollTurns(lines, verbose) {
   for (const line of lines) {
     try {
       const ev = JSON.parse(line);
+      // Capture the serving model on every turn, regardless of verbose — model
+      // indication must always be available to the UI.
+      if (ev.type === 'assistant.message' && ev.data?.model) currentModel = ev.data.model;
+      if (ev.type === 'session.model_change' && ev.data?.newModel) currentModel = ev.data.newModel;
       if (verbose && ev.type === 'session.start' && ev.data) {
         sessionMeta = {
           cwd: ev.data.context?.cwd,
@@ -210,7 +214,7 @@ function buildPollTurns(lines, verbose) {
       }
       if (ev.type === 'user.message') {
         if (currentUser !== null || lastAssistantMsg) {
-          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
+          allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: currentModel || undefined, steps: verbose ? [...currentSteps] : undefined });
         }
         turnCount++;
         currentUser = ev.data?.content || '';
@@ -252,7 +256,7 @@ function buildPollTurns(lines, verbose) {
     } catch { }
   }
   if (currentUser !== null || lastAssistantMsg) {
-    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: verbose ? currentModel : undefined, steps: verbose ? [...currentSteps] : undefined });
+    allTurns.push({ content: currentUser || '', assistant: lastAssistantMsg || null, model: currentModel || undefined, steps: verbose ? [...currentSteps] : undefined });
   }
   if (verbose) {
     for (const turn of allTurns) {
@@ -291,6 +295,7 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
     lastUpdate: Date.now(),
     priorTurns: resume ? snapshotPriorTurns(sessionId, true) : [],
     error: null,
+    requestedModel: settings.resolveModel('chat', config) || '',
   };
   liveChatBuffers.set(sessionId, buf);
   chatErrors.delete(sessionId);
@@ -327,8 +332,8 @@ supervisor.on('agent-running', (agentId) => {
 supervisor.on('agent-output', ({ agentId, stream, chunk }) => {
   broadcastSSE('agent-output', { id: agentId, stream, chunk });
 });
-supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, steps }) => {
-  broadcastSSE('agent-completed', { id: agentId, code, output: output?.slice(-10000), error: error?.slice(-2000), sessionId, steps: Array.isArray(steps) ? steps : [] });
+supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, steps, model }) => {
+  broadcastSSE('agent-completed', { id: agentId, code, output: output?.slice(-10000), error: error?.slice(-2000), sessionId, steps: Array.isArray(steps) ? steps : [], model: model || '' });
 });
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
@@ -2332,7 +2337,7 @@ app.get('/api/sessions/:id/poll', (req, res) => {
     turns.push({
       content: buf.userPrompt || '',
       assistant: buf.acc || null,
-      model: verbose ? null : undefined,
+      model: buf.requestedModel || undefined,
       steps: verbose ? (buf.steps || []) : undefined,
     });
     return res.json({
@@ -3854,6 +3859,7 @@ app.post('/api/chats/:id/messages', (req, res) => {
   // survives reloads and can be reviewed (collapsed) under the response.
   if (req.body.activity && Array.isArray(req.body.activity) && req.body.activity.length) msg.activity = req.body.activity;
   if (req.body.runId) msg.runId = req.body.runId;
+  if (req.body.model) msg.model = req.body.model;
   chat.messages.push(msg);
   chat.updatedAt = msg.timestamp;
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));

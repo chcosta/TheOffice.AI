@@ -99,6 +99,9 @@ class ManagerAgent extends EventEmitter {
       );
     `);
 
+    // Migration: add model column so manager run history shows the brain model.
+    try { this.db.exec('ALTER TABLE manager_runs ADD COLUMN model TEXT'); } catch {}
+
     // Clean up orphaned runs from previous server instance
     const orphaned = this.db.prepare("SELECT id, manager_id FROM manager_runs WHERE status = 'running'").all();
     if (orphaned.length > 0) {
@@ -257,6 +260,7 @@ class ManagerAgent extends EventEmitter {
 
   async _runOrchestration(managerId, runId, entry, prompt, assignmentId = null, triggerContext = null, { liveStream = false } = {}) {
     const steps = [];
+    this._lastBrainModel = '';
     try {
       console.log(`[manager] Starting orchestration run ${runId} for ${managerId}`);
       const orgAgents = this._getOrgAgentDetails(managerId);
@@ -264,8 +268,8 @@ class ManagerAgent extends EventEmitter {
 
       const finishedAt = new Date().toISOString();
       this.db.prepare(
-        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
-      ).run(finishedAt, JSON.stringify(steps), orchestrationResult, 'completed', runId);
+        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ?, model = ? WHERE id = ?'
+      ).run(finishedAt, JSON.stringify(steps), orchestrationResult, 'completed', this._lastBrainModel || null, runId);
 
       // Only mark idle if no other runs are still active
       const otherActive = this.db.prepare(
@@ -284,8 +288,8 @@ class ManagerAgent extends EventEmitter {
       console.error(`[manager] Orchestration run ${runId} failed:`, err.message);
       const finishedAt = new Date().toISOString();
       this.db.prepare(
-        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ? WHERE id = ?'
-      ).run(finishedAt, JSON.stringify(steps), err.message, 'error', runId);
+        'UPDATE manager_runs SET finished_at = ?, steps = ?, result = ?, status = ?, model = ? WHERE id = ?'
+      ).run(finishedAt, JSON.stringify(steps), err.message, 'error', this._lastBrainModel || null, runId);
 
       const otherActive = this.db.prepare(
         "SELECT COUNT(*) as count FROM manager_runs WHERE manager_id = ? AND status = 'running' AND id != ?"
@@ -542,6 +546,7 @@ ${loadResponseFormat()}`;
       const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('system', cfg) });
       if (!res || res.fallback) return null;
       if (res.code !== 0 || !(res.output && res.output.trim())) return null;
+      if (res.model) this._lastBrainModel = res.model;
       return res.output;
     } catch (e) {
       return null;

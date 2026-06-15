@@ -47,6 +47,8 @@ class Supervisor extends EventEmitter {
     // Migration: add task_id column so task-triggered runs can be tracked
     // separately from an agent's own (manual/scheduled) runs.
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN task_id TEXT'); } catch {}
+    // Migration: add model column so run history shows which model served the run.
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN model TEXT'); } catch {}
   }
 
 
@@ -258,6 +260,7 @@ class Supervisor extends EventEmitter {
           sessionId: res.sessionId || pinnedSessionId,
           origin: 'sdk',
           steps: Array.isArray(res.steps) ? res.steps : [],
+          model: res.model || '',
         });
       })
       .catch((err) => {
@@ -280,7 +283,7 @@ class Supervisor extends EventEmitter {
    * agent-completed. Keeps the mobile/activity/SSE contract identical for both
    * runtimes.
    */
-  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps }) {
+  _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps, model }) {
     const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
     entry.running = false;
     entry.process = null;
@@ -293,8 +296,8 @@ class Supervisor extends EventEmitter {
 
     const fullOutput = output || '';
     this.db.prepare(
-      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId);
+      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId, model || null);
 
     // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
     let status;
@@ -303,7 +306,7 @@ class Supervisor extends EventEmitter {
     else status = 'idle';
     this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
 
-    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId, steps: Array.isArray(steps) ? steps : [] });
+    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId, steps: Array.isArray(steps) ? steps : [], model: model || '' });
     console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
 
     // Durable restart on failure

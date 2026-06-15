@@ -366,6 +366,20 @@
       font-weight: 600;
       white-space: nowrap;
     }
+    .model-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--cp-accent) 35%, var(--cp-border));
+      background: var(--cp-accent-soft);
+      color: var(--cp-accent);
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      letter-spacing: 0.01em;
+    }
     .status-badge.running {
       border-color: color-mix(in srgb, var(--cp-success) 48%, var(--cp-border));
       color: var(--cp-success);
@@ -2022,6 +2036,9 @@
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                               <strong x-text="formatDateTime(run.started_at)"></strong>
                               <span class="status-badge" :class="statusClass(agentRunStatus(run))" x-text="statusLabel(agentRunStatus(run))"></span>
+                              <template x-if="run.model">
+                                <span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span>
+                              </template>
                             </div>
                             <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
                           </div>
@@ -2273,6 +2290,7 @@
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                               <strong x-text="formatDateTime(run.started_at)"></strong>
                               <span class="status-badge" :class="statusClass(managerRunStatus(run))" x-text="statusLabel(managerRunStatus(run))"></span>
+                              <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
                             </div>
                             <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
                           </div>
@@ -2374,6 +2392,7 @@
                                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                                   <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
                                   <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
+                                  <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
                                 </div>
                                 <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
                               </div>
@@ -2691,6 +2710,7 @@
                                   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                                     <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
                                     <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
+                                    <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
                                   </div>
                                   <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
                                 </div>
@@ -2796,7 +2816,12 @@
                                 </div>
                               </details>
                             </template>
-                            <div class="message-meta" x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></div>
+                            <div class="message-meta">
+                              <span x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></span>
+                              <template x-if="message.role !== 'user' && message.model">
+                                <span class="model-badge" :title="'Model: ' + message.model" x-text="'🧠 ' + formatModelName(message.model)"></span>
+                              </template>
+                            </div>
                           </div>
                           <button class="btn ghost message-share-btn" type="button" @click="openShareModal(message.content || '', 'Chat message — ' + formatDateTime(message.timestamp), 'chat-message')">📤</button>
                         </div>
@@ -4643,6 +4668,7 @@
           } catch {}
           this.setupRouting();
           await this.refreshAll();
+          this.loadModels();
           this.connectEvents();
           setInterval(() => { this.now = Date.now(); }, 1000);
         },
@@ -6325,7 +6351,7 @@
                     if (lastRun.status === 'completed' && lastRun.result && matchesPrompt && runFinished >= msgTime) {
                       await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                         method: 'POST',
-                        body: JSON.stringify({ role: 'assistant', content: lastRun.result, runId: lastRun.id, activity: this.mapRunSteps(lastRun.steps) })
+                        body: JSON.stringify({ role: 'assistant', content: lastRun.result, runId: lastRun.id, activity: this.mapRunSteps(lastRun.steps), model: lastRun.model || '' })
                       });
                       const updated = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
                       this.activeChat = updated;
@@ -6724,7 +6750,7 @@
 
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
-                  body: JSON.stringify({ role: 'assistant', content: richResponse, activity })
+                  body: JSON.stringify({ role: 'assistant', content: richResponse, activity, model: lastTurn?.model || '' })
                 });
                 if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
                 this.scheduleRefresh();
@@ -6784,7 +6810,7 @@
                 this.typingChats[chatId] = false;
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
-                  body: JSON.stringify({ role: 'assistant', content: run.result || run.error || 'Run finished.', runId, activity: this.mapRunSteps(run.steps) })
+                  body: JSON.stringify({ role: 'assistant', content: run.result || run.error || 'Run finished.', runId, activity: this.mapRunSteps(run.steps), model: run.model || '' })
                 });
                 if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
                 delete this.pollers[key];
@@ -8195,6 +8221,18 @@
         formatDateTime(timestamp) {
           if (!timestamp) return '—';
           return new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        },
+
+        // Shorten a model id to a friendly label for badges. Prefers the catalog
+        // name when loaded; otherwise prettifies the id (claude-opus-4.8 -> Claude Opus 4.8).
+        formatModelName(id) {
+          if (!id) return '';
+          const hit = (this.models || []).find(m => m.id === id);
+          if (hit && hit.name) return hit.name;
+          return String(id)
+            .replace(/-/g, ' ')
+            .replace(/\b([a-z])/g, c => c.toUpperCase())
+            .replace(/\bGpt\b/i, 'GPT');
         },
 
         formatCountdown(timestamp) {
