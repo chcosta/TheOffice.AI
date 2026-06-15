@@ -1529,12 +1529,45 @@
       z-index: 899;
       background: rgba(0,0,0,0.4);
     }
+    /* Manual sidebar collapse (desktop) */
+    .nav-toggle-btn {
+      width: 34px;
+      height: 34px;
+      font-size: 1.05rem;
+      line-height: 1;
+    }
+    body:not(.compact-mode) .app-shell.nav-collapsed .body-grid {
+      grid-template-columns: 0 1fr;
+    }
+    body:not(.compact-mode) .app-shell.nav-collapsed .sidebar {
+      display: none;
+    }
+    /* Focused chat experience */
+    .chat-shell.chat-focused {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      height: 100vh;
+      min-height: 0;
+      max-height: 100vh;
+      border-radius: 0;
+      background: var(--cp-bg);
+      grid-template-columns: 320px 1fr;
+    }
+    .chat-shell.chat-focused .chat-main-messages { padding-bottom: 8px; }
+    .chat-shell.chat-focused .messages-stack { max-width: 1100px; margin: 0 auto; width: 100%; }
+    body.chat-focused-lock { overflow: hidden; }
+    .focus-exit-hint {
+      font-size: 12px;
+      color: var(--cp-text-soft);
+    }
   </style>
 </head>
 <body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)">
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'nav-collapsed': navCollapsed }">
     <header class="topbar">
       <div class="brand">
+        <button class="icon-button nav-toggle-btn" type="button" @click="toggleMainNav()" :aria-label="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" :title="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">☰</button>
         <div class="brand-mark">⚡</div>
         <div>Agent Supervisor</div>
       </div>
@@ -2768,7 +2801,7 @@
                 <button class="btn primary" type="button" @click="chatPickerOpen = true">＋ New chat</button>
               </div>
             </div>
-            <section class="chat-shell">
+            <section class="chat-shell" :class="{ 'chat-focused': chatFocused }">
               <aside class="chat-sidebar">
                 <div class="chat-sidebar-top">
                   <strong>Conversations</strong>
@@ -2808,6 +2841,7 @@
                     </template>
                     <button class="btn ghost" type="button" @click="newConversationForActive()" title="Start a fresh conversation thread with this manager/agent">＋ New conversation</button>
                     <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
+                    <button class="btn ghost" type="button" @click="toggleChatFocus()" :title="chatFocused ? 'Exit focused view (Esc)' : 'Open chat in a larger focused view'" x-text="chatFocused ? '🗗 Exit focus' : '⛶ Focus'"></button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
                   </div>
                 </div>
@@ -4662,6 +4696,8 @@
         themePref: 'system',
         sseStatus: 'disconnected',
         mobileNavOpen: false,
+        navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
+        chatFocused: false,
         agentSearch: '',
         managerSearch: '',
         taskSearch: '',
@@ -5271,6 +5307,10 @@
         setupRouting() {
           const applyRoute = async () => {
             const { route, param } = this.parseHash();
+            if (route !== 'chat' && route !== 'chat-detail' && this.chatFocused) {
+              this.chatFocused = false;
+              document.body.classList.remove('chat-focused-lock');
+            }
             this.app.route = route;
             this.app.routeParam = param;
             await this.handleRouteChange();
@@ -8266,8 +8306,27 @@
           document.body.classList.toggle('compact-mode', effectiveWidth < 700);
         },
 
+        toggleMainNav() {
+          if (document.body.classList.contains('compact-mode')) {
+            this.mobileNavOpen = !this.mobileNavOpen;
+            return;
+          }
+          this.navCollapsed = !this.navCollapsed;
+          try { localStorage.setItem('nav-collapsed', this.navCollapsed ? '1' : '0'); } catch {}
+        },
+
+        toggleChatFocus() {
+          this.chatFocused = !this.chatFocused;
+          document.body.classList.toggle('chat-focused-lock', this.chatFocused);
+          if (this.chatFocused) {
+            setTimeout(() => {
+              const el = document.querySelector('.chat-main-messages');
+              if (el) el.scrollTop = el.scrollHeight;
+            }, 50);
+          }
+        },
+
         handleGlobalKeydown(event) {
-          // Zoom: Ctrl+= / Ctrl+- / Ctrl+0
           if ((event.ctrlKey || event.metaKey) && (event.key === '=' || event.key === '+')) {
             event.preventDefault();
             this.zoomIn();
@@ -8289,6 +8348,7 @@
             return;
           }
           if (event.key === 'Escape') {
+            if (this.chatFocused) { this.chatFocused = false; document.body.classList.remove('chat-focused-lock'); return; }
             this.closeCommandPalette();
             this.settingsOpen = false;
             this.shareModalOpen = false;
