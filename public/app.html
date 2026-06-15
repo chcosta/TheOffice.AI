@@ -2441,7 +2441,10 @@
                         <summary class="hint" style="cursor:pointer">Steps</summary>
                         <ol style="margin:6px 0 0 18px;padding:0">
                           <template x-for="(st, i) in (s.steps || [])" :key="'ps-' + s.id + '-' + i">
-                            <li style="margin-bottom:4px"><strong x-text="st.title || st.agentId"></strong> <span class="hint mono" x-text="'(' + st.agentId + ')'"></span></li>
+                            <li style="margin-bottom:4px">
+                              <div x-show="i > 0 && st.condition" class="hint" :style="st.condition && st.condition.type === 'ai' ? 'color:var(--cp-accent);margin:2px 0' : 'margin:2px 0'" x-text="condLabel(st.condition)"></div>
+                              <strong x-text="st.title || st.agentId"></strong> <span class="hint mono" x-text="'(' + st.agentId + ')'"></span>
+                            </li>
                           </template>
                         </ol>
                       </details>
@@ -2452,8 +2455,9 @@
                           <div class="hint" x-show="execAi.runs[s.id].error" style="color:var(--cp-danger,#dc2626)" x-text="execAi.runs[s.id].error"></div>
                           <template x-for="(rs, i) in execAi.runs[s.id].steps" :key="'prs-' + s.id + '-' + i">
                             <div style="margin-bottom:8px">
+                              <div x-show="rs.condition" class="hint" :style="rs.condition && rs.condition.type === 'ai' ? 'color:var(--cp-accent);margin-bottom:2px' : 'margin-bottom:2px'" x-text="condLabel(rs.condition) + (rs.conditionReason ? ' → ' + rs.conditionReason : '')"></div>
                               <div style="display:flex;align-items:center;gap:6px">
-                                <span x-text="rs.running ? '⏳' : (rs.ok ? '✅' : '❌')"></span>
+                                <span x-text="rs.skipped ? '⏭️' : (rs.running ? '⏳' : (rs.ok ? '✅' : '❌'))"></span>
                                 <strong x-text="rs.title"></strong>
                               </div>
                               <div class="md-output" style="margin-top:4px" x-html="renderMarkdown(rs.output)"></div>
@@ -2492,7 +2496,10 @@
                     <summary class="hint" style="cursor:pointer">Steps</summary>
                     <ol style="margin:6px 0 0 18px;padding:0">
                       <template x-for="(st, i) in (s.steps || [])" :key="'gs-' + s.id + '-' + i">
-                        <li style="margin-bottom:4px"><strong x-text="st.title || st.agentId"></strong> <span class="hint mono" x-text="'(' + st.agentId + ')'"></span></li>
+                        <li style="margin-bottom:4px">
+                          <div x-show="i > 0 && st.condition" class="hint" :style="st.condition && st.condition.type === 'ai' ? 'color:var(--cp-accent);margin:2px 0' : 'margin:2px 0'" x-text="condLabel(st.condition)"></div>
+                          <strong x-text="st.title || st.agentId"></strong> <span class="hint mono" x-text="'(' + st.agentId + ')'"></span>
+                        </li>
                       </template>
                     </ol>
                   </details>
@@ -2503,8 +2510,9 @@
                       <div class="hint" x-show="execAi.runs[s.id].error" style="color:var(--cp-danger,#dc2626)" x-text="execAi.runs[s.id].error"></div>
                       <template x-for="(rs, i) in execAi.runs[s.id].steps" :key="'grs-' + s.id + '-' + i">
                         <div style="margin-bottom:8px">
+                          <div x-show="rs.condition" class="hint" :style="rs.condition && rs.condition.type === 'ai' ? 'color:var(--cp-accent);margin-bottom:2px' : 'margin-bottom:2px'" x-text="condLabel(rs.condition) + (rs.conditionReason ? ' → ' + rs.conditionReason : '')"></div>
                           <div style="display:flex;align-items:center;gap:6px">
-                            <span x-text="rs.running ? '⏳' : (rs.ok ? '✅' : '❌')"></span>
+                            <span x-text="rs.skipped ? '⏭️' : (rs.running ? '⏳' : (rs.ok ? '✅' : '❌'))"></span>
                             <strong x-text="rs.title"></strong>
                           </div>
                           <div class="md-output" style="margin-top:4px" x-html="renderMarkdown(rs.output)"></div>
@@ -7052,6 +7060,14 @@
         execTrying(s) {
           const r = this.execAi.runs[s.id];
           return !!(r && r.running);
+        },
+
+        condLabel(c) {
+          if (!c) return '';
+          if (c.type === 'ai') return '🤖 AI decision: ' + (c.predicate || '(no predicate)');
+          if (c.type === 'expression') return '⎇ if output ' + c.op + ' "' + (c.value || '') + '"';
+          if (c.type === 'status') return '⎇ if previous ' + (c.status === 'onSuccess' ? 'succeeds' : c.status === 'onFailure' ? 'fails' : 'completes');
+          return '';
         },
 
         async tryRunExecAi(s) {

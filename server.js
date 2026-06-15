@@ -3524,6 +3524,29 @@ function parseSuggestionJson(text) {
   catch { return null; }
 }
 
+// Normalize a flow-step gate condition into one of the three chain-edge types.
+function normalizeSuggestionCondition(raw) {
+  if (!raw || typeof raw !== 'object') return { type: 'status', status: 'onSuccess' };
+  if (raw.type === 'expression') {
+    const ops = ['contains', 'notContains', 'regex', 'equals', 'gt', 'lt'];
+    return { type: 'expression', op: ops.includes(raw.op) ? raw.op : 'contains', value: String(raw.value || ''), source: 'output' };
+  }
+  if (raw.type === 'ai') {
+    return { type: 'ai', predicate: String(raw.predicate || '').trim(), agentId: null };
+  }
+  const statuses = ['onSuccess', 'onFailure', 'onComplete'];
+  return { type: 'status', status: statuses.includes(raw.status) ? raw.status : 'onSuccess' };
+}
+
+// Human-readable one-liner for a gate condition (used in Try-run output).
+function describeSuggestionCondition(c) {
+  if (!c) return 'always';
+  if (c.type === 'ai') return 'AI decision: ' + (c.predicate || '(no predicate)');
+  if (c.type === 'expression') return `if output ${c.op} "${c.value}"`;
+  if (c.type === 'status') return 'if previous ' + (c.status === 'onSuccess' ? 'succeeds' : c.status === 'onFailure' ? 'fails' : 'completes');
+  return 'condition';
+}
+
 function normalizeSuggestion(raw, validAgentIds) {
   if (!raw || typeof raw !== 'object') return null;
   const kind = raw.kind === 'flow' ? 'flow' : 'task';
@@ -3545,10 +3568,13 @@ function normalizeSuggestion(raw, validAgentIds) {
       .map(s => ({
         agentId: String(s.agentId || '').trim(),
         title: String(s.title || '').trim(),
-        prompt: String(s.prompt || '').trim()
+        prompt: String(s.prompt || '').trim(),
+        // Gate controlling whether this step runs, based on the previous step's output.
+        condition: normalizeSuggestionCondition(s.condition)
       }))
       .filter(s => validAgentIds.has(s.agentId) && s.prompt);
     if (steps.length < 2) return null; // a flow needs at least two steps
+    delete steps[0].condition; // the first step has no incoming gate
     base.steps = steps;
   }
   return base;
@@ -3582,11 +3608,20 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
     '- a "flow": 2-4 agents chained in sequence, where each step\'s output feeds the next. In a flow step prompt, use {{previous}} to reference the prior step\'s output.',
     'All suggestions are MANUAL (run on demand, no schedules). Favor flows that turn raw monitoring/data agents into actionable outcomes (notify, summarize, file, decide).',
     '',
+    'FLOW CONDITIONALS — every flow step AFTER THE FIRST carries a "condition" that decides whether it runs, evaluated against the PREVIOUS step\'s output. Pick the most appropriate type:',
+    '  - { "type": "status", "status": "onSuccess" | "onFailure" | "onComplete" } — gate purely on whether the previous step succeeded, failed, or just finished.',
+    '  - { "type": "expression", "op": "contains" | "notContains" | "regex" | "equals" | "gt" | "lt", "value": "..." } — a deterministic text/number check on the previous output.',
+    '  - { "type": "ai", "predicate": "<a crisp true/false statement about the previous output>" } — an AI DECISION. Use this whenever the branch depends on judgement/interpretation, e.g. "Azure has an outage or degraded service", "the report contains an error worth alerting on".',
+    'IMPORTANT: When the flow is "do X, and only if the result indicates a problem do Y" (alerting/escalation patterns), the gate into Y MUST be an "ai" decision with a precise predicate — do not just use onSuccess. The first step never has a condition.',
+    '',
     'Respond with ONLY a JSON array (no prose) in this exact shape:',
     '```json',
     '[',
     '  { "kind": "task", "title": "...", "description": "one line", "agentId": "<agent id>", "prompt": "..." },',
-    '  { "kind": "flow", "title": "...", "description": "one line", "steps": [ { "agentId": "<id>", "title": "step name", "prompt": "..." }, { "agentId": "<id>", "title": "step name", "prompt": "... {{previous}} ..." } ] }',
+    '  { "kind": "flow", "title": "...", "description": "one line", "steps": [',
+    '      { "agentId": "<id>", "title": "step name", "prompt": "..." },',
+    '      { "agentId": "<id>", "title": "step name", "prompt": "... {{previous}} ...", "condition": { "type": "ai", "predicate": "the previous output indicates a problem worth acting on" } }',
+    '  ] }',
     ']',
     '```'
   ].join('\n');
@@ -3653,7 +3688,10 @@ app.post('/api/execution-suggestions/save', (req, res) => {
     saveTasks(tasks);
     const edges = [];
     for (let i = 0; i < chainSteps.length - 1; i++) {
-      edges.push({ from: chainSteps[i].id, to: chainSteps[i + 1].id, condition: { type: 'status', status: 'onSuccess' } });
+      // The gate lives on the step being entered (the next step).
+      const next = steps[i + 1];
+      const condition = (next && next.condition) ? next.condition : { type: 'status', status: 'onSuccess' };
+      edges.push({ from: chainSteps[i].id, to: chainSteps[i + 1].id, condition });
     }
     const chain = chainEngine.create({ name: sug.title || 'AI Flow', description: sug.description || '', schedule: 'never', enabled: true, steps: chainSteps, edges });
     res.json({ ok: true, type: 'flow', id: chain.id, name: chain.name });
@@ -3673,10 +3711,30 @@ function startSuggestionRun(suggestion) {
         ? suggestion.steps
         : [{ agentId: suggestion.agentId, title: suggestion.title, prompt: suggestion.prompt }];
       let prev = '';
-      for (const st of list) {
-        const entry = supervisor.agents.get(st.agentId);
-        const stepRec = { agentId: st.agentId, title: st.title || st.agentId, running: true, output: '', ok: false };
+      let prevOk = true;
+      for (let i = 0; i < list.length; i++) {
+        const st = list[i];
+        const stepRec = {
+          agentId: st.agentId, title: st.title || st.agentId,
+          running: true, output: '', ok: false, skipped: false,
+          condition: st.condition || null, conditionReason: null
+        };
         buf.steps.push(stepRec);
+        // Evaluate the gate (against the previous step's result) before running this step.
+        if (i > 0 && st.condition) {
+          let verdict;
+          try {
+            verdict = await chainEngine._evaluate(st.condition, { code: prevOk ? 0 : 1, output: prev }, null);
+          } catch (e) { verdict = { pass: false, reason: 'evaluation error: ' + e.message }; }
+          stepRec.conditionReason = verdict.reason || '';
+          if (!verdict.pass) {
+            stepRec.running = false;
+            stepRec.skipped = true;
+            stepRec.output = `Skipped — ${describeSuggestionCondition(st.condition)} → ${verdict.reason || 'condition not met'}`;
+            break; // linear flow: a failed gate stops the chain
+          }
+        }
+        const entry = supervisor.agents.get(st.agentId);
         if (!entry) { stepRec.running = false; stepRec.output = `Agent "${st.agentId}" is not installed.`; break; }
         const p = String(st.prompt || '').replace(/\{\{\s*(?:previous|output|trigger\.output)\s*\}\}/gi, prev);
         const r = await sdkRunner.runAgent({ config: entry.config, prompt: p, sessionId: require('crypto').randomUUID() });
@@ -3684,7 +3742,8 @@ function startSuggestionRun(suggestion) {
         stepRec.ok = !!r.ok;
         stepRec.output = r.output || r.error || '(no output)';
         prev = stepRec.output;
-        if (!r.ok) break;
+        prevOk = stepRec.ok;
+        // Do not break on failure: the next step's gate (e.g. onFailure / AI decision) decides.
       }
     } catch (e) {
       buf.error = e.message;
@@ -3711,7 +3770,7 @@ app.get('/api/execution-suggestions/run/:runId', (req, res) => {
   res.json({
     running: buf.running, error: buf.error,
     startedAt: buf.startedAt, finishedAt: buf.finishedAt || null,
-    steps: buf.steps.map(s => ({ agentId: s.agentId, title: s.title, running: s.running, ok: s.ok, output: String(s.output || '').slice(0, 8000) }))
+    steps: buf.steps.map(s => ({ agentId: s.agentId, title: s.title, running: s.running, ok: s.ok, skipped: !!s.skipped, condition: s.condition || null, conditionReason: s.conditionReason || null, output: String(s.output || '').slice(0, 8000) }))
   });
 });
 
