@@ -598,7 +598,7 @@ ${loadResponseFormat()}`;
   async _runSubAgent(agentId, prompt, onChunk = null) {
     const entry = this.supervisor.agents.get(agentId);
     if (!entry) {
-      return { exitCode: -1, output: `Agent "${agentId}" not found in supervisor` };
+      return { exitCode: -1, output: `Agent "${agentId}" not found in supervisor`, stderr: '' };
     }
     // The @github/copilot-sdk runner is the sole transport for sub-agent runs.
     const r = await this._runSubAgentSdk(entry, prompt, onChunk);
@@ -606,19 +606,33 @@ ${loadResponseFormat()}`;
     return { exitCode: -1, output: `Sub-agent "${agentId}" failed: SDK runner returned no output`, stderr: '' };
   }
 
-  // SDK transport for a manager sub-agent run. Returns { exitCode, output,
-  // stderr } on success, or null on miss/failure. Never throws.
+  // SDK transport for a manager sub-agent run. Always returns a structured
+  // { exitCode, output, stderr } result (never null in practice), surfacing the
+  // real SDK error when the run fails to resolve/start so the manager — and the
+  // user reading the run — see the true cause instead of a generic "no output".
   async _runSubAgentSdk(entry, prompt, onChunk) {
+    const name = (entry.config && (entry.config.name || entry.config.id)) || 'agent';
     try {
       const { randomUUID } = require('crypto');
       // onChunk expects CUMULATIVE text; the SDK streams deltas, so accumulate.
       let acc = '';
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
       const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('execution', entry.config) });
-      if (!res || res.fallback) return null;
-      return { exitCode: res.code, output: res.output || '', stderr: res.error || '', usage: res.usage || null, model: res.model || '' };
+      if (!res) {
+        return { exitCode: -1, output: `Sub-agent "${name}" failed: SDK runner returned no result`, stderr: '' };
+      }
+      const code = (res.code != null) ? res.code : -1;
+      const realOutput = (res.output || '').trim();
+      // A started-but-failed run (or an agent that could not be resolved) carries
+      // a real error string; promote it into the output the manager reasons over.
+      if ((res.fallback || code !== 0) && !realOutput) {
+        const detail = (res.error || '').trim() || 'no output produced';
+        return { exitCode: code, output: `Sub-agent "${name}" failed (exit ${code}): ${detail}`, stderr: res.error || '', usage: res.usage || null, model: res.model || '' };
+      }
+      return { exitCode: code, output: res.output || '', stderr: res.error || '', usage: res.usage || null, model: res.model || '' };
     } catch (e) {
-      return null;
+      const msg = String((e && e.message) || e);
+      return { exitCode: -1, output: `Sub-agent "${name}" failed: ${msg}`, stderr: msg };
     }
   }
 

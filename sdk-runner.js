@@ -218,6 +218,48 @@ class SdkRunner {
     return null;
   }
 
+  /**
+   * Resolve the agent identifier to request when loading a PLUGIN via
+   * pluginDirectories.
+   *
+   * The SDK addresses a plugin's agents as "<plugin.json name>:<agent-file
+   * slug>" (e.g. "helix-ux-standup:helix-ux-standup"). It does NOT match the
+   * agent's frontmatter `name`, so a config.agent that holds a display name
+   * (e.g. "Helix UX Standup") — or one drifted by the install-time "Supervised"
+   * overlay — yields "Custom agent '<name>' not found". Map whatever config.agent
+   * holds (namespaced id, file slug, or frontmatter display name, with the
+   * " Supervised" suffix tolerated) to the canonical "<pluginName>:<slug>" id.
+   * Falls back to config.agent when the plugin cannot be inspected.
+   */
+  _resolvePluginAgentName(config) {
+    const want = (config.agent || config.name || '').trim();
+    let pluginName = '';
+    try {
+      const pj = JSON.parse(fs.readFileSync(path.join(config.pluginDir, 'plugin.json'), 'utf8'));
+      pluginName = (pj && pj.name) || '';
+    } catch (e) { /* ignore */ }
+    let files;
+    try {
+      files = fs.readdirSync(path.join(config.pluginDir, 'agents')).filter(f => f.endsWith('.agent.md'));
+    } catch (e) {
+      return want;
+    }
+    if (!files.length || !pluginName) return want;
+    const entries = files.map(f => {
+      const slug = f.replace(/\.agent\.md$/, '');
+      const cfg = this._parseAgentMd(path.join(config.pluginDir, 'agents', f));
+      return { slug, name: (cfg && cfg.name) || slug, id: `${pluginName}:${slug}` };
+    });
+    const wantLc = want.toLowerCase();
+    const norm = s => s.toLowerCase().replace(/\s+supervised$/, '');
+    let hit = entries.find(e => e.id.toLowerCase() === wantLc)
+          || entries.find(e => e.slug.toLowerCase() === wantLc)
+          || entries.find(e => e.name.toLowerCase() === wantLc)
+          || entries.find(e => norm(e.name) === norm(want));
+    if (!hit && entries.length === 1) hit = entries[0];
+    return hit ? hit.id : want;
+  }
+
   /** Compact a tool's arguments object into a short one-line summary. */
   _summarizeArgs(args) {
     if (!args || typeof args !== 'object') return '';
@@ -299,7 +341,7 @@ class SdkRunner {
 
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
       opts.pluginDirectories = [config.pluginDir];
-      opts.agent = config.agent;
+      opts.agent = this._resolvePluginAgentName(config);
     } else {
       const agentCfg = this._resolveProjectAgent(config);
       if (!agentCfg) {
@@ -374,7 +416,7 @@ class SdkRunner {
     // resolves, the chat still runs as the default copilot.
     if (config && config.pluginDir && fs.existsSync(config.pluginDir)) {
       opts.pluginDirectories = [config.pluginDir];
-      opts.agent = config.agent;
+      opts.agent = this._resolvePluginAgentName(config);
     } else if (config) {
       const agentCfg = this._resolveProjectAgent(config);
       if (agentCfg) {
