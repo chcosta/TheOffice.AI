@@ -1795,7 +1795,8 @@
             <div class="empty-state" x-show="!filteredAgents().length">No agents matched your filter.</div>
           </section>
 
-          <section x-show="!loading && !errorMessage && route === 'agent-detail' && selectedAgent" x-transition.opacity.duration.180ms>
+          <template x-if="!loading && !errorMessage && route === 'agent-detail' && selectedAgent">
+          <section x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
                 <a class="btn ghost" href="#/agents">← Agents</a>
@@ -2040,6 +2041,7 @@
               </div>
             </div>
           </section>
+          </template>
 
           <section x-show="!loading && !errorMessage && route === 'managers'" x-transition.opacity.duration.180ms>
             <div class="page-header">
@@ -2086,7 +2088,8 @@
             <div class="empty-state" x-show="!filteredManagers().length">No managers matched your filter.</div>
           </section>
 
-          <section x-show="!loading && !errorMessage && route === 'manager-detail' && selectedManager" x-transition.opacity.duration.180ms>
+          <template x-if="!loading && !errorMessage && route === 'manager-detail' && selectedManager">
+          <section x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
                 <a class="btn ghost" href="#/managers">← Managers</a>
@@ -2289,6 +2292,7 @@
               </div>
             </div>
           </section>
+          </template>
 
           <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
             <div class="page-header">
@@ -2428,7 +2432,7 @@
                           <div class="hint" style="margin-top:6px" x-text="s.description"></div>
                         </div>
                         <div class="toolbar">
-                          <button class="btn" type="button" @click="tryRunExecAi(s)" :disabled="execAi.runs[s.id]?.running" x-text="execAi.runs[s.id]?.running ? 'Running…' : '▶ Try'"></button>
+                          <button class="btn" type="button" @click="tryRunExecAi(s)" :disabled="execTrying(s)" x-text="execTrying(s) ? 'Running…' : '▶ Try'"></button>
                           <button class="btn primary" type="button" @click="saveExecAi(s)">💾 Save</button>
                           <button class="btn" type="button" @click="unpinExecAi(s)" title="Remove from pinned">📌 Unpin</button>
                         </div>
@@ -2479,7 +2483,7 @@
                       <div class="hint" style="margin-top:6px" x-text="s.description"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="tryRunExecAi(s)" :disabled="execAi.runs[s.id]?.running" x-text="execAi.runs[s.id]?.running ? 'Running…' : '▶ Try'"></button>
+                      <button class="btn" type="button" @click="tryRunExecAi(s)" :disabled="execTrying(s)" x-text="execTrying(s) ? 'Running…' : '▶ Try'"></button>
                       <button class="btn primary" type="button" @click="saveExecAi(s)">💾 Save</button>
                       <button class="btn" type="button" @click="pinExecAi(s)" :disabled="execAi.pinned.some(p => p.id === s.id)" title="Keep for later">📌 Pin</button>
                     </div>
@@ -7043,6 +7047,11 @@
             this.showToast('Saved', `${r.type === 'flow' ? 'Flow' : 'Task'} "${r.name}" added.`, 'info');
             await this.refreshAll();
           } catch (error) { this.showToast('Save failed', error.message, 'error'); }
+        },
+
+        execTrying(s) {
+          const r = this.execAi.runs[s.id];
+          return !!(r && r.running);
         },
 
         async tryRunExecAi(s) {
