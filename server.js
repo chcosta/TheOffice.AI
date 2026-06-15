@@ -1466,6 +1466,7 @@ function executeTask(task, triggerContext = null, { scheduled = false, promptOve
   const originalPrompt = entry.config.prompt;
   entry.config.prompt = promptOverride || task.prompt;
   entry._taskId = task.id;
+  entry._trigger = { kind: 'task', label: task.name, route: '#/tasks' };
   try { supervisor._executeAgent(task.agentId, triggerContext); }
   finally { entry.config.prompt = originalPrompt; }
   broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId, scheduled });
@@ -2778,6 +2779,19 @@ app.get('/api/reports', (req, res) => {
     const daily = db.prepare(`SELECT substr(ts,1,10) AS day, ${SUMS}
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day ORDER BY day ASC`).all(from, to);
 
+    // Zero-fill every day in the window so the chart renders a continuous
+    // time axis instead of collapsing to a single bar when activity is sparse.
+    const emptyDay = (day) => ({ day, runs: 0, premiumRequests: 0, apiDurationMs: 0,
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
+    const dailyMap = new Map(daily.map(r => [r.day, r]));
+    const filledDaily = [];
+    const fillCursor = new Date(from.slice(0, 10) + 'T00:00:00Z');
+    const fillEnd = new Date(to.slice(0, 10) + 'T00:00:00Z');
+    for (let d = fillCursor; d <= fillEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+      const key = d.toISOString().slice(0, 10);
+      filledDaily.push(dailyMap.get(key) || emptyDay(key));
+    }
+
     const dailyBySource = db.prepare(`SELECT substr(ts,1,10) AS day, source, COUNT(*) AS runs,
         COALESCE(SUM(premium_requests),0) AS premiumRequests
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day, source ORDER BY day ASC`).all(from, to);
@@ -2826,7 +2840,7 @@ app.get('/api/reports', (req, res) => {
       },
       bySource: decorate(bySource),
       byModel: decorate(byModel),
-      daily: decorate(daily),
+      daily: decorate(filledDaily),
       dailyBySource,
     });
   } catch (err) {

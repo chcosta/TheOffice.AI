@@ -847,6 +847,65 @@
       0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--cp-success); }
       50% { opacity: 0.6; box-shadow: 0 0 8px 3px var(--cp-success); }
     }
+    .running-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface-soft);
+      text-decoration: none;
+      color: var(--cp-text);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .running-chip:hover {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent-soft);
+    }
+    .running-chip-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .running-chip-kind {
+      font-size: 0.7rem;
+      color: var(--cp-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .running-chip-go {
+      margin-left: auto;
+      color: var(--cp-accent);
+      font-weight: 700;
+    }
+    .trigger-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+      text-decoration: none;
+      font-size: 0.78rem;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .trigger-chip:hover:not(.trigger-chip-static) {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent-soft);
+    }
+    .trigger-chip-static { cursor: default; }
+    .trigger-chip-kind {
+      text-transform: capitalize;
+      font-weight: 700;
+      color: var(--cp-text-muted);
+    }
+    .trigger-chip-label { color: var(--cp-text); }
+    .trigger-chip-go { color: var(--cp-accent); font-weight: 700; }
     .field-label {
       display: flex;
       align-items: center;
@@ -1714,7 +1773,17 @@
               <article class="card">
                 <div class="hint">Running now</div>
                 <strong style="font-size:1.6rem" x-text="runningEntities().length"></strong>
-                <div class="hint" style="margin-top:2px" x-show="runningEntities().length" x-text="runningEntities().map(e => e.name).slice(0,3).join(', ')"></div>
+                <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px" x-show="runningEntities().length">
+                  <template x-for="ent in runningEntities()" :key="ent.key">
+                    <a :href="ent.route" class="running-chip" :title="'Open ' + ent.kind + ': ' + ent.name">
+                      <span class="pulse-dot"></span>
+                      <span class="running-chip-name" x-text="ent.name"></span>
+                      <span class="running-chip-kind" x-text="ent.kind"></span>
+                      <span class="running-chip-go">→</span>
+                    </a>
+                  </template>
+                </div>
+                <div class="hint" style="margin-top:6px" x-show="!runningEntities().length">Nothing running</div>
               </article>
               <article class="card">
                 <div class="hint">Up next</div>
@@ -1898,6 +1967,11 @@
                 </div>
               </div>
               <div class="toolbar">
+                <template x-if="selectedAgent.status === 'running'">
+                  <button class="btn" type="button" @click="hydrateLiveOutput(selectedAgent.id, true)" style="display:flex;align-items:center;gap:6px;border-color:var(--cp-accent);color:var(--cp-accent)">
+                    <span class="pulse-dot"></span> Running — View live
+                  </button>
+                </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit in VSCode</button>
@@ -1925,6 +1999,25 @@
                   <span class="hint" x-show="!liveOutput[selectedAgent?.id]?.active" x-text="'Exit ' + (liveOutput[selectedAgent?.id]?.code ?? '?')"></span>
                   <button class="btn ghost" style="margin-left:auto" type="button" @click="delete liveOutput[selectedAgent.id]; liveOutput = {...liveOutput}">✕ Dismiss</button>
                 </div>
+                <template x-if="liveOutput[selectedAgent?.id]?.trigger">
+                  <div style="margin-bottom:10px">
+                    <template x-if="liveOutput[selectedAgent?.id]?.trigger?.route">
+                      <a class="trigger-chip" :href="liveOutput[selectedAgent?.id]?.trigger?.route">
+                        <span x-text="triggerIcon(liveOutput[selectedAgent?.id]?.trigger?.kind)"></span>
+                        <span class="trigger-chip-kind" x-text="(liveOutput[selectedAgent?.id]?.trigger?.kind || 'trigger')"></span>
+                        <span class="trigger-chip-label" x-text="liveOutput[selectedAgent?.id]?.trigger?.label || ''"></span>
+                        <span class="trigger-chip-go">→</span>
+                      </a>
+                    </template>
+                    <template x-if="!liveOutput[selectedAgent?.id]?.trigger?.route">
+                      <span class="trigger-chip trigger-chip-static">
+                        <span x-text="triggerIcon(liveOutput[selectedAgent?.id]?.trigger?.kind)"></span>
+                        <span class="trigger-chip-kind" x-text="(liveOutput[selectedAgent?.id]?.trigger?.kind || 'trigger')"></span>
+                        <span class="trigger-chip-label" x-text="liveOutput[selectedAgent?.id]?.trigger?.label || ''"></span>
+                      </span>
+                    </template>
+                  </div>
+                </template>
                 <template x-if="liveOutput[selectedAgent?.id]?.active">
                   <div class="live-output-container" style="max-height:300px">
                     <pre class="live-output-pre" style="font-size:0.8rem" x-text="liveOutput[selectedAgent?.id]?.text || 'Waiting for output…'" x-effect="liveOutput[selectedAgent?.id]?.text; $el.scrollTop = $el.scrollHeight"></pre>
@@ -5494,6 +5587,12 @@
               this.selectedAgent.capsUnlocked = false;
             }
             this.agentHistory = history;
+            // If the agent is mid-run (e.g. a scheduled/auto-recovered run we
+            // didn't start in this tab), seed the live panel from the server's
+            // in-flight buffer so the user can watch it progress.
+            if (this.selectedAgent && this.selectedAgent.status === 'running') {
+              this.hydrateLiveOutput(id);
+            }
             // Check for source updates in background
             this.checkAgentUpdate(id).then(hasUpdate => {
               if (this.selectedAgent && this.selectedAgent.id === id) {
@@ -5502,6 +5601,40 @@
             });
           } catch (error) {
             this.showToast('Agent detail failed', error.message, 'error');
+          }
+        },
+
+        // Pull in-flight output for a running agent and seed the live panel.
+        // Used when the run wasn't started in this tab (scheduled, triggered,
+        // or recovered on server boot), so we missed the streamed SSE chunks.
+        async hydrateLiveOutput(id, announce) {
+          if (!id) return;
+          const existing = this.liveOutput[id];
+          // Already streaming live and we know what triggered it — nothing to do.
+          if (existing && existing.active && existing.trigger) {
+            if (announce) this.showToast('Live run', 'Already streaming below.', 'info');
+            return;
+          }
+          try {
+            const live = await this.request(`/api/agents/${encodeURIComponent(id)}/live`);
+            if (live && live.running) {
+              if (existing && existing.active) {
+                // Enrich the in-tab stream with trigger attribution only.
+                existing.trigger = existing.trigger || live.trigger || null;
+              } else {
+                this.liveOutput[id] = {
+                  text: live.output || '',
+                  startedAt: live.lastModified || new Date().toISOString(),
+                  active: true,
+                  trigger: live.trigger || null,
+                };
+              }
+              this.liveOutput = { ...this.liveOutput };
+            } else if (announce) {
+              this.showToast('No live run', 'This agent is not currently producing output.', 'info');
+            }
+          } catch (e) {
+            if (announce) this.showToast('Live run', 'Could not load in-flight output.', 'error');
           }
         },
 
@@ -5845,17 +5978,25 @@
           return this.data.managers.filter(m => (m.config?.org || []).includes(agentId));
         },
 
+        triggerIcon(kind) {
+          const map = { task: '🗒', flow: '🔗', chain: '🔗', trigger: '⚡', schedule: '⏰', chat: '💬', manual: '👤' };
+          return map[kind] || '⚡';
+        },
         runningEntities() {
           const activeAgents = this.data.agents.filter((agent) => agent.status === 'running').map((agent) => ({
             key: `running-${agent.id}`,
+            id: agent.id,
             kind: 'Agent',
+            route: `#/agents/${encodeURIComponent(agent.id)}`,
             name: agent.name,
             summary: agent.config.group || agent.config.agent || agent.config.cwd || agent.id,
             startedAt: agent.lastRun?.started_at || agent.last_run || new Date().toISOString()
           }));
           const activeManagers = this.data.managers.filter((manager) => manager.status === 'running').map((manager) => ({
             key: `running-${manager.id}`,
+            id: manager.id,
             kind: 'Manager',
+            route: `#/managers/${encodeURIComponent(manager.id)}`,
             name: manager.name,
             summary: `${(manager.config.assignments || []).length} assignments`,
             startedAt: manager.lastRun?.started_at || manager.last_active || new Date().toISOString()

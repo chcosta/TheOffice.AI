@@ -631,6 +631,7 @@ class EventListener extends EventEmitter {
       this.supervisor.on('agent-error', onError);
 
       // Trigger execution
+      entry._trigger = { kind: 'chat', label: 'Chat / relay request', route: '#/chat' };
       this.supervisor._executeAgent(agentId);
     });
   }

@@ -227,8 +227,7 @@ class Supervisor extends EventEmitter {
     }
   }
 
-  __executeAgent(agentId, triggerContext) {
-    const entry = this.agents.get(agentId);
+  __executeAgent(agentId, triggerContext) {    const entry = this.agents.get(agentId);
     if (!entry || entry.running) return;
 
     entry.running = true;
@@ -238,6 +237,12 @@ class Supervisor extends EventEmitter {
     // manual/scheduled run of the same agent isn't mis-attributed).
     const taskId = entry._taskId || null;
     entry._taskId = null;
+    // Consume a one-shot trigger descriptor ({ kind, label, route }) stamped by
+    // the caller (task runner, flow runner, event listener, chat). Falls back to
+    // an inferred schedule/manual/trigger descriptor so the live view can always
+    // show what kicked off the run and link back to it.
+    const trigger = entry._trigger || this._inferTrigger(entry, triggerContext);
+    entry._trigger = null;
     const { config } = entry;
     const startedAt = new Date().toISOString();
 
@@ -270,11 +275,25 @@ class Supervisor extends EventEmitter {
       return;
     }
 
-    const ctx = { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId };
+    const ctx = { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId, trigger };
 
     // The @github/copilot-sdk runner is the sole agent runtime. Any
     // resolution/start/run failure is recorded as a failed run by _executeViaSdk.
     this._executeViaSdk(ctx);
+  }
+
+  // Best-effort attribution when no explicit trigger descriptor was stamped by
+  // the caller. Distinguishes an event trigger, the agent's own schedule, and a
+  // plain manual/ad-hoc run.
+  _inferTrigger(entry, triggerContext) {
+    const t = triggerContext && triggerContext.trigger;
+    if (t) {
+      return { kind: 'trigger', label: t.name || 'Event trigger', route: '#/events' };
+    }
+    if (entry.cronJob || entry.timer) {
+      return { kind: 'schedule', label: 'Scheduled run', route: null };
+    }
+    return { kind: 'manual', label: 'Manual run', route: null };
   }
 
   /**
@@ -285,13 +304,13 @@ class Supervisor extends EventEmitter {
    * run (exit 1) — there is no longer a CLI fallback.
    */
   _executeViaSdk(ctx) {
-    const { agentId, entry, config, startedAt, prompt, pinnedSessionId } = ctx;
+    const { agentId, entry, config, startedAt, prompt, pinnedSessionId, trigger } = ctx;
     console.log(`[supervisor] Executing agent "${config.name}" via SDK runner at ${startedAt}`);
     entry.process = null; // no child process under the SDK runtime
 
     // Live accumulator for the pull-based getLiveOutput endpoint (the SDK flushes
     // events.jsonl only on disconnect, so disk can't serve in-flight output).
-    entry._live = { acc: '', startedAt: Date.now(), lastUpdate: Date.now(), sessionId: pinnedSessionId };
+    entry._live = { acc: '', startedAt: Date.now(), lastUpdate: Date.now(), sessionId: pinnedSessionId, trigger: trigger || null };
 
     const onChunk = (chunk) => {
       entry._live.acc += chunk;
@@ -509,6 +528,7 @@ class Supervisor extends EventEmitter {
       lastModified: new Date(live.lastUpdate || live.startedAt).toISOString(),
       isActive: true,
       sessionId: live.sessionId || null,
+      trigger: live.trigger || null,
     };
   }
 

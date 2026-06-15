@@ -226,7 +226,8 @@ class ChainEngine extends EventEmitter {
       this.broadcast('chain-run-output', { runId: run.id, stepId: step.id, output: node.output });
     };
 
-    this._runTaskAgent(task, { promptOverride: step.prompt, triggerContext: inputContext, onStream })
+    this._runTaskAgent(task, { promptOverride: step.prompt, triggerContext: inputContext, onStream,
+        trigger: { kind: 'flow', label: chain.name + ' › ' + task.name, route: '#/chains' } })
       .then((res) => {
         node.status = res.code === 0 ? 'succeeded' : 'failed';
         node.finishedAt = new Date().toISOString();
@@ -392,7 +393,7 @@ class ChainEngine extends EventEmitter {
   // ---------- Task agent primitive ----------
   // Runs a task's agent (optionally with a prompt override and interpolated
   // trigger context) and resolves { code, output } once the run completes.
-  _runTaskAgent(task, { promptOverride = null, triggerContext = null, onStream = null } = {}) {
+  _runTaskAgent(task, { promptOverride = null, triggerContext = null, onStream = null, trigger = null } = {}) {
     return new Promise((resolve) => {
       const entry = this.supervisor.agents.get(task.agentId);
       if (!entry) return resolve({ code: -1, output: `Agent "${task.agentId}" not found`, error: true });
@@ -416,6 +417,7 @@ class ChainEngine extends EventEmitter {
 
       const original = entry.config.prompt;
       entry.config.prompt = promptOverride || task.prompt;
+      if (trigger) entry._trigger = trigger;
       try {
         this.supervisor._executeAgent(task.agentId, triggerContext);
       } catch (e) {
