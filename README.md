@@ -4,6 +4,16 @@ An intelligent orchestration platform for GitHub Copilot CLI agents. Schedule, m
 
 ![Dashboard](docs/dashboard.png)
 
+## 🎬 Demo
+
+A narrated, two-and-a-half-minute tour of the desktop dashboard and the mobile companion app — every agent runs locally, on your machine, with your own credentials.
+
+https://github.com/costahome/agentsessions/raw/main/docs/theoffice-ai-demo.mp4
+
+<video src="https://github.com/costahome/agentsessions/raw/main/docs/theoffice-ai-demo.mp4" controls width="100%"></video>
+
+> If the player doesn't load in your viewer, [download or view the demo directly](docs/theoffice-ai-demo.mp4).
+
 ## Highlights
 
 - 🤖 **Manager Orchestration** — AI-powered managers coordinate multiple agents, analyzing output and routing work
