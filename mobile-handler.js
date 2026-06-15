@@ -4,6 +4,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const sdkRunner = require('./sdk-runner');
 
 /**
  * Mobile Command Handler
@@ -550,12 +551,19 @@ class MobileHandler extends EventEmitter {
           });
         }
       } else {
-        // Agent chat: a thread maps to a copilot session UUID. Passing the
-        // threadId as the session id lets copilot persist and resume the
-        // conversation natively — no need to re-inject prior turns.
+        // Agent chat: the thread id IS the SDK session id. We run interactive
+        // turns through the SAME resume-aware SDK chat path the SPA uses
+        // (sdkRunner.runChat with keepAlive), so the agent session stays open
+        // between turns instead of re-spinning ("starting agent") each message.
+        // We also persist an attributed transcript to the DB — identical to
+        // managers — so history survives navigation/restart and never depends on
+        // the SDK's deferred events.jsonl flush timing.
         if (threadId) {
+          const agentName = this.supervisor.agents.get(targetId)?.config?.name || targetId;
           this._upsertChatThread(threadId, targetId, 'agent', message);
-          result = await this._executeAgentWithStreaming(targetId, message, correlationId, replier, threadId);
+          this._addThreadMessage(threadId, 'user', null, null, message);
+          result = await this._executeAgentChatTurn(targetId, threadId, message, correlationId, replier);
+          this._addThreadMessage(threadId, 'assistant', agentName, targetId, result);
         } else {
           // Fallback (no thread): build prompt with conversation history.
           let fullPrompt = message;
@@ -601,8 +609,10 @@ class MobileHandler extends EventEmitter {
       return true;
     }
 
-    // Thread mode. Managers keep an attributed transcript (manager + each
-    // sub-agent) in the DB; agents resume from their copilot session log.
+    // Thread mode. Both managers and agents keep an attributed transcript
+    // (speaker + content) in the DB, so history survives navigation/restart and
+    // never depends on the SDK's deferred events.jsonl flush. For older agent
+    // threads with no DB transcript, fall back to scraping the copilot session.
     if (threadId) {
       const ttype = this._threadTargetType(threadId) || (payload.targetType || 'agent');
       if (ttype === 'manager') {
@@ -613,7 +623,11 @@ class MobileHandler extends EventEmitter {
         });
         return true;
       }
-      const messages = this._readSessionMessages(threadId);
+      let messages = this._getThreadMessages(threadId);
+      if (!messages || messages.length === 0) {
+        // Back-compat: agent threads created before the DB-transcript change.
+        messages = this._readSessionMessages(threadId);
+      }
       await replier(correlationId, {
         type: 'result',
         payload: { messages, targetId, targetType: 'agent', threadId }
@@ -673,11 +687,16 @@ class MobileHandler extends EventEmitter {
     if (!this.db) return;
     try {
       const existing = this.db.prepare('SELECT id, title FROM mobile_chat_threads WHERE id = ?').get(threadId);
+      const derivedTitle = (firstMessage || '').replace(/\s+/g, ' ').trim().slice(0, 60);
       if (!existing) {
-        const title = (firstMessage || '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
+        const title = derivedTitle || 'New conversation';
         this.db.prepare(
           'INSERT INTO mobile_chat_threads (id, target_id, target_type, title, last_preview) VALUES (?, ?, ?, ?, ?)'
         ).run(threadId, targetId, targetType || 'agent', title, (firstMessage || '').slice(0, 120));
+      } else if (derivedTitle && (!existing.title || existing.title === 'New conversation')) {
+        // Thread was minted empty (e.g. via new-chat-thread); backfill a real
+        // title from the first actual message so history is meaningful.
+        this.db.prepare('UPDATE mobile_chat_threads SET title = ? WHERE id = ?').run(derivedTitle, threadId);
       }
     } catch (e) { /* non-fatal */ }
   }
@@ -1312,6 +1331,87 @@ class MobileHandler extends EventEmitter {
   }
 
   // --- Internal Helpers ---
+
+  /**
+   * Run one interactive agent chat turn through the resume-aware SDK chat path
+   * (the same `sdkRunner.runChat` the SPA uses). The thread id is the SDK
+   * session id; the session is kept alive between turns so the agent isn't
+   * re-spun on every message. Streams assistant deltas to mobile as
+   * streaming-chunk updates and resolves with the full assistant text.
+   *
+   * resume is true when we already have a session for this thread — either a
+   * still-connected live session (same server process) or a persisted session
+   * on disk (after a restart). The first turn of a brand-new thread is a fresh
+   * session.
+   */
+  async _executeAgentChatTurn(agentId, threadId, message, correlationId, replier) {
+    const entry = this.supervisor.agents.get(agentId);
+    if (!entry) throw new Error(`Agent ${agentId} not found`);
+    const config = entry.config;
+
+    const sessionExistsOnDisk = () => {
+      try {
+        return fs.existsSync(path.join(this._sessionStateDir(), threadId, 'events.jsonl'));
+      } catch { return false; }
+    };
+    const resume = sdkRunner.hasLiveChat(threadId) || sessionExistsOnDisk();
+
+    let chunkIdx = 0;
+    const onChunk = (text) => {
+      if (!text) return;
+      chunkIdx++;
+      replier(correlationId, {
+        type: 'streaming-chunk',
+        payload: { text, idx: chunkIdx, stream: 'stdout', isFinal: false }
+      }).catch(() => {});
+    };
+
+    // Heartbeat keeps the mobile client's inactivity timer alive during long,
+    // silent stretches where the agent emits no deltas for a while.
+    const heartbeat = setInterval(() => {
+      replier(correlationId, {
+        type: 'status-update',
+        payload: { status: 'processing', message: 'Still working…' }
+      }).catch(() => {});
+    }, 20000);
+
+    let res;
+    try {
+      res = await sdkRunner.runChat({
+        config,
+        prompt: message,
+        sessionId: threadId,
+        resume,
+        cwd: config && config.cwd,
+        onChunk,
+      });
+    } finally {
+      clearInterval(heartbeat);
+    }
+
+    // Final chunk marker so the client knows streaming is done.
+    replier(correlationId, {
+      type: 'streaming-chunk',
+      payload: { text: '', idx: chunkIdx + 1, isFinal: true }
+    }).catch(() => {});
+
+    if (!res || res.fallback || res.ok === false) {
+      const errMsg = (res && res.error) || 'agent chat failed';
+      // A stale/invalid resume target can fail; retry once as a fresh session
+      // so the user still gets a reply instead of a dead conversation.
+      if (resume) {
+        const retry = await sdkRunner.runChat({
+          config, prompt: message, sessionId: threadId, resume: false,
+          cwd: config && config.cwd, onChunk,
+        }).catch(() => null);
+        if (retry && !retry.fallback && retry.ok !== false) {
+          return retry.output || '(no output)';
+        }
+      }
+      throw new Error(errMsg);
+    }
+    return res.output || '(no output)';
+  }
 
   /**
    * Execute an agent and stream output chunks back to mobile

@@ -82,6 +82,11 @@ class SdkRunner {
     if (entry.timer && entry.timer.unref) entry.timer.unref();
   }
 
+  /** True if a kept-alive chat session for this id is still connected in-memory. */
+  hasLiveChat(sessionId) {
+    return !!sessionId && this._liveSessions.has(sessionId);
+  }
+
   /** Explicitly close a kept-alive chat session (e.g. when a chat is closed). */
   async closeChatSession(sessionId) {
     const entry = this._liveSessions.get(sessionId);
