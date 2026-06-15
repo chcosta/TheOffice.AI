@@ -5594,8 +5594,8 @@
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
             ]},
             { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
-              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.slice(0, 10).map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.slice(0, 10).map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
+              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
             ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false },
             { key: 'reports', label: 'Reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [], collapsible: false }
