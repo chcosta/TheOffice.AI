@@ -2136,6 +2136,117 @@
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
+                      <h2 class="panel-title">Tools &amp; Skills</h2>
+                      <div class="hint">MCP servers and skills this agent can use at runtime. Attach more from the catalog to empower it — changes apply on the next run or chat.</div>
+                    </div>
+                    <div class="toolbar">
+                      <button class="btn" type="button" @click="validateCaps()">✓ Validate</button>
+                    </div>
+                  </div>
+
+                  <!-- Attached MCP servers -->
+                  <div class="caps-divider"><span class="caps-divider-label">MCP servers</span></div>
+                  <div class="assignment-list" x-show="selectedAgent.caps && selectedAgent.caps.effective.mcp.length">
+                    <template x-for="m in (selectedAgent.caps ? selectedAgent.caps.effective.mcp : [])" :key="m.name">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <span style="font-weight:700" x-text="m.name"></span>
+                            <span class="tiny-badge" x-text="m.source === 'overlay' ? 'attached' : 'built-in'" :style="m.source==='overlay' ? '' : 'opacity:.7'"></span>
+                            <div class="hint" style="margin-top:4px" x-show="m.config && m.config.command" x-text="(m.config ? m.config.command : '') + (m.config && m.config.args && m.config.args.length ? ' ' + m.config.args.join(' ') : '')"></div>
+                            <div class="split-meta" style="margin-top:4px;gap:6px;flex-wrap:wrap" x-show="m.config && m.config.env && Object.keys(m.config.env).length">
+                              <template x-for="k in (m.config && m.config.env ? Object.keys(m.config.env) : [])" :key="k">
+                                <span class="tiny-badge" x-text="k + '=' + m.config.env[k]"></span>
+                              </template>
+                            </div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" x-show="m.removable" @click="detachCapMcp(m.name)">✕ Detach</button>
+                            <span class="hint" x-show="!m.removable">locked</span>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="selectedAgent.caps && !selectedAgent.caps.effective.mcp.length">No MCP servers attached.</div>
+
+                  <!-- Add MCP: catalog + custom -->
+                  <div class="toolbar" style="margin-top:10px;flex-wrap:wrap;gap:8px">
+                    <input class="field-input" style="max-width:240px" type="text" x-model="selectedAgent.capCatalogFilter" placeholder="Filter catalog…" />
+                    <button class="btn ghost" type="button" @click="selectedAgent.showMcpForm = !selectedAgent.showMcpForm">＋ Custom MCP server</button>
+                  </div>
+                  <div class="assignment-list" x-show="capCatalogAvailableMcp().length">
+                    <template x-for="c in capCatalogAvailableMcp()" :key="c.sourcePath + '::' + c.name">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <span style="font-weight:700" x-text="c.name"></span>
+                            <span class="tiny-badge" x-text="c.source"></span>
+                            <div class="hint" style="margin-top:4px" x-show="c.envKeys && c.envKeys.length" x-text="'needs: ' + c.envKeys.join(', ')"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn accent" type="button" @click="attachCapMcpFromCatalog(c)">＋ Attach</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="detail-panel" style="margin-top:10px;padding:12px" x-show="selectedAgent.showMcpForm">
+                    <div class="field-label"><span>Server name</span></div>
+                    <input class="field-input" type="text" x-model="selectedAgent.mcpDraft.name" placeholder="my-mcp-server" />
+                    <div class="field-label" style="margin-top:8px"><span>Command</span></div>
+                    <input class="field-input" type="text" x-model="selectedAgent.mcpDraft.command" placeholder="npx" />
+                    <div class="field-label" style="margin-top:8px"><span>Args</span><span class="hint">space-separated</span></div>
+                    <input class="field-input" type="text" x-model="selectedAgent.mcpDraft.args" placeholder="-y @scope/server mcp" />
+                    <div class="field-label" style="margin-top:8px"><span>Env</span><span class="hint">one KEY=value per line</span></div>
+                    <textarea class="field-input field-area" x-model="selectedAgent.mcpDraft.env" placeholder="API_TOKEN=...&#10;REGION=westus"></textarea>
+                    <div class="toolbar" style="margin-top:8px">
+                      <button class="btn accent" type="button" @click="attachCapCustomMcp()">Attach server</button>
+                      <button class="btn ghost" type="button" @click="selectedAgent.showMcpForm = false">Cancel</button>
+                    </div>
+                  </div>
+
+                  <!-- Attached skills -->
+                  <div class="caps-divider" style="margin-top:16px"><span class="caps-divider-label">Skills</span></div>
+                  <div class="assignment-list" x-show="selectedAgent.caps && selectedAgent.caps.effective.skills.length">
+                    <template x-for="s in (selectedAgent.caps ? selectedAgent.caps.effective.skills : [])" :key="s.name">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <span style="font-weight:700" x-text="s.name"></span>
+                            <span class="tiny-badge" x-text="s.source === 'overlay' ? 'attached' : 'built-in'" :style="s.source==='overlay' ? '' : 'opacity:.7'"></span>
+                            <div class="hint" style="margin-top:4px" x-show="s.description" x-text="s.description"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" x-show="s.removable" @click="detachCapSkill(s.name)">✕ Detach</button>
+                            <span class="hint" x-show="!s.removable">locked</span>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="selectedAgent.caps && !selectedAgent.caps.effective.skills.length">No skills attached.</div>
+                  <div class="assignment-list" x-show="capCatalogAvailableSkills().length" style="margin-top:10px">
+                    <template x-for="c in capCatalogAvailableSkills()" :key="c.sourceDir + '::' + c.name">
+                      <div class="assignment-item">
+                        <div class="assignment-top">
+                          <div>
+                            <span style="font-weight:700" x-text="c.name"></span>
+                            <span class="tiny-badge" x-text="c.source"></span>
+                            <div class="hint" style="margin-top:4px" x-show="c.description" x-text="c.description"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn accent" type="button" @click="attachCapSkillFromCatalog(c)">＋ Attach</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </section>
+
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
                       <h2 class="panel-title">Tasks</h2>
                       <div class="hint">Direct workloads for this agent.</div>
                     </div>
@@ -3636,6 +3747,229 @@
             </div>
           </section>
 
+          <!-- Marketplace -->
+          <section x-show="!loading && !errorMessage && route === 'marketplace'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🛍️ Marketplace</h1>
+                <p>Discover agents, plugins, skills and MCP servers from local folders or Azure DevOps repos, and add them to any agent.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn ghost" type="button" x-show="mkt.tab === 'browse'" @click="mktAutoPopulate()" :disabled="mkt.syncing" x-text="mkt.syncing ? 'Syncing…' : '↻ Sync from installed agents'"></button>
+                <button class="btn primary" type="button" x-show="mkt.tab === 'browse'" @click="mkt.showAddForm = !mkt.showAddForm">+ Add source</button>
+              </div>
+            </div>
+
+            <div class="filter-pills" style="margin-bottom:16px">
+              <button class="pill" type="button" :class="{ active: mkt.tab === 'browse' }" @click="mkt.tab = 'browse'">🛍️ Browse</button>
+              <button class="pill" type="button" :class="{ active: mkt.tab === 'design' }" @click="mkt.tab = 'design'; mktDesignInit()">✨ Design with AI</button>
+            </div>
+
+            <div x-show="mkt.tab === 'browse'">
+            <!-- Add source form -->
+            <div class="card" x-show="mkt.showAddForm" x-transition.opacity.duration.150ms style="margin-bottom:18px">
+              <div class="filter-pills" style="margin-bottom:12px">
+                <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'local' }" @click="mkt.addForm.kind = 'local'">📁 Local folder</button>
+                <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'azdo' }" @click="mkt.addForm.kind = 'azdo'">☁️ Azure DevOps</button>
+              </div>
+              <template x-if="mkt.addForm.kind === 'local'">
+                <div class="form-row">
+                  <label>Folder path</label>
+                  <input type="text" x-model="mkt.addForm.path" placeholder="C:\repos\my-agents" @keydown.enter="addMarketplaceSource()">
+                </div>
+              </template>
+              <template x-if="mkt.addForm.kind === 'azdo'">
+                <div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    <div class="form-row"><label>Organization</label><input type="text" x-model="mkt.addForm.org" placeholder="dnceng" @change="mktLoadAddRepos()" @keydown.enter="mktLoadAddRepos()"></div>
+                    <div class="form-row"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @change="mktLoadAddRepos()" @keydown.enter="mktLoadAddRepos()"></div>
+                  </div>
+                  <template x-if="!mkt.addForm.manual">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+                      <div class="form-row">
+                        <label>Repository <span class="hint" x-show="mkt.addForm.loadingRepos">⏳ loading…</span></label>
+                        <select x-model="mkt.addForm.repo" @change="mktAddRepoChange()" :disabled="!mkt.addForm.repos.length">
+                          <option value="" x-text="mkt.addForm.repos.length ? 'Select a repository…' : 'Enter org + project first'"></option>
+                          <template x-for="r in mkt.addForm.repos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
+                        </select>
+                      </div>
+                      <div class="form-row">
+                        <label>Branch <span class="hint" x-show="mkt.addForm.loadingBranches">⏳ loading…</span></label>
+                        <select x-model="mkt.addForm.branch" :disabled="!mkt.addForm.branches.length">
+                          <option value="" x-text="mkt.addForm.branches.length ? 'Select a branch…' : 'Select a repository first'"></option>
+                          <template x-for="b in mkt.addForm.branches" :key="b"><option :value="b" x-text="b"></option></template>
+                        </select>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="mkt.addForm.manual">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+                      <div class="form-row"><label>Repository</label><input type="text" x-model="mkt.addForm.repo" placeholder="helix-observer"></div>
+                      <div class="form-row"><label>Branch</label><input type="text" x-model="mkt.addForm.branch" placeholder="main"></div>
+                    </div>
+                  </template>
+                  <div class="hint" style="margin-top:6px">
+                    <a href="#" @click.prevent="mkt.addForm.manual = !mkt.addForm.manual" x-text="mkt.addForm.manual ? '← Pick from discovered repositories' : 'Enter repository / branch manually'"></a>
+                  </div>
+                </div>
+              </template>
+              <div class="toolbar" style="margin-top:12px">
+                <button class="btn primary" type="button" @click="addMarketplaceSource()" :disabled="mkt.busy">Add &amp; scan</button>
+                <button class="btn ghost" type="button" @click="mkt.showAddForm = false">Cancel</button>
+                <span class="hint" x-show="mkt.error" x-text="mkt.error" style="color:var(--cp-danger)"></span>
+              </div>
+            </div>
+
+            <!-- Sources -->
+            <div class="toolbar" style="flex-wrap:wrap;gap:8px;margin-bottom:14px">
+              <button class="pill" type="button" :class="{ active: !mkt.activeSourceId }" @click="mkt.activeSourceId = null; loadMarketplaceCatalog()">All sources</button>
+              <button class="pill" type="button" :class="{ active: mkt.activeSourceId === 'installed' }" @click="mkt.activeSourceId = 'installed'; loadMarketplaceCatalog()">Installed</button>
+              <template x-for="src in mkt.sources" :key="src.id">
+                <span class="pill" style="display:inline-flex;align-items:center;gap:8px" :class="{ active: mkt.activeSourceId === src.id }">
+                  <span @click="mkt.activeSourceId = src.id; loadMarketplaceCatalog()" x-text="(src.kind === 'azdo' ? '☁️ ' : '📁 ') + src.label"></span>
+                  <span title="Rescan" style="cursor:pointer" @click="scanMarketplaceSource(src.id)" x-text="mkt.scanning[src.id] ? '⏳' : '🔄'"></span>
+                  <span title="Remove" style="cursor:pointer;opacity:.7" @click="removeMarketplaceSource(src.id)">✕</span>
+                </span>
+              </template>
+            </div>
+
+            <!-- Type filter + search -->
+            <div class="toolbar" style="margin-bottom:16px;gap:10px;flex-wrap:wrap">
+              <div class="filter-pills">
+                <template x-for="t in ['all','agent','plugin','skill','mcp']" :key="t">
+                  <button class="pill" type="button" :class="{ active: mkt.typeFilter === t }" @click="mkt.typeFilter = t; loadMarketplaceCatalog()">
+                    <span x-text="mktTypeLabel(t)"></span>
+                    <span class="hint" x-show="t !== 'all' && mkt.catalog.counts[t]" x-text="'(' + (mkt.catalog.counts[t] || 0) + ')'"></span>
+                  </button>
+                </template>
+              </div>
+              <input type="text" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…" style="flex:1;min-width:200px">
+            </div>
+
+            <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
+              No sources yet. Click <strong>↻ Sync from installed agents</strong> to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
+            </div>
+
+            <div class="agent-grid" x-show="mkt.catalog.entries.length">
+              <template x-for="entry in mkt.catalog.entries" :key="entry.id">
+                <article class="agent-card" style="cursor:default">
+                  <div class="split-meta">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span class="type-badge" x-text="mktTypeIcon(entry.type) + ' ' + entry.type"></span>
+                      <strong x-text="entry.displayName || entry.name"></strong>
+                    </div>
+                    <span class="status-badge idle" x-text="entry.sourceLabel"></span>
+                  </div>
+                  <div class="hint" style="margin-top:8px;min-height:32px" x-text="entry.description || 'No description.'"></div>
+                  <div class="hint" x-show="entry.type === 'mcp' && entry.mcp" style="margin-top:4px;font-family:var(--mono,monospace)" x-text="entry.mcp ? (entry.mcp.command + (entry.mcp.envKeys && entry.mcp.envKeys.length ? '  env: ' + entry.mcp.envKeys.join(', ') : '')) : ''"></div>
+                  <div class="toolbar" style="margin-top:12px">
+                    <template x-if="entry.type === 'agent' || entry.type === 'plugin'">
+                      <button class="btn primary" type="button" @click="marketplaceInstall(entry)" :disabled="mkt.busy">Install</button>
+                    </template>
+                    <template x-if="entry.type === 'skill' || entry.type === 'mcp'">
+                      <button class="btn primary" type="button" @click="openAddCap(entry)" :disabled="mkt.busy">Add to agent…</button>
+                    </template>
+                  </div>
+                </article>
+              </template>
+            </div>
+            </div><!-- /browse -->
+
+            <!-- ===== Design with AI panel ===== -->
+            <div x-show="mkt.tab === 'design'" x-transition.opacity.duration.150ms>
+              <div class="card" style="margin-bottom:18px">
+                <div class="filter-pills" style="margin-bottom:14px">
+                  <button class="pill" type="button" :class="{ active: mkt.design.mode === 'enhance' }" @click="mkt.design.mode = 'enhance'">🔧 Enhance an agent</button>
+                  <button class="pill" type="button" :class="{ active: mkt.design.mode === 'create' }" @click="mkt.design.mode = 'create'">✨ Create from scratch</button>
+                </div>
+                <p class="hint" style="margin-bottom:12px" x-text="mkt.design.mode === 'enhance' ? 'Pick an agent and the AI will propose marketplace skills and MCP servers that unlock new abilities for it.' : 'The AI will design a brand-new agent composed from the skills and MCP servers in your marketplace catalog.'"></p>
+                <div class="form-row" x-show="mkt.design.mode === 'enhance'" style="margin-bottom:12px">
+                  <label>Agent to enhance</label>
+                  <select x-model="mkt.design.agentId">
+                    <option value="">Select an agent…</option>
+                    <template x-for="a in data.agents" :key="a.id">
+                      <option :value="a.id" x-text="a.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <div class="form-row" style="margin-bottom:12px">
+                  <label x-text="mkt.design.mode === 'enhance' ? 'Focus (optional)' : 'What should this agent do? (optional)'"></label>
+                  <textarea x-model="mkt.design.hint" rows="2" :placeholder="mkt.design.mode === 'enhance' ? 'e.g. give it the ability to query Azure DevOps' : 'e.g. an agent that watches Azure status and emails me on outages'"></textarea>
+                </div>
+                <div class="toolbar">
+                  <button class="btn primary" type="button" @click="mktDesignGenerate()"
+                    :disabled="mkt.design.busy || (mkt.design.mode === 'enhance' && !mkt.design.agentId)">
+                    <span x-show="!mkt.design.busy">Generate ideas</span>
+                    <span x-show="mkt.design.busy">Thinking…</span>
+                  </button>
+                  <span class="hint" x-show="mkt.design.error" x-text="mkt.design.error" style="color:var(--cp-danger)"></span>
+                </div>
+              </div>
+
+              <div class="empty-state" x-show="!mkt.design.busy && !mkt.design.proposals.length && !mkt.design.error">
+                No proposals yet. Choose a mode and click <strong>Generate ideas</strong>.
+              </div>
+
+              <div class="agent-grid" x-show="mkt.design.proposals.length">
+                <template x-for="p in mkt.design.proposals" :key="p.id">
+                  <article class="agent-card" style="cursor:default">
+                    <div class="split-meta">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="type-badge" x-text="p.kind === 'create' ? '✨ new agent' : '🔧 enhance'"></span>
+                        <strong x-text="p.title"></strong>
+                      </div>
+                    </div>
+                    <div class="hint" style="margin-top:8px" x-text="p.rationale"></div>
+                    <template x-if="p.kind === 'create' && p.agent">
+                      <div class="hint" style="margin-top:8px">
+                        <div><strong x-text="p.agent.name"></strong> — <span x-text="p.agent.description"></span></div>
+                        <div style="margin-top:4px;font-family:var(--mono,monospace)" x-text="'tools: ' + (p.agent.tools || []).join(', ')"></div>
+                      </div>
+                    </template>
+                    <div style="margin-top:10px" x-show="p.attach && p.attach.length">
+                      <div class="hint" style="margin-bottom:6px">Capabilities to attach:</div>
+                      <div class="filter-pills">
+                        <template x-for="(c, ci) in p.attach" :key="ci">
+                          <span class="pill" style="cursor:default" :title="c.why" x-text="(c.type === 'mcp' ? '🔌 ' : '🧩 ') + c.name"></span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="hint" x-show="!p.attach || !p.attach.length" style="margin-top:10px;font-style:italic">No catalog capabilities matched — nothing to attach.</div>
+                    <div class="toolbar" style="margin-top:12px">
+                      <button class="btn primary" type="button" @click="mktDesignApply(p)" :disabled="p._applying || p._applied">
+                        <span x-show="!p._applying && !p._applied" x-text="p.kind === 'create' ? 'Create agent' : 'Apply to agent'"></span>
+                        <span x-show="p._applying">Applying…</span>
+                        <span x-show="p._applied">✓ Done</span>
+                      </button>
+                    </div>
+                  </article>
+                </template>
+              </div>
+            </div><!-- /design -->
+          </section>
+
+          <!-- Add capability to agent modal -->
+          <div class="modal-overlay" x-show="mkt.addCap.entry" x-transition.opacity @click.self="mkt.addCap.entry = null" style="display:flex">
+            <div class="modal" style="max-width:460px">
+              <h3 x-text="mkt.addCap.entry ? ('Add ' + mkt.addCap.entry.type + ' \'' + (mkt.addCap.entry.displayName || mkt.addCap.entry.name) + '\' to an agent') : ''"></h3>
+              <div class="form-row" style="margin-top:14px">
+                <label>Target agent</label>
+                <select x-model="mkt.addCap.agentId">
+                  <option value="">Select an agent…</option>
+                  <template x-for="a in data.agents" :key="a.id">
+                    <option :value="a.id" x-text="a.name"></option>
+                  </template>
+                </select>
+              </div>
+              <p class="hint" style="margin-top:8px">The capability is attached to the agent's overlay and wired at run time — no restart needed.</p>
+              <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
+                <button class="btn ghost" type="button" @click="mkt.addCap.entry = null">Cancel</button>
+                <button class="btn primary" type="button" @click="confirmAddCap()" :disabled="!mkt.addCap.agentId || mkt.busy">Add</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Activity -->
           <section x-show="!loading && !errorMessage && route === 'activity'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -4910,6 +5244,23 @@
         newAssignmentOpen: false,
         newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
         activityFilter: 'all',
+        mkt: {
+          sources: [],
+          catalog: { entries: [], counts: {}, total: 0 },
+          typeFilter: 'all',
+          q: '',
+          activeSourceId: null,
+          showAddForm: false,
+          addForm: { kind: 'local', path: '', org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false },
+          scanning: {},
+          syncing: false,
+          addCap: { entry: null, agentId: '' },
+          tab: 'browse',
+          autoPopulated: false,
+          design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], inited: false },
+          busy: false,
+          error: '',
+        },
         reports: null,
         reportsLoading: false,
         reportRange: 30,
@@ -5536,7 +5887,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'chains', 'design', 'assignments', 'chat', 'activity', 'events', 'settings', 'reports'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'tasks', 'chains', 'design', 'assignments', 'chat', 'activity', 'events', 'settings', 'reports', 'marketplace'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -5560,6 +5911,8 @@
           } else if (this.route === 'reports') {
             this.loadModels();
             await this.loadReports();
+          } else if (this.route === 'marketplace') {
+            await this.loadMarketplace();
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
@@ -5672,6 +6025,11 @@
               this.selectedAgent.descriptionDraft = prev.capsUnlocked ? prev.descriptionDraft : this.selectedAgent.descriptionDraft;
               this.selectedAgent.skillsDraft = prev.capsUnlocked ? prev.skillsDraft : this.selectedAgent.skillsDraft;
               this.selectedAgent.nameDraft = prev.capsUnlocked ? prev.nameDraft : this.selectedAgent.nameDraft;
+              this.selectedAgent.caps = prev.caps || null;
+              this.selectedAgent.capsValidation = prev.capsValidation || null;
+              this.selectedAgent.mcpDraft = prev.mcpDraft || { name: '', command: '', args: '', env: '' };
+              this.selectedAgent.showMcpForm = !!prev.showMcpForm;
+              this.selectedAgent.capCatalogFilter = prev.capCatalogFilter || '';
             } else {
               this.selectedAgent.promptDraft = '';
               this.selectedAgent.scheduleDraft = 'never';
@@ -5680,8 +6038,14 @@
               this.selectedAgent.editingTaskId = null;
               this.selectedAgent.showTaskEditor = false;
               this.selectedAgent.capsUnlocked = false;
+              this.selectedAgent.caps = null;
+              this.selectedAgent.capsValidation = null;
+              this.selectedAgent.mcpDraft = { name: '', command: '', args: '', env: '' };
+              this.selectedAgent.showMcpForm = false;
+              this.selectedAgent.capCatalogFilter = '';
             }
             this.agentHistory = history;
+            this.loadAgentCapabilities(id);
             // If the agent is mid-run (e.g. a scheduled/auto-recovered run we
             // didn't start in this tab), seed the live panel from the server's
             // in-flight buffer so the user can watch it progress.
@@ -5697,6 +6061,99 @@
           } catch (error) {
             this.showToast('Agent detail failed', error.message, 'error');
           }
+        },
+
+        // ---- Marketplace: agent capabilities (MCP servers + skills) ----
+        async loadAgentCapabilities(id) {
+          try {
+            const data = await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities`);
+            if (this.selectedAgent && this.selectedAgent.id === id) this.selectedAgent.caps = data;
+          } catch (e) { /* non-fatal: capabilities panel just stays empty */ }
+        },
+        async attachCapMcpFromCatalog(entry) {
+          const id = this.selectedAgent.id;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/mcp`, {
+              method: 'POST', body: JSON.stringify({ name: entry.name, sourcePath: entry.sourcePath })
+            });
+            this.showToast('MCP attached', `${entry.name} → ${this.selectedAgent.name}`, 'info');
+            await this.loadAgentCapabilities(id);
+          } catch (e) { this.showToast('Attach failed', e.message, 'error'); }
+        },
+        async attachCapCustomMcp() {
+          const id = this.selectedAgent.id;
+          const d = this.selectedAgent.mcpDraft || {};
+          if (!d.name || !d.command) { this.showToast('Missing fields', 'Name and command are required.', 'error'); return; }
+          const args = (d.args || '').split(/\s+/).filter(Boolean);
+          const env = {};
+          (d.env || '').split(/\r?\n/).forEach(line => { const i = line.indexOf('='); if (i > 0) env[line.slice(0, i).trim()] = line.slice(i + 1).trim(); });
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/mcp`, {
+              method: 'POST', body: JSON.stringify({ name: d.name, config: { command: d.command, args, env } })
+            });
+            this.selectedAgent.mcpDraft = { name: '', command: '', args: '', env: '' };
+            this.selectedAgent.showMcpForm = false;
+            this.showToast('MCP attached', d.name, 'info');
+            await this.loadAgentCapabilities(id);
+          } catch (e) { this.showToast('Attach failed', e.message, 'error'); }
+        },
+        async detachCapMcp(name) {
+          const id = this.selectedAgent.id;
+          if (!confirm(`Detach MCP server "${name}" from this agent?`)) return;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/mcp/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            this.showToast('MCP detached', name, 'info');
+            await this.loadAgentCapabilities(id);
+          } catch (e) { this.showToast('Detach failed', e.message, 'error'); }
+        },
+        async attachCapSkillFromCatalog(entry) {
+          const id = this.selectedAgent.id;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/skill`, {
+              method: 'POST', body: JSON.stringify({ name: entry.name, sourceDir: entry.sourceDir })
+            });
+            this.showToast('Skill attached', entry.name, 'info');
+            await this.loadAgentCapabilities(id);
+          } catch (e) { this.showToast('Attach failed', e.message, 'error'); }
+        },
+        async detachCapSkill(name) {
+          const id = this.selectedAgent.id;
+          if (!confirm(`Detach skill "${name}"?`)) return;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/skill/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            this.showToast('Skill detached', name, 'info');
+            await this.loadAgentCapabilities(id);
+          } catch (e) { this.showToast('Detach failed', e.message, 'error'); }
+        },
+        async validateCaps() {
+          const id = this.selectedAgent.id;
+          try {
+            const v = await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/validate`, { method: 'POST' });
+            this.selectedAgent.capsValidation = v;
+            let summary;
+            if (v.kind === 'plugin') summary = `${v.effective.mcp.length} MCP, ${v.effective.skills.length} skills wired`;
+            else if (v.package) summary = `package: ${v.package.mcpServers.length} MCP, ${v.package.skills.length} skills`;
+            else summary = 'no package built';
+            this.showToast(v.ok ? 'Validation passed' : 'Validation issue', summary + (v.error ? ` — ${v.error}` : ''), v.ok ? 'info' : 'error');
+          } catch (e) { this.showToast('Validate failed', e.message, 'error'); }
+        },
+        capCatalogAvailableMcp() {
+          const caps = this.selectedAgent && this.selectedAgent.caps;
+          if (!caps) return [];
+          const have = new Set((caps.effective.mcp || []).map(m => m.name));
+          const f = (this.selectedAgent.capCatalogFilter || '').toLowerCase();
+          return (caps.catalog.mcp || [])
+            .filter(m => !have.has(m.name))
+            .filter(m => !f || m.name.toLowerCase().includes(f) || (m.source || '').toLowerCase().includes(f));
+        },
+        capCatalogAvailableSkills() {
+          const caps = this.selectedAgent && this.selectedAgent.caps;
+          if (!caps) return [];
+          const have = new Set((caps.effective.skills || []).map(s => s.name.toLowerCase()));
+          const f = (this.selectedAgent.capCatalogFilter || '').toLowerCase();
+          return (caps.catalog.skills || [])
+            .filter(s => !have.has(s.name.toLowerCase()))
+            .filter(s => !f || s.name.toLowerCase().includes(f) || (s.description || '').toLowerCase().includes(f) || (s.source || '').toLowerCase().includes(f));
         },
 
         // Pull in-flight output for a running agent and seed the live panel.
@@ -5887,7 +6344,8 @@
             ]},
             { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) }
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) },
+              { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [] }
             ]},
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false },
             { key: 'reports', label: 'Reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [], collapsible: false }
@@ -8763,6 +9221,196 @@
           const delta = new Date(timestamp).getTime() - this.now;
           if (delta <= 0) return 'due now';
           return `in ${this.formatDuration(delta)}`;
+        },
+
+        // ---- Marketplace ----
+        mktTypeLabel(t) {
+          return { all: 'All', agent: 'Agents', plugin: 'Plugins', skill: 'Skills', mcp: 'MCP' }[t] || t;
+        },
+        mktTypeIcon(t) {
+          return { agent: '🤖', plugin: '🧩', skill: '🛠️', mcp: '🔌' }[t] || '•';
+        },
+        async loadMarketplace() {
+          try {
+            const r = await this.request('/api/marketplace/sources');
+            this.mkt.sources = r.sources || [];
+          } catch (e) { this.mkt.sources = []; }
+          // First visit with no sources: seed from installed agents/plugins.
+          if (!this.mkt.sources.length && !this.mkt.autoPopulated) {
+            this.mkt.autoPopulated = true;
+            await this.mktAutoPopulate(true);
+          }
+          await this.loadMarketplaceCatalog();
+        },
+        async mktAutoPopulate(silent) {
+          this.mkt.syncing = true;
+          try {
+            const r = await this.request('/api/marketplace/sources/autopopulate', { method: 'POST', body: JSON.stringify({ scan: true }) });
+            this.mkt.sources = r.sources || this.mkt.sources;
+            await this.loadMarketplaceCatalog();
+            const n = (r.added || []).length;
+            if (!silent || n) {
+              this.showToast('Sources synced', n ? `Added ${n} source${n === 1 ? '' : 's'} from installed agents.` : 'No new sources to add — already in sync.', 'info');
+            }
+            if (r.errors && r.errors.length) {
+              this.showToast('Some sources skipped', r.errors.map(e => e.label || e.id).join(', '), 'error');
+            }
+          } catch (e) {
+            if (!silent) this.showToast('Sync failed', e.message || 'Could not sync sources', 'error');
+          } finally {
+            this.mkt.syncing = false;
+          }
+        },
+        async mktLoadAddRepos() {
+          const f = this.mkt.addForm;
+          const org = (f.org || '').trim(), project = (f.project || '').trim();
+          f.repos = []; f.branches = []; f.repo = ''; f.branch = '';
+          if (!org || !project) return;
+          f.loadingRepos = true;
+          this.mkt.error = '';
+          try {
+            const data = await this.request(`/api/azdo/repos?org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}`);
+            f.repos = data.repos || [];
+            if (!f.repos.length) this.mkt.error = 'No repositories found (or no access). You can enter them manually.';
+          } catch (e) {
+            this.mkt.error = (e.message || 'Could not list repositories') + ' — you can enter them manually.';
+          } finally {
+            f.loadingRepos = false;
+          }
+        },
+        async mktAddRepoChange() {
+          const f = this.mkt.addForm;
+          f.branch = ''; f.branches = [];
+          if (!f.repo) return;
+          f.loadingBranches = true;
+          try {
+            const r = f.repos.find(x => x.name === f.repo);
+            const data = await this.request(`/api/azdo/branches?org=${encodeURIComponent((f.org || '').trim())}&project=${encodeURIComponent((f.project || '').trim())}&repo=${encodeURIComponent(f.repo)}`);
+            f.branches = data.branches || [];
+            if (r && r.defaultBranch && f.branches.includes(r.defaultBranch)) f.branch = r.defaultBranch;
+            else if (f.branches.includes('main')) f.branch = 'main';
+          } catch (e) {
+            this.mkt.error = e.message || 'Could not list branches';
+          } finally {
+            f.loadingBranches = false;
+          }
+        },
+        async loadMarketplaceCatalog() {
+          const params = new URLSearchParams();
+          if (this.mkt.typeFilter && this.mkt.typeFilter !== 'all') params.set('type', this.mkt.typeFilter);
+          if (this.mkt.q) params.set('q', this.mkt.q);
+          if (this.mkt.activeSourceId) params.set('sourceId', this.mkt.activeSourceId);
+          try {
+            this.mkt.catalog = await this.request('/api/marketplace/catalog?' + params.toString());
+          } catch (e) {
+            this.mkt.catalog = { entries: [], counts: {}, total: 0 };
+          }
+        },
+        async addMarketplaceSource() {
+          this.mkt.error = '';
+          this.mkt.busy = true;
+          try {
+            const f = this.mkt.addForm;
+            const body = f.kind === 'local'
+              ? { kind: 'local', path: f.path }
+              : { kind: 'azdo', org: f.org, project: f.project, repo: f.repo, branch: f.branch };
+            const r = await this.request('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(body) });
+            this.mkt.showAddForm = false;
+            this.mkt.addForm = { kind: 'local', path: '', org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false };
+            await this.loadMarketplace();
+            if (r.source) await this.scanMarketplaceSource(r.source.id);
+          } catch (e) {
+            this.mkt.error = e.message || 'Failed to add source';
+          } finally {
+            this.mkt.busy = false;
+          }
+        },
+        async scanMarketplaceSource(id) {
+          this.mkt.scanning = { ...this.mkt.scanning, [id]: true };
+          try {
+            await this.request(`/api/marketplace/sources/${encodeURIComponent(id)}/scan`, { method: 'POST' });
+            await this.loadMarketplace();
+          } catch (e) {
+            this.showToast('Scan failed', e.message || 'Scan failed', 'error');
+          } finally {
+            const s = { ...this.mkt.scanning }; delete s[id]; this.mkt.scanning = s;
+          }
+        },
+        async removeMarketplaceSource(id) {
+          if (!confirm('Remove this source? Its catalog cache is cleared (installed items stay).')) return;
+          try {
+            await this.request(`/api/marketplace/sources/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (this.mkt.activeSourceId === id) this.mkt.activeSourceId = null;
+            await this.loadMarketplace();
+          } catch (e) { this.showToast('Remove failed', e.message || 'Remove failed', 'error'); }
+        },
+        async marketplaceInstall(entry) {
+          this.mkt.busy = true;
+          try {
+            const r = await this.request('/api/marketplace/install', { method: 'POST', body: JSON.stringify({ entryId: entry.id }) });
+            this.showToast('Installed', `${r.agent ? r.agent.name : entry.name} is ready.`, 'info');
+            await this.refreshAll(false);
+          } catch (e) {
+            this.showToast('Install failed', e.message || 'Install failed', 'error');
+          } finally {
+            this.mkt.busy = false;
+          }
+        },
+        openAddCap(entry) {
+          this.mkt.addCap = { entry, agentId: '' };
+        },
+        mktDesignInit() {
+          if (this.mkt.design.inited) return;
+          this.mkt.design.inited = true;
+        },
+        async mktDesignGenerate() {
+          const d = this.mkt.design;
+          d.error = '';
+          if (d.mode === 'enhance' && !d.agentId) { d.error = 'Pick an agent to enhance.'; return; }
+          d.busy = true;
+          d.proposals = [];
+          try {
+            const body = { mode: d.mode, hint: d.hint };
+            if (d.mode === 'enhance') body.agentId = d.agentId;
+            const r = await this.request('/api/marketplace/design/generate', { method: 'POST', body: JSON.stringify(body) });
+            d.proposals = (r.proposals || []).map(p => ({ ...p, _applying: false, _applied: false }));
+            if (!d.proposals.length) d.error = 'No usable proposals — try a different focus.';
+          } catch (e) {
+            d.error = e.message || 'Generation failed';
+          } finally {
+            d.busy = false;
+          }
+        },
+        async mktDesignApply(p) {
+          p._applying = true;
+          try {
+            const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: p }) });
+            p._applied = true;
+            const attached = (r.attached || []).length;
+            const label = p.kind === 'create'
+              ? `${r.created ? r.created.name : 'Agent'} created` + (attached ? ` with ${attached} capabilit${attached === 1 ? 'y' : 'ies'}` : '')
+              : `${attached} capabilit${attached === 1 ? 'y' : 'ies'} attached`;
+            this.showToast('Applied', label + ((r.failed && r.failed.length) ? ` (${r.failed.length} skipped)` : ''), 'info');
+            await this.refreshAll(false);
+          } catch (e) {
+            p._applying = false;
+            this.showToast('Apply failed', e.message || 'Apply failed', 'error');
+          }
+        },
+        async confirmAddCap() {
+          const { entry, agentId } = this.mkt.addCap;
+          if (!entry || !agentId) return;
+          this.mkt.busy = true;
+          try {
+            await this.request('/api/marketplace/install', { method: 'POST', body: JSON.stringify({ entryId: entry.id, agentId }) });
+            const agent = this.data.agents.find(a => a.id === agentId);
+            this.showToast('Capability added', `${entry.name} → ${agent ? agent.name : agentId}`, 'info');
+            this.mkt.addCap = { entry: null, agentId: '' };
+          } catch (e) {
+            this.showToast('Add failed', e.message || 'Add failed', 'error');
+          } finally {
+            this.mkt.busy = false;
+          }
         },
 
         // ---- Reports ----

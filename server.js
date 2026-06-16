@@ -11,6 +11,10 @@ const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
 const azdo = require('./azdo');
+const capabilities = require('./capabilities');
+const agentPackage = require('./agentPackage');
+const marketplace = require('./marketplace');
+const marketplaceDesign = require('./marketplace-design');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
 // repo. The repo only ships built-in plugin seeds in builtin-plugins/.
@@ -895,60 +899,357 @@ app.get('/api/azdo/discover', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// Materialize + register an AzDO agent/plugin. Shared by /api/azdo/install and
+// the marketplace install endpoint. Returns the persisted agent config.
+async function installAzdoItem({ org, project, repo, branch, item, group }) {
+  const source = {
+    type: 'azdo', kind: item.kind, org, project, repo, branch,
+    path: item.path, objectId: item.objectId || null,
+    installedAt: new Date().toISOString()
+  };
+  let config;
+  if (item.kind === 'plugin') {
+    const { pluginDir, mcpConfig } = await azdo.materializePlugin(org, project, repo, branch, item);
+    registerLocalPluginInCopilot(pluginDir);
+    config = {
+      id: item.id,
+      name: item.displayName || item.name || item.id,
+      cwd: azdo.repoRoot(org, project, repo, branch),
+      pluginDir,
+      sourceDir: pluginDir,
+      agent: `${item.id}:${item.id}`,
+      schedule: 'never',
+      durable: true,
+      group: group || 'Azure DevOps',
+      description: item.description || '',
+      source
+    };
+    if (mcpConfig) config.mcpConfig = mcpConfig;
+  } else {
+    const { cwd, mcpConfig, skillCount } = await azdo.materializeAgent(org, project, repo, branch, item.path);
+    config = {
+      id: item.id,
+      name: item.displayName || item.name || item.id,
+      cwd,
+      agent: item.agentRef || item.name || item.id,
+      schedule: 'never',
+      durable: true,
+      group: group || 'Azure DevOps',
+      description: item.description || '',
+      source
+    };
+    if (mcpConfig) config.mcpConfig = mcpConfig;
+    // Co-located MCP/skills were materialized: run this agent through the
+    // generated runtime package so they're actually wired at run time.
+    if (mcpConfig || skillCount) config.usePackage = true;
+  }
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const existing = agents.findIndex(a => a.id === config.id);
+  if (existing >= 0) agents[existing] = config; else agents.push(config);
+  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  supervisor.register(config);
+  broadcastSSE('agent-update', { agentId: config.id });
+  return config;
+}
+
 app.post('/api/azdo/install', async (req, res) => {
   const { org, project, repo, branch, item, group } = req.body || {};
   if (!org || !project || !repo || !branch || !item || !item.kind || !item.id) {
     return res.status(400).json({ error: 'org, project, repo, branch and item{kind,id,path} are required' });
   }
   try {
-    const source = {
-      type: 'azdo', kind: item.kind, org, project, repo, branch,
-      path: item.path, objectId: item.objectId || null,
-      installedAt: new Date().toISOString()
-    };
-    let config;
-    if (item.kind === 'plugin') {
-      const { pluginDir, mcpConfig } = await azdo.materializePlugin(org, project, repo, branch, item);
-      registerLocalPluginInCopilot(pluginDir);
-      config = {
-        id: item.id,
-        name: item.displayName || item.name || item.id,
-        cwd: azdo.repoRoot(org, project, repo, branch),
-        pluginDir,
-        sourceDir: pluginDir,
-        agent: `${item.id}:${item.id}`,
-        schedule: 'never',
-        durable: true,
-        group: group || 'Azure DevOps',
-        description: item.description || '',
-        source
-      };
-      if (mcpConfig) config.mcpConfig = mcpConfig;
-    } else {
-      const { cwd } = await azdo.materializeAgent(org, project, repo, branch, item.path);
-      config = {
-        id: item.id,
-        name: item.displayName || item.name || item.id,
-        cwd,
-        agent: item.agentRef || item.name || item.id,
-        schedule: 'never',
-        durable: true,
-        group: group || 'Azure DevOps',
-        description: item.description || '',
-        source
-      };
-    }
-    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-    const existing = agents.findIndex(a => a.id === config.id);
-    if (existing >= 0) agents[existing] = config; else agents.push(config);
-    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
-    supervisor.register(config);
-    broadcastSSE('agent-update', { agentId: config.id });
+    const config = await installAzdoItem({ org, project, repo, branch, item, group });
     res.json({ ok: true, agent: config });
   } catch (e) {
     res.status(500).json({ error: `Azure DevOps install failed: ${e.message}` });
   }
 });
+
+// ============ Marketplace API Routes ============
+// Sources (local folders / AzDO repos) are scanned greedily for agents,
+// plugins, skills and MCP servers; the catalog merges scanned entries with an
+// implicit "installed" view. Capabilities can be added to any agent (reusing
+// the Phase 2 overlay attach), and agents/plugins installed via the existing
+// AzDO / local register paths.
+
+app.get('/api/marketplace/sources', (req, res) => {
+  try { res.json({ sources: marketplace.listSources() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/marketplace/sources', (req, res) => {
+  try { res.json({ ok: true, source: marketplace.addSource(req.body || {}) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Suggest marketplace sources derived from the source locations of installed
+// agents/plugins (azdo repos + local folders). Preview only — nothing is added.
+app.get('/api/marketplace/sources/suggested', (req, res) => {
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    res.json({ suggested: marketplace.suggestSources(agents) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Add (and optionally scan) the suggested sources that aren't already present.
+app.post('/api/marketplace/sources/autopopulate', async (req, res) => {
+  const scan = (req.body && req.body.scan) !== false; // default true
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const suggestions = marketplace.suggestSources(agents).filter(s => !s.exists);
+    const added = [];
+    const errors = [];
+    for (const s of suggestions) {
+      const { id, exists, from, ...input } = s;
+      let source;
+      try { source = marketplace.addSource(input); }
+      catch (e) { errors.push({ id, label: s.label, error: e.message }); continue; }
+      added.push(source);
+      if (scan) {
+        try { await marketplace.scanSource(source.id); }
+        catch (e) { errors.push({ id: source.id, label: source.label, error: `scan: ${e.message}` }); }
+      }
+    }
+    res.json({ ok: true, added, errors, sources: marketplace.listSources() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/marketplace/sources/:id', (req, res) => {
+  try {
+    const ok = marketplace.removeSource(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Source not found' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/marketplace/sources/:id/scan', async (req, res) => {
+  try { res.json({ ok: true, ...(await marketplace.scanSource(req.params.id)) }); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.get('/api/marketplace/catalog', (req, res) => {
+  try {
+    res.json(marketplace.getCatalog({
+      type: req.query.type || null,
+      q: req.query.q || null,
+      sourceId: req.query.sourceId || null,
+    }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Install / add a catalog entry.
+//  - agent|plugin from an azdo source -> materialize + register (reuse azdo install)
+//  - agent|plugin from a local source -> register an agents.json entry
+//  - skill|mcp + agentId -> attach to that agent's overlay (Phase 2)
+app.post('/api/marketplace/install', async (req, res) => {
+  const { entryId, agentId, group } = req.body || {};
+  if (!entryId) return res.status(400).json({ error: 'entryId is required' });
+  const entry = marketplace.findEntry(entryId);
+  if (!entry) return res.status(404).json({ error: 'Catalog entry not found' });
+  try {
+    if (entry.type === 'skill' || entry.type === 'mcp') {
+      if (!agentId) return res.status(400).json({ error: 'agentId is required to add a capability to an agent' });
+      const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+      const target = agents.find(a => a.id === agentId);
+      if (!target) return res.status(404).json({ error: 'Target agent not found' });
+      const mat = await marketplace.materializeForAttach(entry);
+      let result;
+      if (mat.kind === 'mcp') {
+        const cfg = capabilities.resolveCatalogMcp(mat.sourcePath, mat.name);
+        if (!cfg) return res.status(400).json({ error: 'Could not resolve MCP server config' });
+        result = capabilities.attachMcp(agentId, mat.name, cfg);
+      } else {
+        const dir = capabilities.resolveCatalogSkill(mat.sourceDir);
+        if (!dir) return res.status(400).json({ error: 'Could not resolve skill source' });
+        result = capabilities.attachSkill(agentId, { name: mat.name, sourceDir: dir });
+      }
+      broadcastSSE('agent-update', { agentId });
+      return res.json({ ok: true, attached: { type: entry.type, name: mat.name, agentId }, result });
+    }
+
+    // agent | plugin install
+    if (entry.sourceKind === 'azdo' && entry.install && entry.azdo) {
+      const { org, project, repo, branch } = entry.azdo;
+      const config = await installAzdoItem({ org, project, repo, branch, item: entry.install.item, group });
+      return res.json({ ok: true, agent: config });
+    }
+    if (entry.sourceKind === 'local') {
+      const config = installLocalCatalogEntry(entry, group);
+      return res.json({ ok: true, agent: config });
+    }
+    return res.status(400).json({ error: 'This entry cannot be installed directly' });
+  } catch (e) {
+    res.status(500).json({ error: `Install failed: ${e.message}` });
+  }
+});
+
+// Register a local agent/plugin catalog entry as an agent.
+function installLocalCatalogEntry(entry, group) {
+  const agentId = slugifyId(entry.displayName || entry.name || entry.id);
+  let config;
+  if (entry.type === 'plugin' && entry.plugin && entry.plugin.dir) {
+    registerLocalPluginInCopilot(entry.plugin.dir);
+    config = {
+      id: agentId,
+      name: entry.displayName || entry.name || agentId,
+      cwd: path.dirname(entry.plugin.dir),
+      pluginDir: entry.plugin.dir,
+      sourceDir: entry.plugin.dir,
+      agent: `${agentId}:${agentId}`,
+      schedule: 'never',
+      durable: true,
+      group: group || 'Marketplace',
+      description: entry.description || '',
+      source: { type: 'local', kind: 'plugin', path: entry.plugin.dir, installedAt: new Date().toISOString() },
+    };
+  } else if (entry.type === 'agent' && entry.agent) {
+    config = {
+      id: agentId,
+      name: entry.displayName || entry.name || agentId,
+      cwd: entry.agent.cwd || path.dirname(entry.path || '.'),
+      agent: entry.agent.ref || entry.name || agentId,
+      schedule: 'never',
+      durable: true,
+      group: group || 'Marketplace',
+      description: entry.description || '',
+      source: { type: 'local', kind: 'agent', path: entry.path, installedAt: new Date().toISOString() },
+    };
+  } else {
+    throw new Error('Unsupported local entry');
+  }
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const existing = agents.findIndex(a => a.id === config.id);
+  if (existing >= 0) agents[existing] = config; else agents.push(config);
+  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+  supervisor.register(config);
+  broadcastSSE('agent-update', { agentId: config.id });
+  return config;
+}
+
+function slugifyId(v) {
+  return String(v || 'agent').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
+}
+
+// ---- Marketplace: Design with AI ----
+// Propose creative capability attachments for an existing agent (enhance) or a
+// brand-new agent composed from the catalog (create). Mirrors the execution
+// "Design with AI" mechanism: one-shot runChat -> fenced JSON -> normalize.
+app.post('/api/marketplace/design/generate', async (req, res) => {
+  const mode = (req.body && req.body.mode) === 'create' ? 'create' : 'enhance';
+  const hint = String((req.body && req.body.hint) || '').trim();
+  try {
+    const catalog = marketplaceDesign.compactCatalog();
+    if (!catalog.skills.length && !catalog.mcp.length) {
+      return res.status(400).json({ error: 'No marketplace capabilities to design with. Add and scan a source first.' });
+    }
+
+    let prompt, agentId = null;
+    if (mode === 'enhance') {
+      agentId = String((req.body && req.body.agentId) || '').trim();
+      if (!agentId) return res.status(400).json({ error: 'agentId is required for enhance mode' });
+      const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+      const target = agents.find(a => a.id === agentId);
+      if (!target) return res.status(404).json({ error: 'Target agent not found' });
+      let caps = { mcp: [], skills: [] };
+      try { caps = capabilities.getEffectiveCapabilities(target); } catch (_) {}
+      prompt = marketplaceDesign.enhancePrompt(
+        { name: target.name || target.id, description: target.description || '' }, caps, catalog, hint);
+    } else {
+      let inspiration = [];
+      try {
+        inspiration = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'))
+          .slice(0, 20).map(a => ({ name: a.name || a.id, description: String(a.description || '').slice(0, 120) }));
+      } catch (_) {}
+      prompt = marketplaceDesign.createPrompt(catalog, inspiration, hint);
+    }
+
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname,
+      onChunk: (c) => { acc += c; }
+    });
+    const text = acc.trim() ? acc : (result.output || '');
+    const arr = marketplaceDesign.parseProposals(text);
+    if (!arr) return res.status(502).json({ error: 'Could not parse AI proposals. Try again.', raw: text.slice(0, 500) });
+    const proposals = arr
+      .map(p => mode === 'enhance' ? marketplaceDesign.normalizeEnhance(p, agentId) : marketplaceDesign.normalizeCreate(p))
+      .filter(Boolean);
+    if (!proposals.length) return res.status(502).json({ error: 'AI returned no usable proposals. Try again.' });
+    res.json({ mode, proposals });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Apply a design proposal: enhance -> attach caps to the agent; create -> write
+// + register a new generated agent, then attach its caps.
+app.post('/api/marketplace/design/apply', async (req, res) => {
+  const proposal = req.body && req.body.proposal;
+  if (!proposal || !proposal.kind) return res.status(400).json({ error: 'proposal is required' });
+  try {
+    let agentId, created = null;
+
+    if (proposal.kind === 'enhance') {
+      agentId = String(proposal.agentId || '').trim();
+      if (!agentId) return res.status(400).json({ error: 'proposal.agentId is required' });
+      const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+      if (!agents.find(a => a.id === agentId)) return res.status(404).json({ error: 'Target agent not found' });
+    } else if (proposal.kind === 'create') {
+      const spec = proposal.agent || {};
+      if (!spec.name || !spec.body) return res.status(400).json({ error: 'proposal.agent missing name/body' });
+      const w = marketplaceDesign.writeGeneratedAgent(spec);
+      agentId = w.slug;
+      const config = {
+        id: agentId,
+        name: spec.name,
+        cwd: w.dir,
+        agent: w.slug,
+        schedule: 'never',
+        durable: true,
+        group: 'Marketplace',
+        description: spec.description || '',
+        source: { type: 'design', kind: 'agent', path: w.agentMdPath, createdAt: new Date().toISOString() },
+      };
+      const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+      const existing = agents.findIndex(a => a.id === config.id);
+      if (existing >= 0) agents[existing] = config; else agents.push(config);
+      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+      supervisor.register(config);
+      created = config;
+    } else {
+      return res.status(400).json({ error: 'Unknown proposal kind' });
+    }
+
+    // Attach the proposed capabilities (re-resolve by type:name against live catalog).
+    const attached = [];
+    const failed = [];
+    for (const a of Array.isArray(proposal.attach) ? proposal.attach : []) {
+      try {
+        const entry = marketplace.resolveByTypeName(a.type, a.name);
+        if (!entry) { failed.push({ ...a, error: 'not found in catalog' }); continue; }
+        const mat = await marketplace.materializeForAttach(entry);
+        if (mat.kind === 'mcp') {
+          const cfg = capabilities.resolveCatalogMcp(mat.sourcePath, mat.name);
+          if (!cfg) { failed.push({ ...a, error: 'could not resolve MCP config' }); continue; }
+          capabilities.attachMcp(agentId, mat.name, cfg);
+        } else {
+          const dir = capabilities.resolveCatalogSkill(mat.sourceDir);
+          if (!dir) { failed.push({ ...a, error: 'could not resolve skill source' }); continue; }
+          capabilities.attachSkill(agentId, { name: mat.name, sourceDir: dir });
+        }
+        attached.push({ type: a.type, name: mat.name });
+      } catch (e) {
+        failed.push({ ...a, error: e.message });
+      }
+    }
+
+    broadcastSSE('agent-update', { agentId });
+    res.json({ ok: true, kind: proposal.kind, agentId, created, attached, failed });
+  } catch (e) {
+    res.status(500).json({ error: `Apply failed: ${e.message}` });
+  }
+});
+// ============ End Marketplace API Routes ============
 
 // SPA — serve new unified app for all page routes
 function serveSpa(req, res) {
@@ -959,7 +1260,7 @@ function serveSpa(req, res) {
     res.status(503).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>TheOffice.AI</title></head><body style="font-family:system-ui;padding:40px"><h1>TheOffice.AI</h1><p>The SPA bundle (<code>public/app.html</code>) was not found. Please restore it and reload.</p></body></html>');
   }
 }
-['/', '/agents', '/dashboard', '/managers', '/tasks', '/chat', '/activity'].forEach(route => {
+['/', '/agents', '/dashboard', '/managers', '/tasks', '/chat', '/activity', '/marketplace'].forEach(route => {
   app.get(route, serveSpa);
 });
 
@@ -1190,6 +1491,159 @@ app.put('/api/agents/:id/details', (req, res) => {
     fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
   }
   res.json({ ok: true, description: entry.config.description || '', skills: entry.config.skills || [] });
+});
+
+// ---- Marketplace: agent capabilities (MCP servers + skills) ----------------
+// Attached capabilities live in a per-agent overlay dir on disk and are merged
+// into the agent's runtime by sdk-runner._applyOverlayCaps at run time, so an
+// attach takes effect on the NEXT run/chat with no re-register needed.
+
+// Effective (attached) capabilities + the full installable catalog.
+app.get('/api/agents/:id/capabilities', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  try {
+    res.json({
+      effective: capabilities.getEffectiveCapabilities(entry.config),
+      catalog: capabilities.buildCatalog(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Attach an MCP server. Body: { name, config } for an explicit server, or
+// { name, sourcePath } / { catalogName } to pull a server out of the catalog.
+app.post('/api/agents/:id/capabilities/mcp', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  let { name, config, sourcePath, catalogName } = req.body || {};
+  try {
+    if (!config) {
+      // Pull the real (non-redacted) server config from the catalog source file.
+      if (sourcePath && (name || catalogName)) {
+        config = capabilities.resolveCatalogMcp(sourcePath, name || catalogName);
+        name = name || catalogName;
+      }
+      if (!config) {
+        const cat = capabilities.buildCatalog();
+        const match = cat.mcp.find(m =>
+          (sourcePath && m.sourcePath === sourcePath && (!name || m.name === name)) ||
+          (catalogName && m.name === catalogName) ||
+          (name && m.name === name));
+        if (!match) return res.status(400).json({ error: 'MCP server not found in catalog; provide an explicit config' });
+        name = name || match.name;
+        config = capabilities.resolveCatalogMcp(match.sourcePath, match.name)
+          || { command: match.command, args: match.args || [], env: {} };
+      }
+    }
+    if (!name) return res.status(400).json({ error: 'name required' });
+    capabilities.attachMcp(req.params.id, name, config);
+    broadcastSSE('agent-update', { agentId: req.params.id, capability: 'mcp', action: 'attach', name });
+    res.json({ ok: true, effective: capabilities.getEffectiveCapabilities(entry.config) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Detach an MCP server.
+app.delete('/api/agents/:id/capabilities/mcp/:name', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  try {
+    capabilities.detachMcp(req.params.id, req.params.name);
+    broadcastSSE('agent-update', { agentId: req.params.id, capability: 'mcp', action: 'detach', name: req.params.name });
+    res.json({ ok: true, effective: capabilities.getEffectiveCapabilities(entry.config) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Attach a skill. Body: { name, description, body } to author inline, or
+// { name, sourceDir } / { catalogName } to copy one out of the catalog.
+app.post('/api/agents/:id/capabilities/skill', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  let { name, description, body, sourceDir, catalogName } = req.body || {};
+  try {
+    if (!body && (sourceDir || catalogName)) {
+      const cat = capabilities.buildCatalog();
+      const match = cat.skills.find(s =>
+        (sourceDir && s.sourceDir === sourceDir && (!name || s.name === name)) ||
+        (catalogName && s.name === catalogName) ||
+        (name && s.name === name));
+      if (!match) return res.status(400).json({ error: 'Skill not found in catalog' });
+      name = name || match.name;
+      capabilities.attachSkill(req.params.id, { name, sourceDir: match.sourceDir });
+    } else {
+      if (!name) return res.status(400).json({ error: 'name required' });
+      capabilities.attachSkill(req.params.id, { name, description, body });
+    }
+    broadcastSSE('agent-update', { agentId: req.params.id, capability: 'skill', action: 'attach', name });
+    res.json({ ok: true, effective: capabilities.getEffectiveCapabilities(entry.config) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Detach a skill.
+app.delete('/api/agents/:id/capabilities/skill/:name', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  try {
+    capabilities.detachSkill(req.params.id, req.params.name);
+    broadcastSSE('agent-update', { agentId: req.params.id, capability: 'skill', action: 'detach', name: req.params.name });
+    res.json({ ok: true, effective: capabilities.getEffectiveCapabilities(entry.config) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Structural dry-run: build the generated package for this agent and report the
+// MCP servers + skills that actually resolve into it. Lets the UI confirm an
+// attach "took" before the user relies on it. Best-effort, never mutates state.
+app.post('/api/agents/:id/capabilities/validate', (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  const cfg = entry.config;
+  try {
+    // Plugin agents resolve overlay caps directly (no generated package); report
+    // the effective overlay merged onto the plugin's own wiring.
+    const eff = capabilities.getEffectiveCapabilities(cfg);
+    let pkg = null, pkgErr = null;
+    if (!cfg.pluginDir) {
+      try {
+        const built = agentPackage.buildAgentPackage(cfg);
+        if (built) {
+          const mcpPath = path.join(built.pluginDir, '.mcp.json');
+          let servers = [];
+          if (fs.existsSync(mcpPath)) {
+            servers = Object.keys((JSON.parse(fs.readFileSync(mcpPath, 'utf8')) || {}).mcpServers || {});
+          }
+          const skillsRoot = path.join(built.pluginDir, 'skills');
+          let skills = [];
+          try {
+            skills = fs.readdirSync(skillsRoot, { withFileTypes: true })
+              .filter(e => e.isDirectory()).map(e => e.name);
+          } catch (_) {}
+          pkg = { agentId: built.agentId, mcpServers: servers, skills, mcpCount: built.mcpCount, skillCount: built.skillCount };
+        } else {
+          pkgErr = 'could not resolve an agent file to package';
+        }
+      } catch (e) {
+        pkgErr = e.message;
+      }
+    }
+    res.json({
+      ok: !pkgErr,
+      kind: cfg.pluginDir ? 'plugin' : 'project',
+      effective: eff,
+      package: pkg,
+      error: pkgErr,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Update agent display name

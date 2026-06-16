@@ -226,7 +226,9 @@ async function writeFileFromRepo(org, project, repo, branch, root, relPath) {
   return dest;
 }
 
-// Materialize a single agent .md. Returns { cwd, agentMdPath }.
+// Materialize a single agent .md plus its co-located capabilities (.mcp.json and
+// skills) so a generated runtime package can wire MCP + skills for it. Returns
+// { cwd, agentMdPath, mcpConfig, skillCount }.
 // cwd is the directory that contains the `.github` folder so the runtime can
 // resolve `.github/agents/<file>.md` exactly as it would in a local checkout.
 async function materializeAgent(org, project, repo, branch, agentPath) {
@@ -235,9 +237,43 @@ async function materializeAgent(org, project, repo, branch, agentPath) {
   await writeFileFromRepo(org, project, repo, branch, root, rel);
   const ghIdx = rel.toLowerCase().indexOf('.github/');
   const cwdRel = ghIdx > 0 ? rel.slice(0, ghIdx).replace(/\/$/, '') : '';
+  const cwd = cwdRel ? path.join(root, cwdRel.replace(/\//g, path.sep)) : root;
+
+  // Greedily pull capabilities that live alongside the agent so the agent can
+  // actually use them at runtime (the fix for the "AzDO single-agent install
+  // can't query AzDO / no Reasoning & steps" bug). Scoped to the agent's base
+  // dir so we never pull unrelated files from elsewhere in the repo.
+  const base = cwdRel ? cwdRel.replace(/\/$/, '') + '/' : '';
+  let mcpConfig = null;
+  let skillCount = 0;
+  try {
+    const tree = await getTree(org, project, repo, branch);
+    const inBase = p => (base ? p.startsWith(base) : true);
+    const wanted = [];
+    for (const it of tree) {
+      const p = it.path.replace(/^\//, '');
+      if (!inBase(p)) continue;
+      const sub = base ? p.slice(base.length) : p;
+      // co-located mcp config (repo/base root or under .github)
+      if (/^\.mcp\.json$/i.test(sub) || /^\.github\/\.mcp\.json$/i.test(sub)) wanted.push(p);
+      // skills: <base>/.github/skills/** and <base>/skills/**
+      else if (/^(\.github\/)?skills\//i.test(sub)) wanted.push(p);
+    }
+    for (const w of wanted) {
+      await writeFileFromRepo(org, project, repo, branch, root, w);
+      if (/(^|\/)SKILL\.md$/i.test(w)) skillCount++;
+    }
+    const mcpAbs = path.join(cwd, '.mcp.json');
+    if (fs.existsSync(mcpAbs)) mcpConfig = mcpAbs;
+  } catch (e) {
+    // Capability sweep is best-effort; the agent .md is already materialized.
+  }
+
   return {
-    cwd: cwdRel ? path.join(root, cwdRel.replace(/\//g, path.sep)) : root,
-    agentMdPath: path.join(root, rel.replace(/\//g, path.sep))
+    cwd,
+    agentMdPath: path.join(root, rel.replace(/\//g, path.sep)),
+    mcpConfig,
+    skillCount,
   };
 }
 
@@ -284,6 +320,8 @@ module.exports = {
   listRepos,
   listBranches,
   discover,
+  getTree,
+  getFileText,
   materializeAgent,
   materializePlugin,
   getObjectId,

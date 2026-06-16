@@ -44,6 +44,12 @@ try {
 } catch (e) {
   // js-yaml missing - project-agent parsing disabled (plugin agents still work).
 }
+let agentPackage = null;
+try {
+  agentPackage = require('./agentPackage');
+} catch (e) {
+  // agentPackage missing - generated-package runtime path disabled (Marketplace).
+}
 
 const SEP = '\n\n---\n\n';
 const VALID_MODES = ['off', 'canary', 'all'];
@@ -60,6 +66,20 @@ class SdkRunner {
         .filter(Boolean)
     );
     this._timeoutMs = parseInt(process.env.SDK_RUN_TIMEOUT_MS || '', 10) || 1800000; // 30 min
+    // Marketplace generated-package runtime path (off|canary|all). When enabled
+    // for a project/azdo agent, the agent is wrapped into a generated plugin
+    // package (agent + co-located .mcp.json + skills) and run via
+    // pluginDirectories — the same uniform path plugin agents use — so project
+    // agents get skills + MCP and the AzDO single-agent install bug is fixed at
+    // the runtime layer. Default off = zero behaviour change.
+    const pkgRaw = (process.env.MKT_PACKAGE_MODE || 'off').toLowerCase();
+    this._pkgMode = VALID_MODES.includes(pkgRaw) ? pkgRaw : 'off';
+    this._pkgAllowlist = new Set(
+      (process.env.MKT_PACKAGE_AGENTS || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+    );
     this._client = null;
     this._starting = null;
     this._failures = 0;
@@ -128,6 +148,87 @@ class SdkRunner {
 
   get mode() {
     return this._available && this._mode !== 'off' ? this._mode : 'off';
+  }
+
+  /** Should this project/azdo agent run via a generated runtime package? */
+  _usePackage(config) {
+    if (!agentPackage || !config) return false;
+    if (config.pluginDir) return false; // plugin agents already get skills+mcp
+    if (this._pkgMode === 'all') return true;
+    if (this._pkgMode === 'canary') {
+      return config.usePackage === true || config.runtime === 'package' || this._pkgAllowlist.has(config.id);
+    }
+    return false;
+  }
+
+  /**
+   * Wrap a project/azdo agent into a generated plugin package and point opts at
+   * it (pluginDirectories + namespaced agent id). Returns true on success; on
+   * any failure returns false so the caller falls back to the customAgents path.
+   */
+  _applyPackage(opts, config) {
+    try {
+      const pkg = agentPackage.buildAgentPackage(config);
+      if (!pkg) return false;
+      opts.pluginDirectories = [pkg.pluginDir];
+      opts.agent = pkg.agentId;
+      return true;
+    } catch (e) {
+      console.error('[sdk-runner] generated package build failed:', e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Additively apply marketplace-attached capabilities from the per-agent
+   * overlay dir to an already-wired opts. Used on the plugin-agent and
+   * project-agent (customAgents) paths so an attach takes runtime effect even
+   * for plugin agents (the Helix UX Standup MCP bug). NOT used on the generated
+   * package path, where buildAgentPackage already merges the same overlay.
+   *   - overlay .mcp.json  -> merged into opts.mcpServers (overlay wins)
+   *   - overlay skills/    -> the overlay dir is exposed as an extra plugin
+   *                           directory (a minimal plugin.json is written) so
+   *                           its skills load like any plugin-bundled skill.
+   */
+  _applyOverlayCaps(opts, config) {
+    if (!agentPackage || !config || !config.id) return;
+    let dir;
+    try {
+      dir = agentPackage.overlayDir(config.id);
+    } catch (_) {
+      return;
+    }
+    try {
+      const mcpPath = path.join(dir, '.mcp.json');
+      if (fs.existsSync(mcpPath)) {
+        const servers = (JSON.parse(fs.readFileSync(mcpPath, 'utf8')) || {}).mcpServers || {};
+        if (Object.keys(servers).length) {
+          opts.mcpServers = Object.assign({}, opts.mcpServers || {}, servers);
+        }
+      }
+    } catch (e) {
+      console.error('[sdk-runner] overlay mcp merge failed:', e.message);
+    }
+    try {
+      const skillsDir = path.join(dir, 'skills');
+      const hasSkills = fs.existsSync(skillsDir) &&
+        fs.readdirSync(skillsDir, { withFileTypes: true })
+          .some(e => e.isDirectory() && fs.existsSync(path.join(skillsDir, e.name, 'SKILL.md')));
+      if (hasSkills) {
+        const manifest = path.join(dir, 'plugin.json');
+        if (!fs.existsSync(manifest)) {
+          fs.writeFileSync(manifest, JSON.stringify({
+            name: 'overlay-' + String(config.id).toLowerCase().replace(/[^a-z0-9._-]+/g, '-'),
+            description: 'Marketplace-attached skills overlay for agent ' + config.id,
+            version: '1.0.0',
+            skills: 'skills/'
+          }, null, 2));
+        }
+        opts.pluginDirectories = (opts.pluginDirectories || []).concat([dir]);
+      }
+    } catch (e) {
+      console.error('[sdk-runner] overlay skills merge failed:', e.message);
+    }
   }
 
   /** Should this agent run via the SDK runner instead of the CLI spawn? */
@@ -342,6 +443,9 @@ class SdkRunner {
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
       opts.pluginDirectories = [config.pluginDir];
       opts.agent = this._resolvePluginAgentName(config);
+      this._applyOverlayCaps(opts, config);
+    } else if (this._usePackage(config) && this._applyPackage(opts, config)) {
+      // Generated-package path: skills + MCP load from the wrapper plugin dir.
     } else {
       const agentCfg = this._resolveProjectAgent(config);
       if (!agentCfg) {
@@ -358,6 +462,7 @@ class SdkRunner {
       opts.agent = agentCfg.name;
       const mcp = this._loadMcpServers(config);
       if (mcp) opts.mcpServers = mcp;
+      this._applyOverlayCaps(opts, config);
     }
 
     return this._execute(opts, prompt, sessionId, onChunk);
@@ -417,6 +522,9 @@ class SdkRunner {
     if (config && config.pluginDir && fs.existsSync(config.pluginDir)) {
       opts.pluginDirectories = [config.pluginDir];
       opts.agent = this._resolvePluginAgentName(config);
+      this._applyOverlayCaps(opts, config);
+    } else if (config && this._usePackage(config) && this._applyPackage(opts, config)) {
+      // Generated-package path: skills + MCP load from the wrapper plugin dir.
     } else if (config) {
       const agentCfg = this._resolveProjectAgent(config);
       if (agentCfg) {
@@ -424,6 +532,7 @@ class SdkRunner {
         opts.agent = agentCfg.name;
         const mcp = this._loadMcpServers(config);
         if (mcp) opts.mcpServers = mcp;
+        this._applyOverlayCaps(opts, config);
       }
     }
     opts.__keepAlive = true;
