@@ -1314,6 +1314,15 @@ async function buildProposalConfig(proposal, { persist } = {}) {
     const spec = proposal.agent || {};
     if (!spec.name || !spec.body) throw new Error('proposal.agent missing name/body');
     if (proposal.newName) spec.name = String(proposal.newName).trim();
+    // Fold the user's (possibly edited) test prompt into the agent's core
+    // instructions so the created agent embodies the behavior they validated.
+    const testPrompt = String(proposal.testPrompt || '').trim();
+    if (testPrompt) {
+      const objective = ['## Primary Objective', '', testPrompt, ''].join('\n');
+      if (!String(spec.body).includes(testPrompt)) {
+        spec.body = String(spec.body).trimEnd() + '\n\n' + objective;
+      }
+    }
     const w = marketplaceDesign.writeGeneratedAgent(spec);
     id = persist ? uniqueAgentId(agents, w.slug) : DESIGN_TEST_PREFIX + require('crypto').randomBytes(4).toString('hex');
     config = {
@@ -1355,6 +1364,7 @@ app.post('/api/marketplace/design/apply', async (req, res) => {
   const proposal = req.body && req.body.proposal;
   if (!proposal || !proposal.kind) return res.status(400).json({ error: 'proposal is required' });
   if (req.body.name) proposal.newName = String(req.body.name).trim();
+  if (req.body.testPrompt != null) proposal.testPrompt = String(req.body.testPrompt);
   try {
     const { config, id: agentId } = await buildProposalConfig(proposal, { persist: true });
     const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
@@ -4429,6 +4439,17 @@ function savePinnedSuggestions(list) {
   fs.writeFileSync(SUGGESTIONS_PATH, JSON.stringify(list, null, 2));
   if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (suggestions) failed:', e.message));
 }
+// Last-generated (unpinned) suggestion set, so the Design-with-AI page can show
+// the most recent ideas on revisit/reload instead of regenerating every time.
+const LATEST_SUGGESTIONS_PATH = path.join(__dirname, 'suggestions-latest.json');
+function loadLatestSuggestions() {
+  try { return JSON.parse(fs.readFileSync(LATEST_SUGGESTIONS_PATH, 'utf-8')); }
+  catch { return null; }
+}
+function saveLatestSuggestions(obj) {
+  try { fs.writeFileSync(LATEST_SUGGESTIONS_PATH, JSON.stringify(obj, null, 2)); }
+  catch (e) { console.warn('[suggestions] could not persist latest:', e.message); }
+}
 // Ephemeral try-run buffers, keyed by runId.
 const suggestionRuns = new Map();
 
@@ -4586,6 +4607,7 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
       suggestions = suggestions.filter(involvesFocus);
     }
     if (!suggestions.length) return res.status(502).json({ error: 'AI returned no valid suggestions. Try refreshing.' });
+    saveLatestSuggestions({ suggestions, hint, focusAgentId: focusAgent ? focusAgent.id : '', generatedAt: new Date().toISOString() });
     res.json({ suggestions });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -4593,7 +4615,7 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
 });
 
 app.get('/api/execution-suggestions', (req, res) => {
-  res.json({ pinned: loadPinnedSuggestions() });
+  res.json({ pinned: loadPinnedSuggestions(), latest: loadLatestSuggestions() });
 });
 
 app.post('/api/execution-suggestions/pin', (req, res) => {

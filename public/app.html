@@ -2018,7 +2018,7 @@
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="data.agents.length + ' total'"></span>
-                <button class="btn" type="button" @click="goTo('#/design')">✨ Design with AI</button>
+                <button class="btn" type="button" @click="goTo('#/marketplace/design')">✨ Design with AI</button>
                 <button class="btn primary" type="button" @click="openAgentDiscovery()">＋ Add Agent</button>
               </div>
             </div>
@@ -4202,15 +4202,28 @@
                         <div style="margin-top:4px;font-family:var(--mono,monospace)" x-text="'tools: ' + (p.agent.tools || []).join(', ')"></div>
                       </div>
                     </template>
-                    <div style="margin-top:10px" x-show="p.attach && p.attach.length">
+                    <div style="margin-top:10px">
                       <div class="hint" style="margin-bottom:6px">Capabilities to attach:</div>
-                      <div class="filter-pills">
-                        <template x-for="(c, ci) in p.attach" :key="ci">
-                          <span class="pill" style="cursor:default" :title="c.why" x-text="(c.type === 'mcp' ? '🔌 ' : '🧩 ') + c.name"></span>
+                      <div class="filter-pills" x-show="p.attach && p.attach.length">
+                        <template x-for="(c, ci) in p.attach" :key="(c.type||'') + ':' + (c.name||'') + ':' + ci">
+                          <span class="pill" :title="c.why" style="display:inline-flex;align-items:center;gap:6px">
+                            <span x-text="(c.type === 'mcp' ? '🔌 ' : '🧩 ') + c.name"></span>
+                            <button type="button" @click="p.attach.splice(ci, 1)" title="Remove this capability"
+                              style="border:none;background:none;cursor:pointer;color:var(--cp-text-muted);font-size:14px;line-height:1;padding:0;font-weight:600">×</button>
+                          </span>
                         </template>
                       </div>
+                      <div class="hint" x-show="!p.attach || !p.attach.length" style="font-style:italic">No capabilities attached yet.</div>
+                      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <select @change="mktDesignAddCap(p, $event.target.value); $event.target.value=''" style="max-width:300px">
+                          <option value="">+ Add capability…</option>
+                          <template x-for="opt in mktDesignCapChoices(p)" :key="opt.type + ':' + opt.name">
+                            <option :value="opt.type + ':' + opt.name" x-text="(opt.type === 'mcp' ? '🔌 ' : '🧩 ') + (opt.displayName || opt.name)"></option>
+                          </template>
+                        </select>
+                        <span class="hint" x-show="!mktDesignCapChoices(p).length" style="font-style:italic">No more skills/MCP servers in the catalog to add.</span>
+                      </div>
                     </div>
-                    <div class="hint" x-show="!p.attach || !p.attach.length" style="margin-top:10px;font-style:italic">No catalog capabilities matched — nothing to attach.</div>
 
                     <div class="form-row" style="margin-top:14px">
                       <label style="display:block;margin-bottom:5px" x-text="p.kind === 'create' ? 'New agent name' : 'New agent name (a copy — the original is untouched)'"></label>
@@ -5671,7 +5684,7 @@
           addCap: { entry: null, agentId: '' },
           tab: 'browse',
           autoPopulated: false,
-          design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], inited: false },
+          design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], inited: false, capCatalog: [] },
           busy: false,
           error: '',
         },
@@ -6330,6 +6343,13 @@
             await this.loadReports();
           } else if (this.route === 'marketplace') {
             await this.loadMarketplace();
+            // Deep-link to the agent-design flow (e.g. from the Agents page
+            // "Design with AI" button): open the Design tab in create mode.
+            if (this.app.routeParam === 'design') {
+              this.mkt.tab = 'design';
+              this.mkt.design.mode = 'create';
+              this.mktDesignInit();
+            }
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
@@ -8641,8 +8661,15 @@
           try {
             const r = await this.request('/api/execution-suggestions');
             this.execAi.pinned = (r && r.pinned) || [];
+            // Restore the last-generated suggestions so revisiting the page shows
+            // what was produced before. Only auto-generate when the user clicks
+            // ✨ Suggest / ↻ Refresh — never silently regenerate on load.
+            if (!this.execAi.items.length && r && r.latest && Array.isArray(r.latest.suggestions) && r.latest.suggestions.length) {
+              this.execAi.items = r.latest.suggestions;
+              if (!this.execAi.hint && r.latest.hint) this.execAi.hint = r.latest.hint;
+              if (!this.execAi.focusAgentId && r.latest.focusAgentId) this.execAi.focusAgentId = r.latest.focusAgentId;
+            }
           } catch (_) { this.execAi.pinned = []; }
-          if (!this.execAi.items.length) await this.generateExecAi();
         },
 
         async generateExecAi() {
@@ -8825,19 +8852,24 @@
 
         runTask(task) {
           if (task.type === 'agent' && task.id) {
+            const agentId = task.agentId;
+            // Show the inline live panel on the agent page and let the
+            // agent-output / agent-completed SSE events stream into it.
+            // No chat navigation — the run is observable right here.
             this.request(`/api/tasks/${encodeURIComponent(task.id)}/run`, { method: 'POST' })
-              .then(async () => {
-                // Open chat to show live execution
-                await this.openOrCreateChat('agent', task.agentId);
-                // Add preamble message showing task details
-                const preamble = `**Task: ${task.name}**\n\n> ${task.prompt}\n\n_Schedule: ${task.scheduleSummary || 'Manual'}_`;
-                await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
-                  method: 'POST',
-                  body: JSON.stringify({ role: 'user', content: preamble })
-                });
-                await this.openChat(this.activeChat.id, false);
-                this.liveOutput[task.agentId] = { text: '', startedAt: new Date().toISOString(), active: true };
-                this.liveOutput = { ...this.liveOutput };
+              .then(() => {
+                if (agentId) {
+                  this.liveOutput[agentId] = {
+                    text: '',
+                    startedAt: new Date().toISOString(),
+                    active: true,
+                    trigger: { kind: 'task', label: task.name },
+                  };
+                  this.liveOutput = { ...this.liveOutput };
+                  // In case the first chunk streamed before we subscribed.
+                  this.hydrateLiveOutput(agentId);
+                }
+                this.showToast('Task started', `Running “${task.name}” — output streams below.`, 'info');
               })
               .catch(e => this.showToast('Run failed', e.message, 'error'));
           } else if (task.type === 'assignment') {
@@ -9956,9 +9988,40 @@
         openAddCap(entry) {
           this.mkt.addCap = { entry, agentId: '' };
         },
-        mktDesignInit() {
-          if (this.mkt.design.inited) return;
-          this.mkt.design.inited = true;
+        async mktDesignInit() {
+          if (!this.mkt.design.inited) this.mkt.design.inited = true;
+          // Load the full skill/MCP catalog (unfiltered) so the per-proposal
+          // "+ Add capability" picker can offer everything, independent of the
+          // browse tab's active source/type filters.
+          if (!this.mkt.design.capCatalog || !this.mkt.design.capCatalog.length) {
+            try {
+              const r = await this.request('/api/marketplace/catalog');
+              this.mkt.design.capCatalog = (r.entries || []).filter(e => e.type === 'skill' || e.type === 'mcp');
+            } catch (e) { this.mkt.design.capCatalog = this.mkt.design.capCatalog || []; }
+          }
+        },
+        // Catalog skill/MCP entries the proposal hasn't already attached (deduped by type+name).
+        mktDesignCapChoices(p) {
+          const have = new Set(((p && p.attach) || []).map(c => (c.type || '') + ':' + (c.name || '')));
+          const seen = new Set();
+          const out = [];
+          for (const e of (this.mkt.design.capCatalog || [])) {
+            const k = e.type + ':' + e.name;
+            if (have.has(k) || seen.has(k)) continue;
+            seen.add(k); out.push(e);
+          }
+          return out;
+        },
+        mktDesignAddCap(p, value) {
+          if (!value) return;
+          const i = value.indexOf(':');
+          if (i < 0) return;
+          const type = value.slice(0, i), name = value.slice(i + 1);
+          const e = (this.mkt.design.capCatalog || []).find(x => x.type === type && x.name === name);
+          if (!e) return;
+          if (!Array.isArray(p.attach)) p.attach = [];
+          if (p.attach.some(c => c.type === type && c.name === name)) return;
+          p.attach.push({ type, name, ref: e.ref || e.id || '', why: 'Added manually' });
         },
         // Build a concrete test prompt for a proposal. Prefer the AI-supplied
         // testPrompt; otherwise DERIVE an imperative task from the idea's own
@@ -10021,7 +10084,8 @@
         async mktDesignApply(p) {
           p._applying = true;
           try {
-            const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: p, name: p._name }) });
+            const testPrompt = (p._test && p._test.prompt || '').trim();
+            const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: p, name: p._name, testPrompt }) });
             p._applied = true;
             const attached = (r.attached || []).length;
             const name = r.created ? r.created.name : (p._name || 'Agent');
