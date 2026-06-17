@@ -7,6 +7,14 @@ const { parseSchedule, getNextRun } = require('./scheduler');
 const sdkRunner = require('./sdk-runner');
 const settings = require('./settings');
 
+// Stall watchdog: a run that streams no new output for this long is treated as
+// hung and auto-failed (exit 1) so its "running" state doesn't linger forever.
+// Measures inactivity (gap since the last streamed chunk), not total duration,
+// so legitimately long runs that keep producing output are never affected.
+// Override with AGENT_STALL_TIMEOUT_MS; floor of 60s to avoid false positives.
+const STALL_TIMEOUT_MS = Math.max(60000, parseInt(process.env.AGENT_STALL_TIMEOUT_MS || '', 10) || 5 * 60 * 1000);
+const STALL_CHECK_MS = 30 * 1000;
+
 class Supervisor extends EventEmitter {
   constructor(db) {
     super();
@@ -172,6 +180,7 @@ class Supervisor extends EventEmitter {
       entry.process.kill();
       entry.process = null;
     }
+    if (entry._stallTimer) { clearInterval(entry._stallTimer); entry._stallTimer = null; }
     entry.running = false;
 
     if (persist) {
@@ -318,6 +327,10 @@ class Supervisor extends EventEmitter {
       this.emit('agent-output', { agentId, stream: 'stdout', chunk });
     };
 
+    // Arm the stall watchdog. The SDK run promise below stays pending while a run
+    // hangs; this guarantees the run is finalized even if the SDK never resolves.
+    this._armStallWatchdog(ctx);
+
     sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk, model: settings.resolveModel('execution', config) })
       .then((res) => {
         if (res.fallback) {
@@ -361,6 +374,48 @@ class Supervisor extends EventEmitter {
   }
 
   /**
+   * Pure stall decision: true when the run has streamed no new output for at
+   * least STALL_TIMEOUT_MS. Extracted so it can be unit-tested without timers.
+   */
+  _isStalled(live, now = Date.now()) {
+    if (!live) return false;
+    const idleMs = now - (live.lastUpdate || live.startedAt || now);
+    return idleMs >= STALL_TIMEOUT_MS;
+  }
+
+  /**
+   * Arm a per-run watchdog that auto-fails a hung run. Fires when no new output
+   * has streamed for STALL_TIMEOUT_MS. onChunk resets the clock, so only runs
+   * that genuinely stop producing output are caught. Idempotent finalization is
+   * guaranteed by the ctx._finalized guard in _recordCompletion, so a late SDK
+   * resolve/reject after the watchdog fires is harmlessly ignored.
+   */
+  _armStallWatchdog(ctx) {
+    const { entry, config, agentId, pinnedSessionId } = ctx;
+    if (entry._stallTimer) { clearInterval(entry._stallTimer); entry._stallTimer = null; }
+    const timer = setInterval(() => {
+      const live = entry._live;
+      if (!live) { clearInterval(timer); if (entry._stallTimer === timer) entry._stallTimer = null; return; }
+      if (this._isStalled(live)) {
+        const mins = Math.round(STALL_TIMEOUT_MS / 60000);
+        const msg = `Run stalled: no output for ${mins} min — auto-failed by stall watchdog`;
+        console.warn(`[supervisor] Agent "${config.name}" (${agentId}) ${msg}`);
+        this._recordCompletion(ctx, {
+          finishedAt: new Date().toISOString(),
+          code: 1,
+          output: live.acc || '',
+          error: msg,
+          sessionId: pinnedSessionId,
+          origin: 'sdk',
+          steps: [],
+        });
+      }
+    }, STALL_CHECK_MS);
+    if (timer.unref) timer.unref();
+    entry._stallTimer = timer;
+  }
+
+  /**
    * Shared run-completion path used by the SDK runner.
    * Cleans up temp files, persists the agent_runs row, updates status, and emits
    * agent-completed. Keeps the mobile/activity/SSE contract identical for both
@@ -368,6 +423,11 @@ class Supervisor extends EventEmitter {
    */
   _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps, model, usage }) {
     const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
+    // Dedupe: the stall watchdog and the SDK then/catch can both reach here for
+    // the same run. First caller wins; later ones are ignored.
+    if (ctx._finalized) return;
+    ctx._finalized = true;
+    if (entry._stallTimer) { clearInterval(entry._stallTimer); entry._stallTimer = null; }
     entry.running = false;
     entry.process = null;
     entry._live = null;
