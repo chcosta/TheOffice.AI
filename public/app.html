@@ -805,6 +805,96 @@
     .msg-activity-substep > summary { cursor: pointer; font-size: 0.74rem; font-weight: 600; color: var(--cp-text-soft); user-select: none; list-style: revert; }
     .msg-activity-substep > summary:hover { color: var(--cp-accent); }
     .msg-activity-substep[open] > summary { color: var(--cp-accent); }
+    /* ===== Agent detail redesign ===== */
+    .ag-hero { display: flex; align-items: flex-start; gap: 16px; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; padding: 16px 20px; margin-bottom: 16px; }
+    .ag-avatar { width: 50px; height: 50px; border-radius: 12px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 25px; background: linear-gradient(135deg, var(--cp-accent), var(--cp-accent-hover)); }
+    .ag-hero-main { flex: 1 1 auto; min-width: 0; }
+    .ag-crumb { font-size: 0.78rem; margin-bottom: 4px; }
+    .ag-hero h1 { margin: 0 0 8px; font-size: 1.5rem; line-height: 1.2; }
+    .ag-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .ag-hero-actions { display: flex; gap: 8px; flex: 0 0 auto; align-items: center; position: relative; flex-wrap: wrap; justify-content: flex-end; }
+    .ag-menu { position: absolute; top: 44px; right: 0; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; box-shadow: var(--cp-shadow); padding: 6px; min-width: 210px; z-index: 30; }
+    .ag-menu button { display: flex; width: 100%; gap: 8px; padding: 8px 10px; background: transparent; border: none; color: var(--cp-text); font: inherit; font-size: 0.85rem; cursor: pointer; border-radius: 7px; text-align: left; align-items: center; }
+    .ag-menu button:hover { background: var(--cp-surface-soft); }
+    .ag-menu .ag-menu-sep { height: 1px; background: var(--cp-border); margin: 4px 2px; }
+    .ag-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+    @media (max-width: 900px) { .ag-grid { grid-template-columns: 1fr; } }
+    .ag-rail { position: sticky; top: 16px; }
+    @media (max-width: 900px) { .ag-rail { position: static; } }
+    .ag-desc { width: 100%; font: inherit; font-size: 0.9em; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text); resize: none; overflow: hidden; min-height: 0; }
+    .ag-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--cp-border); margin-bottom: 16px; flex-wrap: wrap; }
+    .ag-tab { padding: 9px 14px; font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--cp-text-muted); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 7px; }
+    .ag-tab:hover { color: var(--cp-text); }
+    .ag-tab.active { color: var(--cp-accent); border-bottom-color: var(--cp-accent); }
+    .ag-tab .ag-count { font-size: 0.68rem; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); padding: 0 6px; border-radius: 999px; color: var(--cp-text-muted); }
+    .ag-cap-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 1080px) { .ag-cap-cols { grid-template-columns: 1fr; } }
+    .ag-cap-panel { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 14px; padding: 14px; }
+    .ag-cap-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
+    .ag-cap-head .ag-cap-title { font-size: 0.85rem; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+    .ag-cap-head .ag-cap-n { font-size: 0.72rem; color: var(--cp-text-muted); }
+    .ag-section-sub { font-size: 0.72rem; font-weight: 700; color: var(--cp-text-soft); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 10px; }
+    .ag-rail .detail-row { flex-direction: column; align-items: stretch; gap: 2px; }
+    .ag-rail .detail-label { flex: none; }
+    .ag-rail .detail-value { width: 100%; min-width: 0; word-break: break-word; }
+    .ag-rail .detail-value .field-input { width: 100% !important; min-width: 0 !important; box-sizing: border-box; }
+    .ag-rail .detail-value select.field-input { width: 100% !important; }
+    /* ===== List pages (Agents / Managers) redesign ===== */
+    .lp-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 14px; }
+    .lp-chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--cp-border); background: var(--cp-surface); cursor: pointer; font-weight: 600; font-size: 0.84rem; color: var(--cp-text); }
+    .lp-chip:hover { border-color: var(--cp-border-strong); }
+    .lp-chip.on { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
+    .lp-chip .n { font-size: 0.78rem; background: var(--cp-surface-soft); border-radius: 999px; padding: 1px 8px; color: var(--cp-text-muted); }
+    .lp-chip.on .n { background: var(--cp-accent); color: var(--cp-accent-fg); }
+    .lp-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+    .lp-dot.run { background: var(--cp-warning); box-shadow: 0 0 0 3px rgba(245,158,11,.18); }
+    .lp-dot.sched { background: var(--cp-link); }
+    .lp-dot.idle { background: var(--cp-border-strong); }
+    .lp-dot.active { background: var(--cp-success); }
+    .lp-dot.all { background: var(--cp-accent); }
+    .lp-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
+    .lp-search { flex: 1 1 240px; min-width: 200px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--cp-border); background: var(--cp-surface); }
+    .lp-search input { border: none; background: transparent; color: var(--cp-text); font: inherit; width: 100%; outline: none; }
+    .lp-ctl { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--cp-text-muted); }
+    .lp-ctl select { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); font: inherit; cursor: pointer; }
+    .lp-viewtog { display: flex; border: 1px solid var(--cp-border); border-radius: 9px; overflow: hidden; }
+    .lp-viewtog button { padding: 7px 11px; background: var(--cp-surface); border: none; color: var(--cp-text-muted); cursor: pointer; font-size: 0.95rem; }
+    .lp-viewtog button.on { background: var(--cp-accent); color: var(--cp-accent-fg); }
+    .lp-gsec { margin-bottom: 20px; }
+    .lp-ghead { display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; cursor: pointer; user-select: none; }
+    .lp-ghead .gt { font-size: 0.74rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--cp-text-soft); }
+    .lp-ghead .gn { font-size: 0.7rem; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 999px; padding: 0 8px; color: var(--cp-text-muted); }
+    .lp-ghead .gline { flex: 1; height: 1px; background: var(--cp-border); }
+    .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+    .lp-card { position: relative; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 14px; padding: 15px 16px; cursor: pointer; transition: border-color .12s, transform .12s; }
+    .lp-card:hover { border-color: var(--cp-accent); transform: translateY(-1px); }
+    .lp-card-top { display: flex; align-items: flex-start; gap: 10px; }
+    .lp-av { width: 36px; height: 36px; border-radius: 9px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 18px; background: linear-gradient(135deg, var(--cp-accent), var(--cp-accent-hover)); }
+    .lp-card h3 { margin: 0; font-size: 1rem; line-height: 1.2; }
+    .lp-card .lp-sub { font-size: 0.78rem; color: var(--cp-text-muted); margin-top: 2px; }
+    .lp-sdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
+    .lp-desc { font-size: 0.83rem; color: var(--cp-text-soft); margin: 11px 0; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.4em; }
+    .lp-cmeta { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+    .lp-tag { font-size: 0.72rem; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-muted); }
+    .lp-tag.run { color: var(--cp-warning); border-color: var(--cp-warning); }
+    .lp-tag.active { color: var(--cp-success); border-color: var(--cp-success); }
+    .lp-avstack { display: flex; align-items: center; }
+    .lp-avstack .mini { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--cp-surface); margin-left: -7px; display: flex; align-items: center; justify-content: center; font-size: 11px; background: var(--cp-surface-soft); color: var(--cp-text); }
+    .lp-avstack .mini:first-child { margin-left: 0; }
+    .lp-qa { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; opacity: 0; transition: opacity .12s; }
+    .lp-card:hover .lp-qa { opacity: 1; }
+    .lp-qa button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--cp-border); background: var(--cp-bg-elevated); color: var(--cp-text); cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; }
+    .lp-qa button:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
+    .lp-tbl { width: 100%; border-collapse: collapse; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 14px; overflow: hidden; }
+    .lp-tbl th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-text-soft); padding: 11px 14px; border-bottom: 1px solid var(--cp-border); }
+    .lp-tbl td { padding: 11px 14px; border-bottom: 1px solid var(--cp-border); font-size: 0.85rem; }
+    .lp-tbl tr:last-child td { border-bottom: none; }
+    .lp-tbl tbody tr { cursor: pointer; }
+    .lp-tbl tbody tr:hover { background: var(--cp-surface-soft); }
+    .lp-tbl .nm { font-weight: 600; display: flex; align-items: center; gap: 9px; }
+    .lp-row-qa { display: flex; gap: 6px; justify-content: flex-end; }
+    .lp-row-qa button { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text-muted); cursor: pointer; font-size: 0.8rem; }
+    .lp-row-qa button:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
     .detail-row { display: flex; align-items: baseline; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .detail-row:last-child { border-bottom: none; }
     .detail-label { flex: 0 0 140px; font-size: 0.82em; color: var(--muted); font-weight: 500; }
@@ -1691,7 +1781,7 @@
                   <span class="section-chevron" x-text="app.sidebarCollapsed[section.key] ? '▸' : '▾'"></span>
                 </button>
               </template>
-              <template x-if="!section.collapsible && !section.isGroup">
+              <template x-if="!section.collapsible && !section.isGroup && section.label">
                 <div class="section-header" x-text="section.label"></div>
               </template>
 
@@ -1928,55 +2018,106 @@
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="data.agents.length + ' total'"></span>
+                <button class="btn" type="button" @click="goTo('#/design')">✨ Design with AI</button>
                 <button class="btn primary" type="button" @click="openAgentDiscovery()">＋ Add Agent</button>
               </div>
             </div>
-            <div class="search-row">
-              <input class="field-input" type="search" placeholder="Filter agents by name, group, or command…" x-model="agentSearch" />
-              <div class="hint" x-text="filteredAgents().length + ' shown'"></div>
+
+            <div class="lp-chips">
+              <button class="lp-chip" :class="agentStatusFilter === 'all' ? 'on' : ''" @click="agentStatusFilter = 'all'"><span class="lp-dot all"></span>All <span class="n" x-text="agentStatusCounts().all"></span></button>
+              <button class="lp-chip" :class="agentStatusFilter === 'running' ? 'on' : ''" @click="agentStatusFilter = 'running'"><span class="lp-dot run"></span>Running <span class="n" x-text="agentStatusCounts().running"></span></button>
+              <button class="lp-chip" :class="agentStatusFilter === 'scheduled' ? 'on' : ''" @click="agentStatusFilter = 'scheduled'"><span class="lp-dot sched"></span>Scheduled <span class="n" x-text="agentStatusCounts().scheduled"></span></button>
+              <button class="lp-chip" :class="agentStatusFilter === 'idle' ? 'on' : ''" @click="agentStatusFilter = 'idle'"><span class="lp-dot idle"></span>Idle <span class="n" x-text="agentStatusCounts().idle"></span></button>
             </div>
-            <template x-for="group in agentGroups()" :key="group.name">
-              <div class="agent-group-section">
-                <div class="group-header" @click="toggleSidebar('ag-' + group.name)">
-                  <span class="group-chevron" :class="app.sidebarCollapsed['ag-' + group.name] ? 'collapsed' : ''" x-text="app.sidebarCollapsed['ag-' + group.name] ? '▶' : '▼'"></span>
-                  <h2 class="group-title" x-text="group.name"></h2>
-                  <span class="badge-count" x-text="group.agents.length"></span>
-                </div>
-                <div class="cards-grid" x-show="!app.sidebarCollapsed['ag-' + group.name]" x-transition.opacity>
-                  <template x-for="agent in group.agents" :key="agent.id">
-                    <article class="agent-card" @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
-                      <div class="entity-top">
-                        <div>
-                          <h3 class="entity-name" x-text="agent.name"></h3>
-                          <div class="entity-subtitle" x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></div>
-                        </div>
-                      </div>
-                      <div class="meta-grid" x-show="agent.config.description">
-                        <div>
-                          <span class="meta-label">Description</span>
-                          <div class="line-clamp" x-text="agent.config.description"></div>
-                        </div>
-                      </div>
-                      <div class="split-meta">
-                        <span class="tiny-badge" x-text="agent.config.group || 'Ungrouped'"></span>
-                        <span class="hint" x-show="agent.status === 'running'">⚡ running</span>
-                      </div>
-                    </article>
-                  </template>
-                </div>
+
+            <div class="lp-controls">
+              <div class="lp-search">
+                <span>🔍</span>
+                <input type="search" placeholder="Search agents by name, group, or command…" x-model="agentSearch" />
               </div>
-            </template>
-            <div class="empty-state" x-show="!filteredAgents().length">No agents matched your filter.</div>
+              <div class="lp-ctl">Group <select x-model="agentGroupBy"><option value="group">by Group</option><option value="status">by Status</option><option value="type">by Type</option><option value="none">None</option></select></div>
+              <div class="lp-ctl">Sort <select x-model="agentSort"><option value="recent">Recent</option><option value="name">Name</option><option value="status">Status</option></select></div>
+              <div class="lp-viewtog">
+                <button :class="agentView === 'grid' ? 'on' : ''" @click="agentView = 'grid'" title="Grid view">▦</button>
+                <button :class="agentView === 'list' ? 'on' : ''" @click="agentView = 'list'" title="List view">☰</button>
+              </div>
+            </div>
+
+            <div x-show="agentView === 'grid'">
+              <template x-for="group in agentGroups()" :key="group.name || '__all'">
+                <div class="lp-gsec">
+                  <div class="lp-ghead" x-show="group.name" @click="toggleSidebar('ag-' + group.name)">
+                    <span class="group-chevron" :class="app.sidebarCollapsed['ag-' + group.name] ? 'collapsed' : ''" x-text="app.sidebarCollapsed['ag-' + group.name] ? '▶' : '▼'"></span>
+                    <span class="gt" x-text="group.name"></span>
+                    <span class="gn" x-text="group.agents.length"></span>
+                    <span class="gline"></span>
+                  </div>
+                  <div class="lp-grid" x-show="!group.name || !app.sidebarCollapsed['ag-' + group.name]" x-transition.opacity>
+                    <template x-for="agent in group.agents" :key="agent.id">
+                      <article class="lp-card" @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
+                        <div class="lp-qa">
+                          <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
+                          <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
+                          <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
+                        </div>
+                        <div class="lp-card-top">
+                          <div class="lp-av" x-text="agent.config.pluginDir ? '🧩' : '🤖'"></div>
+                          <div style="flex:1;min-width:0">
+                            <h3 x-text="agent.name"></h3>
+                            <div class="lp-sub" x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></div>
+                          </div>
+                          <span class="lp-sdot" :class="{ 'lp-dot run': agentStatusOf(agent)==='running', 'lp-dot sched': agentStatusOf(agent)==='scheduled', 'lp-dot idle': agentStatusOf(agent)==='idle' }"></span>
+                        </div>
+                        <div class="lp-desc" x-text="agent.config.description || 'No description'"></div>
+                        <div class="lp-cmeta">
+                          <span class="lp-tag" x-text="agent.config.group || 'Ungrouped'"></span>
+                          <span class="lp-tag run" x-show="agent.status === 'running'">⚡ running</span>
+                          <span class="lp-tag" x-show="agent.schedule && agent.schedule !== 'never'" x-text="'⏱ ' + (agent.scheduleSummary || 'scheduled')"></span>
+                          <span class="lp-tag" x-show="agent.lastRun" x-text="'Ran ' + formatRelative((agent.lastRun || {}).finished_at || (agent.lastRun || {}).started_at)"></span>
+                        </div>
+                      </article>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div x-show="agentView === 'list'">
+              <table class="lp-tbl">
+                <thead><tr><th>Name</th><th>Type</th><th>Group</th><th>Status</th><th>Last run</th><th></th></tr></thead>
+                <tbody>
+                  <template x-for="agent in displayedAgents()" :key="agent.id">
+                    <tr @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
+                      <td><div class="nm"><span class="lp-sdot" :class="{ 'lp-dot run': agentStatusOf(agent)==='running', 'lp-dot sched': agentStatusOf(agent)==='scheduled', 'lp-dot idle': agentStatusOf(agent)==='idle' }"></span><span x-text="agent.name"></span></div></td>
+                      <td x-text="agent.config.pluginDir ? 'Plugin' : 'Copilot Agent'"></td>
+                      <td x-text="agent.config.group || 'Ungrouped'"></td>
+                      <td style="text-transform:capitalize" x-text="agentStatusOf(agent)"></td>
+                      <td x-text="agent.lastRun ? formatRelative((agent.lastRun || {}).finished_at || (agent.lastRun || {}).started_at) : 'Never'"></td>
+                      <td><div class="lp-row-qa">
+                        <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
+                        <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
+                        <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
+                      </div></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="empty-state" x-show="!displayedAgents().length" x-text="data.agents.length ? 'No agents matched your filter.' : 'No agents registered yet.'"></div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'agent-detail' && selectedAgent">
           <section x-transition.opacity.duration.180ms>
-            <div class="page-header">
-              <div class="page-title">
-                <a class="btn ghost" href="#/agents">← Agents</a>
-                <h1 style="margin-top:14px" x-text="selectedAgent.name"></h1>
-                <p x-text="selectedAgent.config.group ? ('Group · ' + selectedAgent.config.group) : (selectedAgent.config.cwd || selectedAgent.id)"></p>
-                <div class="split-meta" style="margin-top:8px;gap:8px;flex-wrap:wrap" x-show="selectedAgent.config.source">
+            <div class="ag-hero">
+              <div class="ag-avatar">🤖</div>
+              <div class="ag-hero-main">
+                <div class="ag-crumb"><a class="md-link" href="#/agents">← Agents</a></div>
+                <h1 x-text="selectedAgent.name"></h1>
+                <div class="ag-badges">
+                  <span class="tiny-badge" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></span>
+                  <span class="tiny-badge" x-show="selectedAgent.config.group" x-text="'Group · ' + (selectedAgent.config.group || '')"></span>
+                  <span class="status-badge" :class="statusClass(selectedAgent.status)" x-text="statusLabel(selectedAgent.status)"></span>
                   <template x-if="selectedAgent.config.source && selectedAgent.config.source.type === 'azdo'">
                     <span class="source-badge source-plugin" :title="'objectId ' + (selectedAgent.config.source.objectId || '')">
                       ☁ Azure DevOps · <span x-text="selectedAgent.config.source.org + '/' + selectedAgent.config.source.project + '/' + selectedAgent.config.source.repo"></span> @ <span x-text="selectedAgent.config.source.branch"></span> · <span class="mono" x-text="selectedAgent.config.source.path"></span> · <span x-text="selectedAgent.config.source.kind"></span>
@@ -1987,7 +2128,7 @@
                   </template>
                 </div>
               </div>
-              <div class="toolbar">
+              <div class="ag-hero-actions">
                 <template x-if="selectedAgent.status === 'running'">
                   <button class="btn" type="button" @click="hydrateLiveOutput(selectedAgent.id, true)" style="display:flex;align-items:center;gap:6px;border-color:var(--cp-accent);color:var(--cp-accent)">
                     <span class="pulse-dot"></span> Running — View live
@@ -1995,10 +2136,16 @@
                 </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="editAgentSource(selectedAgent.id)" title="Open source in VS Code">📝 Edit in VSCode</button>
-                <button class="btn" type="button" @click="focusConfigSection('agent-config')">ℹ Details</button>
-                <button class="btn" type="button" @click="reinstallAgent(selectedAgent.id)">🔄 Reinstall</button>
-                <button class="btn danger" type="button" @click="removeAgent(selectedAgent.id)">🗑 Remove</button>
+                <button class="btn ghost" type="button" @click="selectedAgent._menu = !selectedAgent._menu" title="More actions">⋯</button>
+                <div class="ag-menu" x-show="selectedAgent._menu" @click.outside="selectedAgent._menu = false" x-transition style="display:none">
+                  <button type="button" @click="editAgentSource(selectedAgent.id); selectedAgent._menu = false">📝 Edit in VSCode</button>
+                  <button type="button" @click="focusConfigSection('agent-config'); selectedAgent._menu = false">ℹ Jump to details</button>
+                  <button type="button" @click="agentTab = 'tools'; validateCaps(); selectedAgent._menu = false">✓ Validate capabilities</button>
+                  <button type="button" @click="openExport(); selectedAgent._menu = false">⤴ Export to AzDO</button>
+                  <div class="ag-menu-sep"></div>
+                  <button type="button" @click="reinstallAgent(selectedAgent.id); selectedAgent._menu = false">🔄 Reinstall from source</button>
+                  <button type="button" style="color:var(--cp-danger)" @click="removeAgent(selectedAgent.id); selectedAgent._menu = false">🗑 Remove agent</button>
+                </div>
               </div>
             </div>
             <!-- Update available banner -->
@@ -2077,15 +2224,15 @@
                 </template>
               </div>
             </div>
-            <div class="detail-grid">
-              <div class="panel-stack">
+            <div class="ag-grid">
+              <aside class="ag-rail">
                 <section class="detail-panel" id="agent-config">
                   <div class="panel-header">
                     <div>
-                      <h2 class="panel-title">Details</h2>
-                      <div class="hint">Agent identity, source, and capabilities.</div>
+                      <h2 class="panel-title">Identity</h2>
+                      <div class="hint">Source &amp; capabilities.</div>
                     </div>
-                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing — click to lock' : '🔒 Unlock to edit'"></button>
+                    <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing' : '🔒 Unlock'"></button>
                   </div>
                   <div class="config-grid">
                     <div class="detail-table">
@@ -2096,8 +2243,9 @@
                       <div class="detail-row"><span class="detail-label">Backing Agent</span><span class="detail-value" x-text="selectedAgent.config?.agent || selectedAgent.config?.name || selectedAgent.id"></span></div>
                       <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedAgent.id"></span></div>
                       <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value" x-text="selectedAgent.config?.pluginDir ? 'Plugin' : 'Copilot Agent'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Source Location</span><span class="detail-value mono" style="font-size:0.82em;word-break:break-all" x-text="selectedAgent.config?.pluginDir || (selectedAgent.config?.cwd ? selectedAgent.config.cwd + '\\.github\\agents\\' + selectedAgent.id + '.agent.md' : '—')"></span></div>
-                      <div class="detail-row"><span class="detail-label">Installation</span><span class="detail-value" x-text="selectedAgent.config?.pluginDir ? 'Local plugin directory' : (selectedAgent.config?.cwd ? 'Local repository' : 'Marketplace')"></span></div>
+                      <div class="detail-row"><span class="detail-label">Source Location</span><span class="detail-value mono" style="font-size:0.82em;word-break:break-all" x-text="selectedAgent.config?.source?.type === 'azdo' ? (selectedAgent.config.source.org + '/' + selectedAgent.config.source.project + '/' + selectedAgent.config.source.repo + ' @ ' + selectedAgent.config.source.branch + ' · ' + selectedAgent.config.source.path) : (selectedAgent.config?.pluginDir || (selectedAgent.config?.cwd ? selectedAgent.config.cwd + '\\.github\\agents\\' + selectedAgent.id + '.agent.md' : '—'))"></span></div>
+                      <div class="detail-row"><span class="detail-label">Installation</span><span class="detail-value" x-text="selectedAgent.config?.source?.type === 'azdo' ? '☁ Azure DevOps' : (selectedAgent.config?.source?.type === 'local' ? (selectedAgent.config?.pluginDir ? '📁 Local plugin' : '📁 Local repository') : (selectedAgent.config?.pluginDir ? 'Local plugin directory' : (selectedAgent.config?.cwd ? 'Local repository' : 'Marketplace')))"></span></div>
+                      <div class="detail-row" x-show="selectedAgent.config?.source?.installedAt"><span class="detail-label">Last installed</span><span class="detail-value" x-text="formatRelative(selectedAgent.config?.source?.installedAt)"></span></div>
                       <div class="detail-row"><span class="detail-label">Group</span><span class="detail-value">
                         <select class="field-input" style="display:inline;width:auto;padding:2px 8px;font-size:0.85em" :value="selectedAgent.config?.group || ''" @change="changeAgentGroup(selectedAgent.id, $event.target.value)">
                           <option value="">Ungrouped</option>
@@ -2115,7 +2263,7 @@
                     </div>
                     <div>
                       <div class="field-label"><span>Description</span><span class="hint">What this agent does, in plain language</span></div>
-                      <textarea class="field-input field-area" x-model="selectedAgent.descriptionDraft" :disabled="!selectedAgent.capsUnlocked" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
+                      <textarea class="ag-desc" x-model="selectedAgent.descriptionDraft" :disabled="!selectedAgent.capsUnlocked" x-effect="selectedAgent.descriptionDraft; $el.style.height='auto'; $el.style.height=($el.scrollHeight)+'px'" placeholder="e.g. Monitors Azure service health and reports outages or degraded regions."></textarea>
                     </div>
                     <div>
                       <div class="field-label"><span>Skills</span><span class="hint">Comma-separated keywords (e.g. azure, monitoring, email)</span></div>
@@ -2132,20 +2280,28 @@
                     </div>
                   </div>
                 </section>
+              </aside>
+              <div class="ag-main">
+                <div class="ag-tabs">
+                  <button class="ag-tab" type="button" :class="agentTab === 'tasks' ? 'active' : ''" @click="agentTab = 'tasks'">🗂 Tasks &amp; Runs <span class="ag-count" x-text="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length + ' · ' + agentHistory.length"></span></button>
+                  <button class="ag-tab" type="button" :class="agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'tools'">🧩 Tools &amp; Skills <span class="ag-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
+                  <button class="ag-tab" type="button" x-show="managersForAgent(selectedAgent.id).length" :class="agentTab === 'managers' ? 'active' : ''" @click="agentTab = 'managers'">👔 Managers <span class="ag-count" x-text="managersForAgent(selectedAgent.id).length"></span></button>
+                </div>
 
+                <div class="panel-stack" x-show="agentTab === 'tools'">
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Tools &amp; Skills</h2>
-                      <div class="hint">MCP servers and skills this agent can use at runtime. Attach more from the catalog to empower it — changes apply on the next run or chat.</div>
-                    </div>
-                    <div class="toolbar">
-                      <button class="btn" type="button" @click="validateCaps()">✓ Validate</button>
+                      <div class="hint">MCP servers and skills this agent can use at runtime. Attach more from the catalog to empower it.</div>
                     </div>
                   </div>
-
-                  <!-- Attached MCP servers -->
-                  <div class="caps-divider"><span class="caps-divider-label">MCP servers</span></div>
+                  <div class="ag-cap-cols">
+                    <div class="ag-cap-panel">
+                      <div class="ag-cap-head">
+                        <span class="ag-cap-title">🔌 MCP servers</span>
+                        <span class="ag-cap-n" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' attached'"></span>
+                      </div>
                   <div class="assignment-list" x-show="selectedAgent.caps && selectedAgent.caps.effective.mcp.length">
                     <template x-for="m in (selectedAgent.caps ? selectedAgent.caps.effective.mcp : [])" :key="m.name">
                       <div class="assignment-item">
@@ -2206,8 +2362,12 @@
                     </div>
                   </div>
 
-                  <!-- Attached skills -->
-                  <div class="caps-divider" style="margin-top:16px"><span class="caps-divider-label">Skills</span></div>
+                    </div>
+                    <div class="ag-cap-panel">
+                      <div class="ag-cap-head">
+                        <span class="ag-cap-title">✨ Skills</span>
+                        <span class="ag-cap-n" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0) + ' attached'"></span>
+                      </div>
                   <div class="assignment-list" x-show="selectedAgent.caps && selectedAgent.caps.effective.skills.length">
                     <template x-for="s in (selectedAgent.caps ? selectedAgent.caps.effective.skills : [])" :key="s.name">
                       <div class="assignment-item">
@@ -2242,7 +2402,16 @@
                       </div>
                     </template>
                   </div>
+                    </div>
+                  </div>
+                  <div class="toolbar" style="margin-top:14px;justify-content:flex-end">
+                    <button class="btn" type="button" @click="validateCaps()">✓ Validate</button>
+                    <button class="btn" type="button" @click="openExport()">⤴ Export to AzDO</button>
+                  </div>
                 </section>
+                </div>
+
+                <div class="panel-stack" x-show="agentTab === 'tasks'">
 
                 <section class="detail-panel">
                   <div class="panel-header">
@@ -2296,7 +2465,10 @@
                   </div>
                 </section>
 
-                <section class="detail-panel" x-show="managersForAgent(selectedAgent.id).length">
+                </div>
+
+                <div class="panel-stack" x-show="agentTab === 'managers'">
+                <section class="detail-panel">
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Managers</h2>
@@ -2319,7 +2491,9 @@
                     </template>
                   </div>
                 </section>
+                </div>
 
+                <div class="panel-stack" x-show="agentTab === 'tasks'" style="margin-top:16px">
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
@@ -2354,6 +2528,7 @@
                   </div>
                   <div class="empty-state" x-show="!agentHistory.length">No run history recorded yet.</div>
                 </section>
+                </div>
               </div>
             </div>
           </section>
@@ -2371,60 +2546,112 @@
                 <button class="btn primary" type="button" @click="openCreateManager()">＋ Add Manager</button>
               </div>
             </div>
-            <div class="search-row">
-              <input class="field-input" type="search" placeholder="Filter managers by name, org member, or assignment…" x-model="managerSearch" />
-              <div class="hint" x-text="filteredManagers().length + ' shown'"></div>
+
+            <div class="lp-chips">
+              <button class="lp-chip" :class="managerStatusFilter === 'all' ? 'on' : ''" @click="managerStatusFilter = 'all'"><span class="lp-dot all"></span>All <span class="n" x-text="managerStatusCounts().all"></span></button>
+              <button class="lp-chip" :class="managerStatusFilter === 'active' ? 'on' : ''" @click="managerStatusFilter = 'active'"><span class="lp-dot active"></span>Active <span class="n" x-text="managerStatusCounts().active"></span></button>
+              <button class="lp-chip" :class="managerStatusFilter === 'idle' ? 'on' : ''" @click="managerStatusFilter = 'idle'"><span class="lp-dot idle"></span>Idle <span class="n" x-text="managerStatusCounts().idle"></span></button>
             </div>
-            <div class="cards-grid">
-              <template x-for="manager in filteredManagers()" :key="manager.id">
-                <article class="manager-card" @click="goTo('#/managers/' + encodeURIComponent(manager.id))">
-                  <div class="entity-top">
-                    <div>
-                      <h3 class="entity-name" x-text="manager.name"></h3>
-                      <div class="entity-subtitle line-clamp" x-text="manager.config.description || 'Manager orchestration agent'"></div>
-                    </div>
-                    <span class="status-badge" :class="managerActiveCount(manager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(manager) + ' active'"></span>
+
+            <div class="lp-controls">
+              <div class="lp-search">
+                <span>🔍</span>
+                <input type="search" placeholder="Search managers by name, org member, or assignment…" x-model="managerSearch" />
+              </div>
+              <div class="lp-ctl">Sort <select x-model="managerSort"><option value="recent">Recent</option><option value="name">Name</option><option value="active">Active</option></select></div>
+              <div class="lp-viewtog">
+                <button :class="managerView === 'grid' ? 'on' : ''" @click="managerView = 'grid'" title="Grid view">▦</button>
+                <button :class="managerView === 'list' ? 'on' : ''" @click="managerView = 'list'" title="List view">☰</button>
+              </div>
+            </div>
+
+            <div class="lp-grid" x-show="managerView === 'grid'">
+              <template x-for="manager in displayedManagers()" :key="manager.id">
+                <article class="lp-card" @click="goTo('#/managers/' + encodeURIComponent(manager.id))">
+                  <div class="lp-qa">
+                    <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
+                    <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
+                    <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                   </div>
-                  <div class="meta-grid">
-                    <div>
-                      <span class="meta-label">Org size</span>
-                      <div x-text="(manager.orgDetails || []).length"></div>
+                  <div class="lp-card-top">
+                    <div class="lp-av">👔</div>
+                    <div style="flex:1;min-width:0">
+                      <h3 x-text="manager.name"></h3>
+                      <div class="lp-sub" x-text="(manager.orgDetails || []).length + ' agents · ' + (manager.config.assignments || []).length + ' assignments'"></div>
                     </div>
-                    <div>
-                      <span class="meta-label">Assignments</span>
-                      <div x-text="(manager.config.assignments || []).length"></div>
-                    </div>
+                    <span class="lp-sdot" :class="managerActiveCount(manager) > 0 ? 'lp-dot active' : 'lp-dot idle'"></span>
                   </div>
-                  <div class="split-meta">
-                    <span class="tiny-badge" x-text="manager.lastRun ? 'Last run ' + formatRelative(manager.lastRun.finished_at || manager.lastRun.started_at) : 'Never run' "></span>
+                  <div class="lp-desc" x-text="manager.config.description || 'Manager orchestration agent'"></div>
+                  <div class="lp-cmeta">
+                    <div class="lp-avstack" x-show="(manager.orgDetails || []).length">
+                      <template x-for="(m, i) in (manager.orgDetails || []).slice(0, 4)" :key="m.id || i">
+                        <span class="mini" :title="m.name || m.id" x-text="(m.name || m.id || '?').slice(0,1).toUpperCase()"></span>
+                      </template>
+                      <span class="mini" x-show="(manager.orgDetails || []).length > 4" x-text="'+' + ((manager.orgDetails || []).length - 4)"></span>
+                    </div>
+                    <span class="lp-tag active" x-show="managerActiveCount(manager) > 0" x-text="managerActiveCount(manager) + ' active'"></span>
+                    <span class="lp-tag" x-show="manager.lastRun" x-text="'Ran ' + formatRelative((manager.lastRun || {}).finished_at || (manager.lastRun || {}).started_at)"></span>
                   </div>
                 </article>
               </template>
             </div>
-            <div class="empty-state" x-show="!filteredManagers().length">No managers matched your filter.</div>
+
+            <div x-show="managerView === 'list'">
+              <table class="lp-tbl">
+                <thead><tr><th>Name</th><th>Org</th><th>Assignments</th><th>Active</th><th>Last run</th><th></th></tr></thead>
+                <tbody>
+                  <template x-for="manager in displayedManagers()" :key="manager.id">
+                    <tr @click="goTo('#/managers/' + encodeURIComponent(manager.id))">
+                      <td><div class="nm"><span class="lp-sdot" :class="managerActiveCount(manager) > 0 ? 'lp-dot active' : 'lp-dot idle'"></span><span x-text="manager.name"></span></div></td>
+                      <td x-text="(manager.orgDetails || []).length"></td>
+                      <td x-text="(manager.config.assignments || []).length"></td>
+                      <td x-text="managerActiveCount(manager)"></td>
+                      <td x-text="manager.lastRun ? formatRelative((manager.lastRun || {}).finished_at || (manager.lastRun || {}).started_at) : 'Never'"></td>
+                      <td><div class="lp-row-qa">
+                        <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
+                        <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
+                        <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
+                      </div></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="empty-state" x-show="!displayedManagers().length" x-text="data.managers.length ? 'No managers matched your filter.' : 'No managers created yet.'"></div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'manager-detail' && selectedManager">
           <section x-transition.opacity.duration.180ms>
-            <div class="page-header">
-              <div class="page-title">
-                <a class="btn ghost" href="#/managers">← Managers</a>
-                <h1 style="margin-top:14px" x-text="selectedManager.name"></h1>
-                <p x-text="selectedManager.config.description || selectedManager.id"></p>
+            <div class="ag-hero">
+              <div class="ag-avatar">👔</div>
+              <div class="ag-hero-main">
+                <div class="ag-crumb"><a class="md-link" href="#/managers">← Managers</a></div>
+                <h1 x-text="selectedManager.name"></h1>
+                <div class="ag-badges">
+                  <span class="tiny-badge">Manager</span>
+                  <span class="tiny-badge" x-text="(selectedManager.config?.org || []).length + ' agents'"></span>
+                  <span class="status-badge" :class="managerActiveCount(selectedManager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(selectedManager) + ' active'"></span>
+                </div>
               </div>
-              <div class="toolbar">
-                <span class="status-badge" :class="managerActiveCount(selectedManager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(selectedManager) + ' active'"></span>
+              <div class="ag-hero-actions">
+                <button class="btn primary" type="button" @click="managerTab = 'assignments'; resetManagerAssignmentForm()">＋ New Assignment</button>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
-                <button class="btn" type="button" @click="openManagerEdit()">⚙ Edit</button>
-                <button class="btn danger" type="button" @click="removeManager(selectedManager.id)">🗑 Remove</button>
+                <button class="btn" type="button" @click="selectedManager._menu = !selectedManager._menu" @click.outside="selectedManager._menu = false">⋯</button>
+                <div class="ag-menu" x-show="selectedManager._menu" x-transition style="display:none">
+                  <button type="button" @click="selectedManager._menu = false; openManagerEdit()">⚙ Edit manager</button>
+                  <button type="button" @click="selectedManager._menu = false; openOrgPicker()">＋ Add agent to org</button>
+                  <div class="ag-menu-sep"></div>
+                  <button type="button" @click="selectedManager._menu = false; removeManager(selectedManager.id)" style="color:var(--cp-danger)">🗑 Remove manager</button>
+                </div>
               </div>
             </div>
-            <div class="detail-grid">
-              <div class="panel-stack">
+            <div class="ag-grid">
+              <aside class="ag-rail">
                 <section class="detail-panel" id="manager-details">
                   <div class="panel-header">
                     <div>
-                      <h2 class="panel-title">Details</h2>
+                      <h2 class="panel-title">Identity</h2>
                       <div class="hint">Manager identity and performance stats.</div>
                     </div>
                   </div>
@@ -2447,7 +2674,15 @@
                     </div>
                   </div>
                 </section>
+              </aside>
+              <div class="ag-main">
+                <div class="ag-tabs">
+                  <button class="ag-tab" type="button" :class="managerTab === 'assignments' ? 'active' : ''" @click="managerTab = 'assignments'">🗂 Assignments <span class="ag-count" x-text="(selectedManager.config.assignments || []).length"></span></button>
+                  <button class="ag-tab" type="button" :class="managerTab === 'org' ? 'active' : ''" @click="managerTab = 'org'">🏢 Organization <span class="ag-count" x-text="(selectedManager.config?.org || []).length"></span></button>
+                  <button class="ag-tab" type="button" :class="managerTab === 'runs' ? 'active' : ''" @click="managerTab = 'runs'">📊 Runs <span class="ag-count" x-text="managerHistory.length"></span></button>
+                </div>
 
+                <div class="panel-stack" x-show="managerTab === 'org'">
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
@@ -2471,7 +2706,9 @@
                   </div>
                   <div class="empty-state" x-show="!(selectedManager.orgDetails || []).length">No agents assigned to this organization.</div>
                 </section>
+                </div>
 
+                <div class="panel-stack" x-show="managerTab === 'assignments'">
                 <section class="detail-panel" id="manager-assignments">
                   <div class="panel-header">
                     <div>
@@ -2571,9 +2808,9 @@
                     </div>
                   </div>
                 </section>
-              </div>
+                </div>
 
-              <div class="panel-stack">
+                <div class="panel-stack" x-show="managerTab === 'runs'">
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
@@ -2606,6 +2843,7 @@
                   </div>
                   <div class="empty-state" x-show="!managerHistory.length">No manager run history recorded.</div>
                 </section>
+                </div>
               </div>
             </div>
           </section>
@@ -2729,8 +2967,17 @@
               </div>
             </div>
             <div class="search-row">
+              <select class="field-input" x-model="execAi.focusAgentId" @change="generateExecAi()" style="max-width:280px" title="Focus the suggestions on one agent">
+                <option value="">🎲 Any agents (surprise me)</option>
+                <template x-for="a in (data.agents || [])" :key="'fa-' + a.id">
+                  <option :value="a.id" x-text="a.name"></option>
+                </template>
+              </select>
               <input class="field-input" type="text" placeholder="Optional focus — e.g. 'queue health', 'morning digest'…" x-model="execAi.hint" @keydown.enter="generateExecAi()" />
               <div class="hint" x-show="execAi.items.length" x-text="execAi.items.length + ' ideas'"></div>
+            </div>
+            <div class="hint" x-show="execAi.focusAgentId" style="margin-bottom:6px">
+              Suggestions will feature <strong x-text="(data.agents.find(a => a.id === execAi.focusAgentId) || {}).name || execAi.focusAgentId"></strong> — as the sole agent in tasks, or as a step in flows.
             </div>
             <div class="hint" x-show="execAi.error" style="color:var(--cp-danger,#dc2626);margin-bottom:10px" x-text="execAi.error"></div>
 
@@ -3780,16 +4027,19 @@
               </template>
               <template x-if="mkt.addForm.kind === 'azdo'">
                 <div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                    <div class="form-row"><label>Organization</label><input type="text" x-model="mkt.addForm.org" placeholder="dnceng" @change="mktLoadAddRepos()" @keydown.enter="mktLoadAddRepos()"></div>
-                    <div class="form-row"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @change="mktLoadAddRepos()" @keydown.enter="mktLoadAddRepos()"></div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">
+                    <div class="form-row"><label>Organization</label><input type="text" x-model="mkt.addForm.org" placeholder="dnceng" @keydown.enter.prevent="mktLoadAddRepos()"></div>
+                    <div class="form-row"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @keydown.enter.prevent="mktLoadAddRepos()"></div>
+                    <div class="form-row" x-show="!mkt.addForm.manual">
+                      <button class="btn" type="button" :disabled="mkt.addForm.loadingRepos || !mkt.addForm.org.trim() || !mkt.addForm.project.trim()" @click="mktLoadAddRepos()" x-text="mkt.addForm.loadingRepos ? 'Loading…' : (mkt.addForm.repos.length ? 'Reload repos' : 'Load repositories')"></button>
+                    </div>
                   </div>
                   <template x-if="!mkt.addForm.manual">
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
                       <div class="form-row">
                         <label>Repository <span class="hint" x-show="mkt.addForm.loadingRepos">⏳ loading…</span></label>
                         <select x-model="mkt.addForm.repo" @change="mktAddRepoChange()" :disabled="!mkt.addForm.repos.length">
-                          <option value="" x-text="mkt.addForm.repos.length ? 'Select a repository…' : 'Enter org + project first'"></option>
+                          <option value="" x-text="mkt.addForm.repos.length ? 'Select a repository…' : 'Click “Load repositories”'"></option>
                           <template x-for="r in mkt.addForm.repos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
                         </select>
                       </div>
@@ -3846,21 +4096,43 @@
               <input type="text" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…" style="flex:1;min-width:200px">
             </div>
 
+            <!-- Source-kind filter -->
+            <div class="toolbar" style="margin-bottom:16px;gap:8px;flex-wrap:wrap;align-items:center">
+              <span class="hint" style="opacity:.7">View by source:</span>
+              <div class="filter-pills">
+                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'all' }" @click="mkt.sourceKindFilter = 'all'">
+                  All <span class="hint" x-text="'(' + ((mkt.catalog.entries || []).length) + ')'"></span>
+                </button>
+                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'local' }" @click="mkt.sourceKindFilter = 'local'">
+                  📁 Local <span class="hint" x-text="'(' + mktKindCounts().local + ')'"></span>
+                </button>
+                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'azdo' }" @click="mkt.sourceKindFilter = 'azdo'">
+                  🔷 Azure DevOps <span class="hint" x-text="'(' + mktKindCounts().azdo + ')'"></span>
+                </button>
+                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'installed' }" @click="mkt.sourceKindFilter = 'installed'">
+                  ✓ Installed <span class="hint" x-text="'(' + mktKindCounts().installed + ')'"></span>
+                </button>
+              </div>
+            </div>
+
             <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
               No sources yet. Click <strong>↻ Sync from installed agents</strong> to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
             </div>
 
-            <div class="agent-grid" x-show="mkt.catalog.entries.length">
-              <template x-for="entry in mkt.catalog.entries" :key="entry.id">
+            <div class="agent-grid" x-show="mktFilteredEntries().length">
+              <template x-for="entry in mktFilteredEntries()" :key="entry.id">
                 <article class="agent-card" style="cursor:default">
                   <div class="split-meta">
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                       <span class="type-badge" x-text="mktTypeIcon(entry.type) + ' ' + entry.type"></span>
                       <strong x-text="entry.displayName || entry.name"></strong>
                     </div>
-                    <span class="status-badge idle" x-text="entry.sourceLabel"></span>
+                    <span class="status-badge idle" :title="mktSourceMeta(entry).title" x-text="mktSourceMeta(entry).icon + ' ' + mktSourceMeta(entry).kind"></span>
                   </div>
                   <div class="hint" style="margin-top:8px;min-height:32px" x-text="entry.description || 'No description.'"></div>
+                  <div class="hint" :title="mktSourceMeta(entry).title" style="margin-top:6px;display:flex;align-items:center;gap:6px;font-family:var(--mono,monospace);font-size:0.72rem;opacity:0.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    <span x-text="mktSourceMeta(entry).icon"></span><span x-text="mktSourceMeta(entry).location"></span>
+                  </div>
                   <div class="hint" x-show="entry.type === 'mcp' && entry.mcp" style="margin-top:4px;font-family:var(--mono,monospace)" x-text="entry.mcp ? (entry.mcp.command + (entry.mcp.envKeys && entry.mcp.envKeys.length ? '  env: ' + entry.mcp.envKeys.join(', ') : '')) : ''"></div>
                   <div class="toolbar" style="margin-top:12px">
                     <template x-if="entry.type === 'agent' || entry.type === 'plugin'">
@@ -3872,6 +4144,10 @@
                   </div>
                 </article>
               </template>
+            </div>
+            <div class="empty-state" x-show="(mkt.catalog.entries || []).length && !mktFilteredEntries().length">
+              No <strong x-text="mkt.sourceKindFilter === 'azdo' ? 'Azure DevOps' : (mkt.sourceKindFilter === 'local' ? 'Local' : 'Installed')"></strong> items match the current filters.
+              <a href="#" @click.prevent="mkt.sourceKindFilter = 'all'">Show all sources</a>
             </div>
             </div><!-- /browse -->
 
@@ -3935,12 +4211,53 @@
                       </div>
                     </div>
                     <div class="hint" x-show="!p.attach || !p.attach.length" style="margin-top:10px;font-style:italic">No catalog capabilities matched — nothing to attach.</div>
+
+                    <div class="form-row" style="margin-top:14px">
+                      <label style="display:block;margin-bottom:5px" x-text="p.kind === 'create' ? 'New agent name' : 'New agent name (a copy — the original is untouched)'"></label>
+                      <input type="text" x-model="p._name" placeholder="Name for the new agent" style="width:100%;box-sizing:border-box">
+                    </div>
+
+                    <!-- Test a suggestion live before creating -->
+                    <div style="margin-top:10px;border-top:1px solid var(--cp-border);padding-top:10px">
+                      <div class="form-row">
+                        <label style="display:block;margin-bottom:5px">Test prompt <span class="hint" style="font-style:italic">— tailored to this idea; edit as needed</span></label>
+                        <textarea x-model="p._test.prompt" rows="3" placeholder="Ask the would-be agent to actually do its intended job" style="width:100%;box-sizing:border-box"></textarea>
+                      </div>
+                      <div class="toolbar" style="margin-top:8px">
+                        <button class="btn" type="button" @click="mktDesignTest(p)" :disabled="p._test.running">
+                          <span x-show="!p._test.running">▶ Test live</span>
+                          <span x-show="p._test.running">Running…</span>
+                        </button>
+                        <span class="hint" x-show="p._test.running" style="color:var(--cp-warning);animation:pulse 1.5s infinite" x-text="'● ' + (p._test.status || 'streaming response…')"></span>
+                        <span class="hint" x-show="p._test.error" x-text="p._test.error" style="color:var(--cp-danger)"></span>
+                      </div>
+                      <div x-show="p._test.open" x-transition.opacity style="margin-top:10px">
+                        <!-- Live copilot session activity (reasoning & tool steps), like chats/tasks -->
+                        <template x-if="(p._test.steps || []).length">
+                          <details open style="margin-bottom:8px">
+                            <summary style="cursor:pointer;font-size:12.5px;color:var(--cp-text-muted)">🔎 Reasoning &amp; steps (<span x-text="p._test.steps.length"></span>)</summary>
+                            <div style="margin-top:6px;max-height:200px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;padding:8px;background:var(--cp-surface-soft)">
+                              <template x-for="(st, si) in p._test.steps" :key="'mkts-' + si">
+                                <div style="padding:3px 0;border-bottom:1px solid var(--cp-border)">
+                                  <div style="font-size:12px;font-weight:600" x-text="mktStepLabel(st)"></div>
+                                  <div class="hint" x-show="mktStepText(st)" style="font-size:11.5px;white-space:pre-wrap;word-break:break-word" x-text="mktStepText(st)"></div>
+                                </div>
+                              </template>
+                            </div>
+                          </details>
+                        </template>
+                        <div class="hint" style="margin-bottom:4px">Live response (throwaway — nothing is saved):</div>
+                        <div class="md-output" style="max-height:280px;overflow:auto;background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:10px;font-size:13px" x-html="p._test.output ? renderMarkdown(p._test.output) : '<span class=\'hint\'>' + (p._test.running ? ((p._test.steps && p._test.steps.length) ? '(working — see steps above)' : '…') : '(no output yet)') + '</span>'"></div>
+                      </div>
+                    </div>
+
                     <div class="toolbar" style="margin-top:12px">
-                      <button class="btn primary" type="button" @click="mktDesignApply(p)" :disabled="p._applying || p._applied">
-                        <span x-show="!p._applying && !p._applied" x-text="p.kind === 'create' ? 'Create agent' : 'Apply to agent'"></span>
-                        <span x-show="p._applying">Applying…</span>
-                        <span x-show="p._applied">✓ Done</span>
+                      <button class="btn primary" type="button" @click="mktDesignApply(p)" :disabled="p._applying || p._applied || !p._name">
+                        <span x-show="!p._applying && !p._applied">✨ Create agent</span>
+                        <span x-show="p._applying">Creating…</span>
+                        <span x-show="p._applied">✓ Created</span>
                       </button>
+                      <span class="hint" style="font-style:italic">Create it, then use <strong>⤴ Export to AzDO</strong> from its Tools &amp; Skills panel.</span>
                     </div>
                   </article>
                 </template>
@@ -4277,6 +4594,95 @@
         <button class="btn danger" type="button" @click="confirmRemoveAgent()" :disabled="removeAgentModal.loading || removeAgentModal.busy">
           <span x-show="!removeAgentModal.busy">🗑 Remove agent</span>
           <span x-show="removeAgentModal.busy">Removing…</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export agent to AzDO Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="exp.open" x-transition.opacity @click.self="if(!exp.busy) exp.open=false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:620px">
+      <div class="modal-header">
+        <h2 class="modal-title">⤴ Export to Azure DevOps</h2>
+        <button class="icon-button" type="button" @click="exp.open=false" :disabled="exp.busy">✕</button>
+      </div>
+      <div style="padding:18px;max-height:70vh;overflow:auto">
+        <p class="hint" style="margin-bottom:14px">Serialize <strong x-text="exp.agentName"></strong> (agent definition, MCP servers, and skills) and push it to a new branch. Secret values in MCP env are rewritten to <code>${VAR}</code> placeholders before anything leaves this machine.</p>
+
+        <div class="field-label" style="margin-bottom:6px"><span>Layout</span></div>
+        <select class="field-input" x-model="exp.layout" @change="exp.preview=null">
+          <option value="plugin">Plugin package — .github/plugin/&lt;name&gt;/ (agent + MCP + skills)</option>
+          <option value="agent">Single agent file — .github/agents/&lt;slug&gt;.agent.md (no MCP/skills)</option>
+        </select>
+
+        <div class="field-label" style="margin:14px 0 6px"><span>Repository</span></div>
+        <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+          <input class="field-input" style="max-width:180px" type="text" placeholder="Organization (e.g. dnceng)" x-model="exp.org" @keydown.enter.prevent="expLoadRepos()" />
+          <input class="field-input" style="max-width:180px" type="text" placeholder="Project (e.g. internal)" x-model="exp.project" @keydown.enter.prevent="expLoadRepos()" />
+          <button class="btn primary" type="button" :disabled="exp.loadingRepos || !exp.org.trim() || !exp.project.trim()" @click="expLoadRepos()" x-text="exp.loadingRepos ? 'Connecting…' : 'Connect'"></button>
+        </div>
+        <div class="toolbar" style="gap:8px;margin-top:8px;flex-wrap:wrap" x-show="exp.repos.length">
+          <select class="field-input" style="max-width:280px" x-model="exp.repo" @change="expRepoChange()">
+            <option value="">Select repository…</option>
+            <template x-for="r in exp.repos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
+          </select>
+          <select class="field-input" style="max-width:200px" x-model="exp.branch" :disabled="exp.loadingBranches || !exp.branch && !exp.branches.length">
+            <option value="">Base branch…</option>
+            <template x-for="b in exp.branches" :key="b"><option :value="b" x-text="b"></option></template>
+          </select>
+        </div>
+
+        <div class="field-label" style="margin:14px 0 6px"><span>Options</span></div>
+        <input class="field-input" type="text" placeholder="Subfolder in repo (optional, e.g. tools/agents)" x-model="exp.basePath" @input="exp.preview=null" />
+        <label class="toolbar" style="gap:8px;margin-top:10px;cursor:pointer;align-items:center">
+          <input type="checkbox" x-model="exp.createPr" /> <span>Open a pull request into the base branch after pushing</span>
+        </label>
+
+        <div class="toolbar" style="margin-top:16px">
+          <button class="btn" type="button" @click="expPreview()" :disabled="exp.busy">🔍 Preview</button>
+        </div>
+
+        <template x-if="exp.preview">
+          <div style="margin-top:14px;border:1px solid var(--cp-border);border-radius:10px;padding:12px;background:var(--cp-surface-soft)">
+            <div class="split-meta" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <span class="tiny-badge" x-text="exp.preview.layout + ' layout'"></span>
+              <span class="tiny-badge" x-text="exp.preview.files.length + ' file' + (exp.preview.files.length===1?'':'s')"></span>
+              <span class="tiny-badge" x-show="exp.preview.redactions.length" x-text="exp.preview.redactions.length + ' secret' + (exp.preview.redactions.length===1?'':'s') + ' redacted'"></span>
+            </div>
+            <div class="hint" style="margin-bottom:6px">Branch: <code x-text="exp.branchOverride || exp.preview.branchSuggestion"></code></div>
+            <template x-for="f in exp.preview.files" :key="f.path">
+              <div class="hint" style="font-family:var(--cp-mono,monospace);font-size:0.82em" x-text="'• ' + f.path + '  (' + f.bytes + ' B)'"></div>
+            </template>
+            <template x-if="exp.preview.warnings.length">
+              <div style="margin-top:8px">
+                <template x-for="w in exp.preview.warnings" :key="w"><div class="hint" style="color:var(--cp-warning)" x-text="'⚠ ' + w"></div></template>
+              </div>
+            </template>
+            <template x-if="exp.preview.secrets.length">
+              <div style="margin-top:8px;color:var(--cp-danger)">
+                <div class="hint" style="color:var(--cp-danger);font-weight:700">⛔ Secret-like content detected — push is blocked:</div>
+                <template x-for="s in exp.preview.secrets" :key="s.path+s.kind"><div class="hint" style="color:var(--cp-danger)" x-text="'• ' + s.kind + ' in ' + s.path"></div></template>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template x-if="exp.result">
+          <div style="margin-top:14px;border:1px solid var(--cp-success);border-radius:10px;padding:12px">
+            <div style="font-weight:700;color:var(--cp-success)">✓ Pushed to <span x-text="exp.result.branch"></span></div>
+            <div class="hint" style="margin-top:6px"><a :href="exp.result.branchUrl" target="_blank" rel="noopener">View branch in Azure DevOps ↗</a></div>
+            <div class="hint" style="margin-top:4px" x-show="exp.result.pr"><a :href="exp.result.pr ? exp.result.pr.url : '#'" target="_blank" rel="noopener">View pull request #<span x-text="exp.result.pr ? exp.result.pr.pullRequestId : ''"></span> ↗</a></div>
+          </div>
+        </template>
+
+        <div class="hint" style="color:var(--cp-danger);margin-top:10px" x-show="exp.error" x-text="exp.error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" type="button" @click="exp.open=false" :disabled="exp.busy">Close</button>
+        <button class="btn accent" type="button" @click="expPush()"
+          :disabled="exp.busy || !exp.preview || (exp.preview && exp.preview.secrets.length) || !exp.repo || !exp.branch">
+          <span x-show="!exp.busy">⤴ Push to new branch</span>
+          <span x-show="exp.busy">Pushing…</span>
         </button>
       </div>
     </div>
@@ -5239,6 +5645,13 @@
         chatFocused: false,
         agentSearch: '',
         managerSearch: '',
+        agentStatusFilter: 'all',
+        agentGroupBy: 'group',
+        agentSort: 'recent',
+        agentView: 'grid',
+        managerStatusFilter: 'all',
+        managerSort: 'recent',
+        managerView: 'grid',
         taskSearch: '',
         assignmentSearch: '',
         newAssignmentOpen: false,
@@ -5248,6 +5661,7 @@
           sources: [],
           catalog: { entries: [], counts: {}, total: 0 },
           typeFilter: 'all',
+          sourceKindFilter: 'all',
           q: '',
           activeSourceId: null,
           showAddForm: false,
@@ -5274,8 +5688,10 @@
         managerTemplates: [],
         managerEdit: { open: false, id: null, name: '', description: '', agent: '' },
         templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false }, assistant: { active: false, sessionId: null, busy: false, input: '', messages: [] } },
-        execAi: { loading: false, error: '', hint: '', items: [], pinned: [], runs: {} },
+        execAi: { loading: false, error: '', hint: '', focusAgentId: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
+        agentTab: 'tasks',
+        managerTab: 'assignments',
         liveOutput: {},
         managerHistory: [],
         expanded: {},
@@ -5295,6 +5711,7 @@
         settingsOpen: false,
         shareModalOpen: false,
         removeAgentModal: { open: false, agent: null, deps: null, loading: false, busy: false },
+        exp: { open: false, agentId: '', agentName: '', layout: 'plugin', org: '', project: '', repo: '', branch: '', repos: [], branches: [], basePath: '', createPr: false, loadingRepos: false, loadingBranches: false, busy: false, error: '', preview: null, result: null, branchOverride: '' },
         shareContent: '',
         shareSubject: '',
         shareContext: '',
@@ -6030,6 +6447,7 @@
               this.selectedAgent.mcpDraft = prev.mcpDraft || { name: '', command: '', args: '', env: '' };
               this.selectedAgent.showMcpForm = !!prev.showMcpForm;
               this.selectedAgent.capCatalogFilter = prev.capCatalogFilter || '';
+              this.selectedAgent._menu = false;
             } else {
               this.selectedAgent.promptDraft = '';
               this.selectedAgent.scheduleDraft = 'never';
@@ -6043,6 +6461,8 @@
               this.selectedAgent.mcpDraft = { name: '', command: '', args: '', env: '' };
               this.selectedAgent.showMcpForm = false;
               this.selectedAgent.capCatalogFilter = '';
+              this.selectedAgent._menu = false;
+              this.agentTab = 'tasks';
             }
             this.agentHistory = history;
             this.loadAgentCapabilities(id);
@@ -6137,6 +6557,75 @@
             this.showToast(v.ok ? 'Validation passed' : 'Validation issue', summary + (v.error ? ` — ${v.error}` : ''), v.ok ? 'info' : 'error');
           } catch (e) { this.showToast('Validate failed', e.message, 'error'); }
         },
+        // ---- Export agent to Azure DevOps ----
+        openExport() {
+          const a = this.selectedAgent;
+          this.exp = { ...this.exp, open: true, agentId: a.id, agentName: a.config?.name || a.id,
+            layout: 'plugin', org: '', project: '', repo: '', branch: '', repos: [], branches: [],
+            basePath: '', createPr: false, loadingRepos: false, loadingBranches: false,
+            busy: false, error: '', preview: null, result: null, branchOverride: '' };
+        },
+        async expLoadRepos() {
+          const e = this.exp;
+          const org = (e.org || '').trim(), project = (e.project || '').trim();
+          e.repos = []; e.branches = []; e.repo = ''; e.branch = ''; e.error = '';
+          if (!org || !project) return;
+          e.loadingRepos = true;
+          try {
+            const data = await this.request(`/api/azdo/repos?org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}`);
+            e.repos = data.repos || [];
+            if (!e.repos.length) e.error = 'No repositories found (or no access).';
+          } catch (err) {
+            e.error = err.message || 'Could not list repositories';
+          } finally { e.loadingRepos = false; }
+        },
+        async expRepoChange() {
+          const e = this.exp;
+          e.branch = ''; e.branches = []; e.preview = null;
+          if (!e.repo) return;
+          e.loadingBranches = true;
+          try {
+            const r = e.repos.find(x => x.name === e.repo);
+            const data = await this.request(`/api/azdo/branches?org=${encodeURIComponent((e.org||'').trim())}&project=${encodeURIComponent((e.project||'').trim())}&repo=${encodeURIComponent(e.repo)}`);
+            e.branches = data.branches || [];
+            if (r && r.defaultBranch && e.branches.includes(r.defaultBranch)) e.branch = r.defaultBranch;
+            else if (e.branches.includes('main')) e.branch = 'main';
+          } catch (err) {
+            e.error = err.message || 'Could not list branches';
+          } finally { e.loadingBranches = false; }
+        },
+        async expPreview() {
+          const e = this.exp;
+          e.busy = true; e.error = ''; e.result = null;
+          try {
+            const r = await this.request(`/api/agents/${encodeURIComponent(e.agentId)}/export-azdo`, {
+              method: 'POST',
+              body: JSON.stringify({ dryRun: true, layout: e.layout, basePath: e.basePath })
+            });
+            e.preview = r.preview;
+          } catch (err) {
+            e.error = err.message || 'Preview failed';
+          } finally { e.busy = false; }
+        },
+        async expPush() {
+          const e = this.exp;
+          if (!e.preview || e.preview.secrets.length) return;
+          e.busy = true; e.error = ''; e.result = null;
+          try {
+            const r = await this.request(`/api/agents/${encodeURIComponent(e.agentId)}/export-azdo`, {
+              method: 'POST',
+              body: JSON.stringify({
+                dryRun: false, layout: e.layout, basePath: e.basePath,
+                org: e.org.trim(), project: e.project.trim(), repo: e.repo,
+                baseBranch: e.branch, createPr: e.createPr
+              })
+            });
+            e.result = r;
+            this.showToast('Export pushed', `Branch ${r.branch} created${r.pr ? ' + PR #' + r.pr.pullRequestId : ''}.`, 'info');
+          } catch (err) {
+            e.error = err.message || 'Push failed';
+          } finally { e.busy = false; }
+        },
         capCatalogAvailableMcp() {
           const caps = this.selectedAgent && this.selectedAgent.caps;
           if (!caps) return [];
@@ -6196,14 +6685,29 @@
               this.request(`/api/managers/${encodeURIComponent(id)}`),
               this.request(`/api/managers/${encodeURIComponent(id)}/history?limit=10`)
             ]);
+            const prev = (this.selectedManager && this.selectedManager.id === id) ? this.selectedManager : null;
             this.selectedManager = this.normalizeManager(manager);
-            this.selectedManager.assignmentNameDraft = '';
-            this.selectedManager.assignmentPromptDraft = '';
-            this.selectedManager.assignmentScheduleDraft = 'never';
-            this.selectedManager.assignmentSchedulePreset = 'never';
-            this.selectedManager.editingAssignmentId = null;
-            this.selectedManager.scheduleDraft = 'never';
-            this.selectedManager.schedulePreset = 'never';
+            if (prev) {
+              this.selectedManager.assignmentNameDraft = prev.assignmentNameDraft || '';
+              this.selectedManager.assignmentPromptDraft = prev.assignmentPromptDraft || '';
+              this.selectedManager.assignmentScheduleDraft = prev.assignmentScheduleDraft || 'never';
+              this.selectedManager.assignmentSchedulePreset = prev.assignmentSchedulePreset || 'never';
+              this.selectedManager.editingAssignmentId = prev.editingAssignmentId || null;
+              this.selectedManager.scheduleDraft = prev.scheduleDraft || 'never';
+              this.selectedManager.schedulePreset = prev.schedulePreset || 'never';
+              this.selectedManager._menu = false;
+              this.selectedManager._stats = prev._stats || null;
+            } else {
+              this.selectedManager.assignmentNameDraft = '';
+              this.selectedManager.assignmentPromptDraft = '';
+              this.selectedManager.assignmentScheduleDraft = 'never';
+              this.selectedManager.assignmentSchedulePreset = 'never';
+              this.selectedManager.editingAssignmentId = null;
+              this.selectedManager.scheduleDraft = 'never';
+              this.selectedManager.schedulePreset = 'never';
+              this.selectedManager._menu = false;
+              this.managerTab = 'assignments';
+            }
             this.managerHistory = history;
           } catch (error) {
             this.showToast('Manager detail failed', error.message, 'error');
@@ -6335,7 +6839,7 @@
         sidebarSections() {
           return [
             { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
-            { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', collapsible: true, items: this.sortedChats().slice(0, 8).map((chat) => ({ id: chat.id, label: chat.title, href: `#/chat/${chat.id}`, active: this.route === 'chat-detail' && this.app.routeParam === chat.id, statusClass: this.chatStatusClass(chat) })) },
+            { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
             { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
@@ -6343,10 +6847,10 @@
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
             ]},
             { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
-              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: this.data.managers.map((manager) => ({ id: manager.id, label: manager.name, href: `#/managers/${encodeURIComponent(manager.id)}`, active: this.route === 'manager-detail' && this.app.routeParam === manager.id, statusClass: manager.status === 'running' ? 'running' : 'idle' })) },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: this.data.agents.map((agent) => ({ id: agent.id, label: agent.name, href: `#/agents/${encodeURIComponent(agent.id)}`, active: this.route === 'agent-detail' && this.app.routeParam === agent.id, statusClass: agent.status === 'running' ? 'running' : 'idle' })) },
-              { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [] }
+              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
             ]},
+            { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false },
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false },
             { key: 'reports', label: 'Reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [], collapsible: false }
           ];
@@ -6370,19 +6874,53 @@
           return this.data.agents.filter((agent) => [agent.name, agent.config.group, agent.config.agent, agent.config.cwd, agent.id].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
-        agentGroups() {
-          const agents = this.filteredAgents();
-          const groups = {};
-          agents.forEach(agent => {
-            const g = agent.config.group || 'Ungrouped';
-            if (!groups[g]) groups[g] = [];
-            groups[g].push(agent);
+        agentStatusOf(agent) {
+          if (agent.status === 'running') return 'running';
+          if (agent.schedule && agent.schedule !== 'never') return 'scheduled';
+          return 'idle';
+        },
+
+        agentStatusCounts() {
+          const c = { all: this.data.agents.length, running: 0, scheduled: 0, idle: 0 };
+          this.data.agents.forEach(a => { c[this.agentStatusOf(a)]++; });
+          return c;
+        },
+
+        agentLastRunTs(agent) {
+          const r = agent.lastRun;
+          const t = r ? (r.finished_at || r.started_at) : (agent.last_run || null);
+          return t ? new Date(t).getTime() : 0;
+        },
+
+        displayedAgents() {
+          let list = this.filteredAgents();
+          if (this.agentStatusFilter !== 'all') list = list.filter(a => this.agentStatusOf(a) === this.agentStatusFilter);
+          const sort = this.agentSort;
+          return [...list].sort((a, b) => {
+            if (sort === 'name') return (a.name || '').localeCompare(b.name || '');
+            if (sort === 'status') { const o = { running: 0, scheduled: 1, idle: 2 }; return o[this.agentStatusOf(a)] - o[this.agentStatusOf(b)]; }
+            return this.agentLastRunTs(b) - this.agentLastRunTs(a);
           });
-          // Sort: named groups first alphabetically, Ungrouped last
-          const keys = Object.keys(groups).sort((a, b) => {
-            if (a === 'Ungrouped') return 1;
-            if (b === 'Ungrouped') return -1;
-            return a.localeCompare(b);
+        },
+
+        agentGroups() {
+          const agents = this.displayedAgents();
+          const by = this.agentGroupBy;
+          if (by === 'none') return [{ name: null, agents }];
+          const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+          const keyOf = (a) => {
+            if (by === 'status') return cap(this.agentStatusOf(a));
+            if (by === 'type') return a.config.pluginDir ? 'Plugin' : 'Copilot Agent';
+            return a.config.group || 'Ungrouped';
+          };
+          const groups = {};
+          agents.forEach(a => { const k = keyOf(a); (groups[k] = groups[k] || []).push(a); });
+          const statusOrder = { Running: 0, Scheduled: 1, Idle: 2 };
+          const keys = Object.keys(groups).sort((x, y) => {
+            if (by === 'status') return (statusOrder[x] ?? 9) - (statusOrder[y] ?? 9);
+            if (x === 'Ungrouped') return 1;
+            if (y === 'Ungrouped') return -1;
+            return x.localeCompare(y);
           });
           return keys.map(k => ({ name: k, agents: groups[k] }));
         },
@@ -6415,6 +6953,31 @@
           return this.data.managers.filter((manager) => {
             const haystack = [manager.name, manager.config.description, ...(manager.orgDetails || []).map((agent) => agent.name || agent.id), ...(manager.config.assignments || []).map((assignment) => assignment.name)].filter(Boolean).join(' ').toLowerCase();
             return haystack.includes(query);
+          });
+        },
+
+        managerStatusOf(m) { return this.managerActiveCount(m) > 0 ? 'active' : 'idle'; },
+
+        managerStatusCounts() {
+          const c = { all: this.data.managers.length, active: 0, idle: 0 };
+          this.data.managers.forEach(m => { c[this.managerStatusOf(m)]++; });
+          return c;
+        },
+
+        managerLastRunTs(m) {
+          const r = m.lastRun;
+          const t = r ? (r.finished_at || r.started_at) : (m.last_run || null);
+          return t ? new Date(t).getTime() : 0;
+        },
+
+        displayedManagers() {
+          let list = this.filteredManagers();
+          if (this.managerStatusFilter !== 'all') list = list.filter(m => this.managerStatusOf(m) === this.managerStatusFilter);
+          const sort = this.managerSort;
+          return [...list].sort((a, b) => {
+            if (sort === 'name') return (a.name || '').localeCompare(b.name || '');
+            if (sort === 'active') return this.managerActiveCount(b) - this.managerActiveCount(a);
+            return this.managerLastRunTs(b) - this.managerLastRunTs(a);
           });
         },
 
@@ -8087,7 +8650,7 @@
           this.execAi.error = '';
           try {
             const r = await this.request('/api/execution-suggestions/generate', {
-              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '' })
+              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '', focusAgentId: this.execAi.focusAgentId || '' })
             });
             this.execAi.items = (r && r.suggestions) || [];
           } catch (error) {
@@ -9230,6 +9793,40 @@
         mktTypeIcon(t) {
           return { agent: '🤖', plugin: '🧩', skill: '🛠️', mcp: '🔌' }[t] || '•';
         },
+        mktSourceMeta(entry) {
+          const kind = entry.sourceKind || (entry.azdo ? 'azdo' : 'installed');
+          if (kind === 'azdo' && entry.azdo) {
+            const a = entry.azdo;
+            const loc = [a.org, a.project, a.repo].filter(Boolean).join('/') + (a.branch ? '@' + a.branch : '');
+            return { icon: '🔷', kind: 'Azure DevOps', location: loc, title: 'Azure DevOps · ' + loc };
+          }
+          if (kind === 'local') {
+            const full = entry.path || (entry.agent && entry.agent.cwd) || (entry.plugin && entry.plugin.dir) || entry.sourceLabel || '';
+            const parts = String(full).split(/[\\/]/).filter(Boolean);
+            const short = parts.length > 3 ? '…/' + parts.slice(-3).join('/') : full;
+            return { icon: '📁', kind: 'Local', location: short || entry.sourceLabel || '(local)', title: 'Local repo · ' + (full || entry.sourceLabel) };
+          }
+          // installed (capabilities discovered on already-installed agents)
+          const full = entry.path || entry.sourceLabel || '';
+          return { icon: '✓', kind: 'Installed', location: entry.sourceLabel || 'Installed', title: 'Installed' + (full ? ' · ' + full : '') };
+        },
+        mktEntryKind(entry) {
+          return entry.sourceKind || (entry.azdo ? 'azdo' : 'installed');
+        },
+        mktFilteredEntries() {
+          const entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
+          const f = this.mkt.sourceKindFilter;
+          if (!f || f === 'all') return entries;
+          return entries.filter(e => this.mktEntryKind(e) === f);
+        },
+        mktKindCounts() {
+          const c = { local: 0, azdo: 0, installed: 0 };
+          for (const e of ((this.mkt.catalog && this.mkt.catalog.entries) || [])) {
+            const k = this.mktEntryKind(e);
+            if (c[k] != null) c[k]++;
+          }
+          return c;
+        },
         async loadMarketplace() {
           try {
             const r = await this.request('/api/marketplace/sources');
@@ -9363,6 +9960,40 @@
           if (this.mkt.design.inited) return;
           this.mkt.design.inited = true;
         },
+        // Build a concrete test prompt for a proposal. Prefer the AI-supplied
+        // testPrompt; otherwise DERIVE an imperative task from the idea's own
+        // rationale (capability descriptions read like "Enables the agent to X"
+        // — we strip that scaffolding to get "X"), so the prompt is specific to
+        // THIS idea instead of a generic "what can you do".
+        mktDeriveTestPrompt(p) {
+          const ai = (p && p.testPrompt || '').trim();
+          if (ai) return ai;
+          let r = (p && p.rationale || '').trim();
+          if (r) {
+            r = r
+              .replace(/^(this\s+agent|the\s+agent|it)\s+/i, '')
+              .replace(/^(enables?|lets?|allows?|empowers?|helps?|gives?|adds?|provides?)\s+(the\s+)?(agent|user|you)\s+(to\s+|the\s+ability\s+to\s+)?/i, '')
+              .replace(/^(enables?|lets?|allows?|empowers?|helps?|gives?|adds?|provides?)\s+/i, '')
+              .replace(/^(the\s+ability\s+to|ability\s+to)\s+/i, '')
+              .trim();
+            // Keep the actionable lead clause (drop a trailing ", turning … into …" aside).
+            r = r.split(/,\s+(?:turning|making|so\s+that|which|allowing|enabling)\b/i)[0].trim();
+            if (r) {
+              r = r.charAt(0).toUpperCase() + r.slice(1);
+              if (!/[.!?]$/.test(r)) r += '.';
+              if (p.kind === 'enhance') r += ' Use the newly attached tools/skills on a realistic, current example.';
+              else r += ' Do it now on a realistic example using your tools and skills.';
+              return r;
+            }
+          }
+          const subj = (p && p.title || '').trim();
+          if (subj) return p && p.kind === 'create'
+            ? `Demonstrate "${subj}" now: perform that job on a realistic example using your tools and skills.`
+            : `Demonstrate "${subj}" now on a realistic, current example using the newly attached tools/skills.`;
+          return p && p.kind === 'create'
+            ? 'Do your core job now on a realistic example, using your tools and skills.'
+            : 'Perform the new capability this enhancement adds, on a realistic example, using the newly attached tools/skills.';
+        },
         async mktDesignGenerate() {
           const d = this.mkt.design;
           d.error = '';
@@ -9373,7 +10004,13 @@
             const body = { mode: d.mode, hint: d.hint };
             if (d.mode === 'enhance') body.agentId = d.agentId;
             const r = await this.request('/api/marketplace/design/generate', { method: 'POST', body: JSON.stringify(body) });
-            d.proposals = (r.proposals || []).map(p => ({ ...p, _applying: false, _applied: false }));
+            d.proposals = (r.proposals || []).map(p => ({
+              ...p,
+              _applying: false, _applied: false,
+              _name: p.kind === 'create' ? ((p.agent && p.agent.name) || p.title || 'New agent')
+                                         : ((this.data.agents.find(a => a.id === p.agentId) || {}).name || 'Agent') + ' (enhanced)',
+              _test: { open: false, running: false, sessionId: '', status: '', steps: [], prompt: this.mktDeriveTestPrompt(p), output: '', error: '' },
+            }));
             if (!d.proposals.length) d.error = 'No usable proposals — try a different focus.';
           } catch (e) {
             d.error = e.message || 'Generation failed';
@@ -9384,18 +10021,75 @@
         async mktDesignApply(p) {
           p._applying = true;
           try {
-            const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: p }) });
+            const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: p, name: p._name }) });
             p._applied = true;
             const attached = (r.attached || []).length;
-            const label = p.kind === 'create'
-              ? `${r.created ? r.created.name : 'Agent'} created` + (attached ? ` with ${attached} capabilit${attached === 1 ? 'y' : 'ies'}` : '')
-              : `${attached} capabilit${attached === 1 ? 'y' : 'ies'} attached`;
-            this.showToast('Applied', label + ((r.failed && r.failed.length) ? ` (${r.failed.length} skipped)` : ''), 'info');
+            const name = r.created ? r.created.name : (p._name || 'Agent');
+            const label = `${name} created` + (attached ? ` with ${attached} capabilit${attached === 1 ? 'y' : 'ies'}` : '')
+              + ((r.failed && r.failed.length) ? ` (${r.failed.length} skipped)` : '');
+            this.showToast('Agent created', label, 'info');
             await this.refreshAll(false);
           } catch (e) {
             p._applying = false;
-            this.showToast('Apply failed', e.message || 'Apply failed', 'error');
+            this.showToast('Create failed', e.message || 'Create failed', 'error');
           }
+        },
+        async mktDesignTest(p) {
+          const t = p._test;
+          t.error = ''; t.output = ''; t.steps = []; t.status = 'Starting…'; t.open = true; t.running = true;
+          try {
+            const r = await this.request('/api/marketplace/design/test', { method: 'POST', body: JSON.stringify({ proposal: { ...p, newName: p._name }, prompt: t.prompt }) });
+            t.sessionId = r.sessionId;
+            if (r.failed && r.failed.length) {
+              t.output = `⚠ ${r.failed.length} proposed capabilit${r.failed.length === 1 ? 'y' : 'ies'} could not be attached for this test.\n\n`;
+            }
+            this.mktDesignPoll(p);
+          } catch (e) {
+            t.running = false; t.status = '';
+            t.error = e.message || 'Test failed';
+          }
+        },
+        async mktDesignPoll(p) {
+          const t = p._test;
+          if (!t.sessionId) { t.running = false; t.status = ''; return; }
+          const baseOutput = t.output && t.output.startsWith('⚠') ? t.output.split('\n\n')[0] + '\n\n' : '';
+          try {
+            const r = await fetch(`/api/sessions/${t.sessionId}/poll?verbose=1`);
+            if (r.ok) {
+              const data = await r.json();
+              const lastTurn = (data.turns && data.turns.length) ? data.turns[data.turns.length - 1] : null;
+              if (lastTurn && Array.isArray(lastTurn.steps)) t.steps = lastTurn.steps;
+              if (data.lastAssistant) t.output = baseOutput + data.lastAssistant;
+              if (data.chatError) { t.error = data.chatError; t.running = false; t.status = ''; return; }
+              if (data.isActive) {
+                const n = t.steps ? t.steps.length : 0;
+                t.status = data.lastAssistant ? 'Responding…' : (n ? 'Working…' : 'Thinking…');
+                setTimeout(() => this.mktDesignPoll(p), 900); return;
+              }
+            }
+          } catch (_) {
+            setTimeout(() => this.mktDesignPoll(p), 1500);
+            return;
+          }
+          t.running = false; t.status = '';
+        },
+        mktStepLabel(s) {
+          if (!s) return '';
+          if (s.type === 'tool' || s.type === 'tool_start') return '🔧 ' + (s.tool || 'tool') + (s.type === 'tool_start' ? ' …' : (s.success === false ? ' ✗' : ' ✓'));
+          if (s.type === 'thinking') return '💭 Thinking';
+          if (s.type === 'run_agent') return '🤖 ' + (s.tool || 'subagent');
+          if (s.type === 'comment') return '💬 Note';
+          return '• ' + (s.type || 'step');
+        },
+        mktStepText(s) {
+          if (!s) return '';
+          if (s.type === 'thinking') return s.content || '';
+          if (s.type === 'comment') return s.content || '';
+          if (s.type === 'tool' || s.type === 'tool_start') {
+            const a = s.args ? (typeof s.args === 'string' ? s.args : JSON.stringify(s.args)) : '';
+            return (a || s.result || '').slice(0, 300);
+          }
+          return '';
         },
         async confirmAddCap() {
           const { entry, agentId } = this.mkt.addCap;

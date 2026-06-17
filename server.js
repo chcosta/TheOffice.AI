@@ -13,6 +13,7 @@ const ConfigSync = require('./config-sync');
 const azdo = require('./azdo');
 const capabilities = require('./capabilities');
 const agentPackage = require('./agentPackage');
+const agentExport = require('./agentExport');
 const marketplace = require('./marketplace');
 const marketplaceDesign = require('./marketplace-design');
 
@@ -310,7 +311,27 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
     buf.lastUpdate = Date.now();
   };
 
-  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk, model: settings.resolveModel('chat', config) })
+  // Live "Reasoning & steps": the SDK emits tool/thinking/sub-agent events as the
+  // run progresses. Mirror them into buf.steps using the SAME shape buildPollTurns
+  // produces from the flushed events.jsonl, so the in-progress view and the
+  // committed view render identically (tool_start -> tool, thinking, run_agent).
+  const onStep = (s) => {
+    if (!s) return;
+    if (s.kind === 'tool_start') {
+      buf.steps.push({ type: 'tool_start', tool: s.tool, args: s.args, toolCallId: s.toolCallId });
+    } else if (s.kind === 'tool_complete') {
+      const st = s.toolCallId && buf.steps.find(x => x.toolCallId === s.toolCallId);
+      if (st) { st.type = 'tool'; st.success = s.success; st.result = s.result; }
+      else buf.steps.push({ type: 'tool', tool: s.tool || '?', success: s.success, result: s.result });
+    } else if (s.kind === 'thinking') {
+      buf.steps.push({ type: 'thinking', content: s.content });
+    } else if (s.kind === 'agent') {
+      buf.steps.push({ type: 'run_agent', tool: s.name });
+    }
+    buf.lastUpdate = Date.now();
+  };
+
+  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk, onStep, model: settings.resolveModel('chat', config) })
     .then((res) => {
       buf.running = false;
       buf.finishedAt = Date.now();
@@ -891,29 +912,77 @@ app.get('/api/azdo/discover', async (req, res) => {
   const { org, project, repo, branch } = req.query;
   if (!org || !project || !repo || !branch) return res.status(400).json({ error: 'org, project, repo and branch are required' });
   try {
-    const registeredIds = new Set();
-    try { JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8')).forEach(a => registeredIds.add(a.id)); } catch {}
+    let registered = [];
+    try { registered = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8')); } catch {}
+    const isRegistered = (d) => registered.some(a => {
+      const s = a.source;
+      // Source-aware match: an item from THIS azdo source is registered even if
+      // its id was suffixed to coexist with a same-id install from elsewhere.
+      if (s && s.type === 'azdo') {
+        return s.org === org && s.project === project && s.repo === repo && s.path === d.path;
+      }
+      return a.id === d.id;
+    });
     const discovered = (await azdo.discover(org, project, repo, branch))
-      .map(d => ({ ...d, registered: registeredIds.has(d.id) }));
+      .map(d => ({ ...d, registered: isRegistered(d) }));
     res.json({ discovered });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 // Materialize + register an AzDO agent/plugin. Shared by /api/azdo/install and
 // the marketplace install endpoint. Returns the persisted agent config.
+// Two installs of the same logical item from the SAME source update in place
+// (same id). Installs of the same base id from a DIFFERENT source coexist by
+// suffixing the id with the source kind (e.g. "helix-ux-standup-azdo").
+function sameInstallSource(a, b) {
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'azdo') return a.org === b.org && a.project === b.project && a.repo === b.repo && a.path === b.path;
+  if (a.type === 'local') return String(a.path || '') === String(b.path || '');
+  return false;
+}
+function sourceSuffix(source) {
+  if (!source) return 'src';
+  if (source.type === 'azdo') return 'azdo';
+  if (source.type === 'local') return 'local';
+  return String(source.type || 'src');
+}
+// Resolve the id to persist for a new install, honoring same-source overwrite
+// and different-source coexistence. Returns { id, suffixed }.
+function resolveInstallId(baseId, newSource, agents) {
+  const existing = agents.find(a => a.id === baseId);
+  // Free, or it's the same logical source (an update/reinstall) -> reuse base id.
+  if (!existing) return { id: baseId, suffixed: false };
+  if (sameInstallSource(existing.source, newSource)) return { id: baseId, suffixed: false };
+  // Collision with a different (or source-less) entry -> suffix by source kind.
+  const suffix = sourceSuffix(newSource);
+  let candidate = `${baseId}-${suffix}`;
+  let n = 1;
+  while (true) {
+    const c = agents.find(a => a.id === candidate);
+    if (!c) return { id: candidate, suffixed: true };
+    if (sameInstallSource(c.source, newSource)) return { id: candidate, suffixed: true };
+    n++;
+    candidate = `${baseId}-${suffix}-${n}`;
+  }
+}
+
 async function installAzdoItem({ org, project, repo, branch, item, group }) {
   const source = {
     type: 'azdo', kind: item.kind, org, project, repo, branch,
     path: item.path, objectId: item.objectId || null,
     installedAt: new Date().toISOString()
   };
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  const { id: finalId, suffixed } = resolveInstallId(item.id, source, agents);
+  const baseName = item.displayName || item.name || item.id;
+  const name = suffixed ? `${baseName} (Azure DevOps)` : baseName;
   let config;
   if (item.kind === 'plugin') {
     const { pluginDir, mcpConfig } = await azdo.materializePlugin(org, project, repo, branch, item);
     registerLocalPluginInCopilot(pluginDir);
     config = {
-      id: item.id,
-      name: item.displayName || item.name || item.id,
+      id: finalId,
+      name,
       cwd: azdo.repoRoot(org, project, repo, branch),
       pluginDir,
       sourceDir: pluginDir,
@@ -928,8 +997,8 @@ async function installAzdoItem({ org, project, repo, branch, item, group }) {
   } else {
     const { cwd, mcpConfig, skillCount } = await azdo.materializeAgent(org, project, repo, branch, item.path);
     config = {
-      id: item.id,
-      name: item.displayName || item.name || item.id,
+      id: finalId,
+      name,
       cwd,
       agent: item.agentRef || item.name || item.id,
       schedule: 'never',
@@ -943,7 +1012,6 @@ async function installAzdoItem({ org, project, repo, branch, item, group }) {
     // generated runtime package so they're actually wired at run time.
     if (mcpConfig || skillCount) config.usePackage = true;
   }
-  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const existing = agents.findIndex(a => a.id === config.id);
   if (existing >= 0) agents[existing] = config; else agents.push(config);
   fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
@@ -1085,39 +1153,45 @@ app.post('/api/marketplace/install', async (req, res) => {
 
 // Register a local agent/plugin catalog entry as an agent.
 function installLocalCatalogEntry(entry, group) {
-  const agentId = slugifyId(entry.displayName || entry.name || entry.id);
+  const baseId = slugifyId(entry.displayName || entry.name || entry.id);
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   let config;
   if (entry.type === 'plugin' && entry.plugin && entry.plugin.dir) {
+    const source = { type: 'local', kind: 'plugin', path: entry.plugin.dir, installedAt: new Date().toISOString() };
+    const { id: finalId, suffixed } = resolveInstallId(baseId, source, agents);
+    const baseName = entry.displayName || entry.name || baseId;
     registerLocalPluginInCopilot(entry.plugin.dir);
     config = {
-      id: agentId,
-      name: entry.displayName || entry.name || agentId,
+      id: finalId,
+      name: suffixed ? `${baseName} (Local)` : baseName,
       cwd: path.dirname(entry.plugin.dir),
       pluginDir: entry.plugin.dir,
       sourceDir: entry.plugin.dir,
-      agent: `${agentId}:${agentId}`,
+      agent: `${baseId}:${baseId}`,
       schedule: 'never',
       durable: true,
       group: group || 'Marketplace',
       description: entry.description || '',
-      source: { type: 'local', kind: 'plugin', path: entry.plugin.dir, installedAt: new Date().toISOString() },
+      source,
     };
   } else if (entry.type === 'agent' && entry.agent) {
+    const source = { type: 'local', kind: 'agent', path: entry.path, installedAt: new Date().toISOString() };
+    const { id: finalId, suffixed } = resolveInstallId(baseId, source, agents);
+    const baseName = entry.displayName || entry.name || baseId;
     config = {
-      id: agentId,
-      name: entry.displayName || entry.name || agentId,
+      id: finalId,
+      name: suffixed ? `${baseName} (Local)` : baseName,
       cwd: entry.agent.cwd || path.dirname(entry.path || '.'),
-      agent: entry.agent.ref || entry.name || agentId,
+      agent: entry.agent.ref || entry.name || baseId,
       schedule: 'never',
       durable: true,
       group: group || 'Marketplace',
       description: entry.description || '',
-      source: { type: 'local', kind: 'agent', path: entry.path, installedAt: new Date().toISOString() },
+      source,
     };
   } else {
     throw new Error('Unsupported local entry');
   }
-  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const existing = agents.findIndex(a => a.id === config.id);
   if (existing >= 0) agents[existing] = config; else agents.push(config);
   fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
@@ -1181,74 +1255,165 @@ app.post('/api/marketplace/design/generate', async (req, res) => {
   }
 });
 
-// Apply a design proposal: enhance -> attach caps to the agent; create -> write
-// + register a new generated agent, then attach its caps.
+// ---- Design proposal helpers (shared by apply + test) ----
+
+// Allocate an agent id that doesn't collide with an existing one.
+function uniqueAgentId(agents, base) {
+  const slug = marketplaceDesign.slugify(base || 'agent');
+  if (!agents.some(a => a.id === slug)) return slug;
+  let i = 2;
+  while (agents.some(a => a.id === `${slug}-${i}`)) i++;
+  return `${slug}-${i}`;
+}
+
+// Copy a source agent's marketplace overlay (attached caps) onto a new id so a
+// cloned/test agent inherits everything the original already had.
+function copyOverlay(srcId, dstId) {
+  const src = agentPackage.overlayDir(srcId);
+  const dst = agentPackage.overlayDir(dstId);
+  if (src === dst) return;
+  if (fs.existsSync(src)) fs.cpSync(src, dst, { recursive: true });
+}
+
+// Attach a proposal's capabilities (re-resolved by type:name against the live
+// catalog) onto an agent's overlay. Returns { attached, failed }.
+async function attachCapsToAgent(agentId, attachArr) {
+  const attached = [];
+  const failed = [];
+  for (const a of Array.isArray(attachArr) ? attachArr : []) {
+    try {
+      const entry = marketplace.resolveByTypeName(a.type, a.name);
+      if (!entry) { failed.push({ ...a, error: 'not found in catalog' }); continue; }
+      const mat = await marketplace.materializeForAttach(entry);
+      if (mat.kind === 'mcp') {
+        const cfg = capabilities.resolveCatalogMcp(mat.sourcePath, mat.name);
+        if (!cfg) { failed.push({ ...a, error: 'could not resolve MCP config' }); continue; }
+        capabilities.attachMcp(agentId, mat.name, cfg);
+      } else {
+        const dir = capabilities.resolveCatalogSkill(mat.sourceDir);
+        if (!dir) { failed.push({ ...a, error: 'could not resolve skill source' }); continue; }
+        capabilities.attachSkill(agentId, { name: mat.name, sourceDir: dir });
+      }
+      attached.push({ type: a.type, name: mat.name });
+    } catch (e) {
+      failed.push({ ...a, error: e.message });
+    }
+  }
+  return { attached, failed };
+}
+
+// Build the runnable config a proposal describes WITHOUT persisting it to
+// agents.json. Used by the "test" flow so a suggestion can be exercised live
+// before the user commits to creating the agent. Returns { config, id }.
+const DESIGN_TEST_PREFIX = 'dtest-';
+async function buildProposalConfig(proposal, { persist } = {}) {
+  const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+  let id, config;
+
+  if (proposal.kind === 'create') {
+    const spec = proposal.agent || {};
+    if (!spec.name || !spec.body) throw new Error('proposal.agent missing name/body');
+    if (proposal.newName) spec.name = String(proposal.newName).trim();
+    const w = marketplaceDesign.writeGeneratedAgent(spec);
+    id = persist ? uniqueAgentId(agents, w.slug) : DESIGN_TEST_PREFIX + require('crypto').randomBytes(4).toString('hex');
+    config = {
+      id, name: spec.name, cwd: w.dir, agent: w.slug,
+      schedule: 'never', durable: true, group: 'Marketplace',
+      description: spec.description || '',
+      source: { type: 'design', kind: 'agent', path: w.agentMdPath, createdAt: new Date().toISOString() },
+    };
+  } else if (proposal.kind === 'enhance') {
+    const targetId = String(proposal.agentId || '').trim();
+    const target = agents.find(a => a.id === targetId);
+    if (!target) throw new Error('Target agent not found');
+    const newName = (proposal.newName || `${target.name} (enhanced)`).trim();
+    id = persist ? uniqueAgentId(agents, marketplaceDesign.slugify(newName))
+                 : DESIGN_TEST_PREFIX + require('crypto').randomBytes(4).toString('hex');
+    config = {
+      ...target,
+      id,
+      name: newName,
+      autoStart: false,
+      schedule: 'never',
+      durable: true,
+      group: target.group || 'Marketplace',
+      source: { type: 'design', kind: 'enhanced-clone', from: targetId, createdAt: new Date().toISOString() },
+    };
+    // Inherit the target's already-attached capabilities, then layer the new ones.
+    copyOverlay(targetId, id);
+  } else {
+    throw new Error('Unknown proposal kind');
+  }
+  return { config, id };
+}
+
+// Apply a design proposal. Both kinds now CREATE a new agent:
+//   create  -> write + register a brand-new generated agent
+//   enhance -> clone the target into a new agent (original is left untouched)
+// then attach the proposed capabilities. The new agent can be exported to AzDO.
 app.post('/api/marketplace/design/apply', async (req, res) => {
   const proposal = req.body && req.body.proposal;
   if (!proposal || !proposal.kind) return res.status(400).json({ error: 'proposal is required' });
+  if (req.body.name) proposal.newName = String(req.body.name).trim();
   try {
-    let agentId, created = null;
+    const { config, id: agentId } = await buildProposalConfig(proposal, { persist: true });
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    agents.push(config);
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    supervisor.register(config);
 
-    if (proposal.kind === 'enhance') {
-      agentId = String(proposal.agentId || '').trim();
-      if (!agentId) return res.status(400).json({ error: 'proposal.agentId is required' });
-      const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-      if (!agents.find(a => a.id === agentId)) return res.status(404).json({ error: 'Target agent not found' });
-    } else if (proposal.kind === 'create') {
-      const spec = proposal.agent || {};
-      if (!spec.name || !spec.body) return res.status(400).json({ error: 'proposal.agent missing name/body' });
-      const w = marketplaceDesign.writeGeneratedAgent(spec);
-      agentId = w.slug;
-      const config = {
-        id: agentId,
-        name: spec.name,
-        cwd: w.dir,
-        agent: w.slug,
-        schedule: 'never',
-        durable: true,
-        group: 'Marketplace',
-        description: spec.description || '',
-        source: { type: 'design', kind: 'agent', path: w.agentMdPath, createdAt: new Date().toISOString() },
-      };
-      const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-      const existing = agents.findIndex(a => a.id === config.id);
-      if (existing >= 0) agents[existing] = config; else agents.push(config);
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
-      supervisor.register(config);
-      created = config;
-    } else {
-      return res.status(400).json({ error: 'Unknown proposal kind' });
-    }
-
-    // Attach the proposed capabilities (re-resolve by type:name against live catalog).
-    const attached = [];
-    const failed = [];
-    for (const a of Array.isArray(proposal.attach) ? proposal.attach : []) {
-      try {
-        const entry = marketplace.resolveByTypeName(a.type, a.name);
-        if (!entry) { failed.push({ ...a, error: 'not found in catalog' }); continue; }
-        const mat = await marketplace.materializeForAttach(entry);
-        if (mat.kind === 'mcp') {
-          const cfg = capabilities.resolveCatalogMcp(mat.sourcePath, mat.name);
-          if (!cfg) { failed.push({ ...a, error: 'could not resolve MCP config' }); continue; }
-          capabilities.attachMcp(agentId, mat.name, cfg);
-        } else {
-          const dir = capabilities.resolveCatalogSkill(mat.sourceDir);
-          if (!dir) { failed.push({ ...a, error: 'could not resolve skill source' }); continue; }
-          capabilities.attachSkill(agentId, { name: mat.name, sourceDir: dir });
-        }
-        attached.push({ type: a.type, name: mat.name });
-      } catch (e) {
-        failed.push({ ...a, error: e.message });
-      }
-    }
-
+    const { attached, failed } = await attachCapsToAgent(agentId, proposal.attach);
     broadcastSSE('agent-update', { agentId });
-    res.json({ ok: true, kind: proposal.kind, agentId, created, attached, failed });
+    res.json({ ok: true, kind: proposal.kind, agentId, created: config, attached, failed });
   } catch (e) {
-    res.status(500).json({ error: `Apply failed: ${e.message}` });
+    const msg = e.message || 'Apply failed';
+    const code = /not found/i.test(msg) ? 404 : (/missing|required/i.test(msg) ? 400 : 500);
+    res.status(code).json({ error: `Apply failed: ${msg}` });
   }
 });
+
+// Test a design proposal LIVE before committing. Stages the would-be agent to a
+// throwaway id, attaches the proposed caps, and runs a single chat turn the
+// client streams via GET /api/sessions/:sessionId/poll?verbose=1. Nothing is
+// written to agents.json; throwaway overlays/packages are reaped here.
+app.post('/api/marketplace/design/test', async (req, res) => {
+  const proposal = req.body && req.body.proposal;
+  if (!proposal || !proposal.kind) return res.status(400).json({ error: 'proposal is required' });
+  const prompt = String((req.body && req.body.prompt) || '').trim()
+    || 'Briefly: what tools and skills do you currently have access to? List them by name, then confirm you can use them.';
+  try {
+    // Reap prior throwaway test artifacts (best-effort).
+    reapDesignTestArtifacts();
+
+    const { config, id: testId } = await buildProposalConfig(proposal, { persist: false });
+    const { attached, failed } = await attachCapsToAgent(testId, proposal.attach);
+    config.name = `${config.name} (test)`;
+
+    const sessionId = require('crypto').randomUUID();
+    designTestSessions.set(sessionId, testId);
+    runChatTurn({ sessionId, message: prompt, config, resume: false, agentId: testId });
+    res.json({ ok: true, sessionId, testId, prompt, attached, failed });
+  } catch (e) {
+    const msg = e.message || 'Test failed';
+    const code = /not found/i.test(msg) ? 404 : (/missing|required/i.test(msg) ? 400 : 500);
+    res.status(code).json({ error: `Test failed: ${msg}` });
+  }
+});
+
+const designTestSessions = new Map(); // sessionId -> testId
+function reapDesignTestArtifacts() {
+  for (const root of [agentPackage.OVERLAYS_ROOT, agentPackage.PACKAGES_ROOT]) {
+    let entries = [];
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch (_) { continue; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const n = e.name;
+      if (n.startsWith(DESIGN_TEST_PREFIX) || n.startsWith('gen-' + DESIGN_TEST_PREFIX)) {
+        try { fs.rmSync(path.join(root, n), { recursive: true, force: true }); } catch (_) {}
+      }
+    }
+  }
+}
 // ============ End Marketplace API Routes ============
 
 // SPA — serve new unified app for all page routes
@@ -1641,6 +1806,75 @@ app.post('/api/agents/:id/capabilities/validate', (req, res) => {
       package: pkg,
       error: pkgErr,
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Export an agent (+ its capability overlay) to an Azure DevOps repo.
+// Body: { org, project, repo, baseBranch?, newBranch?, layout?, basePath?,
+//         pluginName?, createPr?, prTitle?, prDescription?, dryRun? }
+// dryRun (default true) returns the file plan + redactions + secret findings
+// without touching the repo. A non-dry run blocks if the secret scan trips.
+app.post('/api/agents/:id/export-azdo', async (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  const b = req.body || {};
+  const dryRun = b.dryRun !== false;
+  try {
+    const plan = agentExport.buildExport(entry.config, {
+      layout: b.layout, basePath: b.basePath, pluginName: b.pluginName
+    });
+    if (!plan) return res.status(400).json({ error: 'This agent could not be serialized (no agent definition found).' });
+
+    const fileSummary = plan.files.map(f => ({ path: f.path, bytes: f.content.length }));
+    const preview = {
+      slug: plan.slug, pluginName: plan.pluginName, kind: plan.kind, layout: plan.layout,
+      branchSuggestion: plan.branchSuggestion, files: fileSummary,
+      redactions: plan.redactions, secrets: plan.secrets, warnings: plan.warnings
+    };
+
+    if (dryRun) return res.json({ ok: true, dryRun: true, preview });
+
+    if (!b.org || !b.project || !b.repo) {
+      return res.status(400).json({ error: 'org, project and repo are required to push.' });
+    }
+    if (plan.secrets.length) {
+      return res.status(400).json({ error: 'Secret-like content found; push blocked.', preview });
+    }
+
+    // Preflight: resolve repo + base branch.
+    const repoInfo = await azdo.getRepo(b.org, b.project, b.repo);
+    const baseBranch = (b.baseBranch || repoInfo.defaultBranch || 'main').replace(/^refs\/heads\//, '');
+    const baseSha = await azdo.getRefObjectId(b.org, b.project, b.repo, baseBranch);
+    if (!baseSha) return res.status(400).json({ error: `Base branch "${baseBranch}" not found in ${b.repo}.` });
+
+    const newBranch = (b.newBranch || plan.branchSuggestion).replace(/^refs\/heads\//, '');
+    if (await azdo.getRefObjectId(b.org, b.project, b.repo, newBranch)) {
+      return res.status(409).json({ error: `Branch "${newBranch}" already exists. Choose a different name.` });
+    }
+
+    // Decide add vs edit per file against the base branch.
+    const changes = [];
+    for (const f of plan.files) {
+      const exists = await azdo.getObjectId(b.org, b.project, b.repo, baseBranch, f.path);
+      changes.push({ path: f.path, content: f.content, changeType: exists ? 'edit' : 'add' });
+    }
+
+    const commitMessage = b.commitMessage || `Export agent: ${entry.config.name || plan.slug}`;
+    await azdo.pushFiles(b.org, b.project, b.repo, { baseBranch, newBranch, changes, commitMessage });
+
+    let pr = null;
+    if (b.createPr) {
+      pr = await azdo.createPullRequest(b.org, b.project, b.repo, {
+        sourceBranch: newBranch, targetBranch: baseBranch,
+        title: b.prTitle || `Add ${entry.config.name || plan.slug}`,
+        description: b.prDescription || `Exported from TheOffice.AI (${plan.layout} layout).`
+      });
+    }
+
+    const branchUrl = `https://dev.azure.com/${encodeURIComponent(b.org)}/${encodeURIComponent(b.project)}/_git/${encodeURIComponent(b.repo)}?version=GB${encodeURIComponent(newBranch)}`;
+    res.json({ ok: true, dryRun: false, branch: newBranch, baseBranch, branchUrl, pr, filesPushed: changes.length, preview });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -4287,6 +4521,10 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
   let chains = [];
   try { chains = chainEngine.list().map(c => ({ name: c.name, description: c.description, steps: (c.steps || []).map(s => s.taskId) })); } catch (_) {}
   const hint = String((req.body && req.body.hint) || '').trim();
+  const focusAgentId = String((req.body && req.body.focusAgentId) || '').trim();
+  const focusAgent = focusAgentId && validIds.has(focusAgentId)
+    ? agents.find(a => a.id === focusAgentId)
+    : null;
 
   const prompt = [
     'You are an automation strategist for an agent-orchestration platform. Propose CREATIVE, GENUINELY USEFUL new things the user could run, by combining their existing agents in ways they may not have considered.',
@@ -4301,6 +4539,12 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
     JSON.stringify(chains, null, 2),
     '',
     hint ? ('USER FOCUS: ' + hint) : 'No specific focus — surprise the user with a useful mix.',
+    '',
+    focusAgent
+      ? ('FOCUS AGENT (HARD REQUIREMENT): Every single suggestion MUST involve the agent id "' + focusAgent.id + '"' + (focusAgent.name ? ' (' + focusAgent.name + ')' : '') + '. '
+         + 'For "task" suggestions, that agent MUST be the agentId. For "flow" suggestions, that agent MUST appear as one of the steps (it can be the first step that produces data, or a later step that acts on prior output — whichever is most natural). '
+         + 'Do NOT propose any suggestion that omits this agent. Design the other steps/agents around it.')
+      : 'No focus agent — feel free to use any mix of the available agents.',
     '',
     'Propose 5 suggestions. Each is either:',
     '- a "task": a single agent run with a specific, ready-to-run prompt, OR',
@@ -4334,7 +4578,13 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
     const text = acc.trim() ? acc : (result.output || '');
     const arr = parseSuggestionJson(text);
     if (!arr) return res.status(502).json({ error: 'Could not parse AI suggestions. Try refreshing.', raw: text.slice(0, 500) });
-    const suggestions = arr.map(s => normalizeSuggestion(s, validIds)).filter(Boolean);
+    let suggestions = arr.map(s => normalizeSuggestion(s, validIds)).filter(Boolean);
+    if (focusAgent) {
+      const involvesFocus = (s) => s.kind === 'task'
+        ? s.agentId === focusAgent.id
+        : Array.isArray(s.steps) && s.steps.some(st => st.agentId === focusAgent.id);
+      suggestions = suggestions.filter(involvesFocus);
+    }
     if (!suggestions.length) return res.status(502).json({ error: 'AI returned no valid suggestions. Try refreshing.' });
     res.json({ suggestions });
   } catch (e) {

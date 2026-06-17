@@ -314,6 +314,88 @@ async function getObjectId(org, project, repo, branch, itemPath) {
   }
 }
 
+// ---- Write helpers (export) ----------------------------------------------
+
+// Write-capable request. Mirrors api() but allows a method + JSON body and
+// surfaces AzDO's error message. Used only by the export flow.
+async function apiSend(org, projectAndRest, { method = 'GET', body } = {}) {
+  const url = `https://dev.azure.com/${seg(org)}/` + projectAndRest;
+  const headers = { Authorization: `Bearer ${getToken()}`, Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  const text = await res.text().catch(() => '');
+  if (!res.ok) {
+    const detail = text.slice(0, 400);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`Azure DevOps denied access (${res.status}). You may not have permission to push to this repo. ${detail}`);
+    }
+    if (res.status === 404) throw new Error(`Azure DevOps resource not found (404). Check org/project/repo. ${detail}`);
+    if (res.status === 409) throw new Error(`Azure DevOps conflict (409). ${detail}`);
+    throw new Error(`Azure DevOps request failed (${res.status}). ${detail}`);
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+// Repo metadata (id + default branch). Read-only; used in export preflight.
+async function getRepo(org, project, repo) {
+  const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}?api-version=${API_VERSION}`);
+  return { id: d.id, name: d.name, defaultBranch: (d.defaultBranch || '').replace('refs/heads/', '') };
+}
+
+// Current commit SHA a branch points at, or null if the branch doesn't exist.
+async function getRefObjectId(org, project, repo, branch) {
+  const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/refs?filter=${encodeURIComponent('heads/' + String(branch || '').trim())}&api-version=${API_VERSION}`);
+  const want = 'refs/heads/' + String(branch || '').trim();
+  const hit = (d.value || []).find(r => r.name === want);
+  return hit ? hit.objectId : null;
+}
+
+/**
+ * Create a new branch off `baseBranch` and commit a set of files onto it.
+ * `changes` = [{ path, content, changeType }]; changeType defaults to 'add'.
+ * Paths are repo-absolute (leading '/' enforced). Retries once on a 409 by
+ * re-reading the base head (handles the base branch moving under us).
+ */
+async function pushFiles(org, project, repo, { baseBranch, newBranch, changes, commitMessage }) {
+  const norm = changes.map(c => ({
+    changeType: c.changeType || 'add',
+    item: { path: '/' + String(c.path || '').replace(/^\/+/, '') },
+    newContent: { content: c.content, contentType: 'rawtext' }
+  }));
+  const attempt = async () => {
+    const baseSha = await getRefObjectId(org, project, repo, baseBranch);
+    if (!baseSha) throw new Error(`Base branch "${baseBranch}" not found in ${repo}.`);
+    return apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pushes?api-version=${API_VERSION}`, {
+      method: 'POST',
+      body: {
+        refUpdates: [{ name: 'refs/heads/' + newBranch.replace(/^refs\/heads\//, ''), oldObjectId: baseSha }],
+        commits: [{ comment: commitMessage || 'Export agent', changes: norm }]
+      }
+    });
+  };
+  try {
+    return await attempt();
+  } catch (e) {
+    if (/\(409\)/.test(e.message)) return attempt();
+    throw e;
+  }
+}
+
+// Open a pull request from newBranch into baseBranch.
+async function createPullRequest(org, project, repo, { sourceBranch, targetBranch, title, description }) {
+  const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests?api-version=${API_VERSION}`, {
+    method: 'POST',
+    body: {
+      sourceRefName: 'refs/heads/' + sourceBranch.replace(/^refs\/heads\//, ''),
+      targetRefName: 'refs/heads/' + targetBranch.replace(/^refs\/heads\//, ''),
+      title: title || 'Add exported agent',
+      description: description || ''
+    }
+  });
+  const webUrl = `https://dev.azure.com/${seg(org)}/${seg(project)}/_git/${seg(repo)}/pullrequest/${d.pullRequestId}`;
+  return { pullRequestId: d.pullRequestId, url: webUrl };
+}
+
 module.exports = {
   AZDO_STORE,
   getToken,
@@ -325,5 +407,10 @@ module.exports = {
   materializeAgent,
   materializePlugin,
   getObjectId,
-  repoRoot
+  repoRoot,
+  apiSend,
+  getRepo,
+  getRefObjectId,
+  pushFiles,
+  createPullRequest
 };

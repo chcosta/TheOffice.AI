@@ -500,7 +500,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, model }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
@@ -515,7 +515,7 @@ class SdkRunner {
       // Resuming a persisted session: the agent/tools are already wired in.
       opts.__resume = true;
       opts.__keepAlive = true;
-      return this._execute(opts, prompt, sessionId, onChunk);
+      return this._execute(opts, prompt, sessionId, onChunk, onStep);
     }
     // New session: resolve the agent wiring (same rules as runAgent). If nothing
     // resolves, the chat still runs as the default copilot.
@@ -536,7 +536,7 @@ class SdkRunner {
       }
     }
     opts.__keepAlive = true;
-    return this._execute(opts, prompt, sessionId, onChunk);
+    return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }
 
   /**
@@ -545,7 +545,7 @@ class SdkRunner {
    * and returns the standard result shape. A session start failure degrades to
    * { fallback:true }.
    */
-  async _execute(opts, prompt, sessionId, onChunk) {
+  async _execute(opts, prompt, sessionId, onChunk, onStep) {
     const client = await this._getClient();
     if (!client) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: no client', sessionId };
@@ -560,6 +560,7 @@ class SdkRunner {
     let session = null;
     let entry = null;
     let onDelta = null;
+    let stepListeners = [];
     try {
       // Reuse a still-connected chat session if we have one — this is what keeps
       // the agent "open" between turns instead of re-resuming each message.
@@ -583,6 +584,32 @@ class SdkRunner {
           }
         };
         session.on('assistant.message_delta', onDelta);
+      }
+
+      // Live step stream: tool calls, extended thinking, and sub-agent selection
+      // are emitted as the run progresses (they are NOT in the delta stream). We
+      // surface them through onStep so callers can render "Reasoning & steps"
+      // live — without waiting for getEvents() at the end. Registered per-turn
+      // and detached below, mirroring onDelta.
+      if (typeof onStep === 'function') {
+        const emit = (s) => { try { onStep(s); } catch (_) { /* ignore */ } };
+        const add = (name, fn) => { session.on(name, fn); stepListeners.push([name, fn]); };
+        add('tool.execution_start', (ev) => {
+          const d = (ev && ev.data) || {};
+          emit({ kind: 'tool_start', tool: d.toolName || 'tool', args: d.arguments, toolCallId: d.toolCallId });
+        });
+        add('tool.execution_complete', (ev) => {
+          const d = (ev && ev.data) || {};
+          emit({ kind: 'tool_complete', toolCallId: d.toolCallId, tool: d.toolName, success: d.success !== false && !d.error, result: String(d.result?.content || '').slice(0, 2000) });
+        });
+        add('assistant.reasoning', (ev) => {
+          const d = (ev && ev.data) || {};
+          if (d.content) emit({ kind: 'thinking', content: String(d.content).slice(0, 4000) });
+        });
+        add('subagent.selected', (ev) => {
+          const d = (ev && ev.data) || {};
+          emit({ kind: 'agent', name: d.agentDisplayName || d.agentName || 'subagent' });
+        });
       }
 
       // assistant.usage events carry authoritative per-API-call billing metrics
@@ -625,6 +652,13 @@ class SdkRunner {
         const off = session.off || session.removeListener;
         if (off) off.call(session, 'assistant.usage', onUsage);
       } catch (_) { /* ignore */ }
+      if (stepListeners.length) {
+        const off = session.off || session.removeListener;
+        if (off) for (const [name, fn] of stepListeners) {
+          try { off.call(session, name, fn); } catch (_) { /* ignore */ }
+        }
+        stepListeners.length = 0;
+      }
 
       // Authoritative output: assistant.message contents joined like the scraper.
       let output = '';
@@ -719,6 +753,13 @@ class SdkRunner {
           const off = session.off || session.removeListener;
           if (off) off.call(session, 'assistant.message_delta', onDelta);
         } catch (_) { /* ignore */ }
+      }
+      if (stepListeners.length && session) {
+        const off = session.off || session.removeListener;
+        if (off) for (const [name, fn] of stepListeners) {
+          try { off.call(session, name, fn); } catch (_) { /* ignore */ }
+        }
+        stepListeners.length = 0;
       }
       // Only one-shot runs disconnect here; kept-alive chat sessions stay open
       // and are closed by the idle timer or closeChatSession().
