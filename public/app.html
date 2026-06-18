@@ -683,6 +683,35 @@
       padding: 1px 8px;
     }
     .exec-jump-go { color: var(--cp-text-soft); font-size: 1.1rem; }
+    .ops-lists {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .ops-list-body {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      max-height: 340px;
+      overflow-y: auto;
+    }
+    .ops-run-btn {
+      font-size: 0.74rem;
+      padding: 5px 10px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .ops-list-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .ops-list-head .ops-actions { display: flex; gap: 12px; align-items: center; }
+    .ops-list-head a.hint { color: var(--cp-link); text-decoration: none; }
+    .ops-list-head a.hint:hover { text-decoration: underline; }
     .nav-list {
       display: grid;
       gap: 4px;
@@ -3666,32 +3695,82 @@
               </section>
             </div>
 
-            <!-- Jump to areas -->
-            <div class="exec-jump">
-              <a href="#" @click.prevent="goTo('#/tasks')" class="exec-jump-card">
-                <span class="exec-jump-icon">⚡</span>
-                <span class="exec-jump-body">
-                  <span class="exec-jump-title">Tasks <span class="exec-jump-count" x-text="executionCounts().tasks"></span></span>
-                  <span class="hint">Single-agent jobs — run on demand or on a schedule.</span>
-                </span>
-                <span class="exec-jump-go">→</span>
-              </a>
-              <a href="#" @click.prevent="goTo('#/chains')" class="exec-jump-card">
-                <span class="exec-jump-icon">🔗</span>
-                <span class="exec-jump-body">
-                  <span class="exec-jump-title">Flows <span class="exec-jump-count" x-text="executionCounts().flows"></span></span>
-                  <span class="hint">Multi-agent pipelines — one agent's output feeds the next.</span>
-                </span>
-                <span class="exec-jump-go">→</span>
-              </a>
-              <a href="#" @click.prevent="goTo('#/assignments')" class="exec-jump-card">
-                <span class="exec-jump-icon">📋</span>
-                <span class="exec-jump-body">
-                  <span class="exec-jump-title">Assignments <span class="exec-jump-count" x-text="executionCounts().assignments"></span></span>
-                  <span class="hint">Manager-run prompts across an org on a schedule.</span>
-                </span>
-                <span class="exec-jump-go">→</span>
-              </a>
+            <!-- Quick-access operations: browse, run, or open Tasks / Flows / Assignments -->
+            <div class="ops-lists">
+              <!-- Tasks -->
+              <section class="card">
+                <div class="ops-list-head">
+                  <strong>⚡ Tasks <span class="exec-jump-count" x-text="executionCounts().tasks"></span></strong>
+                  <span class="ops-actions">
+                    <a href="#" @click.prevent="openTaskModal()" class="hint">＋ New</a>
+                    <a href="#" @click.prevent="goTo('#/tasks')" class="hint">All →</a>
+                  </span>
+                </div>
+                <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Single-agent jobs — run on demand or on a schedule.</div>
+                <div class="ops-list-body">
+                  <template x-for="t in opsTasks()" :key="t.taskKey">
+                    <div class="exec-row" style="cursor:pointer" @click="opsOpen('task', t)">
+                      <span class="status-badge" :class="statusClass(t.status)" x-text="statusLabel(t.status)"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="t.name"></span>
+                        <span class="hint" style="display:block;font-size:0.7rem" x-text="t.ownerName + ' • ' + (t.nextRun ? 'next ' + formatRelative(t.nextRun) : 'Manual')"></span>
+                      </span>
+                      <button class="btn primary ops-run-btn" type="button" @click.stop="runTask(t)">▶ Run</button>
+                    </div>
+                  </template>
+                </div>
+                <div class="hint" x-show="!opsTasks().length" style="font-style:italic;padding:8px 0">No tasks yet. <a href="#" @click.prevent="openTaskModal()" style="color:var(--cp-link)">Create one →</a></div>
+              </section>
+
+              <!-- Flows -->
+              <section class="card">
+                <div class="ops-list-head">
+                  <strong>🔗 Flows <span class="exec-jump-count" x-text="executionCounts().flows"></span></strong>
+                  <span class="ops-actions">
+                    <a href="#" @click.prevent="newChain()" class="hint">＋ New</a>
+                    <a href="#" @click.prevent="goTo('#/chains')" class="hint">All →</a>
+                  </span>
+                </div>
+                <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Multi-agent pipelines — one agent's output feeds the next.</div>
+                <div class="ops-list-body">
+                  <template x-for="c in opsFlows()" :key="c.id">
+                    <div class="exec-row" style="cursor:pointer" @click="opsOpen('flow', c)">
+                      <span class="status-badge" :class="chainRunState[c.id] ? statusClass(chainRunState[c.id]?.status) : (c.enabled === false ? 'idle' : 'success')" x-text="chainRunState[c.id] ? chainRunState[c.id]?.status : (c.enabled === false ? 'Disabled' : 'Enabled')"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="c.name"></span>
+                        <span class="hint" style="display:block;font-size:0.7rem" x-text="(c.steps?.length || 0) + ' tasks • ' + chainScheduleSummary(c)"></span>
+                      </span>
+                      <button class="btn primary ops-run-btn" type="button" @click.stop="runChain(c)">▶ Run</button>
+                    </div>
+                  </template>
+                </div>
+                <div class="hint" x-show="!opsFlows().length" style="font-style:italic;padding:8px 0">No flows yet. <a href="#" @click.prevent="newChain()" style="color:var(--cp-link)">Create one →</a></div>
+              </section>
+
+              <!-- Assignments -->
+              <section class="card">
+                <div class="ops-list-head">
+                  <strong>📋 Assignments <span class="exec-jump-count" x-text="executionCounts().assignments"></span></strong>
+                  <span class="ops-actions">
+                    <a href="#" @click.prevent="openAssignmentModal()" class="hint">＋ New</a>
+                    <a href="#" @click.prevent="goTo('#/assignments')" class="hint">All →</a>
+                  </span>
+                </div>
+                <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Manager-run prompts across an org on a schedule.</div>
+                <div class="ops-list-body">
+                  <template x-for="t in opsAssignments()" :key="t.taskKey">
+                    <div class="exec-row" style="cursor:pointer" @click="opsOpen('assignment', t)">
+                      <span class="status-badge" :class="statusClass(t.status)" x-text="statusLabel(t.status)"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="t.name"></span>
+                        <span class="hint" style="display:block;font-size:0.7rem" x-text="t.ownerName + ' • ' + (t.nextRun ? 'next ' + formatRelative(t.nextRun) : 'Manual')"></span>
+                      </span>
+                      <button class="btn primary ops-run-btn" type="button" @click.stop="runTask(t)">▶ Run</button>
+                    </div>
+                  </template>
+                </div>
+                <div class="hint" x-show="!opsAssignments().length" style="font-style:italic;padding:8px 0">No assignments yet. <a href="#" @click.prevent="openAssignmentModal()" style="color:var(--cp-link)">Create one →</a></div>
+              </section>
             </div>
           </section>
 
@@ -9470,6 +9549,29 @@
           return (this.data.activity || [])
             .filter(a => (this._runOk(a.status) || this._runFail(a.status)) && this.activityInCurrentOrg(a))
             .slice(0, n || 6);
+        },
+        // ---- Operations quick-access lists (org-scoped, search-independent) ----
+        opsTasks() {
+          return (this.allTasks() || []).filter(t => t.type === 'agent' && this.opInCurrentOrg(t.orgId));
+        },
+        opsAssignments() {
+          return (this.allTasks() || []).filter(t => t.type === 'assignment' && this.opInCurrentOrg(t.orgId));
+        },
+        opsFlows() {
+          return (this.data.chains || []).filter(c => this.opInCurrentOrg(c.orgId));
+        },
+        // Navigate to an operation on its own page and focus/flash it.
+        opsOpen(kind, item) {
+          if (kind === 'flow') {
+            this.pendingFocus = { route: 'chains', chainId: item.id };
+            this.goTo('#/chains');
+          } else if (kind === 'assignment') {
+            this.pendingFocus = { route: 'assignments', taskKey: item.taskKey };
+            this.goTo('#/assignments');
+          } else {
+            this.pendingFocus = { route: 'tasks', taskKey: item.taskKey };
+            this.goTo('#/tasks');
+          }
         },
         // ---- Resources landing page ----
         // Headline counts across managers, agents, and the marketplace catalog.
