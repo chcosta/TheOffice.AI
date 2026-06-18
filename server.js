@@ -4753,6 +4753,7 @@ function _normalizeBoard(b) {
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
     layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
     summary: (b.summary && typeof b.summary === 'object' && !Array.isArray(b.summary)) ? b.summary : null,
+    archived: !!b.archived,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
@@ -4794,7 +4795,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
@@ -4803,6 +4804,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
+  if (archived !== undefined) b.archived = !!archived;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);

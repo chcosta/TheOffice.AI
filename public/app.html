@@ -4307,11 +4307,13 @@
                 <!-- Board selector -->
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
                   <template x-for="b in visibleBoards()" :key="b.id">
-                    <button type="button" class="pill" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)">
-                      <span x-text="(b.emoji || '📌') + ' ' + b.name"></span>
+                    <button type="button" class="pill" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)" :style="b.archived ? 'opacity:0.6' : ''">
+                      <span x-text="(b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
                       <span class="hint" style="margin-left:6px;opacity:0.7" x-text="'· ' + boardOrgLabel(b)"></span>
                     </button>
                   </template>
+                  <button type="button" class="pill ghost" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
+                    x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
                 </div>
 
                 <template x-if="activeBoard()">
@@ -4329,6 +4331,8 @@
                         <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
+                        <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
+                        <button class="btn ghost" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)" title="Restore this board">↩ Restore</button>
                         <button class="btn ghost" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)">🗑 Delete</button>
                       </div>
                     </div>
@@ -8007,6 +8011,7 @@
         // ===== Boards (task boards) =====
         boards: [],
         boardsLoading: false,
+        boardsShowArchived: false,
         activeBoardId: (() => { try { return localStorage.getItem('active-board-id') || ''; } catch { return ''; } })(),
         boardModalOpen: false,
         boardForm: { id: '', name: '', emoji: '📌', teamId: '' },
@@ -11357,12 +11362,44 @@
           }
         },
         // Boards visible under the current org: the global board (teamId null) is always shown.
+        // Archived boards are hidden unless the user toggles "Show archived".
         visibleBoards() {
           const cur = this.currentTeamId;
           return (this.boards || []).filter(b => {
+            if (b.archived && !this.boardsShowArchived) return false;
             if (cur === 'all') return true;
             return !b.teamId || b.teamId === cur;
           });
+        },
+        // Count of archived boards within the current org scope (for the toggle label).
+        archivedBoardCount() {
+          const cur = this.currentTeamId;
+          return (this.boards || []).filter(b => {
+            if (!b.archived) return false;
+            if (cur === 'all') return true;
+            return !b.teamId || b.teamId === cur;
+          }).length;
+        },
+        async setBoardArchived(board, archived) {
+          if (!board) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id), {
+              method: 'PUT', body: JSON.stringify({ archived })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            // If we just archived the active board, move selection to another visible one.
+            if (archived && this.activeBoardId === board.id) {
+              const visible = this.visibleBoards();
+              this.activeBoardId = visible.length ? visible[0].id : '';
+              try { localStorage.setItem('active-board-id', this.activeBoardId || ''); } catch {}
+              this.syncBoardLayout();
+            }
+            this.showToast('Board', archived ? 'Board archived' : 'Board restored', 'success');
+          } catch (e) {
+            this.showToast('Board', e.message, 'error');
+          }
         },
         activeBoard() {
           return (this.boards || []).find(b => b.id === this.activeBoardId) || null;
