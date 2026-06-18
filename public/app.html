@@ -11512,7 +11512,18 @@
         syncBoardLayout() {
           if (this.boardDragId) return; // don't disturb an in-progress drag/resize
           const b = this.activeBoard();
-          this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
+          // While a local layout change (collapse/drag/resize/auto-fit) is pending its
+          // debounced save, a periodic board reload can return a stale server copy that
+          // lacks the change. Hold the optimistic local layout for a short window so the
+          // panel doesn't briefly revert (e.g. un-collapse) every refresh tick.
+          const holding = b && this._layoutHoldBoard === b.id
+            && Date.now() < (this._layoutHoldUntil || 0)
+            && Object.keys(this.boardLayout || {}).length;
+          if (holding) {
+            b.layout = this.boardLayout; // re-apply onto the freshly loaded board object
+          } else {
+            this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
+          }
           this.ensureBoardLayout(false);
           this.maybeRefreshSummary();
           this.scheduleAutoFit();
@@ -11626,10 +11637,16 @@
         persistLayout() {
           const b = this.activeBoard(); if (!b) return;
           b.layout = this.boardLayout; // keep local board in sync immediately
+          // Mark the layout dirty so periodic board reloads don't clobber this optimistic
+          // change with a stale server copy until the save below has had time to land.
+          this._layoutHoldBoard = b.id;
+          this._layoutHoldUntil = Date.now() + 2000;
           clearTimeout(this._layoutTimer);
           const id = b.id, snapshot = this.boardLayout;
           this._layoutTimer = setTimeout(() => {
-            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot }) }).catch(() => {});
+            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot }) })
+              .then(() => { this._layoutHoldUntil = Date.now() + 600; })
+              .catch(() => {});
           }, 450);
         },
         resetBoardLayout() {
