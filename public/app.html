@@ -133,7 +133,7 @@
     }
     .topbar {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr auto auto;
       align-items: center;
       gap: 12px;
       padding: 0 20px;
@@ -144,6 +144,75 @@
       top: 0;
       z-index: 20;
     }
+    /* ===== Organization switcher (topbar) ===== */
+    .org-switcher { position: relative; }
+    .org-switcher-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 12px; border-radius: 0.625rem;
+      border: 1px solid var(--cp-border); background: var(--cp-surface);
+      color: var(--cp-text); cursor: pointer; max-width: 240px;
+      transition: border-color 160ms ease, background 160ms ease;
+    }
+    .org-switcher-btn:hover { border-color: var(--cp-border-strong); }
+    .org-switcher-btn .org-emoji { font-size: 15px; line-height: 1; }
+    .org-switcher-btn .org-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .org-switcher-btn .org-caret { color: var(--cp-text-muted); font-size: 11px; }
+    .org-menu {
+      position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
+      min-width: 260px; max-height: 60vh; overflow-y: auto;
+      background: var(--cp-bg-elevated); border: 1px solid var(--cp-border);
+      border-radius: 0.625rem; box-shadow: var(--cp-shadow); padding: 6px;
+    }
+    .org-menu-item {
+      width: 100%; display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border: none; background: transparent; cursor: pointer;
+      border-radius: 8px; color: var(--cp-text); text-align: left;
+    }
+    .org-menu-item:hover { background: var(--cp-surface-soft); }
+    .org-menu-item.active { background: var(--cp-accent-soft); color: var(--cp-accent); }
+    .org-menu-item .org-menu-label { flex: 1; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .org-menu-item .org-menu-count {
+      font-size: 11px; font-weight: 600; color: var(--cp-text-muted);
+      background: var(--cp-surface-soft); border-radius: 999px; padding: 1px 8px;
+    }
+    .org-menu-item.active .org-menu-count { color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .org-menu-sep { height: 1px; background: var(--cp-border); margin: 6px 4px; }
+    .org-menu-empty { padding: 8px 10px; color: var(--cp-text-muted); font-size: 12px; }
+    .org-menu-manage {
+      display: block; margin-top: 4px; padding: 8px 10px; border-top: 1px solid var(--cp-border);
+      color: var(--cp-link); font-size: 12px; text-decoration: none; border-radius: 8px;
+    }
+    .org-menu-manage:hover { background: var(--cp-surface-soft); }
+    /* ===== Organizations board ===== */
+    .org-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; align-items: start; }
+    .org-col {
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 14px; padding: 12px; min-height: 140px; display: flex; flex-direction: column; gap: 8px;
+      transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+    .org-col--pool { background: var(--cp-bg-elevated); border-style: dashed; }
+    .org-col.drag-over { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent-soft); background: var(--cp-accent-soft); }
+    .org-col-head { display: flex; align-items: center; gap: 8px; }
+    .org-col-emoji { font-size: 18px; line-height: 1; }
+    .org-col-name { font-weight: 700; font-size: 14px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .org-col-count { font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: var(--cp-surface-soft); border-radius: 999px; padding: 1px 8px; }
+    .org-col-desc { font-size: 12px; color: var(--cp-text-muted); }
+    .org-col-body { display: flex; flex-direction: column; gap: 6px; min-height: 56px; }
+    .org-col-empty { font-size: 12px; color: var(--cp-text-soft); text-align: center; padding: 14px 6px; border: 1px dashed var(--cp-border); border-radius: 10px; }
+    .icon-button.sm { padding: 2px 6px; font-size: 12px; line-height: 1; }
+    .emp-chip {
+      display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+      background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 10px;
+      cursor: grab; user-select: none;
+    }
+    .emp-chip:active { cursor: grabbing; }
+    .emp-chip:hover { border-color: var(--cp-border-strong); }
+    .emp-chip-icon { font-size: 14px; }
+    .emp-chip-name { flex: 1; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .emp-chip-type { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--cp-text-muted); }
+    .emp-chip-x { border: none; background: transparent; color: var(--cp-text-muted); cursor: pointer; font-size: 12px; padding: 0 2px; border-radius: 6px; }
+    .emp-chip-x:hover { color: var(--cp-danger); background: var(--cp-surface-soft); }
+    .org-board-empty { grid-column: 1 / -1; text-align: center; color: var(--cp-text-muted); padding: 40px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
     .brand {
       display: flex;
       align-items: center;
@@ -229,6 +298,14 @@
       padding-right: 4px;
     }
     .sidebar-section + .sidebar-section { margin-top: 10px; }
+    .nav-zone-label {
+      display: flex; align-items: center; gap: 7px;
+      margin: 14px 6px 4px; padding-top: 10px;
+      border-top: 1px solid var(--cp-border);
+      font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--cp-text-soft);
+    }
+    .nav-zone-label .nav-zone-icon { font-size: 12px; }
     .section-header {
       width: 100%;
       display: flex;
@@ -889,6 +966,7 @@
     .cli-sess-select select { border: none; background: transparent; color: var(--cp-text); font-size: 0.85rem; max-width: 280px; padding: 6px 4px; cursor: pointer; outline: none; }
     .cli-sess-count { margin-left: auto; white-space: nowrap; }
     .cli-sess-more { display: flex; justify-content: center; margin-top: 16px; }
+    .upd-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--cp-warning); color: #1a1a1a; font-size: 0.7rem; font-weight: 700; }
     .cli-sess-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 14px 16px; max-width: 100%; overflow: hidden; box-sizing: border-box; }
     .cli-sess-top { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
     .cli-sess-head { min-width: 0; flex: 1 1 320px; }
@@ -2029,6 +2107,30 @@
         <span>Search agents, managers, tasks…</span>
         <span class="kbd">⌘K</span>
       </button>
+      <div class="org-switcher" @click.outside="orgMenuOpen = false">
+        <button class="org-switcher-btn" type="button" @click="orgMenuOpen = !orgMenuOpen" :title="currentOrg() ? currentOrg().name : 'All organizations'">
+          <span class="org-emoji" x-text="currentOrg() ? currentOrg().emoji : '🏛️'"></span>
+          <span class="org-name" x-text="currentOrg() ? currentOrg().name : 'All organizations'"></span>
+          <span class="org-caret" x-text="orgMenuOpen ? '▴' : '▾'"></span>
+        </button>
+        <div class="org-menu" x-show="orgMenuOpen" x-transition.opacity.duration.120ms x-cloak>
+          <button class="org-menu-item" :class="{ active: currentOrgId === 'all' }" type="button" @click="setCurrentOrg('all')">
+            <span class="org-emoji">🏛️</span>
+            <span class="org-menu-label">All organizations</span>
+            <span class="org-menu-count" x-text="data.agents.length + data.managers.length"></span>
+          </button>
+          <template x-for="org in data.organizations" :key="org.id">
+            <button class="org-menu-item" :class="{ active: currentOrgId === org.id }" type="button" @click="setCurrentOrg(org.id)">
+              <span class="org-emoji" x-text="org.emoji || '🏢'"></span>
+              <span class="org-menu-label" x-text="org.name"></span>
+              <span class="org-menu-count" x-text="(org.memberIds || []).length"></span>
+            </button>
+          </template>
+          <div class="org-menu-sep" x-show="!data.organizations.length"></div>
+          <div class="org-menu-empty" x-show="!data.organizations.length">No organizations yet</div>
+          <a class="org-menu-manage" href="#/organizations" @click="orgMenuOpen = false">⚙ Manage organizations</a>
+        </div>
+      </div>
     </header>
 
     <div class="body-grid">
@@ -2041,6 +2143,12 @@
         <div class="sidebar-scroll">
           <template x-for="section in sidebarSections()" :key="section.key">
             <section class="sidebar-section">
+              <template x-if="section.caption">
+                <div class="nav-zone-label">
+                  <span class="nav-zone-icon" x-text="section.icon"></span>
+                  <span x-text="section.label"></span>
+                </div>
+              </template>
               <template x-if="section.collapsible && section.href">
                 <div style="display:flex;align-items:center;gap:2px">
                   <a class="section-header" style="flex:1;width:auto" :class="{ active: isRouteGroup(section.routeGroup) }" :href="section.href">
@@ -2057,7 +2165,7 @@
                   <span class="section-chevron" x-text="app.sidebarCollapsed[section.key] ? '▸' : '▾'"></span>
                 </button>
               </template>
-              <template x-if="!section.collapsible && !section.isGroup && section.label">
+              <template x-if="!section.collapsible && !section.isGroup && !section.caption && section.label && !section.href">
                 <div class="section-header" x-text="section.label"></div>
               </template>
 
@@ -2098,7 +2206,7 @@
               </template>
 
               <!-- Flat section (Home, Chat, Activity) -->
-              <template x-if="!section.isGroup">
+              <template x-if="!section.isGroup && !section.caption">
                 <div class="nav-list" x-show="!section.collapsible || !app.sidebarCollapsed[section.key]" x-transition.opacity.duration.150ms>
                   <a class="nav-link"
                      :class="{ active: isRouteGroup(section.routeGroup) }"
@@ -3135,7 +3243,7 @@
           <section x-show="!loading && !errorMessage && route === 'executions'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>Executions</h1>
+                <h1>Operations</h1>
                 <p>The control room for everything that runs — live status, what's coming up next, recent run health, and quick access to tasks, flows, and assignments.</p>
               </div>
               <div class="toolbar">
@@ -3251,14 +3359,127 @@
             </div>
           </section>
 
+          <!-- ===== Organizations page ===== -->
+          <section x-show="!loading && !errorMessage && route === 'organizations'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Organizations</h1>
+                <p>Group employees into organizations. Drag an employee onto an organization to assign them; drag to <strong>Unassigned</strong> to remove. Operations stay within a single organization.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="loadOrganizations()" title="Refresh">↻ Refresh</button>
+                <button class="btn primary" type="button" @click="openOrgModal()">＋ New Organization</button>
+              </div>
+            </div>
+
+            <div class="org-board">
+              <!-- Unassigned pool -->
+              <div class="org-col org-col--pool"
+                   :class="{ 'drag-over': orgDragOverId === '__unassigned__' }"
+                   @dragover="_orgDragOverTarget='__unassigned__'; onOrgDragOver($event)"
+                   @dragleave="orgDragOverId=null"
+                   @drop="onOrgDrop($event, '__unassigned__')">
+                <div class="org-col-head">
+                  <span class="org-col-emoji">🗂️</span>
+                  <span class="org-col-name">Unassigned</span>
+                  <span class="org-col-count" x-text="unassignedEmployees().length"></span>
+                </div>
+                <div class="org-col-body">
+                  <template x-for="emp in unassignedEmployees()" :key="'un-'+emp.id">
+                    <div class="emp-chip" draggable="true" @dragstart="onEmpDragStart($event, emp.id, null)">
+                      <span class="emp-chip-icon" x-text="emp.icon"></span>
+                      <span class="emp-chip-name" x-text="emp.name"></span>
+                      <span class="emp-chip-type" x-text="emp.type"></span>
+                    </div>
+                  </template>
+                  <div class="org-col-empty" x-show="!unassignedEmployees().length">Everyone is assigned 🎉</div>
+                </div>
+              </div>
+
+              <!-- One column per organization -->
+              <template x-for="org in data.organizations" :key="org.id">
+                <div class="org-col"
+                     :class="{ 'drag-over': orgDragOverId === org.id }"
+                     :style="'border-top:3px solid ' + (org.color || 'var(--cp-accent)')"
+                     @dragover="_orgDragOverTarget=org.id; onOrgDragOver($event)"
+                     @dragleave="orgDragOverId=null"
+                     @drop="onOrgDrop($event, org.id)">
+                  <div class="org-col-head">
+                    <span class="org-col-emoji" x-text="org.emoji || '🏢'"></span>
+                    <span class="org-col-name" x-text="org.name"></span>
+                    <span class="org-col-count" x-text="(org.memberIds || []).length"></span>
+                    <button class="icon-button sm" type="button" title="Edit" @click="openOrgModal(org)">✎</button>
+                    <button class="icon-button sm" type="button" title="Delete" @click="deleteOrg(org)">🗑</button>
+                  </div>
+                  <div class="org-col-desc" x-show="org.description" x-text="org.description"></div>
+                  <div class="org-col-body">
+                    <template x-for="emp in employeesInOrg(org.id)" :key="org.id+'-'+emp.id">
+                      <div class="emp-chip" draggable="true" @dragstart="onEmpDragStart($event, emp.id, org.id)">
+                        <span class="emp-chip-icon" x-text="emp.icon"></span>
+                        <span class="emp-chip-name" x-text="emp.name"></span>
+                        <span class="emp-chip-type" x-text="emp.type"></span>
+                        <button class="emp-chip-x" type="button" title="Remove from organization" @click="removeEmployeeFromOrg(emp.id, org.id)">✕</button>
+                      </div>
+                    </template>
+                    <div class="org-col-empty" x-show="!employeesInOrg(org.id).length">Drag employees here</div>
+                  </div>
+                </div>
+              </template>
+
+              <div class="org-board-empty" x-show="!data.organizations.length">
+                <p>No organizations yet.</p>
+                <button class="btn primary" type="button" @click="openOrgModal()">＋ Create your first organization</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Organization create/edit modal -->
+          <div class="modal-backdrop modal-overlay" x-show="orgModalOpen" x-transition.opacity.duration.150ms @click.self="orgModalOpen=false" x-cloak style="z-index:9999">
+            <div class="modal-card" style="max-width:460px">
+              <div class="modal-header">
+                <h2 class="modal-title" x-text="orgForm.id ? 'Edit organization' : 'New organization'"></h2>
+                <button class="icon-button" type="button" @click="orgModalOpen=false">✕</button>
+              </div>
+              <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;gap:12px">
+                  <label style="flex:0 0 84px">
+                    <div class="field-label">Emoji</div>
+                    <input class="field-input" type="text" maxlength="2" x-model="orgForm.emoji" style="text-align:center;font-size:20px" />
+                  </label>
+                  <label style="flex:1">
+                    <div class="field-label">Name</div>
+                    <input class="field-input" type="text" x-model="orgForm.name" placeholder="e.g. Helix Operations" @keydown.enter="saveOrg()" />
+                  </label>
+                  <label style="flex:0 0 60px">
+                    <div class="field-label">Color</div>
+                    <input class="field-input" type="color" x-model="orgForm.color" style="padding:2px;height:38px" />
+                  </label>
+                </div>
+                <label>
+                  <div class="field-label">Description</div>
+                  <textarea class="field-input" rows="3" x-model="orgForm.description" placeholder="What does this organization do?"></textarea>
+                </label>
+                <div style="display:flex;justify-content:flex-end;gap:8px">
+                  <button class="btn" type="button" @click="orgModalOpen=false">Cancel</button>
+                  <button class="btn primary" type="button" @click="saveOrg()" x-text="orgForm.id ? 'Save' : 'Create'"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <section x-show="!loading && !errorMessage && route === 'resources'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>Resources</h1>
+                <h1>Employees</h1>
                 <p>Your building blocks — the managers that orchestrate work, the agents that do it, and the marketplace of capabilities you can pull in to do more.</p>
+                <p class="hint" x-show="updatesAvailable > 0" style="margin-top:4px;color:var(--cp-warning)"
+                   x-text="updatesAvailable + ' update' + (updatesAvailable === 1 ? '' : 's') + ' available across your agents & plugins'"></p>
               </div>
               <div class="toolbar">
                 <button class="btn" type="button" @click="loadMarketplace()" title="Refresh">↻ Refresh</button>
+                <button class="btn" type="button" @click="goTo('#/updates')" title="Check agents & plugins for updates">
+                  🔄 Updates<span class="upd-badge" x-show="updatesAvailable > 0" x-text="updatesAvailable"></span>
+                </button>
                 <button class="btn" type="button" @click="goTo('#/marketplace/design')">✨ Design with AI</button>
                 <button class="btn primary" type="button" @click="goTo('#/marketplace')">🛍️ Browse Marketplace</button>
               </div>
@@ -3795,7 +4016,7 @@
           <section x-show="!loading && !errorMessage && (route === 'chat' || route === 'chat-detail')" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>Chat</h1>
+                <h1>Water cooler</h1>
                 <p>Talk to managers today, keep notes with agents, and keep persistent conversations in one place.</p>
               </div>
               <div class="toolbar">
@@ -6433,7 +6654,7 @@
         route: 'home',
         routeParam: null,
         sidebarCollapsed: (() => {
-          const defaults = { chat: false, resources: false, execution: false, agents: false, managers: false };
+          const defaults = { watercooler: false, chat: false, resources: false, execution: false, warehouse: false, news: false, agents: false, managers: false };
           try { return Object.assign(defaults, JSON.parse(localStorage.getItem('sidebar-collapsed') || '{}')); } catch { return defaults; }
         })(),
         toggleNav(key) {
@@ -6451,6 +6672,7 @@
         activity: [],
         schedules: [],
         chats: [],
+        organizations: [],
         version: null
       });
     });
@@ -6467,6 +6689,13 @@
         agentSearch: '',
         managerSearch: '',
         agentStatusFilter: 'all',
+        currentOrgId: (() => { try { return localStorage.getItem('current-org-id') || 'all'; } catch { return 'all'; } })(),
+        orgMenuOpen: false,
+        orgModalOpen: false,
+        orgForm: { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '' },
+        orgDragEmp: null,
+        orgDragOverId: null,
+        _orgDragOverTarget: null,
         agentGroupBy: 'group',
         agentSort: 'recent',
         agentView: 'grid',
@@ -6547,6 +6776,7 @@
         reinstallingUpdateId: null,
         summarizingUpdateId: null,
         updateChangeSummaries: {},
+        updatesAvailable: 0,
         commandQuery: '',
         commandIndex: 0,
         settingsOpen: false,
@@ -7152,7 +7382,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'organizations'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -7178,6 +7408,7 @@
           } else if (this.route === 'resources') {
             try { this.resCatalog = await this.request('/api/marketplace/catalog'); } catch (e) { this.resCatalog = { counts: {}, total: 0 }; }
             try { const r = await this.request('/api/marketplace/sources'); this.mkt.sources = r.sources || []; } catch (e) {}
+            this.loadUpdatesAvailable();
           } else if (this.route === 'reports') {
             this.loadModels();
             await this.loadReports();
@@ -7194,6 +7425,8 @@
               this.mkt.design.mode = 'create';
               this.mktDesignInit();
             }
+          } else if (this.route === 'organizations') {
+            await this.loadOrganizations();
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
@@ -7213,13 +7446,14 @@
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
-            const [agents, managers, version, chats, tasks, chains] = await Promise.all([
+            const [agents, managers, version, chats, tasks, chains, organizations] = await Promise.all([
               this.request('/api/agents'),
               this.request('/api/managers'),
               this.request('/api/version'),
               this.request('/api/chats'),
               this.request('/api/tasks'),
-              this.request('/api/chains')
+              this.request('/api/chains'),
+              this.request('/api/organizations').catch(() => [])
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
             this.data.managers = managers.map((manager) => this.normalizeManager(manager));
@@ -7227,6 +7461,8 @@
             this.data.chats = chats;
             this.data.tasks = tasks || [];
             this.data.chains = Array.isArray(chains) ? chains : [];
+            this.data.organizations = Array.isArray(organizations) ? organizations : [];
+            this._reconcileCurrentOrg();
             await this.loadActivity();
             await this.handleRouteChange();
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
@@ -7714,23 +7950,31 @@
         },
 
         sidebarSections() {
+          const org = this.currentOrg();
+          const scopeLabel = org ? `Organization · ${org.name}` : 'All organizations';
           return [
             { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
-            { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
-            { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false },
-            { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
+            { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
+            { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
+            { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
             ]},
-            { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
+            { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] },
-              { key: 'updates', title: 'Updates', icon: '🔄', href: '#/updates', routeGroup: 'updates', items: [] }
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
             ]},
-            { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false },
-            { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false },
-            { key: 'reports', label: 'Reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [], collapsible: false }
+            { key: '_zone_company', caption: true, label: 'Company-wide', icon: '🏛️' },
+            { key: 'organizations', label: 'Organizations', title: 'Organizations', icon: '🏢', href: '#/organizations', routeGroup: 'organizations', items: [], collapsible: false },
+            { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false },
+            { key: 'warehouse', label: 'Warehouse', collapsible: true, isGroup: true, href: '#/marketplace', routeGroup: 'marketplace', children: [
+              { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [] }
+            ]},
+            { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
+              { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
+              { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
+            ]}
           ];
         },
 
@@ -7746,10 +7990,157 @@
           return this.route === group;
         },
 
+        // ===== Organizations (Phase 1) =====
+        _reconcileCurrentOrg() {
+          if (this.currentOrgId && this.currentOrgId !== 'all') {
+            const exists = (this.data.organizations || []).some(o => o.id === this.currentOrgId);
+            if (!exists) this.setCurrentOrg('all');
+          }
+        },
+        currentOrg() {
+          if (!this.currentOrgId || this.currentOrgId === 'all') return null;
+          return (this.data.organizations || []).find(o => o.id === this.currentOrgId) || null;
+        },
+        setCurrentOrg(id) {
+          this.currentOrgId = id || 'all';
+          this.orgMenuOpen = false;
+          try { localStorage.setItem('current-org-id', this.currentOrgId); } catch {}
+        },
+        // Core gate: is an employee id visible under the current org selection?
+        idInCurrentOrg(id) {
+          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          const org = this.currentOrg();
+          return !!(org && Array.isArray(org.memberIds) && org.memberIds.includes(id));
+        },
+        // Resolve the agent ids referenced by a flow (chain) via its steps→tasks.
+        flowReferencedAgentIds(chain) {
+          const ids = new Set();
+          for (const step of (chain.steps || [])) {
+            const task = (this.data.tasks || []).find(t => ('task-' + t.id) === step.taskId || t.id === step.taskId);
+            if (task && task.agentId) ids.add(task.agentId);
+          }
+          return [...ids];
+        },
+        flowInCurrentOrg(chain) {
+          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          const refs = this.flowReferencedAgentIds(chain);
+          if (!refs.length) return false;
+          return refs.every(id => this.idInCurrentOrg(id));
+        },
+        // Combined employee roster (agents + managers) for the Organizations page.
+        allEmployees() {
+          const agents = (this.data.agents || []).map(a => ({
+            id: a.id, name: a.name || a.id, type: 'agent', icon: '🤖',
+            group: a.config?.group || '', status: this.agentStatusOf(a)
+          }));
+          const managers = (this.data.managers || []).map(m => ({
+            id: m.id, name: m.name || m.id, type: 'manager', icon: '👔',
+            group: 'Manager', status: this.managerStatusOf(m)
+          }));
+          return [...managers, ...agents];
+        },
+        orgsOfEmployee(empId) {
+          return (this.data.organizations || []).filter(o => Array.isArray(o.memberIds) && o.memberIds.includes(empId));
+        },
+        employeesInOrg(orgId) {
+          const org = (this.data.organizations || []).find(o => o.id === orgId);
+          if (!org) return [];
+          const ids = new Set(org.memberIds || []);
+          return this.allEmployees().filter(e => ids.has(e.id));
+        },
+        unassignedEmployees() {
+          const assigned = new Set();
+          for (const o of (this.data.organizations || [])) for (const id of (o.memberIds || [])) assigned.add(id);
+          return this.allEmployees().filter(e => !assigned.has(e.id));
+        },
+        orgEmployeeCount(org) { return (org.memberIds || []).length; },
+        orgUpdatesAvailableLabel() {
+          const n = this.data.organizations ? this.data.organizations.length : 0;
+          return n === 1 ? '1 organization' : `${n} organizations`;
+        },
+        async loadOrganizations() {
+          try {
+            const orgs = await this.request('/api/organizations');
+            this.data.organizations = Array.isArray(orgs) ? orgs : [];
+            this._reconcileCurrentOrg();
+          } catch (e) { /* non-fatal */ }
+        },
+        async createOrg() {
+          const name = (this.orgForm?.name || '').trim();
+          if (!name) { this.showToast('Name required', 'Enter an organization name.', 'error'); return; }
+          try {
+            const r = await this.request('/api/organizations', { method: 'POST', body: JSON.stringify({
+              name, emoji: this.orgForm.emoji || '🏢', color: this.orgForm.color || '#b11f4b', description: this.orgForm.description || ''
+            }) });
+            await this.loadOrganizations();
+            this.orgModalOpen = false;
+            this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '' };
+            this.showToast('Organization created', name, 'success');
+          } catch (e) { this.showToast('Create failed', e.message, 'error'); }
+        },
+        openOrgModal(org = null) {
+          if (org) this.orgForm = { id: org.id, name: org.name, emoji: org.emoji || '🏢', color: org.color || '#b11f4b', description: org.description || '' };
+          else this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '' };
+          this.orgModalOpen = true;
+        },
+        async saveOrg() {
+          if (!this.orgForm.id) return this.createOrg();
+          try {
+            await this.request('/api/organizations/' + encodeURIComponent(this.orgForm.id), { method: 'PUT', body: JSON.stringify({
+              name: this.orgForm.name, emoji: this.orgForm.emoji, color: this.orgForm.color, description: this.orgForm.description
+            }) });
+            await this.loadOrganizations();
+            this.orgModalOpen = false;
+            this.showToast('Organization saved', this.orgForm.name, 'success');
+          } catch (e) { this.showToast('Save failed', e.message, 'error'); }
+        },
+        async deleteOrg(org) {
+          if (!confirm(`Delete organization "${org.name}"? Members are unassigned; operations are not deleted.`)) return;
+          try {
+            await this.request('/api/organizations/' + encodeURIComponent(org.id), { method: 'DELETE' });
+            if (this.currentOrgId === org.id) this.setCurrentOrg('all');
+            await this.loadOrganizations();
+            this.showToast('Organization deleted', org.name, 'success');
+          } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
+        },
+        async assignEmployeeToOrg(employeeId, orgId) {
+          const org = (this.data.organizations || []).find(o => o.id === orgId);
+          if (org && (org.memberIds || []).includes(employeeId)) return;
+          try {
+            await this.request('/api/organizations/' + encodeURIComponent(orgId) + '/members', { method: 'POST', body: JSON.stringify({ employeeId }) });
+            await this.loadOrganizations();
+          } catch (e) { this.showToast('Assign failed', e.message, 'error'); }
+        },
+        async removeEmployeeFromOrg(employeeId, orgId) {
+          try {
+            await this.request('/api/organizations/' + encodeURIComponent(orgId) + '/members/' + encodeURIComponent(employeeId), { method: 'DELETE' });
+            await this.loadOrganizations();
+          } catch (e) { this.showToast('Remove failed', e.message, 'error'); }
+        },
+        // Drag-and-drop wiring for the Organizations page
+        onEmpDragStart(ev, employeeId, fromOrgId = null) {
+          this.orgDragEmp = { employeeId, fromOrgId };
+          try { ev.dataTransfer.setData('text/plain', employeeId); ev.dataTransfer.effectAllowed = 'move'; } catch {}
+        },
+        onOrgDragOver(ev) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch {} this.orgDragOverId = this._orgDragOverTarget; },
+        async onOrgDrop(ev, orgId) {
+          ev.preventDefault();
+          const drag = this.orgDragEmp;
+          this.orgDragOverId = null; this._orgDragOverTarget = null;
+          if (!drag || !drag.employeeId) return;
+          if (orgId === '__unassigned__') {
+            if (drag.fromOrgId) await this.removeEmployeeFromOrg(drag.employeeId, drag.fromOrgId);
+          } else {
+            await this.assignEmployeeToOrg(drag.employeeId, orgId);
+          }
+          this.orgDragEmp = null;
+        },
+
         filteredAgents() {
           const query = this.agentSearch.trim().toLowerCase();
-          if (!query) return this.data.agents;
-          return this.data.agents.filter((agent) => [agent.name, agent.config.group, agent.config.agent, agent.config.cwd, agent.id].filter(Boolean).join(' ').toLowerCase().includes(query));
+          let list = this.data.agents.filter(a => this.idInCurrentOrg(a.id));
+          if (!query) return list;
+          return list.filter((agent) => [agent.name, agent.config.group, agent.config.agent, agent.config.cwd, agent.id].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
         agentStatusOf(agent) {
@@ -7827,8 +8218,9 @@
 
         filteredManagers() {
           const query = this.managerSearch.trim().toLowerCase();
-          if (!query) return this.data.managers;
-          return this.data.managers.filter((manager) => {
+          let list = this.data.managers.filter(m => this.idInCurrentOrg(m.id));
+          if (!query) return list;
+          return list.filter((manager) => {
             const haystack = [manager.name, manager.config.description, ...(manager.orgDetails || []).map((agent) => agent.name || agent.id), ...(manager.config.assignments || []).map((assignment) => assignment.name)].filter(Boolean).join(' ').toLowerCase();
             return haystack.includes(query);
           });
@@ -7992,14 +8384,14 @@
         },
         filteredTasks() {
           const query = this.taskSearch.trim().toLowerCase();
-          const tasks = this.allTasks().filter(t => t.type === 'agent');
+          const tasks = this.allTasks().filter(t => t.type === 'agent' && this.idInCurrentOrg(t.agentId));
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
         filteredAssignments() {
           const query = this.assignmentSearch.trim().toLowerCase();
-          const assignments = this.allTasks().filter(t => t.type === 'assignment');
+          const assignments = this.allTasks().filter(t => t.type === 'assignment' && this.idInCurrentOrg(t.managerId));
           if (!query) return assignments;
           return assignments.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
@@ -8717,6 +9109,7 @@
         chatGroups() {
           const map = new Map();
           for (const chat of this.data.chats) {
+            if (!this.idInCurrentOrg(chat.target)) continue;
             const key = chat.targetType + ':' + chat.target;
             if (!map.has(key)) {
               const name = chat.targetType === 'manager'
@@ -8983,6 +9376,14 @@
         },
 
         // ===== Agent / Plugin Updates page =====
+        async loadUpdatesAvailable() {
+          // Lightweight aggregate for the Employees page badge. Server-cached.
+          try {
+            const r = await this.request('/api/updates/available-count');
+            this.updatesAvailable = r.available || 0;
+          } catch (e) { /* non-fatal */ }
+        },
+
         async loadUpdates() {
           this.updatesLoading = true;
           try {
@@ -10501,7 +10902,7 @@
 
         filteredChains() {
           const q = (this.chainSearch || '').trim().toLowerCase();
-          const list = this.data.chains || [];
+          const list = (this.data.chains || []).filter(c => this.flowInCurrentOrg(c));
           if (!q) return list;
           return list.filter(c => (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q));
         },

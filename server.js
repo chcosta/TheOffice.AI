@@ -53,10 +53,28 @@ const DB_PATH = path.join(__dirname, 'supervisor.db');
 const AGENTS_PATH = path.join(__dirname, 'agents.json');
 const MANAGERS_PATH = path.join(__dirname, 'managers.json');
 const TASKS_PATH = path.join(__dirname, 'tasks.json');
+const ORGANIZATIONS_PATH = path.join(__dirname, 'organizations.json');
 
 // Ensure tasks.json exists
 if (!fs.existsSync(TASKS_PATH)) {
   fs.writeFileSync(TASKS_PATH, '[]');
+}
+
+// Ensure organizations.json exists
+if (!fs.existsSync(ORGANIZATIONS_PATH)) {
+  fs.writeFileSync(ORGANIZATIONS_PATH, '[]');
+}
+
+function loadOrganizations() {
+  try {
+    if (!fs.existsSync(ORGANIZATIONS_PATH)) return [];
+    const orgs = JSON.parse(fs.readFileSync(ORGANIZATIONS_PATH, 'utf-8'));
+    return Array.isArray(orgs) ? orgs : [];
+  } catch { return []; }
+}
+
+function saveOrganizations(orgs) {
+  fs.writeFileSync(ORGANIZATIONS_PATH, JSON.stringify(orgs || [], null, 2));
 }
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
@@ -2568,9 +2586,9 @@ app.post('/api/agents/:id/edit-source', (req, res) => {
 });
 
 // Check if agent's installed plugin is out of date compared to source
-app.get('/api/agents/:id/check-update', async (req, res) => {
-  const entry = supervisor.agents.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+// Compute update status for a single agent/plugin entry. Returns { upToDate, ... }.
+// Shared by the per-item check-update route and the aggregate available-count route.
+async function computeUpdateStatus(entry) {
   const config = entry.config;
 
   // Azure DevOps source: compare the stored objectId against the current one on the branch.
@@ -2588,20 +2606,20 @@ app.get('/api/agents/:id/check-update', async (req, res) => {
       } else {
         current = await azdo.getObjectId(s.org, s.project, s.repo, s.branch, s.path);
       }
-      return res.json({
+      return {
         upToDate: !current || !s.objectId || current === s.objectId,
         reason: 'azdo',
         source: s,
         currentObjectId: current
-      });
+      };
     } catch (e) {
-      return res.json({ upToDate: true, reason: 'azdo-error', error: e.message });
+      return { upToDate: true, reason: 'azdo-error', error: e.message };
     }
   }
 
   let sourceDir = config.sourceDir;
   const pluginDir = config.pluginDir;
-  
+
   // If no explicit sourceDir, try to infer: if pluginDir is under our plugins/ folder,
   // check if there's a matching .github/plugin/<name> in the agent's cwd
   if (!sourceDir && pluginDir && pluginDir.includes(PLUGINS_DIR)) {
@@ -2609,14 +2627,14 @@ app.get('/api/agents/:id/check-update', async (req, res) => {
     const candidate = path.join(config.cwd || '', '.github', 'plugin', pluginName);
     if (fs.existsSync(candidate)) sourceDir = candidate;
   }
-  
+
   // No sourceDir means either the pluginDir IS the source or there's no plugin
-  if (!sourceDir || !pluginDir) return res.json({ upToDate: true, reason: 'no-overlay' });
+  if (!sourceDir || !pluginDir) return { upToDate: true, reason: 'no-overlay' };
   // If sourceDir === pluginDir, no comparison needed
-  if (path.resolve(sourceDir) === path.resolve(pluginDir)) return res.json({ upToDate: true, reason: 'same-dir' });
+  if (path.resolve(sourceDir) === path.resolve(pluginDir)) return { upToDate: true, reason: 'same-dir' };
   // Both must exist
-  if (!fs.existsSync(sourceDir)) return res.json({ upToDate: true, reason: 'source-missing' });
-  if (!fs.existsSync(pluginDir)) return res.json({ upToDate: false, reason: 'installed-missing' });
+  if (!fs.existsSync(sourceDir)) return { upToDate: true, reason: 'source-missing' };
+  if (!fs.existsSync(pluginDir)) return { upToDate: false, reason: 'installed-missing' };
 
   // Compare key files recursively (shallow: plugin.json mtime, agents/*.md sizes)
   function getFingerprint(dir) {
@@ -2650,13 +2668,18 @@ app.get('/api/agents/:id/check-update', async (req, res) => {
       diffs.push({ file, reason: 'source-newer' });
     }
   }
-  
-  res.json({
-    upToDate: diffs.length === 0,
-    diffs: diffs.slice(0, 10),
-    sourceDir,
-    pluginDir
-  });
+
+  return { upToDate: diffs.length === 0, diffs: diffs.slice(0, 10), sourceDir, pluginDir };
+}
+
+app.get('/api/agents/:id/check-update', async (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  try {
+    res.json(await computeUpdateStatus(entry));
+  } catch (e) {
+    res.json({ upToDate: true, reason: 'error', error: e.message });
+  }
 });
 app.post('/api/agents/:id/reinstall', async (req, res) => {
   const entry = supervisor.agents.get(req.params.id);
@@ -3571,6 +3594,33 @@ app.get('/api/updates/inventory', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Aggregate count of agents/plugins with an update available. Server-cached for
+// 5 minutes since azdo checks are network-bound; pass ?force=1 to bypass.
+let _updAvailCache = null; // { at, data }
+app.get('/api/updates/available-count', async (req, res) => {
+  const force = req.query.force === '1';
+  if (!force && _updAvailCache && (Date.now() - _updAvailCache.at) < 5 * 60 * 1000) {
+    return res.json({ ..._updAvailCache.data, cached: true });
+  }
+  try {
+    const entries = [...supervisor.agents.entries()]; // [id, { config, ... }]
+    const total = entries.length;
+    const checkables = entries.filter(([, e]) => {
+      const c = (e && e.config) || {};
+      return !!((c.source && c.source.type === 'azdo') || c.pluginDir || c.sourceDir);
+    });
+    const results = await Promise.all(checkables.map(async ([id, e]) => {
+      try { const st = await computeUpdateStatus(e); return { id, up: st.upToDate }; }
+      catch { return { id, up: null }; }
+    }));
+    const checked = results.filter(r => r.up !== null).length;
+    const availItems = results.filter(r => r.up === false).map(r => r.id);
+    const data = { available: availItems.length, items: availItems, checked, total, checkedAt: new Date().toISOString() };
+    _updAvailCache = { at: Date.now(), data };
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Summarize what an available update would change for an agent/plugin. Gathers a
 // textual diff of the installed files vs. the newest source (azdo repo or local
 // source folder), then asks the LLM for a 1-3 sentence description of the changes.
@@ -4358,7 +4408,119 @@ app.delete('/api/managers/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Start a manager's schedules
+// ===== Organizations API =====
+// An organization groups "employees" (agent ids + manager ids) via memberIds.
+// Operations carry an orgId; cross-org operations are not permitted.
+
+function _employeeExists(id) {
+  if (supervisor.agents.has(id)) return true;
+  if (managerAgent.managers && managerAgent.managers.has(id)) return true;
+  // managers.json fallback (in case runtime map is stale)
+  try {
+    if (fs.existsSync(MANAGERS_PATH)) {
+      const ms = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+      if (ms.some(m => m.id === id)) return true;
+    }
+  } catch {}
+  return false;
+}
+
+// List organizations
+app.get('/api/organizations', (req, res) => {
+  res.json(loadOrganizations());
+});
+
+// Get a single organization
+app.get('/api/organizations/:id', (req, res) => {
+  const org = loadOrganizations().find(o => o.id === req.params.id);
+  if (!org) return res.status(404).json({ error: 'Organization not found' });
+  res.json(org);
+});
+
+// Create or update an organization
+app.post('/api/organizations', (req, res) => {
+  const { id, name, emoji, color, description, memberIds } = req.body || {};
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'Missing required field: name' });
+  }
+  const orgs = loadOrganizations();
+  const orgId = id || ('org-' + String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '-' + Date.now().toString(36).slice(-4));
+  const existingIdx = orgs.findIndex(o => o.id === orgId);
+  const base = existingIdx >= 0 ? orgs[existingIdx] : { createdAt: new Date().toISOString(), memberIds: [] };
+  const org = {
+    ...base,
+    id: orgId,
+    name: String(name).trim(),
+    emoji: emoji || base.emoji || '🏢',
+    color: color || base.color || '#b11f4b',
+    description: description != null ? description : (base.description || ''),
+    memberIds: Array.isArray(memberIds) ? [...new Set(memberIds.filter(_employeeExists))] : (base.memberIds || []),
+    updatedAt: new Date().toISOString(),
+  };
+  if (existingIdx >= 0) orgs[existingIdx] = org; else orgs.push(org);
+  saveOrganizations(orgs);
+  broadcastSSE('organizations-changed', { id: orgId });
+  res.json({ ok: true, organization: org });
+});
+
+// Update an organization (partial)
+app.put('/api/organizations/:id', (req, res) => {
+  const orgs = loadOrganizations();
+  const idx = orgs.findIndex(o => o.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
+  const { name, emoji, color, description, memberIds } = req.body || {};
+  const org = orgs[idx];
+  if (name != null) org.name = String(name).trim();
+  if (emoji != null) org.emoji = emoji;
+  if (color != null) org.color = color;
+  if (description != null) org.description = description;
+  if (Array.isArray(memberIds)) org.memberIds = [...new Set(memberIds.filter(_employeeExists))];
+  org.updatedAt = new Date().toISOString();
+  orgs[idx] = org;
+  saveOrganizations(orgs);
+  broadcastSSE('organizations-changed', { id: org.id });
+  res.json({ ok: true, organization: org });
+});
+
+// Delete an organization
+app.delete('/api/organizations/:id', (req, res) => {
+  let orgs = loadOrganizations();
+  if (!orgs.some(o => o.id === req.params.id)) return res.status(404).json({ error: 'Organization not found' });
+  orgs = orgs.filter(o => o.id !== req.params.id);
+  saveOrganizations(orgs);
+  broadcastSSE('organizations-changed', { id: req.params.id, deleted: true });
+  res.json({ ok: true });
+});
+
+// Add a member (employee) to an organization
+app.post('/api/organizations/:id/members', (req, res) => {
+  const { employeeId } = req.body || {};
+  if (!employeeId) return res.status(400).json({ error: 'Missing required field: employeeId' });
+  if (!_employeeExists(employeeId)) return res.status(404).json({ error: 'Employee not found' });
+  const orgs = loadOrganizations();
+  const idx = orgs.findIndex(o => o.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
+  if (!Array.isArray(orgs[idx].memberIds)) orgs[idx].memberIds = [];
+  if (!orgs[idx].memberIds.includes(employeeId)) orgs[idx].memberIds.push(employeeId);
+  orgs[idx].updatedAt = new Date().toISOString();
+  saveOrganizations(orgs);
+  broadcastSSE('organizations-changed', { id: req.params.id });
+  res.json({ ok: true, organization: orgs[idx] });
+});
+
+// Remove a member (employee) from an organization.
+// NOTE: Phase 1 removes membership only. Disabling the operations the member
+// was part of (within this org) is handled in a later phase.
+app.delete('/api/organizations/:id/members/:employeeId', (req, res) => {
+  const orgs = loadOrganizations();
+  const idx = orgs.findIndex(o => o.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
+  orgs[idx].memberIds = (orgs[idx].memberIds || []).filter(m => m !== req.params.employeeId);
+  orgs[idx].updatedAt = new Date().toISOString();
+  saveOrganizations(orgs);
+  broadcastSSE('organizations-changed', { id: req.params.id });
+  res.json({ ok: true, organization: orgs[idx] });
+});
 app.post('/api/managers/:id/start', (req, res) => {
   try {
     managerAgent.startSchedules(req.params.id);
