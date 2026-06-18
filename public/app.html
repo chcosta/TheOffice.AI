@@ -6047,6 +6047,43 @@
     </div>
   </div>
 
+  <!-- Reusable confirm dialog -->
+  <div class="modal-backdrop modal-overlay" x-show="confirmModal.open" x-transition.opacity.duration.150ms @click.self="resolveConfirm(false)" @keydown.escape.window="confirmModal.open && resolveConfirm(false)" style="z-index:10001" x-cloak>
+    <div class="modal-card" style="max-width:440px">
+      <div class="modal-header">
+        <h2 class="modal-title" x-text="confirmModal.title"></h2>
+        <button class="icon-button" type="button" @click="resolveConfirm(false)">✕</button>
+      </div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:16px">
+        <p class="hint" style="margin:0;white-space:pre-line" x-text="confirmModal.message"></p>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn" type="button" @click="resolveConfirm(false)">Cancel</button>
+          <button class="btn" type="button" :class="confirmModal.danger ? 'danger' : 'primary'" @click="resolveConfirm(true)" x-text="confirmModal.confirmLabel"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable prompt dialog -->
+  <div class="modal-backdrop modal-overlay" x-show="promptModal.open" x-transition.opacity.duration.150ms @click.self="resolvePrompt(false)" style="z-index:10001" x-cloak>
+    <div class="modal-card" style="max-width:440px">
+      <div class="modal-header">
+        <h2 class="modal-title" x-text="promptModal.title"></h2>
+        <button class="icon-button" type="button" @click="resolvePrompt(false)">✕</button>
+      </div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <label>
+          <div class="field-label" x-show="promptModal.label" x-text="promptModal.label"></div>
+          <input class="field-input" type="text" x-model="promptModal.value" x-ref="uiPromptInput" :placeholder="promptModal.placeholder" @keydown.enter="resolvePrompt(true)" @keydown.escape="resolvePrompt(false)" />
+        </label>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn" type="button" @click="resolvePrompt(false)">Cancel</button>
+          <button class="btn primary" type="button" @click="resolvePrompt(true)" x-text="promptModal.confirmLabel"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Rename group modal -->
   <div class="modal-backdrop modal-overlay" x-show="showRenameGroupModal" x-transition.opacity.duration.150ms @click.self="showRenameGroupModal=false" style="z-index:10000" x-cloak>
     <div class="modal-card" style="max-width:420px">
@@ -7341,6 +7378,8 @@
         renameGroupNew: '',
         showDeleteGroupModal: false,
         deleteGroupName: '',
+        confirmModal: { open: false, title: '', message: '', confirmLabel: 'Confirm', danger: false, _resolve: null },
+        promptModal: { open: false, title: '', label: '', value: '', placeholder: '', confirmLabel: 'Save', _resolve: null },
         agentSort: 'recent',
         agentView: 'grid',
         managerStatusFilter: 'all',
@@ -8269,7 +8308,7 @@
         },
         async detachCapMcp(name) {
           const id = this.selectedAgent.id;
-          if (!confirm(`Detach MCP server "${name}" from this agent?`)) return;
+          if (!await this.uiConfirm({ title: 'Detach MCP server', message: `Detach MCP server "${name}" from this agent?`, confirmLabel: 'Detach', danger: true })) return;
           try {
             await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/mcp/${encodeURIComponent(name)}`, { method: 'DELETE' });
             this.showToast('MCP detached', name, 'info');
@@ -8288,7 +8327,7 @@
         },
         async detachCapSkill(name) {
           const id = this.selectedAgent.id;
-          if (!confirm(`Detach skill "${name}"?`)) return;
+          if (!await this.uiConfirm({ title: 'Detach skill', message: `Detach skill "${name}"?`, confirmLabel: 'Detach', danger: true })) return;
           try {
             await this.request(`/api/agents/${encodeURIComponent(id)}/capabilities/skill/${encodeURIComponent(name)}`, { method: 'DELETE' });
             this.showToast('Skill detached', name, 'info');
@@ -8829,7 +8868,7 @@
           } catch (e) { this.showToast('Save failed', e.message, 'error'); }
         },
         async deleteOrg(org) {
-          if (!confirm(`Delete organization "${org.name}"? Members are unassigned; operations are not deleted.`)) return;
+          if (!await this.uiConfirm({ title: 'Delete organization', message: `Delete organization "${org.name}"? Members are unassigned; operations are not deleted.`, confirmLabel: 'Delete', danger: true })) return;
           try {
             await this.request('/api/organizations/' + encodeURIComponent(org.id), { method: 'DELETE' });
             if (this.currentOrgId === org.id) this.setCurrentOrg('all');
@@ -9172,6 +9211,50 @@
             // Board mode: create an empty group locally until an agent is dropped in.
             this.pendingGroups.push(name);
           }
+        },
+
+        // ----- Reusable promise-based dialogs (window.prompt/confirm are blocked
+        // in embedded/canvas webviews — they return null silently) -----
+        uiConfirm(opts) {
+          if (typeof opts === 'string') opts = { message: opts };
+          return new Promise((resolve) => {
+            this.confirmModal = {
+              open: true,
+              title: opts.title || 'Are you sure?',
+              message: opts.message || '',
+              confirmLabel: opts.confirmLabel || 'Confirm',
+              danger: !!opts.danger,
+              _resolve: resolve,
+            };
+          });
+        },
+        resolveConfirm(val) {
+          const r = this.confirmModal._resolve;
+          this.confirmModal.open = false;
+          this.confirmModal._resolve = null;
+          if (r) r(val);
+        },
+        uiPrompt(opts) {
+          if (typeof opts === 'string') opts = { title: opts };
+          return new Promise((resolve) => {
+            this.promptModal = {
+              open: true,
+              title: opts.title || 'Enter a value',
+              label: opts.label || '',
+              value: opts.value || '',
+              placeholder: opts.placeholder || '',
+              confirmLabel: opts.confirmLabel || 'Save',
+              _resolve: resolve,
+            };
+            this.$nextTick(() => { try { this.$refs.uiPromptInput?.focus(); this.$refs.uiPromptInput?.select(); } catch (e) {} });
+          });
+        },
+        resolvePrompt(ok) {
+          const r = this.promptModal._resolve;
+          const val = ok ? this.promptModal.value : null;
+          this.promptModal.open = false;
+          this.promptModal._resolve = null;
+          if (r) r(val);
         },
 
         // ----- Groups board (Employees → Groups tab) -----
@@ -9679,7 +9762,7 @@
           }
         },
         async syncPull() {
-          if (!confirm("Restore this machine's local config from its cloud backup? Local agents.json/managers.json/tasks.json will be overwritten.")) return;
+          if (!await this.uiConfirm({ title: 'Restore from cloud backup', message: "Restore this machine's local config from its cloud backup? Local agents.json/managers.json/tasks.json will be overwritten.", confirmLabel: 'Restore', danger: true })) return;
           try {
             await this.request('/api/sync/pull', { method: 'POST' });
             this.showToast('Sync', 'Config restored from cloud and reloaded.', 'success');
@@ -10359,7 +10442,7 @@
         // Manual rename from the chat header (auto-titles can be imperfect).
         async renameChat(chat) {
           if (!chat) return;
-          const next = window.prompt('Rename conversation', chat.title || '');
+          const next = await this.uiPrompt({ title: 'Rename conversation', label: 'Conversation name', value: chat.title || '' });
           if (next == null) return;
           const title = next.trim();
           if (!title || title === chat.title) return;
@@ -11461,7 +11544,7 @@
         },
 
         async resetResponseFormat() {
-          if (!confirm('Reset the shared response format to the built-in default? This affects all managers.')) return;
+          if (!await this.uiConfirm({ title: 'Reset response format', message: 'Reset the shared response format to the built-in default? This affects all managers.', confirmLabel: 'Reset', danger: true })) return;
           try {
             const r = await this.request('/api/manager-response-format', { method: 'DELETE' });
             this.templates.fmt.text = r.format || '';
@@ -11699,7 +11782,7 @@
         },
 
         async deleteTemplate(name) {
-          if (!confirm(`Remove the "${name}" manager template? This cannot be undone.`)) return;
+          if (!await this.uiConfirm({ title: 'Remove template', message: `Remove the "${name}" manager template? This cannot be undone.`, confirmLabel: 'Remove', danger: true })) return;
           try {
             await this.request('/api/manager-agents/' + encodeURIComponent(name), { method: 'DELETE' });
             this.showToast('Template removed', `${name} deleted.`, 'info');
@@ -11711,9 +11794,9 @@
         },
 
         async openCreateManager() {
-          const name = prompt('New manager name:');
+          const name = await this.uiPrompt({ title: 'New manager', label: 'Manager name', placeholder: 'e.g. Standups Lead' });
           if (!name || !name.trim()) return;
-          const description = prompt('Description (optional):') || '';
+          const description = (await this.uiPrompt({ title: 'New manager', label: 'Description (optional)', value: '' })) || '';
           const id = this.slugifyId(name, 'manager');
           try {
             await this.request('/api/managers', {
@@ -11731,7 +11814,7 @@
         async removeManager(id) {
           const manager = this.data.managers.find(m => m.id === id);
           const name = manager ? manager.name : id;
-          if (!confirm(`Remove manager "${name}"?\n\nThis will delete the manager and all its assignments.`)) return;
+          if (!await this.uiConfirm({ title: 'Remove manager', message: `Remove manager "${name}"?\n\nThis will delete the manager and all its assignments.`, confirmLabel: 'Remove', danger: true })) return;
           try {
             await this.request(`/api/managers/${encodeURIComponent(id)}`, { method: 'DELETE' });
             this.showToast('Manager removed', `${name} has been deleted.`, 'info');
@@ -11881,7 +11964,7 @@
           };
 
           if (!editingId && duplicate) {
-            const replace = confirm(`An assignment named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`);
+            const replace = await this.uiConfirm({ title: 'Assignment exists', message: `An assignment named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`, confirmLabel: 'Update' });
             if (!replace) return;
             try {
               await this.persistManagerAssignment(managerId, duplicate.id, { ...payload, enabled: duplicate.enabled !== false }, true);
@@ -11908,7 +11991,7 @@
                 this.showToast('Save failed', error.message, 'error');
                 return;
               }
-              const replace = confirm(`An assignment named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`);
+              const replace = await this.uiConfirm({ title: 'Assignment exists', message: `An assignment named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`, confirmLabel: 'Update' });
               if (!replace) return;
               try {
                 await this.persistManagerAssignment(managerId, existingAssignment.id, { ...payload, enabled: existingAssignment.enabled !== false }, true);
@@ -11963,7 +12046,7 @@
           } catch (error) {
             if (error.status === 409 || (error.message && error.message.includes('already exists'))) {
               // Duplicate name — ask user
-              const replace = confirm(`A task named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`);
+              const replace = await this.uiConfirm({ title: 'Task exists', message: `A task named "${name}" already exists.\n\nDo you want to update it with this new prompt and schedule?`, confirmLabel: 'Update' });
               if (replace) {
                 // Find the existing task and update it
                 try {
@@ -12185,7 +12268,7 @@
         },
 
         async deleteChain(chain) {
-          if (!confirm(`Delete flow "${chain.name}"?`)) return;
+          if (!await this.uiConfirm({ title: 'Delete flow', message: `Delete flow "${chain.name}"?`, confirmLabel: 'Delete', danger: true })) return;
           try {
             if (!chain._new) await this.request('/api/chains/' + encodeURIComponent(chain.id), { method: 'DELETE' });
             this.data.chains = this.data.chains.filter(c => c.id !== chain.id);
@@ -12366,7 +12449,7 @@
         },
 
         async deleteTaskById(taskId, name) {
-          if (!confirm(`Delete task "${name || taskId}"? This cannot be undone.`)) return;
+          if (!await this.uiConfirm({ title: 'Delete task', message: `Delete task "${name || taskId}"? This cannot be undone.`, confirmLabel: 'Delete', danger: true })) return;
           try {
             await this.request(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
             this.showToast('Task deleted', '', 'info');
@@ -12380,7 +12463,7 @@
 
         async deleteAssignmentById(managerId, assignmentId, name) {
           if (!managerId) { this.showToast('Delete failed', 'Missing manager reference.', 'error'); return; }
-          if (!confirm(`Delete assignment "${name || assignmentId}"? This cannot be undone.`)) return;
+          if (!await this.uiConfirm({ title: 'Delete assignment', message: `Delete assignment "${name || assignmentId}"? This cannot be undone.`, confirmLabel: 'Delete', danger: true })) return;
           try {
             await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments/${encodeURIComponent(assignmentId)}`, { method: 'DELETE' });
             this.showToast('Assignment deleted', '', 'info');
@@ -12909,7 +12992,7 @@
           }
         },
         async removeMarketplaceSource(id) {
-          if (!confirm('Remove this source? Its catalog cache is cleared (installed items stay).')) return;
+          if (!await this.uiConfirm({ title: 'Remove source', message: 'Remove this source? Its catalog cache is cleared (installed items stay).', confirmLabel: 'Remove', danger: true })) return;
           try {
             await this.request(`/api/marketplace/sources/${encodeURIComponent(id)}`, { method: 'DELETE' });
             if (this.mkt.activeSourceId === id) { this.mkt.activeSourceId = null; this.mkt.sourceSel = 'all'; }
