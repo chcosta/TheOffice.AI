@@ -3431,16 +3431,15 @@
                 </div>
               </div>
             </div>
-            <div class="ag-grid">
-              <aside class="ag-rail">
-                <section class="detail-panel" id="manager-details">
+            <div class="ag-stack">
+                <section class="detail-panel ag-identity" id="manager-details">
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Identity</h2>
                       <div class="hint">Manager identity and performance stats.</div>
                     </div>
                   </div>
-                  <div class="config-grid" x-init="$watch('selectedManager', async (m) => { if (m && m.id) { try { selectedManager._stats = await request('/api/managers/' + encodeURIComponent(m.id) + '/stats'); } catch {} } })">
+                  <div class="ag-identity-grid" x-init="$watch('selectedManager', async (m) => { if (m && m.id) { try { selectedManager._stats = await request('/api/managers/' + encodeURIComponent(m.id) + '/stats'); } catch {} } })">
                     <div class="detail-table">
                       <div class="detail-row"><span class="detail-label">Manager Name</span><span class="detail-value" x-text="selectedManager.name"></span></div>
                       <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedManager.id"></span></div>
@@ -3449,7 +3448,6 @@
                       <div class="detail-row"><span class="detail-label">Assignments</span><span class="detail-value" x-text="(selectedManager.config?.assignments || []).length + ' total'"></span></div>
                       <div class="detail-row"><span class="detail-label">Active Assignments</span><span class="detail-value" x-text="managerActiveCount(selectedManager) + ' enabled'"></span></div>
                     </div>
-                    <div class="detail-divider"></div>
                     <div class="detail-table" x-show="selectedManager._stats">
                       <div class="detail-row"><span class="detail-label">Total Runs</span><span class="detail-value" x-text="selectedManager._stats?.total || 0"></span></div>
                       <div class="detail-row"><span class="detail-label">Avg Run Time</span><span class="detail-value" x-text="formatDuration(selectedManager._stats?.avgDuration || 0)"></span></div>
@@ -3459,12 +3457,11 @@
                     </div>
                   </div>
                 </section>
-              </aside>
               <div class="ag-main">
                 <div class="ag-tabs">
+                  <button class="ag-tab" type="button" :class="managerTab === 'runs' ? 'active' : ''" @click="managerTab = 'runs'">📊 Runs <span class="ag-count" x-text="managerHistory.length"></span></button>
                   <button class="ag-tab" type="button" :class="managerTab === 'assignments' ? 'active' : ''" @click="managerTab = 'assignments'">🗂 Assignments <span class="ag-count" x-text="(selectedManager.config.assignments || []).length"></span></button>
                   <button class="ag-tab" type="button" :class="managerTab === 'org' ? 'active' : ''" @click="managerTab = 'org'">🏢 Organization <span class="ag-count" x-text="(selectedManager.config?.org || []).length"></span></button>
-                  <button class="ag-tab" type="button" :class="managerTab === 'runs' ? 'active' : ''" @click="managerTab = 'runs'">📊 Runs <span class="ag-count" x-text="managerHistory.length"></span></button>
                 </div>
 
                 <div class="panel-stack" x-show="managerTab === 'org'">
@@ -7618,7 +7615,7 @@
         execAi: { loading: false, error: '', hint: '', focusAgentId: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
         agentTab: 'runs',
-        managerTab: 'assignments',
+        managerTab: 'runs',
         liveOutput: {},
         managerHistory: [],
         expanded: {},
@@ -8693,7 +8690,7 @@
               this.selectedManager.scheduleDraft = 'never';
               this.selectedManager.schedulePreset = 'never';
               this.selectedManager._menu = false;
-              this.managerTab = 'assignments';
+              this.managerTab = 'runs';
             }
             this.managerHistory = history;
           } catch (error) {
