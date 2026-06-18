@@ -5179,6 +5179,12 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       return `- (${id}) "${clip(c.name || id, 80)}"${desc ? ' — ' + desc : ''}`;
     }).join('\n'));
   }
+  // Fold in the board's own "Where was I?" briefing so the assistant can answer
+  // questions about it and build on it (it's the user's latest synthesized view of
+  // the board). Placed first so it frames the rest of the context.
+  if (b.summary && b.summary.text) {
+    ctx.unshift('## WHERE WAS I? (latest AI briefing for this board)\n' + clip(b.summary.text, 2000));
+  }
   const baseCtx = ctx.join('\n\n');
   const contextStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 9000) || '(this board is empty — no pins, notes, or checklists yet)';
 

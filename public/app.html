@@ -2154,6 +2154,12 @@
       background: var(--cp-surface); color: var(--cp-text);
       border: 1px solid var(--cp-border); max-width: 100%; white-space: normal;
     }
+    /* The assistant bubble is itself the container — let its markdown grow naturally
+       instead of nesting a second scrollbar (the drawer body is the only scroller). */
+    .ba-bubble.assistant .md-output {
+      max-height: none; overflow: visible;
+      background: transparent; border: 0; padding: 0; font-size: 13px;
+    }
     .ba-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .ba-action {
       display: flex; align-items: center; gap: 10px;
@@ -12263,8 +12269,12 @@
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
             this.scheduleAutoFit();
+            // Return the persisted board so callers can confirm the write actually
+            // landed (and reflect server truth); false signals a failed/invalid save.
+            return (updated && updated.id) ? updated : false;
           } catch (e) {
             this.showToast('Board', e.message, 'error');
+            return false;
           }
         },
         // ----- Where was I (AI briefing) -----
@@ -12349,26 +12359,29 @@
           const now = new Date().toISOString();
           const rid = (p) => p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
           try {
+            let ok = false;        // confirmed-persisted board (or true) once the write lands
+            let verifyId = null;   // for add_checklist: the id we expect to find on the saved board
             if (a.type === 'add_note') {
               const notes = [...(board.notes || []), { id: rid('note'), text: a.text, createdAt: now }];
-              await this._patchBoard(board, { notes });
+              ok = await this._patchBoard(board, { notes });
             } else if (a.type === 'edit_note') {
               const notes = (board.notes || []).map(n => n.id === a.noteId ? { ...n, text: a.text, updatedAt: now } : n);
-              await this._patchBoard(board, { notes });
+              ok = await this._patchBoard(board, { notes });
             } else if (a.type === 'add_checklist') {
+              verifyId = rid('cl');
               const items = (a.items || []).map(t => this._mkChecklistItem(t, rid, now));
-              const checklists = [...(board.checklists || []), { id: rid('cl'), title: a.title, items, createdAt: now, updatedAt: now }];
-              await this._patchBoard(board, { checklists });
+              const checklists = [...(board.checklists || []), { id: verifyId, title: a.title, items, createdAt: now, updatedAt: now }];
+              ok = await this._patchBoard(board, { checklists });
             } else if (a.type === 'add_checklist_items') {
               const checklists = (board.checklists || []).map(c => c.id === a.checklistId
                 ? { ...c, items: [...(c.items || []), ...(a.items || []).map(t => this._mkChecklistItem(t, rid, now))], updatedAt: now }
                 : c);
-              await this._patchBoard(board, { checklists });
+              ok = await this._patchBoard(board, { checklists });
             } else if (a.type === 'check_item') {
               const checklists = (board.checklists || []).map(c => c.id === a.checklistId
                 ? { ...c, items: (c.items || []).map(i => i.id === a.itemId ? { ...i, done: true } : i), updatedAt: now }
                 : c);
-              await this._patchBoard(board, { checklists });
+              ok = await this._patchBoard(board, { checklists });
             } else if (a.type === 'pin_agent') {
               // Pin an installed agent to the board via the dedicated items endpoint
               // (same path as quick-pin), then fold the updated board back in.
@@ -12379,7 +12392,15 @@
               const updated = (resp && resp.board) || resp;
               const idx = this.boards.findIndex(b => b.id === board.id);
               if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+              ok = (updated && updated.id) ? updated : false;
             } else { return; }
+            // Only mark applied when the write is confirmed persisted. This prevents the
+            // assistant from claiming "✓ added" for a checklist that never saved.
+            if (!ok) { this.showToast('Board assistant', 'Could not apply — please retry', 'error'); return; }
+            if (verifyId && ok && Array.isArray(ok.checklists) && !ok.checklists.some(c => c.id === verifyId)) {
+              this.showToast('Board assistant', 'Checklist did not save — please retry', 'error');
+              return;
+            }
             a._applied = true;
             this.showToast('Board assistant', a.label + ' applied', 'success');
           } catch (e) {
