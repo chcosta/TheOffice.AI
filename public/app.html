@@ -2819,6 +2819,7 @@
                           <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
                           <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                           <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
+                          <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to board">📌</button>
                           <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                         </div>
                         <div class="lp-card-top">
@@ -2858,6 +2859,7 @@
                         <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
                         <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                         <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
+                        <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to board">📌</button>
                         <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                       </div></td>
                     </tr>
@@ -2897,6 +2899,7 @@
                   </button>
                 </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
+                <button class="btn" type="button" @click="openQuickPin('agent', selectedAgent.id, selectedAgent.name, selectedAgent.config?.group || 'Agent')" title="Pin to board">📌 Pin</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="openAgentCliSession(selectedAgent.id)" title="Open an interactive Copilot CLI terminal wired with this agent; the conversation mirrors here as a chat">⌨ CLI session</button>
                 <button class="btn ghost" type="button" @click="selectedAgent._menu = !selectedAgent._menu" title="More actions">⋯</button>
@@ -3356,6 +3359,7 @@
                   <div class="lp-qa">
                     <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
                     <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
+                    <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to board">📌</button>
                     <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                   </div>
                   <div class="lp-card-top">
@@ -3395,6 +3399,7 @@
                       <td><div class="lp-row-qa">
                         <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
                         <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
+                        <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to board">📌</button>
                         <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                       </div></td>
                     </tr>
@@ -3421,6 +3426,7 @@
               </div>
               <div class="ag-hero-actions">
                 <button class="btn primary" type="button" @click="managerTab = 'assignments'; resetManagerAssignmentForm()">＋ New Assignment</button>
+                <button class="btn" type="button" @click="openQuickPin('manager', selectedManager.id, selectedManager.name, 'Manager')" title="Pin to board">📌 Pin</button>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="selectedManager._menu = !selectedManager._menu" @click.outside="selectedManager._menu = false">⋯</button>
                 <div class="ag-menu" x-show="selectedManager._menu" x-transition style="display:none">
@@ -4466,6 +4472,7 @@
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
                     </div>
                     <div class="toolbar">
+                      <button class="btn" type="button" @click.stop="openQuickPin(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
                       <button class="btn" type="button" @click="openTaskModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
@@ -4662,6 +4669,7 @@
                       <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
                     </div>
                     <div class="toolbar">
+                      <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to board">📌</button>
                       <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
                     </div>
@@ -4704,6 +4712,7 @@
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
                     </div>
                     <div class="toolbar">
+                      <button class="btn" type="button" @click.stop="openQuickPin('assignment', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
                       <button class="btn" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
@@ -4752,6 +4761,7 @@
                     <p x-text="opDetail().ownerName + ' • ' + opDetail().scheduleSummary"></p>
                   </div>
                   <div class="toolbar">
+                    <button class="btn" type="button" @click="openQuickPin(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().ownerName)" title="Pin to board">📌</button>
                     <button class="btn" type="button" @click="editOpFromDetail(opDetail())">✏️ Edit</button>
                     <button class="btn primary" type="button" @click="runTask(opDetail())">▶ Run</button>
                     <button class="btn danger" type="button" @click="deleteOpFromDetail(opDetail())">🗑 Delete</button>
@@ -4891,6 +4901,7 @@
                     <p x-text="(detailChain().description || 'No description') + ' • ' + chainScheduleSummary(detailChain())"></p>
                   </div>
                   <div class="toolbar">
+                    <button class="btn" type="button" @click="openQuickPin('flow', detailChain().id, detailChain().name, 'Flow')" title="Pin to board">📌</button>
                     <button class="btn" type="button" @click="openChainModal(detailChain())">✏️ Edit</button>
                     <button class="btn primary" type="button" @click="runChain(detailChain())">▶ Run</button>
                   </div>
@@ -5029,6 +5040,7 @@
                     <button class="btn ghost" type="button" :disabled="titlingChatId === (activeChat && activeChat.id)" @click="regenChatTitle(activeChat)" title="Generate a fresh AI title from the conversation" x-text="titlingChatId === (activeChat && activeChat.id) ? '⏳ Titling…' : '🏷️ Auto-title'"></button>
                     <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
                     <button class="btn ghost" type="button" @click="toggleChatFocus()" :title="chatFocused ? 'Exit focused view (Esc)' : 'Open chat in a larger focused view'" x-text="chatFocused ? '🗗 Exit focus' : '⛶ Focus'"></button>
+                    <button class="btn ghost" type="button" @click="openQuickPin('chat', activeChat.id, activeChat.title, activeChat.targetName || activeChat.target)" title="Pin this conversation to a board">📌 Pin</button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
                   </div>
                 </div>
@@ -6307,6 +6319,7 @@
                         :disabled="summarizingSessionId === s.id"
                         @click="summarizeCliSession(s, !!s.summary)"
                         x-text="summarizingSessionId === s.id ? '⏳ Summarizing…' : (s.summary ? '🔄 Re-summarize' : '✨ Summarize')"></button>
+                      <button class="btn" type="button" @click="openQuickPin('session', s.id, s.title, s.agentName || s.cwd)" title="Pin to board">📌</button>
                     </div>
                   </div>
                   <div class="cli-sess-preview hint" x-show="s.lastUserPreview && !s.summary" x-text="'Last prompt: ' + s.lastUserPreview"></div>
@@ -6448,8 +6461,33 @@
     </div>
   </div>
 
-  <!-- Remove Agent (cascade) confirmation -->
-  <!-- New group modal (replaces window.prompt, which canvas/embedded webviews block) -->
+  <!-- Quick "Pin to board" picker — triggered from any entity surface -->
+  <div class="modal-backdrop modal-overlay" x-show="quickPin.open" x-transition.opacity.duration.150ms @click.self="quickPin.open=false" style="z-index:10001" x-cloak>
+    <div class="modal-card" style="max-width:440px">
+      <div class="modal-header">
+        <h2 class="modal-title">📌 Pin to board</h2>
+        <button class="icon-button" type="button" @click="quickPin.open=false">✕</button>
+      </div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
+        <div class="hint" x-text="boardKindIcon(quickPin.kind) + ' ' + boardKindLabel(quickPin.kind) + ' · ' + quickPin.label"></div>
+        <div x-show="boardsLoading" class="hint">Loading boards…</div>
+        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No boards in this organization yet.</div>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto">
+          <template x-for="b in visibleBoards()" :key="b.id">
+            <button type="button" class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;text-align:left" @click="quickPinTo(b)">
+              <span style="min-width:0">
+                <span style="font-weight:600" x-text="(b.emoji || '📌') + ' ' + b.name"></span>
+                <span class="hint" style="margin-left:6px" x-text="'· ' + boardOrgLabel(b)"></span>
+              </span>
+              <span class="status-badge small" x-show="quickPinBoardHas(b)" x-text="'✓ Pinned'"></span>
+            </button>
+          </template>
+        </div>
+        <button class="btn" type="button" @click="quickPinNewBoard()">＋ New board &amp; pin</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop modal-overlay" x-show="showNewGroupModal" x-transition.opacity.duration.150ms @click.self="showNewGroupModal=false" style="z-index:10000" x-cloak>
     <div class="modal-card" style="max-width:420px">
       <div class="modal-header">
@@ -7889,6 +7927,8 @@
         boardWhere: null,
         boardWhereLoading: false,
         boardChecklistItemDraft: {},
+        // Entity-centric "Pin to board" picker (works from anywhere)
+        quickPin: { open: false, kind: '', refId: '', label: '', sublabel: '' },
         updatesList: [],
         updatesLoading: false,
         updatesChecking: false,
@@ -11465,6 +11505,49 @@
             this.boardWhereOpen = false;
           } finally {
             this.boardWhereLoading = false;
+          }
+        },
+        // ----- Entity-centric quick pin (from agent/manager/task/flow/chat/session) -----
+        async openQuickPin(kind, refId, label, sublabel) {
+          if (!refId) return;
+          this.quickPin = { open: true, kind, refId, label: label || refId, sublabel: sublabel || '' };
+          if (!this.boards.length) { await this.loadBoards(); }
+        },
+        quickPinBoardHas(board) {
+          return (board.items || []).some(i => i.kind === this.quickPin.kind && i.refId === this.quickPin.refId);
+        },
+        async quickPinTo(board) {
+          if (this.quickPinBoardHas(board)) { this.boardJumpToBoard(board); return; }
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
+              method: 'POST',
+              body: JSON.stringify({ kind: this.quickPin.kind, refId: this.quickPin.refId, label: this.quickPin.label, sublabel: this.quickPin.sublabel })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.showToast('Pinned', `Added to ${board.emoji || '📌'} ${board.name}`, 'success');
+          } catch (e) {
+            this.showToast('Pin', e.message, 'error');
+          }
+        },
+        boardJumpToBoard(board) {
+          this.quickPin.open = false;
+          this.selectBoard(board.id);
+          this.goTo('#/boards');
+        },
+        // Create a new board inline from the quick-pin picker, then pin into it.
+        async quickPinNewBoard() {
+          const name = (this.quickPin.label || 'New board').slice(0, 40);
+          const defOrg = this.currentOrgId === 'all' ? null : this.currentOrgId;
+          try {
+            const resp = await this.request('/api/boards', { method: 'POST', body: JSON.stringify({ name, emoji: '📌', orgId: defOrg }) });
+            const board = (resp && resp.board) || resp;
+            await this.loadBoards(board.id);
+            const fresh = this.boards.find(b => b.id === board.id);
+            if (fresh) await this.quickPinTo(fresh);
+          } catch (e) {
+            this.showToast('Board', e.message, 'error');
           }
         },
         async loadUpdatesAvailable() {
