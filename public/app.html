@@ -4537,11 +4537,19 @@
                                                 <template x-if="item.ref && boardRefStatus(item.ref)">
                                                   <span class="pin-dot" :class="boardRefStatus(item.ref).state" :title="boardRefStatusTitle(item.ref)"></span>
                                                 </template>
-                                                <span style="flex:1;min-width:0" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
+                                                <span x-show="boardChecklistItemEdit[item.id] === undefined" style="flex:1;min-width:0" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
+                                                <input x-show="boardChecklistItemEdit[item.id] !== undefined" class="field-input" type="text" style="flex:1;min-width:0;font-size:13px" x-model="boardChecklistItemEdit[item.id]" :data-ci-edit="item.id" @keydown.enter="saveChecklistItem(cl, item)" @keydown.escape="cancelEditChecklistItem(item)" />
                                                 <!-- Trailing controls pinned to the right edge of the row. -->
                                                 <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex:0 0 auto">
+                                                  <!-- Inline edit save/cancel when editing this item's text. -->
+                                                  <template x-if="boardChecklistItemEdit[item.id] !== undefined">
+                                                    <span style="display:flex;align-items:center;gap:6px">
+                                                      <button class="btn ghost" type="button" style="padding:1px 8px;font-size:11px" title="Save" @click="saveChecklistItem(cl, item)">✓ Save</button>
+                                                      <button class="icon-button" type="button" title="Cancel" @click="cancelEditChecklistItem(item)">✕</button>
+                                                    </span>
+                                                  </template>
                                                   <!-- One primary action for a referenced pin: Run (runnable) or Open. Height-stable. -->
-                                                  <template x-if="item.ref">
+                                                  <template x-if="item.ref && boardChecklistItemEdit[item.id] === undefined">
                                                     <span class="ci-ref" :title="boardKindLabel(item.ref.kind) + ' · ' + (item.ref.label || item.ref.refId)">
                                                       <span x-text="boardKindIcon(item.ref.kind)"></span>
                                                       <button class="btn ghost" type="button" style="padding:1px 8px;font-size:11px"
@@ -4551,10 +4559,11 @@
                                                       <button class="icon-button" type="button" title="Remove link" @click="clearItemRef(cl, item)" style="font-size:11px">🔗✕</button>
                                                     </span>
                                                   </template>
-                                                  <button class="icon-button" type="button" x-show="!item.ref" :title="boardRefPickFor === item.id ? 'Cancel link' : 'Link a pinned item'" @click="boardRefPickFor = (boardRefPickFor === item.id ? '' : item.id)">🔗</button>
-                                                  <button class="icon-button" type="button" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
-                                                  <button class="icon-button" type="button" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
-                                                  <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Edit text" @click="startEditChecklistItem(item)">✎</button>
+                                                  <button class="icon-button" type="button" x-show="!item.ref && boardChecklistItemEdit[item.id] === undefined" :title="boardRefPickFor === item.id ? 'Cancel link' : 'Link a pinned item'" @click="boardRefPickFor = (boardRefPickFor === item.id ? '' : item.id)">🔗</button>
+                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
+                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
+                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
                                                 </div>
                                               </div>
                                               <!-- Inline pin picker: choose a pin already on this board to link to the item. -->
@@ -8214,6 +8223,7 @@
         boardChecklistDraft: '',
         boardSummaryLoading: false,
         boardChecklistItemDraft: {},
+        boardChecklistItemEdit: {},
         boardRefPickFor: '',
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
@@ -12202,6 +12212,30 @@
             ? { ...c, items: (c.items || []).filter(i => i.id !== item.id), updatedAt: now }
             : c);
           await this._patchBoard(board, { checklists });
+        },
+        // Inline edit of a checklist item's text. We stash the working draft in
+        // boardChecklistItemEdit keyed by item id; `undefined` means "not editing".
+        startEditChecklistItem(item) {
+          this.boardChecklistItemEdit[item.id] = item.text || '';
+          this.$nextTick(() => {
+            const el = document.querySelector('[data-ci-edit="' + item.id + '"]');
+            if (el) { el.focus(); el.select(); }
+          });
+        },
+        cancelEditChecklistItem(item) {
+          delete this.boardChecklistItemEdit[item.id];
+        },
+        async saveChecklistItem(cl, item) {
+          const board = this.activeBoard();
+          if (!board) { this.cancelEditChecklistItem(item); return; }
+          const text = (this.boardChecklistItemEdit[item.id] || '').trim();
+          if (!text || text === item.text) { this.cancelEditChecklistItem(item); return; }
+          const now = new Date().toISOString();
+          const checklists = (board.checklists || []).map(c => c.id === cl.id
+            ? { ...c, items: (c.items || []).map(i => i.id === item.id ? { ...i, text } : i), updatedAt: now }
+            : c);
+          const ok = await this._patchBoard(board, { checklists });
+          if (ok) this.cancelEditChecklistItem(item);
         },
         checklistProgress(cl) {
           const items = (cl && cl.items) || [];
