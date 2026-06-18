@@ -4361,6 +4361,14 @@
                                     <button class="btn ghost" type="button" @click="refreshBoardSummary(true)" :disabled="boardSummaryLoading" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
                                   </div>
                                   <div x-show="boardSummaryLoading && !(activeBoard().summary)" class="hint">Reviewing recent activity across your pinned items…</div>
+                                  <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
+                                    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:0 0 auto">
+                                      <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
+                                      <template x-for="d in (activeBoard().summary.deltas||[])" :key="d.kind + ':' + d.label">
+                                        <span class="pill" :style="'cursor:pointer;font-size:11px;padding:2px 8px;' + (d.attention ? 'border-color:var(--cp-danger);color:var(--cp-danger)' : '')" @click="d.route && goTo(d.route)" :title="d.status + (d.when ? ' · ' + formatRelative(d.when) : '')" x-text="(d.attention ? '⚠ ' : '') + d.label"></span>
+                                      </template>
+                                    </div>
+                                  </template>
                                   <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
                                   <div x-show="!boardSummaryLoading && !(activeBoard().summary)" class="empty-state" style="padding:12px">Pin items, then click <strong>↻ Update</strong> to generate an AI briefing of where you left off.</div>
                                 </div>
@@ -12001,7 +12009,7 @@
           this.boardSummaryLoading = true;
           try {
             const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/where-was-i', { method: 'POST', body: JSON.stringify({ force }) });
-            const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [] };
+            const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [], deltas: r.deltas || [] };
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0) this.boards[idx] = { ...this.boards[idx], summary };
             this.scheduleAutoFit();

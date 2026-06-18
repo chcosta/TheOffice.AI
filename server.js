@@ -4754,6 +4754,7 @@ function _normalizeBoard(b) {
     layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
     summary: (b.summary && typeof b.summary === 'object' && !Array.isArray(b.summary)) ? b.summary : null,
     archived: !!b.archived,
+    lastViewedAt: b.lastViewedAt || null,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
@@ -4985,12 +4986,27 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   if (!force && b.summary && b.summary.generatedAt) {
     const age = Date.now() - new Date(b.summary.generatedAt).getTime();
     if (age >= 0 && age < 30000) {
-      return res.json({ ok: true, generatedAt: b.summary.generatedAt, summary: b.summary.text, items: b.summary.items || [], cached: true });
+      return res.json({ ok: true, generatedAt: b.summary.generatedAt, summary: b.summary.text, items: b.summary.items || [], deltas: b.summary.deltas || [], cached: true });
     }
   }
 
   const { out, contextBlocks } = _resolveBoardItems(b);
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+  // Deltas: what changed since the user last viewed (generated a briefing for) this
+  // board. Pinned items whose latest activity timestamp is newer than lastViewedAt,
+  // flagged for attention when the latest run errored/failed.
+  const prevViewed = b.lastViewedAt ? new Date(b.lastViewedAt).getTime() : 0;
+  const deltas = prevViewed
+    ? out.filter(o => o.when && new Date(o.when).getTime() > prevViewed).map(o => ({
+        label: o.label || o.refId, kind: o.kind, status: o.status || '', when: o.when, route: o.route,
+        attention: ['error', 'failed'].includes(String(o.status).toLowerCase())
+      }))
+    : [];
+  if (deltas.length) {
+    const dl = deltas.map(d => `- ${d.attention ? '⚠ ' : ''}${d.label}${d.status ? ' [' + d.status + ']' : ''}`).join('\n');
+    contextBlocks.unshift('### SINCE LAST VIEWED\n' + dl);
+  }
 
   // Fold the board's own notes and checklists (with item status) into the context
   // so the briefing reflects what the user jotted down and what's still unchecked.
@@ -5029,26 +5045,33 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   } else {
     digest = `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
   }
+  if (deltas.length) {
+    const dl = deltas.map(d => `${d.attention ? '⚠ ' : ''}${d.label}${d.status ? ' [' + d.status + ']' : ''}`).join(', ');
+    digest = `Since you last looked: ${dl}.\n\n` + digest;
+  }
 
-  // Persist the briefing onto the board record and notify SPA clients.
+  // Persist the briefing onto the board record and notify SPA clients. Also advances
+  // lastViewedAt so the next briefing's deltas are measured from this point.
   const persist = (text) => {
-    const summary = { text, generatedAt: new Date().toISOString(), items: out };
+    const generatedAt = new Date().toISOString();
+    const summary = { text, generatedAt, items: out, deltas };
     try {
       const all = loadBoards();
       const idx = all.findIndex(x => x.id === b.id);
-      if (idx >= 0) { all[idx].summary = summary; saveBoards(all); broadcastSSE('boards-changed', { id: b.id }); }
+      if (idx >= 0) { all[idx].summary = summary; all[idx].lastViewedAt = generatedAt; saveBoards(all); broadcastSSE('boards-changed', { id: b.id }); }
     } catch {}
     return summary;
   };
 
   if (!contextBlocks.length) {
     const saved = persist(digest);
-    return res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false });
+    return res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false });
   }
 
   const prompt = [
     `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections. Checklist lines marked "[x]" are done and "[ ]" are still open.`,
     'Write a "Where was I?" briefing that reorients the user:',
+    '- If a "SINCE LAST VIEWED" section is present, begin with one sentence highlighting what changed since the user last looked (call out any items marked ⚠ as needing attention).',
     '- 3 to 6 sentences of plain prose summarizing what is going on across these items, the current state, and what the notes/checklists indicate.',
     '- Then, only if there are concrete pending actions, add a line "Next steps:" followed by a short bullet list (each line starting with "- "). Treat unchecked checklist items as pending actions.',
     'Be specific and concrete. No preamble, no headings other than "Next steps:", no surrounding quotes.',
@@ -5063,10 +5086,10 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
     const text = (acc.trim() || (result && result.output) || '').trim() || digest;
     const saved = persist(text);
-    res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false });
+    res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false });
   } catch (e) {
     const saved = persist(digest);
-    res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false, error: (e && e.message) || 'llm failed' });
+    res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false, error: (e && e.message) || 'llm failed' });
   }
 });
 
