@@ -5131,8 +5131,14 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 // (query_agent), or pinning an installed agent to the board (pin_agent). Everything
 // is propose → confirm — the client applies/queues confirmed actions. The only thing
 // executed directly is a pinned agent the user has explicitly chosen to run.
-async function runBoardAssistant(b, { message, history = [], extraContext = '', allowQuery = true } = {}) {
+async function runBoardAssistant(b, { message, history = [], extraContext = '', allowQuery = true, depth = 0 } = {}) {
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  // Bounded agent orchestration: the assistant may chain agent runs across confirmable
+  // steps, but only up to MAX_QUERY_DEPTH hops so a request can't spiral into unbounded
+  // runs. agentJustRan = this turn already has a fresh agent result folded into context.
+  const MAX_QUERY_DEPTH = 3;
+  const canQuery = allowQuery && depth < MAX_QUERY_DEPTH;
+  const agentJustRan = /## AGENT RESULT/.test(extraContext || '');
 
   // ---- Board context (pins + notes + checklists, with stable ids the model can
   // reference back in its proposed actions). Reuses the same resolver as the
@@ -5199,7 +5205,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"add_checklist","title":"<title>","items":[<item>, ...]}',
     '- {"type":"add_checklist_items","checklistId":"<existing checklist id>","items":[<item>, ...]}',
     '- {"type":"check_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (marks the item done)',
-    (allowQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
+    (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_agent","agentId":"<id from AVAILABLE AGENTS>"}  (adds an installed agent to this board — propose when the user needs a capability that is not yet pinned, e.g. "I need email access")',
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
@@ -5209,12 +5215,23 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '',
     'Rules:',
     '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...), pin handles (kind:refId), and agent ids that appear in the BOARD CONTEXT below. Never invent ids.',
-    (allowQuery ? '- Use query_agent ONLY for agents that appear under BOARD PINS as kind "agent". To gather information from a pinned agent before building a checklist/note, propose query_agent first; once the user runs it you will get the output and can then propose the notes/checklists. Propose at most ONE query_agent at a time.' : '- You already have an agent result in the context below; do NOT propose query_agent again — use the result to propose concrete notes/checklists now.'),
-    (allowQuery ? '- HONOR explicit agent requests: if the user tells you to "use an agent" / "run an agent" / "have an agent find/fetch ..." to obtain information (URLs, status, data), you MUST propose query_agent for the best-matching pinned agent instead of shortcutting with whatever is already in the context — even if you believe the data is partially present. Only skip query_agent if the BOARD CONTEXT already contains the EXACT, complete data needed (e.g. the real URLs themselves).' : ''),
+    // Proactive gathering — don't fabricate; run/pin the right agent when context is thin.
+    (canQuery
+      ? '- GATHER BEFORE YOU GUESS: if fulfilling the request needs facts that are NOT already in the BOARD CONTEXT (live status, URLs, a list from an epic/agent, etc.), do not fabricate, hand-wave, or emit placeholder items. If a PINNED agent can produce those facts, propose query_agent. If no pinned agent fits but one under AVAILABLE AGENTS clearly does, propose pin_agent (the user pins it, then asks you to run it). Only answer/build directly when the needed facts are already present in context.'
+      : '- You may still propose query_agent for a genuinely DIFFERENT agent or purpose if the request needs more data you do not yet have, but NEVER re-run the same agent for the same purpose.'),
+    (agentJustRan ? '- You just received a fresh AGENT RESULT in the context below. Use it now to build the concrete notes/checklists the user asked for; do not ask the user to run the same agent again.' : ''),
+    // Honor explicit agent requests.
+    (canQuery ? '- HONOR explicit agent requests: if the user tells you to "use an agent" / "run an agent" / "have an agent find/fetch ..." to obtain information, you MUST propose query_agent for the best-matching pinned agent instead of shortcutting with whatever is already in the context — unless the BOARD CONTEXT already contains the EXACT, complete data needed (e.g. the real URLs themselves).' : ''),
+    // Smart agent selection + auto-pin.
+    '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_agent when no pinned agent covers the need.',
+    // Dedup / merge awareness.
+    '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
+    // Multi-step confirmable plans.
+    '- MULTI-STEP PLANS: when a request needs several steps (e.g. gather data → build a checklist → add a note), briefly state the ordered plan in "reply", then propose ONLY the first actionable step now — usually a single query_agent. After each step runs/applies you will be called again to propose the next step. NEVER propose a query_agent together with the checklist/note that depends on its output in the same response.',
     '- Use pin_agent ONLY for ids under AVAILABLE AGENTS. Pick the single best match for the stated capability.',
     '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
     '- Propose actions ONLY when the user is clearly asking to add/change board content or orchestrate work. For pure questions, return an empty actions array and just answer in "reply".',
-    '- Keep checklist items short and imperative. Keep notes concise.',
+    '- Keep checklist items short and imperative; embed real hyperlinks as described above. Keep notes concise.',
     '- Base proposals on the actual board context (pinned run output, agent results, notes, existing checklists) when relevant.',
     '',
     'Respond with a SINGLE JSON object and nothing else: {"reply":"<short conversational reply describing what you propose, or your answer>","actions":[ ... ]}. No code fences, no prose outside the JSON.',
@@ -5292,14 +5309,16 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       return { type, checklistId: cl.id, checklistTitle: cl.title, items, label: 'Add to checklist', preview: `${cl.title}: +${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)}` };
     }
     if (type === 'query_agent') {
-      if (!allowQuery) return null;
+      if (!canQuery) return null;
       let refId = a.agentRefId || a.refId || a.agentId || '';
       if (typeof refId === 'string' && refId.indexOf('agent:') === 0) refId = refId.slice(6);
       const pin = pins.find(p => p.kind === 'agent' && p.refId === refId);
       if (!pin) return null; // only agents pinned to THIS board may be queried
       const q = clip(a.prompt || a.instruction || message, 1500);
       const name = pin.label || refId;
-      return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), label: 'Run agent', preview: `Run ${name}` + (q ? `: ${clip(q, 90)}` : '') };
+      // Carry the current chain depth so the client can echo it back when it runs the
+      // agent, letting the follow-up continue the chain (bounded by MAX_QUERY_DEPTH).
+      return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), depth, label: 'Run agent', preview: `Run ${name}` + (q ? `: ${clip(q, 90)}` : '') };
     }
     if (type === 'pin_agent') {
       const id = a.agentId || a.refId || a.id;
@@ -5377,7 +5396,8 @@ app.post('/api/boards/:id/assistant/query', async (req, res) => {
     if (run && run.fallback) return res.status(502).json({ ok: false, error: `Could not run ${name}.` });
     const extraContext = `## AGENT RESULT (the user just ran the pinned agent "${name}" to help with their request — use this output now)\n${output || '(the agent produced no output)'}`;
     const followUp = message || `Use the result of "${name}" to fulfil my request.`;
-    const out = await runBoardAssistant(b, { message: followUp, history, extraContext, allowQuery: false });
+    const depth = Number(req.body && req.body.depth) || 0;
+    const out = await runBoardAssistant(b, { message: followUp, history, extraContext, allowQuery: true, depth: depth + 1 });
     res.json({ ok: true, reply: out.reply, actions: out.actions, agentOutput: output, agentLabel: name });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'agent query failed' });

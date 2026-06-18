@@ -12455,7 +12455,7 @@
           try {
             const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/assistant/query', {
               method: 'POST',
-              body: JSON.stringify({ agentId: a.agentId, prompt: a.prompt, message: '', history })
+              body: JSON.stringify({ agentId: a.agentId, prompt: a.prompt, message: '', history, depth: a.depth || 0 })
             });
             a._applied = true;
             const actions = (r.actions || []).map(x => ({ ...x, _applied: false, _dismissed: false, _running: false }));
