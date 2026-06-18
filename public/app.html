@@ -2071,6 +2071,19 @@
       white-space: nowrap;
     }
     .board-panel-grip { color: var(--cp-text-soft); opacity: .55; font-size: 13px; }
+    .board-panel-chevron {
+      background: transparent;
+      border: none;
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      line-height: 1;
+      padding: 2px 3px;
+      border-radius: 4px;
+      flex: 0 0 auto;
+    }
+    .board-panel-chevron:hover { background: var(--cp-highlight); color: var(--cp-text); }
+    .board-panel.collapsed .board-panel-head { border-bottom: none; border-radius: 16px; }
     .board-panel-body { overflow: visible; padding: 12px; }
     .board-resize {
       position: absolute;
@@ -4311,13 +4324,16 @@
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
                     <div class="board-grid" :style="'position:relative; width:100%; height:' + boardGridHeight() + 'px;'">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id }" :style="panelStyle(p.id)" :data-pid="p.id">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <div class="board-panel-inner card">
                             <div class="board-panel-head" @mousedown="startPanelDrag(p.id, $event)">
-                              <div class="board-panel-title" x-text="panelTitle(p)"></div>
+                              <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                                <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
+                                <div class="board-panel-title" x-text="panelTitle(p)"></div>
+                              </div>
                               <span class="board-panel-grip" title="Drag to move">⠿</span>
                             </div>
-                            <div class="board-panel-body">
+                            <div class="board-panel-body" x-show="!isPanelCollapsed(p.id)">
                               <!-- Where was I? AI briefing -->
                               <template x-if="p.type === 'summary'">
                                 <div style="display:flex;flex-direction:column;gap:10px">
@@ -4327,7 +4343,7 @@
                                     <button class="btn ghost" type="button" @click="refreshBoardSummary(true)" :disabled="boardSummaryLoading" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
                                   </div>
                                   <div x-show="boardSummaryLoading && !(activeBoard().summary)" class="hint">Reviewing recent activity across your pinned items…</div>
-                                  <div x-show="activeBoard().summary && activeBoard().summary.text" style="white-space:pre-wrap;line-height:1.5" x-text="activeBoard().summary ? activeBoard().summary.text : ''"></div>
+                                  <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
                                   <div x-show="!boardSummaryLoading && !(activeBoard().summary)" class="empty-state" style="padding:12px">Pin items, then click <strong>↻ Update</strong> to generate an AI briefing of where you left off.</div>
                                 </div>
                               </template>
@@ -4361,7 +4377,12 @@
                                   <div style="display:flex;flex-direction:column;gap:8px">
                                     <template x-for="note in (activeBoard().notes||[])" :key="note.id">
                                       <div style="background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start">
-                                        <textarea class="field-input" rows="2" style="flex:1;border:none;background:transparent;resize:vertical" x-text="note.text" @change="updateBoardNote(note, $event.target.value)"></textarea>
+                                        <template x-if="boardEditingNote === note.id">
+                                          <textarea class="field-input" rows="3" style="flex:1;resize:vertical" x-init="$el.value = note.text; $nextTick(() => $el.focus())" @blur="updateBoardNote(note, $event.target.value); boardEditingNote=''" @keydown.escape.stop="boardEditingNote=''"></textarea>
+                                        </template>
+                                        <template x-if="boardEditingNote !== note.id">
+                                          <div class="md-output" style="flex:1;min-width:0;cursor:text" title="Click to edit" x-html="renderMarkdown(note.text)" @click="if(!$event.target.closest('a')) boardEditingNote = note.id"></div>
+                                        </template>
                                         <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
                                       </div>
                                     </template>
@@ -4391,7 +4412,7 @@
                                           <template x-for="item in (cl.items||[])" :key="item.id">
                                             <div style="display:flex;align-items:center;gap:8px">
                                               <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
-                                              <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-text="item.text"></span>
+                                              <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
                                               <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
                                             </div>
                                           </template>
@@ -4407,7 +4428,7 @@
                               </template>
                             </div>
                           </div>
-                          <div class="board-resize" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize"></div>
+                          <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize"></div>
                         </div>
                       </template>
                     </div>
@@ -7967,6 +7988,7 @@
         boardPinKind: 'task',
         boardPinSearch: '',
         boardNoteDraft: '',
+        boardEditingNote: '',
         boardChecklistDraft: '',
         boardSummaryLoading: false,
         boardChecklistItemDraft: {},
@@ -11536,7 +11558,8 @@
           const l = this.boardLayout[id] || { x: 0, y: 0, w: Math.floor(cols / 2), h: 6 };
           const leftPct = (l.x / cols) * 100;
           const widthPct = (l.w / cols) * 100;
-          return `position:absolute; left:${leftPct}%; width:${widthPct}%; top:${l.y * rowH}px; height:${l.h * rowH}px; padding:0 ${gap / 2}px ${gap}px ${gap / 2}px;`;
+          const h = l.collapsed ? 2 : l.h;
+          return `position:absolute; left:${leftPct}%; width:${widthPct}%; top:${l.y * rowH}px; height:${h * rowH}px; padding:0 ${gap / 2}px ${gap}px ${gap / 2}px;`;
         },
         boardGridHeight() {
           let maxY = 6;
@@ -11632,6 +11655,11 @@
             grid.querySelectorAll('.board-panel').forEach(el => {
               const id = el.getAttribute('data-pid'); if (!id) return;
               const head = el.querySelector('.board-panel-head');
+              if (this.isPanelCollapsed(id)) {
+                // Collapsed: size to the header only (body is hidden via x-show).
+                fit[id] = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+                return;
+              }
               const body = el.querySelector('.board-panel-body');
               const needed = (head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6;
               fit[id] = Math.max(3, Math.ceil(needed / rowH));
@@ -11650,7 +11678,8 @@
               // layout is persisted (→ boards-changed SSE → reload → re-fit) that
               // jitter loops forever, adding/removing a scrollbar every second.
               let h;
-              if (need > cur.h) h = need;
+              if (this.isPanelCollapsed(id)) h = need;
+              else if (need > cur.h) h = need;
               else if (need < cur.h - 1) h = need;
               else h = cur.h;
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
@@ -11662,6 +11691,17 @@
             }
             if (changed) { this.boardLayout = layout; this.persistLayout(); }
           });
+        },
+        isPanelCollapsed(id) {
+          const l = this.boardLayout && this.boardLayout[id];
+          return !!(l && l.collapsed);
+        },
+        togglePanelCollapse(id) {
+          this.ensureBoardLayout();
+          const cur = this.boardLayout[id] || { x: 0, y: 0, w: this.boardCols, h: 3 };
+          this.boardLayout = { ...this.boardLayout, [id]: { ...cur, collapsed: !cur.collapsed } };
+          this.persistLayout();
+          this.scheduleAutoFit();
         },
         // ----- Notes -----
         async addBoardNote() {
@@ -12222,7 +12262,19 @@
         },
 
         inlineMarkdown(text) {
-          let s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          let s = String(text == null ? '' : text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          // Stash explicit markdown links first so their URLs aren't double-linkified.
+          const stash = [];
+          s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) => {
+            const i = stash.push(`<a href="${url}" target="_blank" rel="noopener" class="md-link">${label}</a>`) - 1;
+            return `\u0000L${i}\u0000`;
+          });
+          // Auto-linkify bare URLs (http(s):// or www.) that weren't already markdown links.
+          s = s.replace(/(^|[\s(])((?:https?:\/\/|www\.)[^\s<]+[^\s<.,;:!?)])/g, (m, pre, url) => {
+            const href = url.startsWith('www.') ? 'https://' + url : url;
+            const i = stash.push(`<a href="${href}" target="_blank" rel="noopener" class="md-link">${url}</a>`) - 1;
+            return `${pre}\u0000L${i}\u0000`;
+          });
           // Bold
           s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
           // Italic
@@ -12230,10 +12282,10 @@
           s = s.replace(/_(.+?)_/g, '<em>$1</em>');
           // Inline code
           s = s.replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>');
-          // Links
-          s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="md-link">$1</a>');
           // Strikethrough
           s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
+          // Restore stashed anchors
+          s = s.replace(/\u0000L(\d+)\u0000/g, (m, i) => stash[Number(i)] || '');
           return s;
         },
 
