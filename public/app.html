@@ -4382,6 +4382,8 @@
                                       </div>
                                       <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
                                         <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
+                                        <button class="icon-button" type="button" title="Move up" @click.stop="movePin(item, -1)">▲</button>
+                                        <button class="icon-button" type="button" title="Move down" @click.stop="movePin(item, 1)">▼</button>
                                         <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
                                         <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
                                       </div>
@@ -4410,6 +4412,8 @@
                                             <div class="hint" style="margin-top:4px;font-size:11px;opacity:.7" x-show="note.createdAt" :title="stampTitle(note)" x-text="stampLine(note)"></div>
                                           </div>
                                         </template>
+                                        <button class="icon-button" type="button" title="Move up" @click="moveNote(note, -1)">▲</button>
+                                        <button class="icon-button" type="button" title="Move down" @click="moveNote(note, 1)">▼</button>
                                         <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
                                       </div>
                                     </template>
@@ -4435,6 +4439,8 @@
                                           </div>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
+                                            <button class="icon-button" type="button" title="Move up" @click="moveChecklist(cl, -1)">▲</button>
+                                            <button class="icon-button" type="button" title="Move down" @click="moveChecklist(cl, 1)">▼</button>
                                             <button class="icon-button" type="button" title="Delete checklist" @click="deleteChecklist(cl)">✕</button>
                                           </div>
                                         </div>
@@ -4443,6 +4449,8 @@
                                             <div style="display:flex;align-items:center;gap:8px">
                                               <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
                                               <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
+                                              <button class="icon-button" type="button" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
+                                              <button class="icon-button" type="button" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
                                               <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
                                             </div>
                                           </template>
@@ -11907,6 +11915,54 @@
           const items = (cl && cl.items) || [];
           const done = items.filter(i => i.done).length;
           return { done, total: items.length };
+        },
+        // ----- Manual reorder (up/down) for pins / notes / checklists / items -----
+        // Returns a new array with the element id moved by dir (-1 up, +1 down), or
+        // null if it can't move (not found / at a boundary).
+        _moveInArray(arr, id, dir) {
+          const a = [...(arr || [])];
+          const i = a.findIndex(x => x && x.id === id);
+          if (i < 0) return null;
+          const j = i + dir;
+          if (j < 0 || j >= a.length) return null;
+          [a[i], a[j]] = [a[j], a[i]];
+          return a;
+        },
+        // Move a pinned item within its own kind group. board.items mixes kinds in one
+        // array, so we swap with the nearest neighbour of the same kind in that direction.
+        movePin(item, dir) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const items = [...(board.items || [])];
+          const i = items.findIndex(x => x.id === item.id);
+          if (i < 0) return;
+          let j = i + dir;
+          while (j >= 0 && j < items.length && items[j].kind !== item.kind) j += dir;
+          if (j < 0 || j >= items.length) return;
+          [items[i], items[j]] = [items[j], items[i]];
+          this._patchBoard(board, { items });
+        },
+        moveNote(note, dir) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const notes = this._moveInArray(board.notes, note.id, dir);
+          if (notes) this._patchBoard(board, { notes });
+        },
+        moveChecklist(cl, dir) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const checklists = this._moveInArray(board.checklists, cl.id, dir);
+          if (checklists) this._patchBoard(board, { checklists });
+        },
+        moveChecklistItem(cl, item, dir) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const checklists = (board.checklists || []).map(c => {
+            if (c.id !== cl.id) return c;
+            const items = this._moveInArray(c.items, item.id, dir);
+            return items ? { ...c, items } : c;
+          });
+          this._patchBoard(board, { checklists });
         },
         // Human-readable "Added … · edited …" line for notes and checklists.
         stampLine(o) {
