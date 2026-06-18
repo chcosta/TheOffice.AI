@@ -5154,8 +5154,16 @@ function saveLatestSuggestions(obj) {
 // Ephemeral try-run buffers, keyed by runId.
 const suggestionRuns = new Map();
 
-function suggestionAgentCatalog() {
-  return supervisor.getAllStatus().map(a => ({
+function suggestionAgentCatalog(orgId) {
+  let list = supervisor.getAllStatus();
+  // When designing inside a specific organization, only offer that org's
+  // member agents so generated tasks/flows never depend on outside agents.
+  if (orgId && orgId !== 'all') {
+    const org = (loadOrganizations() || []).find(o => o.id === orgId);
+    const members = new Set((org && org.memberIds) || []);
+    list = list.filter(a => members.has(a.agent_id));
+  }
+  return list.map(a => ({
     id: a.agent_id,
     name: (a.config && a.config.name) || a.agent_id,
     description: (a.config && a.config.description) || '',
@@ -5236,8 +5244,15 @@ function normalizeSuggestion(raw, validAgentIds) {
 }
 
 app.post('/api/execution-suggestions/generate', async (req, res) => {
-  const agents = suggestionAgentCatalog();
-  if (!agents.length) return res.status(400).json({ error: 'No agents available to design with.' });
+  const orgId = String((req.body && req.body.orgId) || '').trim();
+  const agents = suggestionAgentCatalog(orgId);
+  if (!agents.length) {
+    const scoped = orgId && orgId !== 'all';
+    const org = scoped ? (loadOrganizations() || []).find(o => o.id === orgId) : null;
+    return res.status(400).json({ error: scoped
+      ? `${(org && org.name) || 'This organization'} has no agents to design with. Add agents to this organization first.`
+      : 'No agents available to design with.' });
+  }
   const validIds = new Set(agents.map(a => a.id));
   const tasks = loadTasks().map(t => ({ name: t.name, agentId: t.agentId, prompt: String(t.prompt || '').slice(0, 200) }));
   let chains = [];

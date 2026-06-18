@@ -11764,7 +11764,7 @@
           this.execAi.error = '';
           try {
             const r = await this.request('/api/execution-suggestions/generate', {
-              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '', focusAgentId: this.execAi.focusAgentId || '' })
+              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '', focusAgentId: this.execAi.focusAgentId || '', orgId: (this.currentOrgId && this.currentOrgId !== 'all') ? this.currentOrgId : null })
             });
             this.execAi.items = (r && r.suggestions) || [];
           } catch (error) {
