@@ -4703,6 +4703,7 @@ function _normalizeBoard(b) {
     items: Array.isArray(b.items) ? b.items : [],
     notes: Array.isArray(b.notes) ? b.notes : [],
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
+    layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
@@ -4744,13 +4745,14 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, orgId, items, notes, checklists } = req.body || {};
+  const { name, emoji, orgId, items, notes, checklists, layout } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   if (orgId !== undefined) b.orgId = orgId || null;
   if (Array.isArray(items)) b.items = items;
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
+  if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);

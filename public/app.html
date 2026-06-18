@@ -2036,6 +2036,55 @@
       color: var(--cp-text-muted);
       background: color-mix(in srgb, var(--cp-surface-soft) 80%, transparent);
     }
+    /* ---- Boards: free-form draggable / resizable panels ---- */
+    .board-grid { user-select: none; }
+    .board-panel { box-sizing: border-box; transition: top .08s ease, left .08s ease, width .08s ease, height .08s ease; }
+    .board-panel.dragging { transition: none; z-index: 30; }
+    .board-panel.dragging .board-panel-inner { box-shadow: var(--cp-shadow); border-color: var(--cp-accent); }
+    .board-panel-inner {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0;
+    }
+    .board-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      cursor: move;
+      flex: 0 0 auto;
+      border-radius: 16px 16px 0 0;
+    }
+    .board-panel-title {
+      font-weight: 600;
+      font-size: 12.5px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      color: var(--cp-text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .board-panel-grip { color: var(--cp-text-soft); opacity: .55; font-size: 13px; }
+    .board-panel-body { flex: 1; overflow: auto; padding: 12px; }
+    .board-resize {
+      position: absolute;
+      right: 4px;
+      bottom: 12px;
+      width: 16px;
+      height: 16px;
+      cursor: nwse-resize;
+      border-right: 2px solid var(--cp-border-strong);
+      border-bottom: 2px solid var(--cp-border-strong);
+      border-bottom-right-radius: 6px;
+      opacity: .5;
+    }
+    .board-panel:hover .board-resize { opacity: .9; }
     .discovery-groups {
       display: grid;
       gap: 16px;
@@ -4252,90 +4301,102 @@
                       <div class="toolbar">
                         <button class="btn primary" type="button" @click="runWhereWasI()">🧭 Where was I?</button>
                         <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
+                        <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
                         <button class="btn ghost" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)">🗑 Delete</button>
                       </div>
                     </div>
 
-                    <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start">
-                      <!-- Pinned items -->
-                      <div>
-                        <div x-show="!(activeBoard().items||[]).length" class="empty-state">Nothing pinned yet. Click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more.</div>
-                        <template x-for="grp in boardItemsByKind()" :key="grp.kind">
-                          <div style="margin-bottom:18px">
-                            <div class="hint" style="text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px" x-text="boardKindIcon(grp.kind) + ' ' + boardKindLabel(grp.kind) + ' (' + grp.items.length + ')'"></div>
-                            <div style="display:flex;flex-direction:column;gap:8px">
-                              <template x-for="item in grp.items" :key="item.id">
-                                <div class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px" @click="boardJump(item)">
-                                  <div style="min-width:0">
-                                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
-                                    <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                    <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
+
+                    <!-- Free-form panel board: drag headers to move, corner to resize -->
+                    <div class="board-grid" :style="'position:relative; width:100%; height:' + boardGridHeight() + 'px;'">
+                      <template x-for="p in boardPanels()" :key="p.id">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id }" :style="panelStyle(p.id)">
+                          <div class="board-panel-inner card">
+                            <div class="board-panel-head" @mousedown="startPanelDrag(p.id, $event)">
+                              <div class="board-panel-title" x-text="panelTitle(p)"></div>
+                              <span class="board-panel-grip" title="Drag to move">⠿</span>
+                            </div>
+                            <div class="board-panel-body">
+                              <!-- Pinned items of a kind -->
+                              <template x-if="p.type === 'pinned'">
+                                <div style="display:flex;flex-direction:column;gap:8px">
+                                  <template x-for="item in p.items" :key="item.id">
+                                    <div class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
+                                      <div style="min-width:0">
+                                        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
+                                        <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                                      </div>
+                                      <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
+                                        <button class="icon-button" type="button" title="Open" @click.stop="boardJump(item)">↗</button>
+                                        <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
+                                      </div>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
+
+                              <!-- Notes -->
+                              <template x-if="p.type === 'notes'">
+                                <div>
+                                  <div style="display:flex;gap:6px;margin-bottom:10px">
+                                    <input class="field-input" type="text" x-model="boardNoteDraft" placeholder="Add a note…" @keydown.enter="addBoardNote()" style="flex:1" />
+                                    <button class="btn" type="button" @click="addBoardNote()">Add</button>
                                   </div>
-                                  <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
-                                    <button class="icon-button" type="button" title="Open" @click.stop="boardJump(item)">↗</button>
-                                    <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
+                                  <div x-show="!(activeBoard().notes||[]).length" class="hint">No notes.</div>
+                                  <div style="display:flex;flex-direction:column;gap:8px">
+                                    <template x-for="note in (activeBoard().notes||[])" :key="note.id">
+                                      <div style="background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start">
+                                        <textarea class="field-input" rows="2" style="flex:1;border:none;background:transparent;resize:vertical" x-text="note.text" @change="updateBoardNote(note, $event.target.value)"></textarea>
+                                        <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
+                                      </div>
+                                    </template>
+                                  </div>
+                                </div>
+                              </template>
+
+                              <!-- Checklists -->
+                              <template x-if="p.type === 'checklists'">
+                                <div>
+                                  <div style="display:flex;gap:6px;margin-bottom:10px">
+                                    <input class="field-input" type="text" x-model="boardChecklistDraft" placeholder="New checklist…" @keydown.enter="addChecklist()" style="flex:1" />
+                                    <button class="btn" type="button" @click="addChecklist()">Add</button>
+                                  </div>
+                                  <div x-show="!(activeBoard().checklists||[]).length" class="hint">No checklists.</div>
+                                  <div style="display:flex;flex-direction:column;gap:14px">
+                                    <template x-for="cl in (activeBoard().checklists||[])" :key="cl.id">
+                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+                                          <div style="font-weight:600" x-text="cl.title"></div>
+                                          <div style="display:flex;align-items:center;gap:8px">
+                                            <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
+                                            <button class="icon-button" type="button" title="Delete checklist" @click="deleteChecklist(cl)">✕</button>
+                                          </div>
+                                        </div>
+                                        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+                                          <template x-for="item in (cl.items||[])" :key="item.id">
+                                            <div style="display:flex;align-items:center;gap:8px">
+                                              <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
+                                              <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-text="item.text"></span>
+                                              <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                            </div>
+                                          </template>
+                                        </div>
+                                        <div style="display:flex;gap:6px">
+                                          <input class="field-input" type="text" x-model="boardChecklistItemDraft[cl.id]" placeholder="Add item…" @keydown.enter="addChecklistItem(cl)" style="flex:1" />
+                                          <button class="btn ghost" type="button" @click="addChecklistItem(cl)">＋</button>
+                                        </div>
+                                      </div>
+                                    </template>
                                   </div>
                                 </div>
                               </template>
                             </div>
                           </div>
-                        </template>
-                      </div>
-
-                      <!-- Notes + checklists -->
-                      <div style="display:flex;flex-direction:column;gap:16px">
-                        <div class="card">
-                          <div style="font-weight:600;margin-bottom:10px">📝 Notes</div>
-                          <div style="display:flex;gap:6px;margin-bottom:10px">
-                            <input class="field-input" type="text" x-model="boardNoteDraft" placeholder="Add a note…" @keydown.enter="addBoardNote()" style="flex:1" />
-                            <button class="btn" type="button" @click="addBoardNote()">Add</button>
-                          </div>
-                          <div x-show="!(activeBoard().notes||[]).length" class="hint">No notes.</div>
-                          <div style="display:flex;flex-direction:column;gap:8px">
-                            <template x-for="note in (activeBoard().notes||[])" :key="note.id">
-                              <div style="background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start">
-                                <textarea class="field-input" rows="2" style="flex:1;border:none;background:transparent;resize:vertical" x-text="note.text" @change="updateBoardNote(note, $event.target.value)"></textarea>
-                                <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
-                              </div>
-                            </template>
-                          </div>
+                          <div class="board-resize" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize"></div>
                         </div>
-
-                        <div class="card">
-                          <div style="font-weight:600;margin-bottom:10px">✅ Checklists</div>
-                          <div style="display:flex;gap:6px;margin-bottom:10px">
-                            <input class="field-input" type="text" x-model="boardChecklistDraft" placeholder="New checklist…" @keydown.enter="addChecklist()" style="flex:1" />
-                            <button class="btn" type="button" @click="addChecklist()">Add</button>
-                          </div>
-                          <div x-show="!(activeBoard().checklists||[]).length" class="hint">No checklists.</div>
-                          <div style="display:flex;flex-direction:column;gap:14px">
-                            <template x-for="cl in (activeBoard().checklists||[])" :key="cl.id">
-                              <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px">
-                                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
-                                  <div style="font-weight:600" x-text="cl.title"></div>
-                                  <div style="display:flex;align-items:center;gap:8px">
-                                    <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
-                                    <button class="icon-button" type="button" title="Delete checklist" @click="deleteChecklist(cl)">✕</button>
-                                  </div>
-                                </div>
-                                <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
-                                  <template x-for="item in (cl.items||[])" :key="item.id">
-                                    <div style="display:flex;align-items:center;gap:8px">
-                                      <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
-                                      <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-text="item.text"></span>
-                                      <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
-                                    </div>
-                                  </template>
-                                </div>
-                                <div style="display:flex;gap:6px">
-                                  <input class="field-input" type="text" x-model="boardChecklistItemDraft[cl.id]" placeholder="Add item…" @keydown.enter="addChecklistItem(cl)" style="flex:1" />
-                                  <button class="btn ghost" type="button" @click="addChecklistItem(cl)">＋</button>
-                                </div>
-                              </div>
-                            </template>
-                          </div>
-                        </div>
-                      </div>
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -7927,6 +7988,13 @@
         boardWhere: null,
         boardWhereLoading: false,
         boardChecklistItemDraft: {},
+        // Free-form board layout: panelId -> {x,y,w,h} in grid units.
+        boardLayout: {},
+        boardDragId: '',
+        boardCols: 12,
+        boardRowH: 36,
+        boardGap: 14,
+        _layoutTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
         quickPin: { open: false, kind: '', refId: '', label: '', sublabel: '' },
         updatesList: [],
@@ -11249,6 +11317,7 @@
               this.activeBoardId = visible.length ? visible[0].id : '';
             }
             try { localStorage.setItem('active-board-id', this.activeBoardId || ''); } catch {}
+            this.syncBoardLayout();
           } catch (e) {
             if (!silent) this.showToast('Boards', e.message, 'error');
           } finally {
@@ -11269,6 +11338,7 @@
         selectBoard(id) {
           this.activeBoardId = id;
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
+          this.syncBoardLayout();
         },
         boardOrgLabel(board) {
           if (!board || !board.orgId) return 'Global';
@@ -11413,6 +11483,134 @@
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
+        },
+        // ----- Free-form board layout (drag + resize panels) -----
+        // The panels rendered on a board: one per pinned kind that has items,
+        // plus the Notes and Checklists panels. Stable ids drive the layout map.
+        boardPanels() {
+          const panels = this.boardItemsByKind().map(g => ({ id: 'kind:' + g.kind, type: 'pinned', kind: g.kind, items: g.items }));
+          panels.push({ id: 'notes', type: 'notes' });
+          panels.push({ id: 'checklists', type: 'checklists' });
+          return panels;
+        },
+        panelTitle(p) {
+          if (p.type === 'notes') return '📝 Notes';
+          if (p.type === 'checklists') return '✅ Checklists';
+          return this.boardKindIcon(p.kind) + ' ' + this.boardKindLabel(p.kind) + ' (' + p.items.length + ')';
+        },
+        // Pull the active board's saved layout into a reactive copy and fill gaps.
+        syncBoardLayout() {
+          if (this.boardDragId) return; // don't disturb an in-progress drag/resize
+          const b = this.activeBoard();
+          this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
+          this.ensureBoardLayout(false);
+        },
+        // Assign default slots to any panel without a saved position (2-column,
+        // 50/50). Prunes layout entries for panels that no longer exist. Persists
+        // only when something actually changed (unless persist=false on initial sync).
+        ensureBoardLayout(persist = true) {
+          const panels = this.boardPanels();
+          const layout = { ...this.boardLayout };
+          const half = Math.floor(this.boardCols / 2);
+          let yL = 0, yR = 0, changed = false;
+          for (const p of panels) {
+            const cur = layout[p.id];
+            if (cur && Number.isFinite(cur.x) && Number.isFinite(cur.y)) {
+              if (cur.x < half) yL = Math.max(yL, cur.y + cur.h); else yR = Math.max(yR, cur.y + cur.h);
+            }
+          }
+          for (const p of panels) {
+            if (layout[p.id]) continue;
+            const h = p.type === 'pinned' ? Math.min(16, Math.max(4, 2 + (p.items ? p.items.length : 0) * 2)) : 7;
+            if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
+            else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
+            changed = true;
+          }
+          const ids = new Set(panels.map(p => p.id));
+          for (const k of Object.keys(layout)) { if (!ids.has(k)) { delete layout[k]; changed = true; } }
+          if (changed) { this.boardLayout = layout; if (persist) this.persistLayout(); }
+        },
+        panelStyle(id) {
+          const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap;
+          const l = this.boardLayout[id] || { x: 0, y: 0, w: Math.floor(cols / 2), h: 6 };
+          const leftPct = (l.x / cols) * 100;
+          const widthPct = (l.w / cols) * 100;
+          return `position:absolute; left:${leftPct}%; width:${widthPct}%; top:${l.y * rowH}px; height:${l.h * rowH}px; padding:0 ${gap / 2}px ${gap}px ${gap / 2}px;`;
+        },
+        boardGridHeight() {
+          let maxY = 6;
+          for (const p of this.boardPanels()) {
+            const l = this.boardLayout[p.id];
+            if (l) maxY = Math.max(maxY, l.y + l.h);
+          }
+          return maxY * this.boardRowH + 8;
+        },
+        _gridMetrics(ev) {
+          const grid = ev.target.closest('.board-grid');
+          const rect = grid.getBoundingClientRect();
+          return { colW: rect.width / this.boardCols, rowH: this.boardRowH };
+        },
+        startPanelDrag(id, ev) {
+          if (ev.button !== undefined && ev.button !== 0) return;
+          ev.preventDefault();
+          const { colW, rowH } = this._gridMetrics(ev);
+          const base = this.boardLayout[id]; if (!base) return;
+          const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
+          const cols = this.boardCols;
+          const onMove = (e) => {
+            const dx = Math.round((e.clientX - start.mx) / colW);
+            const dy = Math.round((e.clientY - start.my) / rowH);
+            const nx = Math.max(0, Math.min(cols - start.w, start.x + dx));
+            const ny = Math.max(0, start.y + dy);
+            this.boardLayout = { ...this.boardLayout, [id]: { x: nx, y: ny, w: start.w, h: start.h } };
+          };
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            this.boardDragId = '';
+            this.persistLayout();
+          };
+          this.boardDragId = id;
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        },
+        startPanelResize(id, ev) {
+          if (ev.button !== undefined && ev.button !== 0) return;
+          ev.preventDefault(); ev.stopPropagation();
+          const { colW, rowH } = this._gridMetrics(ev);
+          const base = this.boardLayout[id]; if (!base) return;
+          const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
+          const cols = this.boardCols;
+          const onMove = (e) => {
+            const dw = Math.round((e.clientX - start.mx) / colW);
+            const dh = Math.round((e.clientY - start.my) / rowH);
+            const nw = Math.max(3, Math.min(cols - start.x, start.w + dw));
+            const nh = Math.max(3, start.h + dh);
+            this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: nh } };
+          };
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            this.boardDragId = '';
+            this.persistLayout();
+          };
+          this.boardDragId = id;
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        },
+        persistLayout() {
+          const b = this.activeBoard(); if (!b) return;
+          b.layout = this.boardLayout; // keep local board in sync immediately
+          clearTimeout(this._layoutTimer);
+          const id = b.id, snapshot = this.boardLayout;
+          this._layoutTimer = setTimeout(() => {
+            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot }) }).catch(() => {});
+          }, 450);
+        },
+        resetBoardLayout() {
+          this.boardLayout = {};
+          this.ensureBoardLayout(true);
+          this.showToast('Board', 'Layout reset to 50 / 50', 'success');
         },
         // ----- Notes -----
         async addBoardNote() {
