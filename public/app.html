@@ -210,6 +210,11 @@
     .emp-chip-icon { font-size: 14px; }
     .emp-chip-name { flex: 1; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .emp-chip-type { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--cp-text-muted); }
+    .emp-chip-orgs { display: inline-flex; align-items: center; gap: 3px; }
+    .emp-org-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1px var(--cp-surface); }
+    .emp-chip--multi { border-color: color-mix(in srgb, var(--cp-accent) 45%, var(--cp-border)); }
+    .emp-chip--idle { opacity: 0.72; border-style: dashed; }
+    .emp-chip--idle:hover { opacity: 1; }
     .emp-chip-x { border: none; background: transparent; color: var(--cp-text-muted); cursor: pointer; font-size: 12px; padding: 0 2px; border-radius: 6px; }
     .emp-chip-x:hover { color: var(--cp-danger); background: var(--cp-surface-soft); }
     .org-board-empty { grid-column: 1 / -1; text-align: center; color: var(--cp-text-muted); padding: 40px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
@@ -3364,7 +3369,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Organizations</h1>
-                <p>Group employees into organizations. Drag an employee onto an organization to assign them; drag to <strong>Unassigned</strong> to remove. Operations stay within a single organization.</p>
+                <p>Group employees into organizations. Drag an employee onto an organization to assign them — the same employee (for example an email-sender agent) can belong to <strong>multiple organizations</strong>. Remove them with the ✕ on a chip, or by dragging back to <strong>All employees</strong>. Operations stay within a single organization.</p>
               </div>
               <div class="toolbar">
                 <button class="btn" type="button" @click="loadOrganizations()" title="Refresh">↻ Refresh</button>
@@ -3373,7 +3378,7 @@
             </div>
 
             <div class="org-board">
-              <!-- Unassigned pool -->
+              <!-- All employees roster (drag to any org; an employee can join multiple orgs) -->
               <div class="org-col org-col--pool"
                    :class="{ 'drag-over': orgDragOverId === '__unassigned__' }"
                    @dragover="_orgDragOverTarget='__unassigned__'; onOrgDragOver($event)"
@@ -3381,18 +3386,26 @@
                    @drop="onOrgDrop($event, '__unassigned__')">
                 <div class="org-col-head">
                   <span class="org-col-emoji">🗂️</span>
-                  <span class="org-col-name">Unassigned</span>
-                  <span class="org-col-count" x-text="unassignedEmployees().length"></span>
+                  <span class="org-col-name">All employees</span>
+                  <span class="org-col-count" x-text="allEmployees().length"></span>
                 </div>
+                <div class="org-col-desc">Drag anyone into one or more organizations. Drop here to remove from an org.</div>
                 <div class="org-col-body">
-                  <template x-for="emp in unassignedEmployees()" :key="'un-'+emp.id">
-                    <div class="emp-chip" draggable="true" @dragstart="onEmpDragStart($event, emp.id, null)">
+                  <template x-for="emp in allEmployees()" :key="'all-'+emp.id">
+                    <div class="emp-chip" :class="{ 'emp-chip--multi': orgsOfEmployee(emp.id).length > 1, 'emp-chip--idle': orgsOfEmployee(emp.id).length === 0 }"
+                         draggable="true" @dragstart="onEmpDragStart($event, emp.id, null)"
+                         :title="orgsOfEmployee(emp.id).length ? 'In: ' + orgsOfEmployee(emp.id).map(o => o.name).join(', ') : 'Not in any organization'">
                       <span class="emp-chip-icon" x-text="emp.icon"></span>
                       <span class="emp-chip-name" x-text="emp.name"></span>
+                      <span class="emp-chip-orgs" x-show="orgsOfEmployee(emp.id).length">
+                        <template x-for="o in orgsOfEmployee(emp.id)" :key="emp.id+'-d-'+o.id">
+                          <span class="emp-org-dot" :style="'background:' + (o.color || 'var(--cp-accent)')" :title="o.name"></span>
+                        </template>
+                      </span>
                       <span class="emp-chip-type" x-text="emp.type"></span>
                     </div>
                   </template>
-                  <div class="org-col-empty" x-show="!unassignedEmployees().length">Everyone is assigned 🎉</div>
+                  <div class="org-col-empty" x-show="!allEmployees().length">No employees yet</div>
                 </div>
               </div>
 
