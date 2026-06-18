@@ -2334,7 +2334,7 @@
           <section x-show="!loading && !errorMessage && route === 'home'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1 x-text="currentOrgId === 'all' ? 'Company' : 'Overview'"></h1>
+                <h1 x-text="currentOrgId === 'all' ? 'Company' : (currentOrg() ? (currentOrg().emoji || '🏢') + ' ' + currentOrg().name : 'Overview')"></h1>
                 <p x-show="currentOrgId === 'all'">Organization health across the company. Cards needing the most attention come first — click to step into an organization.</p>
                 <p x-show="currentOrgId !== 'all'">Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
               </div>
@@ -2520,7 +2520,7 @@
                 <p>View execution status, commands, prompts, and recent runs for every registered agent.</p>
               </div>
               <div class="toolbar">
-                <span class="badge-count" x-text="data.agents.length + ' total'"></span>
+                <span class="badge-count" x-text="agentStatusCounts().all + ' total'"></span>
                 <button class="btn" type="button" @click="goTo('#/marketplace/design')">✨ Design with AI</button>
                 <button class="btn primary" type="button" @click="openAgentDiscovery()">＋ Add Agent</button>
               </div>
@@ -2609,7 +2609,7 @@
               </table>
             </div>
 
-            <div class="empty-state" x-show="!displayedAgents().length" x-text="data.agents.length ? 'No agents matched your filter.' : 'No agents registered yet.'"></div>
+            <div class="empty-state" x-show="!displayedAgents().length" x-text="agentStatusCounts().all ? 'No agents matched your filter.' : (currentOrgId === 'all' ? 'No agents registered yet.' : 'No agents in this organization yet.')"></div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'agent-detail' && selectedAgent">
@@ -3047,7 +3047,7 @@
                 <p>Supervise orchestration managers, their organizations, and active assignments.</p>
               </div>
               <div class="toolbar">
-                <span class="badge-count" x-text="data.managers.length + ' total'"></span>
+                <span class="badge-count" x-text="managerStatusCounts().all + ' total'"></span>
                 <button class="btn" type="button" @click="openManagerTemplates()">🧩 Manager Templates</button>
                 <button class="btn primary" type="button" @click="openCreateManager()">＋ Add Manager</button>
               </div>
@@ -3124,7 +3124,7 @@
               </table>
             </div>
 
-            <div class="empty-state" x-show="!displayedManagers().length" x-text="data.managers.length ? 'No managers matched your filter.' : 'No managers created yet.'"></div>
+            <div class="empty-state" x-show="!displayedManagers().length" x-text="managerStatusCounts().all ? 'No managers matched your filter.' : (currentOrgId === 'all' ? 'No managers created yet.' : 'No managers in this organization yet.')"></div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'manager-detail' && selectedManager">
@@ -8636,8 +8636,9 @@
         },
 
         agentStatusCounts() {
-          const c = { all: this.data.agents.length, running: 0, scheduled: 0, idle: 0 };
-          this.data.agents.forEach(a => { c[this.agentStatusOf(a)]++; });
+          const agents = this.data.agents.filter(a => this.idInCurrentOrg(a.id));
+          const c = { all: agents.length, running: 0, scheduled: 0, idle: 0 };
+          agents.forEach(a => { c[this.agentStatusOf(a)]++; });
           return c;
         },
 
@@ -8715,8 +8716,9 @@
         managerStatusOf(m) { return this.managerActiveCount(m) > 0 ? 'active' : 'idle'; },
 
         managerStatusCounts() {
-          const c = { all: this.data.managers.length, active: 0, idle: 0 };
-          this.data.managers.forEach(m => { c[this.managerStatusOf(m)]++; });
+          const managers = this.data.managers.filter(m => this.idInCurrentOrg(m.id));
+          const c = { all: managers.length, active: 0, idle: 0 };
+          managers.forEach(m => { c[this.managerStatusOf(m)]++; });
           return c;
         },
 
@@ -8792,11 +8794,11 @@
         },
 
         executionCounts() {
-          const all = this.allTasks() || [];
+          const all = (this.allTasks() || []).filter(t => this.opInCurrentOrg(t.orgId));
           return {
             tasks: all.filter(t => t.type === 'agent').length,
             assignments: all.filter(t => t.type === 'assignment').length,
-            flows: (this.data.chains || []).length,
+            flows: (this.data.chains || []).filter(c => this.opInCurrentOrg(c.orgId)).length,
           };
         },
         _runOk(s) { s = (s || '').toLowerCase(); return s === 'success' || s === 'completed' || s === 'complete' || s === 'done'; },
