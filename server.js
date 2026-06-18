@@ -2245,19 +2245,22 @@ app.put('/api/agents/:id/group', (req, res) => {
 
 // Rename a group
 app.put('/api/groups/rename', (req, res) => {
-  const { oldName, newName } = req.body;
+  const { oldName, newName, agentIds } = req.body;
   if (!oldName || !newName) return res.status(400).json({ error: 'oldName and newName required' });
+  // Optional org-scoping: when agentIds is provided, only rename the group for
+  // those agents so a group shared across organizations isn't renamed globally.
+  const scope = Array.isArray(agentIds) ? new Set(agentIds) : null;
   try {
     const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
     let changed = 0;
     agents.forEach(a => {
-      if (a.group === oldName) { a.group = newName; changed++; }
+      if (a.group === oldName && (!scope || scope.has(a.id))) { a.group = newName; changed++; }
     });
     if (changed === 0) return res.status(404).json({ error: 'No agents in that group' });
     fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
     // Update in-memory configs
-    for (const [, entry] of supervisor.agents) {
-      if (entry.config.group === oldName) entry.config.group = newName;
+    for (const [id, entry] of supervisor.agents) {
+      if (entry.config.group === oldName && (!scope || scope.has(id))) entry.config.group = newName;
     }
     res.json({ ok: true, changed });
   } catch (e) {
@@ -2268,16 +2271,21 @@ app.put('/api/groups/rename', (req, res) => {
 // Delete a group (move agents to Ungrouped)
 app.delete('/api/groups/:name', (req, res) => {
   const groupName = decodeURIComponent(req.params.name);
+  // Optional org-scoping via ?agentIds=a,b,c — only ungroup those agents so a
+  // group shared across organizations isn't deleted everywhere.
+  const scope = (typeof req.query.agentIds === 'string' && req.query.agentIds.length)
+    ? new Set(req.query.agentIds.split(',').filter(Boolean))
+    : null;
   try {
     const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
     let changed = 0;
     agents.forEach(a => {
-      if (a.group === groupName) { delete a.group; changed++; }
+      if (a.group === groupName && (!scope || scope.has(a.id))) { delete a.group; changed++; }
     });
     if (changed === 0) return res.status(404).json({ error: 'No agents in that group' });
     fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
-    for (const [, entry] of supervisor.agents) {
-      if (entry.config.group === groupName) delete entry.config.group;
+    for (const [id, entry] of supervisor.agents) {
+      if (entry.config.group === groupName && (!scope || scope.has(id))) delete entry.config.group;
     }
     res.json({ ok: true, changed });
   } catch (e) {

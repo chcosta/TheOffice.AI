@@ -9286,9 +9286,13 @@
           this.newGroupAgentId = null;
           if (agentId) {
             await this.changeAgentGroup(agentId, name);
-          } else if (!this.allGroupNames().includes(name) && !this.pendingGroups.includes(name)) {
-            // Board mode: create an empty group locally until an agent is dropped in.
-            this.pendingGroups.push(name);
+          } else {
+            // Board mode: create an empty group locally (scoped to the current
+            // org) until an agent is dropped in.
+            const orgId = (this.currentOrgId && this.currentOrgId !== 'all') ? this.currentOrgId : 'all';
+            const dupPending = (this.pendingGroups || []).some(e => e && e.name === name && e.orgId === orgId);
+            const dupVisible = this.groupBoard().some(g => g.name === name);
+            if (!dupPending && !dupVisible) this.pendingGroups.push({ name, orgId });
           }
         },
 
@@ -9338,20 +9342,34 @@
 
         // ----- Groups board (Employees → Groups tab) -----
         ungroupedAgents() {
-          return (this.data.agents || []).filter(a => !(a.config && a.config.group));
+          return (this.data.agents || []).filter(a => !(a.config && a.config.group) && this.idInCurrentOrg(a.id));
         },
         groupBoard() {
+          const all = (!this.currentOrgId || this.currentOrgId === 'all');
           const map = new Map();
-          for (const name of (this.pendingGroups || [])) { if (name) map.set(name, []); }
+          // Seed locally-created empty groups, scoped to the org they were made in.
+          for (const entry of (this.pendingGroups || [])) {
+            const name = entry && entry.name;
+            if (!name) continue;
+            if (!all && entry.orgId !== this.currentOrgId) continue;
+            map.set(name, []);
+          }
           for (const a of (this.data.agents || [])) {
             const g = a.config && a.config.group;
             if (!g) continue;
+            if (!this.idInCurrentOrg(a.id)) continue;
             if (!map.has(g)) map.set(g, []);
             map.get(g).push(a);
           }
           return [...map.entries()]
             .map(([name, agents]) => ({ name, agents }))
             .sort((x, y) => x.name.localeCompare(y.name));
+        },
+        // In-org agent ids belonging to a group (for org-scoped rename/delete).
+        groupMemberIds(name) {
+          return (this.data.agents || [])
+            .filter(a => a.config && a.config.group === name && this.idInCurrentOrg(a.id))
+            .map(a => a.id);
         },
         openNewBoardGroup() {
           this.newGroupAgentId = null;
@@ -9387,11 +9405,11 @@
           const newName = (this.renameGroupNew || '').trim();
           this.showRenameGroupModal = false;
           if (!newName || newName === oldName) return;
-          this.pendingGroups = this.pendingGroups.map(g => g === oldName ? newName : g);
-          const hasAgents = (this.data.agents || []).some(a => a.config && a.config.group === oldName);
-          if (hasAgents) {
+          this.pendingGroups = this.pendingGroups.map(e => (e && e.name === oldName) ? { ...e, name: newName } : e);
+          const memberIds = this.groupMemberIds(oldName);
+          if (memberIds.length) {
             try {
-              await this.request('/api/groups/rename', { method: 'PUT', body: JSON.stringify({ oldName, newName }) });
+              await this.request('/api/groups/rename', { method: 'PUT', body: JSON.stringify({ oldName, newName, agentIds: memberIds }) });
               await this.refreshData();
             } catch (e) { this.showToast('Rename failed', e.message, 'error'); }
           }
@@ -9404,11 +9422,11 @@
           const name = this.deleteGroupName;
           this.showDeleteGroupModal = false;
           if (!name) return;
-          this.pendingGroups = this.pendingGroups.filter(g => g !== name);
-          const hasAgents = (this.data.agents || []).some(a => a.config && a.config.group === name);
-          if (hasAgents) {
+          this.pendingGroups = this.pendingGroups.filter(e => !(e && e.name === name));
+          const memberIds = this.groupMemberIds(name);
+          if (memberIds.length) {
             try {
-              await this.request('/api/groups/' + encodeURIComponent(name), { method: 'DELETE' });
+              await this.request('/api/groups/' + encodeURIComponent(name) + '?agentIds=' + encodeURIComponent(memberIds.join(',')), { method: 'DELETE' });
               await this.refreshData();
             } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
           }
