@@ -11791,7 +11791,8 @@
 
         async saveExecAi(s) {
           try {
-            const r = await this.request('/api/execution-suggestions/save', { method: 'POST', body: JSON.stringify({ suggestion: s }) });
+            const orgId = (this.currentOrgId && this.currentOrgId !== 'all') ? this.currentOrgId : null;
+            const r = await this.request('/api/execution-suggestions/save', { method: 'POST', body: JSON.stringify({ suggestion: s, orgId }) });
             this.showToast('Saved', `${r.type === 'flow' ? 'Flow' : 'Task'} "${r.name}" added.`, 'info');
             await this.refreshAll();
           } catch (error) { this.showToast('Save failed', error.message, 'error'); }

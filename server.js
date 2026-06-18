@@ -5337,13 +5337,14 @@ app.delete('/api/execution-suggestions/:id', (req, res) => {
 // Migrate a suggestion into the real Tasks/Flows sections (manual, no schedule).
 app.post('/api/execution-suggestions/save', (req, res) => {
   const sug = req.body && req.body.suggestion;
+  const orgId = (req.body && req.body.orgId) || null;
   if (!sug || !sug.kind) return res.status(400).json({ error: 'suggestion required' });
   try {
     if (sug.kind === 'task') {
       if (!sug.agentId || !sug.prompt) return res.status(400).json({ error: 'task suggestion missing agent or prompt' });
       const tasks = loadTasks();
       const id = 'task-ai-' + require('crypto').randomBytes(4).toString('hex');
-      const task = { id, name: sug.title || 'AI Task', agentId: sug.agentId, prompt: sug.prompt, schedule: 'never', enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const task = { id, name: sug.title || 'AI Task', agentId: sug.agentId, prompt: sug.prompt, schedule: 'never', enabled: true, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       tasks.push(task); saveTasks(tasks);
       return res.json({ ok: true, type: 'task', id, name: task.name });
     }
@@ -5354,7 +5355,7 @@ app.post('/api/execution-suggestions/save', (req, res) => {
     const chainSteps = [];
     steps.forEach((st, i) => {
       const tid = 'task-ai-' + require('crypto').randomBytes(4).toString('hex');
-      tasks.push({ id: tid, name: (st.title || (sug.title + ' step ' + (i + 1))), agentId: st.agentId, prompt: st.prompt, schedule: 'never', enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      tasks.push({ id: tid, name: (st.title || (sug.title + ' step ' + (i + 1))), agentId: st.agentId, prompt: st.prompt, schedule: 'never', enabled: true, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       chainSteps.push({ id: 's' + (i + 1), taskId: tid, prompt: st.prompt });
     });
     saveTasks(tasks);
@@ -5365,7 +5366,7 @@ app.post('/api/execution-suggestions/save', (req, res) => {
       const condition = (next && next.condition) ? next.condition : { type: 'status', status: 'onSuccess' };
       edges.push({ from: chainSteps[i].id, to: chainSteps[i + 1].id, condition });
     }
-    const chain = chainEngine.create({ name: sug.title || 'AI Flow', description: sug.description || '', schedule: 'never', enabled: true, steps: chainSteps, edges });
+    const chain = chainEngine.create({ name: sug.title || 'AI Flow', description: sug.description || '', schedule: 'never', enabled: true, orgId, steps: chainSteps, edges });
     res.json({ ok: true, type: 'flow', id: chain.id, name: chain.name });
   } catch (e) {
     res.status(400).json({ error: e.message });
