@@ -3349,12 +3349,19 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   // contain ")" (e.g. "C:\Program Files (x86)\...") prematurely close the block,
   // producing errors such as "\Microsoft was unexpected at this time." Use goto
   // labels instead so each statement is parsed independently.
+  //
+  // Guard: `where <pattern>` only works for a bare command name; when COPILOT_PATH
+  // is an absolute path (e.g. ...\copilot.cmd) `where` returns errorlevel 2 even
+  // though the file exists. Use `if not exist` for path-qualified launchers.
+  const copilotIsPath = /[\\/:]/.test(copilotCmd);
+  const guardLines = copilotIsPath
+    ? [`if not exist "${copilotCmd}" goto nocopilot`]
+    : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
   const batContent = [
     '@echo off',
     `if not exist "${cwd}" goto nodir`,
     `cd /d "${cwd}"`,
-    `where "${copilotCmd}" >nul 2>&1`,
-    'if errorlevel 1 goto nocopilot',
+    ...guardLines,
     `"${copilotCmd}" --resume=${req.params.id} --yolo`,
     'pause',
     'exit /b 0',
@@ -3381,13 +3388,17 @@ app.post('/api/terminal/open', (req, res) => {
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
-  // See note above: no parenthesized cmd blocks (PATH may contain ")" ).
+  // See note above: no parenthesized cmd blocks (PATH may contain ")" ), and use
+  // `if not exist` rather than `where` when COPILOT_PATH is a path-qualified launcher.
+  const copilotIsPath = /[\\/:]/.test(copilotCmd);
+  const guardLines = copilotIsPath
+    ? [`if not exist "${copilotCmd}" goto nocopilot`]
+    : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
   const batContent = [
     '@echo off',
     `if not exist "${cwd}" goto nodir`,
     `cd /d "${cwd}"`,
-    `where "${copilotCmd}" >nul 2>&1`,
-    'if errorlevel 1 goto nocopilot',
+    ...guardLines,
     `"${copilotCmd}" --yolo`,
     'pause',
     'exit /b 0',
