@@ -217,13 +217,18 @@
     .cb-item {
       flex: 1 1 120px; background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+      cursor: pointer; transition: border-color .12s, transform .12s, box-shadow .12s; text-align: left;
     }
+    .cb-item:hover { border-color: var(--cp-accent); transform: translateY(-1px); box-shadow: var(--cp-shadow); }
+    .cb-item:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 2px; }
     .cb-item strong { font-size: 1.5rem; line-height: 1.1; }
     .cb-item span { font-size: 12px; color: var(--cp-text-muted); }
     .cb-item.bad { border-color: var(--cp-danger); }
     .cb-item.bad strong { color: var(--cp-danger); }
     .cb-item.warn { border-color: var(--cp-warning); }
     .cb-item.warn strong { color: var(--cp-warning); }
+    .card.clickable { cursor: pointer; transition: border-color .12s, transform .12s, box-shadow .12s; }
+    .card.clickable:hover { border-color: var(--cp-accent); transform: translateY(-1px); box-shadow: var(--cp-shadow); }
     .orgh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; }
     .orgh-card {
       background: var(--cp-surface); border: 1px solid var(--cp-border); border-left-width: 4px;
@@ -2341,11 +2346,11 @@
             <!-- Company / org-health overview (shown only in the company-wide "All" view) -->
             <div x-show="currentOrgId === 'all' && companyOrgHealth().length" style="margin-bottom:22px">
               <div class="company-band">
-                <div class="cb-item"><strong x-text="companyStats().orgCount"></strong><span>organizations</span></div>
-                <div class="cb-item"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></div>
-                <div class="cb-item"><strong x-text="companyStats().operations"></strong><span>operations</span></div>
-                <div class="cb-item" :class="companyStats().failures24h ? 'bad' : ''"><strong x-text="companyStats().failures24h"></strong><span>failures 24h</span></div>
-                <div class="cb-item" :class="companyStats().attention ? 'warn' : ''"><strong x-text="companyStats().attention"></strong><span>need attention</span></div>
+                <button type="button" class="cb-item" @click="goTo('#/organizations')" title="Manage organizations"><strong x-text="companyStats().orgCount"></strong><span>organizations</span></button>
+                <button type="button" class="cb-item" @click="goTo('#/resources')" title="View all employees"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></button>
+                <button type="button" class="cb-item" @click="goTo('#/tasks')" title="View all operations & schedules"><strong x-text="companyStats().operations"></strong><span>operations</span></button>
+                <button type="button" class="cb-item" :class="companyStats().failures24h ? 'bad' : ''" @click="goTo('#/activity')" title="Investigate recent failures"><strong x-text="companyStats().failures24h"></strong><span>failures 24h</span></button>
+                <button type="button" class="cb-item" :class="companyStats().attention ? 'warn' : ''" @click="enterWorstOrg()" :title="companyStats().attention ? 'Step into the organization needing the most attention' : 'All organizations look healthy'"><strong x-text="companyStats().attention"></strong><span>need attention</span></button>
               </div>
               <div class="orgh-grid">
                 <template x-for="h in companyOrgHealth()" :key="h.org.id">
@@ -2375,12 +2380,12 @@
             </div>
 
             <div class="card-grid" style="margin-bottom:18px">
-              <article class="card">
+              <article class="card clickable" @click="goTo('#/activity')" title="View activity">
                 <div class="hint">Running now</div>
                 <strong style="font-size:1.6rem" x-text="runningEntities().length"></strong>
                 <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px" x-show="runningEntities().length">
                   <template x-for="ent in runningEntities()" :key="ent.key">
-                    <a :href="ent.route" class="running-chip" :title="'Open ' + ent.kind + ': ' + ent.name">
+                    <a :href="ent.route" @click.stop class="running-chip" :title="'Open ' + ent.kind + ': ' + ent.name">
                       <span class="pulse-dot"></span>
                       <span class="running-chip-name" x-text="ent.name"></span>
                       <span class="running-chip-kind" x-text="ent.kind"></span>
@@ -2390,7 +2395,7 @@
                 </div>
                 <div class="hint" style="margin-top:6px" x-show="!runningEntities().length">Nothing running</div>
               </article>
-              <article class="card">
+              <article class="card clickable" @click="goTo('#/tasks')" title="View all schedules">
                 <div class="hint">Up next</div>
                 <template x-if="nextSchedule()">
                   <div>
@@ -2402,11 +2407,11 @@
                   <strong>Nothing scheduled</strong>
                 </template>
               </article>
-              <article class="card">
+              <article class="card clickable" @click="goTo('#/tasks')" title="View all schedules">
                 <div class="hint">Scheduled items</div>
                 <strong style="font-size:1.6rem" x-text="scheduleCounts().all"></strong>
               </article>
-              <article class="card" :style="alerts().length ? 'border-color:var(--cp-danger)' : ''">
+              <article class="card clickable" @click="goTo('#/activity')" :style="alerts().length ? 'border-color:var(--cp-danger)' : ''" title="Investigate alerts">
                 <div class="hint">Alerts (24h)</div>
                 <strong style="font-size:1.6rem" x-text="alerts().length"></strong>
               </article>
@@ -4446,7 +4451,7 @@
                         <div class="hint" style="margin-top:2px">Type in the Copilot CLI window — this view mirrors the conversation (read-only) and refreshes automatically.</div>
                       </div>
                       <button class="btn ghost" type="button" @click="openChat(activeChat.id, false)" title="Refresh mirror now">🔄 Refresh</button>
-                      <button class="btn" type="button" @click="openAgentCliSession(activeChat.target)" title="Open a new CLI terminal for this agent">⌨ New CLI window</button>
+                      <button class="btn" type="button" @click="activeChat.cliSessionId ? resumeCliSession({ id: activeChat.cliSessionId, cwd: activeChat.cwd }) : openAgentCliSession(activeChat.target)" :title="activeChat.cliSessionId ? 'Open a terminal and resume this CLI session' : 'Open a new CLI terminal for this agent'" x-text="activeChat.cliSessionId ? '⌨ Resume in terminal' : '⌨ New CLI window'"></button>
                     </div>
                   </template>
                   <template x-if="!activeChat || activeChat.source !== 'cli'">
@@ -8583,6 +8588,12 @@
           }
           const attention = this.companyOrgHealth().filter(h => h.score >= 30).length;
           return { orgCount: orgs.length, employeeCount: employees.size, operations, failures24h, attention };
+        },
+        enterWorstOrg() {
+          const ranked = this.companyOrgHealth();
+          const worst = ranked.find(h => h.score >= 30) || ranked[0];
+          if (worst) this.setCurrentOrg(worst.org.id);
+          else this.goTo('#/organizations');
         },
         filteredAgents() {
           const query = this.agentSearch.trim().toLowerCase();
