@@ -150,17 +150,21 @@ class Supervisor extends EventEmitter {
     // Update state
     this.db.prepare('UPDATE agent_state SET enabled = 1, status = ? WHERE agent_id = ?').run('scheduled', agentId);
 
-    // Only run immediately if explicitly requested or autoStart is not false
-    const shouldRunNow = runImmediately !== undefined ? runImmediately : entry.config.autoStart !== false;
+    // Policy: agents are NEVER auto-run on start/restart. Execution only ever
+    // comes from one of three explicit sources:
+    //   1. a manual user run        → POST /api/agents/:id/run (_executeAgent)
+    //   2. an orchestrated trigger  → tasks, flows, managers, event listeners
+    //   3. a scheduled task         → server-side cron (executeTask)
+    // start() merely marks the agent enabled/scheduled. It runs immediately ONLY
+    // if a caller explicitly opts in with runImmediately:true (no caller does),
+    // so a server boot/restart can never kick off work on its own.
+    const shouldRunNow = runImmediately === true;
     if (shouldRunNow) {
       this._executeAgent(agentId);
     }
 
-    // Policy: agents never run on their own saved schedule. Recurring execution
-    // comes from scheduled Tasks (server-side cron), Flows, or triggers. We keep
-    // manual/autoStart and trigger paths, but no longer create cron/interval jobs
-    // from config.schedule, even if a stray value is present in agents.json.
-    // (schedule.type === 'cron' | 'interval' is intentionally ignored.)
+    // We also never create cron/interval jobs from config.schedule; recurring
+    // execution is owned by scheduled Tasks/Flows/triggers, not the agent itself.
 
     this._updateNextRun(agentId);
     this.emit('agent-started', agentId);
@@ -624,7 +628,9 @@ class Supervisor extends EventEmitter {
       
       if (isEnabled) {
         try {
-          this.start(id, { runImmediately: entry.config.autoStart !== false });
+          // Never run on boot/restart — only mark the agent enabled/scheduled.
+          // Work is started exclusively by user/orchestrated/scheduled triggers.
+          this.start(id, { runImmediately: false });
         } catch (err) {
           console.error(`[supervisor] Failed to start agent "${entry.config.name}": ${err.message}`);
           this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run('error', id);

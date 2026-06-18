@@ -6868,11 +6868,15 @@ app.get('*', (req, res) => {
   serveSpa(req, res);
 });
 
-// Start all enabled agents
-supervisor.startAll();
-
+// Bind the port FIRST. Only the instance that successfully owns the port should
+// initialize agents — a redundant instance (e.g. spawned by an external
+// scheduler while one is already running) must not touch agent/DB state before
+// it discovers the conflict and exits via the EADDRINUSE handler below.
 const server = app.listen(PORT, () => {
   console.log(`[supervisor] Dashboard running at http://localhost:${PORT}`);
+  // Register enabled agents as scheduled. startAll() never runs any agent on
+  // boot — execution comes only from user/orchestrated/scheduled triggers.
+  supervisor.startAll();
   try {
     const _rdr = require('./sdk-reader');
     const _rnr = require('./sdk-runner');
