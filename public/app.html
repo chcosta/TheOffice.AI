@@ -4196,9 +4196,9 @@
               <template x-for="task in filteredTasks()" :key="task.taskKey">
                 <article class="task-card" :id="'sched-focus-' + task.taskKey">
                   <div class="assignment-top">
-                    <div style="cursor:pointer;flex:1;min-width:0" @click="toggleSelectedTask(task.taskKey)">
+                    <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/tasks/' + encodeURIComponent(task.taskKey))">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="row-chevron" :class="{ open: selectedTaskId === task.taskKey }">›</span>
+                        <span class="row-chevron">›</span>
                         <strong x-text="task.name"></strong>
                         <span class="type-badge" x-text="task.typeLabel"></span>
                         <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
@@ -4211,7 +4211,7 @@
                     </div>
                   </div>
                   <!-- Summary row: next run + last result -->
-                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="toggleSelectedTask(task.taskKey)">
+                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="goTo('#/tasks/' + encodeURIComponent(task.taskKey))">
                     <div class="task-meta-item">
                       <span class="meta-label">Next run</span>
                       <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
@@ -4228,53 +4228,6 @@
                       <span class="meta-label">Duration</span>
                       <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
                     </div>
-                  </div>
-                  <!-- Expanded detail panel -->
-                  <div x-show="selectedTaskId === task.taskKey" x-transition.opacity.duration.150ms style="margin-top:14px">
-                    <div class="config-grid">
-                      <div class="detail-table">
-                        <div class="detail-row"><span class="detail-label">Schedule</span><span class="detail-value" x-text="task.scheduleSummary"></span></div>
-                        <div class="detail-row"><span class="detail-label">Next run</span><span class="detail-value" x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span></div>
-                        <div class="detail-row"><span class="detail-label">Agent</span><span class="detail-value" x-text="task.ownerName"></span></div>
-                      </div>
-                      <div>
-                        <div class="field-label"><span>Prompt</span></div>
-                        <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
-                      </div>
-                      <div class="inline-actions">
-                        <button class="btn primary" type="button" @click="openTaskModal(task)">✏️ Edit</button>
-                        <button class="btn danger" type="button" @click="deleteTaskById(task.id, task.name)">🗑 Delete</button>
-                      </div>
-                    </div>
-                    <!-- Recent run history -->
-                    <div style="margin-top:16px">
-                      <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
-                      <div x-show="(taskHistoryCache[task.taskKey] || []).length" class="run-list" style="margin-top:8px">
-                        <template x-for="run in (taskHistoryCache[task.taskKey] || []).slice(0, 5)" :key="'th-' + run.id">
-                          <div class="run-item" style="padding:10px 14px">
-                            <div class="split-meta">
-                              <div>
-                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                  <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
-                                  <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
-                                  <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
-                                </div>
-                                <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
-                              </div>
-                              <div class="toolbar">
-                                <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
-                                <button class="btn ghost" style="font-size:0.72rem" type="button" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
-                              </div>
-                            </div>
-                            <div x-show="isExpanded('task-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
-                              <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                      <div class="hint" x-show="!(taskHistoryCache[task.taskKey] || []).length" style="margin-top:8px">No run history yet. <a href="#" @click.prevent="loadTaskHistory(task)" style="color:var(--cp-link)">Load history</a></div>
-                    </div>
-                  </div>
                   </div>
                 </article>
               </template>
@@ -4438,9 +4391,9 @@
               <template x-for="chain in filteredChains()" :key="chain.id">
                 <article class="task-card" :id="'sched-focus-chain-' + chain.id">
                   <div class="assignment-top">
-                    <div style="cursor:pointer;flex:1;min-width:0" @click="toggleSelectedChain(chain)">
+                    <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/chains/' + encodeURIComponent(chain.id))">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="row-chevron" :class="{ open: selectedChainId === chain.id }">›</span>
+                        <span class="row-chevron">›</span>
                         <strong x-text="chain.name"></strong>
                         <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
                         <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
@@ -4455,51 +4408,7 @@
                   </div>
 
                   <!-- Inline flow visualization -->
-                  <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto"></div>
-
-                  <!-- Last run detail -->
-                  <div x-show="chainRunState[chain.id] || selectedChainId === chain.id" style="margin-top:14px">
-                    <div class="field-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                      <span>Last run</span>
-                      <span class="hint" x-text="chainRunState[chain.id] ? formatRelative(chainRunState[chain.id].startedAt) : ''"></span>
-                      <span class="status-badge" style="font-size:0.7rem" x-show="chainRunState[chain.id]" :class="statusClass(chainRunState[chain.id]?.status)" x-text="chainRunState[chain.id]?.status"></span>
-                      <button class="btn ghost" style="font-size:0.72rem;margin-left:auto" type="button" @click="refreshChainRun(chain)">↻ Refresh</button>
-                    </div>
-                    <div class="run-list" style="margin-top:6px">
-                      <template x-for="(node, sid) in (chainRunState[chain.id]?.nodes || {})" :key="'rn-' + chain.id + '-' + sid">
-                        <div class="run-item" style="padding:0;flex-direction:column;align-items:stretch">
-                          <div style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="toggleChainNode(chain.id, sid)">
-                            <span class="hint" x-text="(expandedChainNodes[chain.id + '/' + sid]) ? '▾' : '▸'"></span>
-                            <span class="status-badge" style="font-size:0.7rem" :class="statusClass(node.status)" x-text="node.status"></span>
-                            <span x-text="node.taskName || sid"></span>
-                            <span class="hint" x-show="node.streaming && node.status === 'running'" style="color:var(--cp-accent)">● live</span>
-                            <span class="hint" x-show="node.code !== undefined && node.code !== null" x-text="'exit ' + node.code"></span>
-                            <span class="hint" x-show="node.reason" x-text="'· ' + node.reason"></span>
-                          </div>
-                          <div x-show="expandedChainNodes[chain.id + '/' + sid]" style="padding:0 12px 12px">
-                            <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
-                              <button class="btn ghost" style="font-size:0.72rem" type="button" x-show="node.output" @click.stop="openShareModal(node.output, (node.taskName || sid) + ' — output', 'run-output')">📤 Share</button>
-                            </div>
-                            <div class="md-output" x-html="renderMarkdown(node.output || (node.status === 'running' ? 'Waiting for output…' : 'No output captured for this task (it may not have run).'))"></div>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                    <!-- Recent runs -->
-                    <div style="margin-top:10px">
-                      <div class="field-label"><span>Recent runs</span><span class="hint">Load a past run to inspect its output.</span></div>
-                      <div class="run-list" style="margin-top:6px" x-show="(chainRuns[chain.id] || []).length">
-                        <template x-for="r in (chainRuns[chain.id] || [])" :key="'hist-' + r.id">
-                          <div class="run-item" style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="openChainRun(chain.id, r.id)">
-                            <span class="status-badge" style="font-size:0.7rem" :class="statusClass(r.status)" x-text="r.status"></span>
-                            <span x-text="formatDateTime(r.started_at || r.startedAt)"></span>
-                            <span class="hint" x-text="r.trigger ? ('· ' + r.trigger) : ''"></span>
-                          </div>
-                        </template>
-                      </div>
-                      <div class="hint" x-show="!(chainRuns[chain.id] || []).length">No runs loaded yet. <a href="#" @click.prevent="loadChainRuns(chain.id)">Load history</a></div>
-                    </div>
-                  </div>
+                  <div class="chain-diagram" :id="'chain-diagram-' + chain.id" style="margin-top:12px;overflow:auto;cursor:pointer" @click="goTo('#/chains/' + encodeURIComponent(chain.id))"></div>
                 </article>
               </template>
             </div>
@@ -4525,9 +4434,9 @@
               <template x-for="task in filteredAssignments()" :key="task.taskKey">
                 <article class="task-card" :id="'sched-focus-' + task.taskKey">
                   <div class="assignment-top">
-                    <div style="cursor:pointer;flex:1;min-width:0" @click="toggleSelectedTask(task.taskKey)">
+                    <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/assignments/' + encodeURIComponent(task.taskKey))">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="row-chevron" :class="{ open: selectedTaskId === task.taskKey }">›</span>
+                        <span class="row-chevron">›</span>
                         <strong x-text="task.name"></strong>
                         <span class="type-badge">Assignment</span>
                         <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
@@ -4540,7 +4449,7 @@
                     </div>
                   </div>
                   <!-- Summary row: next run + last result -->
-                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="toggleSelectedTask(task.taskKey)">
+                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="goTo('#/assignments/' + encodeURIComponent(task.taskKey))">
                     <div class="task-meta-item">
                       <span class="meta-label">Next run</span>
                       <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
@@ -4558,55 +4467,207 @@
                       <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
                     </div>
                   </div>
-                  <!-- Expanded detail panel -->
-                  <div x-show="selectedTaskId === task.taskKey" x-transition.opacity.duration.150ms style="margin-top:14px">
-                    <div class="config-grid">
-                      <div>
-                        <div class="field-label"><span>Prompt</span></div>
-                        <pre style="max-height:120px;overflow:auto" x-text="task.prompt || 'No prompt available.'"></pre>
-                      </div>
-                      <div>
-                        <div class="field-label"><span>Manager</span></div>
-                        <a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(task.managerId))" style="color:var(--cp-link)" x-text="task.ownerName"></a>
-                      </div>
-                      <div class="inline-actions">
-                        <button class="btn primary" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
-                        <button class="btn danger" type="button" @click="deleteAssignmentById(task.managerId, task.assignmentId, task.name)">🗑 Delete</button>
-                      </div>
-                      <!-- Recent run history -->
-                      <div style="margin-top:8px">
-                        <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(task)">Refresh</button></div>
-                        <div x-show="(taskHistoryCache[task.taskKey] || []).length" class="run-list" style="margin-top:8px">
-                          <template x-for="run in (taskHistoryCache[task.taskKey] || []).slice(0, 5)" :key="'th-' + run.id">
-                            <div class="run-item" style="padding:10px 14px">
-                              <div class="split-meta">
-                                <div>
-                                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                    <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
-                                    <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
-                                    <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
-                                  </div>
-                                  <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
-                                </div>
-                                <div class="toolbar">
-                                  <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('task-run-' + run.id)">Output</button>
-                                  <button class="btn ghost" style="font-size:0.72rem" type="button" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
-                                </div>
-                              </div>
-                              <div x-show="isExpanded('task-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
-                                <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
-                              </div>
-                            </div>
-                          </template>
-                        </div>
-                        <div class="hint" x-show="!(taskHistoryCache[task.taskKey] || []).length" style="margin-top:8px">No run history yet. <a href="#" @click.prevent="loadTaskHistory(task)" style="color:var(--cp-link)">Load history</a></div>
-                      </div>
-                    </div>
-                  </div>
                 </article>
               </template>
             </div>
             <div class="empty-state" x-show="!filteredAssignments().length">No assignments matched your filter. Click <strong>＋ New Assignment</strong> to create one.</div>
+          </section>
+
+          <!-- ===== Task / Assignment detail page ===== -->
+          <section x-show="!loading && !errorMessage && (route === 'task-detail' || route === 'assignment-detail')" x-transition.opacity.duration.180ms>
+            <template x-if="!opDetail()">
+              <div class="empty-state" style="margin-top:24px">This operation no longer exists. <a href="#" @click.prevent="goTo(route === 'assignment-detail' ? '#/assignments' : '#/tasks')" style="color:var(--cp-link)">Back to list</a></div>
+            </template>
+            <template x-if="opDetail()">
+              <div>
+                <div class="page-header">
+                  <div class="page-title">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                      <button class="btn ghost" type="button" @click="goTo(opDetail().type === 'assignment' ? '#/assignments' : '#/tasks')">‹ Back</button>
+                      <h1 style="margin:0" x-text="opDetail().name"></h1>
+                      <span class="type-badge" x-text="opDetail().typeLabel"></span>
+                      <span class="status-badge" :class="statusClass(opDetail().status)" x-text="statusLabel(opDetail().status)"></span>
+                      <span class="status-badge success" x-show="opLive()?.active">● live</span>
+                    </div>
+                    <p x-text="opDetail().ownerName + ' • ' + opDetail().scheduleSummary"></p>
+                  </div>
+                  <div class="toolbar">
+                    <button class="btn" type="button" @click="editOpFromDetail(opDetail())">✏️ Edit</button>
+                    <button class="btn primary" type="button" @click="runTask(opDetail())">▶ Run</button>
+                    <button class="btn danger" type="button" @click="deleteOpFromDetail(opDetail())">🗑 Delete</button>
+                  </div>
+                </div>
+
+                <!-- Live run panel -->
+                <div x-show="opLive()" x-transition style="margin-bottom:16px">
+                  <div class="card" :style="opLive()?.active ? 'border-left:3px solid var(--cp-accent)' : (opLive()?.code === 0 ? 'border-left:3px solid var(--cp-success)' : 'border-left:3px solid var(--cp-danger)')">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                      <span x-show="opLive()?.active" class="pulse-dot"></span>
+                      <strong x-text="opLive()?.active ? '⚡ Running…' : (opLive()?.code === 0 ? '✓ Complete' : '✕ Failed')"></strong>
+                      <span class="hint" x-show="!opLive()?.active && opLive()?.code !== undefined" x-text="'Exit ' + (opLive()?.code ?? '?')"></span>
+                      <button class="btn ghost" style="margin-left:auto" type="button" @click="dismissOpLive()">✕ Dismiss</button>
+                    </div>
+                    <template x-if="opLive()?.active">
+                      <div class="live-output-container" style="max-height:340px">
+                        <pre class="live-output-pre" style="font-size:0.8rem" x-text="opLive()?.text || 'Waiting for output…'" x-effect="opLive()?.text; $el.scrollTop = $el.scrollHeight"></pre>
+                      </div>
+                    </template>
+                    <template x-if="!opLive()?.active">
+                      <div>
+                        <div class="md-output" x-html="renderMarkdown(opLive()?.finalOutput || opLive()?.text || 'No output captured.')"></div>
+                        <template x-if="(opLive()?.steps || []).length">
+                          <details class="msg-activity">
+                            <summary>🔎 Reasoning &amp; steps (<span x-text="opLive()?.steps?.length"></span>)</summary>
+                            <div class="msg-activity-body">
+                              <template x-for="(st, ai) in (opLive()?.steps || [])" :key="'opstep-' + ai">
+                                <div class="msg-activity-step" :class="st.type">
+                                  <template x-if="st.text">
+                                    <details class="msg-activity-substep">
+                                      <summary x-text="st.label"></summary>
+                                      <pre class="live-stream-pre" x-text="st.text"></pre>
+                                    </details>
+                                  </template>
+                                  <template x-if="!st.text">
+                                    <div class="msg-activity-label" x-text="st.label"></div>
+                                  </template>
+                                </div>
+                              </template>
+                            </div>
+                          </details>
+                        </template>
+                        <details class="msg-activity">
+                          <summary>📜 Raw stream</summary>
+                          <div class="msg-activity-body">
+                            <pre class="live-stream-pre" style="max-height:260px" x-text="opLive()?.text || '(no streamed output)'"></pre>
+                          </div>
+                        </details>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="config-grid">
+                  <div class="detail-table">
+                    <div class="detail-row"><span class="detail-label">Schedule</span><span class="detail-value" x-text="opDetail().scheduleSummary"></span></div>
+                    <div class="detail-row"><span class="detail-label">Next run</span><span class="detail-value" x-text="opDetail().nextRun ? formatCountdown(opDetail().nextRun) : 'Not scheduled'"></span></div>
+                    <div class="detail-row"><span class="detail-label">Last run</span><span class="detail-value" x-text="opDetail().lastRun ? formatRelative(opDetail().lastRun.finished_at || opDetail().lastRun.started_at) : 'Never'"></span></div>
+                    <div class="detail-row" x-show="opDetail().type === 'assignment'"><span class="detail-label">Manager</span><span class="detail-value"><a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(opDetail().managerId))" style="color:var(--cp-link)" x-text="opDetail().ownerName"></a></span></div>
+                    <div class="detail-row" x-show="opDetail().type === 'agent'"><span class="detail-label">Agent</span><span class="detail-value"><a href="#" @click.prevent="goTo('#/agents/' + encodeURIComponent(opDetail().agentId))" style="color:var(--cp-link)" x-text="opDetail().ownerName"></a></span></div>
+                  </div>
+                  <div>
+                    <div class="field-label"><span>Prompt</span></div>
+                    <pre style="max-height:240px;overflow:auto" x-text="opDetail().prompt || 'No prompt available.'"></pre>
+                  </div>
+                </div>
+
+                <!-- Recent run history -->
+                <div style="margin-top:18px">
+                  <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(opDetail())">↻ Refresh</button></div>
+                  <div x-show="(taskHistoryCache[opDetail().taskKey] || []).length" class="run-list" style="margin-top:8px">
+                    <template x-for="run in (taskHistoryCache[opDetail().taskKey] || []).slice(0, 10)" :key="'opth-' + run.id">
+                      <div class="run-item" style="padding:10px 14px">
+                        <div class="split-meta">
+                          <div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span style="font-size:0.82rem" x-text="formatDateTime(run.started_at || run.startedAt)"></span>
+                              <span class="status-badge" style="font-size:0.7rem" :class="statusClass(run.status)" x-text="statusLabel(run.status)"></span>
+                              <template x-if="run.model"><span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span></template>
+                            </div>
+                            <div class="hint" style="margin-top:4px" x-text="formatDuration(durationBetween(run.started_at || run.startedAt, run.finished_at || run.finishedAt))"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn ghost" style="font-size:0.72rem" type="button" @click="toggleExpanded('opdetail-run-' + run.id)">Output</button>
+                            <button class="btn ghost" style="font-size:0.72rem" type="button" @click.stop="openShareModal(run.output || run.result || run.error, 'Run output — ' + formatDateTime(run.started_at || run.startedAt), 'run-output')">📤</button>
+                          </div>
+                        </div>
+                        <div x-show="isExpanded('opdetail-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
+                          <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!(taskHistoryCache[opDetail().taskKey] || []).length" style="margin-top:8px">No run history yet. <a href="#" @click.prevent="loadTaskHistory(opDetail())" style="color:var(--cp-link)">Load history</a></div>
+                </div>
+              </div>
+            </template>
+          </section>
+
+          <!-- ===== Flow (chain) detail page ===== -->
+          <section x-show="!loading && !errorMessage && route === 'chain-detail'" x-transition.opacity.duration.180ms>
+            <template x-if="!detailChain()">
+              <div class="empty-state" style="margin-top:24px">This flow no longer exists. <a href="#" @click.prevent="goTo('#/chains')" style="color:var(--cp-link)">Back to flows</a></div>
+            </template>
+            <template x-if="detailChain()">
+              <div>
+                <div class="page-header">
+                  <div class="page-title">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                      <button class="btn ghost" type="button" @click="goTo('#/chains')">‹ Back</button>
+                      <h1 style="margin:0" x-text="detailChain().name"></h1>
+                      <span class="type-badge" x-text="(detailChain().steps?.length || 0) + ' tasks'"></span>
+                      <span class="status-badge" :class="detailChain().enabled === false ? 'idle' : 'success'" x-text="detailChain().enabled === false ? 'Disabled' : 'Enabled'"></span>
+                      <span class="status-badge" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                    </div>
+                    <p x-text="(detailChain().description || 'No description') + ' • ' + chainScheduleSummary(detailChain())"></p>
+                  </div>
+                  <div class="toolbar">
+                    <button class="btn" type="button" @click="openChainModal(detailChain())">✏️ Edit</button>
+                    <button class="btn primary" type="button" @click="runChain(detailChain())">▶ Run</button>
+                  </div>
+                </div>
+
+                <!-- Flow visualization -->
+                <div class="card" style="overflow:auto">
+                  <div class="chain-diagram" :id="'chain-diagram-detail-' + detailChain().id"></div>
+                </div>
+
+                <!-- Live / last run nodes -->
+                <div style="margin-top:16px">
+                  <div class="field-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <span>Last run</span>
+                    <span class="hint" x-text="chainRunState[detailChain().id] ? formatRelative(chainRunState[detailChain().id].startedAt) : 'No run yet'"></span>
+                    <span class="status-badge" style="font-size:0.7rem" x-show="chainRunState[detailChain().id]" :class="statusClass(chainRunState[detailChain().id]?.status)" x-text="chainRunState[detailChain().id]?.status"></span>
+                    <button class="btn ghost" style="font-size:0.72rem;margin-left:auto" type="button" @click="refreshChainRun(detailChain())">↻ Refresh</button>
+                  </div>
+                  <div class="run-list" style="margin-top:6px" x-show="chainRunState[detailChain().id]">
+                    <template x-for="(node, sid) in (chainRunState[detailChain().id]?.nodes || {})" :key="'drn-' + detailChain().id + '-' + sid">
+                      <div class="run-item" style="padding:0;flex-direction:column;align-items:stretch">
+                        <div style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="toggleChainNode(detailChain().id, sid)">
+                          <span class="hint" x-text="(expandedChainNodes[detailChain().id + '/' + sid]) ? '▾' : '▸'"></span>
+                          <span class="status-badge" style="font-size:0.7rem" :class="statusClass(node.status)" x-text="node.status"></span>
+                          <span x-text="node.taskName || sid"></span>
+                          <span class="hint" x-show="node.streaming && node.status === 'running'" style="color:var(--cp-accent)">● live</span>
+                          <span class="hint" x-show="node.code !== undefined && node.code !== null" x-text="'exit ' + node.code"></span>
+                          <span class="hint" x-show="node.reason" x-text="'· ' + node.reason"></span>
+                        </div>
+                        <div x-show="expandedChainNodes[detailChain().id + '/' + sid]" style="padding:0 12px 12px">
+                          <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+                            <button class="btn ghost" style="font-size:0.72rem" type="button" x-show="node.output" @click.stop="openShareModal(node.output, (node.taskName || sid) + ' — output', 'run-output')">📤 Share</button>
+                          </div>
+                          <div class="md-output" x-html="renderMarkdown(node.output || (node.status === 'running' ? 'Waiting for output…' : 'No output captured for this task (it may not have run).'))"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!chainRunState[detailChain().id]" style="margin-top:6px">This flow has not run in this session. Click <strong>▶ Run</strong> to start it, or load a past run below.</div>
+                </div>
+
+                <!-- Recent runs -->
+                <div style="margin-top:16px">
+                  <div class="field-label"><span>Recent runs</span><span class="hint">Load a past run to inspect its output.</span></div>
+                  <div class="run-list" style="margin-top:6px" x-show="(chainRuns[detailChain().id] || []).length">
+                    <template x-for="r in (chainRuns[detailChain().id] || [])" :key="'dhist-' + r.id">
+                      <div class="run-item" style="padding:8px 12px;display:flex;align-items:center;gap:10px;cursor:pointer" @click="openChainRun(detailChain().id, r.id)">
+                        <span class="status-badge" style="font-size:0.7rem" :class="statusClass(r.status)" x-text="r.status"></span>
+                        <span x-text="formatDateTime(r.started_at || r.startedAt)"></span>
+                        <span class="hint" x-text="r.trigger ? ('· ' + r.trigger) : ''"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="hint" x-show="!(chainRuns[detailChain().id] || []).length">No runs loaded yet. <a href="#" @click.prevent="loadChainRuns(detailChain().id)" style="color:var(--cp-link)">Load history</a></div>
+                </div>
+              </div>
+            </template>
           </section>
 
           <section x-show="!loading && !errorMessage && (route === 'chat' || route === 'chat-detail')" x-transition.opacity.duration.180ms>
@@ -8152,6 +8213,9 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
+          if (first === 'tasks' && second) return { route: 'task-detail', param: second };
+          if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
+          if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'organizations'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
@@ -8163,6 +8227,10 @@
             await this.loadManagerDetail(this.app.routeParam);
           } else if (this.route === 'chat-detail' && this.app.routeParam) {
             await this.openChat(this.app.routeParam);
+          } else if ((this.route === 'task-detail' || this.route === 'assignment-detail') && this.app.routeParam) {
+            await this.loadOpDetail(this.app.routeParam);
+          } else if (this.route === 'chain-detail' && this.app.routeParam) {
+            await this.loadChainDetail(this.app.routeParam);
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
@@ -8756,6 +8824,9 @@
           if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail';
           if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
+          if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail';
+          if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail';
+          if (group === 'assignments') return this.route === 'assignments' || this.route === 'assignment-detail';
           if (group === 'events') return this.route === 'events';
           return this.route === group;
         },
@@ -9524,6 +9595,53 @@
           return [...agentTasks, ...assignments];
         },
 
+        // ----- Operation detail pages (task / assignment / flow) -----
+        get routeParam() { return this.app.routeParam; },
+        opDetail() {
+          return (this.allTasks() || []).find(t => t.taskKey === this.app.routeParam) || null;
+        },
+        opDetailKey() {
+          const t = this.opDetail();
+          if (!t) return null;
+          return t.type === 'assignment' ? t.managerId : t.agentId;
+        },
+        opLive() {
+          const k = this.opDetailKey();
+          return k ? this.liveOutput[k] : null;
+        },
+        dismissOpLive() {
+          const k = this.opDetailKey();
+          if (k && this.liveOutput[k]) { delete this.liveOutput[k]; this.liveOutput = { ...this.liveOutput }; }
+        },
+        detailChain() {
+          return (this.data.chains || []).find(c => c.id === this.app.routeParam) || null;
+        },
+        async loadOpDetail(key) {
+          const t = (this.allTasks() || []).find(x => x.taskKey === key);
+          if (!t) return;
+          if (!this.taskHistoryCache[key]) this.loadTaskHistory(t);
+          const liveKey = t.type === 'assignment' ? t.managerId : t.agentId;
+          if (liveKey) this.hydrateLiveOutput(liveKey);
+        },
+        async loadChainDetail(id) {
+          const c = (this.data.chains || []).find(x => x.id === id);
+          if (!c) return;
+          this.$nextTick(() => this.renderChainDiagram(c, 'chain-diagram-detail-' + c.id));
+          this.refreshChainRun(c);
+          if (!this.chainRuns[id]) this.loadChainRuns(id);
+        },
+        async deleteOpFromDetail(t) {
+          if (!t) return;
+          const back = t.type === 'assignment' ? '#/assignments' : '#/tasks';
+          if (t.type === 'assignment') await this.deleteAssignmentById(t.managerId, t.assignmentId, t.name);
+          else await this.deleteTaskById(t.id, t.name);
+          if (!this.opDetail()) this.goTo(back);
+        },
+        editOpFromDetail(t) {
+          if (!t) return;
+          if (t.type === 'assignment') this.openAssignmentModal(t);
+          else this.openTaskModal(t);
+        },
         executionCounts() {
           const all = (this.allTasks() || []).filter(t => this.opInCurrentOrg(t.orgId));
           return {
@@ -9583,14 +9701,11 @@
         // Navigate to an operation on its own page and focus/flash it.
         opsOpen(kind, item) {
           if (kind === 'flow') {
-            this.pendingFocus = { route: 'chains', chainId: item.id };
-            this.goTo('#/chains');
+            this.goTo('#/chains/' + encodeURIComponent(item.id));
           } else if (kind === 'assignment') {
-            this.pendingFocus = { route: 'assignments', taskKey: item.taskKey };
-            this.goTo('#/assignments');
+            this.goTo('#/assignments/' + encodeURIComponent(item.taskKey));
           } else {
-            this.pendingFocus = { route: 'tasks', taskKey: item.taskKey };
-            this.goTo('#/tasks');
+            this.goTo('#/tasks/' + encodeURIComponent(item.taskKey));
           }
         },
         // ---- Resources landing page ----
@@ -9933,14 +10048,11 @@
           if (row.type === 'agent') {
             this.goTo('#/agents/' + encodeURIComponent(row.id));
           } else if (row.type === 'task') {
-            this.pendingFocus = { route: 'tasks', taskKey: 'task-' + row.id };
-            this.goTo('#/tasks');
+            this.goTo('#/tasks/' + encodeURIComponent('task-' + row.id));
           } else if (row.type === 'assignment') {
-            this.pendingFocus = { route: 'assignments', taskKey: 'assignment-' + row.managerId + '-' + row.assignmentId };
-            this.goTo('#/assignments');
+            this.goTo('#/assignments/' + encodeURIComponent('assignment-' + row.managerId + '-' + row.assignmentId));
           } else if (row.type === 'flow') {
-            this.pendingFocus = { route: 'chains', chainId: row.id };
-            this.goTo('#/chains');
+            this.goTo('#/chains/' + encodeURIComponent(row.id));
           }
         },
 
@@ -11951,6 +12063,16 @@
         async runAssignment(managerId, assignmentId) {
           try {
             await this.request(`/api/managers/${encodeURIComponent(managerId)}/assignments/${encodeURIComponent(assignmentId)}/run`, { method: 'POST' });
+            if (managerId) {
+              this.liveOutput[managerId] = {
+                text: '',
+                startedAt: new Date().toISOString(),
+                active: true,
+                trigger: { kind: 'assignment', label: 'Assignment', route: '#/managers/' + encodeURIComponent(managerId) },
+              };
+              this.liveOutput = { ...this.liveOutput };
+              this.hydrateLiveOutput(managerId);
+            }
             this.showToast('Assignment queued', 'Manager assignment execution started.', 'info');
             this.scheduleRefresh();
           } catch (error) {
@@ -12445,9 +12567,10 @@
           } catch (e) { this.showToast('Could not load run', e.message, 'error'); }
         },
 
-        renderChainDiagram(chain) {
-          const el = document.getElementById('chain-diagram-' + chain.id);
-          if (!el || typeof mermaid === 'undefined') return;
+        renderChainDiagram(chain, containerId) {
+          const ids = containerId ? [containerId] : ['chain-diagram-' + chain.id, 'chain-diagram-detail-' + chain.id];
+          const els = ids.map(id => document.getElementById(id)).filter(Boolean);
+          if (!els.length || typeof mermaid === 'undefined') return;
           const run = this.chainRunState[chain.id];
           const safe = (s) => (s || '').replace(/"/g, "'");
           const lines = ['graph LR'];
@@ -12467,8 +12590,8 @@
           });
           const src = lines.join('\n');
           try {
-            mermaid.render('mmd-' + chain.id + '-' + Date.now().toString(36), src).then(({ svg }) => { el.innerHTML = svg; }).catch(() => { el.innerHTML = ''; });
-          } catch { el.innerHTML = ''; }
+            mermaid.render('mmd-' + chain.id + '-' + Date.now().toString(36), src).then(({ svg }) => { els.forEach(el => el.innerHTML = svg); }).catch(() => { els.forEach(el => el.innerHTML = ''); });
+          } catch { els.forEach(el => el.innerHTML = ''); }
         },
 
         async openOrgPicker() {
