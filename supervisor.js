@@ -64,6 +64,9 @@ class Supervisor extends EventEmitter {
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN output_tokens INTEGER'); } catch {}
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN cache_read_tokens INTEGER'); } catch {}
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN cache_write_tokens INTEGER'); } catch {}
+    // Migration: persist the run's reasoning/steps activity (JSON) so run
+    // history can show the same "Reasoning & steps" drill-down as the live view.
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN steps TEXT'); } catch {}
 
     // Canonical usage ledger — the single source of truth for the Reports system.
     // Every billable run path writes exactly one row here (agent/task/manager/chat/flow),
@@ -439,10 +442,12 @@ class Supervisor extends EventEmitter {
 
     const u = usage || {};
     const fullOutput = output || '';
+    let stepsJson = null;
+    try { stepsJson = Array.isArray(steps) && steps.length ? JSON.stringify(steps).slice(0, 200000) : null; } catch { stepsJson = null; }
     this.db.prepare(
-      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, model, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, model, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId, model || null,
-      u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null);
+      u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null, stepsJson);
 
     // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure
     let status;
@@ -568,9 +573,13 @@ class Supervisor extends EventEmitter {
   }
 
   getRunHistory(agentId, limit = 20) {
-    return this.db.prepare(
+    const rows = this.db.prepare(
       'SELECT * FROM agent_runs WHERE agent_id = ? ORDER BY id DESC LIMIT ?'
     ).all(agentId, limit);
+    for (const r of rows) {
+      try { r.steps = r.steps ? JSON.parse(r.steps) : []; } catch { r.steps = []; }
+    }
+    return rows;
   }
 
   // Live output for a running agent, served from the in-memory accumulator the

@@ -1344,6 +1344,13 @@
     .ag-menu .ag-menu-sep { height: 1px; background: var(--cp-border); margin: 4px 2px; }
     .ag-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
     @media (max-width: 900px) { .ag-grid { grid-template-columns: 1fr; } }
+    .ag-stack { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
+    .ag-identity { width: 100%; }
+    .ag-identity-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px 28px; align-items: start; }
+    @media (max-width: 900px) { .ag-identity-grid { grid-template-columns: 1fr; } }
+    .ag-identity-grid .detail-table { align-self: start; }
+    .ag-caps-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .ag-main { width: 100%; min-width: 0; }
     .ag-rail { position: sticky; top: 16px; }
     @media (max-width: 900px) { .ag-rail { position: static; } }
     .ag-desc { width: 100%; font: inherit; font-size: 0.9em; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text); resize: none; overflow: hidden; min-height: 0; }
@@ -2980,9 +2987,8 @@
                 </template>
               </div>
             </div>
-            <div class="ag-grid">
-              <aside class="ag-rail">
-                <section class="detail-panel" id="agent-config">
+            <div class="ag-stack">
+                <section class="detail-panel ag-identity" id="agent-config">
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Identity</h2>
@@ -2990,7 +2996,7 @@
                     </div>
                     <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = !selectedAgent.capsUnlocked" x-text="selectedAgent.capsUnlocked ? '🔓 Editing' : '🔒 Unlock'"></button>
                   </div>
-                  <div class="config-grid">
+                  <div class="ag-identity-grid">
                     <div class="detail-table">
                       <div class="detail-row"><span class="detail-label">Display Name</span><span class="detail-value">
                         <span x-show="!selectedAgent.capsUnlocked" x-text="selectedAgent.name"></span>
@@ -3013,6 +3019,7 @@
                       </span></div>
                     </div>
 
+                    <div class="ag-caps-col">
                     <div class="caps-divider">
                       <span class="caps-divider-label">Capabilities</span>
                       <span class="hint">Description &amp; skills help managers decide when to route requests to this agent.</span>
@@ -3034,14 +3041,73 @@
                       <button class="btn accent" type="button" @click="saveAgentDetails(); selectedAgent.capsUnlocked = false">Save changes</button>
                       <button class="btn ghost" type="button" @click="selectedAgent.capsUnlocked = false">Cancel</button>
                     </div>
+                    </div>
                   </div>
                 </section>
-              </aside>
               <div class="ag-main">
                 <div class="ag-tabs">
+                  <button class="ag-tab" type="button" :class="agentTab === 'runs' ? 'active' : ''" @click="agentTab = 'runs'">🏃 Recent Runs <span class="ag-count" x-text="agentHistory.length"></span></button>
                   <button class="ag-tab" type="button" :class="agentTab === 'tasks' ? 'active' : ''" @click="agentTab = 'tasks'">🗂 Tasks &amp; Runs <span class="ag-count" x-text="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length + ' · ' + agentHistory.length"></span></button>
                   <button class="ag-tab" type="button" :class="agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'tools'">🧩 Tools &amp; Skills <span class="ag-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
                   <button class="ag-tab" type="button" x-show="managersForAgent(selectedAgent.id).length" :class="agentTab === 'managers' ? 'active' : ''" @click="agentTab = 'managers'">👔 Managers <span class="ag-count" x-text="managersForAgent(selectedAgent.id).length"></span></button>
+                </div>
+
+                <div class="panel-stack" x-show="agentTab === 'runs'">
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Recent Runs</h2>
+                      <div class="hint">Last 10 executions with expandable output, reasoning &amp; steps.</div>
+                    </div>
+                  </div>
+                  <div class="run-list" x-show="agentHistory.length">
+                    <template x-for="run in agentHistory" :key="'agent-run2-' + run.id">
+                      <div class="run-item">
+                        <div class="split-meta">
+                          <div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <strong x-text="formatDateTime(run.started_at)"></strong>
+                              <span class="status-badge" :class="statusClass(agentRunStatus(run))" x-text="statusLabel(agentRunStatus(run))"></span>
+                              <template x-if="run.model">
+                                <span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span>
+                              </template>
+                              <span class="hint" x-show="(run.steps || []).length" x-text="(run.steps || []).length + ' steps'"></span>
+                            </div>
+                            <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
+                          </div>
+                          <div class="toolbar">
+                            <button class="btn" type="button" @click="toggleExpanded('agentruns-' + run.id)">Output</button>
+                            <button class="btn ghost" type="button" @click="openShareModal(run.output || run.error, 'Agent run — ' + formatDateTime(run.started_at), 'run-output')">📤</button>
+                          </div>
+                        </div>
+                        <div x-show="isExpanded('agentruns-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
+                          <div class="md-output" x-html="renderMarkdown(run.output || run.error || 'No output captured.')"></div>
+                          <template x-if="(run.steps || []).length">
+                            <details class="msg-activity">
+                              <summary>🔎 Reasoning &amp; steps (<span x-text="(run.steps || []).length"></span>)</summary>
+                              <div class="msg-activity-body">
+                                <template x-for="(st, ai) in (run.steps || [])" :key="'arstep-' + run.id + '-' + ai">
+                                  <div class="msg-activity-step" :class="st.type">
+                                    <template x-if="st.text">
+                                      <details class="msg-activity-substep">
+                                        <summary x-text="st.label"></summary>
+                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                      </details>
+                                    </template>
+                                    <template x-if="!st.text">
+                                      <div class="msg-activity-label" x-text="st.label"></div>
+                                    </template>
+                                  </div>
+                                </template>
+                              </div>
+                            </details>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!agentHistory.length">No run history recorded yet.</div>
+                </section>
                 </div>
 
                 <div class="panel-stack" x-show="agentTab === 'tools'">
@@ -3246,43 +3312,6 @@
                       </div>
                     </template>
                   </div>
-                </section>
-                </div>
-
-                <div class="panel-stack" x-show="agentTab === 'tasks'" style="margin-top:16px">
-                <section class="detail-panel">
-                  <div class="panel-header">
-                    <div>
-                      <h2 class="panel-title">Recent Runs</h2>
-                      <div class="hint">Last 10 executions with expandable output.</div>
-                    </div>
-                  </div>
-                  <div class="run-list" x-show="agentHistory.length">
-                    <template x-for="run in agentHistory" :key="'agent-run-' + run.id">
-                      <div class="run-item">
-                        <div class="split-meta">
-                          <div>
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                              <strong x-text="formatDateTime(run.started_at)"></strong>
-                              <span class="status-badge" :class="statusClass(agentRunStatus(run))" x-text="statusLabel(agentRunStatus(run))"></span>
-                              <template x-if="run.model">
-                                <span class="model-badge" :title="'Model: ' + run.model" x-text="'🧠 ' + formatModelName(run.model)"></span>
-                              </template>
-                            </div>
-                            <div class="hint" style="margin-top:6px" x-text="formatDuration(durationBetween(run.started_at, run.finished_at))"></div>
-                          </div>
-                          <div class="toolbar">
-                            <button class="btn" type="button" @click="toggleExpanded('agent-' + run.id)">Output</button>
-                            <button class="btn ghost" type="button" @click="openShareModal(run.output || run.error, 'Agent run — ' + formatDateTime(run.started_at), 'run-output')">📤</button>
-                          </div>
-                        </div>
-                        <div x-show="isExpanded('agent-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                          <div class="md-output" x-html="renderMarkdown(run.output || run.error || 'No output captured.')"></div>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="empty-state" x-show="!agentHistory.length">No run history recorded yet.</div>
                 </section>
                 </div>
               </div>
@@ -4582,6 +4611,26 @@
                         </div>
                         <div x-show="isExpanded('opdetail-run-' + run.id)" x-transition.opacity.duration.150ms style="margin-top:8px">
                           <div class="md-output" x-html="renderMarkdown(run.output || run.result || run.error || 'No output captured.')"></div>
+                          <template x-if="runSteps(run).length">
+                            <details class="msg-activity" style="margin-top:10px">
+                              <summary>🔎 Reasoning &amp; steps (<span x-text="runSteps(run).length"></span>)</summary>
+                              <div class="msg-activity-body">
+                                <template x-for="(st, ai) in runSteps(run)" :key="'opstep-' + run.id + '-' + ai">
+                                  <div class="msg-activity-step" :class="st.type">
+                                    <template x-if="st.text">
+                                      <details class="msg-activity-substep">
+                                        <summary x-text="st.label"></summary>
+                                        <pre class="live-stream-pre" x-text="st.text"></pre>
+                                      </details>
+                                    </template>
+                                    <template x-if="!st.text">
+                                      <div class="msg-activity-label" x-text="st.label"></div>
+                                    </template>
+                                  </div>
+                                </template>
+                              </div>
+                            </details>
+                          </template>
                         </div>
                       </div>
                     </template>
@@ -7568,7 +7617,7 @@
         templates: { open: false, draft: null, fmt: { text: '', original: '', isDefault: true, loading: false, show: false }, assistant: { active: false, sessionId: null, busy: false, input: '', messages: [] } },
         execAi: { loading: false, error: '', hint: '', focusAgentId: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
-        agentTab: 'tasks',
+        agentTab: 'runs',
         managerTab: 'assignments',
         liveOutput: {},
         managerHistory: [],
@@ -8400,7 +8449,7 @@
               this.selectedAgent.showMcpForm = false;
               this.selectedAgent.capCatalogFilter = '';
               this.selectedAgent._menu = false;
-              this.agentTab = 'tasks';
+              this.agentTab = 'runs';
             }
             this.agentHistory = history;
             this.loadAgentCapabilities(id);
@@ -9641,6 +9690,23 @@
           if (!t) return;
           if (t.type === 'assignment') this.openAssignmentModal(t);
           else this.openTaskModal(t);
+        },
+        // Normalize a run's persisted steps (agent {type,label,text} or manager
+        // {iteration,action,...}) into the {type,label,text} shape the steps
+        // drill-down renders, so recent-run history matches the live view.
+        runSteps(run) {
+          let raw = run && run.steps;
+          if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = []; } }
+          if (!Array.isArray(raw)) return [];
+          const labelMap = { thinking: '💭 Thinking', run_agent: '🤖 Run agent', agent_result: '📥 Agent result', request_agent: '➕ Request agent', org_rejected: '⛔ Org rejected', complete: '✅ Complete', error: '✕ Error' };
+          return raw.map(s => {
+            if (s && s.label) return { type: s.type || 'tool', label: s.label, text: s.text || '' };
+            const act = (s && (s.action || s.type)) || 'step';
+            let label = labelMap[act] || act;
+            if (s && s.agentId) label += ' · ' + s.agentId;
+            const text = (s && (s.output || s.result || s.prompt || s.message || s.reason)) || '';
+            return { type: act === 'error' ? 'error' : (act === 'thinking' ? 'thinking' : 'tool'), label, text: String(text).slice(0, 4000) };
+          });
         },
         executionCounts() {
           const all = (this.allTasks() || []).filter(t => this.opInCurrentOrg(t.orgId));
