@@ -5544,6 +5544,8 @@
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                       <span class="type-badge" x-text="mktTypeIcon(entry.type) + ' ' + entry.type"></span>
                       <strong x-text="entry.displayName || entry.name"></strong>
+                      <span class="status-badge success" x-show="entry.installed" title="A registered agent already matches this item">✓ Installed</span>
+                      <span class="status-badge success" x-show="entry.inUse" title="This capability is already available to your system">✓ In use</span>
                     </div>
                     <span class="status-badge idle" :title="mktSourceMeta(entry).title" x-text="mktSourceMeta(entry).icon + ' ' + mktSourceMeta(entry).kind"></span>
                   </div>
@@ -5554,10 +5556,10 @@
                   <div class="hint" x-show="entry.type === 'mcp' && entry.mcp" style="margin-top:4px;font-family:var(--mono,monospace)" x-text="entry.mcp ? (entry.mcp.command + (entry.mcp.envKeys && entry.mcp.envKeys.length ? '  env: ' + entry.mcp.envKeys.join(', ') : '')) : ''"></div>
                   <div class="toolbar" style="margin-top:12px">
                     <template x-if="entry.type === 'agent' || entry.type === 'plugin'">
-                      <button class="btn primary" type="button" @click="marketplaceInstall(entry)" :disabled="mkt.busy">Install</button>
+                      <button class="btn" :class="entry.installed ? '' : 'primary'" type="button" @click="marketplaceInstall(entry)" :disabled="mkt.busy || entry.installed" x-text="entry.installed ? '✓ Installed' : 'Install'"></button>
                     </template>
                     <template x-if="entry.type === 'skill' || entry.type === 'mcp'">
-                      <button class="btn primary" type="button" @click="openAddCap(entry)" :disabled="mkt.busy">Add to agent…</button>
+                      <button class="btn primary" type="button" @click="openAddCap(entry)" :disabled="mkt.busy" x-text="entry.inUse ? 'Add to another agent…' : 'Add to agent…'"></button>
                     </template>
                   </div>
                 </article>

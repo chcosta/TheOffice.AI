@@ -1115,13 +1115,65 @@ app.post('/api/marketplace/sources/:id/scan', async (req, res) => {
 
 app.get('/api/marketplace/catalog', (req, res) => {
   try {
-    res.json(marketplace.getCatalog({
+    const result = marketplace.getCatalog({
       type: req.query.type || null,
       q: req.query.q || null,
       sourceId: req.query.sourceId || null,
-    }));
+    });
+    decorateCatalogInstallState(result);
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// Mark catalog entries with whether they're already part of our system:
+//  - agent|plugin  -> installed: true if a registered agent matches it
+//  - skill|mcp     -> inUse: true if the capability catalog already has it
+// Matching is done on normalized identity tokens (name/ref/plugin folder).
+function decorateCatalogInstallState(result) {
+  if (!result || !Array.isArray(result.entries)) return result;
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const baseName = (p) => norm(String(p || '').split(/[\\/]/).filter(Boolean).pop());
+
+  // Installed agents/plugins -> identity tokens.
+  const installedTokens = new Set();
+  let agents = [];
+  try { agents = supervisor.getAllStatus() || []; } catch (_) {}
+  for (const a of agents) {
+    const cfg = a.config || {};
+    const ref = cfg.agent || a.agent || '';
+    [a.agent_id, cfg.name, cfg.displayName, ref].forEach(v => { if (v) installedTokens.add(norm(v)); });
+    if (ref && ref.includes(':')) {
+      installedTokens.add(norm(ref.split(':')[0]));
+      installedTokens.add(norm(ref.split(':').pop()));
+    }
+    const pdir = cfg.pluginDir || a.pluginDir;
+    if (pdir) installedTokens.add(baseName(pdir));
+  }
+
+  // Skills/MCP already present in our capability catalog.
+  const skillNames = new Set();
+  const mcpNames = new Set();
+  try {
+    const cat = capabilities.buildCatalog();
+    for (const s of cat.skills || []) skillNames.add(norm(s.name));
+    for (const m of cat.mcp || []) mcpNames.add(norm(m.name));
+  } catch (_) {}
+
+  for (const e of result.entries) {
+    if (e.type === 'agent' || e.type === 'plugin') {
+      const tokens = [e.name, e.displayName];
+      if (e.plugin && e.plugin.dir) tokens.push(baseName(e.plugin.dir));
+      if (e.agent && e.agent.ref) { tokens.push(e.agent.ref); tokens.push(String(e.agent.ref).split(':')[0]); }
+      e.installed = tokens.some(t => t && installedTokens.has(norm(t)));
+    } else if (e.type === 'skill') {
+      e.inUse = skillNames.has(norm(e.name));
+    } else if (e.type === 'mcp') {
+      const server = (e.mcp && e.mcp.server) || e.name;
+      e.inUse = mcpNames.has(norm(server));
+    }
+  }
+  return result;
+}
 
 // Install / add a catalog entry.
 //  - agent|plugin from an azdo source -> materialize + register (reuse azdo install)
