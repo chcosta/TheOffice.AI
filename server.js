@@ -4857,9 +4857,37 @@ app.post('/api/boards/:id/where-was-i', (req, res) => {
           if (fs.existsSync(dir)) {
             const ep = path.join(dir, 'events.jsonl');
             try { when = new Date(fs.statSync(ep).mtimeMs).toISOString(); } catch { try { when = new Date(fs.statSync(dir).mtimeMs).toISOString(); } catch {} }
-            const sp = path.join(dir, SPA_SUMMARY_FILE);
-            try { if (fs.existsSync(sp)) detail = String(JSON.parse(fs.readFileSync(sp, 'utf-8')).summary || '').slice(0, 240); } catch {}
             status = 'session';
+            // Prefer a cached AI summary; otherwise reconstruct a useful "where you left
+            // off" line from the conversation log (last assistant reply, else last prompt,
+            // else agent + tools), so the item isn't just a bare title + timestamp.
+            const sp = path.join(dir, SPA_SUMMARY_FILE);
+            try { if (fs.existsSync(sp)) detail = String(JSON.parse(fs.readFileSync(sp, 'utf-8')).summary || '').trim(); } catch {}
+            if (!detail && fs.existsSync(ep)) {
+              try {
+                let lastAssistant = '', lastUser = '', agentName = '';
+                const tools = [];
+                for (const ln of fs.readFileSync(ep, 'utf-8').split('\n')) {
+                  if (!ln) continue;
+                  let ev; try { ev = JSON.parse(ln); } catch { continue; }
+                  const d = ev.data || {};
+                  if (ev.type === 'assistant.message' && d.content) lastAssistant = String(d.content);
+                  else if (ev.type === 'user.message' && d.content) lastUser = String(d.content);
+                  else if (ev.type === 'subagent.selected' && (d.agentDisplayName || d.agentName)) agentName = d.agentDisplayName || d.agentName;
+                  else if (ev.type === 'session.start' && d.context && d.context.agentName && !agentName) agentName = d.context.agentName;
+                  else if (ev.type === 'tool.execution_start' && d.toolName) tools.push(d.toolName);
+                }
+                if (lastAssistant) detail = lastAssistant;
+                else if (lastUser) detail = 'Last prompt: ' + lastUser;
+                else if (agentName) {
+                  const counts = {};
+                  for (const t of tools) counts[t] = (counts[t] || 0) + 1;
+                  const top = Object.entries(counts).sort((a, c) => c[1] - a[1]).slice(0, 6).map(([k, v]) => v > 1 ? `${k}×${v}` : k);
+                  detail = agentName + (top.length ? ' — used ' + top.join(', ') : ' session');
+                }
+              } catch {}
+            }
+            detail = String(detail || '').replace(/\s+/g, ' ').trim().slice(0, 240);
           }
         } catch {}
       }
