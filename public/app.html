@@ -8266,6 +8266,33 @@
           if (!this.currentOrgId || this.currentOrgId === 'all') return true;
           return orgId === this.currentOrgId;
         },
+        // Org gate for a /api/schedules row: map it back to its operation's orgId
+        // (tasks/assignments/flows each carry an orgId) and reuse opInCurrentOrg.
+        scheduleInCurrentOrg(row) {
+          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          if (!row) return false;
+          let orgId = null;
+          if (row.type === 'task') {
+            const t = (this.data.tasks || []).find(t => t.id === row.id);
+            orgId = t ? (t.orgId || null) : null;
+          } else if (row.type === 'assignment') {
+            const m = (this.data.managers || []).find(m => m.id === row.managerId);
+            const a = m && (m.config.assignments || []).find(a => a.id === row.assignmentId);
+            orgId = a ? (a.orgId || null) : null;
+          } else if (row.type === 'flow') {
+            const c = (this.data.chains || []).find(c => c.id === row.id);
+            orgId = c ? (c.orgId || null) : null;
+          } else if (row.type === 'agent') {
+            return this.idInCurrentOrg(row.id);
+          }
+          return this.opInCurrentOrg(orgId);
+        },
+        // Org gate for an activity-feed entry (an agent/manager run), scoped by
+        // whether the running employee belongs to the current org.
+        activityInCurrentOrg(entry) {
+          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          return this.idInCurrentOrg(entry && entry.entityId);
+        },
         // Valid org choices for the operation modal, constrained to orgs the
         // selected employee belongs to (employee+org pairing).
         modalOrgOptions() {
@@ -8777,7 +8804,7 @@
         // Aggregate run health for the Executions landing page (last 24h),
         // drawn from the activity feed + live supervisor status + schedules.
         execMetrics() {
-          const acts = this.data.activity || [];
+          const acts = (this.data.activity || []).filter(a => this.activityInCurrentOrg(a));
           const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
           const done = acts.filter(a => {
             const t = new Date(a.finishedAt || a.startedAt).getTime();
@@ -8786,7 +8813,7 @@
           const ok = done.filter(a => this._runOk(a.status)).length;
           const failed = done.filter(a => this._runFail(a.status)).length;
           const total = ok + failed;
-          const schedRows = (this.data.schedules || []).filter(r => r.type !== 'manager');
+          const schedRows = (this.data.schedules || []).filter(r => r.type !== 'manager' && this.scheduleInCurrentOrg(r));
           const scheduledOn = schedRows.filter(r => r.enabled !== false && r.nextRun).length;
           return {
             runningNow: (this.runningEntities() || []).length,
@@ -8800,14 +8827,14 @@
         // Soonest upcoming execution schedules (tasks/flows/assignments — not raw managers).
         execUpcoming(n) {
           return (this.data.schedules || [])
-            .filter(r => r.type !== 'manager' && r.enabled !== false && r.nextRun && new Date(r.nextRun) > new Date())
+            .filter(r => r.type !== 'manager' && r.enabled !== false && r.nextRun && new Date(r.nextRun) > new Date() && this.scheduleInCurrentOrg(r))
             .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
             .slice(0, n || 6);
         },
         // Most recent completed/failed runs.
         execRecent(n) {
           return (this.data.activity || [])
-            .filter(a => this._runOk(a.status) || this._runFail(a.status))
+            .filter(a => (this._runOk(a.status) || this._runFail(a.status)) && this.activityInCurrentOrg(a))
             .slice(0, n || 6);
         },
         // ---- Resources landing page ----
@@ -8927,16 +8954,20 @@
             summary: `${(manager.config.assignments || []).length} assignments`,
             startedAt: manager.lastRun?.started_at || manager.last_active || new Date().toISOString()
           }));
-          return [...activeAgents, ...activeManagers].sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+          return [...activeAgents, ...activeManagers]
+            .filter((e) => this.idInCurrentOrg(e.id))
+            .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
         },
 
         recentCompletions() {
-          return this.data.activity.filter((entry) => entry.status === 'success' || entry.status === 'failed').slice(0, 10);
+          return this.data.activity
+            .filter((entry) => (entry.status === 'success' || entry.status === 'failed') && this.activityInCurrentOrg(entry))
+            .slice(0, 10);
         },
 
         upcomingTasks() {
           return this.allTasks()
-            .filter((task) => task.nextRun && new Date(task.nextRun) > new Date())
+            .filter((task) => task.nextRun && new Date(task.nextRun) > new Date() && this.opInCurrentOrg(task.orgId))
             .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
             .slice(0, 5);
         },
@@ -8944,7 +8975,7 @@
         alerts() {
           const cutoff = Date.now() - (24 * 60 * 60 * 1000);
           return this.data.activity
-            .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff)
+            .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff && this.activityInCurrentOrg(entry))
             .slice(0, 8);
         },
 
@@ -9199,14 +9230,14 @@
         },
 
         filteredSchedules() {
-          let rows = this.data.schedules || [];
+          let rows = (this.data.schedules || []).filter(r => this.scheduleInCurrentOrg(r));
           if (this.scheduleTypeFilter !== 'all') rows = rows.filter(r => r.type === this.scheduleTypeFilter);
           if (this.scheduleHideDisabled) rows = rows.filter(r => r.enabled !== false);
           return rows;
         },
 
         scheduleCounts() {
-          const rows = this.data.schedules || [];
+          const rows = (this.data.schedules || []).filter(r => this.scheduleInCurrentOrg(r));
           const counts = { all: rows.length, agent: 0, task: 0, assignment: 0, flow: 0 };
           for (const r of rows) { if (counts[r.type] !== undefined) counts[r.type]++; }
           return counts;
@@ -9214,7 +9245,7 @@
 
         nextSchedule() {
           const upcoming = (this.data.schedules || [])
-            .filter(r => r.enabled !== false && r.nextRun)
+            .filter(r => r.enabled !== false && r.nextRun && this.scheduleInCurrentOrg(r))
             .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun));
           return upcoming[0] || null;
         },
