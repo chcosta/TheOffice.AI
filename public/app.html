@@ -13,6 +13,10 @@
         pref = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       }
       document.documentElement.setAttribute("data-theme", pref === "dark" ? "dark" : "light");
+      try {
+        const ot = localStorage.getItem("current-org-theme");
+        if (ot) document.documentElement.setAttribute("data-org-theme", ot);
+      } catch {}
     })();
   </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
@@ -79,6 +83,83 @@
       --cp-panel-strong: rgba(41, 41, 41, 0.96);
       --cp-sheen: rgba(255, 255, 255, 0.04);
       --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+
+    /* ===== Per-organization theme presets =====
+       Applied via data-org-theme on <html>; scoped per data-theme so the
+       light/dark toggle keeps working. Override the high-impact palette
+       variables (backgrounds, surfaces, borders, accent) for a full reskin. */
+    html[data-theme="light"][data-org-theme="ocean"] {
+      --cp-bg: #eef4fb; --cp-bg-elevated: #f6f9fd; --cp-surface: #ffffff; --cp-surface-soft: #eaf1f9;
+      --cp-border: #d2e0ef; --cp-border-strong: #8fa9c4;
+      --cp-accent: #1f6fb1; --cp-accent-hover: #1a5f98; --cp-accent-soft: rgba(31,111,177,0.09); --cp-accent-fg: #ffffff;
+      --cp-link: #1f6fb1; --cp-highlight: rgba(31,111,177,0.12);
+    }
+    html[data-theme="dark"][data-org-theme="ocean"] {
+      --cp-bg: #18232e; --cp-bg-elevated: #1d2935; --cp-surface: #1f2d3a; --cp-surface-soft: #243443;
+      --cp-border: #324658; --cp-border-strong: #4a637a;
+      --cp-accent: #5fb0e8; --cp-accent-hover: #7cc0f0; --cp-accent-soft: rgba(95,176,232,0.16); --cp-accent-fg: #0d1620;
+      --cp-link: #5fb0e8; --cp-highlight: rgba(95,176,232,0.14);
+    }
+    html[data-theme="light"][data-org-theme="forest"] {
+      --cp-bg: #eef5ee; --cp-bg-elevated: #f6faf5; --cp-surface: #ffffff; --cp-surface-soft: #e8f1e7;
+      --cp-border: #d3e3d1; --cp-border-strong: #8aa886;
+      --cp-accent: #2f8a4e; --cp-accent-hover: #287843; --cp-accent-soft: rgba(47,138,78,0.09); --cp-accent-fg: #ffffff;
+      --cp-link: #2f8a4e; --cp-highlight: rgba(47,138,78,0.12);
+    }
+    html[data-theme="dark"][data-org-theme="forest"] {
+      --cp-bg: #18241b; --cp-bg-elevated: #1d2a20; --cp-surface: #1f2d23; --cp-surface-soft: #243528;
+      --cp-border: #344838; --cp-border-strong: #4c6650;
+      --cp-accent: #5fc27e; --cp-accent-hover: #79d094; --cp-accent-soft: rgba(95,194,126,0.16); --cp-accent-fg: #0d1610;
+      --cp-link: #5fc27e; --cp-highlight: rgba(95,194,126,0.14);
+    }
+    html[data-theme="light"][data-org-theme="sunset"] {
+      --cp-bg: #fbf2ea; --cp-bg-elevated: #fdf8f3; --cp-surface: #ffffff; --cp-surface-soft: #f7ece0;
+      --cp-border: #ecdac8; --cp-border-strong: #c4a384;
+      --cp-accent: #c4661f; --cp-accent-hover: #ad591a; --cp-accent-soft: rgba(196,102,31,0.09); --cp-accent-fg: #ffffff;
+      --cp-link: #b35a16; --cp-highlight: rgba(196,102,31,0.12);
+    }
+    html[data-theme="dark"][data-org-theme="sunset"] {
+      --cp-bg: #2a2018; --cp-bg-elevated: #31251b; --cp-surface: #33271d; --cp-surface-soft: #3d2f22;
+      --cp-border: #523f2d; --cp-border-strong: #6e5640;
+      --cp-accent: #f0a35f; --cp-accent-hover: #f5b478; --cp-accent-soft: rgba(240,163,95,0.16); --cp-accent-fg: #1a1208;
+      --cp-link: #f0a35f; --cp-highlight: rgba(240,163,95,0.14);
+    }
+    html[data-theme="light"][data-org-theme="violet"] {
+      --cp-bg: #f4f0fb; --cp-bg-elevated: #f9f6fd; --cp-surface: #ffffff; --cp-surface-soft: #efe9f8;
+      --cp-border: #e0d6ef; --cp-border-strong: #a08fc4;
+      --cp-accent: #7a3fb1; --cp-accent-hover: #693598; --cp-accent-soft: rgba(122,63,177,0.09); --cp-accent-fg: #ffffff;
+      --cp-link: #7a3fb1; --cp-highlight: rgba(122,63,177,0.12);
+    }
+    html[data-theme="dark"][data-org-theme="violet"] {
+      --cp-bg: #211a2e; --cp-bg-elevated: #271f35; --cp-surface: #2a223a; --cp-surface-soft: #322843;
+      --cp-border: #443658; --cp-border-strong: #5e4a7a;
+      --cp-accent: #b98ee8; --cp-accent-hover: #c6a4f0; --cp-accent-soft: rgba(185,142,232,0.16); --cp-accent-fg: #16101f;
+      --cp-link: #b98ee8; --cp-highlight: rgba(185,142,232,0.14);
+    }
+    html[data-theme="light"][data-org-theme="slate"] {
+      --cp-bg: #f0f2f4; --cp-bg-elevated: #f7f8fa; --cp-surface: #ffffff; --cp-surface-soft: #e9ecef;
+      --cp-border: #d5dadf; --cp-border-strong: #8b949c;
+      --cp-accent: #47596b; --cp-accent-hover: #3a4956; --cp-accent-soft: rgba(71,89,107,0.09); --cp-accent-fg: #ffffff;
+      --cp-link: #3f6fb1; --cp-highlight: rgba(71,89,107,0.12);
+    }
+    html[data-theme="dark"][data-org-theme="slate"] {
+      --cp-bg: #1e2226; --cp-bg-elevated: #23282d; --cp-surface: #262c31; --cp-surface-soft: #2c333a;
+      --cp-border: #3b444c; --cp-border-strong: #54606a;
+      --cp-accent: #9fb3c4; --cp-accent-hover: #b4c4d2; --cp-accent-soft: rgba(159,179,196,0.16); --cp-accent-fg: #12161a;
+      --cp-link: #7fb0e0; --cp-highlight: rgba(159,179,196,0.14);
+    }
+    html[data-theme="light"][data-org-theme="rose"] {
+      --cp-bg: #fbeff4; --cp-bg-elevated: #fdf6f9; --cp-surface: #ffffff; --cp-surface-soft: #f8e8ef;
+      --cp-border: #f0d3e0; --cp-border-strong: #c98fab;
+      --cp-accent: #c43f78; --cp-accent-hover: #ad3567; --cp-accent-soft: rgba(196,63,120,0.09); --cp-accent-fg: #ffffff;
+      --cp-link: #c43f78; --cp-highlight: rgba(196,63,120,0.12);
+    }
+    html[data-theme="dark"][data-org-theme="rose"] {
+      --cp-bg: #2a1a22; --cp-bg-elevated: #311f28; --cp-surface: #33212b; --cp-surface-soft: #3d2833;
+      --cp-border: #523648; --cp-border-strong: #6e4a60;
+      --cp-accent: #f08eb6; --cp-accent-hover: #f5a4c6; --cp-accent-soft: rgba(240,142,182,0.16); --cp-accent-fg: #1a0d14;
+      --cp-link: #f08eb6; --cp-highlight: rgba(240,142,182,0.14);
     }
 
     * { box-sizing: border-box; }
@@ -291,6 +372,15 @@
     .emp-chip-x { border: none; background: transparent; color: var(--cp-text-muted); cursor: pointer; font-size: 12px; padding: 0 2px; border-radius: 6px; }
     .emp-chip-x:hover { color: var(--cp-danger); background: var(--cp-surface-soft); }
     .org-board-empty { grid-column: 1 / -1; text-align: center; color: var(--cp-text-muted); padding: 40px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+    /* Theme preset picker (org modal) */
+    .theme-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+    .theme-swatch { display: flex; flex-direction: column; gap: 6px; padding: 7px; border: 1.5px solid var(--cp-border); border-radius: var(--radius-sm); background: var(--cp-surface); cursor: pointer; text-align: left; transition: border-color .12s, box-shadow .12s; }
+    .theme-swatch:hover { border-color: var(--cp-border-strong); }
+    .theme-swatch.active { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent-soft); }
+    .theme-swatch-preview { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--cp-border); }
+    .theme-swatch-bg { flex: 1; }
+    .theme-swatch-accent { width: 34%; }
+    .theme-swatch-label { font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
     .brand {
       display: flex;
       align-items: center;
@@ -3668,6 +3758,21 @@
                   <div class="field-label">Description</div>
                   <textarea class="field-input" rows="3" x-model="orgForm.description" placeholder="What does this organization do?"></textarea>
                 </label>
+                <div>
+                  <div class="field-label">Theme</div>
+                  <div class="hint" style="margin:-2px 0 8px">Selecting this organization reskins the whole app with this palette.</div>
+                  <div class="theme-swatches">
+                    <template x-for="t in orgThemes" :key="t.id">
+                      <button type="button" class="theme-swatch" :class="{ active: (orgForm.theme || 'default') === t.id }" @click="orgForm.theme = t.id">
+                        <span class="theme-swatch-preview">
+                          <span class="theme-swatch-bg" :style="'background:' + t.bg"></span>
+                          <span class="theme-swatch-accent" :style="'background:' + t.accent"></span>
+                        </span>
+                        <span class="theme-swatch-label" x-text="t.name"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
                 <div style="display:flex;justify-content:flex-end;gap:8px">
                   <button class="btn" type="button" @click="orgModalOpen=false">Cancel</button>
                   <button class="btn primary" type="button" @click="saveOrg()" x-text="orgForm.id ? 'Save' : 'Create'"></button>
@@ -6921,7 +7026,16 @@
         currentOrgId: (() => { try { return localStorage.getItem('current-org-id') || 'all'; } catch { return 'all'; } })(),
         orgMenuOpen: false,
         orgModalOpen: false,
-        orgForm: { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '' },
+        orgForm: { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' },
+        orgThemes: [
+          { id: 'default', name: 'Default', bg: '#f7f4ef', accent: '#b11f4b' },
+          { id: 'ocean', name: 'Ocean', bg: '#eef4fb', accent: '#1f6fb1' },
+          { id: 'forest', name: 'Forest', bg: '#eef5ee', accent: '#2f8a4e' },
+          { id: 'sunset', name: 'Sunset', bg: '#fbf2ea', accent: '#c4661f' },
+          { id: 'violet', name: 'Violet', bg: '#f4f0fb', accent: '#7a3fb1' },
+          { id: 'slate', name: 'Slate', bg: '#f0f2f4', accent: '#47596b' },
+          { id: 'rose', name: 'Rose', bg: '#fbeff4', accent: '#c43f78' },
+        ],
         orgDragEmp: null,
         orgDragOverId: null,
         _orgDragOverTarget: null,
@@ -8236,6 +8350,16 @@
           this.currentOrgId = id || 'all';
           this.orgMenuOpen = false;
           try { localStorage.setItem('current-org-id', this.currentOrgId); } catch {}
+          this.applyOrgTheme();
+        },
+        // Reskin the whole app to match the selected organization's theme preset.
+        applyOrgTheme() {
+          const org = this.currentOrg();
+          const theme = org && org.theme && org.theme !== 'default' ? org.theme : null;
+          const el = document.documentElement;
+          if (theme) el.setAttribute('data-org-theme', theme);
+          else el.removeAttribute('data-org-theme');
+          try { if (theme) localStorage.setItem('current-org-theme', theme); else localStorage.removeItem('current-org-theme'); } catch {}
         },
         // Core gate: is an employee id visible under the current org selection?
         idInCurrentOrg(id) {
@@ -8357,6 +8481,7 @@
             const orgs = await this.request('/api/organizations');
             this.data.organizations = Array.isArray(orgs) ? orgs : [];
             this._reconcileCurrentOrg();
+            this.applyOrgTheme();
           } catch (e) { /* non-fatal */ }
         },
         async createOrg() {
@@ -8364,24 +8489,24 @@
           if (!name) { this.showToast('Name required', 'Enter an organization name.', 'error'); return; }
           try {
             const r = await this.request('/api/organizations', { method: 'POST', body: JSON.stringify({
-              name, emoji: this.orgForm.emoji || '🏢', color: this.orgForm.color || '#b11f4b', description: this.orgForm.description || ''
+              name, emoji: this.orgForm.emoji || '🏢', color: this.orgForm.color || '#b11f4b', description: this.orgForm.description || '', theme: this.orgForm.theme || 'default'
             }) });
             await this.loadOrganizations();
             this.orgModalOpen = false;
-            this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '' };
+            this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' };
             this.showToast('Organization created', name, 'success');
           } catch (e) { this.showToast('Create failed', e.message, 'error'); }
         },
         openOrgModal(org = null) {
-          if (org) this.orgForm = { id: org.id, name: org.name, emoji: org.emoji || '🏢', color: org.color || '#b11f4b', description: org.description || '' };
-          else this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '' };
+          if (org) this.orgForm = { id: org.id, name: org.name, emoji: org.emoji || '🏢', color: org.color || '#b11f4b', description: org.description || '', theme: org.theme || 'default' };
+          else this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' };
           this.orgModalOpen = true;
         },
         async saveOrg() {
           if (!this.orgForm.id) return this.createOrg();
           try {
             await this.request('/api/organizations/' + encodeURIComponent(this.orgForm.id), { method: 'PUT', body: JSON.stringify({
-              name: this.orgForm.name, emoji: this.orgForm.emoji, color: this.orgForm.color, description: this.orgForm.description
+              name: this.orgForm.name, emoji: this.orgForm.emoji, color: this.orgForm.color, description: this.orgForm.description, theme: this.orgForm.theme || 'default'
             }) });
             await this.loadOrganizations();
             this.orgModalOpen = false;

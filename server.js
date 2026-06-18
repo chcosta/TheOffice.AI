@@ -4440,7 +4440,7 @@ app.get('/api/organizations/:id', (req, res) => {
 
 // Create or update an organization
 app.post('/api/organizations', (req, res) => {
-  const { id, name, emoji, color, description, memberIds } = req.body || {};
+  const { id, name, emoji, color, description, memberIds, theme } = req.body || {};
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'Missing required field: name' });
   }
@@ -4455,6 +4455,7 @@ app.post('/api/organizations', (req, res) => {
     emoji: emoji || base.emoji || '🏢',
     color: color || base.color || '#b11f4b',
     description: description != null ? description : (base.description || ''),
+    theme: theme || base.theme || 'default',
     memberIds: Array.isArray(memberIds) ? [...new Set(memberIds.filter(_employeeExists))] : (base.memberIds || []),
     updatedAt: new Date().toISOString(),
   };
@@ -4469,12 +4470,13 @@ app.put('/api/organizations/:id', (req, res) => {
   const orgs = loadOrganizations();
   const idx = orgs.findIndex(o => o.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
-  const { name, emoji, color, description, memberIds } = req.body || {};
+  const { name, emoji, color, description, memberIds, theme } = req.body || {};
   const org = orgs[idx];
   if (name != null) org.name = String(name).trim();
   if (emoji != null) org.emoji = emoji;
   if (color != null) org.color = color;
   if (description != null) org.description = description;
+  if (theme != null) org.theme = theme;
   if (Array.isArray(memberIds)) org.memberIds = [...new Set(memberIds.filter(_employeeExists))];
   org.updatedAt = new Date().toISOString();
   orgs[idx] = org;
