@@ -4990,6 +4990,23 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   const { out, contextBlocks } = _resolveBoardItems(b);
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+  // Fold the board's own notes and checklists (with item status) into the context
+  // so the briefing reflects what the user jotted down and what's still unchecked.
+  const notes = (Array.isArray(b.notes) ? b.notes : []).map(n => clip(n.text, 300)).filter(Boolean);
+  const checklists = (Array.isArray(b.checklists) ? b.checklists : []).map(cl => {
+    const items = Array.isArray(cl.items) ? cl.items : [];
+    const done = items.filter(i => i.done).length;
+    return { title: clip(cl.title, 120), done, total: items.length, items };
+  });
+  if (notes.length) {
+    contextBlocks.push('### NOTES\n' + notes.map(t => '- ' + t).join('\n'));
+  }
+  for (const cl of checklists) {
+    const lines = cl.items.map(i => `- [${i.done ? 'x' : ' '}] ${clip(i.text, 200)}`);
+    contextBlocks.push(`### CHECKLIST: ${cl.title || 'Untitled'} (${cl.done}/${cl.total} done)${lines.length ? '\n' + lines.join('\n') : ''}`);
+  }
+  const openChecklistItems = checklists.reduce((n, cl) => n + cl.items.filter(i => !i.done).length, 0);
+
   // Deterministic fallback used when the board is empty, has no usable context, or
   // the LLM call fails.
   const top = out.slice(0, 6).map(o => {
@@ -4997,9 +5014,19 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     const st = o.status ? ` [${o.status}]` : '';
     return `• ${o.label}${st} — ${rel}${o.detail ? `\n    ${clip(o.detail, 160)}` : ''}`;
   }).join('\n');
-  const digest = out.length
-    ? `Here's where you left off across ${out.length} pinned item${out.length === 1 ? '' : 's'} on "${b.name}", most recent first:\n\n${top}`
-    : `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
+  const manualLine = [
+    notes.length ? `${notes.length} note${notes.length === 1 ? '' : 's'}` : '',
+    checklists.length ? `${openChecklistItems} open checklist item${openChecklistItems === 1 ? '' : 's'}` : ''
+  ].filter(Boolean).join(', ');
+  let digest;
+  if (out.length) {
+    digest = `Here's where you left off across ${out.length} pinned item${out.length === 1 ? '' : 's'} on "${b.name}", most recent first:\n\n${top}`;
+    if (manualLine) digest += `\n\nAlso on this board: ${manualLine}.`;
+  } else if (notes.length || checklists.length) {
+    digest = `Board "${b.name}" has no pinned operations yet, but you have ${manualLine} here.`;
+  } else {
+    digest = `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
+  }
 
   // Persist the briefing onto the board record and notify SPA clients.
   const persist = (text) => {
@@ -5012,16 +5039,16 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     return summary;
   };
 
-  if (!out.length || !contextBlocks.length) {
+  if (!contextBlocks.length) {
     const saved = persist(digest);
     return res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false });
   }
 
   const prompt = [
-    `You are reviewing a work board named "${b.name}". Below are the most recently active items the user pinned, each with recent context (conversation transcripts, run output, or messages).`,
+    `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections. Checklist lines marked "[x]" are done and "[ ]" are still open.`,
     'Write a "Where was I?" briefing that reorients the user:',
-    '- 3 to 6 sentences of plain prose summarizing what is going on across these items and the current state.',
-    '- Then, only if there are concrete pending actions, add a line "Next steps:" followed by a short bullet list (each line starting with "- ").',
+    '- 3 to 6 sentences of plain prose summarizing what is going on across these items, the current state, and what the notes/checklists indicate.',
+    '- Then, only if there are concrete pending actions, add a line "Next steps:" followed by a short bullet list (each line starting with "- "). Treat unchecked checklist items as pending actions.',
     'Be specific and concrete. No preamble, no headings other than "Next steps:", no surrounding quotes.',
     '',
     contextBlocks.join('\n\n').slice(0, 9000),

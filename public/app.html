@@ -11643,7 +11643,16 @@
             let yL = 0, yR = 0, changed = false;
             for (const id of order) {
               const cur = layout[id];
-              const h = fit[id];
+              const need = fit[id];
+              // Hysteresis: always grow to clear an inner scrollbar, but only shrink
+              // when there are 2+ rows of slack. A live panel whose content sits on a
+              // row boundary otherwise flips ±1 row each pass, and because a changed
+              // layout is persisted (→ boards-changed SSE → reload → re-fit) that
+              // jitter loops forever, adding/removing a scrollbar every second.
+              let h;
+              if (need > cur.h) h = need;
+              else if (need < cur.h - 1) h = need;
+              else h = cur.h;
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
               let ny;
               if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; }
