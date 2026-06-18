@@ -54,6 +54,7 @@ const AGENTS_PATH = path.join(__dirname, 'agents.json');
 const MANAGERS_PATH = path.join(__dirname, 'managers.json');
 const TASKS_PATH = path.join(__dirname, 'tasks.json');
 const ORGANIZATIONS_PATH = path.join(__dirname, 'organizations.json');
+const BOARDS_PATH = path.join(__dirname, 'boards.json');
 
 // Ensure tasks.json exists
 if (!fs.existsSync(TASKS_PATH)) {
@@ -75,6 +76,18 @@ function loadOrganizations() {
 
 function saveOrganizations(orgs) {
   fs.writeFileSync(ORGANIZATIONS_PATH, JSON.stringify(orgs || [], null, 2));
+}
+
+function loadBoards() {
+  try {
+    if (!fs.existsSync(BOARDS_PATH)) return [];
+    const boards = JSON.parse(fs.readFileSync(BOARDS_PATH, 'utf-8'));
+    return Array.isArray(boards) ? boards : [];
+  } catch { return []; }
+}
+
+function saveBoards(boards) {
+  fs.writeFileSync(BOARDS_PATH, JSON.stringify(boards || [], null, 2));
 }
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
@@ -4667,6 +4680,204 @@ function disableOperationsForEmployeeInOrg(employeeId, orgId) {
 
   return result;
 }
+
+// ===================== BOARDS =====================
+// A board is a personal pinboard for actively-tracked work. It groups pinned
+// references to CLI sessions, chats, tasks, flows, assignments, and agents, plus
+// freeform notes and checklists. Boards are org-scoped (orgId) or global (orgId
+// null). Stored wholesale in boards.json.
+const BOARD_KINDS = ['session', 'chat', 'task', 'flow', 'assignment', 'agent', 'manager'];
+
+function _boardId(name) {
+  return 'board-' + String(name || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) + '-' + Date.now().toString(36).slice(-4);
+}
+function _genId(prefix) {
+  return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+function _normalizeBoard(b) {
+  return {
+    id: b.id,
+    name: b.name,
+    emoji: b.emoji || '📌',
+    orgId: b.orgId || null,
+    items: Array.isArray(b.items) ? b.items : [],
+    notes: Array.isArray(b.notes) ? b.notes : [],
+    checklists: Array.isArray(b.checklists) ? b.checklists : [],
+    createdAt: b.createdAt || new Date().toISOString(),
+    updatedAt: b.updatedAt || new Date().toISOString(),
+  };
+}
+
+app.get('/api/boards', (req, res) => {
+  res.json(loadBoards().map(_normalizeBoard));
+});
+
+app.get('/api/boards/:id', (req, res) => {
+  const board = loadBoards().find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  res.json(_normalizeBoard(board));
+});
+
+// Create a board
+app.post('/api/boards', (req, res) => {
+  const { name, emoji, orgId } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Missing required field: name' });
+  const boards = loadBoards();
+  const board = _normalizeBoard({
+    id: _boardId(name),
+    name: String(name).trim(),
+    emoji: emoji || '📌',
+    orgId: orgId || null,
+    items: [], notes: [], checklists: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  boards.push(board);
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: board.id });
+  res.json({ ok: true, board });
+});
+
+// Update a board (partial: name/emoji/orgId and/or wholesale items/notes/checklists)
+app.put('/api/boards/:id', (req, res) => {
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  const { name, emoji, orgId, items, notes, checklists } = req.body || {};
+  if (name != null) b.name = String(name).trim();
+  if (emoji != null) b.emoji = emoji;
+  if (orgId !== undefined) b.orgId = orgId || null;
+  if (Array.isArray(items)) b.items = items;
+  if (Array.isArray(notes)) b.notes = notes;
+  if (Array.isArray(checklists)) b.checklists = checklists;
+  b.updatedAt = new Date().toISOString();
+  boards[idx] = b;
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: b.id });
+  res.json({ ok: true, board: b });
+});
+
+// Delete a board
+app.delete('/api/boards/:id', (req, res) => {
+  let boards = loadBoards();
+  if (!boards.some(b => b.id === req.params.id)) return res.status(404).json({ error: 'Board not found' });
+  boards = boards.filter(b => b.id !== req.params.id);
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: req.params.id, deleted: true });
+  res.json({ ok: true });
+});
+
+// Pin an item to a board
+app.post('/api/boards/:id/items', (req, res) => {
+  const { kind, refId, label, sublabel } = req.body || {};
+  if (!kind || !BOARD_KINDS.includes(kind)) return res.status(400).json({ error: 'Invalid kind' });
+  if (!refId) return res.status(400).json({ error: 'Missing refId' });
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  if (b.items.some(it => it.kind === kind && it.refId === refId)) {
+    return res.json({ ok: true, board: b, alreadyPinned: true });
+  }
+  b.items.unshift({ id: _genId('pin'), kind, refId, label: label || refId, sublabel: sublabel || '', addedAt: new Date().toISOString() });
+  b.updatedAt = new Date().toISOString();
+  boards[idx] = b;
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: b.id });
+  res.json({ ok: true, board: b });
+});
+
+// Unpin an item from a board
+app.delete('/api/boards/:id/items/:itemId', (req, res) => {
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  b.items = b.items.filter(it => it.id !== req.params.itemId);
+  b.updatedAt = new Date().toISOString();
+  boards[idx] = b;
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: b.id });
+  res.json({ ok: true, board: b });
+});
+
+// "Where was I" — summarize the most recent state across a board's pinned items.
+// Best-effort, deterministic (no LLM): resolves each pinned reference to its
+// latest activity and returns items sorted by recency plus a text digest.
+app.post('/api/boards/:id/where-was-i', (req, res) => {
+  const board = loadBoards().find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(board);
+  const out = [];
+  const tasks = loadTasks();
+  for (const it of b.items) {
+    let when = it.addedAt || null, status = '', detail = '', route = '';
+    try {
+      if (it.kind === 'agent') {
+        route = '#/agents/' + encodeURIComponent(it.refId);
+        const runs = supervisor.getRunHistory(it.refId, 1) || [];
+        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].exit_code === 0 ? 'success' : (runs[0].status || 'error'); detail = (runs[0].output || runs[0].error || '').slice(0, 240); }
+      } else if (it.kind === 'task') {
+        route = '#/tasks/' + encodeURIComponent(it.refId);
+        const rawId = String(it.refId).replace(/^task-/, '');
+        const t = tasks.find(x => x.id === rawId || ('task-' + x.id) === it.refId);
+        if (t) {
+          const runs = (supervisor.getRunHistory(t.agentId, 10) || []).filter(r => !r.task_id || r.task_id === t.id);
+          const r0 = runs[0];
+          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.exit_code === 0 ? 'success' : (r0.status || 'error'); detail = (r0.output || r0.error || '').slice(0, 240); }
+          else { status = t.enabled === false ? 'disabled' : 'idle'; }
+        }
+      } else if (it.kind === 'assignment') {
+        route = '#/assignments/' + encodeURIComponent(it.refId);
+        const m = String(it.refId).match(/^assignment-(.+)-([^-]+)$/);
+        if (m) {
+          const managerId = m[1], assignmentId = m[2];
+          const runs = (managerAgent.getRunHistory(managerId, 20) || []).filter(r => !r.assignment_id || r.assignment_id === assignmentId);
+          const r0 = runs[0];
+          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = (r0.result || r0.error || '').slice(0, 240); }
+        }
+      } else if (it.kind === 'flow') {
+        route = '#/chains/' + encodeURIComponent(it.refId);
+        try { const c = chainEngine.get(it.refId); if (c) { status = c.enabled === false ? 'disabled' : 'idle'; if (c.lastRunAt) when = c.lastRunAt; detail = c.description || ''; } } catch {}
+      } else if (it.kind === 'manager') {
+        route = '#/managers/' + encodeURIComponent(it.refId);
+        const runs = managerAgent.getRunHistory(it.refId, 1) || [];
+        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].status || 'idle'; detail = (runs[0].result || runs[0].error || '').slice(0, 240); }
+      } else if (it.kind === 'chat') {
+        route = '#/chat/' + encodeURIComponent(it.refId);
+        const cf = path.join(CHATS_DIR, `${it.refId}.json`);
+        if (fs.existsSync(cf)) {
+          try { const c = JSON.parse(fs.readFileSync(cf, 'utf-8')); when = c.updatedAt || when; const msgs = c.messages || []; const last = msgs[msgs.length - 1]; if (last) { status = last.role; detail = String(last.content || '').slice(0, 240); } } catch {}
+        }
+      } else if (it.kind === 'session') {
+        route = '#/sessions';
+        try {
+          const dir = path.join(SESSION_STATE_DIR, it.refId);
+          if (fs.existsSync(dir)) {
+            const ep = path.join(dir, 'events.jsonl');
+            try { when = new Date(fs.statSync(ep).mtimeMs).toISOString(); } catch { try { when = new Date(fs.statSync(dir).mtimeMs).toISOString(); } catch {} }
+            const sp = path.join(dir, SPA_SUMMARY_FILE);
+            try { if (fs.existsSync(sp)) detail = String(JSON.parse(fs.readFileSync(sp, 'utf-8')).summary || '').slice(0, 240); } catch {}
+            status = 'session';
+          }
+        } catch {}
+      }
+    } catch {}
+    out.push({ id: it.id, kind: it.kind, refId: it.refId, label: it.label, sublabel: it.sublabel, route, when, status, detail });
+  }
+  out.sort((a, c) => new Date(c.when || 0) - new Date(a.when || 0));
+  const top = out.slice(0, 6).map(o => {
+    const rel = o.when ? new Date(o.when).toLocaleString() : 'no recent activity';
+    const st = o.status ? ` [${o.status}]` : '';
+    return `• ${o.label}${st} — ${rel}${o.detail ? `\n    ${o.detail.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`;
+  }).join('\n');
+  const summary = out.length
+    ? `Here's where you left off across ${out.length} pinned item${out.length === 1 ? '' : 's'} on "${b.name}", most recent first:\n\n${top}`
+    : `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
+  res.json({ ok: true, generatedAt: new Date().toISOString(), summary, items: out });
+});
+
 app.post('/api/managers/:id/start', (req, res) => {
   try {
     managerAgent.startSchedules(req.params.id);

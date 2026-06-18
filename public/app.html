@@ -4203,6 +4203,240 @@
             </div>
           </section>
 
+          <section x-show="!loading && !errorMessage && route === 'boards'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>📌 Boards</h1>
+                <p>Pin sessions, chats, tasks, flows, assignments, agents &amp; managers you're actively working on. Add notes and checklists, and ask "Where was I?".</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="openBoardModal(null)">＋ New Board</button>
+              </div>
+            </div>
+
+            <div x-show="boardsLoading" class="hint" style="padding:24px">Loading boards…</div>
+
+            <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="margin-top:24px">
+              No boards yet. <strong>＋ New Board</strong> to create your first task board.
+            </div>
+
+            <template x-if="!boardsLoading && visibleBoards().length">
+              <div>
+                <!-- Board selector -->
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+                  <template x-for="b in visibleBoards()" :key="b.id">
+                    <button type="button" class="pill" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)">
+                      <span x-text="(b.emoji || '📌') + ' ' + b.name"></span>
+                      <span class="hint" style="margin-left:6px;opacity:0.7" x-text="'· ' + boardOrgLabel(b)"></span>
+                    </button>
+                  </template>
+                </div>
+
+                <template x-if="activeBoard()">
+                  <div>
+                    <!-- Active board toolbar -->
+                    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+                      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                        <span style="font-size:22px" x-text="activeBoard().emoji || '📌'"></span>
+                        <div style="min-width:0">
+                          <div style="font-weight:600" x-text="activeBoard().name"></div>
+                          <div class="hint" x-text="boardOrgLabel(activeBoard()) + ' · ' + ((activeBoard().items||[]).length) + ' pinned'"></div>
+                        </div>
+                      </div>
+                      <div class="toolbar">
+                        <button class="btn primary" type="button" @click="runWhereWasI()">🧭 Where was I?</button>
+                        <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
+                        <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
+                        <button class="btn ghost" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)">🗑 Delete</button>
+                      </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start">
+                      <!-- Pinned items -->
+                      <div>
+                        <div x-show="!(activeBoard().items||[]).length" class="empty-state">Nothing pinned yet. Click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more.</div>
+                        <template x-for="grp in boardItemsByKind()" :key="grp.kind">
+                          <div style="margin-bottom:18px">
+                            <div class="hint" style="text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px" x-text="boardKindIcon(grp.kind) + ' ' + boardKindLabel(grp.kind) + ' (' + grp.items.length + ')'"></div>
+                            <div style="display:flex;flex-direction:column;gap:8px">
+                              <template x-for="item in grp.items" :key="item.id">
+                                <div class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px" @click="boardJump(item)">
+                                  <div style="min-width:0">
+                                    <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
+                                    <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                                  </div>
+                                  <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
+                                    <button class="icon-button" type="button" title="Open" @click.stop="boardJump(item)">↗</button>
+                                    <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Notes + checklists -->
+                      <div style="display:flex;flex-direction:column;gap:16px">
+                        <div class="card">
+                          <div style="font-weight:600;margin-bottom:10px">📝 Notes</div>
+                          <div style="display:flex;gap:6px;margin-bottom:10px">
+                            <input class="field-input" type="text" x-model="boardNoteDraft" placeholder="Add a note…" @keydown.enter="addBoardNote()" style="flex:1" />
+                            <button class="btn" type="button" @click="addBoardNote()">Add</button>
+                          </div>
+                          <div x-show="!(activeBoard().notes||[]).length" class="hint">No notes.</div>
+                          <div style="display:flex;flex-direction:column;gap:8px">
+                            <template x-for="note in (activeBoard().notes||[])" :key="note.id">
+                              <div style="background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start">
+                                <textarea class="field-input" rows="2" style="flex:1;border:none;background:transparent;resize:vertical" x-text="note.text" @change="updateBoardNote(note, $event.target.value)"></textarea>
+                                <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+
+                        <div class="card">
+                          <div style="font-weight:600;margin-bottom:10px">✅ Checklists</div>
+                          <div style="display:flex;gap:6px;margin-bottom:10px">
+                            <input class="field-input" type="text" x-model="boardChecklistDraft" placeholder="New checklist…" @keydown.enter="addChecklist()" style="flex:1" />
+                            <button class="btn" type="button" @click="addChecklist()">Add</button>
+                          </div>
+                          <div x-show="!(activeBoard().checklists||[]).length" class="hint">No checklists.</div>
+                          <div style="display:flex;flex-direction:column;gap:14px">
+                            <template x-for="cl in (activeBoard().checklists||[])" :key="cl.id">
+                              <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+                                  <div style="font-weight:600" x-text="cl.title"></div>
+                                  <div style="display:flex;align-items:center;gap:8px">
+                                    <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
+                                    <button class="icon-button" type="button" title="Delete checklist" @click="deleteChecklist(cl)">✕</button>
+                                  </div>
+                                </div>
+                                <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+                                  <template x-for="item in (cl.items||[])" :key="item.id">
+                                    <div style="display:flex;align-items:center;gap:8px">
+                                      <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
+                                      <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-text="item.text"></span>
+                                      <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                    </div>
+                                  </template>
+                                </div>
+                                <div style="display:flex;gap:6px">
+                                  <input class="field-input" type="text" x-model="boardChecklistItemDraft[cl.id]" placeholder="Add item…" @keydown.enter="addChecklistItem(cl)" style="flex:1" />
+                                  <button class="btn ghost" type="button" @click="addChecklistItem(cl)">＋</button>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <!-- Board create/edit modal -->
+            <div class="modal-backdrop modal-overlay" x-show="boardModalOpen" x-transition.opacity.duration.150ms @click.self="boardModalOpen=false" x-cloak style="z-index:9999">
+              <div class="modal-card" style="max-width:460px">
+                <div class="modal-header">
+                  <h2 class="modal-title" x-text="boardForm.id ? 'Edit board' : 'New board'"></h2>
+                  <button class="icon-button" type="button" @click="boardModalOpen=false">✕</button>
+                </div>
+                <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+                  <div style="display:flex;gap:12px">
+                    <label style="flex:0 0 84px">
+                      <div class="field-label">Emoji</div>
+                      <input class="field-input" type="text" maxlength="2" x-model="boardForm.emoji" style="text-align:center;font-size:20px" />
+                    </label>
+                    <label style="flex:1">
+                      <div class="field-label">Name</div>
+                      <input class="field-input" type="text" x-model="boardForm.name" placeholder="e.g. This week" @keydown.enter="saveBoard()" />
+                    </label>
+                  </div>
+                  <label>
+                    <div class="field-label">Organization</div>
+                    <select class="field-input" x-model="boardForm.orgId">
+                      <option value="">🌐 Global (all organizations)</option>
+                      <template x-for="org in (data.organizations||[])" :key="org.id">
+                        <option :value="org.id" x-text="(org.emoji ? org.emoji + ' ' : '') + org.name"></option>
+                      </template>
+                    </select>
+                    <div class="hint" style="margin-top:4px">Global boards are visible under every organization.</div>
+                  </label>
+                  <div style="display:flex;justify-content:flex-end;gap:8px">
+                    <button class="btn" type="button" @click="boardModalOpen=false">Cancel</button>
+                    <button class="btn primary" type="button" @click="saveBoard()" x-text="boardForm.id ? 'Save' : 'Create'"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pin picker modal -->
+            <div class="modal-backdrop modal-overlay" x-show="boardPinOpen" x-transition.opacity.duration.150ms @click.self="boardPinOpen=false" x-cloak style="z-index:9999">
+              <div class="modal-card" style="max-width:620px">
+                <div class="modal-header">
+                  <h2 class="modal-title">Pin to board</h2>
+                  <button class="icon-button" type="button" @click="boardPinOpen=false">✕</button>
+                </div>
+                <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
+                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    <template x-for="k in ['session','chat','task','assignment','flow','agent','manager']" :key="k">
+                      <button type="button" class="pill" :class="{ active: boardPinKind === k }" @click="boardPinKind = k" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
+                    </template>
+                  </div>
+                  <input class="field-input" type="text" x-model="boardPinSearch" placeholder="Search…" />
+                  <div style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
+                    <div x-show="!pinCandidates().length" class="hint" style="padding:12px">No matching items in this organization.</div>
+                    <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px">
+                        <div style="min-width:0">
+                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="cand.label"></div>
+                          <div class="hint" x-show="cand.sublabel" x-text="cand.sublabel"></div>
+                        </div>
+                        <button class="btn" type="button" :disabled="cand.pinned" @click="pinCandidate(cand)" x-text="cand.pinned ? '✓ Pinned' : '📌 Pin'"></button>
+                      </div>
+                    </template>
+                  </div>
+                  <div style="display:flex;justify-content:flex-end">
+                    <button class="btn" type="button" @click="boardPinOpen=false">Done</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Where was I modal -->
+            <div class="modal-backdrop modal-overlay" x-show="boardWhereOpen" x-transition.opacity.duration.150ms @click.self="boardWhereOpen=false" x-cloak style="z-index:9999">
+              <div class="modal-card" style="max-width:640px;width:92vw">
+                <div class="modal-header">
+                  <h2 class="modal-title">🧭 Where was I?</h2>
+                  <button class="icon-button" type="button" @click="boardWhereOpen=false">✕</button>
+                </div>
+                <div style="padding:18px">
+                  <div x-show="boardWhereLoading" class="hint">Reconstructing recent activity…</div>
+                  <template x-if="!boardWhereLoading && boardWhere">
+                    <div>
+                      <div class="hint" style="margin-bottom:12px" x-text="boardWhere.summary || 'Recent activity on your pinned items.'"></div>
+                      <div x-show="!(boardWhere.items||[]).length" class="empty-state">Nothing pinned to summarize yet.</div>
+                      <div style="display:flex;flex-direction:column;gap:8px;max-height:56vh;overflow:auto">
+                        <template x-for="it in (boardWhere.items||[])" :key="it.id">
+                          <div class="card clickable" style="padding:12px 14px" @click="boardJump(it); boardWhereOpen=false">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                              <div style="font-weight:600" x-text="boardKindIcon(it.kind) + ' ' + (it.label || it.refId)"></div>
+                              <span class="status-badge small" x-show="it.status" x-text="it.status"></span>
+                            </div>
+                            <div class="hint" x-show="it.detail" style="margin-top:4px" x-text="it.detail"></div>
+                            <div class="hint" x-show="it.when" style="margin-top:2px;opacity:0.7" x-text="it.when"></div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -7640,6 +7874,21 @@
         cliVisibleCount: 60,
         _cliFilterCache: null,
         summarizingSessionId: null,
+        // ===== Boards (task boards) =====
+        boards: [],
+        boardsLoading: false,
+        activeBoardId: (() => { try { return localStorage.getItem('active-board-id') || ''; } catch { return ''; } })(),
+        boardModalOpen: false,
+        boardForm: { id: '', name: '', emoji: '📌', orgId: '' },
+        boardPinOpen: false,
+        boardPinKind: 'task',
+        boardPinSearch: '',
+        boardNoteDraft: '',
+        boardChecklistDraft: '',
+        boardWhereOpen: false,
+        boardWhere: null,
+        boardWhereLoading: false,
+        boardChecklistItemDraft: {},
         updatesList: [],
         updatesLoading: false,
         updatesChecking: false,
@@ -8262,7 +8511,8 @@
           if (first === 'tasks' && second) return { route: 'task-detail', param: second };
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'organizations'].includes(first)) return { route: first, param: second };
+          if (first === 'boards' && second) return { route: 'boards', param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'organizations', 'boards'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -8311,6 +8561,8 @@
             }
           } else if (this.route === 'organizations') {
             await this.loadOrganizations();
+          } else if (this.route === 'boards') {
+            await this.loadBoards(this.app.routeParam);
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
@@ -8752,6 +9004,10 @@
               if (idx >= 0) this.data.chats[idx] = { ...this.data.chats[idx], title };
               if (this.activeChat && this.activeChat.id === chatId) this.activeChat.title = title;
             });
+            // Boards changed elsewhere → refresh the board list while on the page.
+            source.addEventListener('boards-changed', () => {
+              if (this.route === 'boards') this.loadBoards(this.activeBoardId, true);
+            });
             source.addEventListener('agent-output', (event) => {
               const { id, stream, chunk } = JSON.parse(event.data || '{}');
               if (!this.liveOutput[id]) this.liveOutput[id] = { text: '', startedAt: new Date().toISOString(), active: true };
@@ -8841,6 +9097,7 @@
             { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
             { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
             { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
+              { key: 'boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [] },
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
@@ -10938,7 +11195,278 @@
           }
         },
 
-        // ===== Agent / Plugin Updates page =====
+        // ===== Boards (task boards) =====
+        async loadBoards(selectId, silent) {
+          if (!silent) this.boardsLoading = true;
+          try {
+            const boards = await this.request('/api/boards');
+            this.boards = Array.isArray(boards) ? boards : [];
+            // Reconcile the active board against visibility + existence.
+            const visible = this.visibleBoards();
+            if (selectId && visible.some(b => b.id === selectId)) {
+              this.activeBoardId = selectId;
+            } else if (!this.activeBoardId || !visible.some(b => b.id === this.activeBoardId)) {
+              this.activeBoardId = visible.length ? visible[0].id : '';
+            }
+            try { localStorage.setItem('active-board-id', this.activeBoardId || ''); } catch {}
+          } catch (e) {
+            if (!silent) this.showToast('Boards', e.message, 'error');
+          } finally {
+            this.boardsLoading = false;
+          }
+        },
+        // Boards visible under the current org: the global board (orgId null) is always shown.
+        visibleBoards() {
+          const cur = this.currentOrgId;
+          return (this.boards || []).filter(b => {
+            if (cur === 'all') return true;
+            return !b.orgId || b.orgId === cur;
+          });
+        },
+        activeBoard() {
+          return (this.boards || []).find(b => b.id === this.activeBoardId) || null;
+        },
+        selectBoard(id) {
+          this.activeBoardId = id;
+          try { localStorage.setItem('active-board-id', id || ''); } catch {}
+        },
+        boardOrgLabel(board) {
+          if (!board || !board.orgId) return 'Global';
+          const org = (this.data.organizations || []).find(o => o.id === board.orgId);
+          return org ? (org.emoji ? org.emoji + ' ' + org.name : org.name) : 'Organization';
+        },
+        openBoardModal(board) {
+          if (board) {
+            this.boardForm = { id: board.id, name: board.name, emoji: board.emoji || '📌', orgId: board.orgId || '' };
+          } else {
+            const defOrg = this.currentOrgId === 'all' ? '' : this.currentOrgId;
+            this.boardForm = { id: '', name: '', emoji: '📌', orgId: defOrg };
+          }
+          this.boardModalOpen = true;
+        },
+        async saveBoard() {
+          const name = (this.boardForm.name || '').trim();
+          if (!name) { this.showToast('Board', 'Name is required', 'error'); return; }
+          const body = { name, emoji: (this.boardForm.emoji || '📌').trim() || '📌', orgId: this.boardForm.orgId || null };
+          try {
+            let saved;
+            if (this.boardForm.id) {
+              saved = await this.request('/api/boards/' + encodeURIComponent(this.boardForm.id), { method: 'PUT', body: JSON.stringify(body) });
+            } else {
+              saved = await this.request('/api/boards', { method: 'POST', body: JSON.stringify(body) });
+            }
+            const board = (saved && saved.board) || saved;
+            this.boardModalOpen = false;
+            await this.loadBoards(board && board.id ? board.id : this.activeBoardId);
+            this.showToast('Board', this.boardForm.id ? 'Board updated' : 'Board created', 'success');
+          } catch (e) {
+            this.showToast('Board', e.message, 'error');
+          }
+        },
+        async deleteBoard(board) {
+          if (!board) return;
+          const ok = await this.uiConfirm({ title: 'Delete board', message: `Delete "${board.name}"? Pinned references are removed (the underlying items are not deleted).`, confirmLabel: 'Delete', danger: true });
+          if (!ok) return;
+          try {
+            await this.request('/api/boards/' + encodeURIComponent(board.id), { method: 'DELETE' });
+            if (this.activeBoardId === board.id) this.activeBoardId = '';
+            await this.loadBoards();
+            this.showToast('Board', 'Board deleted', 'success');
+          } catch (e) {
+            this.showToast('Board', e.message, 'error');
+          }
+        },
+        // ----- Pinning -----
+        boardKindLabel(kind) {
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager' })[kind] || kind;
+        },
+        boardKindIcon(kind) {
+          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔' })[kind] || '📌';
+        },
+        openPinPicker() {
+          if (!this.activeBoard()) { this.showToast('Board', 'Select or create a board first', 'error'); return; }
+          this.boardPinKind = 'task';
+          this.boardPinSearch = '';
+          this.boardPinOpen = true;
+          if (!this.cliSessions.length) this.loadCliSessions();
+        },
+        // Candidate entities to pin for the current kind, org-filtered + searched.
+        pinCandidates() {
+          const q = (this.boardPinSearch || '').toLowerCase();
+          const cur = this.currentOrgId;
+          const inOrg = (orgId) => cur === 'all' || !orgId || orgId === cur;
+          let out = [];
+          if (this.boardPinKind === 'agent') {
+            out = (this.data.agents || []).filter(a => this.idInCurrentOrg(a.id))
+              .map(a => ({ kind: 'agent', refId: a.id, label: a.name, sublabel: a.config?.group || 'Agent' }));
+          } else if (this.boardPinKind === 'manager') {
+            out = (this.data.managers || []).filter(m => this.idInCurrentOrg(m.id))
+              .map(m => ({ kind: 'manager', refId: m.id, label: m.name, sublabel: 'Manager' }));
+          } else if (this.boardPinKind === 'task') {
+            out = this.allTasks().filter(t => t.type === 'agent' && inOrg(t.orgId))
+              .map(t => ({ kind: 'task', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
+          } else if (this.boardPinKind === 'assignment') {
+            out = this.allTasks().filter(t => t.type === 'assignment' && inOrg(t.orgId))
+              .map(t => ({ kind: 'assignment', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
+          } else if (this.boardPinKind === 'flow') {
+            out = (this.data.chains || []).filter(c => inOrg(c.orgId))
+              .map(c => ({ kind: 'flow', refId: c.id, label: c.name || c.id, sublabel: 'Flow' }));
+          } else if (this.boardPinKind === 'chat') {
+            out = (this.data.chats || []).map(c => ({ kind: 'chat', refId: c.id, label: c.title || 'Chat', sublabel: c.targetName || c.target || '' }));
+          } else if (this.boardPinKind === 'session') {
+            out = (this.cliSessions || []).map(s => ({ kind: 'session', refId: s.id, label: s.label || s.summary || s.id, sublabel: s.agentName || s.cwd || '' }));
+          }
+          if (q) out = out.filter(o => (o.label || '').toLowerCase().includes(q) || (o.sublabel || '').toLowerCase().includes(q));
+          // Mark already-pinned
+          const board = this.activeBoard();
+          const pinned = new Set((board && board.items || []).map(i => i.kind + ':' + i.refId));
+          return out.map(o => ({ ...o, pinned: pinned.has(o.kind + ':' + o.refId) }));
+        },
+        async pinCandidate(cand) {
+          const board = this.activeBoard();
+          if (!board) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
+              method: 'POST',
+              body: JSON.stringify({ kind: cand.kind, refId: cand.refId, label: cand.label, sublabel: cand.sublabel })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+          } catch (e) {
+            this.showToast('Pin', e.message, 'error');
+          }
+        },
+        async unpinItem(item) {
+          const board = this.activeBoard();
+          if (!board) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items/' + encodeURIComponent(item.id), { method: 'DELETE' });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+          } catch (e) {
+            this.showToast('Unpin', e.message, 'error');
+          }
+        },
+        // Route for a pinned item (quick-jump).
+        boardItemRoute(item) {
+          switch (item.kind) {
+            case 'agent': return '#/agents/' + encodeURIComponent(item.refId);
+            case 'manager': return '#/managers/' + encodeURIComponent(item.refId);
+            case 'task': return '#/tasks/' + encodeURIComponent(item.refId);
+            case 'assignment': return '#/assignments/' + encodeURIComponent(item.refId);
+            case 'flow': return '#/chains/' + encodeURIComponent(item.refId);
+            case 'chat': return '#/chat/' + encodeURIComponent(item.refId);
+            case 'session': return '#/sessions';
+            default: return null;
+          }
+        },
+        boardJump(item) {
+          const r = item.route || this.boardItemRoute(item);
+          if (r) this.goTo(r);
+        },
+        boardItemsByKind() {
+          const board = this.activeBoard();
+          const items = (board && board.items) || [];
+          const order = ['session', 'chat', 'task', 'assignment', 'flow', 'agent', 'manager'];
+          const groups = {};
+          for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
+          return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
+        },
+        // ----- Notes -----
+        async addBoardNote() {
+          const board = this.activeBoard();
+          const text = (this.boardNoteDraft || '').trim();
+          if (!board || !text) return;
+          const notes = [...(board.notes || []), { id: 'note-' + Date.now().toString(36), text, createdAt: new Date().toISOString() }];
+          await this._patchBoard(board, { notes });
+          this.boardNoteDraft = '';
+        },
+        async updateBoardNote(note, text) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const notes = (board.notes || []).map(n => n.id === note.id ? { ...n, text } : n);
+          await this._patchBoard(board, { notes });
+        },
+        async deleteBoardNote(note) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const notes = (board.notes || []).filter(n => n.id !== note.id);
+          await this._patchBoard(board, { notes });
+        },
+        // ----- Checklists -----
+        async addChecklist() {
+          const board = this.activeBoard();
+          const title = (this.boardChecklistDraft || '').trim();
+          if (!board || !title) return;
+          const checklists = [...(board.checklists || []), { id: 'cl-' + Date.now().toString(36), title, items: [] }];
+          await this._patchBoard(board, { checklists });
+          this.boardChecklistDraft = '';
+        },
+        async deleteChecklist(cl) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const checklists = (board.checklists || []).filter(c => c.id !== cl.id);
+          await this._patchBoard(board, { checklists });
+        },
+        async addChecklistItem(cl) {
+          const board = this.activeBoard();
+          const text = (this.boardChecklistItemDraft[cl.id] || '').trim();
+          if (!board || !text) return;
+          const checklists = (board.checklists || []).map(c => c.id === cl.id
+            ? { ...c, items: [...(c.items || []), { id: 'ci-' + Date.now().toString(36), text, done: false }] }
+            : c);
+          await this._patchBoard(board, { checklists });
+          this.boardChecklistItemDraft[cl.id] = '';
+        },
+        async toggleChecklistItem(cl, item) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const checklists = (board.checklists || []).map(c => c.id === cl.id
+            ? { ...c, items: (c.items || []).map(i => i.id === item.id ? { ...i, done: !i.done } : i) }
+            : c);
+          await this._patchBoard(board, { checklists });
+        },
+        async deleteChecklistItem(cl, item) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const checklists = (board.checklists || []).map(c => c.id === cl.id
+            ? { ...c, items: (c.items || []).filter(i => i.id !== item.id) }
+            : c);
+          await this._patchBoard(board, { checklists });
+        },
+        checklistProgress(cl) {
+          const items = (cl && cl.items) || [];
+          const done = items.filter(i => i.done).length;
+          return { done, total: items.length };
+        },
+        async _patchBoard(board, partial) {
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id), { method: 'PUT', body: JSON.stringify(partial) });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+          } catch (e) {
+            this.showToast('Board', e.message, 'error');
+          }
+        },
+        // ----- Where was I -----
+        async runWhereWasI() {
+          const board = this.activeBoard();
+          if (!board) return;
+          this.boardWhereOpen = true;
+          this.boardWhereLoading = true;
+          this.boardWhere = null;
+          try {
+            this.boardWhere = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/where-was-i', { method: 'POST', body: '{}' });
+          } catch (e) {
+            this.showToast('Where was I', e.message, 'error');
+            this.boardWhereOpen = false;
+          } finally {
+            this.boardWhereLoading = false;
+          }
+        },
         async loadUpdatesAvailable() {
           // Lightweight aggregate for the Employees page badge. Server-cached.
           try {
