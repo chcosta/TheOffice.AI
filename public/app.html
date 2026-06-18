@@ -94,6 +94,22 @@
       font: inherit;
       color: inherit;
     }
+    /* Theme the native <select> dropdown popup app-wide so option lists match the
+       SPA instead of falling back to the OS light palette (low-contrast text +
+       washed-out highlight). color-scheme is inherited from :root. */
+    select option {
+      background: var(--cp-bg-elevated);
+      color: var(--cp-text);
+    }
+    select option:checked,
+    select option:hover {
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
+    select optgroup {
+      background: var(--cp-bg-elevated);
+      color: var(--cp-text-muted);
+    }
     a {
       color: inherit;
       text-decoration: none;
@@ -231,6 +247,8 @@
       background: color-mix(in srgb, var(--cp-surface-soft) 70%, transparent);
       color: var(--cp-text);
     }
+    a.section-header { text-decoration: none; }
+    .section-header.active { color: var(--cp-text); background: var(--cp-accent-soft); }
     .section-chevron {
       font-size: 11px;
       color: var(--cp-text-soft);
@@ -249,6 +267,56 @@
       background: var(--cp-surface-soft);
       color: var(--cp-text);
     }
+    .exec-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 8px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--cp-text);
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .exec-row:last-child { border-bottom: none; }
+    .exec-row:hover { background: var(--cp-surface-soft); }
+    .exec-row-name {
+      font-weight: 600;
+      font-size: 0.86rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+    .exec-jump {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .exec-jump-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--cp-border);
+      border-radius: 12px;
+      background: var(--cp-surface);
+      text-decoration: none;
+      color: var(--cp-text);
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .exec-jump-card:hover { border-color: var(--cp-accent); transform: translateY(-1px); }
+    .exec-jump-icon { font-size: 1.5rem; line-height: 1; }
+    .exec-jump-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .exec-jump-title { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
+    .exec-jump-count {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--cp-text-muted);
+      background: var(--cp-surface-soft);
+      border-radius: 999px;
+      padding: 1px 8px;
+    }
+    .exec-jump-go { color: var(--cp-text-soft); font-size: 1.1rem; }
     .nav-list {
       display: grid;
       gap: 4px;
@@ -310,12 +378,15 @@
     }
     .content {
       min-height: 0;
+      min-width: 0;
       overflow: auto;
       padding: 24px;
     }
     .content-inner {
       min-height: 100%;
+      min-width: 0;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       align-content: start;
       gap: 20px;
     }
@@ -678,6 +749,15 @@
       padding: 14px;
       transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
     }
+    .row-chevron {
+      display: inline-block;
+      color: var(--cp-text-muted);
+      font-size: 1.05rem;
+      line-height: 1;
+      transition: transform 160ms ease;
+      transform: rotate(0deg);
+    }
+    .row-chevron.open { transform: rotate(90deg); color: var(--cp-accent); }
     .item-row:hover,
     .timeline-item:hover,
     .run-item:hover,
@@ -794,6 +874,55 @@
     .live-stream-pre { margin: 6px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; font-family: Consolas, "Courier New", monospace; font-size: 0.72rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 8px; color: var(--cp-text-muted); }
     .msg-activity { margin-top: 10px; border-top: 1px dashed var(--cp-border); padding-top: 8px; }
     .msg-activity > summary { cursor: pointer; font-size: 0.78rem; color: var(--cp-text-muted); user-select: none; list-style: revert; }
+    .cli-mirror-banner { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--cp-accent-soft); border: 1px solid var(--cp-border); border-radius: 10px; }
+    .cli-mirror-banner strong { font-size: 0.9rem; color: var(--cp-text); }
+    .cli-mirror-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--cp-accent); flex: 0 0 auto; animation: cli-mirror-pulse 1.6s ease-in-out infinite; }
+    @keyframes cli-mirror-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(1.3); } }
+    .cli-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 0.62rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--cp-accent-soft); color: var(--cp-accent); border: 1px solid var(--cp-border); vertical-align: middle; }
+    /* CLI Sessions page */
+    .cli-sess-list { display: flex; flex-direction: column; gap: 12px; max-width: 100%; }
+    .cli-sess-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
+    .cli-sess-search { flex: 1 1 260px; min-width: 200px; }
+    .cli-sess-select { display: inline-flex; align-items: center; gap: 6px; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 0.625rem; padding: 0 10px; height: 38px; max-width: 320px; }
+    .cli-sess-select:focus-within { border-color: var(--cp-border-strong); }
+    .cli-sess-select .cli-sel-icon { font-size: 0.85rem; opacity: 0.7; flex: 0 0 auto; }
+    .cli-sess-select select { border: none; background: transparent; color: var(--cp-text); font-size: 0.85rem; max-width: 280px; padding: 6px 4px; cursor: pointer; outline: none; }
+    .cli-sess-count { margin-left: auto; white-space: nowrap; }
+    .cli-sess-more { display: flex; justify-content: center; margin-top: 16px; }
+    .cli-sess-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 14px 16px; max-width: 100%; overflow: hidden; box-sizing: border-box; }
+    .cli-sess-top { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+    .cli-sess-head { min-width: 0; flex: 1 1 320px; }
+    .cli-sess-title { font-weight: 600; font-size: 0.98rem; color: var(--cp-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+    .cli-sess-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 6px; font-size: 0.76rem; color: var(--cp-text-muted); max-width: 100%; }
+    .cli-sess-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+    .cli-sess-path { max-width: 100%; }
+    .cli-sess-actions { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+    .cli-sess-preview { margin-top: 10px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .cli-sess-summary { margin-top: 12px; padding: 10px 12px; background: var(--cp-accent-soft); border: 1px solid var(--cp-border); border-radius: 10px; font-size: 0.86rem; color: var(--cp-text); line-height: 1.5; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .cli-sess-summary-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px; }
+    /* Updates page */
+    .upd-table-wrap { overflow-x: auto; border: 1px solid var(--cp-border); border-radius: 12px; }
+    .upd-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .upd-table th { text-align: left; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--cp-text-muted); padding: 10px 14px; border-bottom: 1px solid var(--cp-border); background: var(--cp-surface-soft); }
+    .upd-table td { padding: 11px 14px; border-bottom: 1px solid var(--cp-border); vertical-align: top; }
+    .upd-table tbody tr:last-child td { border-bottom: none; }
+    .upd-table tbody tr:hover { background: var(--cp-surface-soft); }
+    .upd-name { font-weight: 600; color: var(--cp-link); text-decoration: none; }
+    .upd-name:hover { text-decoration: underline; }
+    .upd-origin { display: flex; align-items: center; gap: 8px; }
+    .upd-origin-type { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); color: var(--cp-text-muted); }
+    .upd-srcdetail { margin-top: 3px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .upd-commit { font-family: Consolas, "Courier New", monospace; font-size: 0.78rem; color: var(--cp-text-muted); }
+    .upd-status { font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+    .upd-status.upd-ok { color: var(--cp-success); }
+    .upd-status.upd-warn { color: var(--cp-warning); }
+    .upd-status.upd-muted, .upd-status.upd-none { color: var(--cp-text-muted); }
+    .upd-actions-cell { text-align: right; white-space: nowrap; }
+    .upd-actions-cell .btn { margin-left: 6px; }
+    .upd-summary-row td { padding-top: 0; }
+    .upd-change-summary { padding: 10px 12px; background: var(--cp-accent-soft); border: 1px solid var(--cp-border); border-radius: 10px; font-size: 0.86rem; line-height: 1.5; color: var(--cp-text); overflow-wrap: anywhere; }
+    .upd-change-summary .hint { margin-top: 6px; }
+    .upd-table tbody tr.upd-summary-row:hover { background: transparent; }
     .msg-activity > summary:hover { color: var(--cp-accent); }
     .msg-activity-body { margin-top: 8px; display: grid; gap: 8px; }
     .msg-activity-step { border-left: 2px solid var(--cp-border); padding-left: 10px; }
@@ -1049,8 +1178,9 @@
       border-right: 1px solid var(--cp-border);
       background: color-mix(in srgb, var(--cp-surface-soft) 84%, transparent);
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr;
       min-height: 0;
+      min-width: 0;
     }
     .chat-sidebar-top,
     .chat-main-top,
@@ -1067,12 +1197,128 @@
       min-height: 0;
       overflow: auto;
     }
-    .chat-list {
-      padding: 12px;
+    .chat-scroll { overflow-x: hidden; }
+    .chat-toolbar {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--cp-border);
     }
-    .chat-list-item.active {
-      border-color: color-mix(in srgb, var(--cp-accent) 40%, var(--cp-border));
+    .chat-search {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 11px;
+      font-size: 13px;
+      color: var(--cp-text);
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 9px;
+      outline: none;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    .chat-search::placeholder { color: var(--cp-text-soft); }
+    .chat-search:focus {
+      border-color: color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
+      box-shadow: 0 0 0 3px var(--cp-accent-soft);
+    }
+    .chat-list {
+      padding: 8px 8px 14px;
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    /* Dense, flat conversation rows — override the shared card styling so the
+       sidebar reads as a tight single-line list rather than heavy cards. */
+    .chat-sidebar .chat-list-item {
+      border: none;
+      border-radius: 8px;
+      padding: 6px 9px;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      text-align: left;
+      transition: background 140ms ease;
+    }
+    .chat-sidebar .chat-list-item:hover {
+      transform: none;
+      box-shadow: none;
+      border: none;
+      background: color-mix(in srgb, var(--cp-surface) 65%, transparent);
+    }
+    .chat-sidebar .chat-list-item.active {
+      border: none;
       background: var(--cp-accent-soft);
+      box-shadow: inset 3px 0 0 var(--cp-accent);
+    }
+    .chat-sidebar .chat-list-item .nav-dot { flex: 0 0 auto; }
+    .chat-item-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-list-item.active .chat-item-title { font-weight: 600; }
+    .chat-item-time {
+      flex: 0 0 auto;
+      font-size: 10.5px;
+      color: var(--cp-text-soft);
+      opacity: 0.75;
+    }
+    .chat-group {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    .chat-group + .chat-group { margin-top: 6px; }
+    .chat-group.is-single + .chat-group.is-single { margin-top: 2px; }
+    .chat-row-solo .chat-group-icon { flex: 0 0 auto; }
+    .chat-group-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      padding: 5px 8px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--cp-text-muted);
+      transition: background 140ms ease, color 140ms ease;
+    }
+    .chat-group-header:hover {
+      background: color-mix(in srgb, var(--cp-surface) 65%, transparent);
+      color: var(--cp-text);
+    }
+    .chat-group-icon { font-size: 13px; opacity: 0.85; }
+    .chat-group-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .chat-group-header .badge-count {
+      font-size: 10px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 5px;
+    }
+    .chat-group-chevron { font-size: 10px; opacity: 0.55; }
+    /* Nesting rail aligns under the group icon so threads read as children. */
+    .chat-group-items {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+      margin-left: 14px;
+      padding-left: 6px;
+      border-left: 1px solid color-mix(in srgb, var(--cp-border) 70%, transparent);
     }
     .chat-main {
       min-height: 0;
@@ -1352,6 +1598,26 @@
       background: var(--cp-accent);
       box-shadow: 0 0 0 5px var(--cp-accent-soft);
       margin-top: 6px;
+    }
+    .timeline-marker.success {
+      background: var(--cp-success);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--cp-success) 18%, transparent);
+    }
+    .timeline-marker.failed {
+      background: var(--cp-danger);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--cp-danger) 18%, transparent);
+    }
+    .timeline-marker.idle {
+      background: var(--cp-text-muted);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--cp-text-muted) 16%, transparent);
+    }
+    .timeline-marker.running {
+      background: var(--cp-warning);
+      animation: timeline-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes timeline-pulse {
+      0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning) 28%, transparent); }
+      50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--cp-warning) 10%, transparent); }
     }
     .timeline-item {
       display: grid;
@@ -1775,7 +2041,17 @@
         <div class="sidebar-scroll">
           <template x-for="section in sidebarSections()" :key="section.key">
             <section class="sidebar-section">
-              <template x-if="section.collapsible">
+              <template x-if="section.collapsible && section.href">
+                <div style="display:flex;align-items:center;gap:2px">
+                  <a class="section-header" style="flex:1;width:auto" :class="{ active: isRouteGroup(section.routeGroup) }" :href="section.href">
+                    <span x-text="section.label"></span>
+                  </a>
+                  <button class="section-chevron-btn" type="button" @click.prevent.stop="toggleSidebar(section.key)"
+                          x-text="app.sidebarCollapsed[section.key] ? '▸' : '▾'"
+                          :title="app.sidebarCollapsed[section.key] ? 'Expand' : 'Collapse'"></button>
+                </div>
+              </template>
+              <template x-if="section.collapsible && !section.href">
                 <button class="section-header" type="button" @click="toggleSidebar(section.key)">
                   <span x-text="section.label"></span>
                   <span class="section-chevron" x-text="app.sidebarCollapsed[section.key] ? '▸' : '▾'"></span>
@@ -1992,7 +2268,8 @@
               </div>
               <div class="stack">
                 <template x-for="entry in alerts()" :key="entry.id">
-                  <div class="item-row">
+                  <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
+                       @click="openRunDetail(entry)" @keydown.enter="openRunDetail(entry)">
                     <div class="split-meta">
                       <div>
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -2002,7 +2279,10 @@
                         </div>
                         <div class="hint" style="margin-top:6px" x-text="entry.preview"></div>
                       </div>
-                      <div class="mono" x-text="formatRelative(entry.finishedAt || entry.startedAt)"></div>
+                      <div style="display:flex;align-items:center;gap:10px">
+                        <div class="mono" x-text="formatRelative(entry.finishedAt || entry.startedAt)"></div>
+                        <span class="hint" style="font-size:1.1rem">›</span>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -2057,6 +2337,7 @@
                       <article class="lp-card" @click="goTo('#/agents/' + encodeURIComponent(agent.id))">
                         <div class="lp-qa">
                           <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
+                          <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                           <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
                           <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                         </div>
@@ -2095,6 +2376,7 @@
                       <td x-text="agent.lastRun ? formatRelative((agent.lastRun || {}).finished_at || (agent.lastRun || {}).started_at) : 'Never'"></td>
                       <td><div class="lp-row-qa">
                         <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
+                        <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                         <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
                         <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                       </div></td>
@@ -2136,6 +2418,7 @@
                 </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
+                <button class="btn" type="button" @click="openAgentCliSession(selectedAgent.id)" title="Open an interactive Copilot CLI terminal wired with this agent; the conversation mirrors here as a chat">⌨ CLI session</button>
                 <button class="btn ghost" type="button" @click="selectedAgent._menu = !selectedAgent._menu" title="More actions">⋯</button>
                 <div class="ag-menu" x-show="selectedAgent._menu" @click.outside="selectedAgent._menu = false" x-transition style="display:none">
                   <button type="button" @click="editAgentSource(selectedAgent.id); selectedAgent._menu = false">📝 Edit in VSCode</button>
@@ -2849,6 +3132,234 @@
           </section>
           </template>
 
+          <section x-show="!loading && !errorMessage && route === 'executions'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Executions</h1>
+                <p>The control room for everything that runs — live status, what's coming up next, recent run health, and quick access to tasks, flows, and assignments.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="Promise.all([loadActivity(), loadSchedules()])" title="Refresh">↻ Refresh</button>
+                <button class="btn primary" type="button" @click="goTo('#/design')">✨ Design with AI</button>
+              </div>
+            </div>
+
+            <!-- KPI tiles -->
+            <div class="card-grid" style="margin-bottom:18px">
+              <article class="card" :style="execMetrics().runningNow ? 'border-color:var(--cp-accent)' : ''">
+                <div class="hint">Running now</div>
+                <strong style="font-size:1.6rem" x-text="execMetrics().runningNow"></strong>
+                <div class="hint" style="margin-top:6px" x-show="execMetrics().runningNow">
+                  <a href="#" @click.prevent="goTo('#/activity')" style="color:var(--cp-link)">View activity →</a>
+                </div>
+                <div class="hint" style="margin-top:6px" x-show="!execMetrics().runningNow">Idle</div>
+              </article>
+              <article class="card">
+                <div class="hint">Scheduled &amp; on</div>
+                <strong style="font-size:1.6rem" x-text="execMetrics().scheduledOn"></strong>
+                <div class="hint" style="margin-top:6px" x-text="executionCounts().tasks + ' tasks · ' + executionCounts().flows + ' flows · ' + executionCounts().assignments + ' assignments'"></div>
+              </article>
+              <article class="card">
+                <div class="hint">Runs (24h)</div>
+                <strong style="font-size:1.6rem" x-text="execMetrics().runs24h"></strong>
+                <div class="hint" style="margin-top:6px">
+                  <span x-text="execMetrics().successRate === null ? 'No runs yet' : execMetrics().successRate + '% success'"></span>
+                </div>
+              </article>
+              <article class="card" :style="execMetrics().failed24h ? 'border-color:var(--cp-danger)' : ''">
+                <div class="hint">Failures (24h)</div>
+                <strong style="font-size:1.6rem" :style="execMetrics().failed24h ? 'color:var(--cp-danger)' : ''" x-text="execMetrics().failed24h"></strong>
+                <div class="hint" style="margin-top:6px" x-show="execMetrics().failed24h">
+                  <a href="#" @click.prevent="goTo('#/activity')" style="color:var(--cp-danger)">Investigate →</a>
+                </div>
+                <div class="hint" style="margin-top:6px" x-show="!execMetrics().failed24h">All clear</div>
+              </article>
+            </div>
+
+            <!-- Up next + Recent runs -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:18px">
+              <section class="card">
+                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <strong>⏱ Up next</strong>
+                  <a href="#" @click.prevent="goTo('#/tasks')" class="hint" style="color:var(--cp-link)">All schedules →</a>
+                </div>
+                <div x-show="execUpcoming(6).length" style="display:flex;flex-direction:column;gap:2px">
+                  <template x-for="row in execUpcoming(6)" :key="row.type + ':' + row.id">
+                    <a href="#" @click.prevent="openScheduleItem(row)" class="exec-row">
+                      <span class="type-badge" x-text="scheduleTypeMeta(row.type).icon"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="row.name"></span>
+                        <span class="hint" style="display:block;font-size:0.72rem" x-text="row.scheduleDescription || row.schedule"></span>
+                      </span>
+                      <span style="text-align:right">
+                        <span class="mono" style="font-size:0.8rem" x-text="formatRelative(row.nextRun)"></span>
+                        <span class="hint" style="display:block;font-size:0.68rem" x-text="formatDateTime(row.nextRun)"></span>
+                      </span>
+                    </a>
+                  </template>
+                </div>
+                <div class="hint" x-show="!execUpcoming(6).length" style="font-style:italic;padding:8px 0">Nothing scheduled. Add a schedule to a task, flow, or assignment.</div>
+              </section>
+
+              <section class="card">
+                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <strong>📊 Recent runs</strong>
+                  <a href="#" @click.prevent="goTo('#/activity')" class="hint" style="color:var(--cp-link)">Full history →</a>
+                </div>
+                <div x-show="execRecent(6).length" style="display:flex;flex-direction:column;gap:2px">
+                  <template x-for="a in execRecent(6)" :key="a.id">
+                    <a :href="a.route" class="exec-row">
+                      <span class="status-badge" :class="scheduleStatusClass(a.status)" x-text="scheduleStatusLabel(a.status)"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="a.entityName"></span>
+                        <span class="hint" style="display:block;font-size:0.72rem" x-text="a.runType + ' · ' + (a.durationMs ? formatDuration(a.durationMs) : '—')"></span>
+                      </span>
+                      <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="formatRelative(a.finishedAt || a.startedAt)"></span>
+                    </a>
+                  </template>
+                </div>
+                <div class="hint" x-show="!execRecent(6).length" style="font-style:italic;padding:8px 0">No runs yet. Runs will appear here once tasks, flows, or assignments execute.</div>
+              </section>
+            </div>
+
+            <!-- Jump to areas -->
+            <div class="exec-jump">
+              <a href="#" @click.prevent="goTo('#/tasks')" class="exec-jump-card">
+                <span class="exec-jump-icon">⚡</span>
+                <span class="exec-jump-body">
+                  <span class="exec-jump-title">Tasks <span class="exec-jump-count" x-text="executionCounts().tasks"></span></span>
+                  <span class="hint">Single-agent jobs — run on demand or on a schedule.</span>
+                </span>
+                <span class="exec-jump-go">→</span>
+              </a>
+              <a href="#" @click.prevent="goTo('#/chains')" class="exec-jump-card">
+                <span class="exec-jump-icon">🔗</span>
+                <span class="exec-jump-body">
+                  <span class="exec-jump-title">Flows <span class="exec-jump-count" x-text="executionCounts().flows"></span></span>
+                  <span class="hint">Multi-agent pipelines — one agent's output feeds the next.</span>
+                </span>
+                <span class="exec-jump-go">→</span>
+              </a>
+              <a href="#" @click.prevent="goTo('#/assignments')" class="exec-jump-card">
+                <span class="exec-jump-icon">📋</span>
+                <span class="exec-jump-body">
+                  <span class="exec-jump-title">Assignments <span class="exec-jump-count" x-text="executionCounts().assignments"></span></span>
+                  <span class="hint">Manager-run prompts across an org on a schedule.</span>
+                </span>
+                <span class="exec-jump-go">→</span>
+              </a>
+            </div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'resources'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>Resources</h1>
+                <p>Your building blocks — the managers that orchestrate work, the agents that do it, and the marketplace of capabilities you can pull in to do more.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="loadMarketplace()" title="Refresh">↻ Refresh</button>
+                <button class="btn" type="button" @click="goTo('#/marketplace/design')">✨ Design with AI</button>
+                <button class="btn primary" type="button" @click="goTo('#/marketplace')">🛍️ Browse Marketplace</button>
+              </div>
+            </div>
+
+            <!-- KPI tiles -->
+            <div class="card-grid" style="margin-bottom:18px">
+              <article class="card" :style="resMetrics().managersActive ? 'border-color:var(--cp-accent)' : ''">
+                <div class="hint">Managers</div>
+                <strong style="font-size:1.6rem" x-text="resMetrics().managers"></strong>
+                <div class="hint" style="margin-top:6px" x-text="resMetrics().managersActive + ' active · ' + (resMetrics().managers - resMetrics().managersActive) + ' idle'"></div>
+              </article>
+              <article class="card" :style="resMetrics().agentsRunning ? 'border-color:var(--cp-accent)' : ''">
+                <div class="hint">Agents</div>
+                <strong style="font-size:1.6rem" x-text="resMetrics().agents"></strong>
+                <div class="hint" style="margin-top:6px" x-text="resMetrics().agentsRunning + ' running · ' + resMetrics().agentsScheduled + ' scheduled · ' + resMetrics().agentsIdle + ' idle'"></div>
+              </article>
+              <article class="card">
+                <div class="hint">Marketplace sources</div>
+                <strong style="font-size:1.6rem" x-text="resMetrics().sources"></strong>
+                <div class="hint" style="margin-top:6px" x-text="resMetrics().sourcesLocal + ' local · ' + resMetrics().sourcesAzdo + ' Azure DevOps'"></div>
+              </article>
+              <article class="card">
+                <div class="hint">Catalog capabilities</div>
+                <strong style="font-size:1.6rem" x-text="resMetrics().skills + resMetrics().mcp"></strong>
+                <div class="hint" style="margin-top:6px" x-text="resMetrics().skills + ' skills · ' + resMetrics().mcp + ' MCP servers'"></div>
+              </article>
+            </div>
+
+            <!-- Managers + Agents -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:18px">
+              <section class="card">
+                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <strong>👔 Managers</strong>
+                  <a href="#" @click.prevent="goTo('#/managers')" class="hint" style="color:var(--cp-link)">All managers →</a>
+                </div>
+                <div x-show="resTopManagers(5).length" style="display:flex;flex-direction:column;gap:2px">
+                  <template x-for="m in resTopManagers(5)" :key="'res-mgr-' + m.id">
+                    <a href="#" @click.prevent="goTo('#/managers/' + m.id)" class="exec-row">
+                      <span class="status-badge" :class="managerStatusOf(m) === 'active' ? 'running' : 'idle'" x-text="managerStatusOf(m) === 'active' ? 'Active' : 'Idle'"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="m.name"></span>
+                        <span class="hint" style="display:block;font-size:0.72rem" x-text="((m.config && m.config.org || []).length) + ' agents · ' + ((m.config && m.config.assignments || []).length) + ' assignments'"></span>
+                      </span>
+                      <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="managerLastRunTs(m) ? formatRelative(new Date(managerLastRunTs(m)).toISOString()) : 'Never run'"></span>
+                    </a>
+                  </template>
+                </div>
+                <div class="hint" x-show="!resTopManagers(5).length" style="font-style:italic;padding:8px 0">No managers yet. Create one to orchestrate agents across an org.</div>
+              </section>
+
+              <section class="card">
+                <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <strong>🤖 Agents</strong>
+                  <a href="#" @click.prevent="goTo('#/agents')" class="hint" style="color:var(--cp-link)">All agents →</a>
+                </div>
+                <div x-show="resTopAgents(5).length" style="display:flex;flex-direction:column;gap:2px">
+                  <template x-for="ag in resTopAgents(5)" :key="'res-ag-' + ag.id">
+                    <a href="#" @click.prevent="goTo('#/agents/' + ag.id)" class="exec-row">
+                      <span class="status-badge" :class="agentStatusOf(ag) === 'running' ? 'running' : (agentStatusOf(ag) === 'scheduled' ? 'success' : 'idle')" x-text="agentStatusOf(ag).charAt(0).toUpperCase() + agentStatusOf(ag).slice(1)"></span>
+                      <span style="flex:1;min-width:0">
+                        <span class="exec-row-name" x-text="ag.name"></span>
+                        <span class="hint" style="display:block;font-size:0.72rem" x-text="(ag.config && ag.config.pluginDir ? 'Plugin' : 'Copilot agent')"></span>
+                      </span>
+                      <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="agentLastRunTs(ag) ? formatRelative(new Date(agentLastRunTs(ag)).toISOString()) : 'Never run'"></span>
+                    </a>
+                  </template>
+                </div>
+                <div class="hint" x-show="!resTopAgents(5).length" style="font-style:italic;padding:8px 0">No agents yet. Install one from the Marketplace or design one with AI.</div>
+              </section>
+            </div>
+
+            <!-- Jump to areas -->
+            <div class="exec-jump">
+              <a href="#" @click.prevent="goTo('#/managers')" class="exec-jump-card">
+                <span class="exec-jump-icon">👔</span>
+                <span class="exec-jump-body">
+                  <span class="exec-jump-title">Managers <span class="exec-jump-count" x-text="resMetrics().managers"></span></span>
+                  <span class="hint">Orchestrators that route one agent's output into the next.</span>
+                </span>
+                <span class="exec-jump-go">→</span>
+              </a>
+              <a href="#" @click.prevent="goTo('#/agents')" class="exec-jump-card">
+                <span class="exec-jump-icon">🤖</span>
+                <span class="exec-jump-body">
+                  <span class="exec-jump-title">Agents <span class="exec-jump-count" x-text="resMetrics().agents"></span></span>
+                  <span class="hint">The workers — single-purpose Copilot agents and plugins.</span>
+                </span>
+                <span class="exec-jump-go">→</span>
+              </a>
+              <a href="#" @click.prevent="goTo('#/marketplace')" class="exec-jump-card">
+                <span class="exec-jump-icon">🛍️</span>
+                <span class="exec-jump-body">
+                  <span class="exec-jump-title">Marketplace <span class="exec-jump-count" x-text="resMetrics().catalogTotal"></span></span>
+                  <span class="hint">Browse and install agents, plugins, skills, and MCP servers.</span>
+                </span>
+                <span class="exec-jump-go">→</span>
+              </a>
+            </div>
+          </section>
+
           <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -2868,8 +3379,9 @@
               <template x-for="task in filteredTasks()" :key="task.taskKey">
                 <article class="task-card" :id="'sched-focus-' + task.taskKey">
                   <div class="assignment-top">
-                    <div>
+                    <div style="cursor:pointer;flex:1;min-width:0" @click="toggleSelectedTask(task.taskKey)">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="row-chevron" :class="{ open: selectedTaskId === task.taskKey }">›</span>
                         <strong x-text="task.name"></strong>
                         <span class="type-badge" x-text="task.typeLabel"></span>
                         <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
@@ -2877,13 +3389,12 @@
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Details'"></button>
                       <button class="btn" type="button" @click="openTaskModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
                   </div>
                   <!-- Summary row: next run + last result -->
-                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap">
+                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="toggleSelectedTask(task.taskKey)">
                     <div class="task-meta-item">
                       <span class="meta-label">Next run</span>
                       <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
@@ -3110,8 +3621,9 @@
               <template x-for="chain in filteredChains()" :key="chain.id">
                 <article class="task-card" :id="'sched-focus-chain-' + chain.id">
                   <div class="assignment-top">
-                    <div>
+                    <div style="cursor:pointer;flex:1;min-width:0" @click="toggleSelectedChain(chain)">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="row-chevron" :class="{ open: selectedChainId === chain.id }">›</span>
                         <strong x-text="chain.name"></strong>
                         <span class="type-badge" x-text="(chain.steps?.length || 0) + ' tasks'"></span>
                         <span class="status-badge" :class="chain.enabled === false ? 'idle' : 'success'" x-text="chain.enabled === false ? 'Disabled' : 'Enabled'"></span>
@@ -3120,7 +3632,6 @@
                       <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="toggleSelectedChain(chain)" x-text="selectedChainId === chain.id ? 'Collapse' : 'Details'"></button>
                       <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
                     </div>
@@ -3197,8 +3708,9 @@
               <template x-for="task in filteredAssignments()" :key="task.taskKey">
                 <article class="task-card" :id="'sched-focus-' + task.taskKey">
                   <div class="assignment-top">
-                    <div>
+                    <div style="cursor:pointer;flex:1;min-width:0" @click="toggleSelectedTask(task.taskKey)">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="row-chevron" :class="{ open: selectedTaskId === task.taskKey }">›</span>
                         <strong x-text="task.name"></strong>
                         <span class="type-badge">Assignment</span>
                         <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
@@ -3206,13 +3718,12 @@
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click="toggleSelectedTask(task.taskKey)" x-text="selectedTaskId === task.taskKey ? 'Collapse' : 'Details'"></button>
                       <button class="btn" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
                   </div>
                   <!-- Summary row: next run + last result -->
-                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap">
+                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="toggleSelectedTask(task.taskKey)">
                     <div class="task-meta-item">
                       <span class="meta-label">Next run</span>
                       <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
@@ -3297,20 +3808,46 @@
                   <strong>Conversations</strong>
                   <span class="badge-count" x-text="data.chats.length"></span>
                 </div>
+                <div class="chat-toolbar">
+                  <input class="chat-search" type="search" placeholder="Search conversations…" x-model="chatSearch" aria-label="Search conversations" />
+                </div>
                 <div class="chat-scroll">
                   <div class="chat-list">
-                    <template x-for="chat in sortedChats()" :key="chat.id">
-                      <button class="chat-list-item" type="button" :class="{ active: activeChat && activeChat.id === chat.id }" @click="openChat(chat.id)">
-                        <div class="chat-list-top">
+                    <template x-for="group in visibleChatGroups()" :key="group.key">
+                      <div class="chat-group" :class="{ 'is-single': group.chats.length === 1 }">
+                        <template x-if="group.chats.length === 1">
+                          <button class="chat-list-item chat-row-solo" type="button" :class="{ active: activeChat && activeChat.id === group.chats[0].id }" @click="openChat(group.chats[0].id)" :title="group.targetType + ' • ' + group.name">
+                            <span class="chat-group-icon" x-text="group.icon"></span>
+                            <span class="nav-dot" :class="chatStatusClass(group.chats[0])"></span>
+                            <span class="chat-item-title" x-text="group.chats[0].title"></span>
+                            <template x-if="group.chats[0].source === 'cli'"><span class="cli-badge" title="Mirrors an interactive Copilot CLI terminal">⌨ CLI</span></template>
+                            <span class="chat-item-time" x-text="group.chats[0].updatedAt ? formatRelative(group.chats[0].updatedAt) : 'new'"></span>
+                          </button>
+                        </template>
+                        <template x-if="group.chats.length > 1">
                           <div>
-                            <strong x-text="chat.title"></strong>
-                            <div class="hint" style="margin-top:6px" x-text="chat.targetType + ' • ' + (chat.updatedAt ? formatRelative(chat.updatedAt) : 'new')"></div>
+                            <button class="chat-group-header" type="button" @click="chatGroupCollapsed[group.key] = !chatGroupCollapsed[group.key]" :title="group.targetType + ' • ' + group.name">
+                              <span class="chat-group-icon" x-text="group.icon"></span>
+                              <span class="chat-group-name" x-text="group.name"></span>
+                              <span class="badge-count" x-text="group.chats.length"></span>
+                              <span class="chat-group-chevron" x-text="isGroupOpen(group) ? '▾' : '▸'"></span>
+                            </button>
+                            <div class="chat-group-items" x-show="isGroupOpen(group)" x-transition.opacity>
+                              <template x-for="chat in group.chats" :key="chat.id">
+                                <button class="chat-list-item" type="button" :class="{ active: activeChat && activeChat.id === chat.id }" @click="openChat(chat.id)">
+                                  <span class="nav-dot" :class="chatStatusClass(chat)"></span>
+                                  <span class="chat-item-title" x-text="chat.title"></span>
+                                  <template x-if="chat.source === 'cli'"><span class="cli-badge" title="Mirrors an interactive Copilot CLI terminal">⌨ CLI</span></template>
+                                  <span class="chat-item-time" x-text="chat.updatedAt ? formatRelative(chat.updatedAt) : 'new'"></span>
+                                </button>
+                              </template>
+                            </div>
                           </div>
-                          <span class="nav-dot" :class="chatStatusClass(chat)"></span>
-                        </div>
-                      </button>
+                        </template>
+                      </div>
                     </template>
                     <div class="empty-state" x-show="!data.chats.length">No conversations yet.</div>
+                    <div class="empty-state" x-show="data.chats.length && !visibleChatGroups().length">No conversations match “<span x-text="chatSearch"></span>”.</div>
                   </div>
                 </div>
               </aside>
@@ -3330,6 +3867,8 @@
                       </select>
                     </template>
                     <button class="btn ghost" type="button" @click="newConversationForActive()" title="Start a fresh conversation thread with this manager/agent">＋ New conversation</button>
+                    <button class="btn ghost" type="button" @click="renameChat(activeChat)" title="Rename this conversation">✏️ Rename</button>
+                    <button class="btn ghost" type="button" :disabled="titlingChatId === (activeChat && activeChat.id)" @click="regenChatTitle(activeChat)" title="Generate a fresh AI title from the conversation" x-text="titlingChatId === (activeChat && activeChat.id) ? '⏳ Titling…' : '🏷️ Auto-title'"></button>
                     <button class="btn ghost" type="button" @click="shareChatConversation()">📤 Share conversation</button>
                     <button class="btn ghost" type="button" @click="toggleChatFocus()" :title="chatFocused ? 'Exit focused view (Esc)' : 'Open chat in a larger focused view'" x-text="chatFocused ? '🗗 Exit focus' : '⛶ Focus'"></button>
                     <button class="btn ghost" type="button" @click="activeChat && activeChat.targetType === 'manager' ? goTo('#/managers/' + encodeURIComponent(activeChat.target)) : goTo('#/agents/' + encodeURIComponent(activeChat.target))">Open detail</button>
@@ -3474,11 +4013,26 @@
                 </div>
 
                 <div class="chat-input-row" x-show="activeChat">
-                  <div x-show="chatContinueInfo && chatContinueInfo.chatId === (activeChat && activeChat.id)" style="margin-bottom:8px">
-                    <button class="btn primary" type="button" @click="_continueAgentChat(chatContinueInfo.chatId, chatContinueInfo.agentId); chatContinueInfo = null;">▶ Continue — retry the unfinished task</button>
-                  </div>
-                  <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }"></textarea>
-                  <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
+                  <template x-if="activeChat && activeChat.source === 'cli'">
+                    <div class="cli-mirror-banner">
+                      <span class="cli-mirror-dot"></span>
+                      <div style="flex:1">
+                        <strong>Live terminal session</strong>
+                        <div class="hint" style="margin-top:2px">Type in the Copilot CLI window — this view mirrors the conversation (read-only) and refreshes automatically.</div>
+                      </div>
+                      <button class="btn ghost" type="button" @click="openChat(activeChat.id, false)" title="Refresh mirror now">🔄 Refresh</button>
+                      <button class="btn" type="button" @click="openAgentCliSession(activeChat.target)" title="Open a new CLI terminal for this agent">⌨ New CLI window</button>
+                    </div>
+                  </template>
+                  <template x-if="!activeChat || activeChat.source !== 'cli'">
+                    <div>
+                      <div x-show="chatContinueInfo && chatContinueInfo.chatId === (activeChat && activeChat.id)" style="margin-bottom:8px">
+                        <button class="btn primary" type="button" @click="_continueAgentChat(chatContinueInfo.chatId, chatContinueInfo.agentId); chatContinueInfo = null;">▶ Continue — retry the unfinished task</button>
+                      </div>
+                      <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }"></textarea>
+                      <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
+                    </div>
+                  </template>
                 </div>
               </section>
             </section>
@@ -4070,16 +4624,67 @@
               </div>
             </div>
 
-            <!-- Sources -->
-            <div class="toolbar" style="flex-wrap:wrap;gap:8px;margin-bottom:14px">
-              <button class="pill" type="button" :class="{ active: !mkt.activeSourceId }" @click="mkt.activeSourceId = null; loadMarketplaceCatalog()">All sources</button>
-              <button class="pill" type="button" :class="{ active: mkt.activeSourceId === 'installed' }" @click="mkt.activeSourceId = 'installed'; loadMarketplaceCatalog()">Installed</button>
-              <template x-for="src in mkt.sources" :key="src.id">
-                <span class="pill" style="display:inline-flex;align-items:center;gap:8px" :class="{ active: mkt.activeSourceId === src.id }">
-                  <span @click="mkt.activeSourceId = src.id; loadMarketplaceCatalog()" x-text="(src.kind === 'azdo' ? '☁️ ' : '📁 ') + src.label"></span>
-                  <span title="Rescan" style="cursor:pointer" @click="scanMarketplaceSource(src.id)" x-text="mkt.scanning[src.id] ? '⏳' : '🔄'"></span>
-                  <span title="Remove" style="cursor:pointer;opacity:.7" @click="removeMarketplaceSource(src.id)">✕</span>
-                </span>
+            <!-- Source selector + management -->
+            <div class="toolbar" style="gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+              <label class="hint" style="opacity:.75">Source</label>
+              <select x-model="mkt.sourceSel" @change="applyMktSource()" style="min-width:240px">
+                <option value="all" x-text="'All sources — ' + mktKindTotal('all') + ' items'"></option>
+                <option value="installed">✓ Installed only</option>
+                <template x-if="mkt.sources.some(s => s.kind === 'local')">
+                  <option value="kind:local" x-text="'📁 All local sources (' + mktKindTotal('local') + ')'"></option>
+                </template>
+                <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
+                  <option value="kind:azdo" x-text="'🔷 All Azure DevOps (' + mktKindTotal('azdo') + ')'"></option>
+                </template>
+                <template x-if="mkt.sources.some(s => s.kind === 'local')">
+                  <optgroup label="Local folders">
+                    <template x-for="src in mkt.sources.filter(s => s.kind === 'local')" :key="'opt-' + src.id">
+                      <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
+                    </template>
+                  </optgroup>
+                </template>
+                <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
+                  <optgroup label="Azure DevOps">
+                    <template x-for="src in mkt.sources.filter(s => s.kind === 'azdo')" :key="'opt-' + src.id">
+                      <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
+                    </template>
+                  </optgroup>
+                </template>
+              </select>
+              <span class="hint" x-text="mkt.sources.length + ' source' + (mkt.sources.length === 1 ? '' : 's') + ' connected'"></span>
+              <span style="flex:1"></span>
+              <button class="btn ghost" type="button" @click="mkt.showManageSources = !mkt.showManageSources" x-text="mkt.showManageSources ? '✕ Done managing' : '⚙ Manage sources'"></button>
+            </div>
+
+            <!-- Manage sources (collapsible) -->
+            <div class="card" x-show="mkt.showManageSources" x-transition.opacity.duration.150ms style="margin-bottom:16px">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+                <div>
+                  <strong>Connected sources</strong>
+                  <div class="hint" style="font-size:0.78rem">Local folders and Azure DevOps repos scanned for agents, plugins, skills and MCP servers.</div>
+                </div>
+                <div class="toolbar">
+                  <button class="btn ghost" type="button" @click="mktAutoPopulate()" :disabled="mkt.syncing" x-text="mkt.syncing ? 'Syncing…' : '↻ Sync from agents'"></button>
+                  <button class="btn primary" type="button" @click="mkt.showAddForm = true">+ Add source</button>
+                </div>
+              </div>
+              <div x-show="!mkt.sources.length" class="hint" style="font-style:italic;padding:6px 0">No sources connected yet. Add a local folder or Azure DevOps repo above.</div>
+              <template x-for="src in mkt.sources" :key="'mng-' + src.id">
+                <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--cp-border)">
+                  <span style="font-size:1.05rem" x-text="src.kind === 'azdo' ? '🔷' : '📁'"></span>
+                  <div style="min-width:0;flex:1">
+                    <div style="font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span x-text="src.label"></span>
+                      <span class="hint" style="font-size:0.7rem" x-text="mktSrcCount(src) + ' items'"></span>
+                    </div>
+                    <div class="hint mono" style="font-size:0.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+                         :title="src.kind === 'azdo' ? (src.azdo.org + '/' + src.azdo.project + '/' + src.azdo.repo + '@' + src.azdo.branch) : (src.local && src.local.path)"
+                         x-text="src.kind === 'azdo' ? (src.azdo.org + '/' + src.azdo.project + '/' + src.azdo.repo + '@' + src.azdo.branch) : (src.local && src.local.path)"></div>
+                  </div>
+                  <span class="hint" style="font-size:0.7rem;white-space:nowrap" x-show="src.lastScannedAt" x-text="'scanned ' + formatRelative(src.lastScannedAt)"></span>
+                  <button class="btn ghost" type="button" @click="scanMarketplaceSource(src.id)" :disabled="mkt.scanning[src.id]" x-text="mkt.scanning[src.id] ? '⏳ Scanning…' : '🔄 Rescan'"></button>
+                  <button class="btn ghost" type="button" @click="removeMarketplaceSource(src.id)" style="color:var(--cp-danger)">✕ Remove</button>
+                </div>
               </template>
             </div>
 
@@ -4094,25 +4699,6 @@
                 </template>
               </div>
               <input type="text" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…" style="flex:1;min-width:200px">
-            </div>
-
-            <!-- Source-kind filter -->
-            <div class="toolbar" style="margin-bottom:16px;gap:8px;flex-wrap:wrap;align-items:center">
-              <span class="hint" style="opacity:.7">View by source:</span>
-              <div class="filter-pills">
-                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'all' }" @click="mkt.sourceKindFilter = 'all'">
-                  All <span class="hint" x-text="'(' + ((mkt.catalog.entries || []).length) + ')'"></span>
-                </button>
-                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'local' }" @click="mkt.sourceKindFilter = 'local'">
-                  📁 Local <span class="hint" x-text="'(' + mktKindCounts().local + ')'"></span>
-                </button>
-                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'azdo' }" @click="mkt.sourceKindFilter = 'azdo'">
-                  🔷 Azure DevOps <span class="hint" x-text="'(' + mktKindCounts().azdo + ')'"></span>
-                </button>
-                <button class="pill" type="button" :class="{ active: mkt.sourceKindFilter === 'installed' }" @click="mkt.sourceKindFilter = 'installed'">
-                  ✓ Installed <span class="hint" x-text="'(' + mktKindCounts().installed + ')'"></span>
-                </button>
-              </div>
             </div>
 
             <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
@@ -4317,10 +4903,10 @@
             <div class="activity-list">
               <template x-for="entry in filteredActivity()" :key="entry.id">
                 <article class="timeline-item">
-                  <div class="timeline-marker"></div>
+                  <div class="timeline-marker" :class="statusClass(entry.status)"></div>
                   <div>
                     <div class="split-meta">
-                      <div>
+                      <div style="cursor:pointer;flex:1;min-width:0" @click="openRunDetail(entry)">
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                           <strong x-text="entry.entityName"></strong>
                           <span class="type-badge" x-text="entry.runType"></span>
@@ -4329,14 +4915,11 @@
                         <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.startedAt) + ' • ' + formatDuration(entry.durationMs)"></div>
                       </div>
                       <div class="toolbar">
-                        <button class="btn" type="button" @click="toggleExpanded('activity-' + entry.id)">Output</button>
+                        <button class="btn" type="button" @click="openRunDetail(entry)">View output</button>
                         <button class="btn ghost" type="button" @click="openShareModal(entry.output, 'Activity — ' + entry.entityName, 'run-output')">📤</button>
                       </div>
                     </div>
-                    <div class="hint" style="margin-top:10px" x-text="entry.preview"></div>
-                    <div x-show="isExpanded('activity-' + entry.id)" x-transition.opacity.duration.150ms style="margin-top:12px">
-                      <div class="md-output" x-html="renderMarkdown(entry.output || 'No output captured.')"></div>
-                    </div>
+                    <div class="hint" style="margin-top:10px;cursor:pointer" @click="openRunDetail(entry)" x-text="entry.preview"></div>
                   </div>
                 </article>
               </template>
@@ -4489,6 +5072,157 @@
             </template>
           </section>
 
+          <!-- CLI Sessions -->
+          <section x-show="!loading && !errorMessage && route === 'sessions'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>⌨ CLI Sessions</h1>
+                <p>Every known Copilot CLI session. Resume any session in a terminal, or generate a brief AI summary.</p>
+              </div>
+              <div class="toolbar">
+                <span class="hint" x-show="cliSessionsRefreshing" style="margin-right:8px">↻ Refreshing…</span>
+                <button class="btn" type="button" @click="loadCliSessions(true)" :disabled="cliSessionsRefreshing">↻ Refresh</button>
+              </div>
+            </div>
+            <div class="cli-sess-controls">
+              <div class="lp-search cli-sess-search">
+                <span>🔍</span>
+                <input type="search" placeholder="Search title, agent, repo, or folder…" x-model="cliSessionSearch" @input="cliVisibleCount = 60" />
+              </div>
+              <label class="cli-sess-select">
+                <span class="cli-sel-icon">🤖</span>
+                <select x-model="cliAgentFilter" @change="cliVisibleCount = 60">
+                  <option value="" x-text="'All agents (' + cliSessions.length + ')'"></option>
+                  <template x-for="f in cliAgentFacets()" :key="f.name">
+                    <option :value="f.name" x-text="(f.label || f.name) + ' (' + f.count + ')'"></option>
+                  </template>
+                </select>
+              </label>
+              <label class="cli-sess-select">
+                <span class="cli-sel-icon">📁</span>
+                <select x-model="cliFolderFilter" @change="cliVisibleCount = 60">
+                  <option value="">All folders</option>
+                  <template x-for="f in cliFolderFacets()" :key="f.name">
+                    <option :value="f.name" x-text="f.label + ' (' + f.count + ')'"></option>
+                  </template>
+                </select>
+              </label>
+              <button class="btn ghost" type="button" x-show="cliAgentFilter || cliFolderFilter || cliSessionSearch"
+                @click="cliAgentFilter=''; cliFolderFilter=''; cliSessionSearch=''; cliVisibleCount=60" title="Clear filters">✕ Clear</button>
+              <div class="hint cli-sess-count" x-show="!cliSessionsLoading" x-text="filteredCliSessions().length + ' session' + (filteredCliSessions().length === 1 ? '' : 's')"></div>
+            </div>
+            <div class="empty-state" x-show="cliSessionsLoading">Loading sessions…</div>
+            <div class="cli-sess-list" x-show="!cliSessionsLoading">
+              <template x-for="s in pagedCliSessions()" :key="s.id">
+                <article class="cli-sess-card">
+                  <div class="cli-sess-top">
+                    <div class="cli-sess-head">
+                      <div class="cli-sess-title" x-text="s.title"></div>
+                      <div class="cli-sess-meta">
+                        <span class="type-badge" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
+                        <span x-show="s.turnCount" x-text="s.turnCount + ' turn' + (s.turnCount === 1 ? '' : 's')"></span>
+                        <span x-show="s.repository" x-text="'🌿 ' + s.repository + (s.branch ? (' @ ' + s.branch) : '')"></span>
+                        <span x-show="s.cwd" class="cli-sess-path" x-text="'📁 ' + s.cwd"></span>
+                        <span x-text="'🕑 ' + formatRelative(s.lastModified)"></span>
+                      </div>
+                    </div>
+                    <div class="cli-sess-actions">
+                      <button class="btn primary" type="button" @click="resumeCliSession(s)" title="Open a terminal and resume this session">▶ Resume</button>
+                      <button class="btn" type="button"
+                        :disabled="summarizingSessionId === s.id"
+                        @click="summarizeCliSession(s, !!s.summary)"
+                        x-text="summarizingSessionId === s.id ? '⏳ Summarizing…' : (s.summary ? '🔄 Re-summarize' : '✨ Summarize')"></button>
+                    </div>
+                  </div>
+                  <div class="cli-sess-preview hint" x-show="s.lastUserPreview && !s.summary" x-text="'Last prompt: ' + s.lastUserPreview"></div>
+                  <div class="cli-sess-summary" x-show="s.summary">
+                    <div class="cli-sess-summary-label">Summary <span class="hint" x-show="s.summaryAt" x-text="'· ' + formatRelative(s.summaryAt)"></span></div>
+                    <div x-text="s.summary"></div>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div class="cli-sess-more" x-show="!cliSessionsLoading && filteredCliSessions().length > cliVisibleCount">
+              <button class="btn" type="button" @click="cliVisibleCount += 60"
+                x-text="'Show more (' + (filteredCliSessions().length - cliVisibleCount) + ' remaining)'"></button>
+            </div>
+            <div class="empty-state" x-show="!cliSessionsLoading && !filteredCliSessions().length">No CLI sessions found.</div>
+          </section>
+
+          <!-- Agent / Plugin Updates -->
+          <section x-show="!loading && !errorMessage && route === 'updates'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🔄 Updates</h1>
+                <p>Every installed agent and plugin, its source and type, and whether a newer version is available.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="checkAllUpdates()" :disabled="updatesChecking || updatesLoading">
+                  <span x-text="updatesChecking ? '⏳ Checking…' : '⬆ Check for updates'"></span>
+                </button>
+                <button class="btn" type="button" @click="loadUpdates()" :disabled="updatesLoading">↻ Refresh</button>
+              </div>
+            </div>
+            <div class="empty-state" x-show="updatesLoading">Loading inventory…</div>
+            <div class="upd-table-wrap" x-show="!updatesLoading && updatesList.length">
+              <table class="upd-table">
+                <thead>
+                  <tr>
+                    <th>Name</th><th>Type</th><th>Source</th><th>Last updated</th><th>Commit</th><th>Status</th><th></th>
+                  </tr>
+                </thead>
+                <template x-for="item in updatesList" :key="item.id">
+                  <tbody>
+                    <tr>
+                      <td>
+                        <a href="#" @click.prevent="goTo('#/agents/' + encodeURIComponent(item.id))" class="upd-name" x-text="item.name"></a>
+                      </td>
+                      <td><span class="type-badge" x-text="item.kind"></span></td>
+                      <td>
+                        <div class="upd-origin">
+                          <span class="upd-origin-type" x-text="item.originType"></span>
+                          <span x-text="item.originLabel"></span>
+                        </div>
+                        <div class="hint upd-srcdetail" x-show="item.sourceDetail" x-text="item.sourceDetail"></div>
+                      </td>
+                      <td><span class="hint" x-text="item.lastUpdated ? formatRelative(item.lastUpdated) : '—'"></span></td>
+                      <td><span class="upd-commit" x-text="item.commitId ? String(item.commitId).slice(0, 10) : '—'"></span></td>
+                      <td>
+                        <span class="upd-status" :class="'upd-' + (updateStatusFor(item).cls || 'none')" x-text="updateStatusFor(item).label"></span>
+                      </td>
+                      <td class="upd-actions-cell">
+                        <button class="btn ghost" type="button" x-show="item.checkable" :disabled="(updateChecks[item.id] && updateChecks[item.id].status === 'checking')" @click="checkUpdate(item)" title="Check this item for updates">⟳</button>
+                        <button class="btn ghost" type="button"
+                          x-show="updateStatusFor(item).cls === 'warn'"
+                          :disabled="summarizingUpdateId === item.id"
+                          @click="summarizeUpdateChanges(item)"
+                          title="Describe what changed in the available update"
+                          x-text="summarizingUpdateId === item.id ? '⏳…' : '📝 Summarize'"></button>
+                        <button class="btn" type="button"
+                          x-show="item.reinstallable"
+                          :class="updateStatusFor(item).cls === 'warn' ? 'primary' : ''"
+                          :disabled="reinstallingUpdateId === item.id"
+                          @click="reinstallUpdate(item)"
+                          x-text="reinstallingUpdateId === item.id ? '⏳…' : 'Reinstall'"></button>
+                      </td>
+                    </tr>
+                    <tr x-show="updateChangeSummaries[item.id]" class="upd-summary-row">
+                      <td colspan="7">
+                        <div class="upd-change-summary">
+                          <div class="cli-sess-summary-label">Update summary</div>
+                          <div x-text="updateChangeSummaries[item.id] ? updateChangeSummaries[item.id].text : ''"></div>
+                          <div class="hint" x-show="updateChangeSummaries[item.id] && updateChangeSummaries[item.id].files && updateChangeSummaries[item.id].files.length"
+                            x-text="'Files: ' + (updateChangeSummaries[item.id] ? updateChangeSummaries[item.id].files.join(', ') : '')"></div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </template>
+              </table>
+            </div>
+            <div class="empty-state" x-show="!updatesLoading && !updatesList.length">No installed agents or plugins found.</div>
+          </section>
+
         </div>
       </main>
     </div>
@@ -4608,6 +5342,80 @@
           <span x-show="!removeAgentModal.busy">🗑 Remove agent</span>
           <span x-show="removeAgentModal.busy">Removing…</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run detail / alert drill-down Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="runDetailOpen" x-transition.opacity @click.self="closeRunDetail()" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:680px;width:92vw">
+      <div class="modal-header">
+        <h2 class="modal-title">
+          <span x-text="(runDetail && runDetail.status === 'success') ? '✓ Run detail' : '⚠ Failed run'"></span>
+        </h2>
+        <button class="icon-button" type="button" @click="closeRunDetail()">✕</button>
+      </div>
+      <div style="padding:18px;max-height:70vh;overflow:auto">
+        <div x-show="runDetailLoading" class="hint">Loading run detail…</div>
+        <div x-show="runDetailError" class="hint" style="color:var(--cp-danger)" x-text="runDetailError"></div>
+
+        <template x-if="!runDetailLoading && !runDetailError && runDetail">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+              <strong style="font-size:1.05rem" x-text="runDetail.agentName"></strong>
+              <span class="status-badge" :class="runDetail.status === 'success' ? 'success' : (runDetail.status === 'running' ? 'running' : 'failed')"
+                    x-text="runDetail.status === 'success' ? 'Succeeded' : (runDetail.status === 'running' ? 'Running' : 'Failed')"></span>
+              <span class="hint mono" x-text="(runDetail.type === 'manager' ? 'Manager' : 'Agent')"></span>
+            </div>
+
+            <!-- Why it ran -->
+            <div style="border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-surface-soft);padding:12px 14px;margin-bottom:14px">
+              <div class="field-label" style="margin-bottom:6px">Why did this run?</div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                <strong x-text="(runDetail.trigger && runDetail.trigger.label) || 'Manual / ad-hoc run'"></strong>
+                <button class="btn ghost" style="padding:2px 10px;font-size:0.78rem"
+                        x-show="runDetail.trigger && runDetail.trigger.route"
+                        @click="runDetailGoToTrigger()" x-text="runDetail.trigger && runDetail.trigger.reason === 'task' ? 'View task →' : 'View →'"></button>
+              </div>
+              <div class="hint" x-text="(runDetail.trigger && runDetail.trigger.detail) || ''"></div>
+            </div>
+
+            <!-- Timing -->
+            <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px">
+              <div><div class="field-label">Started</div><div class="mono" x-text="formatRelative(runDetail.startedAt)"></div></div>
+              <div x-show="runDetail.finishedAt"><div class="field-label">Finished</div><div class="mono" x-text="formatRelative(runDetail.finishedAt)"></div></div>
+              <div x-show="runDetail.durationMs"><div class="field-label">Duration</div><div class="mono" x-text="formatDuration(runDetail.durationMs)"></div></div>
+              <div x-show="runDetail.exitCode !== undefined && runDetail.exitCode !== null"><div class="field-label">Exit code</div><div class="mono" x-text="runDetail.exitCode"></div></div>
+            </div>
+
+            <!-- Prompt (manager ad-hoc/assignment runs) -->
+            <template x-if="runDetail.prompt">
+              <div style="margin-bottom:14px">
+                <div class="field-label" style="margin-bottom:6px">Prompt</div>
+                <div class="md-output" style="max-height:160px;overflow:auto" x-html="renderMarkdown(runDetail.prompt)"></div>
+              </div>
+            </template>
+
+            <!-- Error -->
+            <template x-if="runDetail.error">
+              <div style="margin-bottom:14px">
+                <div class="field-label" style="margin-bottom:6px;color:var(--cp-danger)">Error</div>
+                <div class="md-output" style="border-color:var(--cp-danger)" x-html="renderMarkdown(runDetail.error)"></div>
+              </div>
+            </template>
+
+            <!-- Output -->
+            <div>
+              <div class="field-label" style="margin-bottom:6px">Output</div>
+              <div class="md-output" x-html="renderMarkdown(runDetail.output || runDetail.error || 'No output was captured for this run.')"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" type="button" @click="closeRunDetail()">Close</button>
+        <button class="btn" type="button" x-show="runDetail && runDetail.entityRoute" @click="runDetailGoToEntity()"
+                x-text="runDetail && runDetail.type === 'manager' ? 'Open manager →' : 'Open agent →'"></button>
       </div>
     </div>
   </div>
@@ -5675,6 +6483,8 @@
           catalog: { entries: [], counts: {}, total: 0 },
           typeFilter: 'all',
           sourceKindFilter: 'all',
+          sourceSel: 'all',
+          showManageSources: false,
           q: '',
           activeSourceId: null,
           showAddForm: false,
@@ -5688,6 +6498,7 @@
           busy: false,
           error: '',
         },
+        resCatalog: { counts: {}, total: 0 },
         reports: null,
         reportsLoading: false,
         reportRange: 30,
@@ -5719,6 +6530,23 @@
         expandedChainNodes: {},
         activeChat: null,
         chatDraft: '',
+        _cliPollTimer: null,
+        cliSessions: [],
+        cliSessionsLoading: false,
+        cliSessionsRefreshing: false,
+        cliSessionSearch: '',
+        cliAgentFilter: '',
+        cliFolderFilter: '',
+        cliVisibleCount: 60,
+        _cliFilterCache: null,
+        summarizingSessionId: null,
+        updatesList: [],
+        updatesLoading: false,
+        updatesChecking: false,
+        updateChecks: {},
+        reinstallingUpdateId: null,
+        summarizingUpdateId: null,
+        updateChangeSummaries: {},
         commandQuery: '',
         commandIndex: 0,
         settingsOpen: false,
@@ -5776,6 +6604,13 @@
         chatVerbose: true,
         chatLive: true,
         chatSessions: {},
+        chatGroupCollapsed: {},
+        chatSearch: '',
+        titlingChatId: null,
+        runDetailOpen: false,
+        runDetailLoading: false,
+        runDetailError: '',
+        runDetail: null,
         chatContinueInfo: null,
         syncStatus: { enabled: false, machineId: '', hostname: '' },
         models: [],
@@ -6317,7 +7152,7 @@
           if (first === 'agents' && second) return { route: 'agent-detail', param: second };
           if (first === 'managers' && second) return { route: 'manager-detail', param: second };
           if (first === 'chat' && second) return { route: 'chat-detail', param: second };
-          if (['home', 'agents', 'managers', 'tasks', 'chains', 'design', 'assignments', 'chat', 'activity', 'events', 'settings', 'reports', 'marketplace'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -6338,9 +7173,18 @@
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
             await this.loadExecAi();
+          } else if (this.route === 'executions') {
+            await Promise.all([this.loadActivity(), this.loadSchedules()]);
+          } else if (this.route === 'resources') {
+            try { this.resCatalog = await this.request('/api/marketplace/catalog'); } catch (e) { this.resCatalog = { counts: {}, total: 0 }; }
+            try { const r = await this.request('/api/marketplace/sources'); this.mkt.sources = r.sources || []; } catch (e) {}
           } else if (this.route === 'reports') {
             this.loadModels();
             await this.loadReports();
+          } else if (this.route === 'sessions') {
+            await this.loadCliSessions();
+          } else if (this.route === 'updates') {
+            await this.loadUpdates();
           } else if (this.route === 'marketplace') {
             await this.loadMarketplace();
             // Deep-link to the agent-design flow (e.g. from the Agents page
@@ -6739,7 +7583,10 @@
             const items = await this.request('/api/activity?limit=100');
             this.data.activity = items.map(item => ({
               id: `${item.type}-${item.entityId}-${item.timestamp}`,
+              runId: item.runId || null,
+              runKind: item.type,
               entityType: item.type === 'agent' ? 'Agent' : 'Manager',
+              entityId: item.entityId,
               entityName: item.entityName,
               runType: item.type === 'agent' ? 'Task' : 'Assignment',
               status: item.status,
@@ -6748,6 +7595,8 @@
               durationMs: item.duration || null,
               output: item.output || '',
               preview: this.preview(item.output || ''),
+              taskId: item.taskId || null,
+              triggeredBy: item.triggeredBy || null,
               route: `#/${item.type === 'agent' ? 'agents' : 'managers'}/${encodeURIComponent(item.entityId)}`
             }));
           } catch (err) {
@@ -6775,6 +7624,14 @@
               });
             });
             // Live output streaming
+            // Live title updates (auto-title / rename) — patch the list + header.
+            source.addEventListener('chat-updated', (event) => {
+              const { chatId, title } = JSON.parse(event.data || '{}');
+              if (!chatId || !title) return;
+              const idx = this.data.chats.findIndex((c) => c.id === chatId);
+              if (idx >= 0) this.data.chats[idx] = { ...this.data.chats[idx], title };
+              if (this.activeChat && this.activeChat.id === chatId) this.activeChat.title = title;
+            });
             source.addEventListener('agent-output', (event) => {
               const { id, stream, chunk } = JSON.parse(event.data || '{}');
               if (!this.liveOutput[id]) this.liveOutput[id] = { text: '', startedAt: new Date().toISOString(), active: true };
@@ -6860,15 +7717,16 @@
           return [
             { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
             { key: 'chat', label: 'Conversations', title: 'Chat', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
-            { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, children: [
+            { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false },
+            { key: 'execution', label: 'Executions', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
-              { key: 'design', title: 'Design with AI', icon: '✨', href: '#/design', routeGroup: 'design', items: [] },
               { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
             ]},
-            { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, children: [
+            { key: 'resources', label: 'Resources', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
+              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] },
+              { key: 'updates', title: 'Updates', icon: '🔄', href: '#/updates', routeGroup: 'updates', items: [] }
             ]},
             { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false },
             { key: 'activity', label: 'History', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [], collapsible: false },
@@ -7053,6 +7911,85 @@
           return [...agentTasks, ...assignments];
         },
 
+        executionCounts() {
+          const all = this.allTasks() || [];
+          return {
+            tasks: all.filter(t => t.type === 'agent').length,
+            assignments: all.filter(t => t.type === 'assignment').length,
+            flows: (this.data.chains || []).length,
+          };
+        },
+        _runOk(s) { s = (s || '').toLowerCase(); return s === 'success' || s === 'completed' || s === 'complete' || s === 'done'; },
+        _runFail(s) { s = (s || '').toLowerCase(); return s === 'failed' || s === 'error'; },
+        // Aggregate run health for the Executions landing page (last 24h),
+        // drawn from the activity feed + live supervisor status + schedules.
+        execMetrics() {
+          const acts = this.data.activity || [];
+          const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
+          const done = acts.filter(a => {
+            const t = new Date(a.finishedAt || a.startedAt).getTime();
+            return (this._runOk(a.status) || this._runFail(a.status)) && t >= dayAgo;
+          });
+          const ok = done.filter(a => this._runOk(a.status)).length;
+          const failed = done.filter(a => this._runFail(a.status)).length;
+          const total = ok + failed;
+          const schedRows = (this.data.schedules || []).filter(r => r.type !== 'manager');
+          const scheduledOn = schedRows.filter(r => r.enabled !== false && r.nextRun).length;
+          return {
+            runningNow: (this.runningEntities() || []).length,
+            runs24h: total,
+            success24h: ok,
+            failed24h: failed,
+            successRate: total ? Math.round((ok / total) * 100) : null,
+            scheduledOn,
+          };
+        },
+        // Soonest upcoming execution schedules (tasks/flows/assignments — not raw managers).
+        execUpcoming(n) {
+          return (this.data.schedules || [])
+            .filter(r => r.type !== 'manager' && r.enabled !== false && r.nextRun && new Date(r.nextRun) > new Date())
+            .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
+            .slice(0, n || 6);
+        },
+        // Most recent completed/failed runs.
+        execRecent(n) {
+          return (this.data.activity || [])
+            .filter(a => this._runOk(a.status) || this._runFail(a.status))
+            .slice(0, n || 6);
+        },
+        // ---- Resources landing page ----
+        // Headline counts across managers, agents, and the marketplace catalog.
+        resMetrics() {
+          const mc = this.managerStatusCounts();
+          const ac = this.agentStatusCounts();
+          const cat = (this.resCatalog && this.resCatalog.counts) || {};
+          return {
+            managers: mc.all,
+            managersActive: mc.active,
+            agents: ac.all,
+            agentsRunning: ac.running,
+            agentsScheduled: ac.scheduled,
+            agentsIdle: ac.idle,
+            sources: (this.mkt.sources || []).length,
+            sourcesLocal: (this.mkt.sources || []).filter(s => s.kind === 'local').length,
+            sourcesAzdo: (this.mkt.sources || []).filter(s => s.kind === 'azdo').length,
+            catalogTotal: (this.resCatalog && this.resCatalog.total) || 0,
+            skills: cat.skill || 0,
+            mcp: cat.mcp || 0,
+            pluginsAvail: cat.plugin || 0,
+            agentsAvail: cat.agent || 0,
+          };
+        },
+        resTopManagers(n) {
+          return [...(this.data.managers || [])]
+            .sort((a, b) => this.managerLastRunTs(b) - this.managerLastRunTs(a))
+            .slice(0, n || 5);
+        },
+        resTopAgents(n) {
+          return [...(this.data.agents || [])]
+            .sort((a, b) => this.agentLastRunTs(b) - this.agentLastRunTs(a))
+            .slice(0, n || 5);
+        },
         filteredTasks() {
           const query = this.taskSearch.trim().toLowerCase();
           const tasks = this.allTasks().filter(t => t.type === 'agent');
@@ -7156,6 +8093,43 @@
           return this.data.activity
             .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff)
             .slice(0, 8);
+        },
+
+        // Open the run-detail modal for an activity/alert entry and fetch the full
+        // run record (full output/error + a "why it ran" trigger explanation).
+        async openRunDetail(entry) {
+          if (!entry || !entry.runId) {
+            this.showToast('No detail', 'No run detail available for this item.', 'warning');
+            return;
+          }
+          this.runDetailOpen = true;
+          this.runDetailLoading = true;
+          this.runDetailError = '';
+          this.runDetail = null;
+          try {
+            const qs = entry.runKind === 'manager' ? '?type=manager' : '';
+            this.runDetail = await this.request(`/api/activity/${encodeURIComponent(entry.runId)}${qs}`);
+          } catch (err) {
+            this.runDetailError = err.message || 'Could not load run detail.';
+          } finally {
+            this.runDetailLoading = false;
+          }
+        },
+
+        closeRunDetail() {
+          this.runDetailOpen = false;
+          this.runDetail = null;
+          this.runDetailError = '';
+        },
+
+        runDetailGoToEntity() {
+          const d = this.runDetail;
+          if (d && d.entityRoute) { this.closeRunDetail(); this.goTo(d.entityRoute); }
+        },
+
+        runDetailGoToTrigger() {
+          const r = this.runDetail && this.runDetail.trigger;
+          if (r && r.route) { this.closeRunDetail(); this.goTo(r.route); }
         },
 
         // --- Model settings methods ---
@@ -7737,6 +8711,112 @@
           return [...this.data.chats].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
         },
 
+        // Group conversations by their target manager/agent so the sidebar is
+        // navigable per-owner. Groups are ordered by most-recent activity, and
+        // threads within a group are ordered newest-first.
+        chatGroups() {
+          const map = new Map();
+          for (const chat of this.data.chats) {
+            const key = chat.targetType + ':' + chat.target;
+            if (!map.has(key)) {
+              const name = chat.targetType === 'manager'
+                ? (this.data.managers.find((m) => m.id === chat.target)?.name || chat.target)
+                : (this.data.agents.find((a) => a.id === chat.target)?.name || chat.target);
+              map.set(key, { key, targetType: chat.targetType, target: chat.target, name, icon: chat.targetType === 'manager' ? '👔' : '🤖', chats: [] });
+            }
+            map.get(key).chats.push(chat);
+          }
+          const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
+          const groups = [...map.values()];
+          for (const g of groups) g.chats.sort((a, b) => ts(b) - ts(a));
+          groups.sort((a, b) => Math.max(...b.chats.map(ts)) - Math.max(...a.chats.map(ts)));
+          return groups;
+        },
+
+        // Groups after applying the search filter. Matching a group name keeps
+        // all its threads; otherwise only threads whose title matches survive.
+        visibleChatGroups() {
+          const q = this.chatSearch.trim().toLowerCase();
+          const groups = this.chatGroups();
+          if (!q) return groups;
+          return groups
+            .map((g) => {
+              if (g.name.toLowerCase().includes(q)) return g;
+              const chats = g.chats.filter((c) => (c.title || '').toLowerCase().includes(q));
+              return { ...g, chats };
+            })
+            .filter((g) => g.chats.length);
+        },
+
+        // While searching, every group is forced open so matches are visible;
+        // otherwise respect the per-group collapse state (open by default).
+        isGroupOpen(group) {
+          if (this.chatSearch.trim()) return true;
+          return !this.chatGroupCollapsed[group.key];
+        },
+
+        // A title is "default" (auto-upgradeable) when it is still the generated
+        // "Chat with X" / "Chat with X #N" placeholder.
+        isDefaultChatTitle(t) {
+          return !t || /^Chat with /i.test(String(t));
+        },
+
+        // After a thread has a real user+assistant exchange, ask the model once
+        // for a concise topic title. Guarded so it runs a single time per thread.
+        async maybeAutoTitle(chat) {
+          if (!chat || !this.isDefaultChatTitle(chat.title)) return;
+          const msgs = chat.messages || [];
+          if (!msgs.some((m) => m.role === 'user') || !msgs.some((m) => m.role && m.role !== 'user')) return;
+          this._titling = this._titling || {};
+          if (this._titling[chat.id]) return;
+          this._titling[chat.id] = true;
+          try {
+            const r = await this.request(`/api/chats/${encodeURIComponent(chat.id)}/autotitle`, { method: 'POST', body: JSON.stringify({}) });
+            if (r && r.title) {
+              const idx = this.data.chats.findIndex((c) => c.id === chat.id);
+              if (idx >= 0) this.data.chats[idx] = { ...this.data.chats[idx], title: r.title };
+              if (this.activeChat && this.activeChat.id === chat.id) this.activeChat.title = r.title;
+            }
+          } catch { /* keep the flag set so we don't hammer a failing title call */ }
+        },
+
+        // Manual rename from the chat header (auto-titles can be imperfect).
+        async renameChat(chat) {
+          if (!chat) return;
+          const next = window.prompt('Rename conversation', chat.title || '');
+          if (next == null) return;
+          const title = next.trim();
+          if (!title || title === chat.title) return;
+          try {
+            await this.request(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'PATCH', body: JSON.stringify({ title }) });
+            const idx = this.data.chats.findIndex((c) => c.id === chat.id);
+            if (idx >= 0) this.data.chats[idx] = { ...this.data.chats[idx], title };
+            if (this.activeChat && this.activeChat.id === chat.id) this.activeChat.title = title;
+          } catch (e) { this.showToast('Rename failed', e.message, 'error'); }
+        },
+
+        // Force a fresh AI-generated title for the active conversation.
+        async regenChatTitle(chat) {
+          if (!chat || this.titlingChatId) return;
+          this.titlingChatId = chat.id;
+          try {
+            const r = await this.request(`/api/chats/${encodeURIComponent(chat.id)}/autotitle`, { method: 'POST', body: JSON.stringify({ force: true }) });
+            if (r && r.title) {
+              const idx = this.data.chats.findIndex((c) => c.id === chat.id);
+              if (idx >= 0) this.data.chats[idx] = { ...this.data.chats[idx], title: r.title };
+              if (this.activeChat && this.activeChat.id === chat.id) this.activeChat.title = r.title;
+              if (r.unchanged) this.showToast('Title unchanged', 'The model returned the same title.', 'info');
+              else this.showToast('Title updated', r.title, 'success');
+            } else {
+              this.showToast('No title generated', 'The conversation may not have enough content yet.', 'warning');
+            }
+          } catch (e) {
+            this.showToast('Auto-title failed', e.message, 'error');
+          } finally {
+            this.titlingChatId = null;
+          }
+        },
+
         async openOrCreateChat(targetType, target) {
           const existing = this.data.chats.find((chat) => chat.targetType === targetType && chat.target === target);
           if (existing) {
@@ -7744,6 +8824,239 @@
             return;
           }
           return this._createChatThread(targetType, target);
+        },
+
+        // Launch a real interactive Copilot CLI terminal wired with this agent's
+        // org (plugins/skills/MCP). The server pins a session UUID; the terminal
+        // conversation mirrors back into a read-only source:'cli' chat.
+        async openAgentCliSession(agentId) {
+          try {
+            this.showToast('Opening CLI…', 'Launching a Copilot CLI terminal for this agent.', 'info');
+            const r = await this.request(`/api/agents/${encodeURIComponent(agentId)}/cli-session`, { method: 'POST' });
+            if (r && r.chatId) {
+              // Refresh the chat list so the new mirror appears grouped under the agent.
+              try { this.data.chats = await this.request('/api/chats'); } catch { /* ignore */ }
+              this.showToast('CLI session started', 'A terminal window opened. This chat mirrors the conversation live.', 'success');
+              this.goTo(`#/chat/${r.chatId}`);
+            }
+          } catch (error) {
+            this.showToast('CLI launch failed', error.message, 'error');
+          }
+        },
+
+        startCliPoll(chatId) {
+          this.stopCliPoll();
+          this._cliPollTimer = setInterval(() => this.refreshCliChat(chatId), 3000);
+        },
+
+        stopCliPoll() {
+          if (this._cliPollTimer) { clearInterval(this._cliPollTimer); this._cliPollTimer = null; }
+        },
+
+        async refreshCliChat(chatId) {
+          // Self-clean if the user navigated away from this CLI chat.
+          if ((this.route !== 'chat' && this.route !== 'chat-detail') || !this.activeChat || this.activeChat.id !== chatId || this.activeChat.source !== 'cli') {
+            this.stopCliPoll();
+            return;
+          }
+          try {
+            const updated = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
+            if (!this.activeChat || this.activeChat.id !== chatId) return;
+            const prevCount = (this.activeChat.messages || []).length;
+            this.activeChat = updated;
+            if ((updated.messages || []).length !== prevCount) {
+              this.$nextTick(() => {
+                const el = document.querySelector('.chat-main-messages');
+                if (el) el.scrollTop = el.scrollHeight;
+              });
+              this.maybeAutoTitle(this.activeChat);
+            }
+          } catch { /* transient — keep polling */ }
+        },
+
+        // ===== CLI Sessions page =====
+        async loadCliSessions(force = false) {
+          // Instant hydrate from localStorage so navigating to the page never blocks.
+          if (!this.cliSessions.length) {
+            try {
+              const c = JSON.parse(localStorage.getItem('cliSessionsCache') || 'null');
+              if (c && Array.isArray(c.data)) this.cliSessions = c.data;
+            } catch {}
+          }
+          const hadData = this.cliSessions.length > 0;
+          this.cliSessionsLoading = force ? false : !hadData;
+          this.cliSessionsRefreshing = hadData || force;
+          try {
+            const data = await this.request('/api/cli/sessions');
+            this.cliSessions = data;
+            this._cliFilterCache = null;
+            try { localStorage.setItem('cliSessionsCache', JSON.stringify({ at: Date.now(), data })); } catch {}
+          } catch (e) {
+            if (!hadData) { this.cliSessions = []; this.showToast('Failed to load sessions', e.message, 'error'); }
+          } finally {
+            this.cliSessionsLoading = false;
+            this.cliSessionsRefreshing = false;
+          }
+        },
+
+        cliAgentFacets() {
+          const counts = new Map();
+          for (const s of this.cliSessions) {
+            const k = s.agentName || '';
+            counts.set(k, (counts.get(k) || 0) + 1);
+          }
+          const arr = [];
+          let noneCount = 0;
+          for (const [name, count] of counts.entries()) {
+            if (name) arr.push({ name, count }); else noneCount = count;
+          }
+          arr.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+          if (noneCount) arr.push({ name: '__none__', label: 'Ad-hoc / no agent', count: noneCount });
+          return arr;
+        },
+
+        cliFolderFacets() {
+          const counts = new Map();
+          for (const s of this.cliSessions) {
+            const k = (s.cwd || '').trim();
+            if (!k) continue;
+            counts.set(k, (counts.get(k) || 0) + 1);
+          }
+          const arr = [];
+          for (const [name, count] of counts.entries()) arr.push({ name, label: name, count });
+          arr.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+          return arr;
+        },
+
+        filteredCliSessions() {
+          const q = (this.cliSessionSearch || '').trim().toLowerCase();
+          const af = this.cliAgentFilter;
+          const ff = this.cliFolderFilter;
+          const sig = q + '|' + af + '|' + ff + '|' + this.cliSessions.length;
+          if (this._cliFilterCache && this._cliFilterCache.sig === sig) return this._cliFilterCache.result;
+          let list = this.cliSessions;
+          if (af === '__none__') list = list.filter(s => !s.agentName);
+          else if (af) list = list.filter(s => (s.agentName || '') === af);
+          if (ff) list = list.filter(s => (s.cwd || '') === ff);
+          if (q) list = list.filter(s =>
+            (s.title || '').toLowerCase().includes(q) ||
+            (s.agentName || '').toLowerCase().includes(q) ||
+            (s.cwd || '').toLowerCase().includes(q) ||
+            (s.repository || '').toLowerCase().includes(q));
+          this._cliFilterCache = { sig, result: list };
+          return list;
+        },
+
+        pagedCliSessions() {
+          return this.filteredCliSessions().slice(0, this.cliVisibleCount);
+        },
+
+        async resumeCliSession(session) {
+          try {
+            await this.request(`/api/sessions/${encodeURIComponent(session.id)}/terminal`, {
+              method: 'POST',
+              body: JSON.stringify({ cwd: session.cwd || undefined })
+            });
+            this.showToast('Resuming session', 'A terminal window is opening to continue this session.', 'success');
+          } catch (e) {
+            this.showToast('Resume failed', e.message, 'error');
+          }
+        },
+
+        async summarizeCliSession(session, force = false) {
+          this.summarizingSessionId = session.id;
+          try {
+            const r = await this.request(`/api/cli/sessions/${encodeURIComponent(session.id)}/summarize`, {
+              method: 'POST',
+              body: JSON.stringify({ force })
+            });
+            const idx = this.cliSessions.findIndex(s => s.id === session.id);
+            if (idx >= 0) {
+              this.cliSessions[idx].summary = r.summary;
+              this.cliSessions[idx].summaryAt = r.generatedAt;
+            }
+          } catch (e) {
+            this.showToast('Summarize failed', e.message, 'error');
+          } finally {
+            this.summarizingSessionId = null;
+          }
+        },
+
+        // ===== Agent / Plugin Updates page =====
+        async loadUpdates() {
+          this.updatesLoading = true;
+          try {
+            this.updatesList = await this.request('/api/updates/inventory');
+            this.updateChecks = {};
+            // Kick off update checks for checkable items in the background.
+            this.checkAllUpdates();
+          } catch (e) {
+            this.updatesList = [];
+            this.showToast('Failed to load inventory', e.message, 'error');
+          } finally {
+            this.updatesLoading = false;
+          }
+        },
+
+        async checkUpdate(item) {
+          if (!item.checkable) return;
+          this.updateChecks[item.id] = { status: 'checking' };
+          try {
+            const r = await this.request(`/api/agents/${encodeURIComponent(item.id)}/check-update`);
+            this.updateChecks[item.id] = {
+              status: r.upToDate ? 'current' : 'available',
+              reason: r.reason,
+              currentObjectId: r.currentObjectId || null,
+              diffs: r.diffs || null
+            };
+          } catch (e) {
+            this.updateChecks[item.id] = { status: 'error', error: e.message };
+          }
+        },
+
+        async checkAllUpdates() {
+          this.updatesChecking = true;
+          try {
+            const targets = this.updatesList.filter(i => i.checkable);
+            await Promise.all(targets.map(i => this.checkUpdate(i)));
+          } finally {
+            this.updatesChecking = false;
+          }
+        },
+
+        updateStatusFor(item) {
+          const c = this.updateChecks[item.id];
+          if (!c) return item.checkable ? { label: '—', cls: '' } : { label: 'Not tracked', cls: 'muted' };
+          if (c.status === 'checking') return { label: 'Checking…', cls: 'muted' };
+          if (c.status === 'current') return { label: '✓ Up to date', cls: 'ok' };
+          if (c.status === 'available') return { label: '⬆ Update available', cls: 'warn' };
+          if (c.status === 'error') return { label: 'Check failed', cls: 'muted' };
+          return { label: '—', cls: '' };
+        },
+
+        async reinstallUpdate(item) {
+          this.reinstallingUpdateId = item.id;
+          try {
+            await this.request(`/api/agents/${encodeURIComponent(item.id)}/reinstall`, { method: 'POST' });
+            this.showToast('Reinstalled', `${item.name} was reinstalled from its source.`, 'success');
+            await this.loadUpdates();
+          } catch (e) {
+            this.showToast('Reinstall failed', e.message, 'error');
+          } finally {
+            this.reinstallingUpdateId = null;
+          }
+        },
+
+        async summarizeUpdateChanges(item) {
+          this.summarizingUpdateId = item.id;
+          try {
+            const r = await this.request(`/api/updates/${encodeURIComponent(item.id)}/summarize-changes`, { method: 'POST' });
+            this.updateChangeSummaries = { ...this.updateChangeSummaries, [item.id]: { text: r.summary, files: r.files || r.changedFiles || [], at: new Date().toISOString() } };
+          } catch (e) {
+            this.showToast('Summarize failed', e.message, 'error');
+          } finally {
+            this.summarizingUpdateId = null;
+          }
         },
 
         async _createChatThread(targetType, target) {
@@ -7841,6 +9154,9 @@
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
             this.activeChat = chat;
             if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
+            // CLI-backed chats mirror an interactive terminal — poll for new turns.
+            this.stopCliPoll();
+            if (chat.source === 'cli') this.startCliPoll(chatId);
             // Auto-scroll to bottom of chat
             this.$nextTick(() => {
               const el = document.querySelector('.chat-main-messages');
@@ -7878,6 +9194,8 @@
                 delete this._recoveryInProgress[chatId];
               }
             }
+            // Once the thread has a real exchange, upgrade its default title.
+            this.maybeAutoTitle(this.activeChat);
           } catch (error) {
             this.showToast('Chat failed', error.message, 'error');
           }
@@ -9859,6 +11177,39 @@
           }
           return c;
         },
+        // Total catalog items contributed by a source (from its scan counts).
+        mktSrcCount(src) {
+          const c = (src && src.counts) || {};
+          return (c.agent || 0) + (c.plugin || 0) + (c.skill || 0) + (c.mcp || 0);
+        },
+        // Total items across all sources of a kind ('all' | 'local' | 'azdo').
+        mktKindTotal(kind) {
+          return (this.mkt.sources || [])
+            .filter(s => kind === 'all' || s.kind === kind)
+            .reduce((n, s) => n + this.mktSrcCount(s), 0);
+        },
+        // Unified source dropdown handler: maps the single selection onto the
+        // server-side source filter (activeSourceId) + client-side kind filter.
+        applyMktSource() {
+          const v = this.mkt.sourceSel;
+          if (v === 'installed') {
+            this.mkt.activeSourceId = 'installed';
+            this.mkt.sourceKindFilter = 'all';
+          } else if (v === 'kind:local') {
+            this.mkt.activeSourceId = null;
+            this.mkt.sourceKindFilter = 'local';
+          } else if (v === 'kind:azdo') {
+            this.mkt.activeSourceId = null;
+            this.mkt.sourceKindFilter = 'azdo';
+          } else if (v && v.startsWith('src:')) {
+            this.mkt.activeSourceId = v.slice(4);
+            this.mkt.sourceKindFilter = 'all';
+          } else {
+            this.mkt.activeSourceId = null;
+            this.mkt.sourceKindFilter = 'all';
+          }
+          this.loadMarketplaceCatalog();
+        },
         async loadMarketplace() {
           try {
             const r = await this.request('/api/marketplace/sources');
@@ -9969,7 +11320,7 @@
           if (!confirm('Remove this source? Its catalog cache is cleared (installed items stay).')) return;
           try {
             await this.request(`/api/marketplace/sources/${encodeURIComponent(id)}`, { method: 'DELETE' });
-            if (this.mkt.activeSourceId === id) this.mkt.activeSourceId = null;
+            if (this.mkt.activeSourceId === id) { this.mkt.activeSourceId = null; this.mkt.sourceSel = 'all'; }
             await this.loadMarketplace();
           } catch (e) { this.showToast('Remove failed', e.message || 'Remove failed', 'error'); }
         },

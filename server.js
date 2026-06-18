@@ -1533,6 +1533,74 @@ app.post('/api/agents/:id/chat', (req, res) => {
   res.json({ ok: true, started: true, sessionId, existingSessionId: existingSessionId || null });
 });
 
+// Open a real, interactive `copilot` CLI terminal for an agent and bind it to a
+// chat in our system. We pin a fresh session UUID via --session-id so the CLI
+// writes events to ~/.copilot/session-state/<uuid>/events.jsonl, which we mirror
+// back into a source:'cli' chat (read-only). The agent's plugin/package/project
+// wiring is resolved by sdk-runner so the terminal boots with the same org.
+function launchAgentCliSession(agentEntry) {
+  const sessionId = crypto.randomUUID();
+  const { args, cwd, agent } = sdkRunner.resolveCliLaunch(agentEntry.config);
+  const copilotPath = process.env.COPILOT_PATH || 'copilot';
+  const launchArgs = ['--session-id', sessionId, '--banner', ...args];
+  const os = require('os');
+  // Batch-file quoting: wrap any token with whitespace/quotes.
+  const q = (a) => (/[\s"]/.test(String(a)) ? '"' + String(a).replace(/"/g, '\\"') + '"' : String(a));
+  // copilot is a .cmd shim; invoke via `call` so the launcher window survives it.
+  const cmdLine = 'call ' + q(copilotPath) + ' ' + launchArgs.map(q).join(' ');
+  const title = ('Copilot CLI - ' + (agent || agentEntry.config.name || 'agent')).replace(/[\r\n]/g, ' ');
+  const launcher = path.join(os.tmpdir(), `cli-session-${sessionId}.cmd`);
+  const body = [
+    '@echo off',
+    'title ' + title,
+    'cd /d ' + q(cwd),
+    'echo Copilot CLI session ' + sessionId,
+    'echo Agent: ' + (agent || '(default)'),
+    'echo.',
+    cmdLine,
+    'echo.',
+    'echo [session ended - press any key to close]',
+    'pause >nul'
+  ].join('\r\n') + '\r\n';
+  fs.writeFileSync(launcher, body);
+  const { spawn } = require('child_process');
+  spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', launcher], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+  return { sessionId, args: launchArgs, cwd, agent, launcher };
+}
+
+app.post('/api/agents/:id/cli-session', (req, res) => {
+  const agentEntry = supervisor.agents.get(req.params.id);
+  if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
+  let launch;
+  try {
+    launch = launchAgentCliSession(agentEntry);
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to launch CLI session: ' + e.message });
+  }
+  const name = agentEntry.config.name || agentEntry.config.agent || req.params.id;
+  const chatId = `agent-${String(req.params.id).replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-cli-${Date.now().toString(36)}`;
+  const now = new Date().toISOString();
+  const chat = {
+    id: chatId,
+    title: `${name} · CLI session`,
+    target: req.params.id,
+    targetType: 'agent',
+    source: 'cli',
+    cliSessionId: launch.sessionId,
+    cwd: launch.cwd,
+    messages: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  try {
+    fs.writeFileSync(path.join(CHATS_DIR, `${chatId}.json`), JSON.stringify(chat, null, 2));
+  } catch (e) {
+    return res.status(500).json({ error: 'CLI launched but failed to save chat: ' + e.message });
+  }
+  broadcastSSE('chat-created', { chatId, target: req.params.id, targetType: 'agent' });
+  res.json({ ok: true, chatId, sessionId: launch.sessionId, agent: launch.agent, cwd: launch.cwd });
+});
+
 // Find the chat session for an agent. Prefers the pinned id tracked when chat
 // started; falls back to a legacy session-dir scan for sessions created before
 // this server started (e.g. external/older sessions).
@@ -3028,6 +3096,65 @@ function readSessionConversation(sessionDir, opts = {}) {
   return { turns, summary, sessionMeta, tokenStats };
 }
 
+// Convert readSessionConversation() step objects (tool/tool_start/comment) into
+// the {type,label,text} activity shape the chat message renderer expects.
+function cliStepsToActivity(steps) {
+  const out = [];
+  for (const s of steps || []) {
+    if (s.type === 'comment') {
+      out.push({ type: 'thinking', label: '💬 Note', text: String(s.content || '').slice(0, 4000) });
+    } else {
+      const ok = s.success !== false;
+      const name = s.tool || 'tool';
+      let text = '';
+      if (s.args) {
+        try { text = typeof s.args === 'string' ? s.args : JSON.stringify(s.args); } catch { text = ''; }
+      }
+      if (!text && s.result) text = String(s.result).slice(0, 1500);
+      out.push({ type: ok ? 'tool' : 'error', label: '🔧 ' + name + (ok ? ' ✓' : ' ✗'), text: String(text).slice(0, 2000) });
+    }
+  }
+  return out;
+}
+
+// Flatten parsed session turns into chat messages (user + assistant pairs).
+function cliTurnsToMessages(turns) {
+  const msgs = [];
+  for (const t of turns || []) {
+    if (t.content) msgs.push({ role: 'user', content: t.content, timestamp: t.timestamp });
+    if (t.assistant || (t.steps && t.steps.length)) {
+      const m = { role: 'assistant', content: t.assistant || '', timestamp: t.timestamp, model: t.model || '' };
+      const act = cliStepsToActivity(t.steps);
+      if (act.length) m.activity = act;
+      msgs.push(m);
+    }
+  }
+  return msgs;
+}
+
+// Mirror a CLI-backed chat's bound copilot session (events.jsonl) into the
+// chat's messages[] so the read-only SPA view reflects the live terminal.
+// Returns the (possibly updated) chat object.
+function syncCliChat(chat) {
+  if (!chat || chat.source !== 'cli' || !chat.cliSessionId) return chat;
+  const dir = path.join(STATE_DIR, chat.cliSessionId);
+  if (!fs.existsSync(dir)) return chat;
+  let conv;
+  try { conv = readSessionConversation(dir); } catch { return chat; }
+  const msgs = cliTurnsToMessages(conv.turns || []);
+  const prevLen = (chat.messages || []).length;
+  const prevLast = JSON.stringify((chat.messages || [])[prevLen - 1] || null);
+  const newLast = JSON.stringify(msgs[msgs.length - 1] || null);
+  const changed = msgs.length !== prevLen || newLast !== prevLast;
+  if (!changed) return chat;
+  chat.messages = msgs;
+  chat.updatedAt = new Date().toISOString();
+  if (conv.sessionMeta && conv.sessionMeta.agent && !chat.agentName) chat.agentName = conv.sessionMeta.agent;
+  try { fs.writeFileSync(path.join(CHATS_DIR, `${chat.id}.json`), JSON.stringify(chat, null, 2)); } catch { /* ignore */ }
+  broadcastSSE('chat-message', { chatId: chat.id, message: msgs[msgs.length - 1] || null });
+  return chat;
+}
+
 app.get('/api/sessions', (req, res) => {
   const hoursBack = parseInt(req.query.hours) || 24;
   const cutoff = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
@@ -3245,6 +3372,330 @@ app.post('/api/terminal/open', (req, res) => {
   fs.writeFileSync(batPath, batContent);
   exec(`start "Copilot Session" "${batPath}"`);
   res.json({ ok: true });
+});
+
+// ============ CLI Sessions page ============
+// Lists every known Copilot CLI/SDK session (workspace.yaml present), with a
+// derived title and any cached AI summary. "Resume" reuses the existing
+// POST /api/sessions/:id/terminal endpoint above.
+const SPA_SUMMARY_FILE = '.spa-summary.json';
+// Incremental in-memory cache for the CLI sessions list. Keyed by session dir name;
+// each value is { sig, entry } where sig is a composite of file mtimes. Repeat loads
+// reuse entries whose underlying files are unchanged, so the page loads instantly.
+const _cliSessCache = new Map();
+
+function deriveSessionTitle(meta, agentName, lastUser) {
+  if (meta && meta.name && meta.name !== '(unnamed)' && String(meta.name).trim()) return String(meta.name).trim();
+  const t = String(lastUser || '').replace(/\s+/g, ' ').trim();
+  if (t) return t.length > 70 ? t.slice(0, 70) + '…' : t;
+  if (agentName) return agentName + ' run';
+  return '(untitled session)';
+}
+
+app.get('/api/cli/sessions', (req, res) => {
+  try {
+    if (!fs.existsSync(SESSION_STATE_DIR)) return res.json([]);
+    const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true }).filter(d => d.isDirectory());
+    const out = [];
+    const seen = new Set();
+    for (const d of dirs) {
+      const full = path.join(SESSION_STATE_DIR, d.name);
+      let stat; try { stat = fs.statSync(full); } catch { continue; }
+      seen.add(d.name);
+      // Cheap signature from file mtimes; skip the expensive parse if unchanged.
+      const ep = path.join(full, 'events.jsonl');
+      const sp = path.join(full, SPA_SUMMARY_FILE);
+      let epm = 0, spm = 0;
+      try { epm = fs.statSync(ep).mtimeMs; } catch {}
+      try { spm = fs.statSync(sp).mtimeMs; } catch {}
+      const sig = `${stat.mtimeMs}:${epm}:${spm}`;
+      const cached = _cliSessCache.get(d.name);
+      if (cached && cached.sig === sig) { out.push(cached.entry); continue; }
+      const meta = readSessionMeta(full);
+      if (!meta) continue; // require workspace.yaml
+      let turnCount = 0, agentName = '', lastUser = '';
+      if (epm) {
+        try {
+          for (const line of fs.readFileSync(ep, 'utf-8').split('\n')) {
+            if (!line) continue;
+            const ev = JSON.parse(line);
+            if (ev.type === 'user.message') { turnCount++; if (ev.data && ev.data.content) lastUser = String(ev.data.content); }
+            else if (ev.type === 'subagent.selected' && ev.data && ev.data.agentDisplayName) agentName = ev.data.agentDisplayName;
+            else if (ev.type === 'session.start' && ev.data && ev.data.context && ev.data.context.agentName && !agentName) agentName = ev.data.context.agentName;
+          }
+        } catch {}
+      }
+      let summary = null, summaryAt = null;
+      if (spm) { try { const s = JSON.parse(fs.readFileSync(sp, 'utf-8')); summary = s.summary; summaryAt = s.generatedAt; } catch {} }
+      const entry = {
+        id: meta.id,
+        title: deriveSessionTitle(meta, agentName, lastUser),
+        agentName,
+        cwd: meta.cwd,
+        repository: meta.repository,
+        branch: meta.branch,
+        client: meta.client,
+        turnCount,
+        lastUserPreview: lastUser.replace(/\s+/g, ' ').trim().slice(0, 160),
+        createdAt: meta.createdAt,
+        lastModified: stat.mtime.toISOString(),
+        summary,
+        summaryAt
+      };
+      _cliSessCache.set(d.name, { sig, entry });
+      out.push(entry);
+    }
+    // Drop cache entries for sessions that no longer exist.
+    if (_cliSessCache.size > seen.size) {
+      for (const k of _cliSessCache.keys()) if (!seen.has(k)) _cliSessCache.delete(k);
+    }
+    out.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Generate (or return cached) a brief AI summary of a session. Cached on disk so
+// it persists and is cheap to re-fetch. Pass {force:true} to regenerate.
+app.post('/api/cli/sessions/:id/summarize', async (req, res) => {
+  const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
+  if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+  const force = !!(req.body && req.body.force);
+  const sp = path.join(sessionDir, SPA_SUMMARY_FILE);
+  if (!force && fs.existsSync(sp)) {
+    try { const s = JSON.parse(fs.readFileSync(sp, 'utf-8')); return res.json({ summary: s.summary, generatedAt: s.generatedAt, cached: true }); } catch {}
+  }
+  let conv;
+  try { conv = readSessionConversation(sessionDir); } catch (e) { return res.status(500).json({ error: 'read failed: ' + e.message }); }
+  const turns = (conv && conv.turns) || [];
+  const lines = [];
+  for (const t of turns.slice(-30)) {
+    if (t.content) lines.push('USER: ' + String(t.content).replace(/\s+/g, ' ').trim().slice(0, 600));
+    if (t.assistant) lines.push('ASSISTANT: ' + String(t.assistant).replace(/\s+/g, ' ').trim().slice(0, 600));
+  }
+  // Fallback for agent-run sessions: user.message has no inline content (prompt is
+  // delivered via file), so readSessionConversation() yields no turns. Pull the raw
+  // assistant messages, the kickoff prompt, and tool activity straight from the log.
+  if (!lines.length) {
+    try {
+      const ep = path.join(sessionDir, 'events.jsonl');
+      if (fs.existsSync(ep)) {
+        const tools = [];
+        for (const ln of fs.readFileSync(ep, 'utf-8').split('\n')) {
+          if (!ln) continue;
+          let ev; try { ev = JSON.parse(ln); } catch { continue; }
+          const d = ev.data || {};
+          if (ev.type === 'session.start' && d.context && d.context.agentName) lines.push('AGENT: ' + d.context.agentName);
+          else if (ev.type === 'subagent.selected' && (d.agentDisplayName || d.agentName)) lines.push('AGENT: ' + (d.agentDisplayName || d.agentName));
+          else if (ev.type === 'user.message' && d.content) lines.push('PROMPT: ' + String(d.content).replace(/\s+/g, ' ').trim().slice(0, 800));
+          else if (ev.type === 'assistant.message' && d.content) lines.push('ASSISTANT: ' + String(d.content).replace(/\s+/g, ' ').trim().slice(0, 800));
+          else if (ev.type === 'tool.execution_start' && d.toolName) tools.push(d.toolName);
+        }
+        if (tools.length) {
+          const counts = {};
+          for (const t of tools) counts[t] = (counts[t] || 0) + 1;
+          const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => v > 1 ? `${k}×${v}` : k);
+          lines.push('TOOLS USED: ' + top.join(', '));
+        }
+      }
+    } catch {}
+  }
+  if (!lines.length) return res.status(400).json({ error: 'No conversation content to summarize' });
+  const transcript = lines.join('\n').slice(0, 9000);
+  const prompt = [
+    'Summarize the following Copilot CLI session in 2-4 sentences.',
+    'Focus on: what the user was trying to do, what was accomplished, and the current state or any next steps.',
+    'Be concrete and specific. Plain prose, no preamble, no bullet list, no surrounding quotes.',
+    '',
+    'Transcript:',
+    transcript,
+    '',
+    'Summary:'
+  ].join('\n');
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    let summary = (acc.trim() || (result && result.output) || '').trim();
+    if (!summary) return res.status(500).json({ error: 'Empty summary returned' });
+    const payload = { summary, generatedAt: new Date().toISOString(), turnCount: turns.length };
+    try { fs.writeFileSync(sp, JSON.stringify(payload, null, 2)); } catch {}
+    res.json({ summary, generatedAt: payload.generatedAt, cached: false });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'summarize failed' }); }
+});
+
+// ============ Agent / Plugin Updates page ============
+// A single normalized inventory of every installed agent/plugin with its origin,
+// type, last-updated time, and commit id. Update-availability is checked per-row
+// by the existing GET /api/agents/:id/check-update; reinstall via POST .../reinstall.
+app.get('/api/updates/inventory', (req, res) => {
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const out = agents.map(a => {
+      const s = a.source || null;
+      const kind = (s && s.kind) || (a.pluginDir ? 'plugin' : 'agent');
+      const originType = (s && s.type) || (a.pluginDir ? 'local' : 'builtin');
+      let originLabel = 'Local project';
+      let sourceDetail = '';
+      if (s && s.type === 'azdo') {
+        originLabel = `${s.org}/${s.project}/${s.repo}`;
+        sourceDetail = `${s.repo}@${s.branch} · ${s.path}`;
+      } else if (s && s.type === 'local') {
+        originLabel = 'Local folder';
+        sourceDetail = s.path || a.pluginDir || a.cwd || '';
+      } else if (a.pluginDir) {
+        originLabel = 'Local plugin';
+        sourceDetail = a.pluginDir;
+      } else if (a.cwd) {
+        originLabel = 'Local project';
+        sourceDetail = a.cwd;
+      }
+      let lastUpdated = (s && s.installedAt) || null;
+      if (!lastUpdated) {
+        const probe = a.pluginDir || a.cwd;
+        if (probe) { try { if (fs.existsSync(probe)) lastUpdated = fs.statSync(probe).mtime.toISOString(); } catch {} }
+      }
+      return {
+        id: a.id,
+        name: a.name || a.id,
+        kind,
+        originType,
+        originLabel,
+        sourceDetail,
+        lastUpdated,
+        commitId: (s && s.objectId) || null,
+        reinstallable: !!(s || a.pluginDir),
+        checkable: !!((s && s.type === 'azdo') || a.pluginDir || a.sourceDir)
+      };
+    });
+    out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Summarize what an available update would change for an agent/plugin. Gathers a
+// textual diff of the installed files vs. the newest source (azdo repo or local
+// source folder), then asks the LLM for a 1-3 sentence description of the changes.
+const TEXT_EXTS = new Set(['.md', '.markdown', '.json', '.yml', '.yaml', '.txt', '.js', '.ts', '.py', '.ps1', '.sh']);
+function isTextFile(p) { return TEXT_EXTS.has(path.extname(p).toLowerCase()); }
+function readTextSafe(p) { try { return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : ''; } catch { return ''; } }
+function lineDiff(oldText, newText) {
+  const oldLines = String(oldText || '').split('\n');
+  const newLines = String(newText || '').split('\n');
+  const oldSet = new Set(oldLines);
+  const newSet = new Set(newLines);
+  const added = newLines.filter(l => l.trim() && !oldSet.has(l));
+  const removed = oldLines.filter(l => l.trim() && !newSet.has(l));
+  return { added, removed };
+}
+
+app.post('/api/updates/:id/summarize-changes', async (req, res) => {
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const agent = agents.find(a => a.id === req.params.id);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+    const s = agent.source || null;
+    const files = []; // { path, added:[], removed:[] }
+
+    if (s && s.type === 'azdo') {
+      // Collect repo blob paths under the source path, fetch new content, diff vs installed.
+      let blobs = [];
+      try {
+        const tree = await azdo.getTree(s.org, s.project, s.repo, s.branch);
+        const base = '/' + String(s.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
+        blobs = tree.filter(it => {
+          const p = it.path || '';
+          return isTextFile(p) && (p === base || p.startsWith(base + '/') || p.startsWith(base));
+        });
+      } catch (e) { return res.status(502).json({ error: 'Could not read source repo: ' + e.message }); }
+      if (!blobs.length) {
+        // Agent definitions are often a single file at s.path.
+        if (isTextFile(s.path || '')) blobs = [{ path: '/' + String(s.path).replace(/^\/+/, '') }];
+      }
+      const installRoot = s.kind === 'plugin' ? (agent.pluginDir || agent.sourceDir) : agent.cwd;
+      for (const b of blobs.slice(0, 8)) {
+        const repoPath = b.path;
+        let newText = '';
+        try { newText = await azdo.getFileText(s.org, s.project, s.repo, s.branch, repoPath); } catch {}
+        // Map repo path to the installed file on disk.
+        let oldText = '';
+        if (installRoot) {
+          const baseClean = String(s.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
+          const rp = repoPath.replace(/^\/+/, '');
+          let rel = rp.startsWith(baseClean) ? rp.slice(baseClean.length).replace(/^\/+/, '') : path.basename(rp);
+          let candidate = path.join(installRoot, rel || path.basename(rp));
+          if (!fs.existsSync(candidate)) {
+            // Agents materialize under .github/agents/<file>.
+            const alt = path.join(installRoot, '.github', 'agents', path.basename(rp));
+            if (fs.existsSync(alt)) candidate = alt;
+          }
+          oldText = readTextSafe(candidate);
+        }
+        const d = lineDiff(oldText, newText);
+        if (d.added.length || d.removed.length) files.push({ path: repoPath, added: d.added, removed: d.removed });
+      }
+    } else {
+      // Local plugin/agent: compare source folder vs installed folder. Resolve the
+      // source the SAME way GET /api/agents/:id/check-update does, so an item that
+      // shows "update available" always has a source to diff against.
+      let sourceDir = agent.sourceDir || (s && s.path) || null;
+      const installDir = agent.pluginDir || agent.cwd || null;
+      if (!sourceDir && agent.pluginDir && String(agent.pluginDir).includes(PLUGINS_DIR)) {
+        const cand = path.join(agent.cwd || '', '.github', 'plugin', path.basename(agent.pluginDir));
+        if (fs.existsSync(cand)) sourceDir = cand;
+      }
+      if (!sourceDir || !installDir || path.resolve(sourceDir) === path.resolve(installDir)) {
+        return res.json({ summary: 'This item is installed directly from its source folder, so there are no pending changes to describe.', changedFiles: [], upToDate: true });
+      }
+      if (!fs.existsSync(sourceDir)) return res.json({ summary: 'The update source folder is no longer available.', changedFiles: [], upToDate: true });
+      const collect = (dir, prefix, acc) => {
+        try {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const rel = prefix ? `${prefix}/${e.name}` : e.name;
+            if (e.isDirectory()) collect(path.join(dir, e.name), rel, acc);
+            else if (isTextFile(e.name)) acc.push(rel);
+          }
+        } catch {}
+        return acc;
+      };
+      const relFiles = collect(sourceDir, '', []);
+      for (const rel of relFiles.slice(0, 12)) {
+        const newText = readTextSafe(path.join(sourceDir, rel));
+        const oldText = readTextSafe(path.join(installDir, rel));
+        if (newText === oldText) continue;
+        const d = lineDiff(oldText, newText);
+        if (d.added.length || d.removed.length) files.push({ path: rel, added: d.added, removed: d.removed });
+        if (files.length >= 8) break;
+      }
+    }
+
+    if (!files.length) {
+      return res.json({ summary: 'No content changes detected — this item appears up to date.', changedFiles: [], upToDate: true });
+    }
+
+    // Build a compact diff text for the LLM (cap size).
+    const parts = [];
+    for (const f of files) {
+      parts.push('FILE: ' + f.path);
+      for (const l of f.removed.slice(0, 25)) parts.push('- ' + l.trim().slice(0, 200));
+      for (const l of f.added.slice(0, 25)) parts.push('+ ' + l.trim().slice(0, 200));
+      parts.push('');
+    }
+    const diffText = parts.join('\n').slice(0, 9000);
+    const prompt = [
+      'Briefly describe what changed in this update to an AI agent/plugin, in 1-3 plain-prose sentences.',
+      'Focus on the substance of the changes (new capabilities, instruction tweaks, config or tool changes), not file mechanics.',
+      'No preamble, no bullet list, no surrounding quotes.',
+      '',
+      'Changed lines (- removed, + added):',
+      diffText,
+      '',
+      'Summary of changes:'
+    ].join('\n');
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const summary = (acc.trim() || (result && result.output) || '').trim();
+    if (!summary) return res.status(500).json({ error: 'Empty summary returned' });
+    res.json({ summary, changedFiles: files.map(f => f.path), upToDate: false });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'summarize-changes failed' }); }
 });
 
 // Export configuration as zip
@@ -4756,7 +5207,7 @@ app.get('/api/chats', (req, res) => {
   const chats = files.map(f => {
     try {
       const data = JSON.parse(fs.readFileSync(path.join(CHATS_DIR, f), 'utf-8'));
-      return { id: data.id, title: data.title, target: data.target, targetType: data.targetType, updatedAt: data.updatedAt, messageCount: (data.messages || []).length };
+      return { id: data.id, title: data.title, target: data.target, targetType: data.targetType, source: data.source || null, cliSessionId: data.cliSessionId || null, updatedAt: data.updatedAt, messageCount: (data.messages || []).length };
     } catch { return null; }
   }).filter(Boolean).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   res.json(chats);
@@ -4765,7 +5216,10 @@ app.get('/api/chats', (req, res) => {
 app.get('/api/chats/:id', (req, res) => {
   const chatFile = path.join(CHATS_DIR, `${req.params.id}.json`);
   if (!fs.existsSync(chatFile)) return res.status(404).json({ error: 'Chat not found' });
-  res.json(JSON.parse(fs.readFileSync(chatFile, 'utf-8')));
+  let chat = JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
+  // CLI-backed chats mirror an interactive copilot session — refresh on read.
+  if (chat.source === 'cli') chat = syncCliChat(chat);
+  res.json(chat);
 });
 
 app.post('/api/chats', (req, res) => {
@@ -4791,6 +5245,69 @@ app.post('/api/chats/:id/messages', (req, res) => {
   fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
   broadcastSSE('chat-message', { chatId: req.params.id, message: msg });
   res.json(msg);
+});
+
+// Rename a conversation (manual title edit from the UI).
+app.patch('/api/chats/:id', (req, res) => {
+  const chatFile = path.join(CHATS_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(chatFile)) return res.status(404).json({ error: 'Chat not found' });
+  const chat = JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
+  if (typeof req.body.title === 'string') {
+    const t = req.body.title.trim();
+    if (t) chat.title = t.slice(0, 120);
+  }
+  fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
+  broadcastSSE('chat-updated', { chatId: chat.id, title: chat.title });
+  res.json({ id: chat.id, title: chat.title });
+});
+
+// Ask the model for a short, topic-specific title once a conversation has a
+// real exchange. Default ("Chat with X") titles are auto-upgraded; an explicit
+// {force:true} regenerates regardless. Cheap one-shot — runs once per thread.
+app.post('/api/chats/:id/autotitle', async (req, res) => {
+  const chatFile = path.join(CHATS_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(chatFile)) return res.status(404).json({ error: 'Chat not found' });
+  const chat = JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
+  const force = !!(req.body && req.body.force);
+  if (!force && chat.title && !/^Chat with /i.test(chat.title)) {
+    return res.json({ title: chat.title, unchanged: true });
+  }
+  const firstUser = (chat.messages || []).find(m => m.role === 'user');
+  const firstAsst = (chat.messages || []).find(m => m.role && m.role !== 'user');
+  if (!firstUser) return res.status(400).json({ error: 'no user message yet' });
+  const userText = String(firstUser.content || '').slice(0, 1500);
+  const asstText = String((firstAsst && firstAsst.content) || '').slice(0, 800);
+  const prompt = [
+    'Generate a short, specific title summarizing the topic of this conversation.',
+    'Rules: 3 to 6 words, Title Case, no surrounding quotes, no trailing punctuation, no emojis.',
+    'Respond with ONLY the title text on a single line — nothing else.',
+    '',
+    'User message:',
+    userText,
+    asstText ? ('\nAssistant reply (context only):\n' + asstText) : '',
+    '',
+    'Title:'
+  ].join('\n');
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
+      onChunk: (c) => { acc += c; }
+    });
+    let title = (acc.trim() || result.output || '').trim();
+    title = (title.split('\n').map(s => s.trim()).filter(Boolean)[0] || '');
+    title = title.replace(/^["'`*#>\s]+/, '').replace(/["'`*\s]+$/, '').replace(/[.;:,]+$/, '').trim();
+    const words = title.split(/\s+/).filter(Boolean);
+    if (words.length > 10) title = words.slice(0, 10).join(' ');
+    if (title.length > 80) title = title.slice(0, 80).trim();
+    if (!title) return res.json({ title: chat.title, unchanged: true });
+    chat.title = title;
+    fs.writeFileSync(chatFile, JSON.stringify(chat, null, 2));
+    broadcastSSE('chat-updated', { chatId: chat.id, title });
+    res.json({ title });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'autotitle failed' });
+  }
 });
 
 app.delete('/api/chats/:id', (req, res) => {
@@ -4902,6 +5419,8 @@ app.get('/api/activity', (req, res) => {
         ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
         : null,
       output: (run.output || '').slice(0, 500),
+      runId: run.id,
+      taskId: run.task_id || null,
       triggeredBy: run.triggered_by || 'manual'
     });
   }
@@ -4922,7 +5441,9 @@ app.get('/api/activity', (req, res) => {
         duration: (run.started_at && run.finished_at)
           ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
           : null,
-        output: (run.result || '').slice(0, 500)
+        output: (run.result || '').slice(0, 500),
+        runId: run.id,
+        assignmentId: run.assignment_id || null
       });
     }
   } catch {}
@@ -4932,26 +5453,104 @@ app.get('/api/activity', (req, res) => {
   res.json(activities.slice(0, limit));
 });
 
-// Single run detail
+// Explain WHY a given agent run fired, from its stored attribution.
+// agent_runs only stamps triggered_by (event-trigger id) and task_id; an agent's
+// own schedule and the Run button / chat path leave both NULL. We translate that
+// into a human reason so the UI can answer "why did this run even though it isn't
+// scheduled?".
+function describeRunTrigger(row) {
+  // 1) Fired by a Task (scheduled or run on-demand from the Tasks page / a flow).
+  if (row.task_id) {
+    let task = null;
+    try { task = loadTasks().find(t => t.id === row.task_id) || null; } catch {}
+    const sched = task && task.schedule && task.schedule !== 'never' ? task.schedule : null;
+    return {
+      reason: 'task',
+      label: task ? `Task: ${task.name || task.id}` : `Task: ${row.task_id}`,
+      detail: sched
+        ? `Ran from the scheduled task "${task.name || row.task_id}" (${sched}).`
+        : `Ran from the task "${task ? (task.name || row.task_id) : row.task_id}", which has no schedule — so it was started on demand (Tasks page, a flow step, or an API call).`,
+      taskId: row.task_id,
+      route: '#/tasks'
+    };
+  }
+  // 2) Fired by an Event Listener trigger.
+  if (row.triggered_by) {
+    return {
+      reason: 'trigger',
+      label: `Event trigger: ${row.triggered_by}`,
+      detail: `Started by the event trigger "${row.triggered_by}" (Event Listeners), not by a schedule.`,
+      route: '#/events'
+    };
+  }
+  // 3) Nothing recorded → a manual / ad-hoc run.
+  return {
+    reason: 'manual',
+    label: 'Manual / ad-hoc run',
+    detail: 'No task or trigger is attached to this run — it was started manually (the Run button) or from a chat session, not by a schedule.',
+    route: null
+  };
+}
+
+// Single run detail. Tries agent_runs first, then manager_runs so manager
+// assignment/ad-hoc runs are drill-downable too.
 app.get('/api/activity/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Run not found' });
-  const entry = supervisor.agents.get(row.agent_id);
+  const wantManager = req.query.type === 'manager';
+  const row = wantManager ? null : db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(req.params.id);
+  if (row) {
+    const entry = supervisor.agents.get(row.agent_id);
+    return res.json({
+      type: 'agent',
+      id: row.id,
+      agentId: row.agent_id,
+      agentName: entry?.config?.name || row.agent_id,
+      status: row.exit_code === 0 ? 'success' : (row.exit_code === null ? 'running' : 'failed'),
+      exitCode: row.exit_code,
+      output: row.output || '',
+      error: row.error || '',
+      startedAt: row.started_at,
+      finishedAt: row.finished_at,
+      durationMs: (row.started_at && row.finished_at)
+        ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+        : null,
+      triggeredBy: row.triggered_by || 'manual',
+      taskId: row.task_id || null,
+      trigger: describeRunTrigger(row),
+      entityRoute: `#/agents/${row.agent_id}`,
+      sessionId: row.session_id
+    });
+  }
+  // Manager run fallback.
+  let mrow = null;
+  try { mrow = db.prepare('SELECT * FROM manager_runs WHERE id = ?').get(req.params.id); } catch {}
+  if (!mrow) return res.status(404).json({ error: 'Run not found' });
+  const mgr = managerAgent.managers.get(mrow.manager_id);
+  let assignmentName = null;
+  if (mrow.assignment_id && mgr && Array.isArray(mgr.assignments)) {
+    const a = mgr.assignments.find(x => x.id === mrow.assignment_id);
+    assignmentName = a ? (a.name || a.id) : mrow.assignment_id;
+  }
+  const ok = mrow.status === 'completed' || mrow.status === 'success';
+  const trigger = mrow.assignment_id
+    ? { reason: 'assignment', label: `Assignment: ${assignmentName}`, detail: `Ran from the manager assignment "${assignmentName}".`, route: '#/managers' }
+    : { reason: 'manual', label: 'Ad-hoc prompt', detail: 'Started from an ad-hoc prompt in the manager chat, not a schedule.', route: null };
   res.json({
-    id: row.id,
-    agentId: row.agent_id,
-    agentName: entry?.config?.name || row.agent_id,
-    status: row.exit_code === 0 ? 'success' : (row.exit_code === null ? 'running' : 'failed'),
-    exitCode: row.exit_code,
-    output: row.output || '',
-    error: row.error || '',
-    startedAt: row.started_at,
-    finishedAt: row.finished_at,
-    durationMs: (row.started_at && row.finished_at)
-      ? new Date(row.finished_at).getTime() - new Date(row.started_at).getTime()
+    type: 'manager',
+    id: mrow.id,
+    managerId: mrow.manager_id,
+    agentName: mgr?.name || mrow.manager_id,
+    status: ok ? 'success' : (mrow.status === 'running' ? 'running' : 'failed'),
+    output: mrow.result || '',
+    error: '',
+    prompt: mrow.prompt || '',
+    assignmentId: mrow.assignment_id || null,
+    startedAt: mrow.started_at,
+    finishedAt: mrow.finished_at,
+    durationMs: (mrow.started_at && mrow.finished_at)
+      ? new Date(mrow.finished_at).getTime() - new Date(mrow.started_at).getTime()
       : null,
-    triggeredBy: row.triggered_by || 'manual',
-    sessionId: row.session_id
+    trigger,
+    entityRoute: `#/managers/${mrow.manager_id}`
   });
 });
 

@@ -361,6 +361,51 @@ class SdkRunner {
     return hit ? hit.id : want;
   }
 
+  /**
+   * Resolve the `copilot` CLI invocation for an agent so an interactive terminal
+   * session boots with the SAME wiring (plugins / generated package / project
+   * agent) that runAgent() uses. Returns { args, cwd, agent } where `args` are
+   * copilot CLI flags (NOT including --session-id, which the caller pins).
+   *
+   *   - PLUGIN agent (config.pluginDir): --plugin-dir <dir> --agent <pluginName:slug>
+   *   - PROJECT/AZDO agent via generated package: --plugin-dir <pkg> --agent <id>
+   *   - PROJECT agent discovered from <cwd>/.github/agents: --agent <name>
+   *     (the CLI auto-discovers .github/agents in the working directory)
+   */
+  resolveCliLaunch(config) {
+    const cwd = (config && config.cwd) || process.cwd();
+    const args = [];
+    let agent = '';
+    try {
+      if (config && config.pluginDir && fs.existsSync(config.pluginDir)) {
+        agent = this._resolvePluginAgentName(config);
+        args.push('--plugin-dir', config.pluginDir);
+        if (agent) args.push('--agent', agent);
+        // Marketplace-attached overlay capabilities live in a per-agent overlay
+        // dir; expose any skills overlay as an extra --plugin-dir so the CLI
+        // session matches runAgent()'s applied caps.
+        const overlay = config.overlayDir;
+        if (overlay && fs.existsSync(path.join(overlay, 'plugin.json'))) {
+          args.push('--plugin-dir', overlay);
+        }
+      } else if (this._usePackage(config)) {
+        const pkg = agentPackage && agentPackage.buildAgentPackage(config);
+        if (pkg) {
+          agent = pkg.agentId;
+          args.push('--plugin-dir', pkg.pluginDir, '--agent', pkg.agentId);
+        }
+      }
+      if (!args.length) {
+        const agentCfg = this._resolveProjectAgent(config);
+        agent = (agentCfg && agentCfg.name) || (config && (config.agent || config.name)) || '';
+        if (agent) args.push('--agent', agent);
+      }
+    } catch (e) {
+      console.error('[sdk-runner] resolveCliLaunch failed:', e.message);
+    }
+    return { args, cwd, agent };
+  }
+
   /** Compact a tool's arguments object into a short one-line summary. */
   _summarizeArgs(args) {
     if (!args || typeof args !== 'object') return '';
