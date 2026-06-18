@@ -8220,6 +8220,10 @@
         orgsOfEmployee(empId) {
           return (this.data.organizations || []).filter(o => Array.isArray(o.memberIds) && o.memberIds.includes(empId));
         },
+        employeeNameById(id) {
+          const e = this.allEmployees().find(x => x.id === id);
+          return e ? e.name : id;
+        },
         employeesInOrg(orgId) {
           const org = (this.data.organizations || []).find(o => o.id === orgId);
           if (!org) return [];
@@ -8291,8 +8295,11 @@
         },
         async removeEmployeeFromOrg(employeeId, orgId) {
           try {
-            await this.request('/api/organizations/' + encodeURIComponent(orgId) + '/members/' + encodeURIComponent(employeeId), { method: 'DELETE' });
-            await this.loadOrganizations();
+            const resp = await this.request('/api/organizations/' + encodeURIComponent(orgId) + '/members/' + encodeURIComponent(employeeId), { method: 'DELETE' });
+            const d = resp && resp.disabled;
+            const n = d ? ((d.tasks || []).length + (d.assignments || []).length + (d.flows || []).length) : 0;
+            await this.refreshAll(false);
+            if (n) this.showToast('Member removed', `${n} operation${n === 1 ? '' : 's'} in this organization ${n === 1 ? 'was' : 'were'} disabled.`, 'info');
           } catch (e) { this.showToast('Remove failed', e.message, 'error'); }
         },
         // Drag-and-drop wiring for the Organizations page
@@ -8387,8 +8394,19 @@
           const org = (this.data.organizations || []).find(o => o.id === orgId);
           const valid = new Set(this.validOrgsForOp(op).map(o => o.id));
           if (!valid.has(orgId)) {
-            const who = op.kind === 'flow' ? "this flow's agents are" : 'its employee is';
-            this.showToast('Cannot assign', `"${op.name}" can't join ${org ? org.name : 'that organization'} — ${who} not a member.`, 'error');
+            let missing = [];
+            if (op.kind === 'flow') {
+              const ids = new Set(org ? (org.memberIds || []) : []);
+              missing = (op.refs || []).filter(id => !ids.has(id)).map(id => this.employeeNameById(id));
+            } else {
+              missing = [this.employeeNameById(op.employeeId)];
+            }
+            missing = missing.filter(Boolean);
+            const orgName = org ? org.name : 'that organization';
+            const detail = missing.length
+              ? `${orgName} is missing ${missing.length > 1 ? 'these members' : 'this member'}: ${missing.join(', ')}. Add ${missing.length > 1 ? 'them' : 'it'} to ${orgName} first.`
+              : `${orgName} can't host this operation.`;
+            this.showToast('Cannot assign', `"${op.name}" — ${detail}`, 'error');
             return;
           }
           try {

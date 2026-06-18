@@ -4509,9 +4509,8 @@ app.post('/api/organizations/:id/members', (req, res) => {
   res.json({ ok: true, organization: orgs[idx] });
 });
 
-// Remove a member (employee) from an organization.
-// NOTE: Phase 1 removes membership only. Disabling the operations the member
-// was part of (within this org) is handled in a later phase.
+// Remove a member (employee) from an organization. The employee's operations
+// within this org are disabled (not deleted) by the cascade below.
 app.delete('/api/organizations/:id/members/:employeeId', (req, res) => {
   const orgs = loadOrganizations();
   const idx = orgs.findIndex(o => o.id === req.params.id);
@@ -4519,9 +4518,73 @@ app.delete('/api/organizations/:id/members/:employeeId', (req, res) => {
   orgs[idx].memberIds = (orgs[idx].memberIds || []).filter(m => m !== req.params.employeeId);
   orgs[idx].updatedAt = new Date().toISOString();
   saveOrganizations(orgs);
+  // Cascade: disable (don't delete) this employee's operations in this org so they
+  // stay on record but go inert without a valid org context.
+  const disabled = disableOperationsForEmployeeInOrg(req.params.employeeId, req.params.id);
   broadcastSSE('organizations-changed', { id: req.params.id });
-  res.json({ ok: true, organization: orgs[idx] });
+  res.json({ ok: true, organization: orgs[idx], disabled });
 });
+
+// Disable (not delete) every operation tied to this employee within this org.
+// Invoked when an employee is removed from an organization: tasks the agent owns,
+// assignments the manager owns, and flows that reference the agent — all stamped
+// with this org — are flipped to enabled:false and unscheduled, preserving the
+// record while stopping them from firing without a valid org context.
+function disableOperationsForEmployeeInOrg(employeeId, orgId) {
+  const result = { tasks: [], assignments: [], flows: [] };
+  if (!orgId) return result;
+
+  // Tasks: agent-owned and stamped with this org.
+  const tasks = loadTasks();
+  let tasksChanged = false;
+  for (const t of tasks) {
+    if (t.agentId === employeeId && (t.orgId || null) === orgId && t.enabled !== false) {
+      t.enabled = false; t.updatedAt = new Date().toISOString();
+      try { unscheduleTask(t.id); } catch {}
+      tasksChanged = true;
+      result.tasks.push({ id: t.id, name: t.name || t.id });
+    }
+  }
+  if (tasksChanged) {
+    saveTasks(tasks);
+    for (const dt of result.tasks) { const t = tasks.find(x => x.id === dt.id); if (t) broadcastSSE('task-updated', t); }
+  }
+
+  // Assignments: an assignment's "employee" is its owning manager.
+  const entry = managerAgent.managers.get(employeeId);
+  if (entry && Array.isArray(entry.config.assignments)) {
+    let assignmentsChanged = false;
+    for (const a of entry.config.assignments) {
+      if ((a.orgId || null) === orgId && a.enabled !== false) {
+        a.enabled = false; assignmentsChanged = true;
+        result.assignments.push({ id: a.id, name: a.name || a.id });
+      }
+    }
+    if (assignmentsChanged) {
+      try {
+        const managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+        const mi = managers.findIndex(m => m.id === employeeId);
+        if (mi >= 0) { managers[mi] = entry.config; fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2)); }
+      } catch {}
+      try { _restartManagerSchedules(employeeId); } catch {}
+    }
+  }
+
+  // Flows: stamped with this org and referencing this agent (via a step's task or an AI edge).
+  try {
+    const allTasks = loadTasks();
+    for (const c of chainEngine.list()) {
+      if ((c.orgId || null) !== orgId || c.enabled === false) continue;
+      const viaStep = (c.steps || []).some(s => allTasks.some(t => t.agentId === employeeId && (t.id === s.taskId || ('task-' + t.id) === s.taskId)));
+      const viaCond = (c.edges || []).some(e => e.condition && e.condition.type === 'ai' && e.condition.agentId === employeeId);
+      if (viaStep || viaCond) {
+        try { chainEngine.update(c.id, { enabled: false }); result.flows.push({ id: c.id, name: c.name || c.id }); } catch {}
+      }
+    }
+  } catch {}
+
+  return result;
+}
 app.post('/api/managers/:id/start', (req, res) => {
   try {
     managerAgent.startSchedules(req.params.id);
