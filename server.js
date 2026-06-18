@@ -5205,10 +5205,12 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
     'Only use ref kind:refId pairs that appear under BOARD PINS below. Linking a runnable pin (agent/task/assignment/flow) makes the checklist item one-click runnable; linking an open-only pin (manager/chat/session) makes it one-click openable. Prefer a ref when the step is literally "run/check/open <a pinned thing>".',
+    'Item "text" (and note text) renders inline MARKDOWN, so it supports clickable hyperlinks. When a step refers to something that has a real URL (a work item, PR, doc, dashboard, build, etc.) and that URL is present in the BOARD CONTEXT, embed it as a markdown link, e.g. "[#10842 — Queue wait-time](https://dev.azure.com/.../workitems/edit/10842)". When the user explicitly asks for hyperlinks/links, EVERY relevant item MUST contain a real markdown link — never give back plain text. Never invent or guess a URL: if you do not have the real URL, gather it first (run the relevant pinned agent via query_agent) rather than producing a linkless or fabricated list.',
     '',
     'Rules:',
     '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...), pin handles (kind:refId), and agent ids that appear in the BOARD CONTEXT below. Never invent ids.',
     (allowQuery ? '- Use query_agent ONLY for agents that appear under BOARD PINS as kind "agent". To gather information from a pinned agent before building a checklist/note, propose query_agent first; once the user runs it you will get the output and can then propose the notes/checklists. Propose at most ONE query_agent at a time.' : '- You already have an agent result in the context below; do NOT propose query_agent again — use the result to propose concrete notes/checklists now.'),
+    (allowQuery ? '- HONOR explicit agent requests: if the user tells you to "use an agent" / "run an agent" / "have an agent find/fetch ..." to obtain information (URLs, status, data), you MUST propose query_agent for the best-matching pinned agent instead of shortcutting with whatever is already in the context — even if you believe the data is partially present. Only skip query_agent if the BOARD CONTEXT already contains the EXACT, complete data needed (e.g. the real URLs themselves).' : ''),
     '- Use pin_agent ONLY for ids under AVAILABLE AGENTS. Pick the single best match for the stated capability.',
     '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
     '- Propose actions ONLY when the user is clearly asking to add/change board content or orchestrate work. For pure questions, return an empty actions array and just answer in "reply".',
@@ -5250,9 +5252,9 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     // string or an object with an optional ref; a ref is only kept if it matches
     // a real pin on this board (otherwise the step survives as plain text).
     const normItem = (x) => {
-      if (typeof x === 'string') { const text = clip(x, 200); return text ? { text } : null; }
+      if (typeof x === 'string') { const text = clip(x, 500); return text ? { text } : null; }
       if (x && typeof x === 'object') {
-        const text = clip(x.text, 200); if (!text) return null;
+        const text = clip(x.text, 500); if (!text) return null;
         const r = x.ref && typeof x.ref === 'object' ? x.ref
           : (x.kind && x.refId ? { kind: x.kind, refId: x.refId } : null);
         if (r && r.kind && r.refId) {
