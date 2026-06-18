@@ -2126,12 +2126,23 @@
       display: flex; justify-content: flex-end;
     }
     .board-assistant-drawer {
+      position: relative;
       width: 400px; max-width: 92vw; height: 100vh;
       background: var(--cp-bg-elevated);
       border-left: 1px solid var(--cp-border);
       box-shadow: var(--cp-shadow);
       display: flex; flex-direction: column;
     }
+    /* Drag handle on the drawer's left edge to resize its width. */
+    .ba-resize {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 7px;
+      cursor: ew-resize; z-index: 2; touch-action: none;
+    }
+    .ba-resize::before {
+      content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px;
+      background: transparent; transition: background .12s ease;
+    }
+    .ba-resize:hover::before, .ba-resize.dragging::before { background: var(--cp-accent); }
     .ba-enter { transition: transform .18s ease, opacity .18s ease; }
     .ba-enter-start { transform: translateX(24px); opacity: 0; }
     .ba-enter-end { transform: translateX(0); opacity: 1; }
@@ -4584,7 +4595,8 @@
             <!-- Board assistant slide-over ("Ask board"). Fixed overlay OUTSIDE the
                  auto-fit grid so its height never disturbs board layout. -->
             <div class="board-assistant-backdrop" x-show="boardAssistant.open" x-transition.opacity.duration.150ms @click.self="closeBoardAssistant()" x-cloak>
-              <aside class="board-assistant-drawer" :class="{ open: boardAssistant.open }" x-show="boardAssistant.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+              <aside class="board-assistant-drawer" :class="{ open: boardAssistant.open }" :style="'width:' + boardAssistant.width + 'px'" x-show="boardAssistant.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+                <div class="ba-resize" :class="{ dragging: boardAssistant.resizing }" @mousedown.prevent="baResizeStart($event)" title="Drag to resize"></div>
                 <div class="board-assistant-head">
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
                     <span style="font-size:18px">💬</span>
@@ -8206,7 +8218,7 @@
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
-        boardAssistant: { open: false, busy: false, input: '', messages: [] },
+        boardAssistant: { open: false, busy: false, input: '', messages: [], resizing: false, width: Math.max(320, Math.min(720, parseInt(localStorage.getItem('ba-width'), 10) || 400)) },
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
         boardDragId: '',
@@ -12312,6 +12324,27 @@
           this.$nextTick(() => { try { this.$refs.baBody && (this.$refs.baBody.scrollTop = this.$refs.baBody.scrollHeight); } catch {} });
         },
         closeBoardAssistant() { this.boardAssistant.open = false; },
+        // Clamp drawer width to a reasonable range (min 320px; max 720px but never
+        // wider than 92% of the viewport so it stays usable on small screens).
+        _baClampWidth(w) { return Math.max(320, Math.min(Math.round(w), 720, Math.round(window.innerWidth * 0.92))); },
+        // Drag-to-resize the Ask board flyout from its left edge. The drawer is
+        // anchored to the right, so dragging left (smaller clientX) widens it.
+        baResizeStart(e) {
+          const startX = e.clientX;
+          const startW = this.boardAssistant.width || 400;
+          this.boardAssistant.resizing = true;
+          document.body.style.userSelect = 'none';
+          const onMove = (ev) => { this.boardAssistant.width = this._baClampWidth(startW + (startX - ev.clientX)); };
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            document.body.style.userSelect = '';
+            this.boardAssistant.resizing = false;
+            try { localStorage.setItem('ba-width', String(this.boardAssistant.width)); } catch {}
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        },
         _baScroll() {
           this.$nextTick(() => { try { const el = this.$refs.baBody; if (el) el.scrollTop = el.scrollHeight; } catch {} });
         },
