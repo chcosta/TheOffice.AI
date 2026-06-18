@@ -507,6 +507,12 @@ class EventListener extends EventEmitter {
       return;
     }
 
+    if (!this._senderAllowed(senderId, asset.id)) {
+      await this._reply(correlationId, senderId, { status: 'error', error: `Not authorized to run "${asset.name}".` });
+      this._logEvent('system', 'router', `Access denied: ${senderId} → ${asset.id}`, '');
+      return;
+    }
+
     this._logEvent('system', 'router', `Task dispatched: ${asset.name} (fire-and-forget)`, '');
 
     // Execute via supervisor
@@ -530,6 +536,12 @@ class EventListener extends EventEmitter {
 
     if (!asset) {
       await this._reply(correlationId, senderId, { status: 'error', error: `"${targetName}" not found or not connected. Use /help to see available assets.` });
+      return;
+    }
+
+    if (!this._senderAllowed(senderId, asset.id)) {
+      await this._reply(correlationId, senderId, { status: 'error', error: `Not authorized to access "${asset.name}".` });
+      this._logEvent('system', 'router', `Access denied: ${senderId} → ${asset.id}`, '');
       return;
     }
 
@@ -695,6 +707,19 @@ class EventListener extends EventEmitter {
     if (!userId) return false;
     if (!Array.isArray(this.config.users) || this.config.users.length === 0) return false;
     return this.config.users.some(u => u.id === userId || u.name === userId);
+  }
+
+  /**
+   * Per-user resource access check. Admins (or '*') reach everything; otherwise the
+   * caller's flat allowedAssets array (derived from their org/resource grants) must
+   * contain the target asset id. Legacy users without an array are allowed (no regression).
+   */
+  _senderAllowed(senderId, assetId) {
+    const user = (this.config.users || []).find(u => u.id === senderId || u.name === senderId);
+    if (!user) return true; // already passed _validateSender; don't double-reject
+    if (user.role === 'admin' || user.allowedAssets === '*') return true;
+    if (Array.isArray(user.allowedAssets)) return user.allowedAssets.includes(assetId);
+    return true; // legacy string / undefined → unrestricted
   }
 
   /**
@@ -966,6 +991,38 @@ class EventListener extends EventEmitter {
     query += ' ORDER BY id DESC LIMIT ?';
     params.push(limit);
     return this.db.prepare(query).all(...params);
+  }
+
+  /**
+   * Aggregate recent external callers from event_history (inbound traffic),
+   * grouped by sender. Mobile-relay devices are merged in by the server route.
+   */
+  getConnections() {
+    if (!this.db) return [];
+    const rows = this.db.prepare(`
+      SELECT sender_id,
+             COUNT(*) AS messageCount,
+             MIN(created_at) AS firstSeen,
+             MAX(created_at) AS lastSeen
+      FROM event_history
+      WHERE type = 'inbound' AND sender_id IS NOT NULL AND sender_id != ''
+      GROUP BY sender_id
+      ORDER BY lastSeen DESC
+    `).all();
+    const cutoff = Date.now() - 15 * 60 * 1000;
+    return rows.map(r => {
+      const mobile = /mobile|android|ios|phone/i.test(r.sender_id || '');
+      const last = Date.parse((r.lastSeen || '').replace(' ', 'T') + 'Z') || Date.parse(r.lastSeen);
+      return {
+        id: r.sender_id,
+        name: r.sender_id,
+        channel: mobile ? 'mobile' : 'bus',
+        messageCount: r.messageCount,
+        firstSeen: r.firstSeen,
+        lastSeen: r.lastSeen,
+        online: !!last && last >= cutoff
+      };
+    });
   }
 }
 

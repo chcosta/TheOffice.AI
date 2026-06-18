@@ -4717,14 +4717,14 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>⚙️ Settings</h1>
-                <p>Cloud sync, path profiles, system configuration, and event listeners.</p>
+                <p>Cloud sync, path profiles, system configuration, and external connections.</p>
               </div>
             </div>
 
             <!-- Settings sub-page tabs -->
             <div class="filter-pills" style="margin-bottom:18px">
               <button class="pill" type="button" :class="{ active: route === 'settings' }" @click="goTo('#/settings')">General</button>
-              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">📡 Event Listeners</button>
+              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">🌐 External</button>
             </div>
 
             <!-- Status Banner -->
@@ -4749,6 +4749,7 @@
             <!-- Tabs -->
             <div class="filter-pills" style="margin-bottom:20px">
               <button class="pill" type="button" :class="{ active: eventsTab === 'config' }" @click="eventsTab = 'config'">Configuration</button>
+              <button class="pill" type="button" :class="{ active: eventsTab === 'connections' }" @click="eventsTab = 'connections'; loadConnections()">Connections</button>
               <button class="pill" type="button" :class="{ active: eventsTab === 'live' }" @click="eventsTab = 'live'">Live Log</button>
               <button class="pill" type="button" :class="{ active: eventsTab === 'sessions' }" @click="eventsTab = 'sessions'">Sessions</button>
               <button class="pill" type="button" :class="{ active: eventsTab === 'history' }" @click="eventsTab = 'history'">History</button>
@@ -4756,37 +4757,15 @@
 
             <!-- CONFIG TAB -->
             <div x-show="eventsTab === 'config'">
+              <!-- Service Bus: compact status row (full form lives in the Advanced modal) -->
               <div class="card" id="sb-connection-card" style="margin-bottom:20px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-                  <h3 style="margin:0">🚌 Service Bus Connection</h3>
-                  <span class="status-badge" :class="sbStatusClass()" x-text="sbStatusLabel()"></span>
-                </div>
-                <div class="form-grid">
-                  <div>
-                    <div class="field-label">Namespace <span class="hint">(Azure AD auth — recommended)</span></div>
-                    <input class="field-input" type="text" x-model="eventsConfig.namespace" placeholder="sb-agentsessions or sb-agentsessions.servicebus.windows.net" />
-                  </div>
-                  <div>
-                    <div class="field-label">Connection String <span class="hint">(alternative to namespace)</span></div>
-                    <input class="field-input" type="password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" />
-                    <span class="hint" x-show="eventsConfig.connectionString && eventsConfig.connectionString.includes('•••••')">🔒 Stored securely (masked)</span>
-                  </div>
-                  <div>
-                    <div class="field-label">Inbound Queue</div>
-                    <input class="field-input" type="text" x-model="eventsConfig.queueName" placeholder="inbound-commands" />
-                  </div>
-                  <div>
-                    <div class="field-label">Reply Queue</div>
-                    <input class="field-input" type="text" x-model="eventsConfig.replyQueue" placeholder="outbound-replies" />
-                  </div>
-                  <div>
-                    <div class="field-label">Max Concurrent Sessions</div>
-                    <input class="field-input" type="number" x-model.number="eventsConfig.maxSessions" />
-                  </div>
-                </div>
-                <div style="margin-top:16px;display:flex;gap:10px">
-                  <button class="btn primary" type="button" @click="saveEventsConfig()">Save &amp; Connect</button>
-                  <button class="btn" type="button" @click="testEventsConnection()">Test Connection</button>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <span class="status-badge" :class="sbStatusClass()" x-text="'🚌 Service Bus: ' + sbStatusLabel()"></span>
+                  <span class="hint" x-show="sbHealth.connected" x-text="'Queue: ' + (eventsConfig.queueName || 'not configured') + ' · ' + (sbHealth.activeSessions || 0) + ' session(s)'"></span>
+                  <span class="hint" x-show="!sbHealth.connected">Optional inbound channel for external callers. The mobile relay below works without it.</span>
+                  <span style="flex:1"></span>
+                  <button class="btn" type="button" x-show="sbHealth.connected" @click="disconnectEvents()">Disconnect</button>
+                  <button class="btn ghost small" type="button" @click="openServiceBusModal()">⚙ Advanced: Configure Service Bus</button>
                 </div>
               </div>
 
@@ -4795,7 +4774,7 @@
                   <h3 style="margin:0">📱 Mobile Relay</h3>
                   <span class="status-badge" :class="relayStatusClass()" x-text="relayStatusLabel()"></span>
                 </div>
-                <p class="hint" style="margin-bottom:12px">The mobile app connects through the Azure relay. Devices are authorized via the RBAC users below (use the 📱 button to pair). Mobile traffic appears in the Live Log, Sessions, and History tabs.</p>
+                <p class="hint" style="margin-bottom:12px">The mobile app connects through the Azure relay. Devices are authorized via the Connected Users below (use the 📱 button to pair). Mobile traffic appears in the Live Log, Sessions, and History tabs.</p>
                 <div style="display:flex;flex-wrap:wrap;gap:18px;font-size:0.85rem">
                   <div><div class="hint">Paired devices active</div><strong x-text="relayStatus.devices ? relayStatus.devices.length : 0"></strong></div>
                   <div><div class="hint">Messages relayed</div><strong x-text="relayStatus.totalMessages || 0"></strong></div>
@@ -4824,41 +4803,77 @@
               </div>
 
               <div class="card" style="margin-bottom:20px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-                  <h3 style="margin:0">Connected Assets</h3>
-                  <button class="btn" type="button" @click="showConnectAssetModal = true">+ Connect</button>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <h3 style="margin:0">👥 Connected Users</h3>
+                  <button class="btn" type="button" @click="showAddUserModal = true">+ Add User</button>
                 </div>
-                <p class="hint" style="margin-bottom:12px">Only connected assets are addressable by external callers. Use <code>@name</code> for agents/managers, <code>/run name</code> for tasks/assignments.</p>
+                <p class="hint" style="margin-bottom:14px">External callers must be listed here. Share organizations, agents, managers, tasks, assignments &amp; flows on a per-user basis — admins get everything. Granting an org cascades to everything in it; you can add or exclude individual resources on top. Address agents/managers via <code>@name</code>, run tasks/assignments/flows via <code>/run name</code>.</p>
 
-                <div x-show="eventsConfig.connectedAssets.length === 0" class="empty-state">No assets connected. Click "+ Connect" to make agents, managers, or tasks available via the event listener.</div>
+                <div x-show="eventsConfig.users.length === 0" class="empty-state">No users configured. All inbound messages are rejected until at least one user is added.</div>
 
-                <div style="display:flex;flex-wrap:wrap;gap:8px" x-show="eventsConfig.connectedAssets.length > 0">
-                  <template x-for="asset in eventsConfig.connectedAssets" :key="asset.id">
-                    <span class="pill active" style="display:inline-flex;align-items:center;gap:6px">
-                      <span x-text="asset.type === 'manager' ? '👔' : asset.type === 'agent' ? '🤖' : asset.type === 'chain' ? '🔗' : asset.type === 'assignment' ? '📋' : '⚡'"></span>
-                      <span x-text="asset.name"></span>
-                      <button type="button" style="background:none;border:none;cursor:pointer;opacity:0.6;padding:0 2px" @click="disconnectAsset(asset.id)">✕</button>
-                    </span>
-                  </template>
+                <template x-for="user in eventsConfig.users" :key="user.id">
+                  <div style="padding:12px 0;border-bottom:1px solid var(--cp-border)">
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                      <strong x-text="user.name" style="min-width:120px"></strong>
+                      <span class="status-badge" :class="user.role === 'admin' ? 'success' : 'running'" x-text="user.role"></span>
+                      <span class="hint" x-text="userAccessSummary(user)"></span>
+                      <span style="flex:1"></span>
+                      <button class="btn ghost small" type="button" x-show="user.role !== 'admin'" @click="openUserGrants(user)" title="Manage shared resources">🔑 Manage access</button>
+                      <button class="btn ghost small" type="button" @click="generatePairingQR(user.id)" title="Pair mobile device">📱</button>
+                      <button class="btn ghost small" type="button" @click="removeEventUser(user.id)" title="Remove user">✕</button>
+                    </div>
+                    <div x-show="user.role !== 'admin' && effectiveUserResources(user).length > 0" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;margin-left:2px">
+                      <template x-for="res in effectiveUserResources(user)" :key="user.id + '-' + res.id">
+                        <span class="pill active" style="display:inline-flex;align-items:center;gap:5px;font-size:0.72rem;padding:3px 8px">
+                          <span x-text="resTypeIcon(res.type)"></span><span x-text="res.name"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- CONNECTIONS TAB -->
+            <div x-show="eventsTab === 'connections'">
+              <div class="card" style="margin-bottom:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+                  <div>
+                    <h3 style="margin:0 0 4px">🔌 Recent External Connections</h3>
+                    <p class="hint" style="margin:0">Devices and callers that have reached this system over the mobile relay, Service Bus, or CLI — with their last activity.</p>
+                  </div>
+                  <button class="btn ghost small" type="button" @click="loadConnections()">↻ Refresh</button>
                 </div>
               </div>
 
-              <div class="card">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-                  <h3 style="margin:0">RBAC Users</h3>
-                  <button class="btn" type="button" @click="showAddUserModal = true">+ Add User</button>
-                </div>
-                <div x-show="eventsConfig.users.length === 0" class="empty-state">No users configured. All messages will be rejected until RBAC is set up.</div>
-                <template x-for="user in eventsConfig.users" :key="user.id">
-                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-                    <strong x-text="user.name" style="min-width:120px"></strong>
-                    <span class="status-badge" :class="user.role === 'admin' ? 'success' : 'running'" x-text="user.role"></span>
-                    <span class="hint" x-text="user.allowedAssets === '*' ? 'All assets' : user.allowedAssets"></span>
-                    <span style="flex:1"></span>
-                    <button class="btn ghost small" type="button" @click="generatePairingQR(user.id)" title="Pair mobile device">📱</button>
-                    <button class="btn ghost small" type="button" @click="removeEventUser(user.id)">✕</button>
-                  </div>
-                </template>
+              <div x-show="connectionsLoading" class="empty-state">Loading connections…</div>
+              <div x-show="!connectionsLoading && connections.length === 0" class="empty-state">No external connections recorded yet.</div>
+
+              <div class="card" x-show="!connectionsLoading && connections.length > 0" style="padding:0;overflow:hidden">
+                <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+                  <thead>
+                    <tr style="text-align:left;border-bottom:1px solid var(--cp-border)">
+                      <th style="padding:10px 14px">Caller / Device</th>
+                      <th style="padding:10px 14px">Channel</th>
+                      <th style="padding:10px 14px">Messages</th>
+                      <th style="padding:10px 14px">First seen</th>
+                      <th style="padding:10px 14px">Last seen</th>
+                      <th style="padding:10px 14px">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="c in connections" :key="c.channel + '-' + c.id">
+                      <tr style="border-bottom:1px solid var(--cp-border)">
+                        <td style="padding:10px 14px"><strong x-text="c.name || c.id"></strong></td>
+                        <td style="padding:10px 14px"><span class="status-badge" :class="connChannelClass(c.channel)" x-text="connChannelLabel(c.channel)"></span></td>
+                        <td style="padding:10px 14px" x-text="c.messageCount != null ? c.messageCount : '—'"></td>
+                        <td style="padding:10px 14px" x-text="c.firstSeen ? formatRelative(c.firstSeen) : '—'"></td>
+                        <td style="padding:10px 14px" x-text="c.lastSeen ? formatRelative(c.lastSeen) : 'never'"></td>
+                        <td style="padding:10px 14px"><span class="status-badge" :class="c.online ? 'success' : 'idle'" x-text="c.online ? 'online' : 'offline'"></span></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -5000,14 +5015,14 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>⚙️ Settings</h1>
-                <p>Cloud sync, path profiles, system configuration, and event listeners.</p>
+                <p>Cloud sync, path profiles, system configuration, and external connections.</p>
               </div>
             </div>
 
             <!-- Settings sub-page tabs -->
             <div class="filter-pills" style="margin-bottom:18px">
               <button class="pill" type="button" :class="{ active: route === 'settings' }" @click="goTo('#/settings')">General</button>
-              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">📡 Event Listeners</button>
+              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">🌐 External</button>
             </div>
 
             <!-- Appearance Section -->
@@ -6183,111 +6198,114 @@
     </div>
   </div>
 
-  <!-- Connect Asset Modal -->
-  <div class="modal-backdrop modal-overlay" x-show="showConnectAssetModal" x-transition.opacity @click.self="showConnectAssetModal = false" style="z-index:9999" x-cloak>
+  <!-- Service Bus Config Modal (advanced) -->
+  <div class="modal-backdrop modal-overlay" x-show="showServiceBusModal" x-transition.opacity @click.self="showServiceBusModal = false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:560px">
       <div class="modal-header">
-        <h2 class="modal-title">🔗 Connect Asset</h2>
-        <button class="icon-button" type="button" @click="showConnectAssetModal = false">✕</button>
+        <h2 class="modal-title">🚌 Configure Service Bus</h2>
+        <button class="icon-button" type="button" @click="showServiceBusModal = false">✕</button>
       </div>
       <div style="padding:18px">
-        <p class="hint" style="margin-bottom:14px">Select agents, managers, tasks, assignments, or flows to make addressable via the event listener.</p>
-        <input class="field-input" type="search" placeholder="Filter assets..." x-model="connectAssetSearch" style="margin-bottom:14px" />
-
-        <div style="max-height:340px;overflow-y:auto">
-          <!-- Managers -->
-          <template x-if="connectableAssets('manager').length > 0">
-            <div style="margin-bottom:14px">
-              <div class="field-label">Managers (addressable via @name)</div>
-              <template x-for="asset in connectableAssets('manager')" :key="asset.id">
-                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'manager')" />
-                  <span>👔</span>
-                  <span x-text="asset.name"></span>
-                </label>
-              </template>
-            </div>
-          </template>
-
-          <!-- Agents -->
-          <template x-if="connectableAssets('agent').length > 0">
-            <div style="margin-bottom:14px">
-              <div class="field-label">Agents (addressable via @name)</div>
-              <template x-for="asset in connectableAssets('agent')" :key="asset.id">
-                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'agent')" />
-                  <span>🤖</span>
-                  <span x-text="asset.name"></span>
-                </label>
-              </template>
-            </div>
-          </template>
-
-          <!-- Tasks -->
-          <template x-if="connectableAssets('task').length > 0">
-            <div style="margin-bottom:14px">
-              <div class="field-label">Tasks (runnable via /run name)</div>
-              <template x-for="asset in connectableAssets('task')" :key="asset.id">
-                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'task')" />
-                  <span>⚡</span>
-                  <span x-text="asset.name"></span>
-                </label>
-              </template>
-            </div>
-          </template>
-
-          <!-- Assignments -->
-          <template x-if="connectableAssets('assignment').length > 0">
-            <div>
-              <div class="field-label">Assignments (runnable via /run name)</div>
-              <template x-for="asset in connectableAssets('assignment')" :key="asset.id">
-                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'assignment')" />
-                  <span>📋</span>
-                  <span x-text="asset.name"></span>
-                </label>
-              </template>
-            </div>
-          </template>
-
-          <!-- Chains -->
-          <template x-if="connectableAssets('chain').length > 0">
-            <div style="margin-top:14px">
-              <div class="field-label">Flows (runnable via /run name)</div>
-              <template x-for="asset in connectableAssets('chain')" :key="asset.id">
-                <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
-                  <input type="checkbox" :checked="isAssetConnected(asset.id)" @change="toggleConnectAsset(asset, 'chain')" />
-                  <span>🔗</span>
-                  <span x-text="asset.name"></span>
-                </label>
-              </template>
-            </div>
-          </template>
+        <p class="hint" style="margin-bottom:14px">Optional inbound channel. Connect an Azure Service Bus queue to let external systems address your agents. The mobile relay works independently.</p>
+        <div class="form-grid">
+          <div>
+            <div class="field-label">Namespace <span class="hint">(Azure AD auth — recommended)</span></div>
+            <input class="field-input" type="text" x-model="eventsConfig.namespace" placeholder="sb-agentsessions or sb-agentsessions.servicebus.windows.net" />
+          </div>
+          <div>
+            <div class="field-label">Connection String <span class="hint">(alternative to namespace)</span></div>
+            <input class="field-input" type="password" x-model="eventsConfig.connectionString" :placeholder="eventsConfig.namespace ? '(not needed with namespace)' : 'Endpoint=sb://...;SharedAccessKeyName=...'" />
+            <span class="hint" x-show="eventsConfig.connectionString && eventsConfig.connectionString.includes('•••••')">🔒 Stored securely (masked)</span>
+          </div>
+          <div>
+            <div class="field-label">Inbound Queue</div>
+            <input class="field-input" type="text" x-model="eventsConfig.queueName" placeholder="inbound-commands" />
+          </div>
+          <div>
+            <div class="field-label">Reply Queue</div>
+            <input class="field-input" type="text" x-model="eventsConfig.replyQueue" placeholder="outbound-replies" />
+          </div>
+          <div>
+            <div class="field-label">Max Concurrent Sessions</div>
+            <input class="field-input" type="number" x-model.number="eventsConfig.maxSessions" />
+          </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn primary" type="button" @click="showConnectAssetModal = false; saveEventsConfig()">Done</button>
+        <button class="btn" type="button" @click="testEventsConnection()">Test Connection</button>
+        <span style="flex:1"></span>
+        <button class="btn" type="button" @click="showServiceBusModal = false">Close</button>
+        <button class="btn primary" type="button" @click="saveEventsConfig(); showServiceBusModal = false">Save &amp; Connect</button>
       </div>
     </div>
   </div>
 
-  <!-- Add RBAC User Modal -->
+  <!-- User Grants Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="showUserGrantsModal" x-transition.opacity @click.self="showUserGrantsModal = false" style="z-index:9999" x-cloak>
+    <div class="modal-card" style="max-width:620px">
+      <div class="modal-header">
+        <h2 class="modal-title">🔑 Manage access — <span x-text="grantUser ? grantUser.name : ''"></span></h2>
+        <button class="icon-button" type="button" @click="showUserGrantsModal = false">✕</button>
+      </div>
+      <div style="padding:18px" x-show="grantUser">
+        <p class="hint" style="margin-bottom:14px">Grant whole organizations (cascades to every employee &amp; operation inside) and/or individual resources. Use <strong>Exclude</strong> to carve a single resource out of an org grant.</p>
+
+        <!-- Organizations -->
+        <div class="field-label" style="margin-bottom:8px">Organizations <span class="hint">(grant cascades to everything inside)</span></div>
+        <div x-show="(data.organizations || []).length === 0" class="hint" style="margin-bottom:14px">No organizations yet.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+          <template x-for="org in (data.organizations || [])" :key="'grant-org-' + org.id">
+            <label class="pill" :class="{ active: grantUser && (grantUser.grantedOrgs || []).includes(org.id) }" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" style="margin:0" :checked="grantUser && (grantUser.grantedOrgs || []).includes(org.id)" @change="toggleGrantOrg(grantUser, org.id)" />
+              <span x-text="(org.emoji || '🏢') + ' ' + org.name"></span>
+              <span class="hint" x-text="'(' + orgResources(org.id).length + ')'"></span>
+            </label>
+          </template>
+        </div>
+
+        <!-- Individual resources -->
+        <div class="field-label" style="margin-bottom:8px">Individual resources</div>
+        <input class="field-input" type="search" placeholder="Filter resources..." x-model="grantSearch" style="margin-bottom:12px" />
+        <div style="max-height:300px;overflow-y:auto">
+          <template x-for="res in grantResourceList()" :key="'grant-res-' + res.type + '-' + res.id">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--cp-border)">
+              <span x-text="resTypeIcon(res.type)"></span>
+              <span x-text="res.name" style="flex:1"></span>
+              <span class="hint" x-show="resGrantMode(grantUser, res) === 'inherit' && resInGrantedOrg(grantUser, res)" style="color:var(--cp-success)">via org</span>
+              <div class="filter-pills" style="margin:0;gap:4px">
+                <button class="pill" type="button" :class="{ active: resGrantMode(grantUser, res) === 'inherit' }" @click="setResGrant(grantUser, res, 'inherit')">Inherit</button>
+                <button class="pill" type="button" :class="{ active: resGrantMode(grantUser, res) === 'add' }" @click="setResGrant(grantUser, res, 'add')">Add</button>
+                <button class="pill" type="button" :class="{ active: resGrantMode(grantUser, res) === 'exclude' }" @click="setResGrant(grantUser, res, 'exclude')">Exclude</button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="hint" style="margin-top:14px" x-text="'Effective: ' + effectiveUserResources(grantUser).length + ' resource(s) shared with this user.'"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" type="button" @click="showUserGrantsModal = false">Cancel</button>
+        <button class="btn primary" type="button" @click="saveUserGrants()">Save Access</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Connected User Modal -->
   <div class="modal-backdrop modal-overlay" x-show="showAddUserModal" x-transition.opacity @click.self="showAddUserModal = false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:440px">
       <div class="modal-header">
-        <h2 class="modal-title">👤 Add User</h2>
+        <h2 class="modal-title">👤 Add Connected User</h2>
         <button class="icon-button" type="button" @click="showAddUserModal = false">✕</button>
       </div>
       <div style="padding:18px">
         <div class="field-label">User Name / ID</div>
         <input class="field-input" type="text" x-model="newEventUser.name" placeholder="e.g. chcosta" style="margin-bottom:14px" />
         <div class="field-label">Role</div>
-        <select class="field-input" x-model="newEventUser.role" style="margin-bottom:14px">
-          <option value="admin">Admin (all assets, unlimited)</option>
-          <option value="operator">Operator (specified assets)</option>
+        <select class="field-input" x-model="newEventUser.role" style="margin-bottom:6px">
+          <option value="admin">Admin (everything, unlimited)</option>
+          <option value="operator">Operator (only shared resources)</option>
           <option value="viewer">Viewer (read-only, /help only)</option>
         </select>
+        <p class="hint" style="margin:0 0 14px" x-show="newEventUser.role !== 'admin'">New users start with no access — use “🔑 Manage access” to share organizations or resources after adding.</p>
         <div class="field-label">Rate Limit (messages/min, 0 = unlimited)</div>
         <input class="field-input" type="number" x-model.number="newEventUser.rateLimit" style="margin-bottom:14px" />
       </div>
@@ -7392,6 +7410,12 @@
         _eventsHealthTimer: null,
         showConnectAssetModal: false,
         showAddUserModal: false,
+        showServiceBusModal: false,
+        showUserGrantsModal: false,
+        grantUser: null,
+        grantSearch: '',
+        connections: [],
+        connectionsLoading: false,
         showPairingModal: false,
         pairingUser: '',
         pairingPayload: '',
@@ -9557,6 +9581,7 @@
             const config = await this.request('/api/events/config');
             if (config) {
               Object.assign(this.eventsConfig, config);
+              this._normalizeEventUsers();
             }
             // Load live log
             const log = await this.request('/api/events/log');
@@ -9637,15 +9662,11 @@
         },
 
         focusSbConfig() {
+          this.openServiceBusModal();
+        },
+        openServiceBusModal() {
           this.eventsTab = 'config';
-          this.$nextTick(() => {
-            const el = document.getElementById('sb-connection-card');
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              el.classList.add('flash-highlight');
-              setTimeout(() => el.classList.remove('flash-highlight'), 1600);
-            }
-          });
+          this.showServiceBusModal = true;
         },
 
         _connectEventsStream() {
@@ -9667,6 +9688,9 @@
 
         async saveEventsConfig() {
           try {
+            // Derive the global connectedAssets (union of every user's effective grants) and a
+            // flat allowedAssets array per user so the backend keeps working + can enforce per-user.
+            this._syncDerivedAccess();
             await this.request('/api/events/config', {
               method: 'PUT',
               body: JSON.stringify(this.eventsConfig)
@@ -9845,17 +9869,157 @@
 
         addEventUser() {
           if (!this.newEventUser.name.trim()) { this.showToast('Events', 'User name is required', 'error'); return; }
+          const isAdmin = this.newEventUser.role === 'admin';
           const user = {
             id: this.newEventUser.name.trim().toLowerCase(),
             name: this.newEventUser.name.trim(),
             role: this.newEventUser.role,
             rateLimit: this.newEventUser.rateLimit || 0,
-            allowedAssets: this.newEventUser.role === 'admin' ? '*' : ''
+            grantedOrgs: [],
+            grantedResources: [],
+            excludedResources: [],
+            allowedAssets: isAdmin ? '*' : []
           };
           this.eventsConfig.users.push(user);
           this.newEventUser = { name: '', role: 'operator', rateLimit: 20 };
           this.showAddUserModal = false;
           this.saveEventsConfig();
+        },
+
+        // ── Connected Users: per-user grant model (orgs cascade + add/exclude) ──
+        _normalizeEventUsers() {
+          for (const u of (this.eventsConfig.users || [])) {
+            if (!Array.isArray(u.grantedOrgs)) u.grantedOrgs = [];
+            if (!Array.isArray(u.grantedResources)) u.grantedResources = [];
+            if (!Array.isArray(u.excludedResources)) u.excludedResources = [];
+            // Migrate legacy string allowedAssets → seed grants so existing access is preserved.
+            if (u.role !== 'admin' && typeof u.allowedAssets === 'string') {
+              if (u.allowedAssets === '*') {
+                u.grantedResources = (this.eventsConfig.connectedAssets || []).map(a => ({ id: a.id, type: a.type, name: a.name }));
+              } else if (u.allowedAssets.trim() === '') {
+                // Previously no per-user filter existed → preserve prior behavior (could reach all connected assets).
+                u.grantedResources = (this.eventsConfig.connectedAssets || []).map(a => ({ id: a.id, type: a.type, name: a.name }));
+              }
+              u.allowedAssets = [];
+            }
+          }
+        },
+        resTypeIcon(type) {
+          return type === 'manager' ? '👔' : type === 'agent' ? '🤖' : type === 'chain' ? '🔗' : type === 'assignment' ? '📋' : '⚡';
+        },
+        allConnectableResources() {
+          const out = [];
+          for (const m of (this.data.managers || [])) out.push({ id: m.id, type: 'manager', name: m.name || m.id });
+          for (const a of (this.data.agents || [])) out.push({ id: a.id, type: 'agent', name: a.name || a.id });
+          for (const t of (this.data.tasks || [])) out.push({ id: t.id, type: 'task', name: t.name || t.id });
+          for (const m of (this.data.managers || [])) for (const a of (m.config?.assignments || [])) out.push({ id: `${m.id}/${a.id}`, type: 'assignment', name: `${a.name} (${m.name})` });
+          for (const c of (this.data.chains || [])) out.push({ id: c.id, type: 'chain', name: c.name || c.id });
+          return out;
+        },
+        // Resolve every resource that belongs to an org (member employees + operations stamped with it).
+        orgResources(orgId) {
+          const out = [];
+          for (const emp of this.employeesInOrg(orgId)) out.push({ id: emp.id, type: emp.type, name: emp.name });
+          for (const op of this.operationsInOrg(orgId)) {
+            if (op.kind === 'assignment') out.push({ id: `${op.managerId}/${op.assignmentId}`, type: 'assignment', name: op.name });
+            else if (op.kind === 'flow') out.push({ id: op.chainId, type: 'chain', name: op.name });
+            else out.push({ id: op.taskId, type: 'task', name: op.name });
+          }
+          return out;
+        },
+        resInGrantedOrg(user, res) {
+          if (!user) return false;
+          for (const orgId of (user.grantedOrgs || [])) {
+            if (this.orgResources(orgId).some(r => r.id === res.id)) return true;
+          }
+          return false;
+        },
+        // Effective shared resources = (orgs cascade ∪ explicit adds) − explicit excludes.
+        effectiveUserResources(user) {
+          if (!user) return [];
+          if (user.role === 'admin') return this.allConnectableResources();
+          const byId = new Map();
+          for (const orgId of (user.grantedOrgs || [])) for (const r of this.orgResources(orgId)) byId.set(r.id, r);
+          for (const r of (user.grantedResources || [])) byId.set(r.id, r);
+          for (const ex of (user.excludedResources || [])) byId.delete(ex.id);
+          return Array.from(byId.values());
+        },
+        userAccessSummary(user) {
+          if (!user) return '';
+          if (user.role === 'admin') return 'Everything';
+          if (user.role === 'viewer') return 'Read-only (/help)';
+          const n = this.effectiveUserResources(user).length;
+          const orgs = (user.grantedOrgs || []).length;
+          if (n === 0) return 'No resources shared';
+          return `${n} resource(s)` + (orgs ? ` · ${orgs} org(s)` : '');
+        },
+        // Aggregate every user's effective grants into the global connectedAssets + flat allowedAssets.
+        _syncDerivedAccess() {
+          const union = new Map();
+          for (const u of (this.eventsConfig.users || [])) {
+            const eff = this.effectiveUserResources(u);
+            // admin rides on top of whatever others expose — don't auto-expose the whole system.
+            if (u.role !== 'admin') for (const r of eff) union.set(r.id, { id: r.id, type: r.type, name: r.name });
+            u.allowedAssets = u.role === 'admin' ? '*' : eff.map(r => r.id);
+          }
+          // Admin access = the exposed union; backfill names for admin-only deployments isn't needed.
+          this.eventsConfig.connectedAssets = Array.from(union.values());
+        },
+        openUserGrants(user) {
+          this.grantUser = user;
+          this.grantSearch = '';
+          this.showUserGrantsModal = true;
+        },
+        toggleGrantOrg(user, orgId) {
+          if (!user) return;
+          if (!Array.isArray(user.grantedOrgs)) user.grantedOrgs = [];
+          const i = user.grantedOrgs.indexOf(orgId);
+          if (i >= 0) user.grantedOrgs.splice(i, 1); else user.grantedOrgs.push(orgId);
+        },
+        grantResourceList() {
+          const q = (this.grantSearch || '').toLowerCase();
+          let items = this.allConnectableResources();
+          if (q) items = items.filter(i => i.name.toLowerCase().includes(q));
+          return items;
+        },
+        resGrantMode(user, res) {
+          if (!user) return 'inherit';
+          if ((user.excludedResources || []).some(r => r.id === res.id)) return 'exclude';
+          if ((user.grantedResources || []).some(r => r.id === res.id)) return 'add';
+          return 'inherit';
+        },
+        setResGrant(user, res, mode) {
+          if (!user) return;
+          if (!Array.isArray(user.grantedResources)) user.grantedResources = [];
+          if (!Array.isArray(user.excludedResources)) user.excludedResources = [];
+          user.grantedResources = user.grantedResources.filter(r => r.id !== res.id);
+          user.excludedResources = user.excludedResources.filter(r => r.id !== res.id);
+          const entry = { id: res.id, type: res.type, name: res.name };
+          if (mode === 'add') user.grantedResources.push(entry);
+          else if (mode === 'exclude') user.excludedResources.push(entry);
+        },
+        saveUserGrants() {
+          this.showUserGrantsModal = false;
+          this.saveEventsConfig();
+        },
+
+        // ── Connections tab ──
+        async loadConnections() {
+          this.connectionsLoading = true;
+          try {
+            const list = await this.request('/api/events/connections');
+            this.connections = Array.isArray(list) ? list : [];
+          } catch (e) {
+            this.connections = [];
+          } finally {
+            this.connectionsLoading = false;
+          }
+        },
+        connChannelLabel(ch) {
+          return ch === 'mobile' ? '📱 Mobile' : ch === 'bus' ? '🚌 Service Bus' : ch === 'cli' ? '💻 CLI' : ch || 'unknown';
+        },
+        connChannelClass(ch) {
+          return ch === 'mobile' ? 'running' : ch === 'bus' ? 'success' : 'idle';
         },
 
         filteredActivity() {

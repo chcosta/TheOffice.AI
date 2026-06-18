@@ -5994,6 +5994,44 @@ app.get('/api/events/session-history', (req, res) => {
   res.json(sessions);
 });
 
+// Recent external connections (mobile-relay devices + inbound event traffic),
+// aggregated per caller for the Settings → External → Connections tab.
+app.get('/api/events/connections', (req, res) => {
+  const byId = new Map();
+  const upsert = (c) => {
+    const prev = byId.get(c.id);
+    if (!prev) { byId.set(c.id, c); return; }
+    prev.messageCount += c.messageCount || 0;
+    if (!prev.firstSeen || (c.firstSeen && c.firstSeen < prev.firstSeen)) prev.firstSeen = c.firstSeen;
+    if (!prev.lastSeen || (c.lastSeen && c.lastSeen > prev.lastSeen)) prev.lastSeen = c.lastSeen;
+    prev.online = prev.online || c.online;
+  };
+
+  // Mobile-relay devices (live, with lastSeen)
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const d of relayDevices.values()) {
+    const last = Date.parse(d.lastSeen);
+    upsert({
+      id: d.deviceId,
+      name: d.user || d.deviceId,
+      channel: 'mobile',
+      messageCount: d.messageCount || 0,
+      firstSeen: d.lastSeen,
+      lastSeen: d.lastSeen,
+      online: !!last && last >= cutoff
+    });
+  }
+
+  // Inbound event traffic grouped by sender
+  try {
+    for (const c of (eventListener.getConnections() || [])) upsert(c);
+  } catch (e) { /* table may be empty */ }
+
+  const connections = Array.from(byId.values())
+    .sort((a, b) => (b.lastSeen || '').localeCompare(a.lastSeen || ''));
+  res.json(connections);
+});
+
 app.get('/api/events/dlq', (req, res) => {
   const { limit, status } = req.query;
   res.json(eventListener.getDLQ({ limit: limit ? parseInt(limit) : 50, status: status || 'failed' }));
