@@ -210,6 +210,49 @@
     .btn.sm { padding: 4px 10px; font-size: 12px; }
     .org-col--invalid { opacity: 0.4; }
     .pill-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--cp-accent); color: var(--cp-accent-fg); font-size: 11px; font-weight: 700; }
+    /* ===== Company / org-health overview (Home) ===== */
+    .company-band {
+      display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+    }
+    .cb-item {
+      flex: 1 1 120px; background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .cb-item strong { font-size: 1.5rem; line-height: 1.1; }
+    .cb-item span { font-size: 12px; color: var(--cp-text-muted); }
+    .cb-item.bad { border-color: var(--cp-danger); }
+    .cb-item.bad strong { color: var(--cp-danger); }
+    .cb-item.warn { border-color: var(--cp-warning); }
+    .cb-item.warn strong { color: var(--cp-warning); }
+    .orgh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; }
+    .orgh-card {
+      background: var(--cp-surface); border: 1px solid var(--cp-border); border-left-width: 4px;
+      border-radius: 14px; padding: 14px; cursor: pointer;
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 120ms ease;
+    }
+    .orgh-card:hover { box-shadow: var(--cp-shadow); transform: translateY(-1px); }
+    .orgh-card:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 2px; }
+    .orgh--crit { border-left-color: var(--cp-danger); }
+    .orgh--warn { border-left-color: var(--cp-warning); }
+    .orgh--idle { border-left-color: var(--cp-text-muted); }
+    .orgh--ok { border-left-color: var(--cp-success); }
+    .orgh-top { display: flex; align-items: center; gap: 10px; }
+    .orgh-emoji { font-size: 1.4rem; line-height: 1; }
+    .orgh-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .orgh-id strong { font-size: 0.98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .orgh-status { align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 9px; }
+    .orgh-status.st-crit { background: var(--cp-danger); color: #fff; }
+    .orgh-status.st-warn { background: var(--cp-warning); color: #1a1a1a; }
+    .orgh-status.st-idle { background: var(--cp-surface-soft); color: var(--cp-text-muted); border: 1px solid var(--cp-border); }
+    .orgh-status.st-ok { background: var(--cp-success); color: #fff; }
+    .orgh-go { color: var(--cp-text-muted); font-size: 1.1rem; }
+    .orgh-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+    .orgh-m { display: flex; flex-direction: column; gap: 1px; }
+    .orgh-mv { font-size: 1.15rem; font-weight: 700; }
+    .orgh-ml { font-size: 10.5px; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+    .orgh-m.bad .orgh-mv { color: var(--cp-danger); }
+    .orgh-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .orgh-reason { font-size: 11px; padding: 2px 8px; border-radius: 8px; background: var(--cp-highlight); color: var(--cp-text); }
     .org-col {
       background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 14px; padding: 12px; min-height: 140px; display: flex; flex-direction: column; gap: 8px;
@@ -2286,11 +2329,48 @@
           <section x-show="!loading && !errorMessage && route === 'home'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>Overview</h1>
-                <p>Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
+                <h1 x-text="currentOrgId === 'all' ? 'Company' : 'Overview'"></h1>
+                <p x-show="currentOrgId === 'all'">Organization health across the company. Cards needing the most attention come first — click to step into an organization.</p>
+                <p x-show="currentOrgId !== 'all'">Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="runningEntities().length + ' running' "></span>
+              </div>
+            </div>
+
+            <!-- Company / org-health overview (shown only in the company-wide "All" view) -->
+            <div x-show="currentOrgId === 'all' && companyOrgHealth().length" style="margin-bottom:22px">
+              <div class="company-band">
+                <div class="cb-item"><strong x-text="companyStats().orgCount"></strong><span>organizations</span></div>
+                <div class="cb-item"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></div>
+                <div class="cb-item"><strong x-text="companyStats().operations"></strong><span>operations</span></div>
+                <div class="cb-item" :class="companyStats().failures24h ? 'bad' : ''"><strong x-text="companyStats().failures24h"></strong><span>failures 24h</span></div>
+                <div class="cb-item" :class="companyStats().attention ? 'warn' : ''"><strong x-text="companyStats().attention"></strong><span>need attention</span></div>
+              </div>
+              <div class="orgh-grid">
+                <template x-for="h in companyOrgHealth()" :key="h.org.id">
+                  <article class="orgh-card" :class="'orgh--' + h.statusClass" role="button" tabindex="0"
+                           @click="setCurrentOrg(h.org.id)" @keydown.enter="setCurrentOrg(h.org.id)"
+                           :title="'Enter ' + h.org.name">
+                    <div class="orgh-top">
+                      <span class="orgh-emoji" x-text="h.org.emoji || '🏢'"></span>
+                      <div class="orgh-id">
+                        <strong x-text="h.org.name"></strong>
+                        <span class="orgh-status" :class="'st-' + h.statusClass" x-text="h.status"></span>
+                      </div>
+                      <span class="orgh-go">→</span>
+                    </div>
+                    <div class="orgh-metrics">
+                      <div class="orgh-m"><span class="orgh-mv" x-text="h.headcount"></span><span class="orgh-ml">staff</span></div>
+                      <div class="orgh-m"><span class="orgh-mv" x-text="h.operations"></span><span class="orgh-ml">ops</span></div>
+                      <div class="orgh-m"><span class="orgh-mv" x-text="h.runs24h"></span><span class="orgh-ml">runs 24h</span></div>
+                      <div class="orgh-m" :class="h.failures24h ? 'bad' : ''"><span class="orgh-mv" x-text="h.failures24h"></span><span class="orgh-ml">fails</span></div>
+                    </div>
+                    <div class="orgh-reasons" x-show="h.reasons.length">
+                      <template x-for="r in h.reasons" :key="r"><span class="orgh-reason" x-text="r"></span></template>
+                    </div>
+                  </article>
+                </template>
               </div>
             </div>
 
@@ -8449,6 +8529,60 @@
           } catch (e) {
             this.showToast('Remove failed', e.message, 'error');
           }
+        },
+
+        // ----- Company / org-health overview (Home, company-wide "All" view) -----
+        // Per-org health snapshot: headcount, operations, 24h run/failure activity,
+        // and an "attention" score so the orgs that most need a look float to the top.
+        orgHealth(org) {
+          const memberIds = new Set(org.memberIds || []);
+          const headcount = memberIds.size;
+          const operations = this.operationsInOrg(org.id).length;
+          const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+          let runs24h = 0, failures24h = 0, lastRunTs = 0;
+          for (const a of (this.data.activity || [])) {
+            if (!memberIds.has(a.entityId)) continue;
+            const ts = new Date(a.finishedAt || a.startedAt).getTime();
+            if (ts > lastRunTs) lastRunTs = ts;
+            if (ts >= cutoff) { runs24h++; if (a.status === 'failed') failures24h++; }
+          }
+          const failureRate = runs24h ? failures24h / runs24h : 0;
+          let score = 0; const reasons = [];
+          if (headcount === 0) { score += 100; reasons.push('No employees'); }
+          else if (headcount < 2) { score += 15; reasons.push('Low headcount'); }
+          if (failures24h > 0) {
+            score += 30 + (failures24h * 10) + Math.round(failureRate * 40);
+            reasons.push(failures24h + ' failure' + (failures24h === 1 ? '' : 's') + ' (24h)');
+          }
+          if (operations === 0 && headcount > 0) { score += 20; reasons.push('No operations'); }
+          else if (operations > 0 && runs24h === 0 && headcount > 0) { score += 12; reasons.push('Idle — no runs in 24h'); }
+          let status, statusClass;
+          if (headcount === 0) { status = 'Empty'; statusClass = 'warn'; }
+          else if (failures24h > 0) { status = 'Needs attention'; statusClass = 'crit'; }
+          else if (operations > 0 && runs24h === 0) { status = 'Idle'; statusClass = 'idle'; }
+          else { status = 'Healthy'; statusClass = 'ok'; }
+          return { org, headcount, operations, runs24h, failures24h, failureRate, lastRunTs, score, reasons, status, statusClass };
+        },
+        companyOrgHealth() {
+          return (this.data.organizations || [])
+            .map(o => this.orgHealth(o))
+            .sort((a, b) => (b.score - a.score) || (a.org.name || '').localeCompare(b.org.name || ''));
+        },
+        companyStats() {
+          const orgs = this.data.organizations || [];
+          const employees = new Set();
+          let operations = 0;
+          for (const o of orgs) {
+            for (const id of (o.memberIds || [])) employees.add(id);
+            operations += this.operationsInOrg(o.id).length;
+          }
+          const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+          let failures24h = 0;
+          for (const a of (this.data.activity || [])) {
+            if (a.status === 'failed' && new Date(a.finishedAt || a.startedAt).getTime() >= cutoff) failures24h++;
+          }
+          const attention = this.companyOrgHealth().filter(h => h.score >= 30).length;
+          return { orgCount: orgs.length, employeeCount: employees.size, operations, failures24h, attention };
         },
         filteredAgents() {
           const query = this.agentSearch.trim().toLowerCase();
