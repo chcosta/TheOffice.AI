@@ -145,14 +145,16 @@ class MobileHandler extends EventEmitter {
     const { type, correlationId, sessionId, payload } = body;
 
     switch (type) {
+      case 'list-organizations':
+        return this._listOrganizations(correlationId, replier);
       case 'list-managers':
-        return this._listManagers(correlationId, replier);
+        return this._listManagers(correlationId, payload, replier);
       case 'list-agents':
-        return this._listAgents(correlationId, replier);
+        return this._listAgents(correlationId, payload, replier);
       case 'list-assignments':
-        return this._listAssignments(correlationId, replier);
+        return this._listAssignments(correlationId, payload, replier);
       case 'list-tasks':
-        return this._listTasks(correlationId, replier);
+        return this._listTasks(correlationId, payload, replier);
       case 'run-assignment':
         return this._runAssignment(correlationId, sessionId, payload, replier);
       case 'run-agent':
@@ -166,19 +168,19 @@ class MobileHandler extends EventEmitter {
       case 'new-chat-thread':
         return this._newChatThread(correlationId, payload, replier);
       case 'list-chats':
-        return this._listChats(correlationId, sessionId, replier);
+        return this._listChats(correlationId, sessionId, payload, replier);
       case 'get-activity':
         return this._getActivity(correlationId, payload, replier);
       case 'get-run-history':
         return this._getRunHistory(correlationId, payload, replier);
       case 'get-status':
-        return this._getStatus(correlationId, replier);
+        return this._getStatus(correlationId, payload, replier);
       case 'list-machines':
         return this._listMachines(correlationId, replier);
       case 'install-from-machine':
         return this._installFromMachine(correlationId, payload, replier);
       case 'list-chains':
-        return this._listChains(correlationId, replier);
+        return this._listChains(correlationId, payload, replier);
       case 'run-chain':
         return this._runChain(correlationId, sessionId, payload, replier);
       case 'get-chain-runs':
@@ -191,15 +193,81 @@ class MobileHandler extends EventEmitter {
     }
   }
 
+  // --- Organization scoping ---
+  // Mirrors the SPA's org model: employees (agents/managers) belong to an org via
+  // organizations.json memberIds; operations (assignments/flows) carry their own
+  // orgId. An orgId of null/'all' (or absent) means company-wide — no filtering.
+
+  _loadOrganizations() {
+    try {
+      const p = path.join(__dirname, 'organizations.json');
+      if (!fs.existsSync(p)) return [];
+      const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // Returns a Set of employee ids in the org, or null for "all" (no filtering).
+  // A real-but-unknown orgId yields an empty Set (hide all), matching the SPA,
+  // where currentOrg() not found => idInCurrentOrg() false for everything.
+  _orgMemberIds(orgId) {
+    if (!orgId || orgId === 'all') return null;
+    const org = this._loadOrganizations().find(o => o.id === orgId);
+    return new Set((org && Array.isArray(org.memberIds)) ? org.memberIds : []);
+  }
+
+  // Org gate for an employee id (agent/manager). memberIds null => company-wide.
+  _idInOrg(memberIds, id) {
+    return !memberIds || memberIds.has(id);
+  }
+
+  // Org gate for an operation that carries its own orgId (assignment/flow).
+  // Under "all" (memberIds null) everything shows; otherwise only ops stamped
+  // with this org. Legacy ops without an orgId are hidden under a specific org.
+  _opInOrg(memberIds, orgId, opOrgId) {
+    if (!memberIds) return true;
+    return !!opOrgId && opOrgId === orgId;
+  }
+
+  // Org gate for a flow/chain. Honors an explicit chain.orgId if present
+  // (operation-level), otherwise falls back to referenced-agent membership
+  // (mirrors SPA flowInCurrentOrg using step taskIds).
+  _chainInOrg(memberIds, orgId, chain) {
+    if (!memberIds) return true;
+    if (chain && chain.orgId) return chain.orgId === orgId;
+    const refs = (chain && Array.isArray(chain.steps) ? chain.steps : [])
+      .map(s => s.taskId).filter(Boolean);
+    if (!refs.length) return false;
+    return refs.every(id => memberIds.has(id));
+  }
+
+  async _listOrganizations(correlationId, replier) {
+    const organizations = this._loadOrganizations().map(o => ({
+      id: o.id,
+      name: o.name || o.id,
+      emoji: o.emoji || '🏢',
+      color: o.color || null,
+      theme: o.theme || 'default',
+      description: o.description || '',
+      memberCount: Array.isArray(o.memberIds) ? o.memberIds.length : 0,
+    }));
+    await replier(correlationId, { type: 'result', payload: { organizations } });
+    return true;
+  }
+
   // --- List Handlers ---
 
-  async _listManagers(correlationId, replier) {
+  async _listManagers(correlationId, payload, replier) {
+    const memberIds = this._orgMemberIds(payload && payload.orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
     
     const managers = [];
     for (const [id, entry] of this.managerAgent.managers) {
       if (!connectedManagerIds.has(id)) continue;
+      if (!this._idInOrg(memberIds, id)) continue;
       const config = entry.config;
       const assignments = config.assignments || [];
       const agents = config.agents || [];
@@ -220,13 +288,15 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  async _listAgents(correlationId, replier) {
+  async _listAgents(correlationId, payload, replier) {
+    const memberIds = this._orgMemberIds(payload && payload.orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
     
     const agents = [];
     for (const [id, entry] of this.supervisor.agents) {
       if (!connectedAgentIds.has(id)) continue;
+      if (!this._idInOrg(memberIds, id)) continue;
       const config = entry.config;
       agents.push({
         id,
@@ -245,7 +315,9 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  async _listAssignments(correlationId, replier) {
+  async _listAssignments(correlationId, payload, replier) {
+    const orgId = payload && payload.orgId;
+    const memberIds = this._orgMemberIds(orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
     const connectedAssignmentIds = new Set(connectedAssets.filter(a => a.type === 'assignment').map(a => a.id));
@@ -258,6 +330,8 @@ class MobileHandler extends EventEmitter {
         const assignmentKey = `${managerId}/${assignment.id}`;
         // Include if the whole manager is connected, or this specific assignment is connected
         if (!managerConnected && !connectedAssignmentIds.has(assignmentKey)) continue;
+        // Org scope: assignments carry their own orgId (operation-level scoping).
+        if (!this._opInOrg(memberIds, orgId, assignment.orgId)) continue;
         const lastRun = this._getLastAssignmentRun(managerId, assignment.id);
         assignments.push({
           id: assignmentKey,
@@ -279,8 +353,9 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  async _listTasks(correlationId, replier) {
+  async _listTasks(correlationId, payload, replier) {
     // Tasks are connected agents that can be run on-demand
+    const memberIds = this._orgMemberIds(payload && payload.orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
     
@@ -290,6 +365,7 @@ class MobileHandler extends EventEmitter {
     // Currently running connected agents
     for (const [id, entry] of this.supervisor.agents) {
       if (!connectedAgentIds.has(id)) continue;
+      if (!this._idInOrg(memberIds, id)) continue;
       if (entry.running) {
         seenIds.add(id);
         tasks.push({
@@ -307,6 +383,7 @@ class MobileHandler extends EventEmitter {
     for (const [id, entry] of this.supervisor.agents) {
       if (seenIds.has(id)) continue;
       if (!connectedAgentIds.has(id)) continue;
+      if (!this._idInOrg(memberIds, id)) continue;
       tasks.push({
         id,
         agentId: id,
@@ -795,9 +872,12 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  async _listChats(correlationId, sessionId, replier) {
+  async _listChats(correlationId, sessionId, payload, replier) {
+    const memberIds = this._orgMemberIds(payload && payload.orgId);
     const chats = [];
     for (const [key, session] of this.chatSessions) {
+      // Org scope: chats are gated by whether their target employee is in the org.
+      if (!this._idInOrg(memberIds, session.target)) continue;
       // Only return chats for this session or all if no session filter
       const lastMsg = session.messages[session.messages.length - 1];
       const entry = session.targetType === 'manager'
@@ -828,29 +908,39 @@ class MobileHandler extends EventEmitter {
   // --- Activity Handler ---
 
   async _getActivity(correlationId, payload, replier) {
-    const { limit = 50, offset = 0, status: filterStatus } = payload || {};
+    const { limit = 50, offset = 0, status: filterStatus, orgId } = payload || {};
     
     if (!this.db) {
       await replier(correlationId, { type: 'result', payload: { activity: [], total: 0 } });
       return true;
     }
 
-    // Query from agent_runs (the canonical run history table used by the SPA too)
-    let query, countQuery;
-    const params = [];
-
-    if (filterStatus) {
-      // Map mobile status names to exit_code filter
-      const exitCodeFilter = filterStatus === 'completed' ? '= 0' : '!= 0';
-      query = `SELECT * FROM agent_runs WHERE exit_code ${exitCodeFilter} ORDER BY id DESC LIMIT ? OFFSET ?`;
-      countQuery = `SELECT COUNT(*) as total FROM agent_runs WHERE exit_code ${exitCodeFilter}`;
-    } else {
-      query = 'SELECT * FROM agent_runs ORDER BY id DESC LIMIT ? OFFSET ?';
-      countQuery = 'SELECT COUNT(*) as total FROM agent_runs';
+    // Org scope: activity rows are agent runs, gated by whether the running
+    // agent belongs to the selected org (mirrors SPA activityInCurrentOrg).
+    const memberIds = this._orgMemberIds(orgId);
+    if (memberIds && memberIds.size === 0) {
+      // A specific org with no members — nothing to show.
+      await replier(correlationId, { type: 'result', payload: { activity: [], total: 0, limit, offset } });
+      return true;
     }
 
-    const total = this.db.prepare(countQuery).get()?.total || 0;
-    const rows = this.db.prepare(query).all(...params, limit, offset);
+    const whereParts = [];
+    const whereParams = [];
+    if (filterStatus) {
+      whereParts.push(`exit_code ${filterStatus === 'completed' ? '= 0' : '!= 0'}`);
+    }
+    if (memberIds) {
+      const ids = [...memberIds];
+      whereParts.push(`agent_id IN (${ids.map(() => '?').join(',')})`);
+      whereParams.push(...ids);
+    }
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const query = `SELECT * FROM agent_runs ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`;
+    const countQuery = `SELECT COUNT(*) as total FROM agent_runs ${whereSql}`;
+
+    const total = this.db.prepare(countQuery).get(...whereParams)?.total || 0;
+    const rows = this.db.prepare(query).all(...whereParams, limit, offset);
 
     const activity = rows.map(row => {
       const entry = this.supervisor?.agents?.get(row.agent_id);
@@ -971,34 +1061,39 @@ class MobileHandler extends EventEmitter {
     return true;
   }
 
-  async _getStatus(correlationId, replier) {
+  async _getStatus(correlationId, payload, replier) {
+    const orgId = payload && payload.orgId;
+    const memberIds = this._orgMemberIds(orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
     const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
     
     const runningAgents = [];
     for (const [id, entry] of this.supervisor.agents) {
-      if (entry.running) {
+      if (entry.running && this._idInOrg(memberIds, id)) {
         runningAgents.push({ id, name: entry.config.name || id });
       }
     }
 
-    const managerCount = connectedManagerIds.size;
-    const agentCount = connectedAgentIds.size;
+    const managerCount = [...connectedManagerIds].filter(id => this._idInOrg(memberIds, id)).length;
+    const agentCount = [...connectedAgentIds].filter(id => this._idInOrg(memberIds, id)).length;
     // Tasks are the runnable connected agents (see _listTasks), so the task
     // count tracks the number of connected agents.
-    const taskCount = connectedAgentIds.size;
+    const taskCount = agentCount;
     
     let assignmentCount = 0;
     for (const [, entry] of this.managerAgent.managers) {
-      assignmentCount += (entry.config.assignments || []).length;
+      for (const a of (entry.config.assignments || [])) {
+        if (this._opInOrg(memberIds, orgId, a.orgId)) assignmentCount++;
+      }
     }
 
     let chainCount = 0;
     if (this.chainEngine) {
       try {
         const connectedChainIds = new Set(connectedAssets.filter(a => a.type === 'chain').map(a => a.id));
-        chainCount = (this.chainEngine.list() || []).filter(c => connectedChainIds.has(c.id)).length;
+        chainCount = (this.chainEngine.list() || [])
+          .filter(c => connectedChainIds.has(c.id) && this._chainInOrg(memberIds, orgId, c)).length;
       } catch {}
     }
 
@@ -1007,12 +1102,25 @@ class MobileHandler extends EventEmitter {
     if (this.db) {
       try {
         const today = new Date().toISOString().split('T')[0];
+        let memberClause = '';
+        const memberParams = [];
+        if (memberIds) {
+          const ids = [...memberIds];
+          if (ids.length === 0) {
+            // Specific org with no members — zero activity.
+            activityCounts.success = 0;
+            activityCounts.failed = 0;
+            throw new Error('skip');
+          }
+          memberClause = ` AND agent_id IN (${ids.map(() => '?').join(',')})`;
+          memberParams.push(...ids);
+        }
         const successCount = this.db.prepare(
-          `SELECT COUNT(*) as cnt FROM agent_runs WHERE exit_code = 0 AND started_at >= ?`
-        ).get(today)?.cnt || 0;
+          `SELECT COUNT(*) as cnt FROM agent_runs WHERE exit_code = 0 AND started_at >= ?${memberClause}`
+        ).get(today, ...memberParams)?.cnt || 0;
         const failedCount = this.db.prepare(
-          `SELECT COUNT(*) as cnt FROM agent_runs WHERE exit_code != 0 AND started_at >= ?`
-        ).get(today)?.cnt || 0;
+          `SELECT COUNT(*) as cnt FROM agent_runs WHERE exit_code != 0 AND started_at >= ?${memberClause}`
+        ).get(today, ...memberParams)?.cnt || 0;
         activityCounts.success = successCount;
         activityCounts.failed = failedCount;
       } catch {}
@@ -1043,7 +1151,9 @@ class MobileHandler extends EventEmitter {
 
   // --- Chains (DAG of conditionally-triggered tasks) ---
 
-  async _listChains(correlationId, replier) {
+  async _listChains(correlationId, payload, replier) {
+    const orgId = payload && payload.orgId;
+    const memberIds = this._orgMemberIds(orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedChainIds = new Set(connectedAssets.filter(a => a.type === 'chain').map(a => a.id));
     const out = [];
@@ -1051,6 +1161,7 @@ class MobileHandler extends EventEmitter {
       try {
         for (const chain of this.chainEngine.list()) {
           if (!connectedChainIds.has(chain.id)) continue;
+          if (!this._chainInOrg(memberIds, orgId, chain)) continue;
           let lastRun = null;
           try {
             const recent = this.chainEngine.recentRuns(chain.id, 1);
