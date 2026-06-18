@@ -2468,7 +2468,7 @@ app.get('/api/tasks/:id', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { id, name, agentId, prompt, schedule, enabled } = req.body;
+  const { id, name, agentId, prompt, schedule, enabled, orgId } = req.body;
   if (!name || !agentId) return res.status(400).json({ error: 'name and agentId are required' });
   const tasks = loadTasks();
   const taskId = id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2477,7 +2477,7 @@ app.post('/api/tasks', (req, res) => {
   if (existing) {
     return res.status(409).json({ error: 'duplicate_name', existingId: existing.id, message: `A task named "${name}" already exists.` });
   }
-  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, createdAt: new Date().toISOString() };
+  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, orgId: orgId || null, createdAt: new Date().toISOString() };
   tasks.push(task);
   saveTasks(tasks);
   scheduleTask(task);
@@ -2489,7 +2489,7 @@ app.put('/api/tasks/:id', (req, res) => {
   const tasks = loadTasks();
   const idx = tasks.findIndex(t => t.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Task not found' });
-  const { name, prompt, schedule, enabled } = req.body;
+  const { name, prompt, schedule, enabled, orgId } = req.body;
   // Check for name collision (excluding self)
   if (name) {
     const dup = tasks.find(t => t.id !== req.params.id && t.name.toLowerCase() === name.toLowerCase());
@@ -2501,6 +2501,7 @@ app.put('/api/tasks/:id', (req, res) => {
   if (prompt !== undefined) tasks[idx].prompt = prompt;
   if (schedule !== undefined) tasks[idx].schedule = schedule;
   if (enabled !== undefined) tasks[idx].enabled = enabled;
+  if (orgId !== undefined) tasks[idx].orgId = orgId || null;
   tasks[idx].updatedAt = new Date().toISOString();
   saveTasks(tasks);
   scheduleTask(tasks[idx]);
@@ -4551,7 +4552,7 @@ app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
 
 // Add an assignment
 app.post('/api/managers/:id/assignments', (req, res) => {
-  const { id: assignmentId, name, prompt, schedule, enabled } = req.body;
+  const { id: assignmentId, name, prompt, schedule, enabled, orgId } = req.body;
   if (!assignmentId || !name || !prompt) {
     return res.status(400).json({ error: 'Missing required fields: id, name, prompt' });
   }
@@ -4561,7 +4562,9 @@ app.post('/api/managers/:id/assignments', (req, res) => {
 
   if (!entry.config.assignments) entry.config.assignments = [];
   const existingIdx = entry.config.assignments.findIndex(a => a.id === assignmentId);
-  const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false };
+  const prev = existingIdx >= 0 ? entry.config.assignments[existingIdx] : null;
+  const resolvedOrgId = orgId !== undefined ? (orgId || null) : (prev ? (prev.orgId || null) : null);
+  const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false, orgId: resolvedOrgId };
   if (existingIdx >= 0) {
     entry.config.assignments[existingIdx] = assignment;
   } else {

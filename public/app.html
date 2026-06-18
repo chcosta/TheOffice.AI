@@ -208,6 +208,8 @@
     .org-pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
     .org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; align-items: start; }
     .btn.sm { padding: 4px 10px; font-size: 12px; }
+    .org-col--invalid { opacity: 0.4; }
+    .pill-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--cp-accent); color: var(--cp-accent-fg); font-size: 11px; font-weight: 700; }
     .org-col {
       background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 14px; padding: 12px; min-height: 140px; display: flex; flex-direction: column; gap: 8px;
@@ -3400,7 +3402,12 @@
               </div>
             </div>
 
-            <div class="org-layout">
+            <div class="filter-pills" style="margin-bottom:14px">
+              <button class="pill" type="button" :class="{ active: orgTab === 'employees' }" @click="orgTab='employees'">👥 Employees</button>
+              <button class="pill" type="button" :class="{ active: orgTab === 'operations' }" @click="orgTab='operations'">⚙ Operations<span class="pill-count" x-show="unassignedOperations().length" x-text="unassignedOperations().length" style="margin-left:6px"></span></button>
+            </div>
+
+            <div class="org-layout" x-show="orgTab === 'employees'">
               <!-- Left pane: all employees roster (independently scrollable) -->
               <aside class="org-pane org-pane--employees"
                    :class="{ 'drag-over': orgDragOverId === '__unassigned__' }"
@@ -3467,6 +3474,75 @@
                             </div>
                           </template>
                           <div class="org-col-empty" x-show="!employeesInOrg(org.id).length">Drag employees here</div>
+                        </div>
+                      </div>
+                    </template>
+
+                    <div class="org-board-empty" x-show="!data.organizations.length">
+                      <p>No organizations yet.</p>
+                      <button class="btn primary" type="button" @click="openOrgModal()">＋ Create your first organization</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Operations tab: drag unassigned operations onto an organization -->
+            <div class="org-layout" x-show="orgTab === 'operations'">
+              <!-- Left pane: unassigned operations -->
+              <aside class="org-pane org-pane--employees">
+                <div class="org-pane-head">
+                  <span class="org-col-emoji">⚙️</span>
+                  <span class="org-pane-title">Unassigned operations</span>
+                  <span class="org-col-count" x-text="unassignedOperations().length"></span>
+                </div>
+                <div class="org-pane-sub">Tasks, assignments and flows with no organization. Drag one onto an organization its employee belongs to.</div>
+                <div class="org-pane-body">
+                  <template x-for="op in unassignedOperations()" :key="'uop-'+op.key">
+                    <div class="emp-chip" draggable="true" @dragstart="onOpDragStart($event, op)"
+                         :title="validOrgsForOp(op).length ? 'Can join: ' + validOrgsForOp(op).map(o => o.name).join(', ') : (op.kind==='flow' ? 'No org contains all of this flow\'s agents' : 'Owner is not in any organization')">
+                      <span class="emp-chip-icon" x-text="op.icon"></span>
+                      <span class="emp-chip-name" x-text="op.name"></span>
+                      <span class="emp-chip-type" x-text="op.typeLabel"></span>
+                    </div>
+                  </template>
+                  <div class="org-col-empty" x-show="!unassignedOperations().length">Every operation is assigned 🎉</div>
+                </div>
+              </aside>
+
+              <!-- Right pane: organizations as drop targets -->
+              <div class="org-pane org-pane--orgs">
+                <div class="org-pane-head">
+                  <span class="org-col-emoji">🏢</span>
+                  <span class="org-pane-title">Organizations</span>
+                  <span class="org-col-count" x-text="data.organizations.length"></span>
+                  <button class="btn primary sm" type="button" @click="openOrgModal()" style="margin-left:auto">＋ New</button>
+                </div>
+                <div class="org-pane-body">
+                  <div class="org-grid">
+                    <template x-for="org in data.organizations" :key="'opsorg-'+org.id">
+                      <div class="org-col"
+                           :class="{ 'drag-over': orgDragOverId === org.id, 'org-col--invalid': orgDragOp && !validOrgsForOp(orgDragOp).some(o => o.id === org.id) }"
+                           :style="'border-top:3px solid ' + (org.color || 'var(--cp-accent)')"
+                           @dragover="_orgDragOverTarget=org.id; onOrgDragOver($event)"
+                           @dragleave="orgDragOverId=null"
+                           @drop="onOpDrop($event, org.id)">
+                        <div class="org-col-head">
+                          <span class="org-col-emoji" x-text="org.emoji || '🏢'"></span>
+                          <span class="org-col-name" x-text="org.name"></span>
+                          <span class="org-col-count" x-text="orgOperationCount(org.id)"></span>
+                        </div>
+                        <div class="org-col-desc" x-show="org.description" x-text="org.description"></div>
+                        <div class="org-col-body">
+                          <template x-for="op in operationsInOrg(org.id)" :key="org.id+'-op-'+op.key">
+                            <div class="emp-chip">
+                              <span class="emp-chip-icon" x-text="op.icon"></span>
+                              <span class="emp-chip-name" x-text="op.name"></span>
+                              <span class="emp-chip-type" x-text="op.typeLabel"></span>
+                              <button class="emp-chip-x" type="button" title="Remove from organization" @click="unassignOperation(op)">✕</button>
+                            </div>
+                          </template>
+                          <div class="org-col-empty" x-show="!operationsInOrg(org.id).length">Drag operations here</div>
                         </div>
                       </div>
                     </template>
@@ -6034,7 +6110,7 @@
           <template x-if="newTaskForm.kind === 'agent'">
             <div>
               <div class="field-label"><span>Agent</span><span class="hint">Which agent runs this task</span></div>
-              <select class="field-input" x-model="newTaskForm.agentId" :disabled="!!newTaskForm.editingId">
+              <select class="field-input" x-model="newTaskForm.agentId" :disabled="!!newTaskForm.editingId" @change="onModalEmployeeChange()">
                 <option value="">Select agent…</option>
                 <template x-for="a in data.agents" :key="'tm-' + a.id">
                   <option :value="a.id" x-text="a.name"></option>
@@ -6045,7 +6121,7 @@
           <template x-if="newTaskForm.kind === 'assignment'">
             <div>
               <div class="field-label"><span>Manager</span><span class="hint">Which manager owns this assignment</span></div>
-              <select class="field-input" x-model="newTaskForm.managerId" :disabled="!!newTaskForm.editingId">
+              <select class="field-input" x-model="newTaskForm.managerId" :disabled="!!newTaskForm.editingId" @change="onModalEmployeeChange()">
                 <option value="">Select manager…</option>
                 <template x-for="manager in data.managers" :key="'mm-' + manager.id">
                   <option :value="manager.id" x-text="manager.name"></option>
@@ -6056,6 +6132,16 @@
           <div>
             <div class="field-label"><span>Name</span></div>
             <input class="field-input" type="text" x-model="newTaskForm.name" :placeholder="newTaskForm.kind === 'assignment' ? 'e.g. Monitor Azure Status' : 'e.g. Daily standup report'" />
+          </div>
+          <div>
+            <div class="field-label"><span>Organization</span><span class="hint">This operation belongs to one organization</span></div>
+            <select class="field-input" x-model="newTaskForm.orgId" :disabled="!(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId)">
+              <option value="">Unassigned</option>
+              <template x-for="o in modalOrgOptions()" :key="'tmo-' + o.id">
+                <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
+              </template>
+            </select>
+            <div class="hint" x-show="(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId) && !modalOrgOptions().length" style="margin-top:6px">This employee isn't in any organization yet. Assign it on the Organizations page first.</div>
           </div>
           <div>
             <div class="field-label"><span>Prompt</span><span class="hint" x-text="newTaskForm.kind === 'assignment' ? 'What the manager should do' : 'What the agent should do'"></span></div>
@@ -6130,6 +6216,16 @@
               <div>
                 <div class="field-label"><span>Description</span></div>
                 <input class="field-input" type="text" x-model="chainDraft.description" />
+              </div>
+              <div>
+                <div class="field-label"><span>Organization</span><span class="hint">Orgs containing every agent this flow uses</span></div>
+                <select class="field-input" x-model="chainDraft.orgId">
+                  <option value="">Unassigned</option>
+                  <template x-for="o in chainOrgOptions(chainDraft)" :key="'cmo-' + o.id">
+                    <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
+                  </template>
+                </select>
+                <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No organization contains all of this flow's agents yet.</div>
               </div>
               <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
 
@@ -6744,6 +6840,8 @@
         orgDragEmp: null,
         orgDragOverId: null,
         _orgDragOverTarget: null,
+        orgTab: 'employees',
+        orgDragOp: null,
         agentGroupBy: 'group',
         agentSort: 'recent',
         agentView: 'grid',
@@ -8075,6 +8173,38 @@
           if (!refs.length) return false;
           return refs.every(id => this.idInCurrentOrg(id));
         },
+        // Org gate for operations (tasks/assignments/flows). Operations are
+        // employee+org specific: each carries its own orgId. Under "All" everything
+        // shows; under a specific org only operations stamped with that org show.
+        // Legacy operations without an orgId are only visible under "All".
+        opInCurrentOrg(orgId) {
+          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          return orgId === this.currentOrgId;
+        },
+        // Valid org choices for the operation modal, constrained to orgs the
+        // selected employee belongs to (employee+org pairing).
+        modalOrgOptions() {
+          const f = this.newTaskForm;
+          const empId = f.kind === 'assignment' ? f.managerId : f.agentId;
+          if (!empId) return [];
+          return this.orgsOfEmployee(empId);
+        },
+        // When the selected employee changes, drop an org selection that is no
+        // longer valid for that employee.
+        onModalEmployeeChange() {
+          const valid = new Set(this.modalOrgOptions().map(o => o.id));
+          if (this.newTaskForm.orgId && !valid.has(this.newTaskForm.orgId)) {
+            this.newTaskForm.orgId = '';
+          }
+        },
+        // Valid org choices for a flow: orgs containing every agent the flow references.
+        chainOrgOptions(draft) {
+          const refs = this.flowReferencedAgentIds(draft || this.chainDraft || {});
+          return (this.data.organizations || []).filter(o => {
+            const ids = new Set(o.memberIds || []);
+            return refs.length ? refs.every(id => ids.has(id)) : false;
+          });
+        },
         // Combined employee roster (agents + managers) for the Organizations page.
         allEmployees() {
           const agents = (this.data.agents || []).map(a => ({
@@ -8184,6 +8314,124 @@
           this.orgDragEmp = null;
         },
 
+        // ----- Operations → organization assignment (Organizations page "Operations" tab) -----
+        // Unified operation list (tasks + assignments + flows) with a resolved orgId.
+        allOperations() {
+          const ops = [];
+          for (const t of this.allTasks()) {
+            ops.push({
+              kind: t.type, // 'agent' | 'assignment'
+              key: t.taskKey,
+              name: t.name,
+              ownerName: t.ownerName,
+              orgId: t.orgId || null,
+              employeeId: t.type === 'assignment' ? t.managerId : t.agentId,
+              taskId: t.id,
+              managerId: t.managerId,
+              assignmentId: t.assignmentId,
+              icon: t.type === 'assignment' ? '📋' : '✓',
+              typeLabel: t.typeLabel
+            });
+          }
+          for (const c of (this.data.chains || [])) {
+            ops.push({
+              kind: 'flow',
+              key: 'flow-' + c.id,
+              name: c.name || c.id,
+              ownerName: 'Flow',
+              orgId: c.orgId || null,
+              chainId: c.id,
+              refs: this.flowReferencedAgentIds(c),
+              icon: '🔗',
+              typeLabel: 'Flow'
+            });
+          }
+          return ops;
+        },
+        // An operation is "unassigned" if it has no orgId or references a deleted org.
+        unassignedOperations() {
+          const orgIds = new Set((this.data.organizations || []).map(o => o.id));
+          return this.allOperations().filter(op => !op.orgId || !orgIds.has(op.orgId));
+        },
+        operationsInOrg(orgId) {
+          return this.allOperations().filter(op => op.orgId === orgId);
+        },
+        orgOperationCount(orgId) {
+          return this.operationsInOrg(orgId).length;
+        },
+        // Orgs an operation is allowed to join (employee+org pairing; flows need all agents present).
+        validOrgsForOp(op) {
+          if (!op) return [];
+          if (op.kind === 'flow') {
+            const refs = op.refs || [];
+            return (this.data.organizations || []).filter(o => {
+              const ids = new Set(o.memberIds || []);
+              return refs.length && refs.every(id => ids.has(id));
+            });
+          }
+          return this.orgsOfEmployee(op.employeeId);
+        },
+        onOpDragStart(ev, op) {
+          this.orgDragOp = op;
+          try { ev.dataTransfer.setData('text/plain', op.key); ev.dataTransfer.effectAllowed = 'move'; } catch {}
+        },
+        async onOpDrop(ev, orgId) {
+          ev.preventDefault();
+          const op = this.orgDragOp;
+          this.orgDragOverId = null; this._orgDragOverTarget = null;
+          this.orgDragOp = null;
+          if (!op) return;
+          await this.assignOperationToOrg(op, orgId);
+        },
+        async assignOperationToOrg(op, orgId) {
+          const org = (this.data.organizations || []).find(o => o.id === orgId);
+          const valid = new Set(this.validOrgsForOp(op).map(o => o.id));
+          if (!valid.has(orgId)) {
+            const who = op.kind === 'flow' ? "this flow's agents are" : 'its employee is';
+            this.showToast('Cannot assign', `"${op.name}" can't join ${org ? org.name : 'that organization'} — ${who} not a member.`, 'error');
+            return;
+          }
+          try {
+            if (op.kind === 'agent') {
+              await this.request('/api/tasks/' + encodeURIComponent(op.taskId), { method: 'PUT', body: JSON.stringify({ orgId }) });
+            } else if (op.kind === 'assignment') {
+              const mgr = (this.data.managers || []).find(m => m.id === op.managerId);
+              const raw = mgr && (mgr.config.assignments || []).find(a => a.id === op.assignmentId);
+              if (!raw) throw new Error('Assignment not found');
+              await this.request('/api/managers/' + encodeURIComponent(op.managerId) + '/assignments', {
+                method: 'POST',
+                body: JSON.stringify({ id: raw.id, name: raw.name, prompt: raw.prompt, schedule: raw.schedule || 'never', enabled: raw.enabled !== false, orgId })
+              });
+            } else if (op.kind === 'flow') {
+              await this.request('/api/chains/' + encodeURIComponent(op.chainId), { method: 'PUT', body: JSON.stringify({ orgId }) });
+            }
+            this.showToast('Assigned', `"${op.name}" → ${org ? org.name : 'organization'}.`, 'info');
+            await this.refreshAll(false);
+          } catch (e) {
+            this.showToast('Assign failed', e.message, 'error');
+          }
+        },
+        async unassignOperation(op) {
+          try {
+            if (op.kind === 'agent') {
+              await this.request('/api/tasks/' + encodeURIComponent(op.taskId), { method: 'PUT', body: JSON.stringify({ orgId: null }) });
+            } else if (op.kind === 'assignment') {
+              const mgr = (this.data.managers || []).find(m => m.id === op.managerId);
+              const raw = mgr && (mgr.config.assignments || []).find(a => a.id === op.assignmentId);
+              if (!raw) throw new Error('Assignment not found');
+              await this.request('/api/managers/' + encodeURIComponent(op.managerId) + '/assignments', {
+                method: 'POST',
+                body: JSON.stringify({ id: raw.id, name: raw.name, prompt: raw.prompt, schedule: raw.schedule || 'never', enabled: raw.enabled !== false, orgId: null })
+              });
+            } else if (op.kind === 'flow') {
+              await this.request('/api/chains/' + encodeURIComponent(op.chainId), { method: 'PUT', body: JSON.stringify({ orgId: null }) });
+            }
+            this.showToast('Removed', `"${op.name}" is now unassigned.`, 'info');
+            await this.refreshAll(false);
+          } catch (e) {
+            this.showToast('Remove failed', e.message, 'error');
+          }
+        },
         filteredAgents() {
           const query = this.agentSearch.trim().toLowerCase();
           let list = this.data.agents.filter(a => this.idInCurrentOrg(a.id));
@@ -8322,6 +8570,7 @@
               prompt: task.prompt || '',
               managerId: null,
               assignmentId: null,
+              orgId: task.orgId || null,
               triggers: Array.isArray(task.triggers) ? task.triggers : [],
               triggersDraft: JSON.parse(JSON.stringify(Array.isArray(task.triggers) ? task.triggers : []))
             };
@@ -8345,6 +8594,7 @@
             lastRun: manager.lastRun,
             prompt: assignment.prompt || '',
             agentId: null,
+            orgId: assignment.orgId || null,
             triggers: Array.isArray(assignment.triggers) ? assignment.triggers : [],
             triggersDraft: JSON.parse(JSON.stringify(Array.isArray(assignment.triggers) ? assignment.triggers : []))
           })));
@@ -8432,14 +8682,14 @@
         },
         filteredTasks() {
           const query = this.taskSearch.trim().toLowerCase();
-          const tasks = this.allTasks().filter(t => t.type === 'agent' && this.idInCurrentOrg(t.agentId));
+          const tasks = this.allTasks().filter(t => t.type === 'agent' && this.opInCurrentOrg(t.orgId));
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
         filteredAssignments() {
           const query = this.assignmentSearch.trim().toLowerCase();
-          const assignments = this.allTasks().filter(t => t.type === 'assignment' && this.idInCurrentOrg(t.managerId));
+          const assignments = this.allTasks().filter(t => t.type === 'assignment' && this.opInCurrentOrg(t.orgId));
           if (!query) return assignments;
           return assignments.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
@@ -10950,7 +11200,7 @@
 
         filteredChains() {
           const q = (this.chainSearch || '').trim().toLowerCase();
-          const list = (this.data.chains || []).filter(c => this.flowInCurrentOrg(c));
+          const list = (this.data.chains || []).filter(c => this.opInCurrentOrg(c.orgId));
           if (!q) return list;
           return list.filter(c => (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q));
         },
@@ -10973,7 +11223,7 @@
             const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
             const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
             this.chainDraft = {
-              id, name: 'New flow', description: '', schedule: 'never', enabled: true,
+              id, name: 'New flow', description: '', orgId: (this.currentOrgId !== 'all' ? this.currentOrgId : ''), schedule: 'never', enabled: true,
               steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
               edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
               _new: true
@@ -11010,10 +11260,12 @@
         removeChainEdge(idx) { this.chainDraft.edges.splice(idx, 1); },
 
         _cleanChainPayload(draft) {
+          const validOrgs = new Set(this.chainOrgOptions(draft).map(o => o.id));
           return {
             id: draft.id,
             name: draft.name,
             description: draft.description,
+            orgId: (draft.orgId && validOrgs.has(draft.orgId)) ? draft.orgId : null,
             schedule: draft.schedule,
             enabled: draft.enabled !== false,
             steps: draft.steps.map(s => ({ id: s.id, taskId: s.taskId || null, prompt: s.prompt || '' })),
@@ -11167,7 +11419,7 @@
         },
 
         resetItemForm() {
-          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '' };
+          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '', orgId: '' };
         },
 
         closeItemModal() {
@@ -11189,12 +11441,15 @@
             this.newTaskForm.agentId = task.agentId || presetAgentId || '';
             this.newTaskForm.name = task.name || '';
             this.newTaskForm.prompt = task.prompt || '';
+            this.newTaskForm.orgId = task.orgId || '';
             const sched = task.schedule || task.scheduleDraft || 'never';
             this.newTaskForm.schedule = sched;
             this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
           } else if (presetAgentId) {
             this.newTaskForm.agentId = presetAgentId;
           }
+          if (!task) this.newTaskForm.orgId = this.currentOrgId !== 'all' ? this.currentOrgId : '';
+          this.onModalEmployeeChange();
           this.newTaskOpen = true;
         },
 
@@ -11206,12 +11461,15 @@
             this.newTaskForm.managerId = assignment.managerId || presetManagerId || '';
             this.newTaskForm.name = assignment.name || '';
             this.newTaskForm.prompt = assignment.prompt || '';
+            this.newTaskForm.orgId = assignment.orgId || '';
             const sched = assignment.schedule || assignment.scheduleDraft || 'never';
             this.newTaskForm.schedule = sched;
             this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
           } else if (presetManagerId) {
             this.newTaskForm.managerId = presetManagerId;
           }
+          if (!assignment) this.newTaskForm.orgId = this.currentOrgId !== 'all' ? this.currentOrgId : '';
+          this.onModalEmployeeChange();
           this.newTaskOpen = true;
         },
 
@@ -11264,12 +11522,12 @@
               if (f.editingId) {
                 await this.request(`/api/tasks/${encodeURIComponent(f.editingId)}`, {
                   method: 'PUT',
-                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule })
+                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule, orgId: f.orgId || null })
                 });
               } else {
                 await this.request('/api/tasks', {
                   method: 'POST',
-                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule })
+                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule, orgId: f.orgId || null })
                 });
               }
             } else {
@@ -11277,7 +11535,7 @@
               const assignmentId = f.editingId || this.slugifyId(name, 'assignment');
               await this.request(`/api/managers/${encodeURIComponent(f.managerId)}/assignments`, {
                 method: 'POST',
-                body: JSON.stringify({ id: assignmentId, name, prompt, schedule: resolvedSchedule, enabled: true })
+                body: JSON.stringify({ id: assignmentId, name, prompt, schedule: resolvedSchedule, enabled: true, orgId: f.orgId || null })
               });
             }
             this.showToast(f.editingId ? 'Saved' : 'Created', f.kind === 'assignment' ? 'Assignment saved.' : 'Task saved.', 'info');

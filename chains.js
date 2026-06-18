@@ -110,6 +110,7 @@ class ChainEngine extends EventEmitter {
       id: chain.id,
       name: chain.name || 'Untitled chain',
       description: chain.description || '',
+      orgId: chain.orgId || null,
       schedule: chain.schedule || 'never',
       enabled: chain.enabled !== false,
       steps: (chain.steps || []).map(s => ({
