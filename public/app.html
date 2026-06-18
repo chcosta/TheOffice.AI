@@ -2045,7 +2045,7 @@
       height: 100%;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow: visible;
       padding: 0;
     }
     .board-panel-head {
@@ -2071,14 +2071,14 @@
       white-space: nowrap;
     }
     .board-panel-grip { color: var(--cp-text-soft); opacity: .55; font-size: 13px; }
-    .board-panel-body { flex: 1; overflow: auto; padding: 12px; }
+    .board-panel-body { overflow: visible; padding: 12px; }
     .board-resize {
       position: absolute;
       right: 4px;
       bottom: 12px;
       width: 16px;
       height: 16px;
-      cursor: nwse-resize;
+      cursor: ew-resize;
       border-right: 2px solid var(--cp-border-strong);
       border-bottom: 2px solid var(--cp-border-strong);
       border-bottom-right-radius: 6px;
@@ -4311,7 +4311,7 @@
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
                     <div class="board-grid" :style="'position:relative; width:100%; height:' + boardGridHeight() + 'px;'">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id }" :style="panelStyle(p.id)">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <div class="board-panel-inner card">
                             <div class="board-panel-head" @mousedown="startPanelDrag(p.id, $event)">
                               <div class="board-panel-title" x-text="panelTitle(p)"></div>
@@ -4320,14 +4320,14 @@
                             <div class="board-panel-body">
                               <!-- Where was I? AI briefing -->
                               <template x-if="p.type === 'summary'">
-                                <div style="display:flex;flex-direction:column;gap:10px;height:100%;min-height:0">
+                                <div style="display:flex;flex-direction:column;gap:10px">
                                   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex:0 0 auto">
                                     <div class="hint" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
                                     <div class="hint" x-show="!(activeBoard().summary)">Not generated yet</div>
                                     <button class="btn ghost" type="button" @click="refreshBoardSummary(true)" :disabled="boardSummaryLoading" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
                                   </div>
                                   <div x-show="boardSummaryLoading && !(activeBoard().summary)" class="hint">Reviewing recent activity across your pinned items…</div>
-                                  <div x-show="activeBoard().summary && activeBoard().summary.text" style="white-space:pre-wrap;overflow:auto;flex:1 1 auto;min-height:0;line-height:1.5" x-text="activeBoard().summary ? activeBoard().summary.text : ''"></div>
+                                  <div x-show="activeBoard().summary && activeBoard().summary.text" style="white-space:pre-wrap;line-height:1.5" x-text="activeBoard().summary ? activeBoard().summary.text : ''"></div>
                                   <div x-show="!boardSummaryLoading && !(activeBoard().summary)" class="empty-state" style="padding:12px">Pin items, then click <strong>↻ Update</strong> to generate an AI briefing of where you left off.</div>
                                 </div>
                               </template>
@@ -7976,6 +7976,7 @@
         boardRowH: 36,
         boardGap: 14,
         _layoutTimer: null,
+        _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
         quickPin: { open: false, kind: '', refId: '', label: '', sublabel: '' },
         updatesList: [],
@@ -11490,6 +11491,7 @@
           this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
           this.ensureBoardLayout(false);
           this.maybeRefreshSummary();
+          this.scheduleAutoFit();
         },
         // Assign default slots to any panel without a saved position (2-column,
         // 50/50). Prunes layout entries for panels that no longer exist. Persists
@@ -11566,6 +11568,7 @@
             document.removeEventListener('mouseup', onUp);
             this.boardDragId = '';
             this.persistLayout();
+            this.scheduleAutoFit();
           };
           this.boardDragId = id;
           document.addEventListener('mousemove', onMove);
@@ -11578,18 +11581,18 @@
           const base = this.boardLayout[id]; if (!base) return;
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
+          // Width-only resize: panel height is auto-fitted to content.
           const onMove = (e) => {
             const dw = Math.round((e.clientX - start.mx) / colW);
-            const dh = Math.round((e.clientY - start.my) / rowH);
             const nw = Math.max(3, Math.min(cols - start.x, start.w + dw));
-            const nh = Math.max(3, start.h + dh);
-            this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: nh } };
+            this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: start.h } };
           };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             this.boardDragId = '';
             this.persistLayout();
+            this.scheduleAutoFit();
           };
           this.boardDragId = id;
           document.addEventListener('mousemove', onMove);
@@ -11607,7 +11610,47 @@
         resetBoardLayout() {
           this.boardLayout = {};
           this.ensureBoardLayout(true);
+          this.scheduleAutoFit();
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
+        },
+        // Auto-size every panel to fit its content so no panel needs an inner scrollbar.
+        // Measures rendered content height, converts to grid rows, and repacks panels
+        // down their current column (preserving column + order) to avoid overlap.
+        scheduleAutoFit() {
+          clearTimeout(this._autoFitTimer);
+          this._autoFitTimer = setTimeout(() => this.autoFitBoard(), 70);
+        },
+        autoFitBoard() {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          this.$nextTick(() => {
+            const grid = document.querySelector('.board-grid');
+            if (!grid) return;
+            const rowH = this.boardRowH, gap = this.boardGap, cols = this.boardCols, half = Math.floor(cols / 2);
+            const fit = {};
+            grid.querySelectorAll('.board-panel').forEach(el => {
+              const id = el.getAttribute('data-pid'); if (!id) return;
+              const head = el.querySelector('.board-panel-head');
+              const body = el.querySelector('.board-panel-body');
+              const needed = (head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6;
+              fit[id] = Math.max(3, Math.ceil(needed / rowH));
+            });
+            const layout = { ...this.boardLayout };
+            const order = Object.keys(layout)
+              .filter(id => fit[id] != null)
+              .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
+            let yL = 0, yR = 0, changed = false;
+            for (const id of order) {
+              const cur = layout[id];
+              const h = fit[id];
+              const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
+              let ny;
+              if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; }
+              else if (cur.x < half) { ny = yL; yL += h; }
+              else { ny = yR; yR += h; }
+              if (cur.y !== ny || cur.h !== h) { layout[id] = { ...cur, y: ny, h }; changed = true; }
+            }
+            if (changed) { this.boardLayout = layout; this.persistLayout(); }
+          });
         },
         // ----- Notes -----
         async addBoardNote() {
@@ -11682,6 +11725,7 @@
             const updated = (resp && resp.board) || resp;
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.scheduleAutoFit();
           } catch (e) {
             this.showToast('Board', e.message, 'error');
           }
@@ -11697,6 +11741,7 @@
             const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [] };
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0) this.boards[idx] = { ...this.boards[idx], summary };
+            this.scheduleAutoFit();
           } catch (e) {
             if (force) this.showToast('Where was I', e.message, 'error');
           } finally {
