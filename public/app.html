@@ -4381,7 +4381,10 @@
                                           <textarea class="field-input" rows="3" style="flex:1;resize:vertical" x-init="$el.value = note.text; $nextTick(() => $el.focus())" @blur="updateBoardNote(note, $event.target.value); boardEditingNote=''" @keydown.escape.stop="boardEditingNote=''"></textarea>
                                         </template>
                                         <template x-if="boardEditingNote !== note.id">
-                                          <div class="md-output" style="flex:1;min-width:0;cursor:text" title="Click to edit" x-html="renderMarkdown(note.text)" @click="if(!$event.target.closest('a')) boardEditingNote = note.id"></div>
+                                          <div style="flex:1;min-width:0">
+                                            <div class="md-output" style="cursor:text" title="Click to edit" x-html="renderMarkdown(note.text)" @click="if(!$event.target.closest('a')) boardEditingNote = note.id"></div>
+                                            <div class="hint" style="margin-top:4px;font-size:11px;opacity:.7" x-show="note.createdAt" :title="stampTitle(note)" x-text="stampLine(note)"></div>
+                                          </div>
                                         </template>
                                         <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
                                       </div>
@@ -4402,7 +4405,10 @@
                                     <template x-for="cl in (activeBoard().checklists||[])" :key="cl.id">
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
-                                          <div style="font-weight:600" x-text="cl.title"></div>
+                                          <div style="min-width:0">
+                                            <div style="font-weight:600" x-text="cl.title"></div>
+                                            <div class="hint" style="font-size:11px;opacity:.7" x-show="cl.createdAt" :title="stampTitle(cl)" x-text="stampLine(cl)"></div>
+                                          </div>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
                                             <button class="icon-button" type="button" title="Delete checklist" @click="deleteChecklist(cl)">✕</button>
@@ -11732,7 +11738,9 @@
         async updateBoardNote(note, text) {
           const board = this.activeBoard();
           if (!board) return;
-          const notes = (board.notes || []).map(n => n.id === note.id ? { ...n, text } : n);
+          if ((note.text || '') === text) return; // no-op edit, don't bump timestamp
+          const now = new Date().toISOString();
+          const notes = (board.notes || []).map(n => n.id === note.id ? { ...n, text, updatedAt: now } : n);
           await this._patchBoard(board, { notes });
         },
         async deleteBoardNote(note) {
@@ -11746,7 +11754,8 @@
           const board = this.activeBoard();
           const title = (this.boardChecklistDraft || '').trim();
           if (!board || !title) return;
-          const checklists = [...(board.checklists || []), { id: 'cl-' + Date.now().toString(36), title, items: [] }];
+          const now = new Date().toISOString();
+          const checklists = [...(board.checklists || []), { id: 'cl-' + Date.now().toString(36), title, items: [], createdAt: now, updatedAt: now }];
           await this._patchBoard(board, { checklists });
           this.boardChecklistDraft = '';
         },
@@ -11760,8 +11769,9 @@
           const board = this.activeBoard();
           const text = (this.boardChecklistItemDraft[cl.id] || '').trim();
           if (!board || !text) return;
+          const now = new Date().toISOString();
           const checklists = (board.checklists || []).map(c => c.id === cl.id
-            ? { ...c, items: [...(c.items || []), { id: 'ci-' + Date.now().toString(36), text, done: false }] }
+            ? { ...c, items: [...(c.items || []), { id: 'ci-' + Date.now().toString(36), text, done: false, createdAt: now }], updatedAt: now }
             : c);
           await this._patchBoard(board, { checklists });
           this.boardChecklistItemDraft[cl.id] = '';
@@ -11769,16 +11779,18 @@
         async toggleChecklistItem(cl, item) {
           const board = this.activeBoard();
           if (!board) return;
+          const now = new Date().toISOString();
           const checklists = (board.checklists || []).map(c => c.id === cl.id
-            ? { ...c, items: (c.items || []).map(i => i.id === item.id ? { ...i, done: !i.done } : i) }
+            ? { ...c, items: (c.items || []).map(i => i.id === item.id ? { ...i, done: !i.done } : i), updatedAt: now }
             : c);
           await this._patchBoard(board, { checklists });
         },
         async deleteChecklistItem(cl, item) {
           const board = this.activeBoard();
           if (!board) return;
+          const now = new Date().toISOString();
           const checklists = (board.checklists || []).map(c => c.id === cl.id
-            ? { ...c, items: (c.items || []).filter(i => i.id !== item.id) }
+            ? { ...c, items: (c.items || []).filter(i => i.id !== item.id), updatedAt: now }
             : c);
           await this._patchBoard(board, { checklists });
         },
@@ -11786,6 +11798,24 @@
           const items = (cl && cl.items) || [];
           const done = items.filter(i => i.done).length;
           return { done, total: items.length };
+        },
+        // Human-readable "Added … · edited …" line for notes and checklists.
+        stampLine(o) {
+          if (!o) return '';
+          const created = o.createdAt;
+          const updated = o.updatedAt;
+          const parts = [];
+          if (created) parts.push('Added ' + this.formatRelative(created));
+          if (updated && updated !== created) parts.push('edited ' + this.formatRelative(updated));
+          return parts.join(' · ');
+        },
+        stampTitle(o) {
+          if (!o) return '';
+          const fmt = (d) => { try { return new Date(d).toLocaleString(); } catch { return d; } };
+          const lines = [];
+          if (o.createdAt) lines.push('Created: ' + fmt(o.createdAt));
+          if (o.updatedAt && o.updatedAt !== o.createdAt) lines.push('Edited: ' + fmt(o.updatedAt));
+          return lines.join('\n');
         },
         async _patchBoard(board, partial) {
           try {
