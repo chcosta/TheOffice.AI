@@ -323,7 +323,11 @@
     .orgh--idle { border-left-color: var(--cp-text-muted); }
     .orgh--ok { border-left-color: var(--cp-success); }
     .orgh-top { display: flex; align-items: center; gap: 10px; }
+    .orgh-avatar { width: 34px; height: 34px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--cp-surface-soft); box-shadow: inset 0 0 0 1px var(--cp-border); }
     .orgh-emoji { font-size: 1.4rem; line-height: 1; }
+    .orgh-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .orgh-theme { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; color: var(--cp-text-muted); padding: 1px 7px 1px 4px; border-radius: 8px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); }
+    .theme-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
     .orgh-id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
     .orgh-id strong { font-size: 0.98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .orgh-status { align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 9px; }
@@ -351,6 +355,8 @@
     .org-col-name { font-weight: 700; font-size: 14px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .org-col-count { font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: var(--cp-surface-soft); border-radius: 999px; padding: 1px 8px; }
     .org-col-desc { font-size: 12px; color: var(--cp-text-muted); }
+    .org-col-theme { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); padding: 2px 8px 2px 5px; border-radius: 8px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); align-self: flex-start; }
+    .org-col-theme .theme-dot { width: 12px; height: 12px; }
     .org-col-body { display: flex; flex-direction: column; gap: 6px; min-height: 56px; }
     .org-col-empty { font-size: 12px; color: var(--cp-text-soft); text-align: center; padding: 14px 6px; border: 1px dashed var(--cp-border); border-radius: 10px; }
     .icon-button.sm { padding: 2px 6px; font-size: 12px; line-height: 1; }
@@ -2448,10 +2454,18 @@
                            @click="setCurrentOrg(h.org.id)" @keydown.enter="setCurrentOrg(h.org.id)"
                            :title="'Enter ' + h.org.name">
                     <div class="orgh-top">
-                      <span class="orgh-emoji" x-text="h.org.emoji || '🏢'"></span>
+                      <span class="orgh-avatar" :style="'background: color-mix(in srgb, ' + orgThemePreset(h.org).accent + ' 16%, var(--cp-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, ' + orgThemePreset(h.org).accent + ' 45%, var(--cp-border));'">
+                        <span class="orgh-emoji" x-text="h.org.emoji || '🏢'"></span>
+                      </span>
                       <div class="orgh-id">
                         <strong x-text="h.org.name"></strong>
-                        <span class="orgh-status" :class="'st-' + h.statusClass" x-text="h.status"></span>
+                        <div class="orgh-chips">
+                          <span class="orgh-status" :class="'st-' + h.statusClass" x-text="h.status"></span>
+                          <span class="orgh-theme" :title="'Theme: ' + orgThemePreset(h.org).name">
+                            <span class="theme-dot" :style="'background:' + orgThemePreset(h.org).accent"></span>
+                            <span x-text="orgThemePreset(h.org).name"></span>
+                          </span>
+                        </div>
                       </div>
                       <span class="orgh-go">→</span>
                     </div>
@@ -3638,6 +3652,10 @@
                           <button class="icon-button sm" type="button" title="Edit" @click="openOrgModal(org)">✎</button>
                           <button class="icon-button sm" type="button" title="Delete" @click="deleteOrg(org)">🗑</button>
                         </div>
+                        <span class="org-col-theme" :title="'Theme: ' + orgThemePreset(org).name">
+                          <span class="theme-dot" :style="'background:' + orgThemePreset(org).accent"></span>
+                          <span x-text="orgThemePreset(org).name + ' theme'"></span>
+                        </span>
                         <div class="org-col-desc" x-show="org.description" x-text="org.description"></div>
                         <div class="org-col-body">
                           <template x-for="emp in employeesInOrg(org.id)" :key="org.id+'-'+emp.id">
@@ -3707,6 +3725,10 @@
                           <span class="org-col-name" x-text="org.name"></span>
                           <span class="org-col-count" x-text="orgOperationCount(org.id)"></span>
                         </div>
+                        <span class="org-col-theme" :title="'Theme: ' + orgThemePreset(org).name">
+                          <span class="theme-dot" :style="'background:' + orgThemePreset(org).accent"></span>
+                          <span x-text="orgThemePreset(org).name + ' theme'"></span>
+                        </span>
                         <div class="org-col-desc" x-show="org.description" x-text="org.description"></div>
                         <div class="org-col-body">
                           <template x-for="op in operationsInOrg(org.id)" :key="org.id+'-op-'+op.key">
@@ -8360,6 +8382,11 @@
           if (theme) el.setAttribute('data-org-theme', theme);
           else el.removeAttribute('data-org-theme');
           try { if (theme) localStorage.setItem('current-org-theme', theme); else localStorage.removeItem('current-org-theme'); } catch {}
+        },
+        // Resolve an organization's theme preset (id, name, bg, accent) for previews.
+        orgThemePreset(org) {
+          const id = (org && org.theme) || 'default';
+          return (this.orgThemes || []).find(t => t.id === id) || this.orgThemes[0];
         },
         // Core gate: is an employee id visible under the current org selection?
         idInCurrentOrg(id) {
