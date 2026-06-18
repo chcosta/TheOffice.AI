@@ -773,6 +773,13 @@
     .pin-dot.idle { background: var(--cp-text-soft); }
     .pin-dot.disabled { background: var(--cp-border-strong); }
     .pin-meta { font-size: 11px; color: var(--cp-text-muted); white-space: nowrap; flex: 0 0 auto; }
+    /* Linked-pin chip on a checklist item: compact, height-stable, one primary action. */
+    .ci-ref {
+      display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+      padding: 1px 4px 1px 6px; border: 1px solid var(--cp-border); border-radius: 999px;
+      background: var(--cp-surface-soft); font-size: 11px; color: var(--cp-text-muted);
+      white-space: nowrap;
+    }
     .sidebar-bottom {
       padding-top: 12px;
       border-top: 1px solid var(--cp-border);
@@ -4507,12 +4514,41 @@
                                         </div>
                                         <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
                                           <template x-for="item in (cl.items||[])" :key="item.id">
-                                            <div style="display:flex;align-items:center;gap:8px">
-                                              <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
-                                              <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
-                                              <button class="icon-button" type="button" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
-                                              <button class="icon-button" type="button" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
-                                              <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                            <div style="display:flex;flex-direction:column;gap:4px">
+                                              <div style="display:flex;align-items:center;gap:8px">
+                                                <input type="checkbox" :checked="item.done" @change="toggleChecklistItem(cl, item)" />
+                                                <template x-if="item.ref && boardRefStatus(item.ref)">
+                                                  <span class="pin-dot" :class="boardRefStatus(item.ref).state" :title="boardRefStatusTitle(item.ref)"></span>
+                                                </template>
+                                                <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
+                                                <!-- One primary action for a referenced pin: Run (runnable) or Open. Height-stable. -->
+                                                <template x-if="item.ref">
+                                                  <span class="ci-ref" :title="boardKindLabel(item.ref.kind) + ' · ' + (item.ref.label || item.ref.refId)">
+                                                    <span x-text="boardKindIcon(item.ref.kind)"></span>
+                                                    <button class="btn ghost" type="button" style="padding:1px 8px;font-size:11px"
+                                                      :title="boardRefRunnable(item.ref) ? 'Run ' + (item.ref.label||item.ref.refId) : 'Open ' + (item.ref.label||item.ref.refId)"
+                                                      @click="boardRefRunnable(item.ref) ? runBoardRef(item.ref) : openBoardRef(item.ref)"
+                                                      x-text="boardRefRunnable(item.ref) ? '▶ Run' : '↗ Open'"></button>
+                                                    <button class="icon-button" type="button" title="Remove link" @click="clearItemRef(cl, item)" style="font-size:11px">🔗✕</button>
+                                                  </span>
+                                                </template>
+                                                <button class="icon-button" type="button" x-show="!item.ref" :title="boardRefPickFor === item.id ? 'Cancel link' : 'Link a pinned item'" @click="boardRefPickFor = (boardRefPickFor === item.id ? '' : item.id)">🔗</button>
+                                                <button class="icon-button" type="button" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
+                                                <button class="icon-button" type="button" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
+                                                <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                              </div>
+                                              <!-- Inline pin picker: choose a pin already on this board to link to the item. -->
+                                              <template x-if="boardRefPickFor === item.id && !item.ref">
+                                                <div style="display:flex;gap:6px;align-items:center;padding-left:24px">
+                                                  <select class="field-input" style="flex:1;font-size:12px" @change="attachItemRef(cl, item, $event.target.value); $event.target.value=''">
+                                                    <option value="">Link a pinned item…</option>
+                                                    <template x-for="opt in boardPinRefOptions()" :key="opt.kind + ':' + opt.refId">
+                                                      <option :value="opt.kind + '::' + opt.refId" x-text="boardKindIcon(opt.kind) + ' ' + opt.label"></option>
+                                                    </template>
+                                                  </select>
+                                                  <span class="hint" x-show="!boardPinRefOptions().length" style="font-size:11px">Pin agents/tasks/flows to this board first.</span>
+                                                </div>
+                                              </template>
                                             </div>
                                           </template>
                                         </div>
@@ -8153,6 +8189,7 @@
         boardChecklistDraft: '',
         boardSummaryLoading: false,
         boardChecklistItemDraft: {},
+        boardRefPickFor: '',
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
@@ -11741,6 +11778,89 @@
           if (!s) return '';
           return s.relative ? (s.label + ' · ' + s.relative) : s.label;
         },
+        // ----- Phase 3: checklist items that reference / run a board pin -----
+        // Kinds that can be executed directly from a checklist item. Others
+        // (manager / chat / session) are "open only" — one primary action each.
+        boardRefRunnable(ref) {
+          return !!ref && ['agent', 'task', 'assignment', 'flow'].includes(ref.kind);
+        },
+        // Live status for a linked pin, reusing the same resolver pins use so the
+        // inline badge is height-stable (compact dot, no streaming surface).
+        boardRefStatus(ref) {
+          if (!ref || !ref.kind || !ref.refId) return null;
+          return this.pinStatus({ kind: ref.kind, refId: ref.refId });
+        },
+        boardRefStatusTitle(ref) {
+          const s = this.boardRefStatus(ref);
+          if (!s) return '';
+          return s.relative ? (s.label + ' · ' + s.relative) : s.label;
+        },
+        // The pins on the active board, offered as link targets for a checklist item.
+        boardPinRefOptions() {
+          const b = this.activeBoard();
+          return ((b && b.items) || []).map(i => ({ kind: i.kind, refId: i.refId, label: i.label || i.refId }));
+        },
+        // Run the entity a checklist item references. Dispatches to the same run
+        // paths used elsewhere in the app — no new run plumbing, no orchestration.
+        async runBoardRef(ref) {
+          if (!this.boardRefRunnable(ref)) { this.openBoardRef(ref); return; }
+          try {
+            if (ref.kind === 'agent') {
+              await this.runAgentNow(ref.refId);
+            } else if (ref.kind === 'task') {
+              const t = this.allTasks().find(x => x.taskKey === ref.refId);
+              if (!t) { this.showToast('Run', 'Task no longer exists', 'error'); return; }
+              this.runTask(t);
+            } else if (ref.kind === 'assignment') {
+              const t = this.allTasks().find(x => x.taskKey === ref.refId);
+              if (!t) { this.showToast('Run', 'Assignment no longer exists', 'error'); return; }
+              await this.runAssignment(t.managerId, t.assignmentId);
+            } else if (ref.kind === 'flow') {
+              const c = (this.data.chains || []).find(x => x.id === ref.refId);
+              if (!c) { this.showToast('Run', 'Flow no longer exists', 'error'); return; }
+              await this.runChain(c);
+            }
+          } catch (e) {
+            this.showToast('Run', (e && e.message) || 'Could not run', 'error');
+          }
+        },
+        openBoardRef(ref) {
+          if (!ref || !ref.kind || !ref.refId) return;
+          this.boardJump({ kind: ref.kind, refId: ref.refId });
+        },
+        // Link a board pin (encoded "kind::refId") to a checklist item; persists
+        // through the normal board PUT, same write path as every other edit.
+        async attachItemRef(cl, item, encoded) {
+          if (!encoded) return;
+          const sep = encoded.indexOf('::');
+          if (sep < 0) return;
+          const kind = encoded.slice(0, sep), refId = encoded.slice(sep + 2);
+          const b = this.activeBoard();
+          const pin = ((b && b.items) || []).find(i => i.kind === kind && i.refId === refId);
+          if (!pin) return;
+          const ref = { kind, refId, label: pin.label || refId };
+          const now = new Date().toISOString();
+          const checklists = (this.activeBoard().checklists || []).map(c => c.id === cl.id
+            ? { ...c, items: (c.items || []).map(i => i.id === item.id ? { ...i, ref } : i), updatedAt: now }
+            : c);
+          this.boardRefPickFor = '';
+          await this._patchBoard(this.activeBoard(), { checklists });
+        },
+        async clearItemRef(cl, item) {
+          const now = new Date().toISOString();
+          const checklists = (this.activeBoard().checklists || []).map(c => c.id === cl.id
+            ? {
+                ...c,
+                items: (c.items || []).map(i => {
+                  if (i.id !== item.id) return i;
+                  const { ref, ...rest } = i; // drop ref
+                  return rest;
+                }),
+                updatedAt: now,
+              }
+            : c);
+          await this._patchBoard(this.activeBoard(), { checklists });
+        },
         // ----- Free-form board layout (drag + resize panels) -----
         // The panels rendered on a board: one per pinned kind that has items,
         // plus the Notes and Checklists panels. Stable ids drive the layout map.
@@ -12182,6 +12302,17 @@
             this._baScroll();
           }
         },
+        // Build a checklist item from an assistant-proposed entry, which may be a
+        // plain string or an object { text, ref:{kind,refId,label} } when the
+        // assistant linked the item to a board pin (Phase 3 action item).
+        _mkChecklistItem(t, rid, now) {
+          const o = (t && typeof t === 'object') ? t : { text: String(t == null ? '' : t) };
+          const it = { id: rid('ci'), text: o.text || '', done: false, createdAt: now };
+          if (o.ref && o.ref.kind && o.ref.refId) {
+            it.ref = { kind: o.ref.kind, refId: o.ref.refId, label: o.ref.label || o.ref.refId };
+          }
+          return it;
+        },
         // Apply a single proposed action by constructing the same note/checklist
         // shapes the manual mutators use, then persisting via _patchBoard.
         async applyAssistantAction(a) {
@@ -12197,12 +12328,12 @@
               const notes = (board.notes || []).map(n => n.id === a.noteId ? { ...n, text: a.text, updatedAt: now } : n);
               await this._patchBoard(board, { notes });
             } else if (a.type === 'add_checklist') {
-              const items = (a.items || []).map(t => ({ id: rid('ci'), text: t, done: false, createdAt: now }));
+              const items = (a.items || []).map(t => this._mkChecklistItem(t, rid, now));
               const checklists = [...(board.checklists || []), { id: rid('cl'), title: a.title, items, createdAt: now, updatedAt: now }];
               await this._patchBoard(board, { checklists });
             } else if (a.type === 'add_checklist_items') {
               const checklists = (board.checklists || []).map(c => c.id === a.checklistId
-                ? { ...c, items: [...(c.items || []), ...(a.items || []).map(t => ({ id: rid('ci'), text: t, done: false, createdAt: now }))], updatedAt: now }
+                ? { ...c, items: [...(c.items || []), ...(a.items || []).map(t => this._mkChecklistItem(t, rid, now))], updatedAt: now }
                 : c);
               await this._patchBoard(board, { checklists });
             } else if (a.type === 'check_item') {

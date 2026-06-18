@@ -5113,8 +5113,20 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
   const { contextBlocks } = _resolveBoardItems(b);
   const notes = (Array.isArray(b.notes) ? b.notes : []);
   const checklists = (Array.isArray(b.checklists) ? b.checklists : []);
+  const pins = (Array.isArray(b.items) ? b.items : []);
+  // Index of pins on this board so the model can only link checklist items to
+  // things that are actually pinned here (kind:refId is the stable handle).
+  const pinByKey = new Map(pins.map(p => [p.kind + ':' + p.refId, p]));
+  const RUNNABLE = new Set(['agent', 'task', 'assignment', 'flow']);
   const ctx = [];
   if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 6000));
+  if (pins.length) {
+    ctx.push('## BOARD PINS (link checklist items to these by kind:refId)\n' + pins.map(p => {
+      const key = p.kind + ':' + p.refId;
+      const run = RUNNABLE.has(p.kind) ? 'runnable' : 'open-only';
+      return `- (${key}) ${p.kind} "${clip(p.label || p.refId, 120)}" [${run}]`;
+    }).join('\n'));
+  }
   if (notes.length) {
     ctx.push('## NOTES\n' + notes.map(n => `- (${n.id}) ${clip(n.text, 300)}`).join('\n'));
   }
@@ -5135,12 +5147,16 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
     'You can propose these action types (and ONLY these):',
     '- {"type":"add_note","text":"<markdown note>"}',
     '- {"type":"edit_note","noteId":"<existing note id>","text":"<new full text>"}',
-    '- {"type":"add_checklist","title":"<title>","items":["<item>", ...]}',
-    '- {"type":"add_checklist_items","checklistId":"<existing checklist id>","items":["<item>", ...]}',
+    '- {"type":"add_checklist","title":"<title>","items":[<item>, ...]}',
+    '- {"type":"add_checklist_items","checklistId":"<existing checklist id>","items":[<item>, ...]}',
     '- {"type":"check_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (marks the item done)',
     '',
+    'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
+    '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
+    'Only use ref kind:refId pairs that appear under BOARD PINS below. Linking a runnable pin (agent/task/assignment/flow) makes the checklist item one-click runnable; linking an open-only pin (manager/chat/session) makes it one-click openable. Prefer a ref when the step is literally "run/check/open <a pinned thing>".',
+    '',
     'Rules:',
-    '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...) that appear in the BOARD CONTEXT below. Never invent ids.',
+    '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...) and pin handles (kind:refId) that appear in the BOARD CONTEXT below. Never invent ids.',
     '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
     '- Propose actions ONLY when the user is clearly asking to add or change board content (e.g. "make a checklist", "note that…", "add steps", "mark X done"). For pure questions, return an empty actions array and just answer in "reply".',
     '- Keep checklist items short and imperative. Keep notes concise.',
@@ -5177,6 +5193,25 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
   const resolveAction = (a) => {
     if (!a || typeof a !== 'object') return null;
     const type = String(a.type || '');
+    // Normalize a proposed checklist entry into { text, ref? }. Accepts a plain
+    // string or an object with an optional ref; a ref is only kept if it matches
+    // a real pin on this board (otherwise the step survives as plain text).
+    const normItem = (x) => {
+      if (typeof x === 'string') { const text = clip(x, 200); return text ? { text } : null; }
+      if (x && typeof x === 'object') {
+        const text = clip(x.text, 200); if (!text) return null;
+        const r = x.ref && typeof x.ref === 'object' ? x.ref
+          : (x.kind && x.refId ? { kind: x.kind, refId: x.refId } : null);
+        if (r && r.kind && r.refId) {
+          const p = pinByKey.get(r.kind + ':' + r.refId);
+          if (p) return { text, ref: { kind: p.kind, refId: p.refId, label: p.label || p.refId } };
+        }
+        return { text };
+      }
+      return null;
+    };
+    const normItems = (arr) => (Array.isArray(arr) ? arr : []).map(normItem).filter(Boolean).slice(0, 30);
+    const linkSuffix = (items) => { const n = items.filter(i => i.ref).length; return n ? ` · ${n} linked` : ''; };
     if (type === 'add_note') {
       const text = clip(a.text, 1200); if (!text) return null;
       return { type, text, label: 'Add note', preview: clip(text, 140) };
@@ -5188,18 +5223,18 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
     }
     if (type === 'add_checklist') {
       const title = clip(a.title, 120); if (!title) return null;
-      const items = (Array.isArray(a.items) ? a.items : []).map(x => clip(x, 200)).filter(Boolean).slice(0, 30);
-      return { type, title, items, label: 'New checklist', preview: title + (items.length ? ` (${items.length} item${items.length === 1 ? '' : 's'})` : '') };
+      const items = normItems(a.items);
+      return { type, title, items, label: 'New checklist', preview: title + (items.length ? ` (${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)})` : '') };
     }
     if (type === 'add_checklist_items') {
       const cl = findChecklist(a);
-      const items = (Array.isArray(a.items) ? a.items : []).map(x => clip(x, 200)).filter(Boolean).slice(0, 30);
+      const items = normItems(a.items);
       if (!items.length) return null;
       if (!cl) { // unknown target → fall back to a fresh checklist so the proposal isn't lost
         const title = clip(a.checklistTitle || a.title || 'Checklist', 120);
-        return { type: 'add_checklist', title, items, label: 'New checklist', preview: title + ` (${items.length} item${items.length === 1 ? '' : 's'})` };
+        return { type: 'add_checklist', title, items, label: 'New checklist', preview: title + ` (${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)})` };
       }
-      return { type, checklistId: cl.id, checklistTitle: cl.title, items, label: 'Add to checklist', preview: `${cl.title}: +${items.length} item${items.length === 1 ? '' : 's'}` };
+      return { type, checklistId: cl.id, checklistTitle: cl.title, items, label: 'Add to checklist', preview: `${cl.title}: +${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)}` };
     }
     if (type === 'check_item') {
       const cl = findChecklist(a); if (!cl) return null;
