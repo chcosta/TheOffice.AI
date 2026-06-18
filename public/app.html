@@ -759,6 +759,20 @@
       box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-success) 20%, transparent);
     }
     .nav-dot.idle { background: var(--cp-text-soft); }
+    .pin-dot {
+      width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto;
+      background: var(--cp-text-soft);
+    }
+    .pin-dot.running {
+      background: var(--cp-success);
+      animation: pulseDot 1.8s ease-in-out infinite;
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-success) 20%, transparent);
+    }
+    .pin-dot.failed { background: var(--cp-danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-danger) 20%, transparent); }
+    .pin-dot.success { background: var(--cp-success); }
+    .pin-dot.idle { background: var(--cp-text-soft); }
+    .pin-dot.disabled { background: var(--cp-border-strong); }
+    .pin-meta { font-size: 11px; color: var(--cp-text-muted); white-space: nowrap; flex: 0 0 auto; }
     .sidebar-bottom {
       padding-top: 12px;
       border-top: 1px solid var(--cp-border);
@@ -4353,11 +4367,17 @@
                                 <div style="display:flex;flex-direction:column;gap:8px">
                                   <template x-for="item in p.items" :key="item.id">
                                     <div class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
-                                      <div style="min-width:0">
-                                        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
-                                        <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                                      <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                                        <template x-if="pinStatus(item)">
+                                          <span class="pin-dot" :class="pinStatus(item).state" :title="pinStatusTitle(item)"></span>
+                                        </template>
+                                        <div style="min-width:0">
+                                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
+                                          <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                                        </div>
                                       </div>
                                       <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
+                                        <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
                                         <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
                                         <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
                                       </div>
@@ -11497,6 +11517,58 @@
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
+        },
+        // Resolve a pinned item's live status from current data. Returns null when the
+        // kind has no reliable status (e.g. CLI sessions) or the entity is gone.
+        // state: 'running' | 'failed' | 'success' | 'idle' | 'disabled'
+        pinStatus(item) {
+          if (!item) return null;
+          const k = item.kind, id = item.refId;
+          let status = null, lastRun = null;
+          if (k === 'agent') {
+            const a = (this.data.agents || []).find(x => x.id === id);
+            if (!a) return null;
+            status = a.status; lastRun = a.lastRun;
+          } else if (k === 'manager') {
+            const m = (this.data.managers || []).find(x => x.id === id);
+            if (!m) return null;
+            status = m.status; lastRun = m.lastRun;
+          } else if (k === 'task' || k === 'assignment') {
+            const t = this.allTasks().find(x => x.taskKey === id);
+            if (!t) return null;
+            status = t.status; lastRun = t.lastRun;
+          } else if (k === 'flow') {
+            const live = this.chainRunState && this.chainRunState[id];
+            const c = (this.data.chains || []).find(x => x.id === id);
+            if (live && live.status) status = live.status;
+            else if (c) status = (c.enabled === false) ? 'disabled' : 'idle';
+            else return null;
+          } else if (k === 'chat') {
+            const c = (this.data.chats || []).find(x => x.id === id);
+            if (!c) return null;
+            status = this.chatStatusClass(c); // 'running' | 'idle'
+          } else {
+            return null; // session and anything else: no reliable live status
+          }
+          const lc = (status || 'idle').toLowerCase();
+          const ts = lastRun ? (lastRun.finished_at || lastRun.started_at) : null;
+          let state, label;
+          if (lc === 'running') { state = 'running'; label = 'Running'; }
+          else if (lastRun && lastRun.finished_at) {
+            const ls = (lastRun.status || '').toLowerCase();
+            const failed = ls === 'failed' || ls === 'error' || (lastRun.exit_code != null && Number(lastRun.exit_code) !== 0);
+            state = failed ? 'failed' : 'idle';
+            label = failed ? 'Last run failed' : 'Idle';
+          } else {
+            state = this.statusClass(status); // idle / disabled / success / failed
+            label = this.statusLabel(status);
+          }
+          return { state, label, relative: ts ? this.formatRelative(ts) : '' };
+        },
+        pinStatusTitle(item) {
+          const s = this.pinStatus(item);
+          if (!s) return '';
+          return s.relative ? (s.label + ' · ' + s.relative) : s.label;
         },
         // ----- Free-form board layout (drag + resize panels) -----
         // The panels rendered on a board: one per pinned kind that has items,
