@@ -4606,13 +4606,14 @@
                                 <div style="min-width:0;flex:1">
                                   <div style="display:flex;align-items:center;gap:6px">
                                     <span class="ba-action-kind" x-text="a.label"></span>
-                                    <span class="hint" x-show="a._applied" style="color:var(--cp-success)">✓ added</span>
+                                    <span class="hint" x-show="a._applied" style="color:var(--cp-success)" x-text="a.type==='query_agent' ? '✓ ran' : (a.type==='pin_agent' ? '✓ pinned' : '✓ added')"></span>
                                     <span class="hint" x-show="a._dismissed">dismissed</span>
                                   </div>
                                   <div class="ba-action-preview" x-text="a.preview"></div>
                                 </div>
                                 <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
-                                  <button class="btn primary" type="button" style="padding:3px 10px" @click="applyAssistantAction(a)">Apply</button>
+                                  <button x-show="a.type==='query_agent'" class="btn primary" type="button" style="padding:3px 10px" :disabled="a._running" @click="runAssistantQuery(a, m)"><span x-text="a._running ? 'Running…' : '▶ Run & continue'"></span></button>
+                                  <button x-show="a.type!=='query_agent'" class="btn primary" type="button" style="padding:3px 10px" @click="applyAssistantAction(a)" x-text="a.type==='pin_agent' ? 'Pin' : 'Apply'"></button>
                                   <button class="icon-button" type="button" title="Dismiss" @click="a._dismissed=true">✕</button>
                                 </div>
                               </div>
@@ -12293,7 +12294,7 @@
             const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/assistant', {
               method: 'POST', body: JSON.stringify({ message: text, history })
             });
-            const actions = (r.actions || []).map(a => ({ ...a, _applied: false, _dismissed: false }));
+            const actions = (r.actions || []).map(a => ({ ...a, _applied: false, _dismissed: false, _running: false }));
             this.boardAssistant.messages.push({ role: 'assistant', content: r.reply || 'Done.', actions });
           } catch (e) {
             this.boardAssistant.messages.push({ role: 'assistant', content: 'Sorry — ' + (e.message || 'the assistant failed.'), actions: [] });
@@ -12341,11 +12342,49 @@
                 ? { ...c, items: (c.items || []).map(i => i.id === a.itemId ? { ...i, done: true } : i), updatedAt: now }
                 : c);
               await this._patchBoard(board, { checklists });
+            } else if (a.type === 'pin_agent') {
+              // Pin an installed agent to the board via the dedicated items endpoint
+              // (same path as quick-pin), then fold the updated board back in.
+              const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
+                method: 'POST',
+                body: JSON.stringify({ kind: 'agent', refId: a.refId, label: a.pinLabel, sublabel: a.pinSublabel })
+              });
+              const updated = (resp && resp.board) || resp;
+              const idx = this.boards.findIndex(b => b.id === board.id);
+              if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
             } else { return; }
             a._applied = true;
             this.showToast('Board assistant', a.label + ' applied', 'success');
           } catch (e) {
             this.showToast('Board assistant', e.message || 'Could not apply', 'error');
+          }
+        },
+        // Run a pinned agent the assistant proposed (query_agent), then append the
+        // assistant's follow-up — fresh proposals built from the agent's output — as
+        // a new message. This is the only assistant action that executes anything.
+        async runAssistantQuery(a, m) {
+          const board = this.activeBoard();
+          if (!board || a._applied || a._dismissed || a._running) return;
+          a._running = true;
+          this.boardAssistant.busy = true;
+          this._baScroll();
+          const history = this.boardAssistant.messages
+            .filter(mm => mm.role === 'user' || mm.role === 'assistant')
+            .map(mm => ({ role: mm.role, content: mm.content }));
+          try {
+            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/assistant/query', {
+              method: 'POST',
+              body: JSON.stringify({ agentId: a.agentId, prompt: a.prompt, message: '', history })
+            });
+            a._applied = true;
+            const actions = (r.actions || []).map(x => ({ ...x, _applied: false, _dismissed: false, _running: false }));
+            this.boardAssistant.messages.push({ role: 'assistant', content: r.reply || ('Ran ' + (a.agentLabel || 'the agent') + '.'), actions });
+          } catch (e) {
+            this.boardAssistant.messages.push({ role: 'assistant', content: 'Sorry — ' + (e.message || 'the agent run failed.'), actions: [] });
+          } finally {
+            a._running = false;
+            this.boardAssistant.busy = false;
+            this._baScroll();
           }
         },
         // ----- Entity-centric quick pin (from agent/manager/task/flow/chat/session) -----

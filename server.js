@@ -5093,18 +5093,13 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
 });
 
-// Board assistant — a board *transformer* (NOT an orchestrator). It reads the
-// board's pinned context plus the user's own notes/checklists and helps keep the
-// board cleaner and more actionable by PROPOSING note/checklist edits. It never
-// runs agents, searches the marketplace, or mutates the board itself: the client
-// applies confirmed actions through the normal board PUT (propose → confirm).
-app.post('/api/boards/:id/assistant', async (req, res) => {
-  const raw = loadBoards().find(b => b.id === req.params.id);
-  if (!raw) return res.status(404).json({ error: 'Board not found' });
-  const b = _normalizeBoard(raw);
-  const message = String((req.body && req.body.message) || '').trim();
-  if (!message) return res.status(400).json({ error: 'Missing message' });
-  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+// Board assistant — a board transformer + light orchestrator. It reads the board's
+// pinned context, the user's notes/checklists, and the installed-agent catalog, and
+// PROPOSES actions: note/checklist edits, running a PINNED agent to gather fresh info
+// (query_agent), or pinning an installed agent to the board (pin_agent). Everything
+// is propose → confirm — the client applies/queues confirmed actions. The only thing
+// executed directly is a pinned agent the user has explicitly chosen to run.
+async function runBoardAssistant(b, { message, history = [], extraContext = '', allowQuery = true } = {}) {
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
   // ---- Board context (pins + notes + checklists, with stable ids the model can
@@ -5118,6 +5113,14 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
   // things that are actually pinned here (kind:refId is the stable handle).
   const pinByKey = new Map(pins.map(p => [p.kind + ':' + p.refId, p]));
   const RUNNABLE = new Set(['agent', 'task', 'assignment', 'flow']);
+  // Installed-agent catalog (for query_agent labels + pin_agent candidates). Agents
+  // already pinned to this board are excluded from the "available to pin" list.
+  let installed = [];
+  try { installed = (supervisor.getAllStatus && supervisor.getAllStatus()) || []; } catch { installed = []; }
+  const agentId = (s) => s.agent_id || (s.config && s.config.id) || '';
+  const installedById = new Map(installed.map(s => [agentId(s), s]));
+  const pinnedAgentIds = new Set(pins.filter(p => p.kind === 'agent').map(p => p.refId));
+  const available = installed.filter(s => { const id = agentId(s); return id && !pinnedAgentIds.has(id); });
   const ctx = [];
   if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 6000));
   if (pins.length) {
@@ -5137,12 +5140,20 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
       return `- (${cl.id}) "${clip(cl.title, 120)}"${lines.length ? '\n' + lines.join('\n') : ''}`;
     }).join('\n'));
   }
-  const contextStr = ctx.join('\n\n').slice(0, 8000) || '(this board is empty — no pins, notes, or checklists yet)';
+  if (available.length) {
+    ctx.push('## AVAILABLE AGENTS (installed, NOT pinned — propose pin_agent to add one)\n' + available.slice(0, 25).map(s => {
+      const id = agentId(s); const c = s.config || {};
+      const desc = clip(c.description || (Array.isArray(c.skills) ? c.skills.join(', ') : '') || '', 160);
+      return `- (${id}) "${clip(c.name || id, 80)}"${desc ? ' — ' + desc : ''}`;
+    }).join('\n'));
+  }
+  const baseCtx = ctx.join('\n\n');
+  const contextStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 9000) || '(this board is empty — no pins, notes, or checklists yet)';
 
   // ---- Prompt: force a single JSON object {reply, actions[]}. Actions are
   // constrained to notes/checklists only.
   const sys = [
-    `You are the board assistant for a work board named "${b.name}". Your job is to keep the board clean and actionable by chatting with the user and PROPOSING edits to the board's notes and checklists. You do NOT run agents, search for tools, or take any action yourself — you only propose changes, which the user confirms.`,
+    `You are the board assistant for a work board named "${b.name}". You help keep the board clean and actionable, and you can orchestrate the board's own pinned agents. You work by PROPOSING actions that the user confirms — you never apply changes or run anything yourself except a pinned agent the user explicitly confirms.`,
     '',
     'You can propose these action types (and ONLY these):',
     '- {"type":"add_note","text":"<markdown note>"}',
@@ -5150,23 +5161,27 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
     '- {"type":"add_checklist","title":"<title>","items":[<item>, ...]}',
     '- {"type":"add_checklist_items","checklistId":"<existing checklist id>","items":[<item>, ...]}',
     '- {"type":"check_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (marks the item done)',
+    (allowQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
+    '- {"type":"pin_agent","agentId":"<id from AVAILABLE AGENTS>"}  (adds an installed agent to this board — propose when the user needs a capability that is not yet pinned, e.g. "I need email access")',
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
     'Only use ref kind:refId pairs that appear under BOARD PINS below. Linking a runnable pin (agent/task/assignment/flow) makes the checklist item one-click runnable; linking an open-only pin (manager/chat/session) makes it one-click openable. Prefer a ref when the step is literally "run/check/open <a pinned thing>".',
     '',
     'Rules:',
-    '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...) and pin handles (kind:refId) that appear in the BOARD CONTEXT below. Never invent ids.',
+    '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...), pin handles (kind:refId), and agent ids that appear in the BOARD CONTEXT below. Never invent ids.',
+    (allowQuery ? '- Use query_agent ONLY for agents that appear under BOARD PINS as kind "agent". To gather information from a pinned agent before building a checklist/note, propose query_agent first; once the user runs it you will get the output and can then propose the notes/checklists. Propose at most ONE query_agent at a time.' : '- You already have an agent result in the context below; do NOT propose query_agent again — use the result to propose concrete notes/checklists now.'),
+    '- Use pin_agent ONLY for ids under AVAILABLE AGENTS. Pick the single best match for the stated capability.',
     '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
-    '- Propose actions ONLY when the user is clearly asking to add or change board content (e.g. "make a checklist", "note that…", "add steps", "mark X done"). For pure questions, return an empty actions array and just answer in "reply".',
+    '- Propose actions ONLY when the user is clearly asking to add/change board content or orchestrate work. For pure questions, return an empty actions array and just answer in "reply".',
     '- Keep checklist items short and imperative. Keep notes concise.',
-    '- Base proposals on the actual board context (pinned run output, notes, existing checklists) when relevant.',
+    '- Base proposals on the actual board context (pinned run output, agent results, notes, existing checklists) when relevant.',
     '',
     'Respond with a SINGLE JSON object and nothing else: {"reply":"<short conversational reply describing what you propose, or your answer>","actions":[ ... ]}. No code fences, no prose outside the JSON.',
     '',
     '# BOARD CONTEXT',
     contextStr,
-  ].join('\n');
+  ].filter(l => l !== '').join('\n');
 
   const convo = history.slice(-8).map(h => `${h.role === 'assistant' ? 'ASSISTANT' : 'USER'}: ${clip(h.content, 800)}`).join('\n');
   const prompt = [sys, '', '# CONVERSATION', convo, `USER: ${clip(message, 2000)}`, '', 'JSON:'].join('\n');
@@ -5236,34 +5251,96 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
       }
       return { type, checklistId: cl.id, checklistTitle: cl.title, items, label: 'Add to checklist', preview: `${cl.title}: +${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)}` };
     }
-    if (type === 'check_item') {
-      const cl = findChecklist(a); if (!cl) return null;
-      const its = Array.isArray(cl.items) ? cl.items : [];
-      let it = a.itemId ? its.find(i => i.id === a.itemId) : null;
-      if (!it && a.itemText) { const want = String(a.itemText).toLowerCase().trim(); it = its.find(i => String(i.text || '').toLowerCase().includes(want)); }
-      if (!it || it.done) return null;
-      return { type, checklistId: cl.id, itemId: it.id, label: 'Mark done', preview: `${cl.title}: ${clip(it.text, 120)}` };
+    if (type === 'query_agent') {
+      if (!allowQuery) return null;
+      let refId = a.agentRefId || a.refId || a.agentId || '';
+      if (typeof refId === 'string' && refId.indexOf('agent:') === 0) refId = refId.slice(6);
+      const pin = pins.find(p => p.kind === 'agent' && p.refId === refId);
+      if (!pin) return null; // only agents pinned to THIS board may be queried
+      const q = clip(a.prompt || a.instruction || message, 1500);
+      const name = pin.label || refId;
+      return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), label: 'Run agent', preview: `Run ${name}` + (q ? `: ${clip(q, 90)}` : '') };
+    }
+    if (type === 'pin_agent') {
+      const id = a.agentId || a.refId || a.id;
+      if (!id || pinnedAgentIds.has(id)) return null; // unknown or already pinned
+      const s = installedById.get(id); if (!s) return null;
+      const c = s.config || {};
+      const name = clip(c.name || id, 120);
+      const sub = clip(c.group || (Array.isArray(c.skills) ? c.skills.slice(0, 3).join(', ') : '') || 'Agent', 80);
+      return { type, refId: id, pinLabel: name, pinSublabel: sub, label: 'Pin agent', preview: `Pin ${name} to this board` };
     }
     return null;
   };
 
+  let acc = '';
+  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+  const rawText = (acc.trim() || (result && result.output) || '').trim();
+  const parsed = parseModel(rawText);
+  let reply, actions = [];
+  if (parsed && typeof parsed === 'object') {
+    reply = clip(parsed.reply, 1500) || 'Here is what I suggest.';
+    const proposed = Array.isArray(parsed.actions) ? parsed.actions : [];
+    actions = proposed.map(resolveAction).filter(Boolean).slice(0, 8).map((a, i) => ({ id: 'act-' + Date.now().toString(36) + '-' + i, ...a }));
+  } else {
+    // Model didn't return JSON — treat the whole thing as a plain reply.
+    reply = clip(rawText, 1500) || "I couldn't generate a response. Try rephrasing.";
+  }
+  return { reply, actions };
+}
+
+// Board assistant chat — proposes (never applies) board edits + orchestration.
+app.post('/api/boards/:id/assistant', async (req, res) => {
+  const raw = loadBoards().find(b => b.id === req.params.id);
+  if (!raw) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(raw);
+  const message = String((req.body && req.body.message) || '').trim();
+  if (!message) return res.status(400).json({ error: 'Missing message' });
+  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
   try {
-    let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
-    const rawText = (acc.trim() || (result && result.output) || '').trim();
-    const parsed = parseModel(rawText);
-    let reply, actions = [];
-    if (parsed && typeof parsed === 'object') {
-      reply = clip(parsed.reply, 1500) || 'Here is what I suggest.';
-      const proposed = Array.isArray(parsed.actions) ? parsed.actions : [];
-      actions = proposed.map(resolveAction).filter(Boolean).slice(0, 8).map((a, i) => ({ id: 'act-' + Date.now().toString(36) + '-' + i, ...a }));
-    } else {
-      // Model didn't return JSON — treat the whole thing as a plain reply.
-      reply = clip(rawText, 1500) || "I couldn't generate a response. Try rephrasing.";
-    }
-    res.json({ ok: true, reply, actions });
+    const out = await runBoardAssistant(b, { message, history });
+    res.json({ ok: true, ...out });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'assistant failed' });
+  }
+});
+
+// Run a PINNED agent on the board, then fold its output back into the assistant so
+// it can propose concrete notes/checklists from the fresh result. This is the one
+// place the assistant executes anything — and only because the user confirmed it.
+app.post('/api/boards/:id/assistant/query', async (req, res) => {
+  const raw = loadBoards().find(b => b.id === req.params.id);
+  if (!raw) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(raw);
+  const agentId = String((req.body && req.body.agentId) || '').trim();
+  const subPrompt = String((req.body && req.body.prompt) || '').trim();
+  const message = String((req.body && req.body.message) || '').trim();
+  if (!agentId || !subPrompt) return res.status(400).json({ error: 'Missing agentId or prompt' });
+  // The agent MUST be pinned to this board — no querying arbitrary installed agents.
+  const pins = Array.isArray(b.items) ? b.items : [];
+  const pin = pins.find(p => p.kind === 'agent' && p.refId === agentId);
+  if (!pin) return res.status(403).json({ error: 'Agent is not pinned to this board' });
+  const entry = supervisor.agents.get(agentId);
+  if (!entry || !entry.config) return res.status(404).json({ error: 'Agent not found' });
+  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  const name = pin.label || (entry.config.name) || agentId;
+  try {
+    let acc = '';
+    const run = await sdkRunner.runAgent({
+      config: entry.config,
+      prompt: subPrompt,
+      sessionId: require('crypto').randomUUID(),
+      model: settings.resolveModel('execution', entry.config),
+      onChunk: (c) => { acc += c; },
+    });
+    const output = ((acc.trim() || (run && run.output) || '').trim()).slice(0, 8000);
+    if (run && run.fallback) return res.status(502).json({ ok: false, error: `Could not run ${name}.` });
+    const extraContext = `## AGENT RESULT (the user just ran the pinned agent "${name}" to help with their request — use this output now)\n${output || '(the agent produced no output)'}`;
+    const followUp = message || `Use the result of "${name}" to fulfil my request.`;
+    const out = await runBoardAssistant(b, { message: followUp, history, extraContext, allowQuery: false });
+    res.json({ ok: true, reply: out.reply, actions: out.actions, agentOutput: output, agentLabel: name });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) || 'agent query failed' });
   }
 });
 
