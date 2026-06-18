@@ -2974,7 +2974,7 @@
                       <div class="detail-row"><span class="detail-label">Installation</span><span class="detail-value" x-text="selectedAgent.config?.source?.type === 'azdo' ? '☁ Azure DevOps' : (selectedAgent.config?.source?.type === 'local' ? (selectedAgent.config?.pluginDir ? '📁 Local plugin' : '📁 Local repository') : (selectedAgent.config?.pluginDir ? 'Local plugin directory' : (selectedAgent.config?.cwd ? 'Local repository' : 'Marketplace')))"></span></div>
                       <div class="detail-row" x-show="selectedAgent.config?.source?.installedAt"><span class="detail-label">Last installed</span><span class="detail-value" x-text="formatRelative(selectedAgent.config?.source?.installedAt)"></span></div>
                       <div class="detail-row"><span class="detail-label">Group</span><span class="detail-value">
-                        <select class="field-input" style="display:inline;width:auto;padding:2px 8px;font-size:0.85em" :value="selectedAgent.config?.group || ''" @change="changeAgentGroup(selectedAgent.id, $event.target.value)">
+                        <select class="field-input" style="display:inline;width:auto;padding:2px 8px;font-size:0.85em" :value="selectedAgent.config?.group || ''" @change="onAgentGroupSelect(selectedAgent.id, $event)">
                           <option value="">Ungrouped</option>
                           <template x-for="g in allGroupNames()" :key="g">
                             <option :value="g" x-text="g" :selected="g === selectedAgent.config?.group"></option>
@@ -3938,6 +3938,12 @@
               </div>
             </div>
 
+            <div class="filter-pills" style="margin-bottom:14px">
+              <button class="pill" type="button" :class="{ active: resTab === 'overview' }" @click="resTab='overview'">📊 Overview</button>
+              <button class="pill" type="button" :class="{ active: resTab === 'groups' }" @click="resTab='groups'">🏷️ Groups<span class="pill-count" x-show="groupBoard().length" x-text="groupBoard().length" style="margin-left:6px"></span></button>
+            </div>
+
+            <div x-show="resTab === 'overview'" x-transition.opacity.duration.150ms>
             <!-- KPI tiles -->
             <div class="card-grid" style="margin-bottom:18px">
               <article class="card" :style="resMetrics().managersActive ? 'border-color:var(--cp-accent)' : ''">
@@ -4007,22 +4013,6 @@
 
             <!-- Jump to areas -->
             <div class="exec-jump">
-              <a href="#" @click.prevent="goTo('#/managers')" class="exec-jump-card">
-                <span class="exec-jump-icon">👔</span>
-                <span class="exec-jump-body">
-                  <span class="exec-jump-title">Managers <span class="exec-jump-count" x-text="resMetrics().managers"></span></span>
-                  <span class="hint">Orchestrators that route one agent's output into the next.</span>
-                </span>
-                <span class="exec-jump-go">→</span>
-              </a>
-              <a href="#" @click.prevent="goTo('#/agents')" class="exec-jump-card">
-                <span class="exec-jump-icon">🤖</span>
-                <span class="exec-jump-body">
-                  <span class="exec-jump-title">Agents <span class="exec-jump-count" x-text="resMetrics().agents"></span></span>
-                  <span class="hint">The workers — single-purpose Copilot agents and plugins.</span>
-                </span>
-                <span class="exec-jump-go">→</span>
-              </a>
               <a href="#" @click.prevent="goTo('#/marketplace')" class="exec-jump-card">
                 <span class="exec-jump-icon">🛍️</span>
                 <span class="exec-jump-body">
@@ -4031,6 +4021,80 @@
                 </span>
                 <span class="exec-jump-go">→</span>
               </a>
+            </div>
+            </div><!-- /overview tab -->
+
+            <!-- GROUPS TAB -->
+            <div x-show="resTab === 'groups'" x-transition.opacity.duration.150ms>
+              <div class="org-layout">
+                <!-- Left: ungrouped agents -->
+                <aside class="org-pane org-pane--employees"
+                       :class="{ 'drag-over': groupDragOverName === '__ungrouped__' }"
+                       @dragover="_groupDragOverTarget='__ungrouped__'; onGroupDragOver($event)"
+                       @dragleave="groupDragOverName=null"
+                       @drop="onGroupDrop($event, '__ungrouped__')">
+                  <div class="org-pane-head">
+                    <span class="org-col-emoji">🗂️</span>
+                    <span class="org-pane-title">Ungrouped</span>
+                    <span class="org-col-count" x-text="ungroupedAgents().length"></span>
+                  </div>
+                  <div class="org-pane-sub">Agents with no group. Drag one onto a group to assign it. Drop here to remove an agent from its group.</div>
+                  <div class="org-pane-body">
+                    <template x-for="ag in ungroupedAgents()" :key="'ug-'+ag.id">
+                      <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.id)">
+                        <span class="emp-chip-icon">🤖</span>
+                        <span class="emp-chip-name" x-text="ag.name"></span>
+                        <span class="emp-chip-type" style="text-transform:capitalize" x-text="agentStatusOf(ag)"></span>
+                      </div>
+                    </template>
+                    <div class="org-col-empty" x-show="!ungroupedAgents().length">Every agent is in a group 🎉</div>
+                  </div>
+                </aside>
+
+                <!-- Right: groups as drop targets -->
+                <div class="org-pane org-pane--orgs">
+                  <div class="org-pane-head">
+                    <span class="org-col-emoji">🏷️</span>
+                    <span class="org-pane-title">Groups</span>
+                    <span class="org-col-count" x-text="groupBoard().length"></span>
+                    <button class="btn primary sm" type="button" @click="openNewBoardGroup()" style="margin-left:auto">＋ New group</button>
+                  </div>
+                  <div class="org-pane-body">
+                    <div class="org-grid">
+                      <template x-for="grp in groupBoard()" :key="'grp-'+grp.name">
+                        <div class="org-col"
+                             :class="{ 'drag-over': groupDragOverName === grp.name }"
+                             style="border-top:3px solid var(--cp-accent)"
+                             @dragover="_groupDragOverTarget=grp.name; onGroupDragOver($event)"
+                             @dragleave="groupDragOverName=null"
+                             @drop="onGroupDrop($event, grp.name)">
+                          <div class="org-col-head">
+                            <span class="org-col-emoji">🏷️</span>
+                            <span class="org-col-name" x-text="grp.name"></span>
+                            <span class="org-col-count" x-text="grp.agents.length"></span>
+                            <button class="icon-button" type="button" title="Rename group" @click="openRenameGroup(grp.name)" style="margin-left:auto">✏️</button>
+                            <button class="icon-button" type="button" title="Delete group" @click="openDeleteGroup(grp.name)">🗑</button>
+                          </div>
+                          <div class="org-col-body">
+                            <template x-for="ag in grp.agents" :key="grp.name+'-'+ag.id">
+                              <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.id)">
+                                <span class="emp-chip-icon">🤖</span>
+                                <span class="emp-chip-name" x-text="ag.name"></span>
+                                <button class="emp-chip-x" type="button" title="Remove from group" @click="changeAgentGroup(ag.id, '')">✕</button>
+                              </div>
+                            </template>
+                            <div class="org-col-empty" x-show="!grp.agents.length">Drag agents here</div>
+                          </div>
+                        </div>
+                      </template>
+                      <div class="org-board-empty" x-show="!groupBoard().length">
+                        <p>No groups yet. Create one, then drag agents into it.</p>
+                        <button class="btn primary" type="button" @click="openNewBoardGroup()">＋ Create your first group</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -5963,6 +6027,63 @@
   </div>
 
   <!-- Remove Agent (cascade) confirmation -->
+  <!-- New group modal (replaces window.prompt, which canvas/embedded webviews block) -->
+  <div class="modal-backdrop modal-overlay" x-show="showNewGroupModal" x-transition.opacity.duration.150ms @click.self="showNewGroupModal=false" style="z-index:10000" x-cloak>
+    <div class="modal-card" style="max-width:420px">
+      <div class="modal-header">
+        <h2 class="modal-title">New group</h2>
+        <button class="icon-button" type="button" @click="showNewGroupModal=false">✕</button>
+      </div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <label>
+          <div class="field-label">Group name</div>
+          <input class="field-input" type="text" x-model="newGroupName" placeholder="e.g. Helix Monitoring" x-ref="newGroupInput" @keydown.enter="confirmNewGroup()" @keydown.escape="showNewGroupModal=false" />
+        </label>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn" type="button" @click="showNewGroupModal=false">Cancel</button>
+          <button class="btn btn-primary" type="button" @click="confirmNewGroup()" :disabled="!newGroupName.trim()">Create group</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename group modal -->
+  <div class="modal-backdrop modal-overlay" x-show="showRenameGroupModal" x-transition.opacity.duration.150ms @click.self="showRenameGroupModal=false" style="z-index:10000" x-cloak>
+    <div class="modal-card" style="max-width:420px">
+      <div class="modal-header">
+        <h2 class="modal-title">Rename group</h2>
+        <button class="icon-button" type="button" @click="showRenameGroupModal=false">✕</button>
+      </div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <label>
+          <div class="field-label">Group name</div>
+          <input class="field-input" type="text" x-model="renameGroupNew" x-ref="renameGroupInput" @keydown.enter="confirmRenameGroup()" @keydown.escape="showRenameGroupModal=false" />
+        </label>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn" type="button" @click="showRenameGroupModal=false">Cancel</button>
+          <button class="btn primary" type="button" @click="confirmRenameGroup()" :disabled="!renameGroupNew.trim()">Rename</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete group confirm modal -->
+  <div class="modal-backdrop modal-overlay" x-show="showDeleteGroupModal" x-transition.opacity.duration.150ms @click.self="showDeleteGroupModal=false" style="z-index:10000" x-cloak>
+    <div class="modal-card" style="max-width:420px">
+      <div class="modal-header">
+        <h2 class="modal-title">Delete group</h2>
+        <button class="icon-button" type="button" @click="showDeleteGroupModal=false">✕</button>
+      </div>
+      <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+        <p class="hint" style="margin:0">Delete the group <strong x-text="deleteGroupName"></strong>? Its agents won't be removed — they'll just become ungrouped.</p>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn" type="button" @click="showDeleteGroupModal=false">Cancel</button>
+          <button class="btn danger" type="button" @click="confirmDeleteGroup()">Delete group</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop modal-overlay" x-show="removeAgentModal.open" x-transition.opacity @click.self="if(!removeAgentModal.busy) removeAgentModal.open=false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:560px">
       <div class="modal-header">
@@ -7207,6 +7328,19 @@
         orgTab: 'employees',
         orgDragOp: null,
         agentGroupBy: 'group',
+        showNewGroupModal: false,
+        newGroupName: '',
+        newGroupAgentId: null,
+        resTab: 'overview',
+        pendingGroups: [],
+        groupDragAgentId: null,
+        groupDragOverName: null,
+        _groupDragOverTarget: null,
+        showRenameGroupModal: false,
+        renameGroupOld: '',
+        renameGroupNew: '',
+        showDeleteGroupModal: false,
+        deleteGroupName: '',
         agentSort: 'recent',
         agentView: 'grid',
         managerStatusFilter: 'all',
@@ -8994,11 +9128,6 @@
         },
 
         async changeAgentGroup(agentId, newGroup) {
-          if (newGroup === '__new__') {
-            const name = prompt('Enter new group name:');
-            if (!name) { await this.refreshData(); return; }
-            newGroup = name.trim();
-          }
           await this.request(`/api/agents/${encodeURIComponent(agentId)}/group`, {
             method: 'PUT',
             body: JSON.stringify({ group: newGroup })
@@ -9006,6 +9135,120 @@
           await this.refreshData();
           if (this.selectedAgent) {
             this.selectedAgent.config.group = newGroup || undefined;
+          }
+        },
+
+        // The "+ New group…" option can't use window.prompt() — embedded/canvas
+        // webviews block it, so the group silently never got created. Route to an
+        // in-app modal instead, and reset the <select> so it doesn't stick on the
+        // placeholder option.
+        onAgentGroupSelect(agentId, ev) {
+          const val = ev.target.value;
+          if (val === '__new__') {
+            ev.target.value = this.selectedAgent?.config?.group || '';
+            this.openNewGroupModal(agentId);
+            return;
+          }
+          this.changeAgentGroup(agentId, val);
+        },
+
+        openNewGroupModal(agentId) {
+          this.newGroupAgentId = agentId;
+          this.newGroupName = '';
+          this.showNewGroupModal = true;
+          this.$nextTick(() => { try { this.$refs.newGroupInput?.focus(); } catch (e) {} });
+        },
+
+        async confirmNewGroup() {
+          const name = (this.newGroupName || '').trim();
+          if (!name) return;
+          const agentId = this.newGroupAgentId;
+          this.showNewGroupModal = false;
+          this.newGroupName = '';
+          this.newGroupAgentId = null;
+          if (agentId) {
+            await this.changeAgentGroup(agentId, name);
+          } else if (!this.allGroupNames().includes(name) && !this.pendingGroups.includes(name)) {
+            // Board mode: create an empty group locally until an agent is dropped in.
+            this.pendingGroups.push(name);
+          }
+        },
+
+        // ----- Groups board (Employees → Groups tab) -----
+        ungroupedAgents() {
+          return (this.data.agents || []).filter(a => !(a.config && a.config.group));
+        },
+        groupBoard() {
+          const map = new Map();
+          for (const name of (this.pendingGroups || [])) { if (name) map.set(name, []); }
+          for (const a of (this.data.agents || [])) {
+            const g = a.config && a.config.group;
+            if (!g) continue;
+            if (!map.has(g)) map.set(g, []);
+            map.get(g).push(a);
+          }
+          return [...map.entries()]
+            .map(([name, agents]) => ({ name, agents }))
+            .sort((x, y) => x.name.localeCompare(y.name));
+        },
+        openNewBoardGroup() {
+          this.newGroupAgentId = null;
+          this.newGroupName = '';
+          this.showNewGroupModal = true;
+          this.$nextTick(() => { try { this.$refs.newGroupInput?.focus(); } catch (e) {} });
+        },
+        onGroupAgentDragStart(ev, agentId) {
+          this.groupDragAgentId = agentId;
+          try { ev.dataTransfer.setData('text/plain', agentId); ev.dataTransfer.effectAllowed = 'move'; } catch {}
+        },
+        onGroupDragOver(ev) {
+          ev.preventDefault();
+          try { ev.dataTransfer.dropEffect = 'move'; } catch {}
+          this.groupDragOverName = this._groupDragOverTarget;
+        },
+        async onGroupDrop(ev, groupName) {
+          ev.preventDefault();
+          const id = this.groupDragAgentId;
+          this.groupDragOverName = null; this._groupDragOverTarget = null; this.groupDragAgentId = null;
+          if (!id) return;
+          const target = groupName === '__ungrouped__' ? '' : groupName;
+          await this.changeAgentGroup(id, target);
+        },
+        openRenameGroup(name) {
+          this.renameGroupOld = name;
+          this.renameGroupNew = name;
+          this.showRenameGroupModal = true;
+          this.$nextTick(() => { try { this.$refs.renameGroupInput?.focus(); this.$refs.renameGroupInput?.select(); } catch (e) {} });
+        },
+        async confirmRenameGroup() {
+          const oldName = this.renameGroupOld;
+          const newName = (this.renameGroupNew || '').trim();
+          this.showRenameGroupModal = false;
+          if (!newName || newName === oldName) return;
+          this.pendingGroups = this.pendingGroups.map(g => g === oldName ? newName : g);
+          const hasAgents = (this.data.agents || []).some(a => a.config && a.config.group === oldName);
+          if (hasAgents) {
+            try {
+              await this.request('/api/groups/rename', { method: 'PUT', body: JSON.stringify({ oldName, newName }) });
+              await this.refreshData();
+            } catch (e) { this.showToast('Rename failed', e.message, 'error'); }
+          }
+        },
+        openDeleteGroup(name) {
+          this.deleteGroupName = name;
+          this.showDeleteGroupModal = true;
+        },
+        async confirmDeleteGroup() {
+          const name = this.deleteGroupName;
+          this.showDeleteGroupModal = false;
+          if (!name) return;
+          this.pendingGroups = this.pendingGroups.filter(g => g !== name);
+          const hasAgents = (this.data.agents || []).some(a => a.config && a.config.group === name);
+          if (hasAgents) {
+            try {
+              await this.request('/api/groups/' + encodeURIComponent(name), { method: 'DELETE' });
+              await this.refreshData();
+            } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
           }
         },
 
