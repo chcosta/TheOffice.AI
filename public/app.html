@@ -4329,7 +4329,7 @@
                                         <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
                                       </div>
                                       <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
-                                        <button class="icon-button" type="button" title="Open" @click.stop="boardJump(item)">↗</button>
+                                        <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
                                         <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
                                       </div>
                                     </div>
@@ -11473,6 +11473,8 @@
           }
         },
         boardJump(item) {
+          // CLI sessions resume directly in a terminal rather than opening the list page.
+          if (item.kind === 'session') { this.resumeCliSession({ id: item.refId, cwd: item.cwd }); return; }
           const r = item.route || this.boardItemRoute(item);
           if (r) this.goTo(r);
         },
