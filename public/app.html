@@ -4040,10 +4040,10 @@
                   </div>
                   <div class="org-pane-sub">Agents with no group. Drag one onto a group to assign it. Drop here to remove an agent from its group.</div>
                   <div class="org-pane-body">
-                    <template x-for="ag in ungroupedAgents()" :key="'ug-'+ag.id">
-                      <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.id)">
+                    <template x-for="ag in ungroupedAgents()" :key="'ug-'+ag.agent_id">
+                      <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.agent_id)">
                         <span class="emp-chip-icon">🤖</span>
-                        <span class="emp-chip-name" x-text="ag.name"></span>
+                        <span class="emp-chip-name" x-text="ag.config.name"></span>
                         <span class="emp-chip-type" style="text-transform:capitalize" x-text="agentStatusOf(ag)"></span>
                       </div>
                     </template>
@@ -4076,11 +4076,11 @@
                             <button class="icon-button" type="button" title="Delete group" @click="openDeleteGroup(grp.name)">🗑</button>
                           </div>
                           <div class="org-col-body">
-                            <template x-for="ag in grp.agents" :key="grp.name+'-'+ag.id">
-                              <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.id)">
+                            <template x-for="ag in grp.agents" :key="grp.name+'-'+ag.agent_id">
+                              <div class="emp-chip" draggable="true" @dragstart="onGroupAgentDragStart($event, ag.agent_id)">
                                 <span class="emp-chip-icon">🤖</span>
-                                <span class="emp-chip-name" x-text="ag.name"></span>
-                                <button class="emp-chip-x" type="button" title="Remove from group" @click="changeAgentGroup(ag.id, '')">✕</button>
+                                <span class="emp-chip-name" x-text="ag.config.name"></span>
+                                <button class="emp-chip-x" type="button" title="Remove from group" @click="changeAgentGroup(ag.agent_id, '')">✕</button>
                               </div>
                             </template>
                             <div class="org-col-empty" x-show="!grp.agents.length">Drag agents here</div>
