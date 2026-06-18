@@ -4520,22 +4520,25 @@
                                                 <template x-if="item.ref && boardRefStatus(item.ref)">
                                                   <span class="pin-dot" :class="boardRefStatus(item.ref).state" :title="boardRefStatusTitle(item.ref)"></span>
                                                 </template>
-                                                <span style="flex:1" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
-                                                <!-- One primary action for a referenced pin: Run (runnable) or Open. Height-stable. -->
-                                                <template x-if="item.ref">
-                                                  <span class="ci-ref" :title="boardKindLabel(item.ref.kind) + ' · ' + (item.ref.label || item.ref.refId)">
-                                                    <span x-text="boardKindIcon(item.ref.kind)"></span>
-                                                    <button class="btn ghost" type="button" style="padding:1px 8px;font-size:11px"
-                                                      :title="boardRefRunnable(item.ref) ? 'Run ' + (item.ref.label||item.ref.refId) : 'Open ' + (item.ref.label||item.ref.refId)"
-                                                      @click="boardRefRunnable(item.ref) ? runBoardRef(item.ref) : openBoardRef(item.ref)"
-                                                      x-text="boardRefRunnable(item.ref) ? '▶ Run' : '↗ Open'"></button>
-                                                    <button class="icon-button" type="button" title="Remove link" @click="clearItemRef(cl, item)" style="font-size:11px">🔗✕</button>
-                                                  </span>
-                                                </template>
-                                                <button class="icon-button" type="button" x-show="!item.ref" :title="boardRefPickFor === item.id ? 'Cancel link' : 'Link a pinned item'" @click="boardRefPickFor = (boardRefPickFor === item.id ? '' : item.id)">🔗</button>
-                                                <button class="icon-button" type="button" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
-                                                <button class="icon-button" type="button" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
-                                                <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                                <span style="flex:1;min-width:0" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
+                                                <!-- Trailing controls pinned to the right edge of the row. -->
+                                                <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex:0 0 auto">
+                                                  <!-- One primary action for a referenced pin: Run (runnable) or Open. Height-stable. -->
+                                                  <template x-if="item.ref">
+                                                    <span class="ci-ref" :title="boardKindLabel(item.ref.kind) + ' · ' + (item.ref.label || item.ref.refId)">
+                                                      <span x-text="boardKindIcon(item.ref.kind)"></span>
+                                                      <button class="btn ghost" type="button" style="padding:1px 8px;font-size:11px"
+                                                        :title="boardRefRunnable(item.ref) ? 'Run ' + (item.ref.label||item.ref.refId) : 'Open ' + (item.ref.label||item.ref.refId)"
+                                                        @click="boardRefRunnable(item.ref) ? runBoardRef(item.ref) : openBoardRef(item.ref)"
+                                                        x-text="boardRefRunnable(item.ref) ? '▶ Run' : '↗ Open'"></button>
+                                                      <button class="icon-button" type="button" title="Remove link" @click="clearItemRef(cl, item)" style="font-size:11px">🔗✕</button>
+                                                    </span>
+                                                  </template>
+                                                  <button class="icon-button" type="button" x-show="!item.ref" :title="boardRefPickFor === item.id ? 'Cancel link' : 'Link a pinned item'" @click="boardRefPickFor = (boardRefPickFor === item.id ? '' : item.id)">🔗</button>
+                                                  <button class="icon-button" type="button" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
+                                                  <button class="icon-button" type="button" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
+                                                  <button class="icon-button" type="button" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                                </div>
                                               </div>
                                               <!-- Inline pin picker: choose a pin already on this board to link to the item. -->
                                               <template x-if="boardRefPickFor === item.id && !item.ref">
@@ -5341,7 +5344,10 @@
                               </template>
                             </div>
                           </div>
-                          <button class="btn ghost message-share-btn" type="button" @click="openShareModal(message.content || '', 'Chat message — ' + formatDateTime(message.timestamp), 'chat-message')">📤</button>
+                          <div class="msg-actions" style="display:flex;flex-direction:column;gap:4px">
+                            <button class="btn ghost message-share-btn" type="button" title="Pin this comment to a board" @click="pinCommentToBoard(message)">📌</button>
+                            <button class="btn ghost message-share-btn" type="button" title="Share this message" @click="openShareModal(message.content || '', 'Chat message — ' + formatDateTime(message.timestamp), 'chat-message')">📤</button>
+                          </div>
                         </div>
                       </div>
                     </template>
@@ -11629,10 +11635,10 @@
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment' })[kind] || kind;
         },
         boardKindIcon(kind) {
-          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔' })[kind] || '📌';
+          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️' })[kind] || '📌';
         },
         openPinPicker() {
           if (!this.activeBoard()) { this.showToast('Board', 'Select or create a board first', 'error'); return; }
@@ -11709,9 +11715,30 @@
             case 'assignment': return '#/assignments/' + encodeURIComponent(item.refId);
             case 'flow': return '#/chains/' + encodeURIComponent(item.refId);
             case 'chat': return '#/chat/' + encodeURIComponent(item.refId);
+            case 'comment': return '#/chat/' + encodeURIComponent(this._commentChatId(item.refId));
             case 'session': return '#/sessions';
             default: return null;
           }
+        },
+        // A pinned comment's refId is "<chatId>~<messageTimestamp>". Split safely on
+        // the first '~' (timestamps never contain '~').
+        _commentChatId(refId) {
+          const s = String(refId || ''); const i = s.indexOf('~');
+          return i < 0 ? s : s.slice(0, i);
+        },
+        _commentStamp(refId) {
+          const s = String(refId || ''); const i = s.indexOf('~');
+          return i < 0 ? '' : s.slice(i + 1);
+        },
+        // Pin a single chat message ("comment") to a board so it can be referenced
+        // later and folded into the board's summary/assistant context.
+        pinCommentToBoard(message) {
+          if (!this.activeChat || !message) return;
+          const snippet = String(message.content || '').replace(/\s+/g, ' ').trim().slice(0, 80) || '(empty message)';
+          const refId = this.activeChat.id + '~' + (message.timestamp || '');
+          const who = message.role === 'user' ? 'You' : (this.activeChat.targetName || this.activeChat.target || 'Agent');
+          const sub = (this.activeChat.title || 'Chat') + ' · ' + who;
+          this.openQuickPin('comment', refId, snippet, sub);
         },
         boardJump(item) {
           // CLI sessions resume directly in a terminal rather than opening the list page.
@@ -11722,7 +11749,7 @@
         boardItemsByKind() {
           const board = this.activeBoard();
           const items = (board && board.items) || [];
-          const order = ['session', 'chat', 'task', 'assignment', 'flow', 'agent', 'manager'];
+          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager'];
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
@@ -12976,11 +13003,28 @@
           this.chatSessions[chatId] = sessionId;
           this.chatActivity[chatId] = { status: retryCount > 0 ? `Retrying (attempt ${retryCount + 1})...` : 'Agent is thinking...', steps: [] };
           
-          // Poll the session for live activity
-          for (let attempt = 0; attempt < 180; attempt++) {
+          // Poll the session for live activity. We only give up after a stretch of
+          // genuine INACTIVITY — as long as the session reports active or shows new
+          // reasoning/tool steps, we keep waiting (no matter how long the turn runs).
+          const IDLE_TIMEOUT_MS = 3 * 60 * 1000;   // give up after 3 min of NO activity
+          const HARD_CAP_MS = 30 * 60 * 1000;       // absolute safety ceiling
+          const pollStartTs = Date.now();
+          let lastActivityTs = Date.now();
+          let lastActivitySig = '';
+          let timedOut = false;
+          for (let attempt = 0; ; attempt++) {
             await new Promise(r => setTimeout(r, this.chatLive ? 700 : 1500));
             try {
               const poll = await this.request(`/api/sessions/${sessionId}/poll?verbose=1`);
+
+              // Activity signature — bump the idle clock whenever the agent is active
+              // or anything advanced (new turn, new step, or growing partial output).
+              const _ct = poll.turns && poll.turns.length ? poll.turns[poll.turns.length - 1] : null;
+              const _stepCount = _ct && _ct.steps ? _ct.steps.length : 0;
+              const _lastStep = _stepCount ? _ct.steps[_stepCount - 1] : null;
+              const _partialLen = _lastStep && _lastStep.partial ? _lastStep.partial.length : 0;
+              const _sig = `${poll.turnCount || 0}:${_stepCount}:${_partialLen}`;
+              if (poll.isActive || _sig !== lastActivitySig) { lastActivityTs = Date.now(); lastActivitySig = _sig; }
               
               // Update activity display
               const currentTurn = poll.turns && poll.turns.length > 0 ? poll.turns[poll.turns.length - 1] : null;
@@ -13058,6 +13102,10 @@
             } catch {
               // keep polling
             }
+            // Only bail out after sustained inactivity (or the absolute safety cap).
+            const _now = Date.now();
+            if (_now - lastActivityTs > IDLE_TIMEOUT_MS) { timedOut = true; break; }
+            if (_now - pollStartTs > HARD_CAP_MS) { timedOut = true; break; }
           }
           
           // Timeout
@@ -13065,7 +13113,7 @@
           delete this.chatActivity[chatId];
           await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ role: 'assistant', content: 'Agent response timed out (3 minutes). It may still be running in the background.' })
+            body: JSON.stringify({ role: 'assistant', content: 'Agent response timed out after 3 minutes with no activity. It may still be running in the background.' })
           });
           if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
         },

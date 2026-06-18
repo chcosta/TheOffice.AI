@@ -4734,7 +4734,7 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
 // references to CLI sessions, chats, tasks, flows, assignments, and agents, plus
 // freeform notes and checklists. Boards are team-scoped (teamId) or global (teamId
 // null). Stored wholesale in boards.json.
-const BOARD_KINDS = ['session', 'chat', 'task', 'flow', 'assignment', 'agent', 'manager'];
+const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'assignment', 'agent', 'manager'];
 
 function _boardId(name) {
   return 'board-' + String(name || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) + '-' + Date.now().toString(36).slice(-4);
@@ -4912,6 +4912,38 @@ function _resolveBoardItems(b) {
             const last = msgs[msgs.length - 1];
             if (last) { status = last.role; detail = clip(last.content || '', 240); }
             context = msgs.slice(-6).map(mm => (mm.role === 'assistant' ? 'ASSISTANT: ' : 'USER: ') + clip(mm.content || '', 500)).join('\n').slice(0, 2000);
+          } catch {}
+        }
+      } else if (it.kind === 'comment') {
+        // A pinned comment: refId is "<chatId>~<messageTimestamp>". Locate the exact
+        // message and surround it with a few neighbouring turns so the summary/assistant
+        // has the conversational context around the pinned remark.
+        const sep = String(it.refId).indexOf('~');
+        const chatId = sep < 0 ? String(it.refId) : String(it.refId).slice(0, sep);
+        const stamp = sep < 0 ? '' : String(it.refId).slice(sep + 1);
+        route = '#/chat/' + encodeURIComponent(chatId);
+        const cf = path.join(CHATS_DIR, `${chatId}.json`);
+        if (fs.existsSync(cf)) {
+          try {
+            const c = JSON.parse(fs.readFileSync(cf, 'utf-8'));
+            const msgs = Array.isArray(c.messages) ? c.messages : [];
+            let idx = stamp ? msgs.findIndex(m => m.timestamp === stamp) : -1;
+            if (idx < 0 && msgs.length) idx = msgs.length - 1; // fall back to the latest
+            if (idx >= 0) {
+              const pinned = msgs[idx];
+              when = pinned.timestamp || c.updatedAt || when;
+              status = pinned.role || 'comment';
+              detail = clip(pinned.content || '', 240);
+              const start = Math.max(0, idx - 3), end = Math.min(msgs.length, idx + 3);
+              const lines = [];
+              for (let i = start; i < end; i++) {
+                const mm = msgs[i];
+                const who = mm.role === 'assistant' ? 'ASSISTANT' : 'USER';
+                const mark = i === idx ? ' «PINNED»' : '';
+                lines.push(`${who}${mark}: ${clip(mm.content || '', 500)}`);
+              }
+              context = lines.join('\n').slice(0, 2000);
+            }
           } catch {}
         }
       } else if (it.kind === 'session') {
