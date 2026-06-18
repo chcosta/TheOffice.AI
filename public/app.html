@@ -4299,7 +4299,6 @@
                         </div>
                       </div>
                       <div class="toolbar">
-                        <button class="btn primary" type="button" @click="runWhereWasI()">🧭 Where was I?</button>
                         <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
@@ -4319,6 +4318,20 @@
                               <span class="board-panel-grip" title="Drag to move">⠿</span>
                             </div>
                             <div class="board-panel-body">
+                              <!-- Where was I? AI briefing -->
+                              <template x-if="p.type === 'summary'">
+                                <div style="display:flex;flex-direction:column;gap:10px;height:100%;min-height:0">
+                                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex:0 0 auto">
+                                    <div class="hint" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
+                                    <div class="hint" x-show="!(activeBoard().summary)">Not generated yet</div>
+                                    <button class="btn ghost" type="button" @click="refreshBoardSummary(true)" :disabled="boardSummaryLoading" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                                  </div>
+                                  <div x-show="boardSummaryLoading && !(activeBoard().summary)" class="hint">Reviewing recent activity across your pinned items…</div>
+                                  <div x-show="activeBoard().summary && activeBoard().summary.text" style="white-space:pre-wrap;overflow:auto;flex:1 1 auto;min-height:0;line-height:1.5" x-text="activeBoard().summary ? activeBoard().summary.text : ''"></div>
+                                  <div x-show="!boardSummaryLoading && !(activeBoard().summary)" class="empty-state" style="padding:12px">Pin items, then click <strong>↻ Update</strong> to generate an AI briefing of where you left off.</div>
+                                </div>
+                              </template>
+
                               <!-- Pinned items of a kind -->
                               <template x-if="p.type === 'pinned'">
                                 <div style="display:flex;flex-direction:column;gap:8px">
@@ -4472,36 +4485,6 @@
               </div>
             </div>
 
-            <!-- Where was I modal -->
-            <div class="modal-backdrop modal-overlay" x-show="boardWhereOpen" x-transition.opacity.duration.150ms @click.self="boardWhereOpen=false" x-cloak style="z-index:9999">
-              <div class="modal-card" style="max-width:640px;width:92vw">
-                <div class="modal-header">
-                  <h2 class="modal-title">🧭 Where was I?</h2>
-                  <button class="icon-button" type="button" @click="boardWhereOpen=false">✕</button>
-                </div>
-                <div style="padding:18px">
-                  <div x-show="boardWhereLoading" class="hint">Reconstructing recent activity…</div>
-                  <template x-if="!boardWhereLoading && boardWhere">
-                    <div>
-                      <div class="hint" style="margin-bottom:12px" x-text="boardWhere.summary || 'Recent activity on your pinned items.'"></div>
-                      <div x-show="!(boardWhere.items||[]).length" class="empty-state">Nothing pinned to summarize yet.</div>
-                      <div style="display:flex;flex-direction:column;gap:8px;max-height:56vh;overflow:auto">
-                        <template x-for="it in (boardWhere.items||[])" :key="it.id">
-                          <div class="card clickable" style="padding:12px 14px" @click="boardJump(it); boardWhereOpen=false">
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-                              <div style="font-weight:600" x-text="boardKindIcon(it.kind) + ' ' + (it.label || it.refId)"></div>
-                              <span class="status-badge small" x-show="it.status" x-text="it.status"></span>
-                            </div>
-                            <div class="hint" x-show="it.detail" style="margin-top:4px" x-text="it.detail"></div>
-                            <div class="hint" x-show="it.when" style="margin-top:2px;opacity:0.7" x-text="it.when"></div>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
@@ -7984,9 +7967,7 @@
         boardPinSearch: '',
         boardNoteDraft: '',
         boardChecklistDraft: '',
-        boardWhereOpen: false,
-        boardWhere: null,
-        boardWhereLoading: false,
+        boardSummaryLoading: false,
         boardChecklistItemDraft: {},
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
@@ -11490,12 +11471,14 @@
         // The panels rendered on a board: one per pinned kind that has items,
         // plus the Notes and Checklists panels. Stable ids drive the layout map.
         boardPanels() {
-          const panels = this.boardItemsByKind().map(g => ({ id: 'kind:' + g.kind, type: 'pinned', kind: g.kind, items: g.items }));
+          const panels = [{ id: 'wherewasi', type: 'summary' }];
+          for (const g of this.boardItemsByKind()) panels.push({ id: 'kind:' + g.kind, type: 'pinned', kind: g.kind, items: g.items });
           panels.push({ id: 'notes', type: 'notes' });
           panels.push({ id: 'checklists', type: 'checklists' });
           return panels;
         },
         panelTitle(p) {
+          if (p.type === 'summary') return '🧭 Where was I?';
           if (p.type === 'notes') return '📝 Notes';
           if (p.type === 'checklists') return '✅ Checklists';
           return this.boardKindIcon(p.kind) + ' ' + this.boardKindLabel(p.kind) + ' (' + p.items.length + ')';
@@ -11506,6 +11489,7 @@
           const b = this.activeBoard();
           this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
           this.ensureBoardLayout(false);
+          this.maybeRefreshSummary();
         },
         // Assign default slots to any panel without a saved position (2-column,
         // 50/50). Prunes layout entries for panels that no longer exist. Persists
@@ -11513,16 +11497,27 @@
         ensureBoardLayout(persist = true) {
           const panels = this.boardPanels();
           const layout = { ...this.boardLayout };
-          const half = Math.floor(this.boardCols / 2);
+          const cols = this.boardCols;
+          const half = Math.floor(cols / 2);
           let yL = 0, yR = 0, changed = false;
           for (const p of panels) {
             const cur = layout[p.id];
             if (cur && Number.isFinite(cur.x) && Number.isFinite(cur.y)) {
-              if (cur.x < half) yL = Math.max(yL, cur.y + cur.h); else yR = Math.max(yR, cur.y + cur.h);
+              const bottom = cur.y + cur.h;
+              if (cur.x < half) yL = Math.max(yL, bottom);
+              if (cur.x + cur.w > half) yR = Math.max(yR, bottom);
             }
           }
           for (const p of panels) {
             if (layout[p.id]) continue;
+            // The "Where was I?" briefing defaults to a full-width panel at the top.
+            if (p.id === 'wherewasi') {
+              const y = Math.max(yL, yR);
+              layout[p.id] = { x: 0, y, w: cols, h: 5 };
+              yL = yR = y + 5;
+              changed = true;
+              continue;
+            }
             const h = p.type === 'pinned' ? Math.min(16, Math.max(4, 2 + (p.items ? p.items.length : 0) * 2)) : 7;
             if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
             else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
@@ -11691,21 +11686,32 @@
             this.showToast('Board', e.message, 'error');
           }
         },
-        // ----- Where was I -----
-        async runWhereWasI() {
+        // ----- Where was I (AI briefing) -----
+        // Generate/refresh the board's AI summary. force=true bypasses the server cache.
+        async refreshBoardSummary(force = false) {
           const board = this.activeBoard();
-          if (!board) return;
-          this.boardWhereOpen = true;
-          this.boardWhereLoading = true;
-          this.boardWhere = null;
+          if (!board || this.boardSummaryLoading) return;
+          this.boardSummaryLoading = true;
           try {
-            this.boardWhere = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/where-was-i', { method: 'POST', body: '{}' });
+            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/where-was-i', { method: 'POST', body: JSON.stringify({ force }) });
+            const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [] };
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0) this.boards[idx] = { ...this.boards[idx], summary };
           } catch (e) {
-            this.showToast('Where was I', e.message, 'error');
-            this.boardWhereOpen = false;
+            if (force) this.showToast('Where was I', e.message, 'error');
           } finally {
-            this.boardWhereLoading = false;
+            this.boardSummaryLoading = false;
           }
+        },
+        // Auto-generate the briefing when missing or older than 15 minutes, but only
+        // while viewing a non-empty board (and never on top of an in-flight request).
+        maybeRefreshSummary() {
+          if (this.route !== 'boards') return;
+          const board = this.activeBoard();
+          if (!board || !((board.items || []).length) || this.boardSummaryLoading) return;
+          const s = board.summary;
+          const stale = !s || !s.generatedAt || (Date.now() - new Date(s.generatedAt).getTime()) > 15 * 60 * 1000;
+          if (stale) this.refreshBoardSummary(false);
         },
         // ----- Entity-centric quick pin (from agent/manager/task/flow/chat/session) -----
         async openQuickPin(kind, refId, label, sublabel) {

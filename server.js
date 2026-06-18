@@ -4704,6 +4704,7 @@ function _normalizeBoard(b) {
     notes: Array.isArray(b.notes) ? b.notes : [],
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
     layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
+    summary: (b.summary && typeof b.summary === 'object' && !Array.isArray(b.summary)) ? b.summary : null,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
   };
@@ -4807,19 +4808,21 @@ app.delete('/api/boards/:id/items/:itemId', (req, res) => {
 // "Where was I" — summarize the most recent state across a board's pinned items.
 // Best-effort, deterministic (no LLM): resolves each pinned reference to its
 // latest activity and returns items sorted by recency plus a text digest.
-app.post('/api/boards/:id/where-was-i', (req, res) => {
-  const board = loadBoards().find(b => b.id === req.params.id);
-  if (!board) return res.status(404).json({ error: 'Board not found' });
-  const b = _normalizeBoard(board);
+// Resolve a board's pinned items into (a) per-item digests `out` for the UI list
+// and (b) richer per-item `contextBlocks` (transcripts / run output / messages)
+// fed to the LLM for the "Where was I?" briefing.
+function _resolveBoardItems(b) {
   const out = [];
+  const contextBlocks = [];
   const tasks = loadTasks();
+  const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
   for (const it of b.items) {
-    let when = it.addedAt || null, status = '', detail = '', route = '';
+    let when = it.addedAt || null, status = '', detail = '', route = '', context = '';
     try {
       if (it.kind === 'agent') {
         route = '#/agents/' + encodeURIComponent(it.refId);
         const runs = supervisor.getRunHistory(it.refId, 1) || [];
-        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].exit_code === 0 ? 'success' : (runs[0].status || 'error'); detail = (runs[0].output || runs[0].error || '').slice(0, 240); }
+        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].exit_code === 0 ? 'success' : (runs[0].status || 'error'); detail = clip(runs[0].output || runs[0].error || '', 240); context = clip(runs[0].output || runs[0].error || '', 1200); }
       } else if (it.kind === 'task') {
         route = '#/tasks/' + encodeURIComponent(it.refId);
         const rawId = String(it.refId).replace(/^task-/, '');
@@ -4827,7 +4830,7 @@ app.post('/api/boards/:id/where-was-i', (req, res) => {
         if (t) {
           const runs = (supervisor.getRunHistory(t.agentId, 10) || []).filter(r => !r.task_id || r.task_id === t.id);
           const r0 = runs[0];
-          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.exit_code === 0 ? 'success' : (r0.status || 'error'); detail = (r0.output || r0.error || '').slice(0, 240); }
+          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.exit_code === 0 ? 'success' : (r0.status || 'error'); detail = clip(r0.output || r0.error || '', 240); context = clip(r0.output || r0.error || '', 1200); }
           else { status = t.enabled === false ? 'disabled' : 'idle'; }
         }
       } else if (it.kind === 'assignment') {
@@ -4837,20 +4840,27 @@ app.post('/api/boards/:id/where-was-i', (req, res) => {
           const managerId = m[1], assignmentId = m[2];
           const runs = (managerAgent.getRunHistory(managerId, 20) || []).filter(r => !r.assignment_id || r.assignment_id === assignmentId);
           const r0 = runs[0];
-          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = (r0.result || r0.error || '').slice(0, 240); }
+          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = clip(r0.result || r0.error || '', 240); context = clip(r0.result || r0.error || '', 1200); }
         }
       } else if (it.kind === 'flow') {
         route = '#/chains/' + encodeURIComponent(it.refId);
-        try { const c = chainEngine.get(it.refId); if (c) { status = c.enabled === false ? 'disabled' : 'idle'; if (c.lastRunAt) when = c.lastRunAt; detail = c.description || ''; } } catch {}
+        try { const c = chainEngine.get(it.refId); if (c) { status = c.enabled === false ? 'disabled' : 'idle'; if (c.lastRunAt) when = c.lastRunAt; detail = c.description || ''; context = clip(c.description || '', 600); } } catch {}
       } else if (it.kind === 'manager') {
         route = '#/managers/' + encodeURIComponent(it.refId);
         const runs = managerAgent.getRunHistory(it.refId, 1) || [];
-        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].status || 'idle'; detail = (runs[0].result || runs[0].error || '').slice(0, 240); }
+        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].status || 'idle'; detail = clip(runs[0].result || runs[0].error || '', 240); context = clip(runs[0].result || runs[0].error || '', 1200); }
       } else if (it.kind === 'chat') {
         route = '#/chat/' + encodeURIComponent(it.refId);
         const cf = path.join(CHATS_DIR, `${it.refId}.json`);
         if (fs.existsSync(cf)) {
-          try { const c = JSON.parse(fs.readFileSync(cf, 'utf-8')); when = c.updatedAt || when; const msgs = c.messages || []; const last = msgs[msgs.length - 1]; if (last) { status = last.role; detail = String(last.content || '').slice(0, 240); } } catch {}
+          try {
+            const c = JSON.parse(fs.readFileSync(cf, 'utf-8'));
+            when = c.updatedAt || when;
+            const msgs = c.messages || [];
+            const last = msgs[msgs.length - 1];
+            if (last) { status = last.role; detail = clip(last.content || '', 240); }
+            context = msgs.slice(-6).map(mm => (mm.role === 'assistant' ? 'ASSISTANT: ' : 'USER: ') + clip(mm.content || '', 500)).join('\n').slice(0, 2000);
+          } catch {}
         }
       } else if (it.kind === 'session') {
         route = '#/sessions';
@@ -4860,52 +4870,126 @@ app.post('/api/boards/:id/where-was-i', (req, res) => {
             const ep = path.join(dir, 'events.jsonl');
             try { when = new Date(fs.statSync(ep).mtimeMs).toISOString(); } catch { try { when = new Date(fs.statSync(dir).mtimeMs).toISOString(); } catch {} }
             status = 'session';
-            // Prefer a cached AI summary; otherwise reconstruct a useful "where you left
-            // off" line from the conversation log (last assistant reply, else last prompt,
-            // else agent + tools), so the item isn't just a bare title + timestamp.
             const sp = path.join(dir, SPA_SUMMARY_FILE);
-            try { if (fs.existsSync(sp)) detail = String(JSON.parse(fs.readFileSync(sp, 'utf-8')).summary || '').trim(); } catch {}
-            if (!detail && fs.existsSync(ep)) {
+            try { if (fs.existsSync(sp)) detail = clip(JSON.parse(fs.readFileSync(sp, 'utf-8')).summary || '', 240); } catch {}
+            // Build a multi-turn transcript for the LLM (last 8 turns), falling back
+            // to a raw events.jsonl scan for agent-run sessions whose prompts arrive
+            // via file (so readSessionConversation yields no turns).
+            const tl = [];
+            try {
+              const conv = readSessionConversation(dir);
+              for (const t of (conv.turns || []).slice(-8)) {
+                if (t.content) tl.push('USER: ' + clip(t.content, 500));
+                if (t.assistant) tl.push('ASSISTANT: ' + clip(t.assistant, 500));
+              }
+            } catch {}
+            if (!tl.length && fs.existsSync(ep)) {
               try {
-                let lastAssistant = '', lastUser = '', agentName = '';
+                let agentName = '';
                 const tools = [];
                 for (const ln of fs.readFileSync(ep, 'utf-8').split('\n')) {
                   if (!ln) continue;
                   let ev; try { ev = JSON.parse(ln); } catch { continue; }
                   const d = ev.data || {};
-                  if (ev.type === 'assistant.message' && d.content) lastAssistant = String(d.content);
-                  else if (ev.type === 'user.message' && d.content) lastUser = String(d.content);
+                  if (ev.type === 'user.message' && d.content) tl.push('USER: ' + clip(d.content, 500));
+                  else if (ev.type === 'assistant.message' && d.content) tl.push('ASSISTANT: ' + clip(d.content, 500));
                   else if (ev.type === 'subagent.selected' && (d.agentDisplayName || d.agentName)) agentName = d.agentDisplayName || d.agentName;
                   else if (ev.type === 'session.start' && d.context && d.context.agentName && !agentName) agentName = d.context.agentName;
                   else if (ev.type === 'tool.execution_start' && d.toolName) tools.push(d.toolName);
                 }
-                if (lastAssistant) detail = lastAssistant;
-                else if (lastUser) detail = 'Last prompt: ' + lastUser;
-                else if (agentName) {
+                if (!tl.length && agentName) {
                   const counts = {};
                   for (const t of tools) counts[t] = (counts[t] || 0) + 1;
-                  const top = Object.entries(counts).sort((a, c) => c[1] - a[1]).slice(0, 6).map(([k, v]) => v > 1 ? `${k}×${v}` : k);
-                  detail = agentName + (top.length ? ' — used ' + top.join(', ') : ' session');
+                  const topt = Object.entries(counts).sort((a, c) => c[1] - a[1]).slice(0, 8).map(([k, v]) => v > 1 ? `${k}×${v}` : k);
+                  tl.push('AGENT: ' + agentName + (topt.length ? ' — used ' + topt.join(', ') : ''));
                 }
+                while (tl.length > 16) tl.shift();
               } catch {}
             }
-            detail = String(detail || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+            if (!detail && tl.length) {
+              for (let i = tl.length - 1; i >= 0; i--) { if (tl[i].startsWith('ASSISTANT: ')) { detail = clip(tl[i].slice(11), 240); break; } }
+              if (!detail) detail = clip(tl[tl.length - 1], 240);
+            }
+            context = tl.join('\n').slice(0, 2400);
           }
         } catch {}
       }
     } catch {}
     out.push({ id: it.id, kind: it.kind, refId: it.refId, label: it.label, sublabel: it.sublabel, route, when, status, detail });
+    if (context) contextBlocks.push(`### ${String(it.kind).toUpperCase()}: ${it.label || it.refId}\n${context}`);
   }
   out.sort((a, c) => new Date(c.when || 0) - new Date(a.when || 0));
+  return { out, contextBlocks };
+}
+
+// AI-powered "Where was I?" briefing. Reviews the recent conversation/run context
+// of every pinned item and produces a short prose summary + optional next steps.
+// The result is cached on board.summary; a <30s cache is served unless {force:true}.
+app.post('/api/boards/:id/where-was-i', async (req, res) => {
+  const raw = loadBoards().find(b => b.id === req.params.id);
+  if (!raw) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(raw);
+  const force = !!(req.body && req.body.force);
+
+  if (!force && b.summary && b.summary.generatedAt) {
+    const age = Date.now() - new Date(b.summary.generatedAt).getTime();
+    if (age >= 0 && age < 30000) {
+      return res.json({ ok: true, generatedAt: b.summary.generatedAt, summary: b.summary.text, items: b.summary.items || [], cached: true });
+    }
+  }
+
+  const { out, contextBlocks } = _resolveBoardItems(b);
+  const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+  // Deterministic fallback used when the board is empty, has no usable context, or
+  // the LLM call fails.
   const top = out.slice(0, 6).map(o => {
     const rel = o.when ? new Date(o.when).toLocaleString() : 'no recent activity';
     const st = o.status ? ` [${o.status}]` : '';
-    return `• ${o.label}${st} — ${rel}${o.detail ? `\n    ${o.detail.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`;
+    return `• ${o.label}${st} — ${rel}${o.detail ? `\n    ${clip(o.detail, 160)}` : ''}`;
   }).join('\n');
-  const summary = out.length
+  const digest = out.length
     ? `Here's where you left off across ${out.length} pinned item${out.length === 1 ? '' : 's'} on "${b.name}", most recent first:\n\n${top}`
     : `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
-  res.json({ ok: true, generatedAt: new Date().toISOString(), summary, items: out });
+
+  // Persist the briefing onto the board record and notify SPA clients.
+  const persist = (text) => {
+    const summary = { text, generatedAt: new Date().toISOString(), items: out };
+    try {
+      const all = loadBoards();
+      const idx = all.findIndex(x => x.id === b.id);
+      if (idx >= 0) { all[idx].summary = summary; saveBoards(all); broadcastSSE('boards-changed', { id: b.id }); }
+    } catch {}
+    return summary;
+  };
+
+  if (!out.length || !contextBlocks.length) {
+    const saved = persist(digest);
+    return res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false });
+  }
+
+  const prompt = [
+    `You are reviewing a work board named "${b.name}". Below are the most recently active items the user pinned, each with recent context (conversation transcripts, run output, or messages).`,
+    'Write a "Where was I?" briefing that reorients the user:',
+    '- 3 to 6 sentences of plain prose summarizing what is going on across these items and the current state.',
+    '- Then, only if there are concrete pending actions, add a line "Next steps:" followed by a short bullet list (each line starting with "- ").',
+    'Be specific and concrete. No preamble, no headings other than "Next steps:", no surrounding quotes.',
+    '',
+    contextBlocks.join('\n\n').slice(0, 9000),
+    '',
+    'Briefing:'
+  ].join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const text = (acc.trim() || (result && result.output) || '').trim() || digest;
+    const saved = persist(text);
+    res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false });
+  } catch (e) {
+    const saved = persist(digest);
+    res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, cached: false, error: (e && e.message) || 'llm failed' });
+  }
 });
 
 app.post('/api/managers/:id/start', (req, res) => {
