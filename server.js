@@ -5093,6 +5093,145 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
 });
 
+// Board assistant — a board *transformer* (NOT an orchestrator). It reads the
+// board's pinned context plus the user's own notes/checklists and helps keep the
+// board cleaner and more actionable by PROPOSING note/checklist edits. It never
+// runs agents, searches the marketplace, or mutates the board itself: the client
+// applies confirmed actions through the normal board PUT (propose → confirm).
+app.post('/api/boards/:id/assistant', async (req, res) => {
+  const raw = loadBoards().find(b => b.id === req.params.id);
+  if (!raw) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(raw);
+  const message = String((req.body && req.body.message) || '').trim();
+  if (!message) return res.status(400).json({ error: 'Missing message' });
+  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+  // ---- Board context (pins + notes + checklists, with stable ids the model can
+  // reference back in its proposed actions). Reuses the same resolver as the
+  // "Where was I?" briefing so the assistant sees real run output / transcripts.
+  const { contextBlocks } = _resolveBoardItems(b);
+  const notes = (Array.isArray(b.notes) ? b.notes : []);
+  const checklists = (Array.isArray(b.checklists) ? b.checklists : []);
+  const ctx = [];
+  if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 6000));
+  if (notes.length) {
+    ctx.push('## NOTES\n' + notes.map(n => `- (${n.id}) ${clip(n.text, 300)}`).join('\n'));
+  }
+  if (checklists.length) {
+    ctx.push('## CHECKLISTS\n' + checklists.map(cl => {
+      const items = Array.isArray(cl.items) ? cl.items : [];
+      const lines = items.map(i => `    - [${i.done ? 'x' : ' '}] (${i.id}) ${clip(i.text, 200)}`);
+      return `- (${cl.id}) "${clip(cl.title, 120)}"${lines.length ? '\n' + lines.join('\n') : ''}`;
+    }).join('\n'));
+  }
+  const contextStr = ctx.join('\n\n').slice(0, 8000) || '(this board is empty — no pins, notes, or checklists yet)';
+
+  // ---- Prompt: force a single JSON object {reply, actions[]}. Actions are
+  // constrained to notes/checklists only.
+  const sys = [
+    `You are the board assistant for a work board named "${b.name}". Your job is to keep the board clean and actionable by chatting with the user and PROPOSING edits to the board's notes and checklists. You do NOT run agents, search for tools, or take any action yourself — you only propose changes, which the user confirms.`,
+    '',
+    'You can propose these action types (and ONLY these):',
+    '- {"type":"add_note","text":"<markdown note>"}',
+    '- {"type":"edit_note","noteId":"<existing note id>","text":"<new full text>"}',
+    '- {"type":"add_checklist","title":"<title>","items":["<item>", ...]}',
+    '- {"type":"add_checklist_items","checklistId":"<existing checklist id>","items":["<item>", ...]}',
+    '- {"type":"check_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (marks the item done)',
+    '',
+    'Rules:',
+    '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...) that appear in the BOARD CONTEXT below. Never invent ids.',
+    '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
+    '- Propose actions ONLY when the user is clearly asking to add or change board content (e.g. "make a checklist", "note that…", "add steps", "mark X done"). For pure questions, return an empty actions array and just answer in "reply".',
+    '- Keep checklist items short and imperative. Keep notes concise.',
+    '- Base proposals on the actual board context (pinned run output, notes, existing checklists) when relevant.',
+    '',
+    'Respond with a SINGLE JSON object and nothing else: {"reply":"<short conversational reply describing what you propose, or your answer>","actions":[ ... ]}. No code fences, no prose outside the JSON.',
+    '',
+    '# BOARD CONTEXT',
+    contextStr,
+  ].join('\n');
+
+  const convo = history.slice(-8).map(h => `${h.role === 'assistant' ? 'ASSISTANT' : 'USER'}: ${clip(h.content, 800)}`).join('\n');
+  const prompt = [sys, '', '# CONVERSATION', convo, `USER: ${clip(message, 2000)}`, '', 'JSON:'].join('\n');
+
+  // Robust JSON extraction: strip code fences, take the outermost {...}.
+  const parseModel = (text) => {
+    if (!text) return null;
+    let t = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    const s = t.indexOf('{'), e = t.lastIndexOf('}');
+    if (s < 0 || e <= s) return null;
+    try { return JSON.parse(t.slice(s, e + 1)); } catch { return null; }
+  };
+
+  // Resolve a model-proposed action against the live board into a concrete,
+  // applies-cleanly action with a human label. Drops anything unresolvable.
+  const findChecklist = (a) => {
+    if (a.checklistId) { const c = checklists.find(c => c.id === a.checklistId); if (c) return c; }
+    if (a.checklistTitle || a.title) {
+      const want = String(a.checklistTitle || a.title).toLowerCase().trim();
+      return checklists.find(c => String(c.title || '').toLowerCase().trim() === want) || null;
+    }
+    return null;
+  };
+  const resolveAction = (a) => {
+    if (!a || typeof a !== 'object') return null;
+    const type = String(a.type || '');
+    if (type === 'add_note') {
+      const text = clip(a.text, 1200); if (!text) return null;
+      return { type, text, label: 'Add note', preview: clip(text, 140) };
+    }
+    if (type === 'edit_note') {
+      const n = notes.find(n => n.id === a.noteId); const text = clip(a.text, 1200);
+      if (!n || !text) return null;
+      return { type, noteId: n.id, text, label: 'Update note', preview: clip(text, 140), before: clip(n.text, 100) };
+    }
+    if (type === 'add_checklist') {
+      const title = clip(a.title, 120); if (!title) return null;
+      const items = (Array.isArray(a.items) ? a.items : []).map(x => clip(x, 200)).filter(Boolean).slice(0, 30);
+      return { type, title, items, label: 'New checklist', preview: title + (items.length ? ` (${items.length} item${items.length === 1 ? '' : 's'})` : '') };
+    }
+    if (type === 'add_checklist_items') {
+      const cl = findChecklist(a);
+      const items = (Array.isArray(a.items) ? a.items : []).map(x => clip(x, 200)).filter(Boolean).slice(0, 30);
+      if (!items.length) return null;
+      if (!cl) { // unknown target → fall back to a fresh checklist so the proposal isn't lost
+        const title = clip(a.checklistTitle || a.title || 'Checklist', 120);
+        return { type: 'add_checklist', title, items, label: 'New checklist', preview: title + ` (${items.length} item${items.length === 1 ? '' : 's'})` };
+      }
+      return { type, checklistId: cl.id, checklistTitle: cl.title, items, label: 'Add to checklist', preview: `${cl.title}: +${items.length} item${items.length === 1 ? '' : 's'}` };
+    }
+    if (type === 'check_item') {
+      const cl = findChecklist(a); if (!cl) return null;
+      const its = Array.isArray(cl.items) ? cl.items : [];
+      let it = a.itemId ? its.find(i => i.id === a.itemId) : null;
+      if (!it && a.itemText) { const want = String(a.itemText).toLowerCase().trim(); it = its.find(i => String(i.text || '').toLowerCase().includes(want)); }
+      if (!it || it.done) return null;
+      return { type, checklistId: cl.id, itemId: it.id, label: 'Mark done', preview: `${cl.title}: ${clip(it.text, 120)}` };
+    }
+    return null;
+  };
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const rawText = (acc.trim() || (result && result.output) || '').trim();
+    const parsed = parseModel(rawText);
+    let reply, actions = [];
+    if (parsed && typeof parsed === 'object') {
+      reply = clip(parsed.reply, 1500) || 'Here is what I suggest.';
+      const proposed = Array.isArray(parsed.actions) ? parsed.actions : [];
+      actions = proposed.map(resolveAction).filter(Boolean).slice(0, 8).map((a, i) => ({ id: 'act-' + Date.now().toString(36) + '-' + i, ...a }));
+    } else {
+      // Model didn't return JSON — treat the whole thing as a plain reply.
+      reply = clip(rawText, 1500) || "I couldn't generate a response. Try rephrasing.";
+    }
+    res.json({ ok: true, reply, actions });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) || 'assistant failed' });
+  }
+});
+
 app.post('/api/managers/:id/start', (req, res) => {
   try {
     managerAgent.startSchedules(req.params.id);

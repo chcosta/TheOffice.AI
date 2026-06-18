@@ -2112,6 +2112,58 @@
       opacity: .5;
     }
     .board-panel:hover .board-resize { opacity: .9; }
+    /* ----- Board assistant slide-over ("Ask board") ----- */
+    .board-assistant-backdrop {
+      position: fixed; inset: 0; z-index: 9998;
+      background: rgba(0,0,0,0.28);
+      display: flex; justify-content: flex-end;
+    }
+    .board-assistant-drawer {
+      width: 400px; max-width: 92vw; height: 100vh;
+      background: var(--cp-bg-elevated);
+      border-left: 1px solid var(--cp-border);
+      box-shadow: var(--cp-shadow);
+      display: flex; flex-direction: column;
+    }
+    .ba-enter { transition: transform .18s ease, opacity .18s ease; }
+    .ba-enter-start { transform: translateX(24px); opacity: 0; }
+    .ba-enter-end { transform: translateX(0); opacity: 1; }
+    .board-assistant-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 14px 16px; border-bottom: 1px solid var(--cp-border); flex: 0 0 auto;
+    }
+    .board-assistant-body {
+      flex: 1 1 auto; overflow-y: auto; padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .ba-msg { display: flex; flex-direction: column; }
+    .ba-msg.user { align-items: flex-end; }
+    .ba-bubble {
+      max-width: 92%; padding: 8px 12px; border-radius: 12px;
+      background: var(--cp-accent); color: var(--cp-accent-fg);
+      font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    }
+    .ba-bubble.assistant {
+      background: var(--cp-surface); color: var(--cp-text);
+      border: 1px solid var(--cp-border); max-width: 100%; white-space: normal;
+    }
+    .ba-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .ba-action {
+      display: flex; align-items: center; gap: 10px;
+      border: 1px solid var(--cp-border); border-radius: 10px;
+      padding: 8px 10px; background: var(--cp-surface-soft);
+    }
+    .ba-action.applied { opacity: .7; border-color: var(--cp-success); }
+    .ba-action.dismissed { opacity: .45; }
+    .ba-action-kind {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+      color: var(--cp-accent);
+    }
+    .ba-action-preview { font-size: 13px; margin-top: 2px; word-break: break-word; }
+    .board-assistant-input {
+      flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end;
+      padding: 12px 16px; border-top: 1px solid var(--cp-border);
+    }
     .discovery-groups {
       display: grid;
       gap: 16px;
@@ -4329,6 +4381,7 @@
                       </div>
                       <div class="toolbar">
                         <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
+                        <button class="btn" type="button" @click="openBoardAssistant()" title="Ask the board assistant to help organize notes & checklists">💬 Ask board</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
                         <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
@@ -4482,6 +4535,67 @@
                 </template>
               </div>
             </template>
+
+            <!-- Board assistant slide-over ("Ask board"). Fixed overlay OUTSIDE the
+                 auto-fit grid so its height never disturbs board layout. -->
+            <div class="board-assistant-backdrop" x-show="boardAssistant.open" x-transition.opacity.duration.150ms @click.self="closeBoardAssistant()" x-cloak>
+              <aside class="board-assistant-drawer" :class="{ open: boardAssistant.open }" x-show="boardAssistant.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+                <div class="board-assistant-head">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    <span style="font-size:18px">💬</span>
+                    <div style="min-width:0">
+                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'Ask ' + (activeBoard() ? activeBoard().name : 'board')"></div>
+                      <div class="hint" style="font-size:11px">Proposes notes & checklists — you confirm</div>
+                    </div>
+                  </div>
+                  <button class="icon-button" type="button" @click="closeBoardAssistant()" title="Close">✕</button>
+                </div>
+                <div class="board-assistant-body" x-ref="baBody">
+                  <div x-show="!boardAssistant.messages.length" class="empty-state" style="padding:16px;font-size:13px">
+                    Ask me to help tidy this board. For example:
+                    <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+                      <button class="btn ghost" type="button" style="text-align:left" @click="boardAssistant.input='Turn the latest activity on this board into a checklist of next steps.'; sendBoardAssistant()">“Make a checklist of next steps from the latest activity”</button>
+                      <button class="btn ghost" type="button" style="text-align:left" @click="boardAssistant.input='Summarize the open items here as a short note.'; sendBoardAssistant()">“Jot a note summarizing the open items”</button>
+                    </div>
+                  </div>
+                  <template x-for="(m, mi) in boardAssistant.messages" :key="mi">
+                    <div class="ba-msg" :class="m.role">
+                      <div class="ba-bubble" x-show="m.role==='user'" x-text="m.content"></div>
+                      <div class="ba-bubble assistant" x-show="m.role==='assistant'">
+                        <div class="md-output" x-html="renderMarkdown(m.content)"></div>
+                        <template x-if="(m.actions||[]).length">
+                          <div class="ba-actions">
+                            <template x-for="a in m.actions" :key="a.id">
+                              <div class="ba-action" :class="{ applied: a._applied, dismissed: a._dismissed }">
+                                <div style="min-width:0;flex:1">
+                                  <div style="display:flex;align-items:center;gap:6px">
+                                    <span class="ba-action-kind" x-text="a.label"></span>
+                                    <span class="hint" x-show="a._applied" style="color:var(--cp-success)">✓ added</span>
+                                    <span class="hint" x-show="a._dismissed">dismissed</span>
+                                  </div>
+                                  <div class="ba-action-preview" x-text="a.preview"></div>
+                                </div>
+                                <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
+                                  <button class="btn primary" type="button" style="padding:3px 10px" @click="applyAssistantAction(a)">Apply</button>
+                                  <button class="icon-button" type="button" title="Dismiss" @click="a._dismissed=true">✕</button>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <div x-show="boardAssistant.busy" class="ba-msg assistant">
+                    <div class="ba-bubble assistant"><span class="hint">Thinking…</span></div>
+                  </div>
+                </div>
+                <div class="board-assistant-input">
+                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask the board assistant…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" style="flex:1;resize:none"></textarea>
+                  <button class="btn primary" type="button" @click="sendBoardAssistant()" :disabled="boardAssistant.busy || !boardAssistant.input.trim()">Send</button>
+                </div>
+              </aside>
+            </div>
 
             <!-- Board create/edit modal -->
             <div class="modal-backdrop modal-overlay" x-show="boardModalOpen" x-transition.opacity.duration.150ms @click.self="boardModalOpen=false" x-cloak style="z-index:9999">
@@ -8039,6 +8153,10 @@
         boardChecklistDraft: '',
         boardSummaryLoading: false,
         boardChecklistItemDraft: {},
+        // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
+        // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
+        // never trigger the panel oscillation. messages: {role, content, actions?}.
+        boardAssistant: { open: false, busy: false, input: '', messages: [] },
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
         boardDragId: '',
@@ -12028,6 +12146,76 @@
           const s = board.summary;
           const stale = !s || !s.generatedAt || (Date.now() - new Date(s.generatedAt).getTime()) > 15 * 60 * 1000;
           if (stale) this.refreshBoardSummary(false);
+        },
+        // ----- Board assistant ("Ask board") -----
+        openBoardAssistant() {
+          if (!this.activeBoard()) return;
+          this.boardAssistant.open = true;
+          this.$nextTick(() => { try { this.$refs.baBody && (this.$refs.baBody.scrollTop = this.$refs.baBody.scrollHeight); } catch {} });
+        },
+        closeBoardAssistant() { this.boardAssistant.open = false; },
+        _baScroll() {
+          this.$nextTick(() => { try { const el = this.$refs.baBody; if (el) el.scrollTop = el.scrollHeight; } catch {} });
+        },
+        async sendBoardAssistant() {
+          const board = this.activeBoard();
+          const text = (this.boardAssistant.input || '').trim();
+          if (!board || !text || this.boardAssistant.busy) return;
+          this.boardAssistant.messages.push({ role: 'user', content: text });
+          this.boardAssistant.input = '';
+          this.boardAssistant.busy = true;
+          this._baScroll();
+          // Only pass conversational turns (no per-action UI flags) as history.
+          const history = this.boardAssistant.messages
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .map(m => ({ role: m.role, content: m.content }));
+          try {
+            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/assistant', {
+              method: 'POST', body: JSON.stringify({ message: text, history })
+            });
+            const actions = (r.actions || []).map(a => ({ ...a, _applied: false, _dismissed: false }));
+            this.boardAssistant.messages.push({ role: 'assistant', content: r.reply || 'Done.', actions });
+          } catch (e) {
+            this.boardAssistant.messages.push({ role: 'assistant', content: 'Sorry — ' + (e.message || 'the assistant failed.'), actions: [] });
+          } finally {
+            this.boardAssistant.busy = false;
+            this._baScroll();
+          }
+        },
+        // Apply a single proposed action by constructing the same note/checklist
+        // shapes the manual mutators use, then persisting via _patchBoard.
+        async applyAssistantAction(a) {
+          const board = this.activeBoard();
+          if (!board || a._applied || a._dismissed) return;
+          const now = new Date().toISOString();
+          const rid = (p) => p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+          try {
+            if (a.type === 'add_note') {
+              const notes = [...(board.notes || []), { id: rid('note'), text: a.text, createdAt: now }];
+              await this._patchBoard(board, { notes });
+            } else if (a.type === 'edit_note') {
+              const notes = (board.notes || []).map(n => n.id === a.noteId ? { ...n, text: a.text, updatedAt: now } : n);
+              await this._patchBoard(board, { notes });
+            } else if (a.type === 'add_checklist') {
+              const items = (a.items || []).map(t => ({ id: rid('ci'), text: t, done: false, createdAt: now }));
+              const checklists = [...(board.checklists || []), { id: rid('cl'), title: a.title, items, createdAt: now, updatedAt: now }];
+              await this._patchBoard(board, { checklists });
+            } else if (a.type === 'add_checklist_items') {
+              const checklists = (board.checklists || []).map(c => c.id === a.checklistId
+                ? { ...c, items: [...(c.items || []), ...(a.items || []).map(t => ({ id: rid('ci'), text: t, done: false, createdAt: now }))], updatedAt: now }
+                : c);
+              await this._patchBoard(board, { checklists });
+            } else if (a.type === 'check_item') {
+              const checklists = (board.checklists || []).map(c => c.id === a.checklistId
+                ? { ...c, items: (c.items || []).map(i => i.id === a.itemId ? { ...i, done: true } : i), updatedAt: now }
+                : c);
+              await this._patchBoard(board, { checklists });
+            } else { return; }
+            a._applied = true;
+            this.showToast('Board assistant', a.label + ' applied', 'success');
+          } catch (e) {
+            this.showToast('Board assistant', e.message || 'Could not apply', 'error');
+          }
         },
         // ----- Entity-centric quick pin (from agent/manager/task/flow/chat/session) -----
         async openQuickPin(kind, refId, label, sublabel) {
