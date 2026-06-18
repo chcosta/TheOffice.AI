@@ -2474,33 +2474,33 @@
     <header class="topbar">
       <div class="brand">
         <button class="icon-button nav-toggle-btn" type="button" @click="toggleMainNav()" :aria-label="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" :title="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">☰</button>
-        <button class="brand-home" type="button" @click="goHome()" title="Back to all organizations">
+        <button class="brand-home" type="button" @click="goHome()" title="Back to all teams">
           <div class="brand-mark">⚡</div>
           <div>TheOffice.AI</div>
         </button>
       </div>
       <div class="org-switcher" @click.outside="orgMenuOpen = false">
-        <button class="org-switcher-btn" type="button" @click="orgMenuOpen = !orgMenuOpen" :title="currentOrg() ? currentOrg().name : 'All organizations'">
+        <button class="org-switcher-btn" type="button" @click="orgMenuOpen = !orgMenuOpen" :title="currentOrg() ? currentOrg().name : 'All teams'">
           <span class="org-emoji" x-text="currentOrg() ? currentOrg().emoji : '🏛️'"></span>
-          <span class="org-name" x-text="currentOrg() ? currentOrg().name : 'All organizations'"></span>
+          <span class="org-name" x-text="currentOrg() ? currentOrg().name : 'All teams'"></span>
           <span class="org-caret" x-text="orgMenuOpen ? '▴' : '▾'"></span>
         </button>
         <div class="org-menu" x-show="orgMenuOpen" x-transition.opacity.duration.120ms x-cloak>
-          <button class="org-menu-item" :class="{ active: currentOrgId === 'all' }" type="button" @click="setCurrentOrg('all')">
+          <button class="org-menu-item" :class="{ active: currentTeamId === 'all' }" type="button" @click="setCurrentOrg('all')">
             <span class="org-emoji">🏛️</span>
-            <span class="org-menu-label">All organizations</span>
+            <span class="org-menu-label">All teams</span>
             <span class="org-menu-count" x-text="data.agents.length + data.managers.length"></span>
           </button>
-          <template x-for="org in data.organizations" :key="org.id">
-            <button class="org-menu-item" :class="{ active: currentOrgId === org.id }" type="button" @click="setCurrentOrg(org.id)">
+          <template x-for="org in data.teams" :key="org.id">
+            <button class="org-menu-item" :class="{ active: currentTeamId === org.id }" type="button" @click="setCurrentOrg(org.id)">
               <span class="org-emoji" x-text="org.emoji || '🏢'"></span>
               <span class="org-menu-label" x-text="org.name"></span>
               <span class="org-menu-count" x-text="(org.memberIds || []).length"></span>
             </button>
           </template>
-          <div class="org-menu-sep" x-show="!data.organizations.length"></div>
-          <div class="org-menu-empty" x-show="!data.organizations.length">No organizations yet</div>
-          <a class="org-menu-manage" href="#/organizations" @click="orgMenuOpen = false">⚙ Manage organizations</a>
+          <div class="org-menu-sep" x-show="!data.teams.length"></div>
+          <div class="org-menu-empty" x-show="!data.teams.length">No teams yet</div>
+          <a class="org-menu-manage" href="#/teams" @click="orgMenuOpen = false">⚙ Manage teams</a>
         </div>
       </div>
       <button class="search-trigger" type="button" @click="openCommandPalette()">
@@ -2632,9 +2632,9 @@
           <section x-show="!loading && !errorMessage && route === 'home'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1 x-text="currentOrgId === 'all' ? 'Company' : (currentOrg() ? (currentOrg().emoji || '🏢') + ' ' + currentOrg().name : 'Overview')"></h1>
-                <p x-show="currentOrgId === 'all'">Organization health across the company. Cards needing the most attention come first — click to step into an organization.</p>
-                <p x-show="currentOrgId !== 'all'">Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
+                <h1 x-text="currentTeamId === 'all' ? 'Office' : (currentOrg() ? (currentOrg().emoji || '🏢') + ' ' + currentOrg().name : 'Overview')"></h1>
+                <p x-show="currentTeamId === 'all'">Team health across the office. Cards needing the most attention come first — click to step into a team.</p>
+                <p x-show="currentTeamId !== 'all'">Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="runningEntities().length + ' running' "></span>
@@ -2642,13 +2642,13 @@
             </div>
 
             <!-- Company / org-health overview (shown only in the company-wide "All" view) -->
-            <div x-show="currentOrgId === 'all' && companyOrgHealth().length" style="margin-bottom:22px">
+            <div x-show="currentTeamId === 'all' && companyOrgHealth().length" style="margin-bottom:22px">
               <div class="company-band">
-                <button type="button" class="cb-item" @click="goTo('#/organizations')" title="Manage organizations"><strong x-text="companyStats().orgCount"></strong><span>organizations</span></button>
+                <button type="button" class="cb-item" @click="goTo('#/teams')" title="Manage teams"><strong x-text="companyStats().orgCount"></strong><span>teams</span></button>
                 <button type="button" class="cb-item" @click="goTo('#/resources')" title="View all employees"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></button>
                 <button type="button" class="cb-item" @click="goTo('#/tasks')" title="View all operations & schedules"><strong x-text="companyStats().operations"></strong><span>operations</span></button>
                 <button type="button" class="cb-item" :class="companyStats().failures24h ? 'bad' : ''" @click="goTo('#/activity')" title="Investigate recent failures"><strong x-text="companyStats().failures24h"></strong><span>failures 24h</span></button>
-                <button type="button" class="cb-item" :class="companyStats().attention ? 'warn' : ''" @click="enterWorstOrg()" :title="companyStats().attention ? 'Step into the organization needing the most attention' : 'All organizations look healthy'"><strong x-text="companyStats().attention"></strong><span>need attention</span></button>
+                <button type="button" class="cb-item" :class="companyStats().attention ? 'warn' : ''" @click="enterWorstOrg()" :title="companyStats().attention ? 'Step into the team needing the most attention' : 'All teams look healthy'"><strong x-text="companyStats().attention"></strong><span>need attention</span></button>
               </div>
               <div class="orgh-grid">
                 <template x-for="h in companyOrgHealth()" :key="h.org.id">
@@ -2917,7 +2917,7 @@
               </table>
             </div>
 
-            <div class="empty-state" x-show="!displayedAgents().length" x-text="agentStatusCounts().all ? 'No agents matched your filter.' : (currentOrgId === 'all' ? 'No agents registered yet.' : 'No agents in this organization yet.')"></div>
+            <div class="empty-state" x-show="!displayedAgents().length" x-text="agentStatusCounts().all ? 'No agents matched your filter.' : (currentTeamId === 'all' ? 'No agents registered yet.' : 'No agents on this team yet.')"></div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'agent-detail' && selectedAgent">
@@ -3346,7 +3346,7 @@
                   <div class="panel-header">
                     <div>
                       <h2 class="panel-title">Managers</h2>
-                      <div class="hint">Managers that include this agent in their organization.</div>
+                      <div class="hint">Managers that include this agent on their team.</div>
                     </div>
                   </div>
                   <div class="assignment-list">
@@ -3375,7 +3375,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Managers</h1>
-                <p>Supervise orchestration managers, their organizations, and active assignments.</p>
+                <p>Supervise orchestration managers, their teams, and active assignments.</p>
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="managerStatusCounts().all + ' total'"></span>
@@ -3457,7 +3457,7 @@
               </table>
             </div>
 
-            <div class="empty-state" x-show="!displayedManagers().length" x-text="managerStatusCounts().all ? 'No managers matched your filter.' : (currentOrgId === 'all' ? 'No managers created yet.' : 'No managers in this organization yet.')"></div>
+            <div class="empty-state" x-show="!displayedManagers().length" x-text="managerStatusCounts().all ? 'No managers matched your filter.' : (currentTeamId === 'all' ? 'No managers created yet.' : 'No managers on this team yet.')"></div>
           </section>
 
           <template x-if="!loading && !errorMessage && route === 'manager-detail' && selectedManager">
@@ -3469,7 +3469,7 @@
                 <h1 x-text="selectedManager.name"></h1>
                 <div class="ag-badges">
                   <span class="tiny-badge">Manager</span>
-                  <span class="tiny-badge" x-text="(selectedManager.config?.org || []).length + ' agents'"></span>
+                  <span class="tiny-badge" x-text="(selectedManager.config?.team || []).length + ' agents'"></span>
                   <span class="status-badge" :class="managerActiveCount(selectedManager) > 0 ? 'success' : 'idle'" x-text="managerActiveCount(selectedManager) + ' active'"></span>
                 </div>
               </div>
@@ -3499,7 +3499,7 @@
                       <div class="detail-row"><span class="detail-label">Manager Name</span><span class="detail-value" x-text="selectedManager.name"></span></div>
                       <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value mono" x-text="selectedManager.id"></span></div>
                       <div class="detail-row"><span class="detail-label">Backing Agent</span><span class="detail-value mono" x-text="selectedManager.config?.agent || '—'"></span></div>
-                      <div class="detail-row"><span class="detail-label">Organization Size</span><span class="detail-value" x-text="(selectedManager.config?.org || []).length + ' agents'"></span></div>
+                      <div class="detail-row"><span class="detail-label">Team Size</span><span class="detail-value" x-text="(selectedManager.config?.team || []).length + ' agents'"></span></div>
                       <div class="detail-row"><span class="detail-label">Assignments</span><span class="detail-value" x-text="(selectedManager.config?.assignments || []).length + ' total'"></span></div>
                       <div class="detail-row"><span class="detail-label">Active Assignments</span><span class="detail-value" x-text="managerActiveCount(selectedManager) + ' enabled'"></span></div>
                     </div>
@@ -3516,14 +3516,14 @@
                 <div class="ag-tabs">
                   <button class="ag-tab" type="button" :class="managerTab === 'runs' ? 'active' : ''" @click="managerTab = 'runs'">📊 Runs <span class="ag-count" x-text="managerHistory.length"></span></button>
                   <button class="ag-tab" type="button" :class="managerTab === 'assignments' ? 'active' : ''" @click="managerTab = 'assignments'">🗂 Assignments <span class="ag-count" x-text="(selectedManager.config.assignments || []).length"></span></button>
-                  <button class="ag-tab" type="button" :class="managerTab === 'org' ? 'active' : ''" @click="managerTab = 'org'">🏢 Organization <span class="ag-count" x-text="(selectedManager.config?.org || []).length"></span></button>
+                  <button class="ag-tab" type="button" :class="managerTab === 'org' ? 'active' : ''" @click="managerTab = 'org'">🏢 Team <span class="ag-count" x-text="(selectedManager.config?.team || []).length"></span></button>
                 </div>
 
                 <div class="panel-stack" x-show="managerTab === 'org'">
                 <section class="detail-panel">
                   <div class="panel-header">
                     <div>
-                      <h2 class="panel-title">Organization</h2>
+                      <h2 class="panel-title">Team</h2>
                       <div class="hint">Agents available to this manager.</div>
                     </div>
                     <button class="btn" type="button" @click="openOrgPicker()">＋ Add</button>
@@ -3541,7 +3541,7 @@
                       </div>
                     </template>
                   </div>
-                  <div class="empty-state" x-show="!(selectedManager.orgDetails || []).length">No agents assigned to this organization.</div>
+                  <div class="empty-state" x-show="!(selectedManager.orgDetails || []).length">No agents assigned to this team.</div>
                 </section>
                 </div>
 
@@ -3856,15 +3856,15 @@
           </section>
 
           <!-- ===== Organizations page ===== -->
-          <section x-show="!loading && !errorMessage && route === 'organizations'" x-transition.opacity.duration.180ms>
+          <section x-show="!loading && !errorMessage && route === 'teams'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
-                <h1>Organizations</h1>
-                <p>Group employees into organizations. Drag an employee onto an organization to assign them — the same employee (for example an email-sender agent) can belong to <strong>multiple organizations</strong>. Remove them with the ✕ on a chip, or by dragging back to <strong>All employees</strong>. Operations stay within a single organization.</p>
+                <h1>Teams</h1>
+                <p>Group employees into teams. Drag an employee onto a team to assign them — the same employee (for example an email-sender agent) can belong to <strong>multiple teams</strong>. Remove them with the ✕ on a chip, or by dragging back to <strong>All employees</strong>. Operations stay within a single team.</p>
               </div>
               <div class="toolbar">
                 <button class="btn" type="button" @click="loadOrganizations()" title="Refresh">↻ Refresh</button>
-                <button class="btn primary" type="button" @click="openOrgModal()">＋ New Organization</button>
+                <button class="btn primary" type="button" @click="openOrgModal()">＋ New Team</button>
               </div>
             </div>
 
@@ -3885,12 +3885,12 @@
                   <span class="org-pane-title">All employees</span>
                   <span class="org-col-count" x-text="allEmployees().length"></span>
                 </div>
-                <div class="org-pane-sub">Drag anyone into one or more organizations. Drop here to remove from an org.</div>
+                <div class="org-pane-sub">Drag anyone into one or more teams. Drop here to remove from a team.</div>
                 <div class="org-pane-body">
                   <template x-for="emp in allEmployees()" :key="'all-'+emp.id">
                     <div class="emp-chip" :class="{ 'emp-chip--multi': orgsOfEmployee(emp.id).length > 1, 'emp-chip--idle': orgsOfEmployee(emp.id).length === 0 }"
                          draggable="true" @dragstart="onEmpDragStart($event, emp.id, null)"
-                         :title="orgsOfEmployee(emp.id).length ? 'In: ' + orgsOfEmployee(emp.id).map(o => o.name).join(', ') : 'Not in any organization'">
+                         :title="orgsOfEmployee(emp.id).length ? 'In: ' + orgsOfEmployee(emp.id).map(o => o.name).join(', ') : 'Not in any team'">
                       <span class="emp-chip-icon" x-text="emp.icon"></span>
                       <span class="emp-chip-name" x-text="emp.name"></span>
                       <span class="emp-chip-orgs" x-show="orgsOfEmployee(emp.id).length">
@@ -3909,13 +3909,13 @@
               <div class="org-pane org-pane--orgs">
                 <div class="org-pane-head">
                   <span class="org-col-emoji">🏢</span>
-                  <span class="org-pane-title">Organizations</span>
-                  <span class="org-col-count" x-text="data.organizations.length"></span>
+                  <span class="org-pane-title">Teams</span>
+                  <span class="org-col-count" x-text="data.teams.length"></span>
                   <button class="btn primary sm" type="button" @click="openOrgModal()" style="margin-left:auto">＋ New</button>
                 </div>
                 <div class="org-pane-body">
                   <div class="org-grid">
-                    <template x-for="org in data.organizations" :key="org.id">
+                    <template x-for="org in data.teams" :key="org.id">
                       <div class="org-col"
                            :class="{ 'drag-over': orgDragOverId === org.id }"
                            :style="'border-top:3px solid ' + (org.color || 'var(--cp-accent)')"
@@ -3940,7 +3940,7 @@
                               <span class="emp-chip-icon" x-text="emp.icon"></span>
                               <span class="emp-chip-name" x-text="emp.name"></span>
                               <span class="emp-chip-type" x-text="emp.type"></span>
-                              <button class="emp-chip-x" type="button" title="Remove from organization" @click="removeEmployeeFromOrg(emp.id, org.id)">✕</button>
+                              <button class="emp-chip-x" type="button" title="Remove from team" @click="removeEmployeeFromOrg(emp.id, org.id)">✕</button>
                             </div>
                           </template>
                           <div class="org-col-empty" x-show="!employeesInOrg(org.id).length">Drag employees here</div>
@@ -3948,9 +3948,9 @@
                       </div>
                     </template>
 
-                    <div class="org-board-empty" x-show="!data.organizations.length">
-                      <p>No organizations yet.</p>
-                      <button class="btn primary" type="button" @click="openOrgModal()">＋ Create your first organization</button>
+                    <div class="org-board-empty" x-show="!data.teams.length">
+                      <p>No teams yet.</p>
+                      <button class="btn primary" type="button" @click="openOrgModal()">＋ Create your first team</button>
                     </div>
                   </div>
                 </div>
@@ -3966,11 +3966,11 @@
                   <span class="org-pane-title">Unassigned operations</span>
                   <span class="org-col-count" x-text="unassignedOperations().length"></span>
                 </div>
-                <div class="org-pane-sub">Tasks, assignments and flows with no organization. Drag one onto an organization its employee belongs to.</div>
+                <div class="org-pane-sub">Tasks, assignments and flows with no team. Drag one onto a team its employee belongs to.</div>
                 <div class="org-pane-body">
                   <template x-for="op in unassignedOperations()" :key="'uop-'+op.key">
                     <div class="emp-chip" draggable="true" @dragstart="onOpDragStart($event, op)"
-                         :title="validOrgsForOp(op).length ? 'Can join: ' + validOrgsForOp(op).map(o => o.name).join(', ') : (op.kind==='flow' ? 'No org contains all of this flow\'s agents' : 'Owner is not in any organization')">
+                         :title="validOrgsForOp(op).length ? 'Can join: ' + validOrgsForOp(op).map(o => o.name).join(', ') : (op.kind==='flow' ? 'No team contains all of this flow\'s agents' : 'Owner is not in any team')">
                       <span class="emp-chip-icon" x-text="op.icon"></span>
                       <span class="emp-chip-name" x-text="op.name"></span>
                       <span class="emp-chip-type" x-text="op.typeLabel"></span>
@@ -3984,13 +3984,13 @@
               <div class="org-pane org-pane--orgs">
                 <div class="org-pane-head">
                   <span class="org-col-emoji">🏢</span>
-                  <span class="org-pane-title">Organizations</span>
-                  <span class="org-col-count" x-text="data.organizations.length"></span>
+                  <span class="org-pane-title">Teams</span>
+                  <span class="org-col-count" x-text="data.teams.length"></span>
                   <button class="btn primary sm" type="button" @click="openOrgModal()" style="margin-left:auto">＋ New</button>
                 </div>
                 <div class="org-pane-body">
                   <div class="org-grid">
-                    <template x-for="org in data.organizations" :key="'opsorg-'+org.id">
+                    <template x-for="org in data.teams" :key="'opsorg-'+org.id">
                       <div class="org-col"
                            :class="{ 'drag-over': orgDragOverId === org.id, 'org-col--invalid': orgDragOp && !validOrgsForOp(orgDragOp).some(o => o.id === org.id) }"
                            :style="'border-top:3px solid ' + (org.color || 'var(--cp-accent)')"
@@ -4013,7 +4013,7 @@
                               <span class="emp-chip-icon" x-text="op.icon"></span>
                               <span class="emp-chip-name" x-text="op.name"></span>
                               <span class="emp-chip-type" x-text="op.typeLabel"></span>
-                              <button class="emp-chip-x" type="button" title="Remove from organization" @click="unassignOperation(op)">✕</button>
+                              <button class="emp-chip-x" type="button" title="Remove from team" @click="unassignOperation(op)">✕</button>
                             </div>
                           </template>
                           <div class="org-col-empty" x-show="!operationsInOrg(org.id).length">Drag operations here</div>
@@ -4021,9 +4021,9 @@
                       </div>
                     </template>
 
-                    <div class="org-board-empty" x-show="!data.organizations.length">
-                      <p>No organizations yet.</p>
-                      <button class="btn primary" type="button" @click="openOrgModal()">＋ Create your first organization</button>
+                    <div class="org-board-empty" x-show="!data.teams.length">
+                      <p>No teams yet.</p>
+                      <button class="btn primary" type="button" @click="openOrgModal()">＋ Create your first team</button>
                     </div>
                   </div>
                 </div>
@@ -4035,7 +4035,7 @@
           <div class="modal-backdrop modal-overlay" x-show="orgModalOpen" x-transition.opacity.duration.150ms @click.self="orgModalOpen=false" x-cloak style="z-index:9999">
             <div class="modal-card" style="max-width:460px">
               <div class="modal-header">
-                <h2 class="modal-title" x-text="orgForm.id ? 'Edit organization' : 'New organization'"></h2>
+                <h2 class="modal-title" x-text="orgForm.id ? 'Edit team' : 'New team'"></h2>
                 <button class="icon-button" type="button" @click="orgModalOpen=false">✕</button>
               </div>
               <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
@@ -4055,11 +4055,11 @@
                 </div>
                 <label>
                   <div class="field-label">Description</div>
-                  <textarea class="field-input" rows="3" x-model="orgForm.description" placeholder="What does this organization do?"></textarea>
+                  <textarea class="field-input" rows="3" x-model="orgForm.description" placeholder="What does this team do?"></textarea>
                 </label>
                 <div>
                   <div class="field-label">Theme</div>
-                  <div class="hint" style="margin:-2px 0 8px">Selecting this organization reskins the whole app with this palette.</div>
+                  <div class="hint" style="margin:-2px 0 8px">Selecting this team reskins the whole app with this palette.</div>
                   <div class="theme-swatches">
                     <template x-for="t in orgThemes" :key="t.id">
                       <button type="button" class="theme-swatch" :class="{ active: (orgForm.theme || 'default') === t.id }" @click="orgForm.theme = t.id">
@@ -4141,7 +4141,7 @@
                       <span class="status-badge" :class="managerStatusOf(m) === 'active' ? 'running' : 'idle'" x-text="managerStatusOf(m) === 'active' ? 'Active' : 'Idle'"></span>
                       <span style="flex:1;min-width:0">
                         <span class="exec-row-name" x-text="m.name"></span>
-                        <span class="hint" style="display:block;font-size:0.72rem" x-text="((m.config && m.config.org || []).length) + ' agents · ' + ((m.config && m.config.assignments || []).length) + ' assignments'"></span>
+                        <span class="hint" style="display:block;font-size:0.72rem" x-text="((m.config && m.config.team || []).length) + ' agents · ' + ((m.config && m.config.assignments || []).length) + ' assignments'"></span>
                       </span>
                       <span class="hint mono" style="font-size:0.72rem;white-space:nowrap" x-text="managerLastRunTs(m) ? formatRelative(new Date(managerLastRunTs(m)).toISOString()) : 'Never run'"></span>
                     </a>
@@ -4435,14 +4435,14 @@
                     </label>
                   </div>
                   <label>
-                    <div class="field-label">Organization</div>
-                    <select class="field-input" x-model="boardForm.orgId">
-                      <option value="">🌐 Global (all organizations)</option>
-                      <template x-for="org in (data.organizations||[])" :key="org.id">
+                    <div class="field-label">Team</div>
+                    <select class="field-input" x-model="boardForm.teamId">
+                      <option value="">🌐 Global (all teams)</option>
+                      <template x-for="org in (data.teams||[])" :key="org.id">
                         <option :value="org.id" x-text="(org.emoji ? org.emoji + ' ' : '') + org.name"></option>
                       </template>
                     </select>
-                    <div class="hint" style="margin-top:4px">Global boards are visible under every organization.</div>
+                    <div class="hint" style="margin-top:4px">Global boards are visible under every team.</div>
                   </label>
                   <div style="display:flex;justify-content:flex-end;gap:8px">
                     <button class="btn" type="button" @click="boardModalOpen=false">Cancel</button>
@@ -4467,7 +4467,7 @@
                   </div>
                   <input class="field-input" type="text" x-model="boardPinSearch" placeholder="Search…" />
                   <div style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
-                    <div x-show="!pinCandidates().length" class="hint" style="padding:12px">No matching items in this organization.</div>
+                    <div x-show="!pinCandidates().length" class="hint" style="padding:12px">No matching items in this team.</div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
                       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px">
                         <div style="min-width:0">
@@ -5347,7 +5347,7 @@
                   <h3 style="margin:0">👥 Connected Users</h3>
                   <button class="btn" type="button" @click="showAddUserModal = true">+ Add User</button>
                 </div>
-                <p class="hint" style="margin-bottom:14px">External callers must be listed here. Share organizations, agents, managers, tasks, assignments &amp; flows on a per-user basis — admins get everything. Granting an org cascades to everything in it; you can add or exclude individual resources on top. Address agents/managers via <code>@name</code>, run tasks/assignments/flows via <code>/run name</code>.</p>
+                <p class="hint" style="margin-bottom:14px">External callers must be listed here. Share teams, agents, managers, tasks, assignments &amp; flows on a per-user basis — admins get everything. Granting a team cascades to everything in it; you can add or exclude individual resources on top. Address agents/managers via <code>@name</code>, run tasks/assignments/flows via <code>/run name</code>.</p>
 
                 <div x-show="eventsConfig.users.length === 0" class="empty-state">No users configured. All inbound messages are rejected until at least one user is added.</div>
 
@@ -6515,7 +6515,7 @@
       <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
         <div class="hint" x-text="boardKindIcon(quickPin.kind) + ' ' + boardKindLabel(quickPin.kind) + ' · ' + quickPin.label"></div>
         <div x-show="boardsLoading" class="hint">Loading boards…</div>
-        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No boards in this organization yet.</div>
+        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No boards on this team yet.</div>
         <div style="display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto">
           <template x-for="b in visibleBoards()" :key="b.id">
             <button type="button" class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;text-align:left" @click="quickPinTo(b)">
@@ -6910,13 +6910,13 @@
         <button class="icon-button" type="button" @click="showUserGrantsModal = false">✕</button>
       </div>
       <div style="padding:18px" x-show="grantUser">
-        <p class="hint" style="margin-bottom:14px">Grant whole organizations (cascades to every employee &amp; operation inside) and/or individual resources. Use <strong>Exclude</strong> to carve a single resource out of an org grant.</p>
+        <p class="hint" style="margin-bottom:14px">Grant whole teams (cascades to every employee &amp; operation inside) and/or individual resources. Use <strong>Exclude</strong> to carve a single resource out of a team grant.</p>
 
         <!-- Organizations -->
-        <div class="field-label" style="margin-bottom:8px">Organizations <span class="hint">(grant cascades to everything inside)</span></div>
-        <div x-show="(data.organizations || []).length === 0" class="hint" style="margin-bottom:14px">No organizations yet.</div>
+        <div class="field-label" style="margin-bottom:8px">Teams <span class="hint">(grant cascades to everything inside)</span></div>
+        <div x-show="(data.teams || []).length === 0" class="hint" style="margin-bottom:14px">No teams yet.</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">
-          <template x-for="org in (data.organizations || [])" :key="'grant-org-' + org.id">
+          <template x-for="org in (data.teams || [])" :key="'grant-org-' + org.id">
             <label class="pill" :class="{ active: grantUser && (grantUser.grantedOrgs || []).includes(org.id) }" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
               <input type="checkbox" style="margin:0" :checked="grantUser && (grantUser.grantedOrgs || []).includes(org.id)" @change="toggleGrantOrg(grantUser, org.id)" />
               <span x-text="(org.emoji || '🏢') + ' ' + org.name"></span>
@@ -6967,7 +6967,7 @@
           <option value="operator">Operator (only shared resources)</option>
           <option value="viewer">Viewer (read-only, /help only)</option>
         </select>
-        <p class="hint" style="margin:0 0 14px" x-show="newEventUser.role !== 'admin'">New users start with no access — use “🔑 Manage access” to share organizations or resources after adding.</p>
+        <p class="hint" style="margin:0 0 14px" x-show="newEventUser.role !== 'admin'">New users start with no access — use “🔑 Manage access” to share teams or resources after adding.</p>
         <div class="field-label">Rate Limit (messages/min, 0 = unlimited)</div>
         <input class="field-input" type="number" x-model.number="newEventUser.rateLimit" style="margin-bottom:14px" />
       </div>
@@ -7143,14 +7143,14 @@
             <input class="field-input" type="text" x-model="newTaskForm.name" :placeholder="newTaskForm.kind === 'assignment' ? 'e.g. Monitor Azure Status' : 'e.g. Daily standup report'" />
           </div>
           <div>
-            <div class="field-label"><span>Organization</span><span class="hint">This operation belongs to one organization</span></div>
-            <select class="field-input" x-model="newTaskForm.orgId" :disabled="!(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId)">
+            <div class="field-label"><span>Team</span><span class="hint">This operation belongs to one team</span></div>
+            <select class="field-input" x-model="newTaskForm.teamId" :disabled="!(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId)">
               <option value="">Unassigned</option>
               <template x-for="o in modalOrgOptions()" :key="'tmo-' + o.id">
                 <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
               </template>
             </select>
-            <div class="hint" x-show="(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId) && !modalOrgOptions().length" style="margin-top:6px">This employee isn't in any organization yet. Assign it on the Organizations page first.</div>
+            <div class="hint" x-show="(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId) && !modalOrgOptions().length" style="margin-top:6px">This employee isn't in any team yet. Assign it on the Teams page first.</div>
           </div>
           <div>
             <div class="field-label"><span>Prompt</span><span class="hint" x-text="newTaskForm.kind === 'assignment' ? 'What the manager should do' : 'What the agent should do'"></span></div>
@@ -7227,14 +7227,14 @@
                 <input class="field-input" type="text" x-model="chainDraft.description" />
               </div>
               <div>
-                <div class="field-label"><span>Organization</span><span class="hint">Orgs containing every agent this flow uses</span></div>
-                <select class="field-input" x-model="chainDraft.orgId">
+                <div class="field-label"><span>Team</span><span class="hint">Teams containing every agent this flow uses</span></div>
+                <select class="field-input" x-model="chainDraft.teamId">
                   <option value="">Unassigned</option>
                   <template x-for="o in chainOrgOptions(chainDraft)" :key="'cmo-' + o.id">
                     <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
                   </template>
                 </select>
-                <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No organization contains all of this flow's agents yet.</div>
+                <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No team contains all of this flow's agents yet.</div>
               </div>
               <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
 
@@ -7393,7 +7393,7 @@
     <section class="modal-card" style="max-width:680px">
       <div class="modal-header">
         <div>
-          <strong>Add agent to organization</strong>
+          <strong>Add agent to team</strong>
           <div class="hint" style="margin-top:6px">Available agents not already assigned to this manager.</div>
         </div>
         <button class="icon-button" type="button" @click="orgPickerOpen = false">✕</button>
@@ -7826,6 +7826,7 @@
         schedules: [],
         chats: [],
         organizations: [],
+        teams: [],
         version: null
       });
     });
@@ -7842,7 +7843,7 @@
         agentSearch: '',
         managerSearch: '',
         agentStatusFilter: 'all',
-        currentOrgId: (() => { try { return localStorage.getItem('current-org-id') || 'all'; } catch { return 'all'; } })(),
+        currentTeamId: (() => { try { return localStorage.getItem('current-org-id') || 'all'; } catch { return 'all'; } })(),
         orgMenuOpen: false,
         orgModalOpen: false,
         orgForm: { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' },
@@ -7961,7 +7962,7 @@
         boardsLoading: false,
         activeBoardId: (() => { try { return localStorage.getItem('active-board-id') || ''; } catch { return ''; } })(),
         boardModalOpen: false,
-        boardForm: { id: '', name: '', emoji: '📌', orgId: '' },
+        boardForm: { id: '', name: '', emoji: '📌', teamId: '' },
         boardPinOpen: false,
         boardPinKind: 'task',
         boardPinSearch: '',
@@ -8602,7 +8603,8 @@
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'organizations', 'boards'].includes(first)) return { route: first, param: second };
+          if (first === 'organizations') return { route: 'teams', param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -8649,7 +8651,7 @@
               this.mkt.design.mode = 'create';
               this.mktDesignInit();
             }
-          } else if (this.route === 'organizations') {
+          } else if (this.route === 'teams') {
             await this.loadOrganizations();
           } else if (this.route === 'boards') {
             await this.loadBoards(this.app.routeParam);
@@ -8679,7 +8681,7 @@
               this.request('/api/chats'),
               this.request('/api/tasks'),
               this.request('/api/chains'),
-              this.request('/api/organizations').catch(() => [])
+              this.request('/api/teams').catch(() => [])
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
             this.data.managers = managers.map((manager) => this.normalizeManager(manager));
@@ -8687,7 +8689,7 @@
             this.data.chats = chats;
             this.data.tasks = tasks || [];
             this.data.chains = Array.isArray(chains) ? chains : [];
-            this.data.organizations = Array.isArray(organizations) ? organizations : [];
+            this.data.teams = Array.isArray(organizations) ? organizations : [];
             this._reconcileCurrentOrg();
             await this.loadActivity();
             await this.handleRouteChange();
@@ -8730,8 +8732,8 @@
             scheduleDescription: assignment.scheduleDescription || this.humanizeSchedule(assignment.schedule)
           }));
           // Resolve org agent IDs to details from the agents list
-          const orgIds = manager.config?.org || [];
-          const orgDetails = orgIds.map(agentId => {
+          const teamIds = manager.config?.team || [];
+          const orgDetails = teamIds.map(agentId => {
             const agentData = this.data.agents.find(a => a.id === agentId);
             return agentData ? { id: agentData.id, name: agentData.name, group: agentData.group || '' } : { id: agentId, name: agentId, group: '' };
           });
@@ -9181,7 +9183,7 @@
 
         sidebarSections() {
           const org = this.currentOrg();
-          const scopeLabel = org ? `Organization · ${org.name}` : 'All organizations';
+          const scopeLabel = org ? `Team · ${org.name}` : 'All teams';
           return [
             { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
             { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
@@ -9196,8 +9198,8 @@
               { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
               { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
             ]},
-            { key: '_zone_company', caption: true, label: 'Company-wide', icon: '🏛️' },
-            { key: 'organizations', label: 'Organizations', title: 'Organizations', icon: '🏢', href: '#/organizations', routeGroup: 'organizations', items: [], collapsible: false },
+            { key: '_zone_company', caption: true, label: 'Office-wide', icon: '🏛️' },
+            { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false },
             { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false },
             { key: 'warehouse', label: 'Warehouse', collapsible: true, isGroup: true, href: '#/marketplace', routeGroup: 'marketplace', children: [
               { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [] }
@@ -9226,19 +9228,19 @@
 
         // ===== Organizations (Phase 1) =====
         _reconcileCurrentOrg() {
-          if (this.currentOrgId && this.currentOrgId !== 'all') {
-            const exists = (this.data.organizations || []).some(o => o.id === this.currentOrgId);
+          if (this.currentTeamId && this.currentTeamId !== 'all') {
+            const exists = (this.data.teams || []).some(o => o.id === this.currentTeamId);
             if (!exists) this.setCurrentOrg('all');
           }
         },
         currentOrg() {
-          if (!this.currentOrgId || this.currentOrgId === 'all') return null;
-          return (this.data.organizations || []).find(o => o.id === this.currentOrgId) || null;
+          if (!this.currentTeamId || this.currentTeamId === 'all') return null;
+          return (this.data.teams || []).find(o => o.id === this.currentTeamId) || null;
         },
         setCurrentOrg(id) {
-          this.currentOrgId = id || 'all';
+          this.currentTeamId = id || 'all';
           this.orgMenuOpen = false;
-          try { localStorage.setItem('current-org-id', this.currentOrgId); } catch {}
+          try { localStorage.setItem('current-org-id', this.currentTeamId); } catch {}
           this.applyOrgTheme();
         },
         // Brand click: reset to the company-wide view (all orgs) and go Home.
@@ -9262,7 +9264,7 @@
         },
         // Core gate: is an employee id visible under the current org selection?
         idInCurrentOrg(id) {
-          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          if (!this.currentTeamId || this.currentTeamId === 'all') return true;
           const org = this.currentOrg();
           return !!(org && Array.isArray(org.memberIds) && org.memberIds.includes(id));
         },
@@ -9276,44 +9278,44 @@
           return [...ids];
         },
         flowInCurrentOrg(chain) {
-          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          if (!this.currentTeamId || this.currentTeamId === 'all') return true;
           const refs = this.flowReferencedAgentIds(chain);
           if (!refs.length) return false;
           return refs.every(id => this.idInCurrentOrg(id));
         },
         // Org gate for operations (tasks/assignments/flows). Operations are
-        // employee+org specific: each carries its own orgId. Under "All" everything
+        // employee+org specific: each carries its own teamId. Under "All" everything
         // shows; under a specific org only operations stamped with that org show.
-        // Legacy operations without an orgId are only visible under "All".
-        opInCurrentOrg(orgId) {
-          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
-          return orgId === this.currentOrgId;
+        // Legacy operations without an teamId are only visible under "All".
+        opInCurrentOrg(teamId) {
+          if (!this.currentTeamId || this.currentTeamId === 'all') return true;
+          return teamId === this.currentTeamId;
         },
-        // Org gate for a /api/schedules row: map it back to its operation's orgId
-        // (tasks/assignments/flows each carry an orgId) and reuse opInCurrentOrg.
+        // Org gate for a /api/schedules row: map it back to its operation's teamId
+        // (tasks/assignments/flows each carry an teamId) and reuse opInCurrentOrg.
         scheduleInCurrentOrg(row) {
-          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          if (!this.currentTeamId || this.currentTeamId === 'all') return true;
           if (!row) return false;
-          let orgId = null;
+          let teamId = null;
           if (row.type === 'task') {
             const t = (this.data.tasks || []).find(t => t.id === row.id);
-            orgId = t ? (t.orgId || null) : null;
+            teamId = t ? (t.teamId || null) : null;
           } else if (row.type === 'assignment') {
             const m = (this.data.managers || []).find(m => m.id === row.managerId);
             const a = m && (m.config.assignments || []).find(a => a.id === row.assignmentId);
-            orgId = a ? (a.orgId || null) : null;
+            teamId = a ? (a.teamId || null) : null;
           } else if (row.type === 'flow') {
             const c = (this.data.chains || []).find(c => c.id === row.id);
-            orgId = c ? (c.orgId || null) : null;
+            teamId = c ? (c.teamId || null) : null;
           } else if (row.type === 'agent') {
             return this.idInCurrentOrg(row.id);
           }
-          return this.opInCurrentOrg(orgId);
+          return this.opInCurrentOrg(teamId);
         },
         // Org gate for an activity-feed entry (an agent/manager run), scoped by
         // whether the running employee belongs to the current org.
         activityInCurrentOrg(entry) {
-          if (!this.currentOrgId || this.currentOrgId === 'all') return true;
+          if (!this.currentTeamId || this.currentTeamId === 'all') return true;
           return this.idInCurrentOrg(entry && entry.entityId);
         },
         // Valid org choices for the operation modal, constrained to orgs the
@@ -9328,14 +9330,14 @@
         // longer valid for that employee.
         onModalEmployeeChange() {
           const valid = new Set(this.modalOrgOptions().map(o => o.id));
-          if (this.newTaskForm.orgId && !valid.has(this.newTaskForm.orgId)) {
-            this.newTaskForm.orgId = '';
+          if (this.newTaskForm.teamId && !valid.has(this.newTaskForm.teamId)) {
+            this.newTaskForm.teamId = '';
           }
         },
         // Valid org choices for a flow: orgs containing every agent the flow references.
         chainOrgOptions(draft) {
           const refs = this.flowReferencedAgentIds(draft || this.chainDraft || {});
-          return (this.data.organizations || []).filter(o => {
+          return (this.data.teams || []).filter(o => {
             const ids = new Set(o.memberIds || []);
             return refs.length ? refs.every(id => ids.has(id)) : false;
           });
@@ -9353,47 +9355,47 @@
           return [...managers, ...agents];
         },
         orgsOfEmployee(empId) {
-          return (this.data.organizations || []).filter(o => Array.isArray(o.memberIds) && o.memberIds.includes(empId));
+          return (this.data.teams || []).filter(o => Array.isArray(o.memberIds) && o.memberIds.includes(empId));
         },
         employeeNameById(id) {
           const e = this.allEmployees().find(x => x.id === id);
           return e ? e.name : id;
         },
-        employeesInOrg(orgId) {
-          const org = (this.data.organizations || []).find(o => o.id === orgId);
+        employeesInOrg(teamId) {
+          const org = (this.data.teams || []).find(o => o.id === teamId);
           if (!org) return [];
           const ids = new Set(org.memberIds || []);
           return this.allEmployees().filter(e => ids.has(e.id));
         },
         unassignedEmployees() {
           const assigned = new Set();
-          for (const o of (this.data.organizations || [])) for (const id of (o.memberIds || [])) assigned.add(id);
+          for (const o of (this.data.teams || [])) for (const id of (o.memberIds || [])) assigned.add(id);
           return this.allEmployees().filter(e => !assigned.has(e.id));
         },
         orgEmployeeCount(org) { return (org.memberIds || []).length; },
         orgUpdatesAvailableLabel() {
-          const n = this.data.organizations ? this.data.organizations.length : 0;
-          return n === 1 ? '1 organization' : `${n} organizations`;
+          const n = this.data.teams ? this.data.teams.length : 0;
+          return n === 1 ? '1 team' : `${n} teams`;
         },
         async loadOrganizations() {
           try {
-            const orgs = await this.request('/api/organizations');
-            this.data.organizations = Array.isArray(orgs) ? orgs : [];
+            const orgs = await this.request('/api/teams');
+            this.data.teams = Array.isArray(orgs) ? orgs : [];
             this._reconcileCurrentOrg();
             this.applyOrgTheme();
           } catch (e) { /* non-fatal */ }
         },
         async createOrg() {
           const name = (this.orgForm?.name || '').trim();
-          if (!name) { this.showToast('Name required', 'Enter an organization name.', 'error'); return; }
+          if (!name) { this.showToast('Name required', 'Enter a team name.', 'error'); return; }
           try {
-            const r = await this.request('/api/organizations', { method: 'POST', body: JSON.stringify({
+            const r = await this.request('/api/teams', { method: 'POST', body: JSON.stringify({
               name, emoji: this.orgForm.emoji || '🏢', color: this.orgForm.color || '#b11f4b', description: this.orgForm.description || '', theme: this.orgForm.theme || 'default'
             }) });
             await this.loadOrganizations();
             this.orgModalOpen = false;
             this.orgForm = { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' };
-            this.showToast('Organization created', name, 'success');
+            this.showToast('Team created', name, 'success');
           } catch (e) { this.showToast('Create failed', e.message, 'error'); }
         },
         openOrgModal(org = null) {
@@ -9404,38 +9406,38 @@
         async saveOrg() {
           if (!this.orgForm.id) return this.createOrg();
           try {
-            await this.request('/api/organizations/' + encodeURIComponent(this.orgForm.id), { method: 'PUT', body: JSON.stringify({
+            await this.request('/api/teams/' + encodeURIComponent(this.orgForm.id), { method: 'PUT', body: JSON.stringify({
               name: this.orgForm.name, emoji: this.orgForm.emoji, color: this.orgForm.color, description: this.orgForm.description, theme: this.orgForm.theme || 'default'
             }) });
             await this.loadOrganizations();
             this.orgModalOpen = false;
-            this.showToast('Organization saved', this.orgForm.name, 'success');
+            this.showToast('Team saved', this.orgForm.name, 'success');
           } catch (e) { this.showToast('Save failed', e.message, 'error'); }
         },
         async deleteOrg(org) {
-          if (!await this.uiConfirm({ title: 'Delete organization', message: `Delete organization "${org.name}"? Members are unassigned; operations are not deleted.`, confirmLabel: 'Delete', danger: true })) return;
+          if (!await this.uiConfirm({ title: 'Delete team', message: `Delete team "${org.name}"? Members are unassigned; operations are not deleted.`, confirmLabel: 'Delete', danger: true })) return;
           try {
-            await this.request('/api/organizations/' + encodeURIComponent(org.id), { method: 'DELETE' });
-            if (this.currentOrgId === org.id) this.setCurrentOrg('all');
+            await this.request('/api/teams/' + encodeURIComponent(org.id), { method: 'DELETE' });
+            if (this.currentTeamId === org.id) this.setCurrentOrg('all');
             await this.loadOrganizations();
-            this.showToast('Organization deleted', org.name, 'success');
+            this.showToast('Team deleted', org.name, 'success');
           } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
         },
-        async assignEmployeeToOrg(employeeId, orgId) {
-          const org = (this.data.organizations || []).find(o => o.id === orgId);
+        async assignEmployeeToOrg(employeeId, teamId) {
+          const org = (this.data.teams || []).find(o => o.id === teamId);
           if (org && (org.memberIds || []).includes(employeeId)) return;
           try {
-            await this.request('/api/organizations/' + encodeURIComponent(orgId) + '/members', { method: 'POST', body: JSON.stringify({ employeeId }) });
+            await this.request('/api/teams/' + encodeURIComponent(teamId) + '/members', { method: 'POST', body: JSON.stringify({ employeeId }) });
             await this.loadOrganizations();
           } catch (e) { this.showToast('Assign failed', e.message, 'error'); }
         },
-        async removeEmployeeFromOrg(employeeId, orgId) {
+        async removeEmployeeFromOrg(employeeId, teamId) {
           try {
-            const resp = await this.request('/api/organizations/' + encodeURIComponent(orgId) + '/members/' + encodeURIComponent(employeeId), { method: 'DELETE' });
+            const resp = await this.request('/api/teams/' + encodeURIComponent(teamId) + '/members/' + encodeURIComponent(employeeId), { method: 'DELETE' });
             const d = resp && resp.disabled;
             const n = d ? ((d.tasks || []).length + (d.assignments || []).length + (d.flows || []).length) : 0;
             await this.refreshAll(false);
-            if (n) this.showToast('Member removed', `${n} operation${n === 1 ? '' : 's'} in this organization ${n === 1 ? 'was' : 'were'} disabled.`, 'info');
+            if (n) this.showToast('Member removed', `${n} operation${n === 1 ? '' : 's'} on this team ${n === 1 ? 'was' : 'were'} disabled.`, 'info');
           } catch (e) { this.showToast('Remove failed', e.message, 'error'); }
         },
         // Drag-and-drop wiring for the Organizations page
@@ -9444,21 +9446,21 @@
           try { ev.dataTransfer.setData('text/plain', employeeId); ev.dataTransfer.effectAllowed = 'move'; } catch {}
         },
         onOrgDragOver(ev) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch {} this.orgDragOverId = this._orgDragOverTarget; },
-        async onOrgDrop(ev, orgId) {
+        async onOrgDrop(ev, teamId) {
           ev.preventDefault();
           const drag = this.orgDragEmp;
           this.orgDragOverId = null; this._orgDragOverTarget = null;
           if (!drag || !drag.employeeId) return;
-          if (orgId === '__unassigned__') {
+          if (teamId === '__unassigned__') {
             if (drag.fromOrgId) await this.removeEmployeeFromOrg(drag.employeeId, drag.fromOrgId);
           } else {
-            await this.assignEmployeeToOrg(drag.employeeId, orgId);
+            await this.assignEmployeeToOrg(drag.employeeId, teamId);
           }
           this.orgDragEmp = null;
         },
 
         // ----- Operations → organization assignment (Organizations page "Operations" tab) -----
-        // Unified operation list (tasks + assignments + flows) with a resolved orgId.
+        // Unified operation list (tasks + assignments + flows) with a resolved teamId.
         allOperations() {
           const ops = [];
           for (const t of this.allTasks()) {
@@ -9467,7 +9469,7 @@
               key: t.taskKey,
               name: t.name,
               ownerName: t.ownerName,
-              orgId: t.orgId || null,
+              teamId: t.teamId || null,
               employeeId: t.type === 'assignment' ? t.managerId : t.agentId,
               taskId: t.id,
               managerId: t.managerId,
@@ -9482,7 +9484,7 @@
               key: 'flow-' + c.id,
               name: c.name || c.id,
               ownerName: 'Flow',
-              orgId: c.orgId || null,
+              teamId: c.teamId || null,
               chainId: c.id,
               refs: this.flowReferencedAgentIds(c),
               icon: '🔗',
@@ -9491,23 +9493,23 @@
           }
           return ops;
         },
-        // An operation is "unassigned" if it has no orgId or references a deleted org.
+        // An operation is "unassigned" if it has no teamId or references a deleted org.
         unassignedOperations() {
-          const orgIds = new Set((this.data.organizations || []).map(o => o.id));
-          return this.allOperations().filter(op => !op.orgId || !orgIds.has(op.orgId));
+          const teamIds = new Set((this.data.teams || []).map(o => o.id));
+          return this.allOperations().filter(op => !op.teamId || !teamIds.has(op.teamId));
         },
-        operationsInOrg(orgId) {
-          return this.allOperations().filter(op => op.orgId === orgId);
+        operationsInOrg(teamId) {
+          return this.allOperations().filter(op => op.teamId === teamId);
         },
-        orgOperationCount(orgId) {
-          return this.operationsInOrg(orgId).length;
+        orgOperationCount(teamId) {
+          return this.operationsInOrg(teamId).length;
         },
         // Orgs an operation is allowed to join (employee+org pairing; flows need all agents present).
         validOrgsForOp(op) {
           if (!op) return [];
           if (op.kind === 'flow') {
             const refs = op.refs || [];
-            return (this.data.organizations || []).filter(o => {
+            return (this.data.teams || []).filter(o => {
               const ids = new Set(o.memberIds || []);
               return refs.length && refs.every(id => ids.has(id));
             });
@@ -9518,18 +9520,18 @@
           this.orgDragOp = op;
           try { ev.dataTransfer.setData('text/plain', op.key); ev.dataTransfer.effectAllowed = 'move'; } catch {}
         },
-        async onOpDrop(ev, orgId) {
+        async onOpDrop(ev, teamId) {
           ev.preventDefault();
           const op = this.orgDragOp;
           this.orgDragOverId = null; this._orgDragOverTarget = null;
           this.orgDragOp = null;
           if (!op) return;
-          await this.assignOperationToOrg(op, orgId);
+          await this.assignOperationToOrg(op, teamId);
         },
-        async assignOperationToOrg(op, orgId) {
-          const org = (this.data.organizations || []).find(o => o.id === orgId);
+        async assignOperationToOrg(op, teamId) {
+          const org = (this.data.teams || []).find(o => o.id === teamId);
           const valid = new Set(this.validOrgsForOp(op).map(o => o.id));
-          if (!valid.has(orgId)) {
+          if (!valid.has(teamId)) {
             let missing = [];
             if (op.kind === 'flow') {
               const ids = new Set(org ? (org.memberIds || []) : []);
@@ -9538,7 +9540,7 @@
               missing = [this.employeeNameById(op.employeeId)];
             }
             missing = missing.filter(Boolean);
-            const orgName = org ? org.name : 'that organization';
+            const orgName = org ? org.name : 'that team';
             const detail = missing.length
               ? `${orgName} is missing ${missing.length > 1 ? 'these members' : 'this member'}: ${missing.join(', ')}. Add ${missing.length > 1 ? 'them' : 'it'} to ${orgName} first.`
               : `${orgName} can't host this operation.`;
@@ -9547,19 +9549,19 @@
           }
           try {
             if (op.kind === 'agent') {
-              await this.request('/api/tasks/' + encodeURIComponent(op.taskId), { method: 'PUT', body: JSON.stringify({ orgId }) });
+              await this.request('/api/tasks/' + encodeURIComponent(op.taskId), { method: 'PUT', body: JSON.stringify({ teamId }) });
             } else if (op.kind === 'assignment') {
               const mgr = (this.data.managers || []).find(m => m.id === op.managerId);
               const raw = mgr && (mgr.config.assignments || []).find(a => a.id === op.assignmentId);
               if (!raw) throw new Error('Assignment not found');
               await this.request('/api/managers/' + encodeURIComponent(op.managerId) + '/assignments', {
                 method: 'POST',
-                body: JSON.stringify({ id: raw.id, name: raw.name, prompt: raw.prompt, schedule: raw.schedule || 'never', enabled: raw.enabled !== false, orgId })
+                body: JSON.stringify({ id: raw.id, name: raw.name, prompt: raw.prompt, schedule: raw.schedule || 'never', enabled: raw.enabled !== false, teamId })
               });
             } else if (op.kind === 'flow') {
-              await this.request('/api/chains/' + encodeURIComponent(op.chainId), { method: 'PUT', body: JSON.stringify({ orgId }) });
+              await this.request('/api/chains/' + encodeURIComponent(op.chainId), { method: 'PUT', body: JSON.stringify({ teamId }) });
             }
-            this.showToast('Assigned', `"${op.name}" → ${org ? org.name : 'organization'}.`, 'info');
+            this.showToast('Assigned', `"${op.name}" → ${org ? org.name : 'team'}.`, 'info');
             await this.refreshAll(false);
           } catch (e) {
             this.showToast('Assign failed', e.message, 'error');
@@ -9568,17 +9570,17 @@
         async unassignOperation(op) {
           try {
             if (op.kind === 'agent') {
-              await this.request('/api/tasks/' + encodeURIComponent(op.taskId), { method: 'PUT', body: JSON.stringify({ orgId: null }) });
+              await this.request('/api/tasks/' + encodeURIComponent(op.taskId), { method: 'PUT', body: JSON.stringify({ teamId: null }) });
             } else if (op.kind === 'assignment') {
               const mgr = (this.data.managers || []).find(m => m.id === op.managerId);
               const raw = mgr && (mgr.config.assignments || []).find(a => a.id === op.assignmentId);
               if (!raw) throw new Error('Assignment not found');
               await this.request('/api/managers/' + encodeURIComponent(op.managerId) + '/assignments', {
                 method: 'POST',
-                body: JSON.stringify({ id: raw.id, name: raw.name, prompt: raw.prompt, schedule: raw.schedule || 'never', enabled: raw.enabled !== false, orgId: null })
+                body: JSON.stringify({ id: raw.id, name: raw.name, prompt: raw.prompt, schedule: raw.schedule || 'never', enabled: raw.enabled !== false, teamId: null })
               });
             } else if (op.kind === 'flow') {
-              await this.request('/api/chains/' + encodeURIComponent(op.chainId), { method: 'PUT', body: JSON.stringify({ orgId: null }) });
+              await this.request('/api/chains/' + encodeURIComponent(op.chainId), { method: 'PUT', body: JSON.stringify({ teamId: null }) });
             }
             this.showToast('Removed', `"${op.name}" is now unassigned.`, 'info');
             await this.refreshAll(false);
@@ -9620,12 +9622,12 @@
           return { org, headcount, operations, runs24h, failures24h, failureRate, lastRunTs, score, reasons, status, statusClass };
         },
         companyOrgHealth() {
-          return (this.data.organizations || [])
+          return (this.data.teams || [])
             .map(o => this.orgHealth(o))
             .sort((a, b) => (b.score - a.score) || (a.org.name || '').localeCompare(b.org.name || ''));
         },
         companyStats() {
-          const orgs = this.data.organizations || [];
+          const orgs = this.data.teams || [];
           const employees = new Set();
           let operations = 0;
           for (const o of orgs) {
@@ -9644,7 +9646,7 @@
           const ranked = this.companyOrgHealth();
           const worst = ranked.find(h => h.score >= 30) || ranked[0];
           if (worst) this.setCurrentOrg(worst.org.id);
-          else this.goTo('#/organizations');
+          else this.goTo('#/teams');
         },
         filteredAgents() {
           const query = this.agentSearch.trim().toLowerCase();
@@ -9755,10 +9757,10 @@
           } else {
             // Board mode: create an empty group locally (scoped to the current
             // org) until an agent is dropped in.
-            const orgId = (this.currentOrgId && this.currentOrgId !== 'all') ? this.currentOrgId : 'all';
-            const dupPending = (this.pendingGroups || []).some(e => e && e.name === name && e.orgId === orgId);
+            const teamId = (this.currentTeamId && this.currentTeamId !== 'all') ? this.currentTeamId : 'all';
+            const dupPending = (this.pendingGroups || []).some(e => e && e.name === name && e.teamId === teamId);
             const dupVisible = this.groupBoard().some(g => g.name === name);
-            if (!dupPending && !dupVisible) this.pendingGroups.push({ name, orgId });
+            if (!dupPending && !dupVisible) this.pendingGroups.push({ name, teamId });
           }
         },
 
@@ -9811,13 +9813,13 @@
           return (this.data.agents || []).filter(a => !(a.config && a.config.group) && this.idInCurrentOrg(a.id));
         },
         groupBoard() {
-          const all = (!this.currentOrgId || this.currentOrgId === 'all');
+          const all = (!this.currentTeamId || this.currentTeamId === 'all');
           const map = new Map();
           // Seed locally-created empty groups, scoped to the org they were made in.
           for (const entry of (this.pendingGroups || [])) {
             const name = entry && entry.name;
             if (!name) continue;
-            if (!all && entry.orgId !== this.currentOrgId) continue;
+            if (!all && entry.teamId !== this.currentTeamId) continue;
             map.set(name, []);
           }
           for (const a of (this.data.agents || [])) {
@@ -9957,7 +9959,7 @@
               prompt: task.prompt || '',
               managerId: null,
               assignmentId: null,
-              orgId: task.orgId || null,
+              teamId: task.teamId || null,
               triggers: Array.isArray(task.triggers) ? task.triggers : [],
               triggersDraft: JSON.parse(JSON.stringify(Array.isArray(task.triggers) ? task.triggers : []))
             };
@@ -9981,7 +9983,7 @@
             lastRun: manager.lastRun,
             prompt: assignment.prompt || '',
             agentId: null,
-            orgId: assignment.orgId || null,
+            teamId: assignment.teamId || null,
             triggers: Array.isArray(assignment.triggers) ? assignment.triggers : [],
             triggersDraft: JSON.parse(JSON.stringify(Array.isArray(assignment.triggers) ? assignment.triggers : []))
           })));
@@ -10053,11 +10055,11 @@
           });
         },
         executionCounts() {
-          const all = (this.allTasks() || []).filter(t => this.opInCurrentOrg(t.orgId));
+          const all = (this.allTasks() || []).filter(t => this.opInCurrentOrg(t.teamId));
           return {
             tasks: all.filter(t => t.type === 'agent').length,
             assignments: all.filter(t => t.type === 'assignment').length,
-            flows: (this.data.chains || []).filter(c => this.opInCurrentOrg(c.orgId)).length,
+            flows: (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId)).length,
           };
         },
         _runOk(s) { s = (s || '').toLowerCase(); return s === 'success' || s === 'completed' || s === 'complete' || s === 'done'; },
@@ -10100,13 +10102,13 @@
         },
         // ---- Operations quick-access lists (org-scoped, search-independent) ----
         opsTasks() {
-          return (this.allTasks() || []).filter(t => t.type === 'agent' && this.opInCurrentOrg(t.orgId));
+          return (this.allTasks() || []).filter(t => t.type === 'agent' && this.opInCurrentOrg(t.teamId));
         },
         opsAssignments() {
-          return (this.allTasks() || []).filter(t => t.type === 'assignment' && this.opInCurrentOrg(t.orgId));
+          return (this.allTasks() || []).filter(t => t.type === 'assignment' && this.opInCurrentOrg(t.teamId));
         },
         opsFlows() {
-          return (this.data.chains || []).filter(c => this.opInCurrentOrg(c.orgId));
+          return (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
         },
         // Navigate to an operation on its own page and focus/flash it.
         opsOpen(kind, item) {
@@ -10153,14 +10155,14 @@
         },
         filteredTasks() {
           const query = this.taskSearch.trim().toLowerCase();
-          const tasks = this.allTasks().filter(t => t.type === 'agent' && this.opInCurrentOrg(t.orgId));
+          const tasks = this.allTasks().filter(t => t.type === 'agent' && this.opInCurrentOrg(t.teamId));
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
 
         filteredAssignments() {
           const query = this.assignmentSearch.trim().toLowerCase();
-          const assignments = this.allTasks().filter(t => t.type === 'assignment' && this.opInCurrentOrg(t.orgId));
+          const assignments = this.allTasks().filter(t => t.type === 'assignment' && this.opInCurrentOrg(t.teamId));
           if (!query) return assignments;
           return assignments.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
         },
@@ -10187,7 +10189,7 @@
             }));
           // Manager assignments that include this agent in the org
           const managerAssignments = this.data.managers
-            .filter((manager) => (manager.config.org || []).includes(agentId))
+            .filter((manager) => (manager.config.team || []).includes(agentId))
             .flatMap((manager) => (manager.config.assignments || []).map((assignment) => ({
               taskKey: `assignment-${manager.id}-${assignment.id}`,
               id: assignment.id,
@@ -10209,7 +10211,7 @@
         },
 
         managersForAgent(agentId) {
-          return this.data.managers.filter(m => (m.config?.org || []).includes(agentId));
+          return this.data.managers.filter(m => (m.config?.team || []).includes(agentId));
         },
 
         triggerIcon(kind) {
@@ -10248,7 +10250,7 @@
 
         upcomingTasks() {
           return this.allTasks()
-            .filter((task) => task.nextRun && new Date(task.nextRun) > new Date() && this.opInCurrentOrg(task.orgId))
+            .filter((task) => task.nextRun && new Date(task.nextRun) > new Date() && this.opInCurrentOrg(task.teamId))
             .sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun))
             .slice(0, 5);
         },
@@ -10887,10 +10889,10 @@
           return out;
         },
         // Resolve every resource that belongs to an org (member employees + operations stamped with it).
-        orgResources(orgId) {
+        orgResources(teamId) {
           const out = [];
-          for (const emp of this.employeesInOrg(orgId)) out.push({ id: emp.id, type: emp.type, name: emp.name });
-          for (const op of this.operationsInOrg(orgId)) {
+          for (const emp of this.employeesInOrg(teamId)) out.push({ id: emp.id, type: emp.type, name: emp.name });
+          for (const op of this.operationsInOrg(teamId)) {
             if (op.kind === 'assignment') out.push({ id: `${op.managerId}/${op.assignmentId}`, type: 'assignment', name: op.name });
             else if (op.kind === 'flow') out.push({ id: op.chainId, type: 'chain', name: op.name });
             else out.push({ id: op.taskId, type: 'task', name: op.name });
@@ -10899,8 +10901,8 @@
         },
         resInGrantedOrg(user, res) {
           if (!user) return false;
-          for (const orgId of (user.grantedOrgs || [])) {
-            if (this.orgResources(orgId).some(r => r.id === res.id)) return true;
+          for (const teamId of (user.grantedOrgs || [])) {
+            if (this.orgResources(teamId).some(r => r.id === res.id)) return true;
           }
           return false;
         },
@@ -10909,7 +10911,7 @@
           if (!user) return [];
           if (user.role === 'admin') return this.allConnectableResources();
           const byId = new Map();
-          for (const orgId of (user.grantedOrgs || [])) for (const r of this.orgResources(orgId)) byId.set(r.id, r);
+          for (const teamId of (user.grantedOrgs || [])) for (const r of this.orgResources(teamId)) byId.set(r.id, r);
           for (const r of (user.grantedResources || [])) byId.set(r.id, r);
           for (const ex of (user.excludedResources || [])) byId.delete(ex.id);
           return Array.from(byId.values());
@@ -10940,11 +10942,11 @@
           this.grantSearch = '';
           this.showUserGrantsModal = true;
         },
-        toggleGrantOrg(user, orgId) {
+        toggleGrantOrg(user, teamId) {
           if (!user) return;
           if (!Array.isArray(user.grantedOrgs)) user.grantedOrgs = [];
-          const i = user.grantedOrgs.indexOf(orgId);
-          if (i >= 0) user.grantedOrgs.splice(i, 1); else user.grantedOrgs.push(orgId);
+          const i = user.grantedOrgs.indexOf(teamId);
+          if (i >= 0) user.grantedOrgs.splice(i, 1); else user.grantedOrgs.push(teamId);
         },
         grantResourceList() {
           const q = (this.grantSearch || '').toLowerCase();
@@ -11306,12 +11308,12 @@
             this.boardsLoading = false;
           }
         },
-        // Boards visible under the current org: the global board (orgId null) is always shown.
+        // Boards visible under the current org: the global board (teamId null) is always shown.
         visibleBoards() {
-          const cur = this.currentOrgId;
+          const cur = this.currentTeamId;
           return (this.boards || []).filter(b => {
             if (cur === 'all') return true;
-            return !b.orgId || b.orgId === cur;
+            return !b.teamId || b.teamId === cur;
           });
         },
         activeBoard() {
@@ -11323,23 +11325,23 @@
           this.syncBoardLayout();
         },
         boardOrgLabel(board) {
-          if (!board || !board.orgId) return 'Global';
-          const org = (this.data.organizations || []).find(o => o.id === board.orgId);
-          return org ? (org.emoji ? org.emoji + ' ' + org.name : org.name) : 'Organization';
+          if (!board || !board.teamId) return 'Global';
+          const org = (this.data.teams || []).find(o => o.id === board.teamId);
+          return org ? (org.emoji ? org.emoji + ' ' + org.name : org.name) : 'Team';
         },
         openBoardModal(board) {
           if (board) {
-            this.boardForm = { id: board.id, name: board.name, emoji: board.emoji || '📌', orgId: board.orgId || '' };
+            this.boardForm = { id: board.id, name: board.name, emoji: board.emoji || '📌', teamId: board.teamId || '' };
           } else {
-            const defOrg = this.currentOrgId === 'all' ? '' : this.currentOrgId;
-            this.boardForm = { id: '', name: '', emoji: '📌', orgId: defOrg };
+            const defOrg = this.currentTeamId === 'all' ? '' : this.currentTeamId;
+            this.boardForm = { id: '', name: '', emoji: '📌', teamId: defOrg };
           }
           this.boardModalOpen = true;
         },
         async saveBoard() {
           const name = (this.boardForm.name || '').trim();
           if (!name) { this.showToast('Board', 'Name is required', 'error'); return; }
-          const body = { name, emoji: (this.boardForm.emoji || '📌').trim() || '📌', orgId: this.boardForm.orgId || null };
+          const body = { name, emoji: (this.boardForm.emoji || '📌').trim() || '📌', teamId: this.boardForm.teamId || null };
           try {
             let saved;
             if (this.boardForm.id) {
@@ -11385,8 +11387,8 @@
         // Candidate entities to pin for the current kind, org-filtered + searched.
         pinCandidates() {
           const q = (this.boardPinSearch || '').toLowerCase();
-          const cur = this.currentOrgId;
-          const inOrg = (orgId) => cur === 'all' || !orgId || orgId === cur;
+          const cur = this.currentTeamId;
+          const inOrg = (teamId) => cur === 'all' || !teamId || teamId === cur;
           let out = [];
           if (this.boardPinKind === 'agent') {
             out = (this.data.agents || []).filter(a => this.idInCurrentOrg(a.id))
@@ -11395,13 +11397,13 @@
             out = (this.data.managers || []).filter(m => this.idInCurrentOrg(m.id))
               .map(m => ({ kind: 'manager', refId: m.id, label: m.name, sublabel: 'Manager' }));
           } else if (this.boardPinKind === 'task') {
-            out = this.allTasks().filter(t => t.type === 'agent' && inOrg(t.orgId))
+            out = this.allTasks().filter(t => t.type === 'agent' && inOrg(t.teamId))
               .map(t => ({ kind: 'task', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
           } else if (this.boardPinKind === 'assignment') {
-            out = this.allTasks().filter(t => t.type === 'assignment' && inOrg(t.orgId))
+            out = this.allTasks().filter(t => t.type === 'assignment' && inOrg(t.teamId))
               .map(t => ({ kind: 'assignment', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
           } else if (this.boardPinKind === 'flow') {
-            out = (this.data.chains || []).filter(c => inOrg(c.orgId))
+            out = (this.data.chains || []).filter(c => inOrg(c.teamId))
               .map(c => ({ kind: 'flow', refId: c.id, label: c.name || c.id, sublabel: 'Flow' }));
           } else if (this.boardPinKind === 'chat') {
             out = (this.data.chats || []).map(c => ({ kind: 'chat', refId: c.id, label: c.title || 'Chat', sublabel: c.targetName || c.target || '' }));
@@ -11790,9 +11792,9 @@
         // Create a new board inline from the quick-pin picker, then pin into it.
         async quickPinNewBoard() {
           const name = (this.quickPin.label || 'New board').slice(0, 40);
-          const defOrg = this.currentOrgId === 'all' ? null : this.currentOrgId;
+          const defOrg = this.currentTeamId === 'all' ? null : this.currentTeamId;
           try {
-            const resp = await this.request('/api/boards', { method: 'POST', body: JSON.stringify({ name, emoji: '📌', orgId: defOrg }) });
+            const resp = await this.request('/api/boards', { method: 'POST', body: JSON.stringify({ name, emoji: '📌', teamId: defOrg }) });
             const board = (resp && resp.board) || resp;
             await this.loadBoards(board.id);
             const fresh = this.boards.find(b => b.id === board.id);
@@ -12821,7 +12823,7 @@
           this.execAi.error = '';
           try {
             const r = await this.request('/api/execution-suggestions/generate', {
-              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '', focusAgentId: this.execAi.focusAgentId || '', orgId: (this.currentOrgId && this.currentOrgId !== 'all') ? this.currentOrgId : null })
+              method: 'POST', body: JSON.stringify({ hint: this.execAi.hint || '', focusAgentId: this.execAi.focusAgentId || '', teamId: (this.currentTeamId && this.currentTeamId !== 'all') ? this.currentTeamId : null })
             });
             this.execAi.items = (r && r.suggestions) || [];
           } catch (error) {
@@ -12848,8 +12850,8 @@
 
         async saveExecAi(s) {
           try {
-            const orgId = (this.currentOrgId && this.currentOrgId !== 'all') ? this.currentOrgId : null;
-            const r = await this.request('/api/execution-suggestions/save', { method: 'POST', body: JSON.stringify({ suggestion: s, orgId }) });
+            const teamId = (this.currentTeamId && this.currentTeamId !== 'all') ? this.currentTeamId : null;
+            const r = await this.request('/api/execution-suggestions/save', { method: 'POST', body: JSON.stringify({ suggestion: s, teamId }) });
             this.showToast('Saved', `${r.type === 'flow' ? 'Flow' : 'Task'} "${r.name}" added.`, 'info');
             await this.refreshAll();
           } catch (error) { this.showToast('Save failed', error.message, 'error'); }
@@ -13338,7 +13340,7 @@
 
         filteredChains() {
           const q = (this.chainSearch || '').trim().toLowerCase();
-          const list = (this.data.chains || []).filter(c => this.opInCurrentOrg(c.orgId));
+          const list = (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
           if (!q) return list;
           return list.filter(c => (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q));
         },
@@ -13361,7 +13363,7 @@
             const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
             const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
             this.chainDraft = {
-              id, name: 'New flow', description: '', orgId: (this.currentOrgId !== 'all' ? this.currentOrgId : ''), schedule: 'never', enabled: true,
+              id, name: 'New flow', description: '', teamId: (this.currentTeamId !== 'all' ? this.currentTeamId : ''), schedule: 'never', enabled: true,
               steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
               edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
               _new: true
@@ -13403,7 +13405,7 @@
             id: draft.id,
             name: draft.name,
             description: draft.description,
-            orgId: (draft.orgId && validOrgs.has(draft.orgId)) ? draft.orgId : null,
+            teamId: (draft.teamId && validOrgs.has(draft.teamId)) ? draft.teamId : null,
             schedule: draft.schedule,
             enabled: draft.enabled !== false,
             steps: draft.steps.map(s => ({ id: s.id, taskId: s.taskId || null, prompt: s.prompt || '' })),
@@ -13532,12 +13534,12 @@
         async addAgentToOrg(agentId) {
           if (!this.selectedManager) return;
           try {
-            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/org`, {
+            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/team`, {
               method: 'POST',
               body: JSON.stringify({ agentId })
             });
             this.orgPickerOpen = false;
-            this.showToast('Organization updated', 'Agent added to manager org.', 'info');
+            this.showToast('Team updated', 'Agent added to manager team.', 'info');
             await this.loadManagerDetail(this.selectedManager.id);
             await this.refreshAll(false);
           } catch (error) {
@@ -13548,8 +13550,8 @@
         async removeAgentFromOrg(agentId) {
           if (!this.selectedManager) return;
           try {
-            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/org/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
-            this.showToast('Organization updated', 'Agent removed from manager org.', 'info');
+            await this.request(`/api/managers/${encodeURIComponent(this.selectedManager.id)}/team/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+            this.showToast('Team updated', 'Agent removed from manager team.', 'info');
             await this.loadManagerDetail(this.selectedManager.id);
             await this.refreshAll(false);
           } catch (error) {
@@ -13558,7 +13560,7 @@
         },
 
         resetItemForm() {
-          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '', orgId: '' };
+          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '', teamId: '' };
         },
 
         closeItemModal() {
@@ -13580,14 +13582,14 @@
             this.newTaskForm.agentId = task.agentId || presetAgentId || '';
             this.newTaskForm.name = task.name || '';
             this.newTaskForm.prompt = task.prompt || '';
-            this.newTaskForm.orgId = task.orgId || '';
+            this.newTaskForm.teamId = task.teamId || '';
             const sched = task.schedule || task.scheduleDraft || 'never';
             this.newTaskForm.schedule = sched;
             this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
           } else if (presetAgentId) {
             this.newTaskForm.agentId = presetAgentId;
           }
-          if (!task) this.newTaskForm.orgId = this.currentOrgId !== 'all' ? this.currentOrgId : '';
+          if (!task) this.newTaskForm.teamId = this.currentTeamId !== 'all' ? this.currentTeamId : '';
           this.onModalEmployeeChange();
           this.newTaskOpen = true;
         },
@@ -13600,14 +13602,14 @@
             this.newTaskForm.managerId = assignment.managerId || presetManagerId || '';
             this.newTaskForm.name = assignment.name || '';
             this.newTaskForm.prompt = assignment.prompt || '';
-            this.newTaskForm.orgId = assignment.orgId || '';
+            this.newTaskForm.teamId = assignment.teamId || '';
             const sched = assignment.schedule || assignment.scheduleDraft || 'never';
             this.newTaskForm.schedule = sched;
             this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
           } else if (presetManagerId) {
             this.newTaskForm.managerId = presetManagerId;
           }
-          if (!assignment) this.newTaskForm.orgId = this.currentOrgId !== 'all' ? this.currentOrgId : '';
+          if (!assignment) this.newTaskForm.teamId = this.currentTeamId !== 'all' ? this.currentTeamId : '';
           this.onModalEmployeeChange();
           this.newTaskOpen = true;
         },
@@ -13661,12 +13663,12 @@
               if (f.editingId) {
                 await this.request(`/api/tasks/${encodeURIComponent(f.editingId)}`, {
                   method: 'PUT',
-                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule, orgId: f.orgId || null })
+                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule, teamId: f.teamId || null })
                 });
               } else {
                 await this.request('/api/tasks', {
                   method: 'POST',
-                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule, orgId: f.orgId || null })
+                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule, teamId: f.teamId || null })
                 });
               }
             } else {
@@ -13674,7 +13676,7 @@
               const assignmentId = f.editingId || this.slugifyId(name, 'assignment');
               await this.request(`/api/managers/${encodeURIComponent(f.managerId)}/assignments`, {
                 method: 'POST',
-                body: JSON.stringify({ id: assignmentId, name, prompt, schedule: resolvedSchedule, enabled: true, orgId: f.orgId || null })
+                body: JSON.stringify({ id: assignmentId, name, prompt, schedule: resolvedSchedule, enabled: true, teamId: f.teamId || null })
               });
             }
             this.showToast(f.editingId ? 'Saved' : 'Created', f.kind === 'assignment' ? 'Assignment saved.' : 'Task saved.', 'info');

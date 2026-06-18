@@ -53,7 +53,8 @@ const DB_PATH = path.join(__dirname, 'supervisor.db');
 const AGENTS_PATH = path.join(__dirname, 'agents.json');
 const MANAGERS_PATH = path.join(__dirname, 'managers.json');
 const TASKS_PATH = path.join(__dirname, 'tasks.json');
-const ORGANIZATIONS_PATH = path.join(__dirname, 'organizations.json');
+const TEAMS_PATH = path.join(__dirname, 'teams.json');
+const LEGACY_ORGANIZATIONS_PATH = path.join(__dirname, 'organizations.json');
 const BOARDS_PATH = path.join(__dirname, 'boards.json');
 
 // Ensure tasks.json exists
@@ -61,21 +62,59 @@ if (!fs.existsSync(TASKS_PATH)) {
   fs.writeFileSync(TASKS_PATH, '[]');
 }
 
-// Ensure organizations.json exists
-if (!fs.existsSync(ORGANIZATIONS_PATH)) {
-  fs.writeFileSync(ORGANIZATIONS_PATH, '[]');
-}
-
-function loadOrganizations() {
+// One-time migration: "Organizations" were renamed to "Teams". Rename the data
+// file and normalize the per-operation scope key orgId -> teamId (and the manager
+// roster field org -> team) across all persisted runtime files. Reads remain
+// backward-compatible (teamId ?? orgId) so any unswept/cloud-synced file still works.
+(function migrateOrgsToTeams() {
   try {
-    if (!fs.existsSync(ORGANIZATIONS_PATH)) return [];
-    const orgs = JSON.parse(fs.readFileSync(ORGANIZATIONS_PATH, 'utf-8'));
-    return Array.isArray(orgs) ? orgs : [];
+    if (!fs.existsSync(TEAMS_PATH)) {
+      if (fs.existsSync(LEGACY_ORGANIZATIONS_PATH)) {
+        fs.copyFileSync(LEGACY_ORGANIZATIONS_PATH, TEAMS_PATH);
+        console.log('[migrate] organizations.json -> teams.json');
+      } else {
+        fs.writeFileSync(TEAMS_PATH, '[]');
+      }
+    }
+    const sweepKey = (file, fn) => {
+      try {
+        const p = path.join(__dirname, file);
+        if (!fs.existsSync(p)) return;
+        const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (!Array.isArray(data)) return;
+        let changed = false;
+        for (const row of data) if (fn(row)) changed = true;
+        if (changed) fs.writeFileSync(p, JSON.stringify(data, null, 2));
+      } catch (e) { console.warn(`[migrate] ${file} skipped:`, e.message); }
+    };
+    const moveOrgId = (o) => {
+      if (o && typeof o === 'object' && o.orgId !== undefined && o.teamId === undefined) {
+        o.teamId = o.orgId; delete o.orgId; return true;
+      }
+      return false;
+    };
+    sweepKey('tasks.json', moveOrgId);
+    sweepKey('chains.json', moveOrgId);
+    sweepKey('boards.json', moveOrgId);
+    sweepKey('managers.json', (m) => {
+      let changed = false;
+      if (m && m.org !== undefined && m.team === undefined) { m.team = m.org; delete m.org; changed = true; }
+      if (m && Array.isArray(m.assignments)) for (const a of m.assignments) if (moveOrgId(a)) changed = true;
+      return changed;
+    });
+  } catch (e) { console.warn('[migrate] orgs->teams failed:', e.message); }
+})();
+
+function loadTeams() {
+  try {
+    if (!fs.existsSync(TEAMS_PATH)) return [];
+    const teams = JSON.parse(fs.readFileSync(TEAMS_PATH, 'utf-8'));
+    return Array.isArray(teams) ? teams : [];
   } catch { return []; }
 }
 
-function saveOrganizations(orgs) {
-  fs.writeFileSync(ORGANIZATIONS_PATH, JSON.stringify(orgs || [], null, 2));
+function saveTeams(teams) {
+  fs.writeFileSync(TEAMS_PATH, JSON.stringify(teams || [], null, 2));
 }
 
 function loadBoards() {
@@ -2116,7 +2155,7 @@ app.post('/api/agents', (req, res) => {
 });
 
 // Compute everything that references an agent so we can warn before deletion
-// and cascade-clean afterwards. Managers keep the agent id in their `org`
+// and cascade-clean afterwards. Managers keep the agent id in their `team`
 // array; tasks reference it via `agentId`; flows reference it indirectly via a
 // step's task, or directly via an AI edge condition's `agentId`.
 function computeAgentDependents(agentId) {
@@ -2124,7 +2163,8 @@ function computeAgentDependents(agentId) {
   try {
     if (fs.existsSync(MANAGERS_PATH)) {
       for (const m of JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'))) {
-        if (Array.isArray(m.org) && m.org.includes(agentId)) managers.push({ id: m.id, name: m.name || m.id });
+        const roster = Array.isArray(m.team) ? m.team : (Array.isArray(m.org) ? m.org : []);
+        if (roster.includes(agentId)) managers.push({ id: m.id, name: m.name || m.id });
       }
     }
   } catch {}
@@ -2151,7 +2191,7 @@ app.delete('/api/agents/:id', (req, res) => {
   const agentId = req.params.id;
   const deps = computeAgentDependents(agentId);
 
-  // Cascade 1: strip the agent from every manager's org (runtime + managers.json)
+  // Cascade 1: strip the agent from every manager's team (runtime + managers.json)
   // so managers stop advertising a tool they can no longer invoke.
   const managersUpdated = [];
   if (deps.managers.length) {
@@ -2162,7 +2202,8 @@ app.delete('/api/agents/:id', (req, res) => {
       const mi = managers.findIndex(x => x.id === m.id);
       if (mi >= 0) {
         const runtime = managerAgent.managers.get(m.id);
-        managers[mi].org = runtime ? runtime.config.org : (managers[mi].org || []).filter(x => x !== agentId);
+        managers[mi].team = runtime ? (runtime.config.team || []) : ((managers[mi].team || managers[mi].org || []).filter(x => x !== agentId));
+        delete managers[mi].org;
       }
       managersUpdated.push(m);
     }
@@ -2541,7 +2582,7 @@ app.get('/api/tasks/:id', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { id, name, agentId, prompt, schedule, enabled, orgId } = req.body;
+  const { id, name, agentId, prompt, schedule, enabled, teamId, orgId } = req.body;
   if (!name || !agentId) return res.status(400).json({ error: 'name and agentId are required' });
   const tasks = loadTasks();
   const taskId = id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2550,7 +2591,8 @@ app.post('/api/tasks', (req, res) => {
   if (existing) {
     return res.status(409).json({ error: 'duplicate_name', existingId: existing.id, message: `A task named "${name}" already exists.` });
   }
-  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, orgId: orgId || null, createdAt: new Date().toISOString() };
+  const team = teamId !== undefined ? teamId : orgId;
+  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, teamId: team || null, createdAt: new Date().toISOString() };
   tasks.push(task);
   saveTasks(tasks);
   scheduleTask(task);
@@ -2562,7 +2604,8 @@ app.put('/api/tasks/:id', (req, res) => {
   const tasks = loadTasks();
   const idx = tasks.findIndex(t => t.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Task not found' });
-  const { name, prompt, schedule, enabled, orgId } = req.body;
+  const { name, prompt, schedule, enabled, teamId, orgId } = req.body;
+  const team = teamId !== undefined ? teamId : orgId;
   // Check for name collision (excluding self)
   if (name) {
     const dup = tasks.find(t => t.id !== req.params.id && t.name.toLowerCase() === name.toLowerCase());
@@ -2574,7 +2617,7 @@ app.put('/api/tasks/:id', (req, res) => {
   if (prompt !== undefined) tasks[idx].prompt = prompt;
   if (schedule !== undefined) tasks[idx].schedule = schedule;
   if (enabled !== undefined) tasks[idx].enabled = enabled;
-  if (orgId !== undefined) tasks[idx].orgId = orgId || null;
+  if (team !== undefined) tasks[idx].teamId = team || null;
   tasks[idx].updatedAt = new Date().toISOString();
   saveTasks(tasks);
   scheduleTask(tasks[idx]);
@@ -4407,8 +4450,8 @@ async function installFromMachine(machineId, items) {
         const src = srcManagers.find(m => m.id === item.id);
         if (!src) { results.warnings.push(`manager ${item.id} not found on source machine`); continue; }
         const manager = JSON.parse(JSON.stringify(src));
-        // Pull in the manager's org agents too.
-        for (const orgId of (Array.isArray(manager.org) ? manager.org : [])) installAgentById(orgId);
+        // Pull in the manager's team agents too.
+        for (const agentId of (Array.isArray(manager.team) ? manager.team : (Array.isArray(manager.org) ? manager.org : []))) installAgentById(agentId);
         localManagers.push(manager);
         localManagerIds.add(item.id);
         results.installed.push(`manager ${manager.name || item.id}`);
@@ -4470,7 +4513,9 @@ app.post('/api/managers', (req, res) => {
   if (!config.id || !config.name) {
     return res.status(400).json({ error: 'Missing required fields: id, name' });
   }
-  if (!config.org) config.org = [];
+  if (config.team === undefined && Array.isArray(config.org)) config.team = config.org;
+  if (!config.team) config.team = [];
+  delete config.org;
   if (!config.assignments) config.assignments = [];
 
   // Save to managers.json
@@ -4502,9 +4547,11 @@ app.delete('/api/managers/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// ===== Organizations API =====
-// An organization groups "employees" (agent ids + manager ids) via memberIds.
-// Operations carry an orgId; cross-org operations are not permitted.
+// ===== Teams API =====
+// A team groups "employees" (agent ids + manager ids) via memberIds.
+// Operations carry a teamId; cross-team operations are not permitted.
+// Legacy note: teams were formerly called "organizations" — the /api/organizations
+// paths are kept as backward-compatible aliases.
 
 function _employeeExists(id) {
   if (supervisor.agents.has(id)) return true;
@@ -4519,31 +4566,31 @@ function _employeeExists(id) {
   return false;
 }
 
-// List organizations
-app.get('/api/organizations', (req, res) => {
-  res.json(loadOrganizations());
+// List teams
+app.get(['/api/teams', '/api/organizations'], (req, res) => {
+  res.json(loadTeams());
 });
 
-// Get a single organization
-app.get('/api/organizations/:id', (req, res) => {
-  const org = loadOrganizations().find(o => o.id === req.params.id);
-  if (!org) return res.status(404).json({ error: 'Organization not found' });
-  res.json(org);
+// Get a single team
+app.get(['/api/teams/:id', '/api/organizations/:id'], (req, res) => {
+  const team = loadTeams().find(o => o.id === req.params.id);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+  res.json(team);
 });
 
-// Create or update an organization
-app.post('/api/organizations', (req, res) => {
+// Create or update a team
+app.post(['/api/teams', '/api/organizations'], (req, res) => {
   const { id, name, emoji, color, description, memberIds, theme } = req.body || {};
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'Missing required field: name' });
   }
-  const orgs = loadOrganizations();
-  const orgId = id || ('org-' + String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '-' + Date.now().toString(36).slice(-4));
-  const existingIdx = orgs.findIndex(o => o.id === orgId);
-  const base = existingIdx >= 0 ? orgs[existingIdx] : { createdAt: new Date().toISOString(), memberIds: [] };
-  const org = {
+  const teams = loadTeams();
+  const teamId = id || ('team-' + String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '-' + Date.now().toString(36).slice(-4));
+  const existingIdx = teams.findIndex(o => o.id === teamId);
+  const base = existingIdx >= 0 ? teams[existingIdx] : { createdAt: new Date().toISOString(), memberIds: [] };
+  const team = {
     ...base,
-    id: orgId,
+    id: teamId,
     name: String(name).trim(),
     emoji: emoji || base.emoji || '🏢',
     color: color || base.color || '#b11f4b',
@@ -4552,88 +4599,89 @@ app.post('/api/organizations', (req, res) => {
     memberIds: Array.isArray(memberIds) ? [...new Set(memberIds.filter(_employeeExists))] : (base.memberIds || []),
     updatedAt: new Date().toISOString(),
   };
-  if (existingIdx >= 0) orgs[existingIdx] = org; else orgs.push(org);
-  saveOrganizations(orgs);
-  broadcastSSE('organizations-changed', { id: orgId });
-  res.json({ ok: true, organization: org });
+  if (existingIdx >= 0) teams[existingIdx] = team; else teams.push(team);
+  saveTeams(teams);
+  broadcastSSE('teams-changed', { id: teamId });
+  res.json({ ok: true, team });
 });
 
-// Update an organization (partial)
-app.put('/api/organizations/:id', (req, res) => {
-  const orgs = loadOrganizations();
-  const idx = orgs.findIndex(o => o.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
+// Update a team (partial)
+app.put(['/api/teams/:id', '/api/organizations/:id'], (req, res) => {
+  const teams = loadTeams();
+  const idx = teams.findIndex(o => o.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Team not found' });
   const { name, emoji, color, description, memberIds, theme } = req.body || {};
-  const org = orgs[idx];
-  if (name != null) org.name = String(name).trim();
-  if (emoji != null) org.emoji = emoji;
-  if (color != null) org.color = color;
-  if (description != null) org.description = description;
-  if (theme != null) org.theme = theme;
-  if (Array.isArray(memberIds)) org.memberIds = [...new Set(memberIds.filter(_employeeExists))];
-  org.updatedAt = new Date().toISOString();
-  orgs[idx] = org;
-  saveOrganizations(orgs);
-  broadcastSSE('organizations-changed', { id: org.id });
-  res.json({ ok: true, organization: org });
+  const team = teams[idx];
+  if (name != null) team.name = String(name).trim();
+  if (emoji != null) team.emoji = emoji;
+  if (color != null) team.color = color;
+  if (description != null) team.description = description;
+  if (theme != null) team.theme = theme;
+  if (Array.isArray(memberIds)) team.memberIds = [...new Set(memberIds.filter(_employeeExists))];
+  team.updatedAt = new Date().toISOString();
+  teams[idx] = team;
+  saveTeams(teams);
+  broadcastSSE('teams-changed', { id: team.id });
+  res.json({ ok: true, team });
 });
 
-// Delete an organization
-app.delete('/api/organizations/:id', (req, res) => {
-  let orgs = loadOrganizations();
-  if (!orgs.some(o => o.id === req.params.id)) return res.status(404).json({ error: 'Organization not found' });
-  orgs = orgs.filter(o => o.id !== req.params.id);
-  saveOrganizations(orgs);
-  broadcastSSE('organizations-changed', { id: req.params.id, deleted: true });
+// Delete a team
+app.delete(['/api/teams/:id', '/api/organizations/:id'], (req, res) => {
+  let teams = loadTeams();
+  if (!teams.some(o => o.id === req.params.id)) return res.status(404).json({ error: 'Team not found' });
+  teams = teams.filter(o => o.id !== req.params.id);
+  saveTeams(teams);
+  broadcastSSE('teams-changed', { id: req.params.id, deleted: true });
   res.json({ ok: true });
 });
 
-// Add a member (employee) to an organization
-app.post('/api/organizations/:id/members', (req, res) => {
+// Add a member (employee) to a team
+app.post(['/api/teams/:id/members', '/api/organizations/:id/members'], (req, res) => {
   const { employeeId } = req.body || {};
   if (!employeeId) return res.status(400).json({ error: 'Missing required field: employeeId' });
   if (!_employeeExists(employeeId)) return res.status(404).json({ error: 'Employee not found' });
-  const orgs = loadOrganizations();
-  const idx = orgs.findIndex(o => o.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
-  if (!Array.isArray(orgs[idx].memberIds)) orgs[idx].memberIds = [];
-  if (!orgs[idx].memberIds.includes(employeeId)) orgs[idx].memberIds.push(employeeId);
-  orgs[idx].updatedAt = new Date().toISOString();
-  saveOrganizations(orgs);
-  broadcastSSE('organizations-changed', { id: req.params.id });
-  res.json({ ok: true, organization: orgs[idx] });
+  const teams = loadTeams();
+  const idx = teams.findIndex(o => o.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Team not found' });
+  if (!Array.isArray(teams[idx].memberIds)) teams[idx].memberIds = [];
+  if (!teams[idx].memberIds.includes(employeeId)) teams[idx].memberIds.push(employeeId);
+  teams[idx].updatedAt = new Date().toISOString();
+  saveTeams(teams);
+  broadcastSSE('teams-changed', { id: req.params.id });
+  res.json({ ok: true, team: teams[idx] });
 });
 
-// Remove a member (employee) from an organization. The employee's operations
-// within this org are disabled (not deleted) by the cascade below.
-app.delete('/api/organizations/:id/members/:employeeId', (req, res) => {
-  const orgs = loadOrganizations();
-  const idx = orgs.findIndex(o => o.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ error: 'Organization not found' });
-  orgs[idx].memberIds = (orgs[idx].memberIds || []).filter(m => m !== req.params.employeeId);
-  orgs[idx].updatedAt = new Date().toISOString();
-  saveOrganizations(orgs);
-  // Cascade: disable (don't delete) this employee's operations in this org so they
-  // stay on record but go inert without a valid org context.
-  const disabled = disableOperationsForEmployeeInOrg(req.params.employeeId, req.params.id);
-  broadcastSSE('organizations-changed', { id: req.params.id });
-  res.json({ ok: true, organization: orgs[idx], disabled });
+// Remove a member (employee) from a team. The employee's operations
+// within this team are disabled (not deleted) by the cascade below.
+app.delete(['/api/teams/:id/members/:employeeId', '/api/organizations/:id/members/:employeeId'], (req, res) => {
+  const teams = loadTeams();
+  const idx = teams.findIndex(o => o.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Team not found' });
+  teams[idx].memberIds = (teams[idx].memberIds || []).filter(m => m !== req.params.employeeId);
+  teams[idx].updatedAt = new Date().toISOString();
+  saveTeams(teams);
+  // Cascade: disable (don't delete) this employee's operations in this team so they
+  // stay on record but go inert without a valid team context.
+  const disabled = disableOperationsForEmployeeInTeam(req.params.employeeId, req.params.id);
+  broadcastSSE('teams-changed', { id: req.params.id });
+  res.json({ ok: true, team: teams[idx], disabled });
 });
 
-// Disable (not delete) every operation tied to this employee within this org.
-// Invoked when an employee is removed from an organization: tasks the agent owns,
+// Disable (not delete) every operation tied to this employee within this team.
+// Invoked when an employee is removed from a team: tasks the agent owns,
 // assignments the manager owns, and flows that reference the agent — all stamped
-// with this org — are flipped to enabled:false and unscheduled, preserving the
-// record while stopping them from firing without a valid org context.
-function disableOperationsForEmployeeInOrg(employeeId, orgId) {
+// with this team — are flipped to enabled:false and unscheduled, preserving the
+// record while stopping them from firing without a valid team context.
+function disableOperationsForEmployeeInTeam(employeeId, teamId) {
   const result = { tasks: [], assignments: [], flows: [] };
-  if (!orgId) return result;
+  if (!teamId) return result;
+  const opTeam = (x) => (x && (x.teamId !== undefined ? x.teamId : x.orgId)) || null;
 
-  // Tasks: agent-owned and stamped with this org.
+  // Tasks: agent-owned and stamped with this team.
   const tasks = loadTasks();
   let tasksChanged = false;
   for (const t of tasks) {
-    if (t.agentId === employeeId && (t.orgId || null) === orgId && t.enabled !== false) {
+    if (t.agentId === employeeId && opTeam(t) === teamId && t.enabled !== false) {
       t.enabled = false; t.updatedAt = new Date().toISOString();
       try { unscheduleTask(t.id); } catch {}
       tasksChanged = true;
@@ -4650,7 +4698,7 @@ function disableOperationsForEmployeeInOrg(employeeId, orgId) {
   if (entry && Array.isArray(entry.config.assignments)) {
     let assignmentsChanged = false;
     for (const a of entry.config.assignments) {
-      if ((a.orgId || null) === orgId && a.enabled !== false) {
+      if (opTeam(a) === teamId && a.enabled !== false) {
         a.enabled = false; assignmentsChanged = true;
         result.assignments.push({ id: a.id, name: a.name || a.id });
       }
@@ -4665,11 +4713,11 @@ function disableOperationsForEmployeeInOrg(employeeId, orgId) {
     }
   }
 
-  // Flows: stamped with this org and referencing this agent (via a step's task or an AI edge).
+  // Flows: stamped with this team and referencing this agent (via a step's task or an AI edge).
   try {
     const allTasks = loadTasks();
     for (const c of chainEngine.list()) {
-      if ((c.orgId || null) !== orgId || c.enabled === false) continue;
+      if (opTeam(c) !== teamId || c.enabled === false) continue;
       const viaStep = (c.steps || []).some(s => allTasks.some(t => t.agentId === employeeId && (t.id === s.taskId || ('task-' + t.id) === s.taskId)));
       const viaCond = (c.edges || []).some(e => e.condition && e.condition.type === 'ai' && e.condition.agentId === employeeId);
       if (viaStep || viaCond) {
@@ -4684,7 +4732,7 @@ function disableOperationsForEmployeeInOrg(employeeId, orgId) {
 // ===================== BOARDS =====================
 // A board is a personal pinboard for actively-tracked work. It groups pinned
 // references to CLI sessions, chats, tasks, flows, assignments, and agents, plus
-// freeform notes and checklists. Boards are org-scoped (orgId) or global (orgId
+// freeform notes and checklists. Boards are team-scoped (teamId) or global (teamId
 // null). Stored wholesale in boards.json.
 const BOARD_KINDS = ['session', 'chat', 'task', 'flow', 'assignment', 'agent', 'manager'];
 
@@ -4699,7 +4747,7 @@ function _normalizeBoard(b) {
     id: b.id,
     name: b.name,
     emoji: b.emoji || '📌',
-    orgId: b.orgId || null,
+    teamId: (b.teamId !== undefined ? b.teamId : b.orgId) || null,
     items: Array.isArray(b.items) ? b.items : [],
     notes: Array.isArray(b.notes) ? b.notes : [],
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
@@ -4722,14 +4770,14 @@ app.get('/api/boards/:id', (req, res) => {
 
 // Create a board
 app.post('/api/boards', (req, res) => {
-  const { name, emoji, orgId } = req.body || {};
+  const { name, emoji, teamId, orgId } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Missing required field: name' });
   const boards = loadBoards();
   const board = _normalizeBoard({
     id: _boardId(name),
     name: String(name).trim(),
     emoji: emoji || '📌',
-    orgId: orgId || null,
+    teamId: (teamId !== undefined ? teamId : orgId) || null,
     items: [], notes: [], checklists: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -4740,16 +4788,17 @@ app.post('/api/boards', (req, res) => {
   res.json({ ok: true, board });
 });
 
-// Update a board (partial: name/emoji/orgId and/or wholesale items/notes/checklists)
+// Update a board (partial: name/emoji/teamId and/or wholesale items/notes/checklists)
 app.put('/api/boards/:id', (req, res) => {
   const boards = loadBoards();
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, orgId, items, notes, checklists, layout } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
-  if (orgId !== undefined) b.orgId = orgId || null;
+  const teamScope = teamId !== undefined ? teamId : orgId;
+  if (teamScope !== undefined) b.teamId = teamScope || null;
   if (Array.isArray(items)) b.items = items;
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
@@ -5022,7 +5071,7 @@ app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
 
 // Add an assignment
 app.post('/api/managers/:id/assignments', (req, res) => {
-  const { id: assignmentId, name, prompt, schedule, enabled, orgId } = req.body;
+  const { id: assignmentId, name, prompt, schedule, enabled, teamId, orgId } = req.body;
   if (!assignmentId || !name || !prompt) {
     return res.status(400).json({ error: 'Missing required fields: id, name, prompt' });
   }
@@ -5033,8 +5082,9 @@ app.post('/api/managers/:id/assignments', (req, res) => {
   if (!entry.config.assignments) entry.config.assignments = [];
   const existingIdx = entry.config.assignments.findIndex(a => a.id === assignmentId);
   const prev = existingIdx >= 0 ? entry.config.assignments[existingIdx] : null;
-  const resolvedOrgId = orgId !== undefined ? (orgId || null) : (prev ? (prev.orgId || null) : null);
-  const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false, orgId: resolvedOrgId };
+  const incomingTeam = teamId !== undefined ? teamId : orgId;
+  const resolvedTeamId = incomingTeam !== undefined ? (incomingTeam || null) : (prev ? ((prev.teamId !== undefined ? prev.teamId : prev.orgId) || null) : null);
+  const assignment = { id: assignmentId, name, prompt, schedule: schedule || 'never', enabled: enabled !== false, teamId: resolvedTeamId };
   if (existingIdx >= 0) {
     entry.config.assignments[existingIdx] = assignment;
   } else {
@@ -5190,8 +5240,8 @@ app.get('/api/managers/:id/messages', (req, res) => {
   res.json(managerAgent.getMessages(req.params.id, limit));
 });
 
-// Manage org: add agent
-app.post('/api/managers/:id/org', (req, res) => {
+// Manage team: add agent
+app.post(['/api/managers/:id/team', '/api/managers/:id/org'], (req, res) => {
   const { agentId } = req.body;
   if (!agentId) return res.status(400).json({ error: 'agentId required' });
   try {
@@ -5199,7 +5249,7 @@ app.post('/api/managers/:id/org', (req, res) => {
     // Persist
     let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
     const mi = managers.findIndex(m => m.id === req.params.id);
-    if (mi >= 0) { managers[mi].org = managerAgent.managers.get(req.params.id).config.org; }
+    if (mi >= 0) { managers[mi].team = managerAgent.managers.get(req.params.id).config.team; delete managers[mi].org; }
     fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
     res.json({ ok: true });
   } catch (e) {
@@ -5207,14 +5257,14 @@ app.post('/api/managers/:id/org', (req, res) => {
   }
 });
 
-// Manage org: remove agent
-app.delete('/api/managers/:id/org/:agentId', (req, res) => {
+// Manage team: remove agent
+app.delete(['/api/managers/:id/team/:agentId', '/api/managers/:id/org/:agentId'], (req, res) => {
   try {
     managerAgent.removeFromOrg(req.params.id, req.params.agentId);
     // Persist
     let managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
     const mi = managers.findIndex(m => m.id === req.params.id);
-    if (mi >= 0) { managers[mi].org = managerAgent.managers.get(req.params.id).config.org; }
+    if (mi >= 0) { managers[mi].team = managerAgent.managers.get(req.params.id).config.team; delete managers[mi].org; }
     fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2));
     res.json({ ok: true });
   } catch (e) {
@@ -5222,7 +5272,7 @@ app.delete('/api/managers/:id/org/:agentId', (req, res) => {
   }
 });
 
-// Get available agents not in manager's org
+// Get available agents not in manager's team
 app.get('/api/managers/:id/available-agents', (req, res) => {
   res.json(managerAgent.getAvailableAgents(req.params.id));
 });
@@ -5539,13 +5589,13 @@ function saveLatestSuggestions(obj) {
 // Ephemeral try-run buffers, keyed by runId.
 const suggestionRuns = new Map();
 
-function suggestionAgentCatalog(orgId) {
+function suggestionAgentCatalog(teamId) {
   let list = supervisor.getAllStatus();
-  // When designing inside a specific organization, only offer that org's
+  // When designing inside a specific team, only offer that team's
   // member agents so generated tasks/flows never depend on outside agents.
-  if (orgId && orgId !== 'all') {
-    const org = (loadOrganizations() || []).find(o => o.id === orgId);
-    const members = new Set((org && org.memberIds) || []);
+  if (teamId && teamId !== 'all') {
+    const team = (loadTeams() || []).find(o => o.id === teamId);
+    const members = new Set((team && team.memberIds) || []);
     list = list.filter(a => members.has(a.agent_id));
   }
   return list.map(a => ({
@@ -5629,13 +5679,13 @@ function normalizeSuggestion(raw, validAgentIds) {
 }
 
 app.post('/api/execution-suggestions/generate', async (req, res) => {
-  const orgId = String((req.body && req.body.orgId) || '').trim();
-  const agents = suggestionAgentCatalog(orgId);
+  const teamId = String((req.body && (req.body.teamId !== undefined ? req.body.teamId : req.body.orgId)) || '').trim();
+  const agents = suggestionAgentCatalog(teamId);
   if (!agents.length) {
-    const scoped = orgId && orgId !== 'all';
-    const org = scoped ? (loadOrganizations() || []).find(o => o.id === orgId) : null;
+    const scoped = teamId && teamId !== 'all';
+    const team = scoped ? (loadTeams() || []).find(o => o.id === teamId) : null;
     return res.status(400).json({ error: scoped
-      ? `${(org && org.name) || 'This organization'} has no agents to design with. Add agents to this organization first.`
+      ? `${(team && team.name) || 'This team'} has no agents to design with. Add agents to this team first.`
       : 'No agents available to design with.' });
   }
   const validIds = new Set(agents.map(a => a.id));
@@ -5737,14 +5787,14 @@ app.delete('/api/execution-suggestions/:id', (req, res) => {
 // Migrate a suggestion into the real Tasks/Flows sections (manual, no schedule).
 app.post('/api/execution-suggestions/save', (req, res) => {
   const sug = req.body && req.body.suggestion;
-  const orgId = (req.body && req.body.orgId) || null;
+  const teamId = (req.body && (req.body.teamId !== undefined ? req.body.teamId : req.body.orgId)) || null;
   if (!sug || !sug.kind) return res.status(400).json({ error: 'suggestion required' });
   try {
     if (sug.kind === 'task') {
       if (!sug.agentId || !sug.prompt) return res.status(400).json({ error: 'task suggestion missing agent or prompt' });
       const tasks = loadTasks();
       const id = 'task-ai-' + require('crypto').randomBytes(4).toString('hex');
-      const task = { id, name: sug.title || 'AI Task', agentId: sug.agentId, prompt: sug.prompt, schedule: 'never', enabled: true, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const task = { id, name: sug.title || 'AI Task', agentId: sug.agentId, prompt: sug.prompt, schedule: 'never', enabled: true, teamId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       tasks.push(task); saveTasks(tasks);
       return res.json({ ok: true, type: 'task', id, name: task.name });
     }
@@ -5755,7 +5805,7 @@ app.post('/api/execution-suggestions/save', (req, res) => {
     const chainSteps = [];
     steps.forEach((st, i) => {
       const tid = 'task-ai-' + require('crypto').randomBytes(4).toString('hex');
-      tasks.push({ id: tid, name: (st.title || (sug.title + ' step ' + (i + 1))), agentId: st.agentId, prompt: st.prompt, schedule: 'never', enabled: true, orgId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      tasks.push({ id: tid, name: (st.title || (sug.title + ' step ' + (i + 1))), agentId: st.agentId, prompt: st.prompt, schedule: 'never', enabled: true, teamId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       chainSteps.push({ id: 's' + (i + 1), taskId: tid, prompt: st.prompt });
     });
     saveTasks(tasks);
@@ -5766,7 +5816,7 @@ app.post('/api/execution-suggestions/save', (req, res) => {
       const condition = (next && next.condition) ? next.condition : { type: 'status', status: 'onSuccess' };
       edges.push({ from: chainSteps[i].id, to: chainSteps[i + 1].id, condition });
     }
-    const chain = chainEngine.create({ name: sug.title || 'AI Flow', description: sug.description || '', schedule: 'never', enabled: true, orgId, steps: chainSteps, edges });
+    const chain = chainEngine.create({ name: sug.title || 'AI Flow', description: sug.description || '', schedule: 'never', enabled: true, teamId, steps: chainSteps, edges });
     res.json({ ok: true, type: 'flow', id: chain.id, name: chain.name });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -7045,7 +7095,7 @@ function getManagersPageHtml() {
           </div>
 
           <div class="org-section">
-            <div class="org-label">Organization (Agents)</div>
+            <div class="org-label">Team (Agents)</div>
             <div class="org-agents">
               <template x-for="a in (m.orgDetails || [])" :key="a.id">
                 <span class="org-chip">
@@ -7171,7 +7221,7 @@ function getManagersPageHtml() {
 
     <div id="orgModal" class="modal-overlay" x-show="showOrgModal" :class="{ visible: showOrgModal }" @click.self="closeOrgModal()">
       <div class="modal">
-        <h3>Add Agent to Organization</h3>
+        <h3>Add Agent to Team</h3>
         <div class="form-group">
           <label>Available Agents</label>
           <select size="8" style="height:auto;" x-model="orgForm.agentId">
@@ -7513,7 +7563,7 @@ function getManagersPageHtml() {
           }
           const existing = this.findManager(this.mgrForm.originalId || config.id);
           if (existing) {
-            config.org = (existing.config && existing.config.org) || [];
+            config.team = (existing.config && (existing.config.team || existing.config.org)) || [];
             config.assignments = (existing.config && existing.config.assignments) || [];
           }
           try {
@@ -7595,7 +7645,7 @@ function getManagersPageHtml() {
         async addAgentToOrg() {
           if (!this.orgForm.agentId) return;
           try {
-            await this.request('/api/managers/' + this.orgForm.managerId + '/org', {
+            await this.request('/api/managers/' + this.orgForm.managerId + '/team', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ agentId: this.orgForm.agentId })
@@ -7609,7 +7659,7 @@ function getManagersPageHtml() {
 
         async removeFromOrg(managerId, agentId) {
           try {
-            await this.request('/api/managers/' + managerId + '/org/' + agentId, { method: 'DELETE' });
+            await this.request('/api/managers/' + managerId + '/team/' + agentId, { method: 'DELETE' });
             await this.refresh();
           } catch (e) {
             alert(e.message);

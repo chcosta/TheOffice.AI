@@ -384,13 +384,13 @@ class ManagerAgent extends EventEmitter {
       }
 
       if (action.type === 'run_agent') {
-        // SECURITY: Enforce org boundaries — reject agents not in this manager's org
-        const orgAgents = managerConfig.org || [];
-        if (!orgAgents.includes(action.agentId)) {
-          steps.push({ iteration, action: 'org_rejected', agentId: action.agentId, timestamp: new Date().toISOString() });
+        // SECURITY: Enforce team boundaries — reject agents not in this manager's team
+        const teamAgents = managerConfig.team || managerConfig.org || [];
+        if (!teamAgents.includes(action.agentId)) {
+          steps.push({ iteration, action: 'team_rejected', agentId: action.agentId, timestamp: new Date().toISOString() });
           this._persistSteps(runId, steps);
-          context += `\n\n## Rejected: Agent "${action.agentId}" is not in your organization. Available agents: ${orgAgents.join(', ')}`;
-          currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## Next Step\nThe agent you requested is not authorized. Use only agents in your org: ${orgAgents.join(', ')}. What should you do next?`;
+          context += `\n\n## Rejected: Agent "${action.agentId}" is not in your team. Available agents: ${teamAgents.join(', ')}`;
+          currentPrompt = `${systemPrompt}\n\n## User Request\n${userPrompt}\n\n## Execution History\n${context}\n\n## Next Step\nThe agent you requested is not authorized. Use only agents in your team: ${teamAgents.join(', ')}. What should you do next?`;
           continue;
         }
 
@@ -492,7 +492,7 @@ class ManagerAgent extends EventEmitter {
     return `You are "${managerConfig.name}", a PURE ORCHESTRATOR.
 ${managerConfig.description || ''}
 
-## Your Organization (Available Agents)
+## Your Team (Available Agents)
 ${agentList}
 
 ## ABSOLUTE RULES — VIOLATION OF THESE IS A CRITICAL FAILURE
@@ -637,13 +637,13 @@ ${loadResponseFormat()}`;
   }
 
   /**
-   * Get details about agents in a manager's org
+   * Get details about agents in a manager's team
    */
   _getOrgAgentDetails(managerId) {
     const entry = this.managers.get(managerId);
     if (!entry) return [];
 
-    return (entry.config.org || []).map(agentId => {
+    return (entry.config.team || entry.config.org || []).map(agentId => {
       const agentEntry = this.supervisor.agents.get(agentId);
       if (agentEntry) {
         // Surface a brief capability description + skills, NOT the agent's saved prompt
@@ -665,16 +665,16 @@ ${loadResponseFormat()}`;
   }
 
   /**
-   * Get available agents not in this manager's org (for REQUEST_AGENT)
+   * Get available agents not in this manager's team (for REQUEST_AGENT)
    */
   getAvailableAgents(managerId) {
     const entry = this.managers.get(managerId);
     if (!entry) return [];
 
-    const orgSet = new Set(entry.config.org || []);
+    const teamSet = new Set(entry.config.team || entry.config.org || []);
     const available = [];
     for (const [id, agentEntry] of this.supervisor.agents) {
-      if (!orgSet.has(id)) {
+      if (!teamSet.has(id)) {
         available.push({ id, name: agentEntry.config.name, group: agentEntry.config.group });
       }
     }
@@ -682,24 +682,26 @@ ${loadResponseFormat()}`;
   }
 
   /**
-   * Add an agent to a manager's org
+   * Add an agent to a manager's team
    */
   addToOrg(managerId, agentId) {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
-    if (!entry.config.org) entry.config.org = [];
-    if (!entry.config.org.includes(agentId)) {
-      entry.config.org.push(agentId);
+    if (!entry.config.team) entry.config.team = entry.config.org || [];
+    delete entry.config.org;
+    if (!entry.config.team.includes(agentId)) {
+      entry.config.team.push(agentId);
     }
   }
 
   /**
-   * Remove an agent from a manager's org
+   * Remove an agent from a manager's team
    */
   removeFromOrg(managerId, agentId) {
     const entry = this.managers.get(managerId);
     if (!entry) throw new Error(`Unknown manager: ${managerId}`);
-    entry.config.org = (entry.config.org || []).filter(id => id !== agentId);
+    entry.config.team = (entry.config.team || entry.config.org || []).filter(id => id !== agentId);
+    delete entry.config.org;
   }
 
   _addMessage(managerId, runId, role, content) {

@@ -146,6 +146,7 @@ class MobileHandler extends EventEmitter {
 
     switch (type) {
       case 'list-organizations':
+      case 'list-teams':
         return this._listOrganizations(correlationId, replier);
       case 'list-managers':
         return this._listManagers(correlationId, payload, replier);
@@ -193,14 +194,15 @@ class MobileHandler extends EventEmitter {
     }
   }
 
-  // --- Organization scoping ---
-  // Mirrors the SPA's org model: employees (agents/managers) belong to an org via
-  // organizations.json memberIds; operations (assignments/flows) carry their own
-  // orgId. An orgId of null/'all' (or absent) means company-wide — no filtering.
+  // --- Team scoping ---
+  // Mirrors the SPA's team model: employees (agents/managers) belong to a team via
+  // teams.json memberIds; operations (assignments/flows) carry their own
+  // teamId. A teamId of null/'all' (or absent) means office-wide — no filtering.
 
-  _loadOrganizations() {
+  _loadTeams() {
     try {
-      const p = path.join(__dirname, 'organizations.json');
+      let p = path.join(__dirname, 'teams.json');
+      if (!fs.existsSync(p)) p = path.join(__dirname, 'organizations.json');
       if (!fs.existsSync(p)) return [];
       const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
       return Array.isArray(data) ? data : [];
@@ -209,34 +211,41 @@ class MobileHandler extends EventEmitter {
     }
   }
 
-  // Returns a Set of employee ids in the org, or null for "all" (no filtering).
-  // A real-but-unknown orgId yields an empty Set (hide all), matching the SPA,
-  // where currentOrg() not found => idInCurrentOrg() false for everything.
-  _orgMemberIds(orgId) {
-    if (!orgId || orgId === 'all') return null;
-    const org = this._loadOrganizations().find(o => o.id === orgId);
-    return new Set((org && Array.isArray(org.memberIds)) ? org.memberIds : []);
+  // Accept both the new `teamId` and legacy `orgId` from mobile payloads.
+  _payloadTeamId(payload) {
+    if (!payload) return undefined;
+    return payload.teamId !== undefined ? payload.teamId : payload.orgId;
   }
 
-  // Org gate for an employee id (agent/manager). memberIds null => company-wide.
+  // Returns a Set of employee ids in the team, or null for "all" (no filtering).
+  // A real-but-unknown teamId yields an empty Set (hide all), matching the SPA,
+  // where currentTeam() not found => idInCurrentTeam() false for everything.
+  _orgMemberIds(teamId) {
+    if (!teamId || teamId === 'all') return null;
+    const team = this._loadTeams().find(o => o.id === teamId);
+    return new Set((team && Array.isArray(team.memberIds)) ? team.memberIds : []);
+  }
+
+  // Team gate for an employee id (agent/manager). memberIds null => office-wide.
   _idInOrg(memberIds, id) {
     return !memberIds || memberIds.has(id);
   }
 
-  // Org gate for an operation that carries its own orgId (assignment/flow).
+  // Team gate for an operation that carries its own teamId (assignment/flow).
   // Under "all" (memberIds null) everything shows; otherwise only ops stamped
-  // with this org. Legacy ops without an orgId are hidden under a specific org.
-  _opInOrg(memberIds, orgId, opOrgId) {
+  // with this team. Legacy ops without a teamId are hidden under a specific team.
+  _opInOrg(memberIds, teamId, opTeamId) {
     if (!memberIds) return true;
-    return !!opOrgId && opOrgId === orgId;
+    return !!opTeamId && opTeamId === teamId;
   }
 
-  // Org gate for a flow/chain. Honors an explicit chain.orgId if present
+  // Team gate for a flow/chain. Honors an explicit chain.teamId if present
   // (operation-level), otherwise falls back to referenced-agent membership
-  // (mirrors SPA flowInCurrentOrg using step taskIds).
-  _chainInOrg(memberIds, orgId, chain) {
+  // (mirrors SPA flowInCurrentTeam using step taskIds).
+  _chainInOrg(memberIds, teamId, chain) {
     if (!memberIds) return true;
-    if (chain && chain.orgId) return chain.orgId === orgId;
+    const chainTeam = chain && (chain.teamId !== undefined ? chain.teamId : chain.orgId);
+    if (chain && chainTeam) return chainTeam === teamId;
     const refs = (chain && Array.isArray(chain.steps) ? chain.steps : [])
       .map(s => s.taskId).filter(Boolean);
     if (!refs.length) return false;
@@ -244,7 +253,7 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listOrganizations(correlationId, replier) {
-    const organizations = this._loadOrganizations().map(o => ({
+    const teams = this._loadTeams().map(o => ({
       id: o.id,
       name: o.name || o.id,
       emoji: o.emoji || '🏢',
@@ -253,14 +262,14 @@ class MobileHandler extends EventEmitter {
       description: o.description || '',
       memberCount: Array.isArray(o.memberIds) ? o.memberIds.length : 0,
     }));
-    await replier(correlationId, { type: 'result', payload: { organizations } });
+    await replier(correlationId, { type: 'result', payload: { teams, organizations: teams } });
     return true;
   }
 
   // --- List Handlers ---
 
   async _listManagers(correlationId, payload, replier) {
-    const memberIds = this._orgMemberIds(payload && payload.orgId);
+    const memberIds = this._orgMemberIds(this._payloadTeamId(payload));
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
     
@@ -289,7 +298,7 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listAgents(correlationId, payload, replier) {
-    const memberIds = this._orgMemberIds(payload && payload.orgId);
+    const memberIds = this._orgMemberIds(this._payloadTeamId(payload));
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
     
@@ -316,7 +325,7 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listAssignments(correlationId, payload, replier) {
-    const orgId = payload && payload.orgId;
+    const orgId = this._payloadTeamId(payload);
     const memberIds = this._orgMemberIds(orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
@@ -330,8 +339,8 @@ class MobileHandler extends EventEmitter {
         const assignmentKey = `${managerId}/${assignment.id}`;
         // Include if the whole manager is connected, or this specific assignment is connected
         if (!managerConnected && !connectedAssignmentIds.has(assignmentKey)) continue;
-        // Org scope: assignments carry their own orgId (operation-level scoping).
-        if (!this._opInOrg(memberIds, orgId, assignment.orgId)) continue;
+        // Team scope: assignments carry their own teamId (operation-level scoping).
+        if (!this._opInOrg(memberIds, orgId, (assignment.teamId !== undefined ? assignment.teamId : assignment.orgId))) continue;
         const lastRun = this._getLastAssignmentRun(managerId, assignment.id);
         assignments.push({
           id: assignmentKey,
@@ -355,7 +364,7 @@ class MobileHandler extends EventEmitter {
 
   async _listTasks(correlationId, payload, replier) {
     // Tasks are connected agents that can be run on-demand
-    const memberIds = this._orgMemberIds(payload && payload.orgId);
+    const memberIds = this._orgMemberIds(this._payloadTeamId(payload));
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedAgentIds = new Set(connectedAssets.filter(a => a.type === 'agent').map(a => a.id));
     
@@ -873,10 +882,10 @@ class MobileHandler extends EventEmitter {
   }
 
   async _listChats(correlationId, sessionId, payload, replier) {
-    const memberIds = this._orgMemberIds(payload && payload.orgId);
+    const memberIds = this._orgMemberIds(this._payloadTeamId(payload));
     const chats = [];
     for (const [key, session] of this.chatSessions) {
-      // Org scope: chats are gated by whether their target employee is in the org.
+      // Team scope: chats are gated by whether their target employee is in the team.
       if (!this._idInOrg(memberIds, session.target)) continue;
       // Only return chats for this session or all if no session filter
       const lastMsg = session.messages[session.messages.length - 1];
@@ -908,7 +917,8 @@ class MobileHandler extends EventEmitter {
   // --- Activity Handler ---
 
   async _getActivity(correlationId, payload, replier) {
-    const { limit = 50, offset = 0, status: filterStatus, orgId } = payload || {};
+    const { limit = 50, offset = 0, status: filterStatus } = payload || {};
+    const orgId = this._payloadTeamId(payload);
     
     if (!this.db) {
       await replier(correlationId, { type: 'result', payload: { activity: [], total: 0 } });
@@ -1062,7 +1072,7 @@ class MobileHandler extends EventEmitter {
   }
 
   async _getStatus(correlationId, payload, replier) {
-    const orgId = payload && payload.orgId;
+    const orgId = this._payloadTeamId(payload);
     const memberIds = this._orgMemberIds(orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedManagerIds = new Set(connectedAssets.filter(a => a.type === 'manager').map(a => a.id));
@@ -1084,7 +1094,7 @@ class MobileHandler extends EventEmitter {
     let assignmentCount = 0;
     for (const [, entry] of this.managerAgent.managers) {
       for (const a of (entry.config.assignments || [])) {
-        if (this._opInOrg(memberIds, orgId, a.orgId)) assignmentCount++;
+        if (this._opInOrg(memberIds, orgId, (a.teamId !== undefined ? a.teamId : a.orgId))) assignmentCount++;
       }
     }
 
@@ -1152,7 +1162,7 @@ class MobileHandler extends EventEmitter {
   // --- Chains (DAG of conditionally-triggered tasks) ---
 
   async _listChains(correlationId, payload, replier) {
-    const orgId = payload && payload.orgId;
+    const orgId = this._payloadTeamId(payload);
     const memberIds = this._orgMemberIds(orgId);
     const connectedAssets = this.eventListener?.config?.connectedAssets || [];
     const connectedChainIds = new Set(connectedAssets.filter(a => a.type === 'chain').map(a => a.id));
