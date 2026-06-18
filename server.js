@@ -3344,25 +3344,31 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
-  // Write a temp batch file with error diagnostics
+  // NOTE: avoid parenthesized cmd blocks like `if exist "x" ( ... )` / `|| ( ... )`.
+  // cmd expands %PATH% while parsing the whole block, and PATH entries that
+  // contain ")" (e.g. "C:\Program Files (x86)\...") prematurely close the block,
+  // producing errors such as "\Microsoft was unexpected at this time." Use goto
+  // labels instead so each statement is parsed independently.
   const batContent = [
     '@echo off',
-    `if not exist "${cwd}" (`,
-    `  echo ERROR: Working directory not found: ${cwd}`,
-    '  pause',
-    '  exit /b 1',
-    ')',
+    `if not exist "${cwd}" goto nodir`,
     `cd /d "${cwd}"`,
-    `where "${copilotCmd}" >nul 2>&1 || (`,
-    `  echo ERROR: copilot not found in PATH`,
-    '  echo PATH=%PATH%',
-    '  pause',
-    '  exit /b 1',
-    ')',
+    `where "${copilotCmd}" >nul 2>&1`,
+    'if errorlevel 1 goto nocopilot',
     `"${copilotCmd}" --resume=${req.params.id} --yolo`,
-    'pause'
-  ].join('\n');
-  const batPath = path.join(__dirname, 'temp-terminal.bat');
+    'pause',
+    'exit /b 0',
+    ':nodir',
+    `echo ERROR: Working directory not found: ${cwd}`,
+    'pause',
+    'exit /b 1',
+    ':nocopilot',
+    'echo ERROR: copilot not found in PATH',
+    'echo PATH=%PATH%',
+    'pause',
+    'exit /b 1',
+  ].join('\r\n');
+  const batPath = path.join(__dirname, `temp-terminal-${req.params.id}.bat`);
   fs.writeFileSync(batPath, batContent);
   exec(`start "Copilot Session" "${batPath}"`);
   res.json({ ok: true });
@@ -3375,24 +3381,27 @@ app.post('/api/terminal/open', (req, res) => {
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
   const { exec } = require('child_process');
+  // See note above: no parenthesized cmd blocks (PATH may contain ")" ).
   const batContent = [
     '@echo off',
-    `if not exist "${cwd}" (`,
-    `  echo ERROR: Working directory not found: ${cwd}`,
-    '  pause',
-    '  exit /b 1',
-    ')',
+    `if not exist "${cwd}" goto nodir`,
     `cd /d "${cwd}"`,
-    `where "${copilotCmd}" >nul 2>&1 || (`,
-    `  echo ERROR: copilot not found in PATH`,
-    '  echo PATH=%PATH%',
-    '  pause',
-    '  exit /b 1',
-    ')',
+    `where "${copilotCmd}" >nul 2>&1`,
+    'if errorlevel 1 goto nocopilot',
     `"${copilotCmd}" --yolo`,
-    'pause'
-  ].join('\n');
-  const batPath = path.join(__dirname, 'temp-terminal.bat');
+    'pause',
+    'exit /b 0',
+    ':nodir',
+    `echo ERROR: Working directory not found: ${cwd}`,
+    'pause',
+    'exit /b 1',
+    ':nocopilot',
+    'echo ERROR: copilot not found in PATH',
+    'echo PATH=%PATH%',
+    'pause',
+    'exit /b 1',
+  ].join('\r\n');
+  const batPath = path.join(__dirname, `temp-terminal-${Date.now().toString(36)}.bat`);
   fs.writeFileSync(batPath, batContent);
   exec(`start "Copilot Session" "${batPath}"`);
   res.json({ ok: true });
