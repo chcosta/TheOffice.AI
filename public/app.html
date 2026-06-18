@@ -14397,7 +14397,11 @@
           try {
             let runs = [];
             if (task.type === 'agent') {
-              runs = await this.request(`/api/agents/${encodeURIComponent(task.agentId)}/history?limit=5`);
+              // An agent can back multiple tasks (plus ad-hoc/chat runs), so the
+              // agent history is not task-scoped. Filter to runs stamped with this
+              // task's id (agent_runs.task_id) so the list reflects only this task.
+              const all = await this.request(`/api/agents/${encodeURIComponent(task.agentId)}/history?limit=50`);
+              runs = (all || []).filter(r => r.task_id === task.id).slice(0, 10);
             } else if (task.type === 'assignment') {
               const allRuns = await this.request(`/api/managers/${encodeURIComponent(task.managerId)}/history?limit=10`);
               // Filter to runs for this assignment
