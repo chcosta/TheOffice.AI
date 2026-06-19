@@ -7023,11 +7023,30 @@
               <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
                 <button class="btn ghost" type="button" @click="mkt.addCap.entry = null">Cancel</button>
                 <button class="btn primary" type="button" @click="confirmAddCap()" :disabled="!mkt.addCap.agentId || mkt.busy">Add</button>
+          </div>
+
+          <!-- Assign installed item to a team -->
+          <div class="modal-overlay" x-show="mkt.assignTeam.agentId" x-transition.opacity @click.self="mktSkipAssignTeam()" style="display:flex">
+            <div class="modal" style="max-width:460px">
+              <h3 x-text="'Assign ' + (mkt.assignTeam.kind || 'agent') + ' to a team'"></h3>
+              <p class="hint" style="margin-top:6px"><strong x-text="mkt.assignTeam.agentName"></strong> was installed. Assign it to a team so it appears in that team's Employees &amp; Agents — otherwise it only shows under <em>All teams</em>.</p>
+              <div class="form-row" style="margin-top:14px">
+                <label>Team</label>
+                <select x-model="mkt.assignTeam.teamId">
+                  <option value="">No team (All teams only)</option>
+                  <template x-for="o in (data.teams || [])" :key="o.id">
+                    <option :value="o.id" x-text="(o.emoji || '🏢') + ' ' + o.name"></option>
+                  </template>
+                </select>
+              </div>
+              <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
+                <button class="btn ghost" type="button" @click="mktSkipAssignTeam()">Skip</button>
+                <button class="btn primary" type="button" @click="mktConfirmAssignTeam()" :disabled="!mkt.assignTeam.teamId || mkt.busy">Assign</button>
               </div>
             </div>
           </div>
 
-          <!-- Activity -->
+
           <section x-show="!loading && !errorMessage && route === 'activity'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -8820,6 +8839,7 @@
           scanning: {},
           syncing: false,
           addCap: { entry: null, agentId: '' },
+          assignTeam: { agentId: '', agentName: '', kind: '', teamId: '' },
           tab: 'browse',
           autoPopulated: false,
           design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], inited: false, capCatalog: [] },
@@ -16577,13 +16597,44 @@
           this.mkt.busy = true;
           try {
             const r = await this.request('/api/marketplace/install', { method: 'POST', body: JSON.stringify({ entryId: entry.id }) });
-            this.showToast('Installed', `${r.agent ? r.agent.name : entry.name} is ready.`, 'info');
+            const inst = r.agent || null;
+            this.showToast('Installed', `${inst ? inst.name : entry.name} is ready.`, 'info');
             await this.refreshAll(false);
+            // Offer to place the new agent/plugin on a team so it shows up in the
+            // team-scoped Employees & Agents view (otherwise it only appears under
+            // "All teams"). Preselect the team currently in scope, if any.
+            if (inst && inst.id && (this.data.teams || []).length) {
+              this.mkt.assignTeam = {
+                agentId: inst.id,
+                agentName: inst.name || entry.displayName || entry.name || 'Agent',
+                kind: entry.type === 'plugin' ? 'plugin' : 'agent',
+                teamId: (this.currentTeamId && this.currentTeamId !== 'all') ? this.currentTeamId : ''
+              };
+            }
           } catch (e) {
             this.showToast('Install failed', e.message || 'Install failed', 'error');
           } finally {
             this.mkt.busy = false;
           }
+        },
+        async mktConfirmAssignTeam() {
+          const { agentId, agentName, teamId } = this.mkt.assignTeam;
+          if (!agentId || !teamId) return;
+          this.mkt.busy = true;
+          try {
+            await this.request('/api/teams/' + encodeURIComponent(teamId) + '/members', { method: 'POST', body: JSON.stringify({ employeeId: agentId }) });
+            const org = (this.data.teams || []).find(o => o.id === teamId);
+            this.showToast('Assigned', `${agentName} added to ${org ? org.name : 'team'}.`, 'info');
+            this.mkt.assignTeam = { agentId: '', agentName: '', kind: '', teamId: '' };
+            await this.refreshAll(false);
+          } catch (e) {
+            this.showToast('Assign failed', e.message || 'Could not assign to team', 'error');
+          } finally {
+            this.mkt.busy = false;
+          }
+        },
+        mktSkipAssignTeam() {
+          this.mkt.assignTeam = { agentId: '', agentName: '', kind: '', teamId: '' };
         },
         openAddCap(entry) {
           this.mkt.addCap = { entry, agentId: '' };
