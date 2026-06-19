@@ -4580,7 +4580,7 @@
                                         </div>
                                         <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
                                           <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
-                                          <button class="icon-button" type="button" x-show="boardPinHasDetail(item)" :title="boardPinIsExpanded(item) ? 'Collapse latest' : (item.kind === 'chat' ? 'Show latest message' : 'Show latest run')" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
+                                          <button class="icon-button" type="button" x-show="boardPinHasDetail(item)" :title="boardPinIsExpanded(item) ? 'Collapse' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="icon-button" type="button" title="Move up" @click.stop="movePin(item, -1)">▲</button>
                                           <button class="icon-button" type="button" title="Move down" @click.stop="movePin(item, 1)">▼</button>
                                           <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
@@ -4690,6 +4690,21 @@
                                                 </div>
                                               </template>
                                               <div class="hint" x-show="!boardPinChatLast(item)" x-text="boardChatCache[item.refId] ? 'No messages yet.' : 'Loading…'"></div>
+                                            </div>
+                                          </template>
+                                          <!-- Comment: the pinned chat message, shown in full. -->
+                                          <template x-if="item.kind === 'comment'">
+                                            <div>
+                                              <template x-if="boardPinCommentMsg(item)">
+                                                <div>
+                                                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                                                    <span class="hint" x-text="(boardPinCommentMsg(item).role === 'assistant' ? '🤖 ' : '🧑 ') + (boardPinCommentMsg(item).timestamp ? formatRelative(boardPinCommentMsg(item).timestamp) : '')"></span>
+                                                    <button class="btn ghost" style="font-size:0.7rem;margin-left:auto" type="button" title="Refresh" @click.stop="boardPinLoadDetail(item)">↻</button>
+                                                  </div>
+                                                  <div class="md-output" x-html="renderMarkdown(boardPinCommentMsg(item).content || '(no content)')"></div>
+                                                </div>
+                                              </template>
+                                              <div class="hint" x-show="!boardPinCommentMsg(item)" x-text="boardChatCache[_commentChatId(item.refId)] ? 'Message not found.' : 'Loading…'"></div>
                                             </div>
                                           </template>
                                         </div>
@@ -12612,7 +12627,7 @@
         // Which pin kinds can show their last run/output (with steps & reasoning) or,
         // for chats, their most recent message right on the board card.
         boardPinHasDetail(item) {
-          return !!item && ['task', 'assignment', 'flow', 'chat'].includes(item.kind);
+          return !!item && ['task', 'assignment', 'flow', 'chat', 'comment'].includes(item.kind);
         },
         // Expanded by default; collapsed only if the user collapsed this pin before.
         boardPinIsExpanded(item) {
@@ -12641,6 +12656,8 @@
             if (this.chainRuns[item.refId] === undefined) this.boardPinLoadDetail(item);
           } else if (item.kind === 'chat') {
             if (this.boardChatCache[item.refId] === undefined) this.boardPinLoadDetail(item);
+          } else if (item.kind === 'comment') {
+            if (this.boardChatCache[this._commentChatId(item.refId)] === undefined) this.boardPinLoadDetail(item);
           }
         },
         // Lazy-load the latest run/message for a pin, reusing the same data paths the
@@ -12659,10 +12676,15 @@
             } else if (item.kind === 'chat') {
               const chat = await this.request('/api/chats/' + encodeURIComponent(item.refId));
               this.boardChatCache = { ...this.boardChatCache, [item.refId]: chat || { messages: [] } };
+            } else if (item.kind === 'comment') {
+              const chatId = this._commentChatId(item.refId);
+              const chat = await this.request('/api/chats/' + encodeURIComponent(chatId));
+              this.boardChatCache = { ...this.boardChatCache, [chatId]: chat || { messages: [] } };
             }
           } catch (e) {
             // Mark as loaded-but-empty so the panel shows a message instead of spinning.
             if (item.kind === 'chat') this.boardChatCache = { ...this.boardChatCache, [item.refId]: { messages: [] } };
+            else if (item.kind === 'comment') this.boardChatCache = { ...this.boardChatCache, [this._commentChatId(item.refId)]: { messages: [] } };
             else if (item.kind === 'task' || item.kind === 'assignment') this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
           }
           // New content changes the panel's height — re-fit so the card grows/shrinks.
@@ -12682,6 +12704,19 @@
           const msgs = (chat && chat.messages) || [];
           if (!msgs.length) return null;
           for (let i = msgs.length - 1; i >= 0; i--) { if (msgs[i].role === 'assistant') return msgs[i]; }
+          return msgs[msgs.length - 1];
+        },
+        // The exact pinned message for a 'comment' pin (refId = chatId~timestamp),
+        // resolved live from the chat so the full text is always shown (not the 80-char
+        // snippet stored as the label). Falls back to the latest message.
+        boardPinCommentMsg(item) {
+          if (!item) return null;
+          const chatId = this._commentChatId(item.refId);
+          const stamp = this._commentStamp(item.refId);
+          const chat = this.boardChatCache[chatId];
+          const msgs = (chat && chat.messages) || [];
+          if (!msgs.length) return null;
+          if (stamp) { const m = msgs.find(x => String(x.timestamp) === String(stamp)); if (m) return m; }
           return msgs[msgs.length - 1];
         },
         // ----- Phase 3: checklist items that reference / run a board pin -----
