@@ -323,6 +323,53 @@
     }
     .topbar > .org-switcher { justify-self: center; }
     .topbar > .search-trigger { justify-self: end; }
+    /* ===== Starred-boards quick launch bar (under the topbar) ===== */
+    .quick-launch {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 20px;
+      border-bottom: 1px solid var(--cp-border);
+      background: color-mix(in srgb, var(--cp-bg-elevated) 88%, transparent);
+      backdrop-filter: blur(14px);
+      position: sticky; top: 0; z-index: 19;
+      overflow-x: auto; scrollbar-width: thin;
+    }
+    .quick-launch::-webkit-scrollbar { height: 6px; }
+    .quick-launch::-webkit-scrollbar-thumb { background: var(--cp-border); border-radius: 999px; }
+    .quick-launch-label {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
+      color: var(--cp-text-soft); flex: 0 0 auto; padding-right: 2px;
+    }
+    .ql-chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      flex: 0 0 auto; max-width: 240px;
+      padding: 5px 11px 5px 10px;
+      border: 1px solid var(--cp-border); border-radius: 999px;
+      background: var(--cp-surface); color: var(--cp-text);
+      cursor: pointer; font-size: 12.5px; font-weight: 500;
+      transition: border-color .14s ease, background .14s ease, color .14s ease;
+    }
+    .ql-chip:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
+    .ql-chip.active { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .ql-chip .ql-emoji { font-size: 14px; line-height: 1; flex: 0 0 auto; }
+    .ql-chip .ql-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ql-chip .ql-attn {
+      flex: 0 0 auto; min-width: 16px; height: 16px; padding: 0 4px;
+      display: inline-grid; place-items: center;
+      font-size: 10px; font-weight: 700; line-height: 1;
+      border-radius: 999px; background: var(--cp-danger); color: #fff;
+    }
+    .ql-unstar {
+      flex: 0 0 auto; width: 18px; height: 18px;
+      display: inline-grid; place-items: center;
+      border: none; background: transparent; color: var(--cp-text-soft);
+      cursor: pointer; border-radius: 5px; font-size: 11px; opacity: 0;
+      transition: opacity .12s ease, color .12s ease, background .12s ease;
+    }
+    .ql-chip:hover .ql-unstar { opacity: .8; }
+    .ql-unstar:hover { color: var(--cp-warning); background: var(--cp-highlight); opacity: 1; }
+    .board-star-btn { color: var(--cp-text-muted); }
+    .board-star-btn.starred { color: var(--cp-warning); border-color: color-mix(in srgb, var(--cp-warning) 45%, transparent); }
     /* ===== Organization switcher (topbar) ===== */
     .org-switcher { position: relative; }
     .org-switcher-btn {
@@ -2685,6 +2732,20 @@
       </button>
     </header>
 
+    <!-- Starred boards quick launch: appears directly under the teams selector. -->
+    <nav class="quick-launch" x-show="starredBoards().length" x-cloak aria-label="Starred boards">
+      <span class="quick-launch-label">★ Boards</span>
+      <template x-for="b in starredBoards()" :key="b.id">
+        <button type="button" class="ql-chip"
+          :class="{ active: route === 'boards' && activeBoardId === b.id }"
+          @click="quickLaunchBoard(b.id)" :title="b.name + ' · ' + boardOrgLabel(b)">
+          <span class="ql-emoji" x-text="b.emoji || '📌'"></span>
+          <span class="ql-name" x-text="b.name"></span>
+          <span class="ql-unstar" title="Unstar" @click.stop="toggleBoardStar(b)">✕</span>
+        </button>
+      </template>
+    </nav>
+
     <div class="body-grid">
       <!-- Mobile nav toggle + overlay -->
       <div class="mobile-overlay" x-show="mobileNavOpen" @click="mobileNavOpen = false" x-transition.opacity></div>
@@ -4583,7 +4644,7 @@
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
                   <template x-for="b in visibleBoards()" :key="b.id">
                     <button type="button" class="pill" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)" :style="b.archived ? 'opacity:0.6' : ''">
-                      <span x-text="(b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
+                      <span x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
                       <span class="hint" style="margin-left:6px;opacity:0.7" x-text="'· ' + boardOrgLabel(b)"></span>
                     </button>
                   </template>
@@ -4603,6 +4664,7 @@
                         </div>
                       </div>
                       <div class="toolbar">
+                        <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
@@ -12777,6 +12839,30 @@
             if (cur === 'all') return true;
             return !b.teamId || b.teamId === cur;
           }).length;
+        },
+        // ---- Starred boards / quick launch ----
+        starredBoards() {
+          return (this.boards || []).filter(b => b.starred && !b.archived);
+        },
+        async toggleBoardStar(board) {
+          if (!board) return;
+          const next = !board.starred;
+          board.starred = next; // optimistic
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id), {
+              method: 'PUT', body: JSON.stringify({ starred: next })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+          } catch (e) {
+            board.starred = !next; // revert
+            this.showToast('Board', e.message, 'error');
+          }
+        },
+        // Jump to a starred board from anywhere via the quick launch bar.
+        quickLaunchBoard(boardId) {
+          this.insightGoToBoard(boardId);
         },
         async setBoardArchived(board, archived) {
           if (!board) return;

@@ -5018,6 +5018,7 @@ function _normalizeBoard(b) {
     summary: (b.summary && typeof b.summary === 'object' && !Array.isArray(b.summary)) ? b.summary : null,
     archived: !!b.archived,
     enabled: b.enabled !== false,
+    starred: !!b.starred,
     autoWidth: b.autoWidth !== false,
     lastViewedAt: b.lastViewedAt || null,
     createdAt: b.createdAt || new Date().toISOString(),
@@ -5061,7 +5062,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, starred } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
@@ -5072,6 +5073,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   if (archived !== undefined) b.archived = !!archived;
   if (enabled !== undefined) b.enabled = !!enabled;
+  if (starred !== undefined) b.starred = !!starred;
   if (autoWidth !== undefined) b.autoWidth = !!autoWidth;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
