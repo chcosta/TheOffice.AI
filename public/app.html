@@ -5126,7 +5126,7 @@
 
             <!-- Insight editor modal -->
             <div class="modal-backdrop" x-show="insightEditorOpen" x-transition.opacity style="display:flex" @click.self="insightEditorOpen=false">
-              <div class="modal" style="max-width:560px">
+              <div class="modal-card" style="max-width:560px">
                 <div class="modal-header">
                   <h2 x-text="insightEditor.id ? 'Edit insight' : 'New insight'"></h2>
                   <button class="icon-btn" type="button" @click="insightEditorOpen=false">✕</button>
@@ -5185,7 +5185,7 @@
 
             <!-- Design with AI: suggested insights with reasoning -->
             <div class="modal-backdrop" x-show="insightSuggestOpen" x-transition.opacity style="display:flex" @click.self="insightSuggestOpen=false">
-              <div class="modal" style="max-width:640px">
+              <div class="modal-card" style="max-width:640px">
                 <div class="modal-header">
                   <h2>✨ Design insights with AI</h2>
                   <button class="icon-btn" type="button" @click="insightSuggestOpen=false">✕</button>
