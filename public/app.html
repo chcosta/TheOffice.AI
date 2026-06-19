@@ -6713,7 +6713,10 @@
               <template x-if="mkt.addForm.kind === 'local'">
                 <div class="form-row">
                   <label>Folder path</label>
-                  <input type="text" x-model="mkt.addForm.path" placeholder="C:\repos\my-agents" @keydown.enter="addMarketplaceSource()">
+                  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px">
+                    <input type="text" x-model="mkt.addForm.path" placeholder="C:\repos\my-agents" @keydown.enter="addMarketplaceSource()">
+                    <button class="btn" type="button" @click="mktBrowseFolder()" :disabled="mkt.addForm.browsing" title="Browse for folder" x-text="mkt.addForm.browsing ? 'Opening…' : '📁 Browse'"></button>
+                  </div>
                 </div>
               </template>
               <template x-if="mkt.addForm.kind === 'azdo'">
@@ -8813,7 +8816,7 @@
           q: '',
           activeSourceId: null,
           showAddForm: false,
-          addForm: { kind: 'local', path: '', org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false },
+          addForm: { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false },
           scanning: {},
           syncing: false,
           addCap: { entry: null, agentId: '' },
@@ -16527,13 +16530,28 @@
               : { kind: 'azdo', org: f.org, project: f.project, repo: f.repo, branch: f.branch };
             const r = await this.request('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(body) });
             this.mkt.showAddForm = false;
-            this.mkt.addForm = { kind: 'local', path: '', org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false };
+            this.mkt.addForm = { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false };
             await this.loadMarketplace();
             if (r.source) await this.scanMarketplaceSource(r.source.id);
           } catch (e) {
             this.mkt.error = e.message || 'Failed to add source';
           } finally {
             this.mkt.busy = false;
+          }
+        },
+        // Open the OS-native folder picker (server-side Windows dialog) and fill
+        // the path field with the chosen absolute path.
+        async mktBrowseFolder() {
+          if (this.mkt.addForm.browsing) return;
+          this.mkt.addForm.browsing = true;
+          this.mkt.error = '';
+          try {
+            const r = await this.request('/api/browse-folder', { method: 'POST' });
+            if (r && r.folder) this.mkt.addForm.path = r.folder;
+          } catch (e) {
+            this.mkt.error = e.message || 'Could not open folder picker';
+          } finally {
+            this.mkt.addForm.browsing = false;
           }
         },
         async scanMarketplaceSource(id) {
