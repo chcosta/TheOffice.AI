@@ -4497,7 +4497,7 @@
                                       </div>
                                       <!-- Latest run / message reveal (steps & reasoning when present). -->
                                       <template x-if="boardPinHasDetail(item) && boardPinIsExpanded(item)">
-                                        <div class="board-pin-detail" @click.stop x-init="boardPinEnsureDetail(item)" style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
+                                        <div class="board-pin-detail" @click.stop x-init="boardPinEnsureDetail(item); $el.addEventListener('toggle', () => scheduleAutoFit(), true)" style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
                                           <!-- Task / assignment: most recent run output + reasoning. -->
                                           <template x-if="item.kind === 'task' || item.kind === 'assignment'">
                                             <div>
@@ -4548,7 +4548,7 @@
                                                   <div class="run-list">
                                                     <template x-for="(node, sid) in (chainRunState[item.refId].nodes || {})" :key="'bpn-' + item.id + '-' + sid">
                                                       <div class="run-item" style="padding:0;flex-direction:column;align-items:stretch">
-                                                        <div style="padding:6px 10px;display:flex;align-items:center;gap:8px;cursor:pointer" @click.stop="toggleChainNode(item.refId, sid)">
+                                                        <div style="padding:6px 10px;display:flex;align-items:center;gap:8px;cursor:pointer" @click.stop="toggleChainNode(item.refId, sid); scheduleAutoFit()">
                                                           <span class="hint" x-text="expandedChainNodes[item.refId + '/' + sid] ? '▾' : '▸'"></span>
                                                           <span class="status-badge" style="font-size:0.68rem" :class="statusClass(node.status)" x-text="node.status"></span>
                                                           <span x-text="node.taskName || sid"></span>
