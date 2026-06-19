@@ -4843,9 +4843,12 @@
                               <!-- Notes -->
                               <template x-if="p.type === 'notes'">
                                 <div>
-                                  <div style="display:flex;gap:6px;margin-bottom:10px">
-                                    <input class="field-input" type="text" x-model="boardNoteDraft" placeholder="Add a note…" @keydown.enter="addBoardNote()" style="flex:1" />
-                                    <button class="btn" type="button" @click="addBoardNote()">Add</button>
+                                  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+                                    <textarea class="field-input" rows="2" x-model="boardNoteDraft" placeholder="Add a note… (Markdown supported — **bold**, lists, # headings, links)" style="resize:vertical;min-height:42px" @keydown.enter="if($event.ctrlKey || $event.metaKey){ $event.preventDefault(); addBoardNote(); }"></textarea>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                                      <span class="hint" style="font-size:11px;opacity:.75">Markdown supported · ⌘/Ctrl+Enter to add</span>
+                                      <button class="btn" type="button" @click="addBoardNote()" :disabled="!boardNoteDraft.trim()">Add</button>
+                                    </div>
                                   </div>
                                   <div x-show="!(activeBoard().notes||[]).length" class="hint">No notes.</div>
                                   <div style="display:flex;flex-direction:column;gap:8px">
