@@ -6500,23 +6500,36 @@
             <!-- Default Export Repository Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">⤴ Default Export Repository</h3>
-              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>Export to AzDO</strong> dialog with this Azure DevOps target. When set, opening Export auto-connects and preselects the repo &amp; branch — you can still override per-export.</p>
+              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>Export to AzDO</strong> dialog with this Azure DevOps target. Enter the org &amp; project, click <strong>Connect</strong>, then pick the repository &amp; branch. When set, opening Export auto-connects and preselects them — you can still override per-export.</p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px">
                 <div>
                   <label class="field-label">Organization</label>
-                  <input class="field-input" type="text" x-model="exportSettings.exportOrg" placeholder="e.g. dnceng" @change="saveExportSettings()" />
+                  <input class="field-input" type="text" x-model="exportSettings.exportOrg" placeholder="e.g. dnceng" @keydown.enter.prevent="expSettingsLoadRepos()" @change="onExportOrgProjectChange()" />
                 </div>
                 <div>
                   <label class="field-label">Project</label>
-                  <input class="field-input" type="text" x-model="exportSettings.exportProject" placeholder="e.g. internal" @change="saveExportSettings()" />
+                  <input class="field-input" type="text" x-model="exportSettings.exportProject" placeholder="e.g. internal" @keydown.enter.prevent="expSettingsLoadRepos()" @change="onExportOrgProjectChange()" />
                 </div>
+              </div>
+              <div class="toolbar" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+                <button class="btn" type="button" :disabled="exportSettingsLoadingRepos || !exportSettings.exportOrg.trim() || !exportSettings.exportProject.trim()" @click="expSettingsLoadRepos()" x-text="exportSettingsLoadingRepos ? 'Connecting…' : 'Connect'"></button>
+                <span class="hint" x-show="exportSettingsError" style="color:var(--cp-danger)" x-text="exportSettingsError"></span>
+                <span class="hint" x-show="!exportSettingsRepos.length && (exportSettings.exportRepo || exportSettings.exportBranch)" x-text="'Saved: ' + exportSettings.exportRepo + (exportSettings.exportBranch ? ' @ ' + exportSettings.exportBranch : '') + ' — Connect to change'"></span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px;margin-top:12px" x-show="exportSettingsRepos.length">
                 <div>
                   <label class="field-label">Repository</label>
-                  <input class="field-input" type="text" x-model="exportSettings.exportRepo" placeholder="e.g. dotnet-helix-machines" @change="saveExportSettings()" />
+                  <select class="field-input" x-model="exportSettings.exportRepo" @change="expSettingsRepoChange()">
+                    <option value="">Select repository…</option>
+                    <template x-for="r in exportSettingsRepos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
+                  </select>
                 </div>
                 <div>
                   <label class="field-label">Base branch</label>
-                  <input class="field-input" type="text" x-model="exportSettings.exportBranch" placeholder="e.g. main" @change="saveExportSettings()" />
+                  <select class="field-input" x-model="exportSettings.exportBranch" :disabled="exportSettingsLoadingBranches || !exportSettingsBranches.length" @change="saveExportSettings()">
+                    <option value="" x-text="exportSettingsLoadingBranches ? 'Loading branches…' : 'Select branch…'"></option>
+                    <template x-for="b in exportSettingsBranches" :key="b"><option :value="b" x-text="b"></option></template>
+                  </select>
                 </div>
               </div>
               <p class="hint" x-show="exportSettingsSaved" style="margin-top:12px">✅ Saved.</p>
@@ -8993,6 +9006,11 @@
         modelSettings: { chatModel: '', executionModel: '', systemModel: '' },
         exportSettings: { exportOrg: '', exportProject: '', exportRepo: '', exportBranch: '' },
         exportSettingsSaved: false,
+        exportSettingsRepos: [],
+        exportSettingsBranches: [],
+        exportSettingsLoadingRepos: false,
+        exportSettingsLoadingBranches: false,
+        exportSettingsError: '',
         modelsError: '',
         modelsSaved: false,
         syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '' },
@@ -11345,6 +11363,11 @@
                 exportRepo: s.exportRepo || '',
                 exportBranch: s.exportBranch || ''
               };
+              // Pre-populate the repo/branch pickers when a default org+project exist
+              // so they're immediately editable on revisit (silent: no error toast).
+              if (this.exportSettings.exportOrg.trim() && this.exportSettings.exportProject.trim()) {
+                this.expSettingsLoadRepos(true);
+              }
             }
           } catch {}
         },
@@ -11362,6 +11385,73 @@
             setTimeout(() => { this.exportSettingsSaved = false; }, 2500);
           } catch (err) {
             this.showToast('Settings', 'Could not save export defaults: ' + err.message, 'error');
+          }
+        },
+        // Editing org/project invalidates the picked repo list — reset the pickers
+        // and persist the new org/project values.
+        onExportOrgProjectChange() {
+          this.exportSettingsRepos = [];
+          this.exportSettingsBranches = [];
+          this.exportSettingsError = '';
+          this.saveExportSettings();
+        },
+        // Connect to AzDO and list repositories for the configured org/project.
+        // Preselects the saved repo (and loads its branches) if still present.
+        async expSettingsLoadRepos(silent) {
+          const org = (this.exportSettings.exportOrg || '').trim();
+          const project = (this.exportSettings.exportProject || '').trim();
+          this.exportSettingsError = '';
+          this.exportSettingsRepos = [];
+          this.exportSettingsBranches = [];
+          if (!org || !project) return;
+          this.exportSettingsLoadingRepos = true;
+          try {
+            const data = await this.request(`/api/azdo/repos?org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}`);
+            this.exportSettingsRepos = data.repos || [];
+            if (!this.exportSettingsRepos.length) { if (!silent) this.exportSettingsError = 'No repositories found (or no access).'; return; }
+            if (this.exportSettings.exportRepo && this.exportSettingsRepos.some(r => r.name === this.exportSettings.exportRepo)) {
+              await this.expSettingsLoadBranches(true);
+            } else {
+              this.exportSettings.exportRepo = '';
+              this.exportSettings.exportBranch = '';
+            }
+          } catch (err) {
+            if (!silent) this.exportSettingsError = err.message || 'Could not list repositories';
+          } finally {
+            this.exportSettingsLoadingRepos = false;
+          }
+        },
+        // Repo selection changed: reset branch, load branches, persist.
+        async expSettingsRepoChange() {
+          this.exportSettings.exportBranch = '';
+          this.exportSettingsBranches = [];
+          await this.expSettingsLoadBranches(false);
+          this.saveExportSettings();
+        },
+        async expSettingsLoadBranches(preserveSaved) {
+          const org = (this.exportSettings.exportOrg || '').trim();
+          const project = (this.exportSettings.exportProject || '').trim();
+          const repo = this.exportSettings.exportRepo;
+          if (!repo) return;
+          this.exportSettingsLoadingBranches = true;
+          try {
+            const r = this.exportSettingsRepos.find(x => x.name === repo);
+            const data = await this.request(`/api/azdo/branches?org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}&repo=${encodeURIComponent(repo)}`);
+            this.exportSettingsBranches = data.branches || [];
+            // Keep a still-valid saved branch; otherwise default to repo default / main.
+            if (preserveSaved && this.exportSettings.exportBranch && this.exportSettingsBranches.includes(this.exportSettings.exportBranch)) {
+              // keep
+            } else if (r && r.defaultBranch && this.exportSettingsBranches.includes(r.defaultBranch)) {
+              this.exportSettings.exportBranch = r.defaultBranch;
+            } else if (this.exportSettingsBranches.includes('main')) {
+              this.exportSettings.exportBranch = 'main';
+            } else {
+              this.exportSettings.exportBranch = '';
+            }
+          } catch (err) {
+            this.exportSettingsError = err.message || 'Could not list branches';
+          } finally {
+            this.exportSettingsLoadingBranches = false;
           }
         },
         async saveModelSettings() {
