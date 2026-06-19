@@ -343,9 +343,16 @@ class SdkRunner {
     try {
       files = fs.readdirSync(path.join(config.pluginDir, 'agents')).filter(f => f.endsWith('.agent.md'));
     } catch (e) {
-      return want;
+      // No agents/ directory: this plugin is a skills/MCP-only bundle and ships
+      // no custom agent. Run under the default copilot agent (capabilities still
+      // load via --plugin-dir). Returning `want` here would pass a non-existent
+      // "<name>:<name>" ref to --agent and break chat/CLI.
+      return '';
     }
-    if (!files.length || !pluginName) return want;
+    // Has an agents/ dir but no .agent.md files (or no plugin name to qualify a
+    // ref): nothing to bind to -> default agent.
+    if (!files.length) return '';
+    if (!pluginName) return want;
     const entries = files.map(f => {
       const slug = f.replace(/\.agent\.md$/, '');
       const cfg = this._parseAgentMd(path.join(config.pluginDir, 'agents', f));

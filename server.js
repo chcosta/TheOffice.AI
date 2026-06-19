@@ -1072,7 +1072,7 @@ async function installAzdoItem({ org, project, repo, branch, item, group }) {
       cwd: azdo.repoRoot(org, project, repo, branch),
       pluginDir,
       sourceDir: pluginDir,
-      agent: `${item.id}:${item.id}`,
+      agent: ensurePluginAgent(pluginDir),
       schedule: 'never',
       durable: true,
       group: group || 'Azure DevOps',
@@ -1289,6 +1289,163 @@ app.post('/api/marketplace/install', async (req, res) => {
   }
 });
 
+// Determine the "<pluginName>:<agentSlug>" custom-agent reference a plugin
+// exposes by reading its plugin.json + agents/ folder. Returns '' when the
+// plugin ships no custom agent (a skills/MCP-only bundle) — those run under the
+// default copilot agent with capabilities loaded via --plugin-dir. Fabricating
+// a "<name>:<name>" ref for such plugins breaks chat ("Custom agent not found").
+function resolvePluginAgentRef(pluginDir) {
+  let pluginName = '';
+  try {
+    const pj = JSON.parse(fs.readFileSync(path.join(pluginDir, 'plugin.json'), 'utf-8'));
+    pluginName = (pj && pj.name) || '';
+  } catch (_) { /* ignore */ }
+  let files = [];
+  try {
+    files = fs.readdirSync(path.join(pluginDir, 'agents')).filter(f => /\.agent\.md$/i.test(f));
+  } catch (_) { return ''; }
+  if (!files.length || !pluginName) return '';
+  const slugs = files.map(f => f.replace(/\.agent\.md$/i, ''));
+  const chosen = slugs.find(s => s.toLowerCase() === pluginName.toLowerCase()) || slugs[0];
+  return `${pluginName}:${chosen}`;
+}
+
+// Read the bundled skills of a plugin as { name, description } (from each
+// skills/*/SKILL.md frontmatter). Best-effort; returns [] on any problem.
+function readPluginSkills(pluginDir) {
+  const out = [];
+  const tryDir = (skillsRoot) => {
+    let dirs = [];
+    try { dirs = fs.readdirSync(skillsRoot, { withFileTypes: true }).filter(e => e.isDirectory()); } catch (_) { return; }
+    for (const d of dirs) {
+      const md = path.join(skillsRoot, d.name, 'SKILL.md');
+      if (!fs.existsSync(md)) continue;
+      let name = d.name, description = '';
+      try {
+        const raw = fs.readFileSync(md, 'utf-8');
+        const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        if (fm) {
+          const nm = fm[1].match(/^name:\s*(.+)$/im); if (nm) name = nm[1].replace(/^["']|["']$/g, '').trim();
+          const dm = fm[1].match(/^description:\s*(.+)$/im); if (dm) description = dm[1].replace(/^["']|["']$/g, '').trim();
+        }
+      } catch (_) {}
+      out.push({ name, description });
+    }
+  };
+  tryDir(path.join(pluginDir, 'skills'));
+  return out;
+}
+
+// MCP server names declared by a plugin's .mcp.json (best-effort).
+function readPluginMcpServers(pluginDir) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(pluginDir, '.mcp.json'), 'utf-8'));
+    return Object.keys((cfg && cfg.mcpServers) || {});
+  } catch (_) { return []; }
+}
+
+// Pull the "What it does" / overview bullets from a plugin README (best-effort).
+function readPluginReadmeBullets(pluginDir) {
+  let raw = '';
+  for (const f of ['README.md', 'readme.md', 'Readme.md']) {
+    try { raw = fs.readFileSync(path.join(pluginDir, f), 'utf-8'); break; } catch (_) {}
+  }
+  if (!raw) return [];
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  const bullets = [];
+  let capture = false;
+  for (const ln of lines) {
+    if (/^#{1,6}\s/.test(ln)) {
+      // Start capturing after a "What it does"/"Overview"/"Features" heading.
+      capture = /what it does|overview|features|capabilit/i.test(ln);
+      if (!capture && bullets.length) break; // next heading ends the section
+      continue;
+    }
+    if (capture) {
+      const m = ln.match(/^\s*[-*]\s+(.+)$/);
+      if (m) bullets.push(m[1].trim());
+      else if (bullets.length && ln.trim() === '') break;
+    }
+  }
+  return bullets.slice(0, 12);
+}
+
+// Intelligently synthesize an .agent.md for a plugin that ships skills/MCP but
+// no agent of its own. Reads the plugin's real context (plugin.json, README,
+// skills, MCP) and writes agents/<slug>.agent.md INSIDE the plugin so Copilot
+// discovers it natively as "<pluginName>:<slug>". Idempotent: if an agent
+// already exists it is reused. Returns the agent ref, or '' on failure.
+function ensurePluginAgent(pluginDir) {
+  const existing = resolvePluginAgentRef(pluginDir);
+  if (existing) return existing;
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(pluginDir, 'plugin.json'), 'utf-8')) || {}; } catch (_) {}
+  const pluginName = meta.name;
+  if (!pluginName) return '';
+  const slug = String(pluginName).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
+  const description = (meta.description || `Assistant powered by the ${pluginName} plugin.`).replace(/\s+/g, ' ').trim();
+  const skills = readPluginSkills(pluginDir);
+  const servers = readPluginMcpServers(pluginDir);
+  const bullets = readPluginReadmeBullets(pluginDir);
+  const pretty = String(meta.displayName || pluginName)
+    .replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+  // YAML single-quoted scalar (double any embedded single quotes).
+  const yq = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+  const lines = [];
+  lines.push('---');
+  lines.push(`name: ${slug}`);
+  lines.push(`description: ${yq(description)}`);
+  lines.push('---');
+  lines.push('');
+  lines.push(`# ${pretty} Agent`);
+  lines.push('');
+  lines.push('<!-- Auto-generated by TheOffice.AI: this plugin shipped skills/MCP but no agent of its own. Edit freely; delete to regenerate on reinstall. -->');
+  lines.push('');
+  lines.push(`You are **${pretty}**, an assistant powered by the \`${pluginName}\` Copilot plugin. ${description}`);
+  lines.push('');
+  if (bullets.length) {
+    lines.push('## What you can do');
+    lines.push('');
+    for (const b of bullets) lines.push(`- ${b}`);
+    lines.push('');
+  }
+  if (skills.length) {
+    lines.push('## Skills');
+    lines.push('');
+    lines.push('Use these bundled skills — they encode the correct steps, queries, and data sources. Prefer them over improvising:');
+    lines.push('');
+    for (const s of skills) lines.push(`- **${s.name}**${s.description ? ' — ' + s.description : ''}`);
+    lines.push('');
+  }
+  if (servers.length) {
+    lines.push('## Tools');
+    lines.push('');
+    lines.push('You have access to these MCP servers bundled with the plugin:');
+    lines.push('');
+    for (const sv of servers) lines.push(`- \`${sv}\``);
+    lines.push('');
+  }
+  lines.push('## How to work');
+  lines.push('');
+  lines.push("- Clarify the user's goal, then carry it out using the skills and tools above.");
+  if (skills.length) lines.push('- For domain tasks, drive the work through the bundled skills rather than guessing.');
+  if (servers.length) lines.push('- Query live data through the MCP servers above when the user needs current information.');
+  lines.push('- Be concise, show your findings clearly, and cite the data sources you used.');
+  lines.push('');
+
+  const agentsDir = path.join(pluginDir, 'agents');
+  try {
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, `${slug}.agent.md`), lines.join('\n'));
+  } catch (e) {
+    console.warn('[install] could not generate plugin agent for', pluginName, '-', e.message);
+    return '';
+  }
+  console.log(`[install] generated agent "${pluginName}:${slug}" for skills/MCP-only plugin`);
+  return `${pluginName}:${slug}`;
+}
+
 // Register a local agent/plugin catalog entry as an agent.
 function installLocalCatalogEntry(entry, group) {
   const baseId = slugifyId(entry.displayName || entry.name || entry.id);
@@ -1305,7 +1462,7 @@ function installLocalCatalogEntry(entry, group) {
       cwd: path.dirname(entry.plugin.dir),
       pluginDir: entry.plugin.dir,
       sourceDir: entry.plugin.dir,
-      agent: `${baseId}:${baseId}`,
+      agent: ensurePluginAgent(entry.plugin.dir),
       schedule: 'never',
       durable: true,
       group: group || 'Marketplace',
