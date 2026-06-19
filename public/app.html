@@ -5242,7 +5242,7 @@
                       </div>
                       <div class="bb-sep"></div>
                       <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
-                        <span style="opacity:0.8">🔍</span>
+                        <button type="button" @click="setBoardZoom(1)" title="Reset zoom to 100%" style="background:none;border:none;padding:0;cursor:pointer;opacity:0.8;font-size:13px;line-height:1;color:inherit">🔍</button>
                         <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:120px;cursor:pointer" title="Board zoom">
                         <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
                         <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Zoom to fit the whole board in view" style="padding:2px 8px">Fit</button>
@@ -17058,6 +17058,15 @@
         mktEntryKind(entry) {
           return entry.sourceKind || (entry.azdo ? 'azdo' : 'installed');
         },
+        // Collapse a deep local artifact/plugin path to its source-location root:
+        // trim at the first \.github\, \plugins\ or \plugin\ segment (case-insensitive,
+        // either separator). Repo roots without such a segment are returned unchanged.
+        mktLocalSourceRoot(p) {
+          const full = String(p || '').replace(/[\\/]+$/, '');
+          if (!full) return '';
+          const idx = full.search(/[\\/](?:\.github|plugins|plugin)(?:[\\/]|$)/i);
+          return idx > 0 ? full.slice(0, idx) : full;
+        },
         // Source-ROOT descriptor for an entry (for the "Source path" grouping):
         // the AzDO org/project/repo@branch or the configured local folder path —
         // NOT the individual artifact file. Keyed by sourceId so every artifact
@@ -17072,10 +17081,17 @@
             return { key: 'azdo|' + (e.sourceId || loc), label, icon: '🔷', title: 'Azure DevOps · ' + label };
           }
           if (kind === 'local') {
-            // Use the FULL configured source location path (not a shortened/derived
-            // path) so the group reads as the source's location, not an artifact path.
+            // Resolve the configured source path UP to its real source-location root:
+            //  · a path nested under a repo's plugin/agents folder
+            //    (…\.github\plugin\x, …\.github\agents\…) collapses to the repo root
+            //    (C:\repos\agent-scripts), and
+            //  · a path under the supervisor's installed-plugins dir
+            //    (…\.copilot\agent-supervisor\plugins\x) collapses to the supervisor
+            //    root (…\.copilot\agent-supervisor) — so its sibling skills are in scope.
+            // Multiple plugins sharing a root therefore merge into one group.
             const full = (src && src.local && src.local.path) || e.sourceLabel || '';
-            return { key: 'local|' + (e.sourceId || full), label: full || '(local folder)', icon: '📁', title: 'Local folder · ' + (full || e.sourceLabel) };
+            const root = this.mktLocalSourceRoot(full);
+            return { key: 'local|' + (root || e.sourceId || full), label: root || '(local folder)', icon: '📁', title: 'Local folder · ' + (root || e.sourceLabel) };
           }
           const label = e.sourceLabel || 'Installed';
           return { key: 'installed|' + (e.sourceId || label), label, icon: '✓', title: 'Installed · ' + label };
