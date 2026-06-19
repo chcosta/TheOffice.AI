@@ -17072,10 +17072,10 @@
             return { key: 'azdo|' + (e.sourceId || loc), label, icon: '🔷', title: 'Azure DevOps · ' + label };
           }
           if (kind === 'local') {
+            // Use the FULL configured source location path (not a shortened/derived
+            // path) so the group reads as the source's location, not an artifact path.
             const full = (src && src.local && src.local.path) || e.sourceLabel || '';
-            let short = full;
-            if (full) { const parts = String(full).split(/[\\/]/).filter(Boolean); short = parts.length > 3 ? '…/' + parts.slice(-3).join('/') : full; }
-            return { key: 'local|' + (e.sourceId || full), label: short || '(local folder)', icon: '📁', title: 'Local folder · ' + (full || short) };
+            return { key: 'local|' + (e.sourceId || full), label: full || '(local folder)', icon: '📁', title: 'Local folder · ' + (full || e.sourceLabel) };
           }
           const label = e.sourceLabel || 'Installed';
           return { key: 'installed|' + (e.sourceId || label), label, icon: '✓', title: 'Installed · ' + label };
