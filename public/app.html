@@ -326,12 +326,12 @@
     /* ===== Starred-boards quick launch bar (under the topbar) ===== */
     .quick-launch {
       display: flex; align-items: center; gap: 6px;
-      padding: 3px 16px;
+      height: 38px; box-sizing: border-box; padding: 0 16px;
       border-bottom: 1px solid var(--cp-border);
       background: color-mix(in srgb, var(--cp-bg-elevated) 88%, transparent);
       backdrop-filter: blur(14px);
       position: sticky; top: 0; z-index: 19;
-      overflow-x: auto; scrollbar-width: thin;
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
     }
     .quick-launch::-webkit-scrollbar { height: 6px; }
     .quick-launch::-webkit-scrollbar-thumb { background: var(--cp-border); border-radius: 999px; }
@@ -342,11 +342,11 @@
     }
     .ql-chip {
       display: inline-flex; align-items: center; gap: 6px;
-      flex: 0 0 auto; max-width: 220px;
-      padding: 2px 9px;
+      flex: 0 0 auto; max-width: 220px; height: 26px; box-sizing: border-box;
+      padding: 0 10px;
       border: 1px solid var(--cp-border); border-radius: 999px;
       background: var(--cp-surface); color: var(--cp-text);
-      cursor: pointer; font-size: 12px; font-weight: 500; line-height: 1.5;
+      cursor: pointer; font-size: 12px; font-weight: 500; line-height: 1;
       transition: border-color .14s ease, background .14s ease, color .14s ease;
     }
     .ql-chip:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
@@ -370,6 +370,14 @@
     .ql-unstar:hover { color: var(--cp-warning); background: var(--cp-highlight); opacity: 1; }
     .board-star-btn { color: var(--cp-text-muted); }
     .board-star-btn.starred { color: var(--cp-warning); border-color: color-mix(in srgb, var(--cp-warning) 45%, transparent); }
+    .ql-star-btn {
+      flex: 0 0 auto; width: 26px; height: 26px;
+      display: inline-grid; place-items: center;
+      border: none; background: transparent; color: var(--cp-text-soft);
+      cursor: pointer; border-radius: 6px; font-size: 14px; line-height: 1;
+    }
+    .ql-star-btn:hover { background: var(--cp-highlight); color: var(--cp-warning); }
+    .ql-star-btn.on { color: var(--cp-warning); }
     /* ===== Organization switcher (topbar) ===== */
     .org-switcher { position: relative; }
     .org-switcher-btn {
@@ -2328,6 +2336,21 @@
     }
     .board-grid:hover .board-canvas-resize { opacity: .65; }
     .board-canvas-resize:hover { opacity: 1; border-color: var(--cp-accent); }
+    /* ----- Board layout controls bottom bar ----- */
+    .board-bottombar {
+      position: sticky; bottom: 0; z-index: 8;
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      margin-top: 12px; padding: 8px 14px;
+      border: 1px solid var(--cp-border); border-radius: 0.625rem;
+      background: var(--cp-panel-strong); backdrop-filter: blur(10px);
+      box-shadow: 0 -4px 14px rgba(0,0,0,0.07);
+    }
+    .board-bottombar .bb-title {
+      font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+      color: var(--cp-text-soft); flex: 0 0 auto;
+    }
+    .board-bottombar .bb-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .board-bottombar .bb-sep { width: 1px; height: 22px; background: var(--cp-border); flex: 0 0 auto; }
     /* ----- Board assistant slide-over ("Ask board") ----- */
     .board-assistant-backdrop {
       position: fixed; inset: 0; z-index: 9998;
@@ -2831,15 +2854,15 @@
     </header>
 
     <!-- Starred boards quick launch: appears directly under the teams selector. -->
-    <nav class="quick-launch" x-show="starredBoards().length" x-cloak aria-label="Starred boards">
-      <span class="quick-launch-label">★ Boards</span>
-      <template x-for="b in starredBoards()" :key="b.id">
+    <nav class="quick-launch" x-show="quickLaunchItems().length" x-cloak aria-label="Quick launch">
+      <span class="quick-launch-label">★ Quick launch</span>
+      <template x-for="item in quickLaunchItems()" :key="item.kind + ':' + item.id">
         <button type="button" class="ql-chip"
-          :class="{ active: route === 'boards' && activeBoardId === b.id }"
-          @click="quickLaunchBoard(b.id)" :title="b.name + ' · ' + boardOrgLabel(b)">
-          <span class="ql-emoji" x-text="b.emoji || '📌'"></span>
-          <span class="ql-name" x-text="b.name"></span>
-          <span class="ql-unstar" title="Unstar" @click.stop="toggleBoardStar(b)">✕</span>
+          :class="{ active: item.kind === 'board' && route === 'boards' && activeBoardId === item.id }"
+          @click="quickLaunchOpen(item)" :title="item.kindLabel + ' · ' + item.name">
+          <span class="ql-emoji" x-text="item.emoji || '📌'"></span>
+          <span class="ql-name" x-text="item.name"></span>
+          <span class="ql-unstar" title="Remove from quick launch" @click.stop="toggleQuickPin(item)">✕</span>
         </button>
       </template>
     </nav>
@@ -3206,14 +3229,18 @@
                   <div class="field-label" style="margin-bottom:8px">Employees</div>
                   <div class="stack" x-show="homeEmployees().length">
                     <template x-for="e in homeEmployees()" :key="'home-emp-' + e.id">
-                      <a :href="homeEmpRoute(e)" class="item-row" style="text-decoration:none;color:inherit;display:block">
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <div class="item-row" style="display:flex;align-items:center;gap:8px">
+                        <a :href="homeEmpRoute(e)" style="text-decoration:none;color:inherit;flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                           <span x-text="e.icon"></span>
                           <strong x-text="e.name"></strong>
                           <span class="status-badge" :class="homeEmpStatusClass(e.status)" style="text-transform:capitalize" x-text="e.status"></span>
                           <span class="hint" x-show="e.group && e.group !== 'Manager'" x-text="e.group"></span>
-                        </div>
-                      </a>
+                        </a>
+                        <button type="button" class="ql-star-btn" :class="{ on: isQuickPinned('employee', e.id) }"
+                                @click.stop.prevent="toggleEmployeePin(e)"
+                                :title="isQuickPinned('employee', e.id) ? 'Remove from quick launch' : 'Add to quick launch'"
+                                x-text="isQuickPinned('employee', e.id) ? '★' : '☆'"></button>
+                      </div>
                     </template>
                   </div>
                   <div class="empty-state" x-show="!homeEmployees().length">No employees assigned to this team.</div>
@@ -3222,14 +3249,20 @@
                   <div class="field-label" style="margin-bottom:8px">Operations</div>
                   <div class="stack" x-show="homeOperations().length">
                     <template x-for="op in homeOperations()" :key="'home-op-' + op.key">
-                      <a :href="homeOpRoute(op)" class="item-row" style="text-decoration:none;color:inherit;display:block">
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                          <span x-text="op.icon"></span>
-                          <strong x-text="op.name"></strong>
-                          <span class="type-badge" x-text="op.typeLabel"></span>
-                        </div>
-                        <div class="hint" style="margin-top:4px" x-show="op.ownerName" x-text="op.ownerName"></div>
-                      </a>
+                      <div class="item-row" style="display:flex;align-items:center;gap:8px">
+                        <a :href="homeOpRoute(op)" style="text-decoration:none;color:inherit;flex:1;min-width:0;display:block">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span x-text="op.icon"></span>
+                            <strong x-text="op.name"></strong>
+                            <span class="type-badge" x-text="op.typeLabel"></span>
+                          </div>
+                          <div class="hint" style="margin-top:4px" x-show="op.ownerName" x-text="op.ownerName"></div>
+                        </a>
+                        <button type="button" class="ql-star-btn" :class="{ on: isQuickPinned('operation', op.key) }"
+                                @click.stop.prevent="toggleOperationPin(op)"
+                                :title="isQuickPinned('operation', op.key) ? 'Remove from quick launch' : 'Add to quick launch'"
+                                x-text="isQuickPinned('operation', op.key) ? '★' : '☆'"></button>
+                      </div>
                     </template>
                   </div>
                   <div class="empty-state" x-show="!homeOperations().length">No operations in this team.</div>
@@ -4785,18 +4818,6 @@
                         <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
-                        <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
-                        <label class="board-aw-check" title="Auto-fit card widths to the board. Turn off to set custom widths and stretch the canvas by dragging." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
-                          <input type="checkbox" :checked="boardAutoWidth()" @change="toggleAutoWidth($event.target.checked)" style="cursor:pointer">
-                          Auto-width
-                        </label>
-                        <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
-                        <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
-                          <span style="opacity:0.8">🔍</span>
-                          <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:104px;cursor:pointer" title="Board zoom">
-                          <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
-                          <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Zoom to fit the whole board in view" style="padding:2px 8px">Fit</button>
-                        </span>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
                         <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
                         <button class="btn ghost" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)" title="Restore this board">↩ Restore</button>
@@ -5201,6 +5222,26 @@
                       </template>
                       <div class="board-canvas-resize" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
                     </div>
+                    </div>
+
+                    <!-- Layout controls: docked to the bottom of the board view -->
+                    <div class="board-bottombar">
+                      <span class="bb-title">⚙ Layout</span>
+                      <div class="bb-group">
+                        <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
+                        <label class="board-aw-check" title="Auto-fit card widths to the board. Turn off to set custom widths and stretch the canvas by dragging." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
+                          <input type="checkbox" :checked="boardAutoWidth()" @change="toggleAutoWidth($event.target.checked)" style="cursor:pointer">
+                          Auto-width
+                        </label>
+                        <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
+                      </div>
+                      <div class="bb-sep"></div>
+                      <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
+                        <span style="opacity:0.8">🔍</span>
+                        <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:120px;cursor:pointer" title="Board zoom">
+                        <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
+                        <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Zoom to fit the whole board in view" style="padding:2px 8px">Fit</button>
+                      </span>
                     </div>
                   </div>
                 </template>
@@ -9245,6 +9286,9 @@
         // Board pins: latest run/message is shown EXPANDED by default; we persist only
         // the pins the user has explicitly COLLAPSED (id -> true) in localStorage.
         boardPinCollapsed: (() => { try { return JSON.parse(localStorage.getItem('board-pin-collapsed') || '{}') || {}; } catch { return {}; } })(),
+        // Quick-launch pins for non-board items (employees & operations), persisted
+        // client-side. Boards keep their server-side `starred` flag; the bar merges both.
+        quickPins: (() => { try { return JSON.parse(localStorage.getItem('quick-launch-pins') || '[]') || []; } catch { return []; } })(),
         boardChatCache: {},
         activeChat: null,
         chatDraft: '',
@@ -13079,6 +13123,54 @@
           this.activeBoardId = boardId;
           try { localStorage.setItem('active-board-id', boardId); } catch {}
           window.location.hash = '#/boards/' + encodeURIComponent(boardId);
+        },
+        // ----- Unified quick-launch pins (boards + employees + operations) -----
+        _saveQuickPins() { try { localStorage.setItem('quick-launch-pins', JSON.stringify(this.quickPins || [])); } catch {} },
+        // Merge server-starred boards with client-pinned employees/operations.
+        quickLaunchItems() {
+          const items = [];
+          for (const b of this.starredBoards()) {
+            items.push({ kind: 'board', kindLabel: 'Board', id: b.id, name: b.name, emoji: b.emoji || '📌', teamId: b.teamId || null });
+          }
+          for (const p of (this.quickPins || [])) {
+            const kindLabel = p.kind === 'employee' ? 'Employee' : 'Operation';
+            const fallback = p.kind === 'employee' ? '🧑' : '⚙️';
+            items.push({ kind: p.kind, kindLabel, id: p.id, name: p.name, emoji: p.emoji || fallback, teamId: p.teamId || null, route: p.route });
+          }
+          return items;
+        },
+        isQuickPinned(kind, id) {
+          if (kind === 'board') { const b = (this.boards || []).find(x => x.id === id); return !!(b && b.starred); }
+          return (this.quickPins || []).some(p => p.kind === kind && p.id === id);
+        },
+        toggleEmployeePin(e) {
+          if (!e) return;
+          const i = (this.quickPins || []).findIndex(p => p.kind === 'employee' && p.id === e.id);
+          if (i >= 0) this.quickPins.splice(i, 1);
+          else this.quickPins.push({ kind: 'employee', id: e.id, name: e.name, emoji: e.icon || '🧑', route: this.homeEmpRoute(e), teamId: e.teamId || (this.currentTeamId !== 'all' ? this.currentTeamId : null) });
+          this._saveQuickPins();
+        },
+        toggleOperationPin(op) {
+          if (!op) return;
+          const i = (this.quickPins || []).findIndex(p => p.kind === 'operation' && p.id === op.key);
+          if (i >= 0) this.quickPins.splice(i, 1);
+          else this.quickPins.push({ kind: 'operation', id: op.key, name: op.name, emoji: op.icon || '⚙️', route: this.homeOpRoute(op), teamId: op.teamId || null });
+          this._saveQuickPins();
+        },
+        // Remove an item from the bar via its ✕ (board -> unstar; others -> unpin).
+        toggleQuickPin(item) {
+          if (!item) return;
+          if (item.kind === 'board') { const b = (this.boards || []).find(x => x.id === item.id); if (b) this.toggleBoardStar(b); return; }
+          const i = (this.quickPins || []).findIndex(p => p.kind === item.kind && p.id === item.id);
+          if (i >= 0) { this.quickPins.splice(i, 1); this._saveQuickPins(); }
+        },
+        // Navigate to a quick-launch item, selecting its team scope first.
+        quickLaunchOpen(item) {
+          if (!item) return;
+          if (item.kind === 'board') return this.quickLaunchBoard(item.id);
+          if (item.teamId) { if (this.currentTeamId !== item.teamId) this.setCurrentOrg(item.teamId); }
+          else if (this.currentTeamId !== 'all') this.setCurrentOrg('all');
+          if (item.route) window.location.hash = item.route;
         },
         async setBoardArchived(board, archived) {
           if (!board) return;
