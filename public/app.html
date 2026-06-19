@@ -2845,6 +2845,55 @@
               </article>
             </div>
 
+            <!-- Team-scoped overview: Boards & Insights -->
+            <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:18px" x-show="currentTeamId !== 'all'">
+              <section class="card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">📌 Boards</h2>
+                    <div class="card-subtitle" x-text="homeBoards().length + ' board' + (homeBoards().length === 1 ? '' : 's') + ' in this team'"></div>
+                  </div>
+                  <a class="btn ghost" href="#/boards">Open</a>
+                </div>
+                <div class="stack" x-show="homeBoards().length">
+                  <template x-for="b in homeBoards().slice(0, 5)" :key="'home-board-' + b.id">
+                    <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span x-text="b.emoji || '📌'"></span>
+                        <strong x-text="b.name"></strong>
+                        <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-show="homeBoardSnippet(b)" x-text="homeBoardSnippet(b)"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!homeBoards().length">No boards in this team yet.</div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">🛰️ Insights</h2>
+                    <div class="card-subtitle" x-text="homeInsights().length + ' relevant view' + (homeInsights().length === 1 ? '' : 's')"></div>
+                  </div>
+                  <a class="btn ghost" href="#/insights">Open</a>
+                </div>
+                <div class="stack" x-show="homeInsights().length">
+                  <template x-for="v in homeInsights().slice(0, 5)" :key="'home-insight-' + v.id">
+                    <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/insights/' + v.id)" @keydown.enter="goTo('#/insights/' + v.id)">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span x-text="v.emoji || '🛰️'"></span>
+                        <strong x-text="v.name"></strong>
+                        <span class="hint" x-show="insightGenerating[v.id] || v.generating">generating…</span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-show="homeInsightSnippet(v)" x-text="homeInsightSnippet(v)"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!homeInsights().length">No insights cover this team yet.</div>
+              </section>
+            </div>
+
             <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:12px">
               <div class="filter-pills">
                 <template x-for="f in ['all','agent','task','assignment','flow']" :key="f">
@@ -2909,6 +2958,51 @@
             </div>
             <div class="empty-state" x-show="!schedulesLoading && !filteredSchedules().length">No scheduled items match this filter. Add a schedule to an agent, task, assignment, or flow to see it here.</div>
             <div class="empty-state" x-show="schedulesLoading && !(data.schedules || []).length">Loading schedules…</div>
+
+            <!-- Team resources (employees + operations) -->
+            <section class="card" style="margin-top:18px" x-show="currentTeamId !== 'all'">
+              <div class="card-header">
+                <div>
+                  <h2 class="card-title">🧩 Resources</h2>
+                  <div class="card-subtitle" x-text="homeEmployees().length + ' employee' + (homeEmployees().length === 1 ? '' : 's') + ' · ' + homeOperations().length + ' operation' + (homeOperations().length === 1 ? '' : 's')"></div>
+                </div>
+                <a class="btn ghost" href="#/resources">Manage</a>
+              </div>
+              <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+                <div>
+                  <div class="field-label" style="margin-bottom:8px">Employees</div>
+                  <div class="stack" x-show="homeEmployees().length">
+                    <template x-for="e in homeEmployees()" :key="'home-emp-' + e.id">
+                      <a :href="homeEmpRoute(e)" class="item-row" style="text-decoration:none;color:inherit;display:block">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <span x-text="e.icon"></span>
+                          <strong x-text="e.name"></strong>
+                          <span class="status-badge" :class="homeEmpStatusClass(e.status)" style="text-transform:capitalize" x-text="e.status"></span>
+                          <span class="hint" x-show="e.group && e.group !== 'Manager'" x-text="e.group"></span>
+                        </div>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!homeEmployees().length">No employees assigned to this team.</div>
+                </div>
+                <div>
+                  <div class="field-label" style="margin-bottom:8px">Operations</div>
+                  <div class="stack" x-show="homeOperations().length">
+                    <template x-for="op in homeOperations()" :key="'home-op-' + op.key">
+                      <a :href="homeOpRoute(op)" class="item-row" style="text-decoration:none;color:inherit;display:block">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <span x-text="op.icon"></span>
+                          <strong x-text="op.name"></strong>
+                          <span class="type-badge" x-text="op.typeLabel"></span>
+                        </div>
+                        <div class="hint" style="margin-top:4px" x-show="op.ownerName" x-text="op.ownerName"></div>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="empty-state" x-show="!homeOperations().length">No operations in this team.</div>
+                </div>
+              </div>
+            </section>
 
             <section class="card" style="margin-top:18px" x-show="alerts().length">
               <div class="card-header">
@@ -9479,6 +9573,9 @@
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'home') {
             await this.loadSchedules();
+            // Surface boards + insights on the team-scoped home overview (silent; no auto-generate).
+            this.loadBoards(null, true);
+            try { const list = await this.request('/api/insights'); this.insights = Array.isArray(list) ? list : []; } catch {}
           }
           // Deep-link focus requested from the schedules dashboard.
           if (this.pendingFocus && this.pendingFocus.route === this.route) {
@@ -10015,8 +10112,8 @@
           const org = this.currentOrg();
           const scopeLabel = org ? `Team · ${org.name}` : 'All teams';
           return [
-            { key: 'home', label: 'Overview', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
             { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
+            { key: 'home', label: 'Home', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
             { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
@@ -11091,6 +11188,53 @@
           return this.data.activity
             .filter((entry) => entry.status === 'failed' && new Date(entry.finishedAt || entry.startedAt).getTime() >= cutoff && this.activityInCurrentOrg(entry))
             .slice(0, 8);
+        },
+
+        // ----- Home (team-scoped) overview surfaces: boards, insights, resources -----
+        homeBoards() {
+          const cur = this.currentTeamId;
+          return (this.boards || []).filter(b => !b.archived && (cur === 'all' || !b.teamId || b.teamId === cur));
+        },
+        homeBoardSnippet(b) {
+          const t = (b && b.summary && b.summary.text) ? String(b.summary.text).replace(/\s+/g, ' ').trim() : '';
+          if (!t) return '';
+          return t.length > 180 ? t.slice(0, 180) + '…' : t;
+        },
+        homePinCount(b) { return Array.isArray(b && b.items) ? b.items.length : 0; },
+        homeInsights() {
+          const cur = this.currentTeamId;
+          const list = this.insights || [];
+          if (cur === 'all') return list;
+          const teamBoardIds = new Set(this.homeBoards().map(b => b.id));
+          return list.filter(v => v.mode === 'custom' ? (v.boardIds || []).some(id => teamBoardIds.has(id)) : true);
+        },
+        homeInsightSnippet(v) {
+          const c = (v && v.content) || {};
+          if (c.narrative) { const t = String(c.narrative).replace(/\s+/g, ' ').trim(); return t.length > 160 ? t.slice(0, 160) + '…' : t; }
+          const first = (c.checklist || [])[0];
+          if (first && (first.title || first.text)) return first.title || first.text;
+          return (v && v.content) ? '' : 'Not generated yet';
+        },
+        homeEmployees() {
+          const cur = this.currentTeamId;
+          return (cur === 'all') ? this.allEmployees() : this.employeesInOrg(cur);
+        },
+        homeOperations() {
+          const cur = this.currentTeamId;
+          return (cur === 'all') ? this.allOperations() : this.operationsInOrg(cur);
+        },
+        homeEmpRoute(e) {
+          return (e.type === 'manager' ? '#/managers/' : '#/agents/') + encodeURIComponent(e.id);
+        },
+        homeEmpStatusClass(s) {
+          if (s === 'running' || s === 'active') return 'running';
+          if (s === 'scheduled') return 'success';
+          return 'idle';
+        },
+        homeOpRoute(op) {
+          if (op.kind === 'flow') return '#/chains/' + encodeURIComponent(op.chainId);
+          if (op.kind === 'assignment') return '#/assignments';
+          return '#/tasks';
         },
 
         // Open the run-detail modal for an activity/alert entry and fetch the full
