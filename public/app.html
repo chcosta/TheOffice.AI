@@ -4422,16 +4422,35 @@
                         </div>
                       </div>
                       <div class="toolbar">
-                        <button class="btn" type="button" :disabled="boardBlocked(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
-                        <button class="btn" type="button" :disabled="boardBlocked(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
+                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
+                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
                         <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
                         <button class="btn ghost" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)" title="Restore this board">↩ Restore</button>
+                        <button class="btn ghost" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)" title="Enable this board (only enabled boards feed Insights)">✅ Enable</button>
+                        <button class="btn ghost" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)" title="Disable this board (hidden from Insights)">⏸ Disable</button>
                         <button class="btn ghost" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)">🗑 Delete</button>
                       </div>
                     </div>
+
+                    <!-- Manually disabled: a board the user paused. Distinct from the
+                         team-compliance gate; greyed but trivially re-enabled. -->
+                    <template x-if="activeBoard().enabled === false && !boardBlocked(activeBoard())">
+                      <div class="card" style="margin-bottom:16px;border:1px solid var(--cp-border-strong);background:var(--cp-surface-soft)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                            <span style="font-size:18px">⏸</span>
+                            <div style="min-width:0">
+                              <div style="font-weight:600">Board disabled</div>
+                              <div class="hint">This board is paused and won't appear in Insights. Re-enable it to resume.</div>
+                            </div>
+                          </div>
+                          <button class="btn" type="button" @click="setBoardEnabled(activeBoard(), true)">✅ Enable board</button>
+                        </div>
+                      </div>
+                    </template>
 
                     <!-- Team-compliance gate: a team-scoped board with out-of-team pins is
                          disabled until each offending item is migrated or removed. -->
@@ -4498,7 +4517,7 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" :style="boardBlocked(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : ''">
+                    <div class="board-canvas-scroll" :style="boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : ''">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
                         <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
@@ -4961,6 +4980,207 @@
               </div>
             </div>
 
+          </section>
+
+          <!-- ============ INSIGHTS (read-only AI cross-board views) ============ -->
+          <section x-show="!loading && !errorMessage && route === 'insights'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🛰️ Insights</h1>
+                <p>AI-generated views that summarize and prioritize work across your enabled boards. Read-only — you choose the boards and focus; the assistant writes the briefing.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="openInsightEditor(null)">＋ New insight</button>
+              </div>
+            </div>
+
+            <div x-show="insightsLoading && !insights.length" class="hint" style="padding:24px">Loading insights…</div>
+
+            <template x-if="!insightsLoading || insights.length">
+              <div style="display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:start">
+                <!-- Insight list -->
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <template x-for="v in insights" :key="v.id">
+                    <button type="button" class="card" style="text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 12px"
+                            :style="activeInsightId === v.id ? 'border-color:var(--cp-accent)' : ''"
+                            @click="selectInsight(v.id)">
+                      <span style="font-size:18px" x-text="v.emoji || '🔭'"></span>
+                      <div style="min-width:0;flex:1">
+                        <div style="font-weight:600;display:flex;align-items:center;gap:6px">
+                          <span x-text="v.name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                          <span class="pill" style="font-size:10px;padding:1px 6px;background:var(--cp-accent-soft);color:var(--cp-accent)">AI</span>
+                        </div>
+                        <div class="hint" x-text="v.builtin ? 'All enabled boards' : (v.mode === 'custom' ? ((v.boardIds||[]).length + ' board' + ((v.boardIds||[]).length===1?'':'s')) : 'All enabled boards')"></div>
+                      </div>
+                    </button>
+                  </template>
+                </div>
+
+                <!-- Selected insight -->
+                <template x-if="activeInsight()">
+                  <div>
+                    <!-- Header / actions -->
+                    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+                      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                        <span style="font-size:22px" x-text="activeInsight().emoji || '🔭'"></span>
+                        <div style="min-width:0">
+                          <div style="font-weight:600;display:flex;align-items:center;gap:8px">
+                            <span x-text="activeInsight().name"></span>
+                            <span class="pill" style="font-size:10px;padding:1px 6px;background:var(--cp-accent-soft);color:var(--cp-accent)">AI generated</span>
+                          </div>
+                          <div class="hint" x-show="activeInsight().content && activeInsight().content.generatedAt"
+                               x-text="'Updated ' + formatRelative(activeInsight().content.generatedAt)"></div>
+                        </div>
+                      </div>
+                      <div class="toolbar">
+                        <button class="btn" type="button" :disabled="insightGenerating[activeInsightId] || activeInsight().generating"
+                                @click="generateInsight(activeInsightId)"
+                                x-text="(insightGenerating[activeInsightId] || activeInsight().generating) ? '↻ Generating…' : '↻ Regenerate'"></button>
+                        <button class="btn ghost" type="button" @click="openInsightEditor(activeInsight())">✏ Edit</button>
+                        <button class="btn ghost" type="button" x-show="!activeInsight().builtin" @click="deleteInsight(activeInsight())" style="color:var(--cp-danger)">🗑 Delete</button>
+                      </div>
+                    </div>
+
+                    <!-- Generating state -->
+                    <div x-show="(insightGenerating[activeInsightId] || activeInsight().generating) && !(activeInsight().content && activeInsight().content.checklist && activeInsight().content.checklist.length)"
+                         class="hint" style="padding:24px">🛰️ Gathering board context and writing your insight…</div>
+
+                    <template x-if="activeInsight().content">
+                      <div>
+                        <!-- Narrative -->
+                        <div class="card" style="margin-bottom:16px" x-show="activeInsight().content.narrative">
+                          <div style="white-space:pre-wrap;line-height:1.55" x-text="activeInsight().content.narrative"></div>
+                        </div>
+
+                        <!-- Prioritized checklist -->
+                        <template x-if="(activeInsight().content.checklist || []).length">
+                          <div class="card" style="margin-bottom:16px">
+                            <div style="font-weight:600;margin-bottom:10px">⭐ Priorities</div>
+                            <div style="display:flex;flex-direction:column;gap:8px">
+                              <template x-for="(it, i) in activeInsight().content.checklist" :key="i">
+                                <button type="button" class="card" style="text-align:left;cursor:pointer;padding:10px 12px;display:flex;align-items:flex-start;gap:10px"
+                                        @click="insightGoToBoard(it.boardId)">
+                                  <span class="pill" style="flex:none;background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:700" x-text="i + 1"></span>
+                                  <div style="min-width:0;flex:1">
+                                    <div style="font-weight:600" x-text="it.title"></div>
+                                    <div class="hint" x-show="it.why" x-text="it.why"></div>
+                                    <div class="hint" style="opacity:0.7;margin-top:2px" x-show="it.boardId"
+                                         x-text="'→ ' + ((boards.find(b => b.id === it.boardId)||{}).name || 'board')"></div>
+                                  </div>
+                                </button>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+
+                        <!-- Callouts -->
+                        <template x-if="(activeInsight().content.callouts || []).length">
+                          <div class="card" style="margin-bottom:16px">
+                            <div style="font-weight:600;margin-bottom:10px">📣 Callouts</div>
+                            <div style="display:flex;flex-direction:column;gap:6px">
+                              <template x-for="(c, i) in activeInsight().content.callouts" :key="i">
+                                <div style="display:flex;align-items:flex-start;gap:8px;cursor:pointer" @click="c.boardId && insightGoToBoard(c.boardId)">
+                                  <span x-text="insightCalloutIcon(c.type)"></span>
+                                  <div style="min-width:0">
+                                    <span x-text="c.text"></span>
+                                    <span class="hint" x-show="c.boardId" x-text="' · ' + ((boards.find(b => b.id === c.boardId)||{}).name || 'board')"></span>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+
+                        <!-- Per-board where-was-i cards -->
+                        <template x-if="(activeInsight().content.boards || []).length">
+                          <div class="card">
+                            <div style="font-weight:600;margin-bottom:10px" x-text="'Boards in this insight (' + activeInsight().content.boards.length + ')'"></div>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
+                              <template x-for="bd in activeInsight().content.boards" :key="bd.boardId">
+                                <button type="button" class="card" style="text-align:left;cursor:pointer;padding:12px" @click="insightGoToBoard(bd.boardId)">
+                                  <div style="font-weight:600;display:flex;align-items:center;gap:6px">
+                                    <span x-text="bd.emoji || '📌'"></span>
+                                    <span x-text="bd.name"></span>
+                                  </div>
+                                  <div class="hint" x-show="bd.teamName" x-text="'Team · ' + bd.teamName" style="margin-bottom:6px"></div>
+                                  <div class="hint" style="white-space:pre-wrap;line-height:1.45" x-text="bd.whereWasI"></div>
+                                </button>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+
+                        <div x-show="!(activeInsight().content.boards || []).length && !(insightGenerating[activeInsightId] || activeInsight().generating)"
+                             class="empty-state" x-text="activeInsight().content.narrative || 'No enabled boards yet.'"></div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <div x-show="!insights.length && !insightsLoading" class="empty-state" style="grid-column:1/-1">
+                  No insights yet. The built-in Overview should appear automatically.
+                </div>
+              </div>
+            </template>
+
+            <!-- Insight editor modal -->
+            <div class="modal-backdrop" x-show="insightEditorOpen" x-transition.opacity style="display:flex" @click.self="insightEditorOpen=false">
+              <div class="modal" style="max-width:560px">
+                <div class="modal-header">
+                  <h2 x-text="insightEditor.id ? 'Edit insight' : 'New insight'"></h2>
+                  <button class="icon-btn" type="button" @click="insightEditorOpen=false">✕</button>
+                </div>
+                <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+                  <div style="display:flex;gap:10px">
+                    <div style="width:80px">
+                      <label class="field-label">Emoji</label>
+                      <input class="input" type="text" maxlength="4" x-model="insightEditor.emoji" style="text-align:center">
+                    </div>
+                    <div style="flex:1">
+                      <label class="field-label">Name</label>
+                      <input class="input" type="text" x-model="insightEditor.name" placeholder="e.g. Morning priorities">
+                    </div>
+                  </div>
+
+                  <div x-show="insightEditor.builtin" class="hint">This built-in insight always covers every enabled board. You can rename it and set a focus prompt, but its board membership is locked.</div>
+
+                  <template x-if="!insightEditor.builtin">
+                    <div>
+                      <label class="field-label">Boards</label>
+                      <div style="display:flex;gap:8px;margin-bottom:8px">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                          <input type="radio" value="all_enabled" x-model="insightEditor.mode"> All enabled boards
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                          <input type="radio" value="custom" x-model="insightEditor.mode"> Choose boards
+                        </label>
+                      </div>
+                      <template x-if="insightEditor.mode === 'custom'">
+                        <div style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;border:1px solid var(--cp-border);border-radius:8px;padding:8px">
+                          <template x-for="b in insightSelectableBoards()" :key="b.id">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 6px">
+                              <input type="checkbox" :checked="insightEditor.boardIds.includes(b.id)" @change="toggleInsightBoard(b.id)">
+                              <span x-text="(b.emoji || '📌') + ' ' + b.name"></span>
+                              <span class="hint" x-text="b.teamId ? '· ' + boardOrgLabel(b) : '· All teams'"></span>
+                            </label>
+                          </template>
+                          <div x-show="!insightSelectableBoards().length" class="hint">No enabled boards available.</div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <div>
+                    <label class="field-label">Focus prompt (optional)</label>
+                    <textarea class="input" rows="2" x-model="insightEditor.prompt" placeholder="e.g. Emphasize outages and anything due today"></textarea>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn ghost" type="button" @click="insightEditorOpen=false">Cancel</button>
+                  <button class="btn" type="button" @click="saveInsight()" x-text="insightEditor.id ? 'Save' : 'Create'"></button>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
@@ -8460,6 +8680,13 @@
         boardChecklistItemDraft: {},
         boardChecklistItemEdit: {},
         boardRefPickFor: '',
+        // Insights — read-only AI-generated cross-board views.
+        insights: [],
+        activeInsightId: '',
+        insightsLoading: false,
+        insightGenerating: {},
+        insightEditorOpen: false,
+        insightEditor: { id: '', name: '', emoji: '🔭', mode: 'all_enabled', boardIds: [], prompt: '', schedule: 'never' },
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
@@ -9103,8 +9330,9 @@
           if (first === 'assignments' && second) return { route: 'assignment-detail', param: second };
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
+          if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -9155,6 +9383,8 @@
             await this.loadOrganizations();
           } else if (this.route === 'boards') {
             await this.loadBoards(this.app.routeParam);
+          } else if (this.route === 'insights') {
+            await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'home') {
             await this.loadSchedules();
           }
@@ -9604,6 +9834,10 @@
             source.addEventListener('teams-changed', () => {
               if (this.route === 'boards' && this.activeBoardId) this.loadBoardCompliance(this.activeBoardId);
             });
+            // Insights regenerated/changed elsewhere → refresh while on the page.
+            source.addEventListener('insights-changed', () => {
+              if (this.route === 'insights') this.loadInsights(this.activeInsightId, true);
+            });
             source.addEventListener('agent-output', (event) => {
               const { id, stream, chunk } = JSON.parse(event.data || '{}');
               if (!this.liveOutput[id]) this.liveOutput[id] = { text: '', startedAt: new Date().toISOString(), active: true };
@@ -9693,6 +9927,7 @@
             { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
             { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
+            { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
@@ -11813,6 +12048,104 @@
             this.boardsLoading = false;
           }
         },
+        // ---- Insights (read-only AI cross-board views) -------------------------
+        async loadInsights(selectId, silent) {
+          if (!silent) this.insightsLoading = true;
+          try {
+            const list = await this.request('/api/insights');
+            this.insights = Array.isArray(list) ? list : [];
+            if (selectId && this.insights.some(v => v.id === selectId)) this.activeInsightId = selectId;
+            else if (!this.activeInsightId || !this.insights.some(v => v.id === this.activeInsightId)) {
+              this.activeInsightId = this.insights.length ? this.insights[0].id : '';
+            }
+            // Auto-generate the active insight on first visit if it has no body yet.
+            const cur = this.activeInsight();
+            if (cur && !cur.content && !cur.generating && !this.insightGenerating[cur.id]) {
+              this.generateInsight(cur.id);
+            }
+          } catch (e) {
+            if (!silent) this.showToast('Insights', e.message, 'error');
+          } finally {
+            this.insightsLoading = false;
+          }
+        },
+        activeInsight() { return (this.insights || []).find(v => v.id === this.activeInsightId) || null; },
+        selectInsight(id) {
+          this.activeInsightId = id;
+          if (window.location.hash !== '#/insights/' + id) window.location.hash = '#/insights/' + encodeURIComponent(id);
+          const cur = this.activeInsight();
+          if (cur && !cur.content && !cur.generating && !this.insightGenerating[id]) this.generateInsight(id);
+        },
+        async generateInsight(id) {
+          if (!id || this.insightGenerating[id]) return;
+          this.insightGenerating = { ...this.insightGenerating, [id]: true };
+          try {
+            const resp = await this.request('/api/insights/' + encodeURIComponent(id) + '/generate', { method: 'POST' });
+            const idx = this.insights.findIndex(v => v.id === id);
+            if (idx >= 0 && resp && resp.content) this.insights[idx] = { ...this.insights[idx], content: resp.content, generating: false };
+          } catch (e) {
+            this.showToast('Insights', e.message, 'error');
+          } finally {
+            const { [id]: _omit, ...rest } = this.insightGenerating;
+            this.insightGenerating = rest;
+          }
+        },
+        // Navigate from an insight checklist/board card to the underlying board.
+        insightGoToBoard(boardId) {
+          if (!boardId) return;
+          const b = (this.boards || []).find(x => x.id === boardId);
+          // Make sure the board's team is in scope so it's selectable.
+          if (b && b.teamId && this.currentTeamId !== 'all' && this.currentTeamId !== b.teamId) this.setCurrentOrg('all');
+          this.activeBoardId = boardId;
+          try { localStorage.setItem('active-board-id', boardId); } catch {}
+          window.location.hash = '#/boards/' + encodeURIComponent(boardId);
+        },
+        insightCalloutIcon(type) {
+          return ({ due: '📅', outage: '🚨', failure: '⚠️', activity: '⚡', note: '📝' })[type] || '•';
+        },
+        openInsightEditor(view) {
+          if (view) {
+            this.insightEditor = { id: view.id, name: view.name, emoji: view.emoji || '🔭', mode: view.mode || 'all_enabled', boardIds: [...(view.boardIds || [])], prompt: view.prompt || '', schedule: view.schedule || 'never', builtin: !!view.builtin };
+          } else {
+            this.insightEditor = { id: '', name: '', emoji: '🔭', mode: 'all_enabled', boardIds: [], prompt: '', schedule: 'never', builtin: false };
+          }
+          this.insightEditorOpen = true;
+        },
+        // Enabled, non-archived boards selectable for a custom insight.
+        insightSelectableBoards() {
+          return (this.boards || []).filter(b => b.enabled !== false && !b.archived);
+        },
+        toggleInsightBoard(boardId) {
+          const has = this.insightEditor.boardIds.includes(boardId);
+          this.insightEditor.boardIds = has ? this.insightEditor.boardIds.filter(x => x !== boardId) : [...this.insightEditor.boardIds, boardId];
+        },
+        async saveInsight() {
+          const ed = this.insightEditor;
+          const name = (ed.name || '').trim();
+          if (!name) { this.showToast('Insights', 'Name is required', 'error'); return; }
+          const body = { name, emoji: ed.emoji, mode: ed.mode, boardIds: ed.boardIds, prompt: ed.prompt, schedule: ed.schedule };
+          try {
+            let saved;
+            if (ed.id) saved = await this.request('/api/insights/' + encodeURIComponent(ed.id), { method: 'PUT', body: JSON.stringify(body) });
+            else saved = await this.request('/api/insights', { method: 'POST', body: JSON.stringify(body) });
+            this.insightEditorOpen = false;
+            await this.loadInsights(saved && saved.id, true);
+            if (saved && saved.id) this.generateInsight(saved.id);
+          } catch (e) {
+            this.showToast('Insights', e.message, 'error');
+          }
+        },
+        async deleteInsight(view) {
+          if (!view || view.builtin) return;
+          const ok = await this.uiConfirm({ title: 'Delete insight', message: 'Delete the insight "' + view.name + '"?', confirmLabel: 'Delete', danger: true });
+          if (!ok) return;
+          try {
+            await this.request('/api/insights/' + encodeURIComponent(view.id), { method: 'DELETE' });
+            await this.loadInsights(null, true);
+          } catch (e) {
+            this.showToast('Insights', e.message, 'error');
+          }
+        },
         // Boards visible under the current org: the global board (teamId null) is always shown.
         // Archived boards are hidden unless the user toggles "Show archived".
         visibleBoards() {
@@ -11887,6 +12220,24 @@
         boardBlocked(board) {
           const c = this.boardComplianceFor(board);
           return !!(c && c.blocked);
+        },
+        // Effective inert state: compliance-blocked OR manually disabled.
+        boardInert(board) {
+          return this.boardBlocked(board) || (board && board.enabled === false);
+        },
+        async setBoardEnabled(board, enabled) {
+          if (!board) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id), {
+              method: 'PUT', body: JSON.stringify({ enabled })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.showToast('Boards', enabled ? 'Board enabled' : 'Board disabled', 'success');
+          } catch (e) {
+            this.showToast('Boards', e.message, 'error');
+          }
         },
         _migrateActionLabel(action, problem) {
           const team = (this.boardComplianceFor(this.activeBoard()) || {}).teamName || 'team';
