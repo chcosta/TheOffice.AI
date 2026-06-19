@@ -2121,6 +2121,22 @@
       opacity: .5;
     }
     .board-panel:hover .board-resize { opacity: .9; }
+    .board-canvas-scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; padding-bottom: 2px; }
+    .board-canvas-resize {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 22px;
+      height: 22px;
+      cursor: nwse-resize;
+      border-right: 3px solid var(--cp-border-strong);
+      border-bottom: 3px solid var(--cp-border-strong);
+      border-bottom-right-radius: 9px;
+      opacity: .4;
+      z-index: 6;
+    }
+    .board-grid:hover .board-canvas-resize { opacity: .65; }
+    .board-canvas-resize:hover { opacity: 1; border-color: var(--cp-accent); }
     /* ----- Board assistant slide-over ("Ask board") ----- */
     .board-assistant-backdrop {
       position: fixed; inset: 0; z-index: 9998;
@@ -4409,6 +4425,7 @@
                         <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" @click="openBoardAssistant()" title="Ask the board assistant to help organize notes & checklists">💬 Ask board</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
+                        <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
                         <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
                         <button class="btn ghost" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)" title="Restore this board">↩ Restore</button>
@@ -4419,7 +4436,8 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-grid" :style="'position:relative; width:100%; height:' + boardGridHeight() + 'px;'">
+                    <div class="board-canvas-scroll">
+                    <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
                         <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <div class="board-panel-inner card">
@@ -4707,6 +4725,8 @@
                           <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize"></div>
                         </div>
                       </template>
+                      <div class="board-canvas-resize" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
+                    </div>
                     </div>
                   </div>
                 </template>
@@ -8351,6 +8371,8 @@
         boardCols: 12,
         boardRowH: 36,
         boardGap: 14,
+        // Per-board resizable canvas (px). null = fit to window width / auto height.
+        boardCanvas: { w: null, h: null },
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
@@ -12125,6 +12147,7 @@
         syncBoardLayout() {
           if (this.boardDragId) return; // don't disturb an in-progress drag/resize
           const b = this.activeBoard();
+          this.loadBoardCanvas(b ? b.id : '');
           // While a local layout change (collapse/drag/resize/auto-fit) is pending its
           // debounced save, a periodic board reload can return a stale server copy that
           // lacks the change. Hold the optimistic local layout for a short window so the
@@ -12192,6 +12215,58 @@
             if (l) maxY = Math.max(maxY, l.y + l.h);
           }
           return maxY * this.boardRowH + 8;
+        },
+        // Canvas size: width is explicit px (enables horizontal scroll) when the user
+        // has dragged wider; height grows beyond content when dragged taller.
+        boardGridStyle() {
+          const contentH = this.boardGridHeight();
+          const h = this.boardCanvas.h ? Math.max(contentH, this.boardCanvas.h) : contentH;
+          const w = this.boardCanvas.w ? this.boardCanvas.w + 'px' : '100%';
+          return `position:relative; width:${w}; height:${h}px;`;
+        },
+        loadBoardCanvas(boardId) {
+          let map = {};
+          try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
+          const c = boardId && map[boardId];
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null } : { w: null, h: null };
+        },
+        _saveBoardCanvas() {
+          const b = this.activeBoard(); if (!b) return;
+          let map = {};
+          try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null };
+          try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
+        },
+        resetBoardCanvas() {
+          this.boardCanvas = { w: null, h: null };
+          this._saveBoardCanvas();
+          this.scheduleAutoFit();
+        },
+        startCanvasResize(ev) {
+          if (ev.button !== undefined && ev.button !== 0) return;
+          ev.preventDefault(); ev.stopPropagation();
+          const grid = ev.target.closest('.board-grid');
+          if (!grid) return;
+          const rect = grid.getBoundingClientRect();
+          const startW = rect.width, startH = rect.height;
+          const mx = ev.clientX, my = ev.clientY;
+          const minW = 640, maxW = 4000;
+          const contentH = this.boardGridHeight();
+          this.boardDragId = '__canvas'; // suppress periodic sync / auto-fit mid-drag
+          const onMove = (e) => {
+            const w = Math.max(minW, Math.min(maxW, Math.round(startW + (e.clientX - mx))));
+            const h = Math.max(contentH, Math.round(startH + (e.clientY - my)));
+            this.boardCanvas = { w, h };
+          };
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            this.boardDragId = '';
+            this._saveBoardCanvas();
+            this.scheduleAutoFit(); // re-fit panel heights to the new width
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
         },
         _gridMetrics(ev) {
           const grid = ev.target.closest('.board-grid');
