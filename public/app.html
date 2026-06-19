@@ -303,11 +303,16 @@
     .app-shell {
       height: 100vh;
       display: grid;
-      grid-template-rows: var(--header-height) 1fr;
+      grid-template-rows: var(--header-height) auto 1fr;
       background:
         radial-gradient(circle at top right, color-mix(in srgb, var(--cp-accent-soft) 80%, transparent), transparent 34%),
         linear-gradient(180deg, var(--cp-bg-elevated), var(--cp-bg));
     }
+    /* Pin the three shell rows so the quick-launch bar (which may be hidden via
+       x-show) never lands in the flexible 1fr row and inflate at lower zoom. */
+    .app-shell > .topbar { grid-row: 1; }
+    .app-shell > .quick-launch { grid-row: 2; }
+    .app-shell > .body-grid { grid-row: 3; }
     .topbar {
       display: grid;
       grid-template-columns: 1fr auto 1fr;
@@ -2339,7 +2344,7 @@
     /* ----- Board layout controls bottom bar ----- */
     .board-bottombar {
       position: sticky; bottom: 0; z-index: 8;
-      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap;
       margin-top: 12px; padding: 8px 14px;
       border: 1px solid var(--cp-border); border-radius: 0.625rem;
       background: var(--cp-panel-strong); backdrop-filter: blur(10px);
@@ -7163,6 +7168,7 @@
                 <select x-model="mkt.groupBy" style="cursor:pointer;padding:5px 8px">
                   <option value="type">Type</option>
                   <option value="source">Source</option>
+                  <option value="sourcepath">Source path</option>
                   <option value="installed">Installed</option>
                   <option value="none">None</option>
                 </select>
@@ -7181,7 +7187,7 @@
             <!-- Compact rows grouped by the active dimension; multi-column when wide. Click a row for details. -->
             <template x-for="grp in mktGroupedEntries()" :key="grp.key">
               <div class="mkt-group">
-                <div class="mkt-group-head" x-show="mkt.groupBy !== 'none'">
+                <div class="mkt-group-head" x-show="mkt.groupBy !== 'none'" :title="grp.title || grp.label">
                   <span class="mkt-group-icon" x-text="grp.icon"></span>
                   <span class="mkt-group-label" x-text="grp.label"></span>
                   <span class="mkt-group-count" x-text="grp.items.length"></span>
@@ -17052,6 +17058,28 @@
         mktEntryKind(entry) {
           return entry.sourceKind || (entry.azdo ? 'azdo' : 'installed');
         },
+        // Source-ROOT descriptor for an entry (for the "Source path" grouping):
+        // the AzDO org/project/repo@branch or the configured local folder path —
+        // NOT the individual artifact file. Keyed by sourceId so every artifact
+        // from one configured source collapses into a single group.
+        mktSourcePathMeta(e) {
+          const src = (this.mkt.sources || []).find(s => s.id === e.sourceId);
+          const kind = e.sourceKind || (src && src.kind) || (e.azdo ? 'azdo' : 'installed');
+          if (kind === 'azdo') {
+            const a = (src && src.azdo) || e.azdo || {};
+            const loc = [a.org, a.project, a.repo].filter(Boolean).join('/') + (a.branch ? '@' + a.branch : '');
+            const label = loc || e.sourceLabel || '(Azure DevOps)';
+            return { key: 'azdo|' + (e.sourceId || loc), label, icon: '🔷', title: 'Azure DevOps · ' + label };
+          }
+          if (kind === 'local') {
+            const full = (src && src.local && src.local.path) || e.sourceLabel || '';
+            let short = full;
+            if (full) { const parts = String(full).split(/[\\/]/).filter(Boolean); short = parts.length > 3 ? '…/' + parts.slice(-3).join('/') : full; }
+            return { key: 'local|' + (e.sourceId || full), label: short || '(local folder)', icon: '📁', title: 'Local folder · ' + (full || short) };
+          }
+          const label = e.sourceLabel || 'Installed';
+          return { key: 'installed|' + (e.sourceId || label), label, icon: '✓', title: 'Installed · ' + label };
+        },
         mktFilteredEntries() {
           const entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
           const f = this.mkt.sourceKindFilter;
@@ -17085,12 +17113,18 @@
             return { label: key, icon: '•' };
           };
           for (const e of entries) {
-            let key;
+            let key, bMeta = null;
             if (mode === 'type') key = e.type || 'other';
             else if (mode === 'source') key = this.mktEntryKind(e);
+            else if (mode === 'sourcepath') {
+              // Group by the concrete origin root: AzDO repo@branch or local folder.
+              const sm = this.mktSourcePathMeta(e);
+              key = sm.key;
+              bMeta = { label: sm.label, icon: sm.icon, title: sm.title };
+            }
             else if (mode === 'installed') key = (e.installed || e.inUse) ? 'installed' : 'available';
             else key = 'all';
-            if (!buckets.has(key)) { const m = meta(key); buckets.set(key, { key, label: m.label, icon: m.icon, items: [] }); }
+            if (!buckets.has(key)) { const m = bMeta || meta(key); buckets.set(key, { key, label: m.label, icon: m.icon, title: m.title || m.label, items: [] }); }
             buckets.get(key).items.push(e);
           }
           const arr = [...buckets.values()];
