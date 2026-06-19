@@ -4433,7 +4433,7 @@
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                         <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
                           <span style="opacity:0.8">🔍</span>
-                          <input type="range" min="0.4" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:104px;cursor:pointer" title="Board zoom">
+                          <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:104px;cursor:pointer" title="Board zoom">
                           <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
                           <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Zoom to fit the whole board in view" style="padding:2px 8px">Fit</button>
                         </span>
@@ -12811,21 +12811,40 @@
         boardZoom() { return this.boardCanvas.z || 1; },
         setBoardZoom(v) {
           let z = parseFloat(v); if (!isFinite(z)) z = 1;
-          z = Math.max(0.4, Math.min(1.5, Math.round(z * 100) / 100));
+          z = Math.max(0.3, Math.min(1.5, Math.round(z * 100) / 100));
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
         },
-        // Zoom the canvas so the whole grid fits inside the visible viewport (never zooms in).
+        // Actual rendered extent of all panels, in LAYOUT (pre-zoom) px. Unlike
+        // boardCanvas.w/h (the canvas size), this reflects where panels really are —
+        // panels can be dragged past the canvas edge, so this can be larger.
+        _boardContentExtent() {
+          const cols = this.boardCols, rowH = this.boardRowH;
+          const colPx = this._boardColPx() || 1;
+          let right = cols, bottom = 6;
+          for (const p of this.boardPanels()) {
+            const l = this.boardLayout[p.id];
+            if (!l) continue;
+            const h = l.collapsed ? 2 : l.h;
+            right = Math.max(right, l.x + l.w);
+            bottom = Math.max(bottom, l.y + h);
+          }
+          return { w: right * colPx, h: bottom * rowH + 8 };
+        },
+        // Zoom the canvas so the whole board (every panel) fits inside the visible
+        // viewport. Rounds DOWN so it always fits; never zooms in past 100%.
         fitBoardZoom() {
           const grid = document.querySelector('.board-grid');
           const scroll = grid && grid.closest('.board-canvas-scroll');
           if (!scroll) return;
+          const pad = 16; // breathing room so panels aren't flush against the edges
           const vw = scroll.clientWidth, vh = scroll.clientHeight;
-          const layoutW = this.boardCanvas.w || vw; // unstretched grid fits the viewport at z=1
-          const layoutH = Math.max(this.boardGridHeight(), this.boardCanvas.h || 0);
-          if (layoutW <= 0 || layoutH <= 0) return;
-          let z = Math.min(vw / layoutW, vh / layoutH, 1);
-          z = Math.max(0.4, Math.round(z * 20) / 20);
+          const ext = this._boardContentExtent();
+          if (ext.w <= 0 || ext.h <= 0 || vw <= 0 || vh <= 0) return;
+          let z = Math.min(vw / ext.w, vh / ext.h, 1);
+          // Only shrink (and add breathing room) when the board doesn't already fit at 100%.
+          if (z < 1) z = Math.min((vw - pad) / ext.w, (vh - pad) / ext.h, 1);
+          z = Math.max(0.3, Math.floor(z * 20) / 20); // round down to the 0.05 step
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
         },
