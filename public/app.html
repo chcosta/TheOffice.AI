@@ -12945,37 +12945,82 @@
           const rect = grid.getBoundingClientRect();
           return { colW: rect.width / this.boardCols, rowH: this.boardRowH };
         },
+        // Nearest ancestor that scrolls vertically (falls back to the page scroller).
+        _scrollParentY(el) {
+          let n = el && el.parentElement;
+          while (n && n !== document.body) {
+            const s = getComputedStyle(n);
+            if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight) return n;
+            n = n.parentElement;
+          }
+          return document.scrollingElement || document.documentElement;
+        },
         startPanelDrag(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault();
           const grid = ev.target.closest('.board-grid');
-          const gridRect = grid ? grid.getBoundingClientRect() : null;
-          const { colW, rowH } = this._gridMetrics(ev);
+          const hScroll = grid ? grid.closest('.board-canvas-scroll') : null;
+          const vScroll = this._scrollParentY(grid);
+          const rowH = this.boardRowH;
           const base = this.boardLayout[id]; if (!base) return;
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
           const manual = !this.boardAutoWidth();
-          const startCanvasW = (gridRect ? gridRect.width : 0);
-          let canvasGrew = false;
-          const onMove = (e) => {
-            const dx = Math.round((e.clientX - start.mx) / colW);
-            const dy = Math.round((e.clientY - start.my) / rowH);
-            const nx = Math.max(0, Math.min(cols - start.w, start.x + dx));
-            const ny = Math.max(0, start.y + dy);
-            this.boardLayout = { ...this.boardLayout, [id]: { x: nx, y: ny, w: start.w, h: start.h } };
-            // Manual mode: dragging past the right edge stretches the canvas to make room.
-            // The panel rides the rightmost column while the whole grid widens.
-            if (manual && gridRect && e.clientX > gridRect.right) {
-              const newW = Math.min(4000, Math.round(startCanvasW + (e.clientX - gridRect.right)));
-              if (!this.boardCanvas.w || newW > this.boardCanvas.w) {
-                this.boardCanvas = { ...this.boardCanvas, w: newW };
-                canvasGrew = true;
-              }
+          const EDGE = 56;       // px from a viewport edge that triggers auto-grow
+          const STEP = 26;       // px the canvas grows per frame while held at the edge
+          const MAXW = 4000, MAXH = 8000;
+          let lastX = ev.clientX, lastY = ev.clientY;
+          let canvasGrew = false, raf = 0;
+          // Place the dragged panel from the latest cursor position; optionally pin it
+          // to the right / bottom edge so it rides along while the canvas keeps growing.
+          const place = (pinRight, pinBottom) => {
+            if (!grid) return;
+            const cw = grid.getBoundingClientRect().width / cols;
+            const dx = Math.round((lastX - start.mx) / cw);
+            const dy = Math.round((lastY - start.my) / rowH);
+            let nx = Math.max(0, Math.min(cols - start.w, start.x + dx));
+            let ny = Math.max(0, start.y + dy);
+            if (pinRight) nx = cols - start.w;
+            if (pinBottom) {
+              const canvasH = this.boardCanvas.h || grid.getBoundingClientRect().height;
+              ny = Math.max(ny, Math.round(canvasH / rowH) - start.h);
             }
+            this.boardLayout = { ...this.boardLayout, [id]: { x: nx, y: ny, w: start.w, h: start.h } };
+          };
+          const onMove = (e) => { lastX = e.clientX; lastY = e.clientY; place(false, false); };
+          // Continuous auto-grow: while the cursor sits in an edge zone, keep stretching
+          // the canvas (and auto-scrolling) every frame — not just on mouse movement.
+          const tick = () => {
+            if (this.boardDragId !== id) return;
+            let atRight = false, atBottom = false;
+            if (manual) {
+              if (hScroll) {
+                const hr = hScroll.getBoundingClientRect();
+                if (lastX > hr.right - EDGE) {
+                  atRight = true;
+                  const curW = this.boardCanvas.w || grid.getBoundingClientRect().width;
+                  const nw = Math.min(MAXW, Math.round(curW + STEP));
+                  if (nw !== this.boardCanvas.w) { this.boardCanvas = { ...this.boardCanvas, w: nw }; canvasGrew = true; }
+                  hScroll.scrollLeft = hScroll.scrollWidth;
+                }
+              }
+              const isDoc = (vScroll === document.scrollingElement || vScroll === document.documentElement);
+              const vBottom = isDoc ? window.innerHeight : vScroll.getBoundingClientRect().bottom;
+              if (lastY > vBottom - EDGE) {
+                atBottom = true;
+                const curH = this.boardCanvas.h || grid.getBoundingClientRect().height;
+                const nh = Math.min(MAXH, Math.round(curH + STEP));
+                if (nh !== this.boardCanvas.h) { this.boardCanvas = { ...this.boardCanvas, h: nh }; canvasGrew = true; }
+                vScroll.scrollTop = vScroll.scrollHeight;
+              }
+              if (atRight || atBottom) place(atRight, atBottom);
+            }
+            raf = requestAnimationFrame(tick);
           };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            cancelAnimationFrame(raf);
             this.boardDragId = '';
             if (canvasGrew) this._saveBoardCanvas();
             this.persistLayout();
@@ -12984,6 +13029,7 @@
           this.boardDragId = id;
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
+          raf = requestAnimationFrame(tick);
         },
         startPanelResize(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
