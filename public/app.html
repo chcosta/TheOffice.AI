@@ -12972,15 +12972,29 @@
           const rect = grid.getBoundingClientRect();
           return { colW: rect.width / this.boardCols, rowH: this.boardRowH };
         },
-        // Nearest ancestor that scrolls vertically (falls back to the page scroller).
-        _scrollParentY(el) {
-          let n = el && el.parentElement;
+        // Scroll every scrollable ancestor of `el` fully to the right / bottom so a panel
+        // pinned to a growing canvas edge stays in view (the real scroller can be any
+        // ancestor — e.g. .content — and may only start overflowing mid-drag).
+        _scrollAncestorsToRight(el) {
+          let n = el;
           while (n && n !== document.body) {
-            const s = getComputedStyle(n);
-            if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight) return n;
+            if (n.scrollWidth > n.clientWidth + 1) {
+              const cs = getComputedStyle(n);
+              if (/(auto|scroll)/.test(cs.overflowX)) n.scrollLeft = n.scrollWidth;
+            }
             n = n.parentElement;
           }
-          return document.scrollingElement || document.documentElement;
+        },
+        _scrollAncestorsToBottom(el) {
+          let n = el;
+          while (n && n !== document.body) {
+            if (n.scrollHeight > n.clientHeight + 1) {
+              const cs = getComputedStyle(n);
+              if (/(auto|scroll)/.test(cs.overflowY)) n.scrollTop = n.scrollHeight;
+            }
+            n = n.parentElement;
+          }
+          try { window.scrollTo(0, document.documentElement.scrollHeight); } catch {}
         },
         startPanelDrag(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
@@ -12988,14 +13002,13 @@
           const grid = ev.target.closest('.board-grid');
           if (!grid) return;
           const hScroll = grid.closest('.board-canvas-scroll');
-          const vScroll = this._scrollParentY(grid);
+          const panelEl = ev.target.closest('.board-panel');
           const rowH = this.boardRowH;
           const cols = this.boardCols;
           const base = this.boardLayout[id]; if (!base) return;
           const start = { w: base.w, h: base.h };
-          const manual = !this.boardAutoWidth();
-          const EDGE = 56;       // px from a viewport edge that triggers auto-grow
-          const STEP = 26;       // px the canvas grows per frame while held at the edge
+          const EDGE = 64;          // size of the viewport edge zone (px)
+          const STEP_MAX = 14;      // fastest canvas growth per frame (px); eases with depth
           const MAXW = 4000, MAXH = 8000;
           // Where inside the panel the user grabbed (in columns / rows), so the panel
           // tracks the cursor accurately. Absolute mapping (vs grid rect, which shifts
@@ -13029,34 +13042,48 @@
           const tick = () => {
             if (this.boardDragId !== id) return;
             let atRight = false, atBottom = false;
-            if (manual) {
-              if (hScroll) {
-                const hr = hScroll.getBoundingClientRect();
-                if (lastX > hr.right - EDGE) {
-                  atRight = true;
-                  const gridW = grid.getBoundingClientRect().width;
-                  // Lock the column pixel size to the pre-stretch width the first time we
-                  // grow, so panels keep a fixed width instead of filling the wider canvas.
-                  const baseW = this.boardCanvas.baseW || gridW;
-                  const curW = this.boardCanvas.w || gridW;
-                  const nw = Math.min(MAXW, Math.round(curW + STEP));
-                  if (nw !== this.boardCanvas.w || !this.boardCanvas.baseW) {
-                    this.boardCanvas = { ...this.boardCanvas, w: nw, baseW };
-                    canvasGrew = true;
-                  }
-                  hScroll.scrollLeft = hScroll.scrollWidth;
+            if (panelEl) {
+              const r = grid.getBoundingClientRect();
+              const cpx = this._boardColPx() || (r.width / cols);
+              const eff = this._boardEffCols();
+              // Where the cursor wants to place the panel (unclamped). Grow only when the
+              // user actively drags the panel *past* the current right / bottom wall — a
+              // panel merely resting at the edge won't stretch the canvas.
+              const wantNx = Math.round((lastX - r.left) / cpx) - grabCol;
+              const wantNy = Math.round((lastY - r.top) / rowH) - grabRow;
+              const canvasRows = Math.round((this.boardCanvas.h || r.height) / rowH);
+              const pushRight = wantNx + start.w > eff;
+              const pushBottom = wantNy + start.h > canvasRows;
+              const vpR = hScroll ? Math.min(hScroll.getBoundingClientRect().right, window.innerWidth) : window.innerWidth;
+              const vpB = window.innerHeight;
+              // Ease the per-frame step by how deep into the edge zone the cursor is, so the
+              // growth feels fluid (a slow crawl near the edge, faster the harder you push).
+              const easeStep = (into) => Math.max(2, Math.round((Math.min(EDGE, Math.max(0, into)) / EDGE) * STEP_MAX));
+              if (pushRight) {
+                atRight = true;
+                // Pushing past the wall hand-positions the panel, so leave auto-width mode
+                // (capturing the current window-fit width as the fixed column base).
+                if (this.boardAutoWidth()) this._disableAutoWidth();
+                const baseW = this.boardCanvas.baseW || r.width;
+                const curW = this.boardCanvas.w || r.width;
+                const nw = Math.min(MAXW, curW + easeStep(lastX - (vpR - EDGE)));
+                if (nw !== this.boardCanvas.w || !this.boardCanvas.baseW) {
+                  this.boardCanvas = { ...this.boardCanvas, w: nw, baseW };
+                  canvasGrew = true;
                 }
               }
-              const isDoc = (vScroll === document.scrollingElement || vScroll === document.documentElement);
-              const vBottom = isDoc ? window.innerHeight : vScroll.getBoundingClientRect().bottom;
-              if (lastY > vBottom - EDGE) {
+              if (pushBottom) {
                 atBottom = true;
-                const curH = this.boardCanvas.h || grid.getBoundingClientRect().height;
-                const nh = Math.min(MAXH, Math.round(curH + STEP));
+                const curH = this.boardCanvas.h || r.height;
+                const nh = Math.min(MAXH, curH + easeStep(lastY - (vpB - EDGE)));
                 if (nh !== this.boardCanvas.h) { this.boardCanvas = { ...this.boardCanvas, h: nh }; canvasGrew = true; }
-                vScroll.scrollTop = vScroll.scrollHeight;
               }
-              if (atRight || atBottom) place(atRight, atBottom);
+              if (atRight || atBottom) {
+                place(atRight, atBottom);
+                // Auto-scroll every scrollable ancestor so the pinned panel rides into view.
+                if (atRight) this._scrollAncestorsToRight(grid);
+                if (atBottom) this._scrollAncestorsToBottom(grid);
+              }
             }
             raf = requestAnimationFrame(tick);
           };
