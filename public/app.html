@@ -2122,7 +2122,7 @@
       opacity: .5;
     }
     .board-panel:hover .board-resize { opacity: .9; }
-    .board-canvas-scroll { overflow: auto; max-width: 100%; max-height: calc(100vh - 210px); min-height: 300px; padding-bottom: 2px; }
+    .board-canvas-scroll { overflow: auto; max-width: 100%; min-height: 300px; padding-bottom: 2px; }
     .board-canvas-resize {
       position: absolute;
       right: 0;
@@ -4528,7 +4528,7 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" :style="boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : ''">
+                    <div class="board-canvas-scroll" x-init="$nextTick(() => _recalcBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
                         <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
@@ -8771,6 +8771,7 @@
         boardGap: 14,
         // Per-board resizable canvas (px). null = fit to window width / auto height.
         boardCanvas: { w: null, h: null, baseW: null, z: 1 },
+        boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
@@ -8944,6 +8945,8 @@
           this.loadModels();
           this.connectEvents();
           setInterval(() => { this.now = Date.now(); }, 1000);
+          // Keep the board canvas sized so it's the only scroller (no double scrollbars).
+          window.addEventListener('resize', () => { if (this.route === 'boards') this._recalcBoardCanvasH(); });
         },
 
         initTheme() {
@@ -9451,6 +9454,7 @@
             await this.loadOrganizations();
           } else if (this.route === 'boards') {
             await this.loadBoards(this.app.routeParam);
+            this.$nextTick(() => this._recalcBoardCanvasH());
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'home') {
@@ -12306,6 +12310,7 @@
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
           this.syncBoardLayout();
           this.loadBoardCompliance(id);
+          this.$nextTick(() => this._recalcBoardCanvasH());
         },
         // ---- Board team-compliance: a team-scoped board with out-of-team pins is
         // "blocked" until each offending item is migrated or removed. ----
@@ -12823,6 +12828,20 @@
           z = Math.max(0.4, Math.round(z * 20) / 20);
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
+        },
+        // Size the canvas scroller so it ends exactly at the bottom of the page's content
+        // area — making it the SOLE vertical scroller (no double scrollbars from .content).
+        _recalcBoardCanvasH() {
+          const sc = document.querySelector('.board-canvas-scroll');
+          if (!sc) return;
+          const sTop = sc.getBoundingClientRect().top;
+          const content = sc.closest('.content');
+          let bottom = window.innerHeight;
+          if (content) {
+            const cs = getComputedStyle(content);
+            bottom = content.getBoundingClientRect().bottom - (parseFloat(cs.paddingBottom) || 0);
+          }
+          this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - 4));
         },
         // Reset every panel's x / width to a clean 2-column layout (summary spans full
         // width). Vertical positions are then repacked by auto-fit. Does not touch canvas.
