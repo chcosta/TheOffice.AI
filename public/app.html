@@ -2203,6 +2203,15 @@
       color: var(--cp-accent);
     }
     .ba-action-preview { font-size: 13px; margin-top: 2px; word-break: break-word; white-space: pre-wrap; line-height: 1.45; }
+    .ba-spinner {
+      width: 14px; height: 14px; flex: 0 0 auto;
+      border: 2px solid var(--cp-border);
+      border-top-color: var(--cp-accent);
+      border-radius: 50%;
+      display: inline-block;
+      animation: ba-spin 0.7s linear infinite;
+    }
+    @keyframes ba-spin { to { transform: rotate(360deg); } }
     .board-assistant-input {
       flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end;
       padding: 12px 16px; border-top: 1px solid var(--cp-border);
@@ -5044,7 +5053,7 @@
                                   <div class="ba-action-preview" x-text="a.preview"></div>
                                 </div>
                                 <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
-                                  <button x-show="a.type==='query_agent'" class="btn primary" type="button" style="padding:3px 10px" :disabled="a._running" @click="runAssistantQuery(a, m)"><span x-text="a._running ? 'Running…' : '▶ Run & continue'"></span></button>
+                                  <button x-show="a.type==='query_agent'" class="btn primary" type="button" style="padding:3px 10px" :disabled="a._running" @click="runAssistantQuery(a, m)"><span x-text="a._running ? ('Running… ' + (baElapsed>0 ? baElapsedText() : '')) : '▶ Run & continue'"></span></button>
                                   <button x-show="a.type!=='query_agent'" type="button" :class="a.destructive ? 'btn danger' : 'btn primary'" style="padding:3px 10px" @click="applyAssistantAction(a)" x-text="actionConfirmLabel(a)"></button>
                                   <button class="icon-button" type="button" title="Dismiss" @click="a._dismissed=true">✕</button>
                                 </div>
@@ -5056,7 +5065,12 @@
                     </div>
                   </template>
                   <div x-show="boardAssistant.busy" class="ba-msg assistant">
-                    <div class="ba-bubble assistant"><span class="hint">Thinking…</span></div>
+                    <div class="ba-bubble assistant" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span class="ba-spinner"></span>
+                      <span x-text="(boardAssistant.activity && boardAssistant.activity.kind==='agent' ? '⚡ ' : '') + ((boardAssistant.activity && boardAssistant.activity.label) || 'Thinking') + '…'"></span>
+                      <span class="hint" style="font-variant-numeric:tabular-nums" x-show="baElapsed>0" x-text="baElapsedText()"></span>
+                      <span class="hint" x-show="boardAssistant.activity && boardAssistant.activity.kind==='agent'" style="opacity:.65">agent runs can take a minute or two</span>
+                    </div>
                   </div>
                 </div>
                 <div class="board-assistant-input">
@@ -8964,7 +8978,11 @@
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
-        boardAssistant: { open: false, busy: false, input: '', messages: [], resizing: false, width: Math.max(320, Math.min(720, parseInt(localStorage.getItem('ba-width'), 10) || 400)) },
+        boardAssistant: { open: false, busy: false, input: '', messages: [], resizing: false, activity: null, width: Math.max(320, Math.min(720, parseInt(localStorage.getItem('ba-width'), 10) || 400)) },
+        // Live elapsed-seconds counter for the board assistant's in-flight work (drives
+        // the ticking timer so the user can see the agent/model is still active).
+        baElapsed: 0,
+        _baTimer: null,
         // Board AI prompt history (global across boards): recent prompts shown in the
         // empty-state, plus a separate pinned list for quick reuse.
         // Board AI prompt history is keyed per-board: { [boardId]: [prompt, ...] }.
@@ -14068,6 +14086,28 @@
           this.boardAssistant.input = text;
           this.sendBoardAssistant();
         },
+        // Start/stop a live activity indicator (ticking elapsed timer + phase label)
+        // so the user can see the assistant/agent is still working during long runs.
+        _baStartActivity(label, kind) {
+          this.boardAssistant.activity = { label, kind: kind || 'think', startedAt: Date.now() };
+          this.baElapsed = 0;
+          if (this._baTimer) clearInterval(this._baTimer);
+          this._baTimer = setInterval(() => {
+            const a = this.boardAssistant.activity;
+            if (!a) return;
+            this.baElapsed = Math.floor((Date.now() - a.startedAt) / 1000);
+          }, 1000);
+        },
+        _baStopActivity() {
+          if (this._baTimer) { clearInterval(this._baTimer); this._baTimer = null; }
+          this.boardAssistant.activity = null;
+          this.baElapsed = 0;
+        },
+        baElapsedText() {
+          const s = this.baElapsed || 0;
+          const m = Math.floor(s / 60), r = s % 60;
+          return m + ':' + String(r).padStart(2, '0');
+        },
         async sendBoardAssistant() {
           const board = this.activeBoard();
           const text = (this.boardAssistant.input || '').trim();
@@ -14076,6 +14116,7 @@
           this.boardAssistant.messages.push({ role: 'user', content: text });
           this.boardAssistant.input = '';
           this.boardAssistant.busy = true;
+          this._baStartActivity('Thinking', 'think');
           this._baScroll();
           // Only pass conversational turns (no per-action UI flags) as history.
           const history = this.boardAssistant.messages
@@ -14091,6 +14132,7 @@
             this.boardAssistant.messages.push({ role: 'assistant', content: 'Sorry — ' + (e.message || 'the assistant failed.'), actions: [] });
           } finally {
             this.boardAssistant.busy = false;
+            this._baStopActivity();
             this._baScroll();
           }
         },
@@ -14213,6 +14255,7 @@
           if (!board || a._applied || a._dismissed || a._running) return;
           a._running = true;
           this.boardAssistant.busy = true;
+          this._baStartActivity('Running ' + (a.agentLabel || 'agent'), 'agent');
           this._baScroll();
           const history = this.boardAssistant.messages
             .filter(mm => mm.role === 'user' || mm.role === 'assistant')
@@ -14230,6 +14273,7 @@
           } finally {
             a._running = false;
             this.boardAssistant.busy = false;
+            this._baStopActivity();
             this._baScroll();
           }
         },
