@@ -4857,6 +4857,255 @@ app.delete('/api/boards/:id/items/:itemId', (req, res) => {
   res.json({ ok: true, board: b });
 });
 
+// ===================== BOARD TEAM-COMPLIANCE =====================
+// When a board is filed under a team, every pinned item must "belong" to that
+// team for the board to be usable. An item belongs when:
+//   - operation (task/flow/assignment): its own teamId === board.teamId AND each
+//     of its component employees (the agent a task runs, the manager owning an
+//     assignment, every agent a flow references) is a member of the team.
+//   - employee pin (agent/manager): the employee is a member of the team.
+//   - chat/comment: the chat's target employee is a member of the team.
+//   - session/note/checklist: always compliant.
+// Boards with no team, or whose team was deleted, are never blocked. Pins whose
+// underlying item no longer exists are skipped (not a team problem). When any
+// item is non-compliant the board is "blocked" in the UI until resolved.
+
+function _teamById(id) { return loadTeams().find(t => t.id === id) || null; }
+function _teamName(id) { const t = _teamById(id); return t ? (t.name || id) : (id || null); }
+function _employeeNameOf(id) {
+  const a = supervisor.agents.get(id); if (a) return a.config.name || a.config.agent || id;
+  const m = managerAgent.managers.get(id); if (m) return (m.config && m.config.name) || id;
+  try { if (fs.existsSync(MANAGERS_PATH)) { const ms = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8')); const mm = ms.find(x => x.id === id); if (mm) return mm.name || id; } } catch {}
+  return id;
+}
+function _opTeamOf(x) { return (x && (x.teamId !== undefined ? x.teamId : x.orgId)) || null; }
+function _findTaskByRef(refId) {
+  const tasks = loadTasks();
+  const rawId = String(refId).replace(/^task-/, '');
+  return tasks.find(x => x.id === rawId || ('task-' + x.id) === refId || x.id === refId) || null;
+}
+function _findAssignmentByRef(refId) {
+  const m = String(refId).match(/^assignment-(.+)-([^-]+)$/);
+  if (!m) return null;
+  const managerId = m[1], assignmentId = m[2];
+  const entry = managerAgent.managers.get(managerId);
+  if (!entry) return null;
+  const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
+  if (!assignment) return null;
+  return { managerId, assignmentId, assignment, entry };
+}
+function _chatTargetEmployeeOf(refId, kind) {
+  let chatId = String(refId);
+  if (kind === 'comment') { const i = chatId.indexOf('~'); if (i >= 0) chatId = chatId.slice(0, i); }
+  try { const cf = path.join(CHATS_DIR, `${chatId}.json`); if (fs.existsSync(cf)) { const c = JSON.parse(fs.readFileSync(cf, 'utf-8')); return c.target || null; } } catch {}
+  return null;
+}
+// The "component employees" an operation depends on (must be team members too).
+function _opComponentEmployees(item) {
+  const out = [];
+  if (item.kind === 'task') {
+    const t = _findTaskByRef(item.refId);
+    if (t && t.agentId) out.push({ employeeId: t.agentId, role: 'agent' });
+  } else if (item.kind === 'assignment') {
+    const a = _findAssignmentByRef(item.refId);
+    if (a) out.push({ employeeId: a.managerId, role: 'manager' });
+  } else if (item.kind === 'flow') {
+    let c = null; try { c = chainEngine.get(item.refId); } catch {}
+    if (c) {
+      const tasks = loadTasks();
+      const set = new Set();
+      for (const s of (c.steps || [])) { const t = tasks.find(t => t.id === s.taskId || ('task-' + t.id) === s.taskId); if (t && t.agentId) set.add(t.agentId); }
+      for (const e of (c.edges || [])) { if (e.condition && e.condition.type === 'ai' && e.condition.agentId) set.add(e.condition.agentId); }
+      for (const id of set) out.push({ employeeId: id, role: 'agent' });
+    }
+  }
+  return out;
+}
+
+function computeBoardCompliance(boardRaw) {
+  const b = _normalizeBoard(boardRaw);
+  const teamId = b.teamId;
+  if (!teamId) return { boardId: b.id, teamId: null, teamName: null, ok: true, blocked: false, issues: [] };
+  const team = _teamById(teamId);
+  if (!team) return { boardId: b.id, teamId, teamName: null, ok: true, blocked: false, issues: [] };
+  const teamName = team.name || teamId;
+  const members = new Set(team.memberIds || []);
+  const inTeam = (id) => members.has(id);
+  const OP_KINDS = new Set(['task', 'assignment', 'flow']);
+  const EMP_KINDS = new Set(['agent', 'manager']);
+  const EMP_ACTIONS = ['add_member', 'move_member'];
+  const issues = [];
+
+  for (const it of b.items) {
+    const problems = [];
+    if (OP_KINDS.has(it.kind)) {
+      let opTeam = null, found = false;
+      if (it.kind === 'task') { const t = _findTaskByRef(it.refId); if (t) { found = true; opTeam = _opTeamOf(t); } }
+      else if (it.kind === 'assignment') { const a = _findAssignmentByRef(it.refId); if (a) { found = true; opTeam = _opTeamOf(a.assignment); } }
+      else if (it.kind === 'flow') { let c = null; try { c = chainEngine.get(it.refId); } catch {} if (c) { found = true; opTeam = _opTeamOf(c); } }
+      if (!found) continue; // unresolved pin — not a team problem
+      if (opTeam !== teamId) {
+        problems.push({ kind: 'op_team', opKind: it.kind, currentTeamId: opTeam, currentTeamName: opTeam ? _teamName(opTeam) : null, actions: ['clone_op', 'move_op'] });
+      }
+      for (const ce of _opComponentEmployees(it)) {
+        if (!inTeam(ce.employeeId)) problems.push({ kind: 'employee', role: ce.role, employeeId: ce.employeeId, employeeName: _employeeNameOf(ce.employeeId), component: true, actions: EMP_ACTIONS });
+      }
+    } else if (EMP_KINDS.has(it.kind)) {
+      if (!_employeeExists(it.refId)) continue;
+      if (!inTeam(it.refId)) problems.push({ kind: 'employee', role: it.kind === 'manager' ? 'manager' : 'agent', employeeId: it.refId, employeeName: _employeeNameOf(it.refId), actions: EMP_ACTIONS });
+    } else if (it.kind === 'chat' || it.kind === 'comment') {
+      const target = _chatTargetEmployeeOf(it.refId, it.kind);
+      if (!target) continue;
+      if (!inTeam(target)) problems.push({ kind: 'employee', role: 'agent', employeeId: target, employeeName: _employeeNameOf(target), viaChat: true, actions: EMP_ACTIONS });
+    }
+    if (problems.length) issues.push({ itemId: it.id, kind: it.kind, refId: it.refId, label: it.label || it.refId, sublabel: it.sublabel || '', problems, canRemove: true });
+  }
+  const blocked = issues.length > 0;
+  return { boardId: b.id, teamId, teamName, ok: !blocked, blocked, issues };
+}
+
+// ---- compliance mutation helpers ----
+function _persistManagerConfig(managerId, config) {
+  try {
+    const managers = JSON.parse(fs.readFileSync(MANAGERS_PATH, 'utf-8'));
+    const mi = managers.findIndex(m => m.id === managerId);
+    if (mi >= 0) { managers[mi] = config; fs.writeFileSync(MANAGERS_PATH, JSON.stringify(managers, null, 2)); }
+  } catch {}
+}
+function _addEmployeeToTeam(teamId, employeeId) {
+  const teams = loadTeams();
+  const idx = teams.findIndex(t => t.id === teamId);
+  if (idx < 0) return false;
+  if (!Array.isArray(teams[idx].memberIds)) teams[idx].memberIds = [];
+  if (!teams[idx].memberIds.includes(employeeId)) teams[idx].memberIds.push(employeeId);
+  teams[idx].updatedAt = new Date().toISOString();
+  saveTeams(teams);
+  broadcastSSE('teams-changed', { id: teamId });
+  return true;
+}
+// Move = remove the employee from every OTHER team (with the same disable cascade
+// used by the members DELETE route), then add to the target team.
+function _moveEmployeeToTeam(teamId, employeeId) {
+  const teams = loadTeams();
+  const removedFrom = [];
+  for (const t of teams) {
+    if (t.id !== teamId && (t.memberIds || []).includes(employeeId)) {
+      t.memberIds = t.memberIds.filter(m => m !== employeeId);
+      t.updatedAt = new Date().toISOString();
+      removedFrom.push(t.id);
+    }
+  }
+  const tgt = teams.find(t => t.id === teamId);
+  if (tgt) { if (!Array.isArray(tgt.memberIds)) tgt.memberIds = []; if (!tgt.memberIds.includes(employeeId)) tgt.memberIds.push(employeeId); tgt.updatedAt = new Date().toISOString(); }
+  saveTeams(teams);
+  for (const tid of removedFrom) { try { disableOperationsForEmployeeInTeam(employeeId, tid); } catch {} broadcastSSE('teams-changed', { id: tid }); }
+  broadcastSSE('teams-changed', { id: teamId });
+  return true;
+}
+// Re-stamp an operation's team globally (changes the op everywhere it appears).
+function _moveOpToTeam(item, teamId) {
+  if (item.kind === 'task') {
+    const t = _findTaskByRef(item.refId); if (!t) return { ok: false, error: 'Task not found' };
+    const tasks = loadTasks(); const idx = tasks.findIndex(x => x.id === t.id);
+    tasks[idx].teamId = teamId || null; tasks[idx].updatedAt = new Date().toISOString();
+    saveTasks(tasks); try { scheduleTask(tasks[idx]); } catch {}
+    broadcastSSE('task-updated', tasks[idx]);
+    return { ok: true };
+  }
+  if (item.kind === 'flow') {
+    try { chainEngine.update(item.refId, { teamId: teamId || null }); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
+  }
+  if (item.kind === 'assignment') {
+    const a = _findAssignmentByRef(item.refId); if (!a) return { ok: false, error: 'Assignment not found' };
+    a.assignment.teamId = teamId || null;
+    _persistManagerConfig(a.managerId, a.entry.config);
+    try { _restartManagerSchedules(a.managerId); } catch {}
+    return { ok: true };
+  }
+  return { ok: false, error: 'Not an operation' };
+}
+// Create a team-scoped duplicate of an operation; returns the new pin refId so the
+// caller can re-point the pin (the original op is left untouched).
+function _cloneOpToTeam(item, teamId) {
+  const suffix = _teamName(teamId) || 'team';
+  if (item.kind === 'task') {
+    const t = _findTaskByRef(item.refId); if (!t) return { ok: false, error: 'Task not found' };
+    const tasks = loadTasks();
+    const base = t.name || 'task';
+    let name = `${base} (${suffix})`, n = 2;
+    while (tasks.some(x => String(x.name).toLowerCase() === name.toLowerCase())) name = `${base} (${suffix} ${n++})`;
+    const newId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const clone = { id: newId, name, agentId: t.agentId, prompt: t.prompt || '', schedule: t.schedule || 'never', enabled: t.enabled !== false, teamId: teamId || null, createdAt: new Date().toISOString() };
+    tasks.push(clone); saveTasks(tasks); try { scheduleTask(clone); } catch {}
+    broadcastSSE('task-created', clone);
+    return { ok: true, newRefId: `task-${newId}` };
+  }
+  if (item.kind === 'flow') {
+    let c = null; try { c = chainEngine.get(item.refId); } catch {}
+    if (!c) return { ok: false, error: 'Flow not found' };
+    const newId = 'chain-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const clone = { id: newId, name: `${c.name} (${suffix})`, description: c.description || '', teamId: teamId || null, schedule: c.schedule || 'never', enabled: c.enabled !== false, steps: (c.steps || []).map(s => ({ ...s })), edges: (c.edges || []).map(e => ({ ...e })) };
+    try { chainEngine.create(clone); } catch (e) { return { ok: false, error: e.message }; }
+    return { ok: true, newRefId: newId };
+  }
+  if (item.kind === 'assignment') {
+    const a = _findAssignmentByRef(item.refId); if (!a) return { ok: false, error: 'Assignment not found' };
+    const src = a.assignment;
+    const newAid = 'assign-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const clone = { id: newAid, name: `${src.name} (${suffix})`, prompt: src.prompt, schedule: src.schedule || 'never', enabled: src.enabled !== false, teamId: teamId || null };
+    if (!a.entry.config.assignments) a.entry.config.assignments = [];
+    a.entry.config.assignments.push(clone);
+    _persistManagerConfig(a.managerId, a.entry.config);
+    try { _restartManagerSchedules(a.managerId); } catch {}
+    return { ok: true, newRefId: `assignment-${a.managerId}-${newAid}` };
+  }
+  return { ok: false, error: 'Not an operation' };
+}
+
+// Compliance for a single board.
+app.get('/api/boards/:id/compliance', (req, res) => {
+  const board = loadBoards().find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  res.json(computeBoardCompliance(board));
+});
+
+// Resolve a single migration action, then return refreshed compliance.
+app.post('/api/boards/:id/migrate', (req, res) => {
+  const { itemId, action, employeeId } = req.body || {};
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  if (!b.teamId) return res.status(400).json({ error: 'Board has no team' });
+  const item = b.items.find(it => it.id === itemId);
+  if (!item) return res.status(404).json({ error: 'Pinned item not found' });
+  let changedBoard = false;
+  try {
+    if (action === 'remove_pin') {
+      b.items = b.items.filter(it => it.id !== itemId); changedBoard = true;
+    } else if (action === 'add_member') {
+      if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+      _addEmployeeToTeam(b.teamId, employeeId);
+    } else if (action === 'move_member') {
+      if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+      _moveEmployeeToTeam(b.teamId, employeeId);
+    } else if (action === 'move_op') {
+      const r = _moveOpToTeam(item, b.teamId); if (!r.ok) return res.status(400).json({ error: r.error || 'move failed' });
+    } else if (action === 'clone_op') {
+      const r = _cloneOpToTeam(item, b.teamId); if (!r.ok) return res.status(400).json({ error: r.error || 'clone failed' });
+      item.refId = r.newRefId; changedBoard = true;
+    } else {
+      return res.status(400).json({ error: 'Unknown action' });
+    }
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+  if (changedBoard) {
+    b.updatedAt = new Date().toISOString();
+    boards[idx] = b; saveBoards(boards); broadcastSSE('boards-changed', { id: b.id });
+  }
+  const compliance = computeBoardCompliance(b);
+  res.json({ ok: true, board: b, compliance });
+});
+
 // "Where was I" — summarize the most recent state across a board's pinned items.
 // Best-effort, deterministic (no LLM): resolves each pinned reference to its
 // latest activity and returns items sorted by recency plus a text digest.

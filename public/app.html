@@ -4422,8 +4422,8 @@
                         </div>
                       </div>
                       <div class="toolbar">
-                        <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
-                        <button class="btn" type="button" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
+                        <button class="btn" type="button" :disabled="boardBlocked(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
+                        <button class="btn" type="button" :disabled="boardBlocked(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
@@ -4433,10 +4433,72 @@
                       </div>
                     </div>
 
+                    <!-- Team-compliance gate: a team-scoped board with out-of-team pins is
+                         disabled until each offending item is migrated or removed. -->
+                    <template x-if="boardBlocked(activeBoard())">
+                      <div class="card" style="margin-bottom:16px;border:1px solid var(--cp-warning);background:var(--cp-accent-soft)">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                          <span style="font-size:18px">⚠</span>
+                          <div style="font-weight:600">Board disabled — migration required</div>
+                        </div>
+                        <div class="hint" style="margin-bottom:12px">
+                          This board is filed under
+                          <strong x-text="(boardComplianceFor(activeBoard())||{}).teamName || 'a team'"></strong>,
+                          but some pinned items don't belong to that team. Resolve each item below to re-enable the board.
+                        </div>
+                        <template x-for="iss in ((boardComplianceFor(activeBoard())||{}).issues || [])" :key="iss.itemId">
+                          <div class="card" style="margin-bottom:10px;padding:10px 12px">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                              <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                                <span x-text="boardKindIcon(iss.kind)"></span>
+                                <div style="min-width:0">
+                                  <div style="font-weight:600" x-text="iss.label"></div>
+                                  <div class="hint" x-text="boardKindLabel(iss.kind) + (iss.sublabel ? ' · ' + iss.sublabel : '')"></div>
+                                </div>
+                              </div>
+                              <button class="btn ghost" type="button" style="color:var(--cp-danger)"
+                                      :disabled="boardMigrating !== ''"
+                                      @click="migrateBoardItem(iss.itemId, 'remove_pin')">Remove from board</button>
+                            </div>
+                            <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+                              <template x-for="(prob, pi) in (iss.problems || [])" :key="pi">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-left:6px;border-left:2px solid var(--cp-border)">
+                                  <div class="hint" style="min-width:0">
+                                    <template x-if="prob.kind === 'op_team'">
+                                      <span>This <span x-text="boardKindLabel(iss.kind).toLowerCase()"></span> is in
+                                        <strong x-text="prob.currentTeamName || 'no team'"></strong> — it must be in this team.</span>
+                                    </template>
+                                    <template x-if="prob.kind === 'employee'">
+                                      <span>
+                                        <span x-text="prob.role === 'manager' ? 'Manager' : 'Agent'"></span>
+                                        <strong x-text="prob.employeeName"></strong>
+                                        <span x-show="prob.viaChat"> (this chat's target)</span>
+                                        <span x-show="prob.component"> (used by this <span x-text="boardKindLabel(iss.kind).toLowerCase()"></span>)</span>
+                                        is not a member of the team.
+                                      </span>
+                                    </template>
+                                  </div>
+                                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                    <template x-for="(act, ai) in (prob.actions || [])" :key="ai">
+                                      <button type="button"
+                                              :class="ai === 0 ? 'btn' : 'btn ghost'"
+                                              :disabled="boardMigrating !== ''"
+                                              @click="migrateBoardItem(iss.itemId, act, prob.employeeId)"
+                                              x-text="_migrateActionLabel(act, prob)"></button>
+                                    </template>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll">
+                    <div class="board-canvas-scroll" :style="boardBlocked(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : ''">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
                         <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
@@ -8392,6 +8454,9 @@
         boardEditingNote: '',
         boardChecklistDraft: '',
         boardSummaryLoading: false,
+        boardCompliance: {},
+        boardComplianceLoading: false,
+        boardMigrating: '',
         boardChecklistItemDraft: {},
         boardChecklistItemEdit: {},
         boardRefPickFor: '',
@@ -9534,6 +9599,10 @@
             // Boards changed elsewhere → refresh the board list while on the page.
             source.addEventListener('boards-changed', () => {
               if (this.route === 'boards') this.loadBoards(this.activeBoardId, true);
+            });
+            // Team membership / op-team changes can flip a board's compliance.
+            source.addEventListener('teams-changed', () => {
+              if (this.route === 'boards' && this.activeBoardId) this.loadBoardCompliance(this.activeBoardId);
             });
             source.addEventListener('agent-output', (event) => {
               const { id, stream, chunk } = JSON.parse(event.data || '{}');
@@ -11737,6 +11806,7 @@
             }
             try { localStorage.setItem('active-board-id', this.activeBoardId || ''); } catch {}
             this.syncBoardLayout();
+            if (this.activeBoardId) this.loadBoardCompliance(this.activeBoardId);
           } catch (e) {
             if (!silent) this.showToast('Boards', e.message, 'error');
           } finally {
@@ -11790,6 +11860,66 @@
           this.activeBoardId = id;
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
           this.syncBoardLayout();
+          this.loadBoardCompliance(id);
+        },
+        // ---- Board team-compliance: a team-scoped board with out-of-team pins is
+        // "blocked" until each offending item is migrated or removed. ----
+        async loadBoardCompliance(boardId) {
+          const id = boardId || this.activeBoardId;
+          if (!id) return;
+          const board = (this.boards || []).find(b => b.id === id);
+          if (!board || !board.teamId) { this.boardCompliance[id] = { ok: true, blocked: false, issues: [] }; return; }
+          this.boardComplianceLoading = true;
+          try {
+            const c = await this.request('/api/boards/' + encodeURIComponent(id) + '/compliance');
+            this.boardCompliance[id] = c || { ok: true, blocked: false, issues: [] };
+          } catch (e) {
+            // On error, fail open (don't block the board on a transient fetch failure).
+            this.boardCompliance[id] = { ok: true, blocked: false, issues: [] };
+          } finally {
+            this.boardComplianceLoading = false;
+          }
+        },
+        boardComplianceFor(board) {
+          if (!board) return null;
+          return this.boardCompliance[board.id] || null;
+        },
+        boardBlocked(board) {
+          const c = this.boardComplianceFor(board);
+          return !!(c && c.blocked);
+        },
+        _migrateActionLabel(action, problem) {
+          const team = (this.boardComplianceFor(this.activeBoard()) || {}).teamName || 'team';
+          switch (action) {
+            case 'add_member': return 'Add to ' + team;
+            case 'move_member': return 'Move to ' + team;
+            case 'clone_op': return 'Clone into ' + team;
+            case 'move_op': return 'Move into ' + team;
+            case 'remove_pin': return 'Remove from board';
+            default: return action;
+          }
+        },
+        async migrateBoardItem(itemId, action, employeeId) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const key = itemId + ':' + action + ':' + (employeeId || '');
+          this.boardMigrating = key;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/migrate', {
+              method: 'POST', body: JSON.stringify({ itemId, action, employeeId: employeeId || undefined })
+            });
+            if (resp && resp.compliance) this.boardCompliance[board.id] = resp.compliance;
+            // The migrate may have re-pointed a pin or removed it — reload the board.
+            await this.loadBoards(board.id, true);
+            // Re-fetch compliance to reflect any global team/op changes too.
+            await this.loadBoardCompliance(board.id);
+            const c = this.boardCompliance[board.id];
+            if (c && !c.blocked) this.showToast('Board', 'All items migrated — board enabled', 'success');
+          } catch (e) {
+            this.showToast('Migration', e.message, 'error');
+          } finally {
+            this.boardMigrating = '';
+          }
         },
         boardOrgLabel(board) {
           if (!board || !board.teamId) return 'Global';
