@@ -1066,6 +1066,8 @@
       border-radius: 8px;
       border: 1px solid var(--cp-border);
     }
+    .board-pin-detail .md-output { max-height: none; overflow: visible; }
+    .board-pin-detail .live-stream-pre { max-height: none; overflow: visible; }
     .md-output pre {
       background: var(--cp-surface);
       padding: 12px;
@@ -4477,7 +4479,7 @@
                                       </div>
                                       <!-- Latest run / message reveal (steps & reasoning when present). -->
                                       <template x-if="boardPinHasDetail(item) && boardPinIsExpanded(item)">
-                                        <div @click.stop x-init="boardPinEnsureDetail(item)" style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
+                                        <div class="board-pin-detail" @click.stop x-init="boardPinEnsureDetail(item)" style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
                                           <!-- Task / assignment: most recent run output + reasoning. -->
                                           <template x-if="item.kind === 'task' || item.kind === 'assignment'">
                                             <div>
