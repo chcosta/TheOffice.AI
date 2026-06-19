@@ -8764,7 +8764,7 @@
         boardRowH: 36,
         boardGap: 14,
         // Per-board resizable canvas (px). null = fit to window width / auto height.
-        boardCanvas: { w: null, h: null },
+        boardCanvas: { w: null, h: null, baseW: null },
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
@@ -12872,13 +12872,37 @@
           for (const k of Object.keys(layout)) { if (!ids.has(k)) { delete layout[k]; changed = true; } }
           if (changed) { this.boardLayout = layout; if (persist) this.persistLayout(); }
         },
+        // True when the canvas has an explicit (stretched) pixel width. In that mode
+        // panel widths are FIXED pixels (a column = baseW/cols, the original window-fit
+        // size) so they don't expand to fill the wider canvas — the extra space is room.
+        _boardStretched() { return !!(this.boardCanvas.w && this.boardCanvas.baseW); },
+        _boardColPx() {
+          // Pixel width of one grid column. Fixed to the captured base width when
+          // stretched; otherwise the live grid width (responsive 100%).
+          if (this._boardStretched()) return this.boardCanvas.baseW / this.boardCols;
+          const grid = document.querySelector('.board-grid');
+          return (grid ? grid.getBoundingClientRect().width : 0) / this.boardCols;
+        },
+        // Effective column count. When stretched the canvas can hold more than the base
+        // 12 columns, so panels can be positioned across the extra width.
+        _boardEffCols() {
+          if (!this._boardStretched()) return this.boardCols;
+          const colPx = this.boardCanvas.baseW / this.boardCols;
+          return Math.max(this.boardCols, Math.round(this.boardCanvas.w / colPx));
+        },
         panelStyle(id) {
           const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap;
           const l = this.boardLayout[id] || { x: 0, y: 0, w: Math.floor(cols / 2), h: 6 };
+          const h = l.collapsed ? 2 : l.h;
+          const vert = `top:${l.y * rowH}px; height:${h * rowH}px; padding:0 ${gap / 2}px ${gap}px ${gap / 2}px;`;
+          if (this._boardStretched()) {
+            // Fixed-pixel columns: widths stay constant, extra canvas width is empty room.
+            const colPx = this.boardCanvas.baseW / cols;
+            return `position:absolute; left:${l.x * colPx}px; width:${l.w * colPx}px; ${vert}`;
+          }
           const leftPct = (l.x / cols) * 100;
           const widthPct = (l.w / cols) * 100;
-          const h = l.collapsed ? 2 : l.h;
-          return `position:absolute; left:${leftPct}%; width:${widthPct}%; top:${l.y * rowH}px; height:${h * rowH}px; padding:0 ${gap / 2}px ${gap}px ${gap / 2}px;`;
+          return `position:absolute; left:${leftPct}%; width:${widthPct}%; ${vert}`;
         },
         boardGridHeight() {
           let maxY = 6;
@@ -12900,17 +12924,17 @@
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
           const c = boardId && map[boardId];
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null } : { w: null, h: null };
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null } : { w: null, h: null, baseW: null };
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null };
+          this.boardCanvas = { w: null, h: null, baseW: null };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
@@ -12924,11 +12948,14 @@
           const mx = ev.clientX, my = ev.clientY;
           const minW = 640, maxW = 4000;
           const contentH = this.boardGridHeight();
+          // Lock the column pixel size to the current (pre-stretch) width so panels keep
+          // a fixed width as the canvas grows instead of expanding to fill it.
+          const baseW = this.boardCanvas.baseW || startW;
           this.boardDragId = '__canvas'; // suppress periodic sync / auto-fit mid-drag
           const onMove = (e) => {
             const w = Math.max(minW, Math.min(maxW, Math.round(startW + (e.clientX - mx))));
             const h = Math.max(contentH, Math.round(startH + (e.clientY - my)));
-            this.boardCanvas = { w, h };
+            this.boardCanvas = { w, h, baseW };
           };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
@@ -12959,30 +12986,39 @@
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault();
           const grid = ev.target.closest('.board-grid');
-          const hScroll = grid ? grid.closest('.board-canvas-scroll') : null;
+          if (!grid) return;
+          const hScroll = grid.closest('.board-canvas-scroll');
           const vScroll = this._scrollParentY(grid);
           const rowH = this.boardRowH;
-          const base = this.boardLayout[id]; if (!base) return;
-          const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
+          const base = this.boardLayout[id]; if (!base) return;
+          const start = { w: base.w, h: base.h };
           const manual = !this.boardAutoWidth();
           const EDGE = 56;       // px from a viewport edge that triggers auto-grow
           const STEP = 26;       // px the canvas grows per frame while held at the edge
           const MAXW = 4000, MAXH = 8000;
+          // Where inside the panel the user grabbed (in columns / rows), so the panel
+          // tracks the cursor accurately. Absolute mapping (vs grid rect, which shifts
+          // with scroll) keeps placement correct while auto-scrolling a stretched canvas.
+          const r0 = grid.getBoundingClientRect();
+          const cpx0 = this._boardColPx() || (r0.width / cols);
+          const grabCol = Math.round((ev.clientX - r0.left) / cpx0) - base.x;
+          const grabRow = Math.round((ev.clientY - r0.top) / rowH) - base.y;
           let lastX = ev.clientX, lastY = ev.clientY;
           let canvasGrew = false, raf = 0;
           // Place the dragged panel from the latest cursor position; optionally pin it
           // to the right / bottom edge so it rides along while the canvas keeps growing.
           const place = (pinRight, pinBottom) => {
-            if (!grid) return;
-            const cw = grid.getBoundingClientRect().width / cols;
-            const dx = Math.round((lastX - start.mx) / cw);
-            const dy = Math.round((lastY - start.my) / rowH);
-            let nx = Math.max(0, Math.min(cols - start.w, start.x + dx));
-            let ny = Math.max(0, start.y + dy);
-            if (pinRight) nx = cols - start.w;
+            const r = grid.getBoundingClientRect();
+            const cpx = this._boardColPx() || (r.width / cols);
+            const eff = this._boardEffCols();
+            let nx = Math.round((lastX - r.left) / cpx) - grabCol;
+            let ny = Math.round((lastY - r.top) / rowH) - grabRow;
+            nx = Math.max(0, Math.min(eff - start.w, nx));
+            ny = Math.max(0, ny);
+            if (pinRight) nx = eff - start.w;
             if (pinBottom) {
-              const canvasH = this.boardCanvas.h || grid.getBoundingClientRect().height;
+              const canvasH = this.boardCanvas.h || r.height;
               ny = Math.max(ny, Math.round(canvasH / rowH) - start.h);
             }
             this.boardLayout = { ...this.boardLayout, [id]: { x: nx, y: ny, w: start.w, h: start.h } };
@@ -12998,9 +13034,16 @@
                 const hr = hScroll.getBoundingClientRect();
                 if (lastX > hr.right - EDGE) {
                   atRight = true;
-                  const curW = this.boardCanvas.w || grid.getBoundingClientRect().width;
+                  const gridW = grid.getBoundingClientRect().width;
+                  // Lock the column pixel size to the pre-stretch width the first time we
+                  // grow, so panels keep a fixed width instead of filling the wider canvas.
+                  const baseW = this.boardCanvas.baseW || gridW;
+                  const curW = this.boardCanvas.w || gridW;
                   const nw = Math.min(MAXW, Math.round(curW + STEP));
-                  if (nw !== this.boardCanvas.w) { this.boardCanvas = { ...this.boardCanvas, w: nw }; canvasGrew = true; }
+                  if (nw !== this.boardCanvas.w || !this.boardCanvas.baseW) {
+                    this.boardCanvas = { ...this.boardCanvas, w: nw, baseW };
+                    canvasGrew = true;
+                  }
                   hScroll.scrollLeft = hScroll.scrollWidth;
                 }
               }
@@ -13034,16 +13077,19 @@
         startPanelResize(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault(); ev.stopPropagation();
-          const { colW, rowH } = this._gridMetrics(ev);
+          const rowH = this.boardRowH;
           const base = this.boardLayout[id]; if (!base) return;
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
           // A manual width change takes the board out of auto-width mode.
           this._disableAutoWidth();
+          // Column pixel size: fixed (baseW) when stretched, else live grid width.
+          const colW = this._boardColPx() || 1;
           // Width-only resize: panel height is auto-fitted to content.
           const onMove = (e) => {
+            const eff = this._boardEffCols();
             const dw = Math.round((e.clientX - start.mx) / colW);
-            const nw = Math.max(3, Math.min(cols - start.x, start.w + dw));
+            const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
             this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: start.h } };
           };
           const onUp = () => {
