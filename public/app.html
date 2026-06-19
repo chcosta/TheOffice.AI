@@ -4528,7 +4528,7 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" x-init="$nextTick(() => _recalcBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
+                    <div class="board-canvas-scroll" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
                         <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
@@ -9469,7 +9469,7 @@
             await this.loadOrganizations();
           } else if (this.route === 'boards') {
             await this.loadBoards(this.app.routeParam);
-            this.$nextTick(() => this._recalcBoardCanvasH());
+            this.$nextTick(() => this._scheduleBoardCanvasH());
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'home') {
@@ -12325,7 +12325,7 @@
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
           this.syncBoardLayout();
           this.loadBoardCompliance(id);
-          this.$nextTick(() => this._recalcBoardCanvasH());
+          this.$nextTick(() => this._scheduleBoardCanvasH());
         },
         // ---- Board team-compliance: a team-scoped board with out-of-team pins is
         // "blocked" until each offending item is migrated or removed. ----
@@ -12855,7 +12855,19 @@
         // panels can be dragged past the canvas edge, so this can be larger.
         _boardContentExtent() {
           const cols = this.boardCols, rowH = this.boardRowH;
-          const colPx = this._boardColPx() || 1;
+          // Zoom-INDEPENDENT layout column width. _boardColPx() divides the live (zoomed)
+          // grid rect by z, which makes the measured extent grow as you zoom out — a
+          // feedback loop that made repeated "Fit" presses keep shrinking (50%→35%→30%).
+          // The unstretched grid fills the scroller at 100%, so derive colPx from the
+          // scroller width instead, independent of the current zoom.
+          let colPx;
+          if (this._boardStretched()) {
+            colPx = this.boardCanvas.baseW / cols;
+          } else {
+            const sc = document.querySelector('.board-canvas-scroll');
+            colPx = (sc && sc.clientWidth ? sc.clientWidth : (this._boardColPx() * cols)) / cols;
+          }
+          colPx = colPx || 1;
           let right = cols, bottom = 6;
           for (const p of this.boardPanels()) {
             const l = this.boardLayout[p.id];
@@ -12888,14 +12900,26 @@
         _recalcBoardCanvasH() {
           const sc = document.querySelector('.board-canvas-scroll');
           if (!sc) return;
+          // The canvas must be visible (in the DOM and not display:none) for its top to
+          // measure correctly; bail otherwise so we don't cache a bogus (0) height.
           const sTop = sc.getBoundingClientRect().top;
+          if (sTop <= 0) return;
+          // Use the viewport bottom (minus the content area's bottom padding) rather than
+          // the content's own getBoundingClientRect().bottom. The latter depends on the
+          // canvas's current height, which on first paint is still 0 — a chicken/egg that
+          // produced a too-short canvas until you navigated away and back.
           const content = sc.closest('.content');
-          let bottom = window.innerHeight;
-          if (content) {
-            const cs = getComputedStyle(content);
-            bottom = content.getBoundingClientRect().bottom - (parseFloat(cs.paddingBottom) || 0);
-          }
+          const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
+          const bottom = window.innerHeight - padB;
           this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - 4));
+        },
+        // Recalc now and again across a few frames/timeouts — first-paint layout (fonts,
+        // panel render, route transition) can settle after the initial measure.
+        _scheduleBoardCanvasH() {
+          this._recalcBoardCanvasH();
+          requestAnimationFrame(() => this._recalcBoardCanvasH());
+          setTimeout(() => this._recalcBoardCanvasH(), 120);
+          setTimeout(() => this._recalcBoardCanvasH(), 350);
         },
         // Reset every panel's x / width to a clean 2-column layout (summary spans full
         // width). Vertical positions are then repacked by auto-fit. Does not touch canvas.
