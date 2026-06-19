@@ -13400,13 +13400,32 @@
                 const lastTurn = poll.turns[poll.turns.length - 1];
                 const response = lastTurn?.assistant || poll.lastAssistant || '';
                 
-                // Detect crash: tools ran but no final response text
-                const toolCount = lastTurn?.steps?.filter(s => s.type === 'tool').length || 0;
+                // Detect an incomplete turn:
+                //  (a) crash — tools ran but the agent produced no response text
+                //      at all, or
+                //  (b) preamble-only — the agent's text was an interstitial
+                //      ("…now let me compute and summarize") emitted BEFORE its
+                //      last tool, and the turn ended on that tool with no
+                //      concluding summary. In the step trace such preamble text
+                //      survives as a 'comment' step with tool steps AFTER it (a
+                //      genuinely finished turn's final message is deduped off the
+                //      tail by the server parser, so it won't match).
+                const steps = lastTurn?.steps || [];
+                const toolCount = steps.filter(s => s.type === 'tool').length;
+                let _preIdx = -1;
+                for (let i = 0; i < steps.length; i++) {
+                  if (steps[i].type === 'comment' && steps[i].content === response) _preIdx = i;
+                }
+                const endedOnToolAfterText = _preIdx >= 0 && steps.slice(_preIdx + 1).some(s => s.type === 'tool' || s.type === 'tool_start');
                 const isCrash = !response && toolCount > 0;
-                
-                if (isCrash && retryCount < MAX_RETRIES) {
+                const isIncomplete = !!response && endedOnToolAfterText;
+
+                if ((isCrash || isIncomplete) && retryCount < MAX_RETRIES) {
                   // Auto-retry: send a continuation message
-                  const retryNote = `⚠️ Agent terminated mid-execution (${toolCount} tools ran). Auto-retrying... (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`;
+                  const reason = isCrash
+                    ? `Agent terminated mid-execution (${toolCount} tools ran)`
+                    : `Agent stopped after a tool call without summarizing`;
+                  const retryNote = `⚠️ ${reason}. Auto-continuing… (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`;
                   await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                     method: 'POST',
                     body: JSON.stringify({ role: 'assistant', content: retryNote })
@@ -13414,10 +13433,10 @@
                   if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
                   
                   // Send continuation prompt to the agent
-                  this.chatActivity[chatId] = { status: `Auto-retrying (${retryCount + 2}/${MAX_RETRIES + 1})...`, steps: [] };
+                  this.chatActivity[chatId] = { status: `Auto-continuing (${retryCount + 2}/${MAX_RETRIES + 1})...`, steps: [] };
                   await this.request(`/api/agents/${encodeURIComponent(agentId)}/chat`, {
                     method: 'POST',
-                    body: JSON.stringify({ message: 'Continue where you left off. Complete the task.', sessionId })
+                    body: JSON.stringify({ message: 'Continue where you left off and finish your response — summarize the result for me.', sessionId })
                   });
                   
                   // Recurse with incremented retry
@@ -13433,8 +13452,12 @@
 
                 const activity = this.mapAgentSteps(lastTurn?.steps);
                 let richResponse = '';
-                if (response) {
+                if (response && !isIncomplete) {
                   richResponse = response;
+                } else if (response && isIncomplete) {
+                  // Retries exhausted but we still have the partial preamble.
+                  richResponse = response + '\n\n_⚠️ The agent stopped after its last tool without finishing the summary. Click **Continue** to have it pick up where it left off._';
+                  this.chatContinueInfo = { chatId, agentId };
                 } else if (isCrash) {
                   // All retries exhausted
                   richResponse = `⚠️ Agent terminated after ${toolCount} tool call(s) and ${MAX_RETRIES + 1} attempts. The task may be too large for a single session.`;
