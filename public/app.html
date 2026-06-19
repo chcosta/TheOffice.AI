@@ -11992,6 +11992,8 @@
           this.boardPinCollapsed = collapsed;
           this._saveBoardPinCollapsed();
           if (this.boardPinIsExpanded(item)) this.boardPinEnsureDetail(item);
+          // Content height changed — re-fit the panel so the card resizes.
+          this.scheduleAutoFit();
         },
         // Load the latest run/message the first time a pin's panel is shown (panels are
         // expanded by default, so this runs on render via x-init). Cached → no-op.
