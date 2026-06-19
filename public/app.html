@@ -963,6 +963,77 @@
       color: var(--cp-warning);
       background: color-mix(in srgb, var(--cp-warning) 13%, transparent);
     }
+    /* ===== Marketplace: compact rows + detail drawer ===== */
+    .mkt-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+      gap: 8px;
+      align-items: stretch;
+    }
+    .mkt-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 9px 12px;
+      border: 1px solid var(--cp-border); border-radius: 10px;
+      background: var(--cp-surface);
+      cursor: pointer; min-width: 0;
+      transition: border-color .13s ease, background .13s ease, box-shadow .13s ease;
+    }
+    .mkt-row:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
+    .mkt-row.selected { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
+    .mkt-row.is-installed { opacity: .72; }
+    .mkt-row.is-installed:hover { opacity: 1; }
+    .mkt-ticon {
+      flex: 0 0 auto; width: 30px; height: 30px;
+      display: inline-grid; place-items: center;
+      border-radius: 8px; font-size: 15px;
+      background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+    }
+    .mkt-main { min-width: 0; flex: 1; }
+    .mkt-name { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .mkt-name .mkt-name-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mkt-desc {
+      font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .mkt-row-right { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+    .mkt-src-chip {
+      font-size: 10.5px; color: var(--cp-text-soft);
+      border: 1px solid var(--cp-border); border-radius: 999px; padding: 1px 8px;
+      white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mkt-mini-badge {
+      font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+      white-space: nowrap; border: 1px solid;
+    }
+    .mkt-mini-badge.ok { color: var(--cp-success); border-color: color-mix(in srgb, var(--cp-success) 45%, var(--cp-border)); background: color-mix(in srgb, var(--cp-success) 12%, transparent); }
+    .mkt-row .btn { padding: 5px 12px; font-size: 12px; }
+    /* Detail drawer */
+    .mkt-drawer-scrim {
+      position: fixed; inset: 0; z-index: 70;
+      background: rgba(0,0,0,.32); backdrop-filter: blur(1px);
+    }
+    .mkt-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 71;
+      width: min(460px, 92vw);
+      background: var(--cp-bg-elevated);
+      border-left: 1px solid var(--cp-border);
+      box-shadow: var(--cp-shadow);
+      display: flex; flex-direction: column;
+    }
+    .mkt-drawer-head {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 18px 18px 14px; border-bottom: 1px solid var(--cp-border);
+    }
+    .mkt-drawer-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+    .mkt-drawer-foot { padding: 14px 18px; border-top: 1px solid var(--cp-border); display: flex; gap: 10px; }
+    .mkt-field-label { font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--cp-text-soft); margin: 14px 0 5px; }
+    .mkt-field-label:first-child { margin-top: 0; }
+    .mkt-code {
+      font-family: var(--mono, Consolas, monospace); font-size: 12px;
+      background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+      border-radius: 8px; padding: 8px 10px; word-break: break-all; color: var(--cp-text);
+    }
+    @media (max-width: 720px) { .mkt-list { grid-template-columns: 1fr; } }
     .toolbar {
       display: flex;
       align-items: center;
@@ -6989,7 +7060,7 @@
             </div>
 
             <!-- Type filter + search -->
-            <div class="toolbar" style="margin-bottom:16px;gap:10px;flex-wrap:wrap">
+            <div class="toolbar" style="margin-bottom:14px;gap:10px;flex-wrap:wrap">
               <div class="filter-pills">
                 <template x-for="t in ['all','agent','plugin','skill','mcp']" :key="t">
                   <button class="pill" type="button" :class="{ active: mkt.typeFilter === t }" @click="mkt.typeFilter = t; loadMarketplaceCatalog()">
@@ -6999,44 +7070,110 @@
                 </template>
               </div>
               <input type="text" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…" style="flex:1;min-width:200px">
+              <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap" :title="'Hide the ' + mktInstalledCount() + ' items already installed or in use'">
+                <input type="checkbox" x-model="mkt.hideInstalled" style="cursor:pointer">
+                Hide installed<span x-show="mktInstalledCount()" x-text="' (' + mktInstalledCount() + ')'"></span>
+              </label>
             </div>
+            <div class="hint" style="margin-bottom:10px" x-show="mktFilteredEntries().length" x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></div>
 
             <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
               No sources yet. Click <strong>↻ Sync from installed agents</strong> to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
             </div>
 
-            <div class="agent-grid" x-show="mktFilteredEntries().length">
+            <!-- Compact rows: scannable, multi-column when wide. Click a row for details. -->
+            <div class="mkt-list" x-show="mktFilteredEntries().length">
               <template x-for="entry in mktFilteredEntries()" :key="entry.id">
-                <article class="agent-card" style="cursor:default">
-                  <div class="split-meta">
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                      <span class="type-badge" x-text="mktTypeIcon(entry.type) + ' ' + entry.type"></span>
-                      <strong x-text="entry.displayName || entry.name"></strong>
-                      <span class="status-badge success" x-show="entry.installed" title="A registered agent already matches this item">✓ Installed</span>
-                      <span class="status-badge success" x-show="entry.inUse" title="This capability is already available to your system">✓ In use</span>
+                <div class="mkt-row" :class="{ selected: mkt.selectedId === entry.id, 'is-installed': entry.installed || entry.inUse }"
+                     @click="mktSelectEntry(entry)" :title="entry.description || ''">
+                  <span class="mkt-ticon" x-text="mktTypeIcon(entry.type)"></span>
+                  <div class="mkt-main">
+                    <div class="mkt-name">
+                      <span class="mkt-name-txt" x-text="entry.displayName || entry.name"></span>
+                      <span class="mkt-mini-badge ok" x-show="entry.installed" title="A registered agent already matches this item">✓ Installed</span>
+                      <span class="mkt-mini-badge ok" x-show="!entry.installed && entry.inUse" title="This capability is already available to your system">✓ In use</span>
                     </div>
-                    <span class="status-badge idle" :title="mktSourceMeta(entry).title" x-text="mktSourceMeta(entry).icon + ' ' + mktSourceMeta(entry).kind"></span>
+                    <div class="mkt-desc" x-text="entry.description || 'No description.'"></div>
                   </div>
-                  <div class="hint" style="margin-top:8px;min-height:32px" x-text="entry.description || 'No description.'"></div>
-                  <div class="hint" :title="mktSourceMeta(entry).title" style="margin-top:6px;display:flex;align-items:center;gap:6px;font-family:var(--mono,monospace);font-size:0.72rem;opacity:0.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                    <span x-text="mktSourceMeta(entry).icon"></span><span x-text="mktSourceMeta(entry).location"></span>
-                  </div>
-                  <div class="hint" x-show="entry.type === 'mcp' && entry.mcp" style="margin-top:4px;font-family:var(--mono,monospace)" x-text="entry.mcp ? (entry.mcp.command + (entry.mcp.envKeys && entry.mcp.envKeys.length ? '  env: ' + entry.mcp.envKeys.join(', ') : '')) : ''"></div>
-                  <div class="toolbar" style="margin-top:12px">
+                  <div class="mkt-row-right">
+                    <span class="mkt-src-chip" :title="mktSourceMeta(entry).title" x-text="mktSourceMeta(entry).icon + ' ' + mktSourceMeta(entry).kind"></span>
                     <template x-if="entry.type === 'agent' || entry.type === 'plugin'">
-                      <button class="btn" :class="entry.installed ? '' : 'primary'" type="button" @click="marketplaceInstall(entry)" :disabled="mkt.busy || entry.installed" x-text="entry.installed ? '✓ Installed' : 'Install'"></button>
+                      <button class="btn" :class="entry.installed ? 'ghost' : 'primary'" type="button" @click.stop="marketplaceInstall(entry)" :disabled="mkt.busy || entry.installed" x-text="entry.installed ? '✓' : 'Install'"></button>
                     </template>
                     <template x-if="entry.type === 'skill' || entry.type === 'mcp'">
-                      <button class="btn primary" type="button" @click="openAddCap(entry)" :disabled="mkt.busy" x-text="entry.inUse ? 'Add to another agent…' : 'Add to agent…'"></button>
+                      <button class="btn primary" type="button" @click.stop="openAddCap(entry)" :disabled="mkt.busy">Add…</button>
                     </template>
                   </div>
-                </article>
+                </div>
               </template>
             </div>
             <div class="empty-state" x-show="(mkt.catalog.entries || []).length && !mktFilteredEntries().length">
-              No <strong x-text="mkt.sourceKindFilter === 'azdo' ? 'Azure DevOps' : (mkt.sourceKindFilter === 'local' ? 'Local' : 'Installed')"></strong> items match the current filters.
-              <a href="#" @click.prevent="mkt.sourceKindFilter = 'all'">Show all sources</a>
+              No items match the current filters.
+              <a href="#" @click.prevent="mkt.sourceKindFilter = 'all'; mkt.hideInstalled = false">Clear filters</a>
             </div>
+
+            <!-- Detail drawer -->
+            <template x-if="mktSelectedEntry()">
+              <div>
+                <div class="mkt-drawer-scrim" @click="mkt.selectedId = null" x-transition.opacity.duration.150ms></div>
+                <aside class="mkt-drawer" x-transition:enter="x-transition" @keydown.escape.window="mkt.selectedId = null">
+                  <div class="mkt-drawer-head">
+                    <span class="mkt-ticon" style="width:36px;height:36px;font-size:18px" x-text="mktTypeIcon(mktSelectedEntry().type)"></span>
+                    <div style="min-width:0;flex:1">
+                      <div style="font-weight:700;font-size:15px;word-break:break-word" x-text="mktSelectedEntry().displayName || mktSelectedEntry().name"></div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+                        <span class="type-badge" x-text="mktSelectedEntry().type"></span>
+                        <span class="mkt-mini-badge ok" x-show="mktSelectedEntry().installed">✓ Installed</span>
+                        <span class="mkt-mini-badge ok" x-show="!mktSelectedEntry().installed && mktSelectedEntry().inUse">✓ In use</span>
+                      </div>
+                    </div>
+                    <button class="board-act tip-end" type="button" data-tip="Close" @click="mkt.selectedId = null">✕</button>
+                  </div>
+                  <div class="mkt-drawer-body">
+                    <div class="mkt-field-label">Description</div>
+                    <div style="font-size:13px;line-height:1.5;color:var(--cp-text)" x-text="mktSelectedEntry().description || 'No description provided.'"></div>
+
+                    <div class="mkt-field-label">Source</div>
+                    <div class="mkt-code" :title="mktSourceMeta(mktSelectedEntry()).title">
+                      <span x-text="mktSourceMeta(mktSelectedEntry()).icon + ' ' + mktSourceMeta(mktSelectedEntry()).kind"></span><br>
+                      <span x-text="mktSourceMeta(mktSelectedEntry()).location"></span>
+                    </div>
+
+                    <template x-if="mktSelectedEntry().type === 'mcp' && mktSelectedEntry().mcp">
+                      <div>
+                        <div class="mkt-field-label">MCP server</div>
+                        <div class="mkt-code">
+                          <span x-text="mktSelectedEntry().mcp.command"></span>
+                          <template x-if="mktSelectedEntry().mcp.envKeys && mktSelectedEntry().mcp.envKeys.length">
+                            <div style="margin-top:6px;opacity:.85">env: <span x-text="mktSelectedEntry().mcp.envKeys.join(', ')"></span></div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="Array.isArray(mktSelectedEntry().files) && mktSelectedEntry().files.length">
+                      <div>
+                        <div class="mkt-field-label" x-text="'Files (' + mktSelectedEntry().files.length + ')'"></div>
+                        <div class="mkt-code" style="max-height:200px;overflow:auto">
+                          <template x-for="f in mktSelectedEntry().files" :key="f.path || f">
+                            <div x-text="(typeof f === 'string' ? f : (f.path || f.name))"></div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="mkt-drawer-foot">
+                    <template x-if="mktSelectedEntry().type === 'agent' || mktSelectedEntry().type === 'plugin'">
+                      <button class="btn" :class="mktSelectedEntry().installed ? 'ghost' : 'primary'" type="button" style="flex:1" @click="marketplaceInstall(mktSelectedEntry())" :disabled="mkt.busy || mktSelectedEntry().installed" x-text="mktSelectedEntry().installed ? '✓ Installed' : 'Install'"></button>
+                    </template>
+                    <template x-if="mktSelectedEntry().type === 'skill' || mktSelectedEntry().type === 'mcp'">
+                      <button class="btn primary" type="button" style="flex:1" @click="openAddCap(mktSelectedEntry())" :disabled="mkt.busy" x-text="mktSelectedEntry().inUse ? 'Add to another agent…' : 'Add to agent…'"></button>
+                    </template>
+                    <button class="btn ghost" type="button" @click="mkt.selectedId = null">Close</button>
+                  </div>
+                </aside>
+              </div>
+            </template>
             </div><!-- /browse -->
 
             <!-- ===== Design with AI panel ===== -->
@@ -8991,6 +9128,8 @@
           typeFilter: 'all',
           sourceKindFilter: 'all',
           sourceSel: 'all',
+          hideInstalled: false,
+          selectedId: null,
           showManageSources: false,
           q: '',
           activeSourceId: null,
@@ -16747,8 +16886,22 @@
         mktFilteredEntries() {
           const entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
           const f = this.mkt.sourceKindFilter;
-          if (!f || f === 'all') return entries;
-          return entries.filter(e => this.mktEntryKind(e) === f);
+          let out = (!f || f === 'all') ? entries : entries.filter(e => this.mktEntryKind(e) === f);
+          if (this.mkt.hideInstalled) out = out.filter(e => !e.installed && !e.inUse);
+          return out;
+        },
+        // The entry currently shown in the detail drawer (resolved by id so it
+        // survives catalog reloads).
+        mktSelectedEntry() {
+          const id = this.mkt.selectedId;
+          if (!id) return null;
+          return ((this.mkt.catalog && this.mkt.catalog.entries) || []).find(e => e.id === id) || null;
+        },
+        mktSelectEntry(entry) {
+          this.mkt.selectedId = (entry && entry.id) || null;
+        },
+        mktInstalledCount() {
+          return ((this.mkt.catalog && this.mkt.catalog.entries) || []).filter(e => e.installed || e.inUse).length;
         },
         mktKindCounts() {
           const c = { local: 0, azdo: 0, installed: 0 };
