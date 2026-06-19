@@ -2192,7 +2192,7 @@
     }
     .ba-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .ba-action {
-      display: flex; align-items: center; gap: 10px;
+      display: flex; align-items: flex-start; gap: 10px;
       border: 1px solid var(--cp-border); border-radius: 10px;
       padding: 8px 10px; background: var(--cp-surface-soft);
     }
@@ -2202,7 +2202,7 @@
       font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
       color: var(--cp-accent);
     }
-    .ba-action-preview { font-size: 13px; margin-top: 2px; word-break: break-word; }
+    .ba-action-preview { font-size: 13px; margin-top: 2px; word-break: break-word; white-space: pre-wrap; line-height: 1.45; }
     .board-assistant-input {
       flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end;
       padding: 12px 16px; border-top: 1px solid var(--cp-border);

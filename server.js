@@ -6126,14 +6126,18 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     };
     const normItems = (arr) => (Array.isArray(arr) ? arr : []).map(normItem).filter(Boolean).slice(0, 30);
     const linkSuffix = (items) => { const n = items.filter(i => i.ref).length; return n ? ` · ${n} linked` : ''; };
+    // Newline-preserving normalizer for note bodies and full previews — unlike clip(),
+    // it keeps line breaks (only trims trailing spaces / collapses 3+ blank lines) so the
+    // proposal card shows the note exactly as it will be saved, never truncated mid-sentence.
+    const multiline = (s, n = 4000) => String(s == null ? '' : s).replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
     if (type === 'add_note') {
-      const text = clip(a.text, 1200); if (!text) return null;
-      return { type, text, label: 'Add note', preview: clip(text, 140) };
+      const text = multiline(a.text, 4000); if (!text) return null;
+      return { type, text, label: 'Add note', preview: text };
     }
     if (type === 'edit_note') {
-      const n = notes.find(n => n.id === a.noteId); const text = clip(a.text, 1200);
+      const n = notes.find(n => n.id === a.noteId); const text = multiline(a.text, 4000);
       if (!n || !text) return null;
-      return { type, noteId: n.id, text, label: 'Update note', preview: clip(text, 140), before: clip(n.text, 100) };
+      return { type, noteId: n.id, text, label: 'Update note', preview: text, before: clip(n.text, 100) };
     }
     if (type === 'add_checklist') {
       const title = clip(a.title, 120); if (!title) return null;
@@ -6165,32 +6169,32 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const cl = findChecklist(a); if (!cl) return null;
       const it = findItem(cl, a); if (!it) return null;
       const done = type === 'check_item';
-      return { type, checklistId: cl.id, itemId: it.id, label: done ? 'Check off item' : 'Uncheck item', preview: `${clip(cl.title, 60)}: ${done ? '☑' : '☐'} ${clip(it.text, 100)}` };
+      return { type, checklistId: cl.id, itemId: it.id, label: done ? 'Check off item' : 'Uncheck item', preview: `${clip(cl.title, 120)}: ${done ? '☑' : '☐'} ${clip(it.text, 1000)}` };
     }
     if (type === 'delete_note') {
       const n = notes.find(n => n.id === a.noteId); if (!n) return null;
-      return { type, noteId: n.id, label: 'Delete note', preview: clip(n.text, 140), destructive: true };
+      return { type, noteId: n.id, label: 'Delete note', preview: multiline(n.text, 4000), destructive: true };
     }
     if (type === 'edit_checklist') {
       const cl = findChecklist(a); const title = clip(a.title, 120);
       if (!cl || !title) return null;
-      return { type, checklistId: cl.id, title, label: 'Rename checklist', preview: `"${clip(cl.title, 70)}" → "${title}"` };
+      return { type, checklistId: cl.id, title, label: 'Rename checklist', preview: `"${clip(cl.title, 200)}" → "${title}"` };
     }
     if (type === 'delete_checklist') {
       const cl = findChecklist(a); if (!cl) return null;
       const n = Array.isArray(cl.items) ? cl.items.length : 0;
-      return { type, checklistId: cl.id, label: 'Delete checklist', preview: `"${clip(cl.title, 100)}"` + (n ? ` (${n} item${n === 1 ? '' : 's'})` : ''), destructive: true };
+      return { type, checklistId: cl.id, label: 'Delete checklist', preview: `"${clip(cl.title, 200)}"` + (n ? ` (${n} item${n === 1 ? '' : 's'})` : ''), destructive: true };
     }
     if (type === 'edit_checklist_item') {
       const cl = findChecklist(a); if (!cl) return null;
-      const it = findItem(cl, a); const text = clip(a.text || a.newText, 500);
+      const it = findItem(cl, a); const text = clip(a.text || a.newText, 1000);
       if (!it || !text) return null;
-      return { type, checklistId: cl.id, itemId: it.id, text, label: 'Edit item', preview: `${clip(cl.title, 50)}: "${clip(it.text, 60)}" → "${clip(text, 80)}"` };
+      return { type, checklistId: cl.id, itemId: it.id, text, label: 'Edit item', preview: `${clip(cl.title, 120)}: "${clip(it.text, 1000)}" → "${text}"` };
     }
     if (type === 'delete_checklist_item') {
       const cl = findChecklist(a); if (!cl) return null;
       const it = findItem(cl, a); if (!it) return null;
-      return { type, checklistId: cl.id, itemId: it.id, label: 'Delete item', preview: `${clip(cl.title, 60)}: ${clip(it.text, 100)}`, destructive: true };
+      return { type, checklistId: cl.id, itemId: it.id, label: 'Delete item', preview: `${clip(cl.title, 120)}: ${clip(it.text, 1000)}`, destructive: true };
     }
     if (type === 'query_agent') {
       if (!canQuery) return null;
@@ -6202,7 +6206,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const name = pin.label || refId;
       // Carry the current chain depth so the client can echo it back when it runs the
       // agent, letting the follow-up continue the chain (bounded by MAX_QUERY_DEPTH).
-      return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), depth, label: 'Run agent', preview: `Run ${name}` + (q ? `: ${clip(q, 90)}` : '') };
+      return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), depth, label: 'Run agent', preview: `Run ${name}` + (q ? `: ${q}` : '') };
     }
     if (type === 'pin_agent') {
       const id = a.agentId || a.refId || a.id;
