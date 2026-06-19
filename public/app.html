@@ -6570,7 +6570,7 @@
                   <label class="field-label">Repository</label>
                   <select class="field-input" x-model="exportSettings.exportRepo" @change="expSettingsRepoChange()">
                     <option value="">Select repository…</option>
-                    <template x-for="r in exportSettingsRepos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
+                    <template x-for="r in exportSettingsRepos" :key="r.id || r.name"><option :value="r.name" x-text="r.name"></option></template>
                   </select>
                 </div>
                 <div>
@@ -6783,7 +6783,7 @@
                         <label>Repository <span class="hint" x-show="mkt.addForm.loadingRepos">⏳ loading…</span></label>
                         <select x-model="mkt.addForm.repo" @change="mktAddRepoChange()" :disabled="!mkt.addForm.repos.length">
                           <option value="" x-text="mkt.addForm.repos.length ? 'Select a repository…' : 'Click “Load repositories”'"></option>
-                          <template x-for="r in mkt.addForm.repos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
+                          <template x-for="r in mkt.addForm.repos" :key="r.id || r.name"><option :value="r.name" x-text="r.name"></option></template>
                         </select>
                       </div>
                       <div class="form-row">
@@ -7775,7 +7775,7 @@
         <div class="toolbar" style="gap:8px;margin-top:8px;flex-wrap:wrap" x-show="exp.repos.length">
           <select class="field-input" style="max-width:280px" x-model="exp.repo" @change="expRepoChange()">
             <option value="">Select repository…</option>
-            <template x-for="r in exp.repos" :key="r.name"><option :value="r.name" x-text="r.name"></option></template>
+            <template x-for="r in exp.repos" :key="r.id || r.name"><option :value="r.name" x-text="r.name"></option></template>
           </select>
           <select class="field-input" style="max-width:200px" x-model="exp.branch" :disabled="exp.loadingBranches || !exp.branch && !exp.branches.length">
             <option value="">Base branch…</option>
