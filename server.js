@@ -5209,9 +5209,13 @@ function _resolveBoardItems(b) {
                 const mm = msgs[i];
                 const who = mm.role === 'assistant' ? 'ASSISTANT' : 'USER';
                 const mark = i === idx ? ' «PINNED»' : '';
-                lines.push(`${who}${mark}: ${clip(mm.content || '', 500)}`);
+                // The pinned message is the point of interest — include it in full so the
+                // board assistant sees the same complete comment the board now displays;
+                // neighbouring turns stay clipped for context only.
+                const body = i === idx ? clip(mm.content || '', 6000) : clip(mm.content || '', 500);
+                lines.push(`${who}${mark}: ${body}`);
               }
-              context = lines.join('\n').slice(0, 2000);
+              context = lines.join('\n').slice(0, 6000);
             }
           } catch {}
         }
@@ -5744,7 +5748,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   const pinnedAgentIds = new Set(pins.filter(p => p.kind === 'agent').map(p => p.refId));
   const available = installed.filter(s => { const id = agentId(s); return id && !pinnedAgentIds.has(id); });
   const ctx = [];
-  if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 6000));
+  if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 9000));
   if (pins.length) {
     ctx.push('## BOARD PINS (link checklist items to these by kind:refId)\n' + pins.map(p => {
       const key = p.kind + ':' + p.refId;
@@ -5776,7 +5780,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     ctx.unshift('## WHERE WAS I? (latest AI briefing for this board)\n' + clip(b.summary.text, 2000));
   }
   const baseCtx = ctx.join('\n\n');
-  const contextStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 9000) || '(this board is empty — no pins, notes, or checklists yet)';
+  const contextStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 12000) || '(this board is empty — no pins, notes, or checklists yet)';
 
   // ---- Prompt: force a single JSON object {reply, actions[]}. Actions are
   // constrained to notes/checklists only.
