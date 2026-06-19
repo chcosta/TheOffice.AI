@@ -182,6 +182,16 @@ class MobileHandler extends EventEmitter {
         return this._installFromMachine(correlationId, payload, replier);
       case 'list-chains':
         return this._listChains(correlationId, payload, replier);
+      case 'list-boards':
+        return this._listBoards(correlationId, payload, replier);
+      case 'get-board':
+        return this._getBoard(correlationId, payload, replier);
+      case 'list-insights':
+        return this._listInsights(correlationId, payload, replier);
+      case 'get-insight':
+        return this._getInsight(correlationId, payload, replier);
+      case 'generate-insight':
+        return this._generateInsight(correlationId, payload, replier);
       case 'run-chain':
         return this._runChain(correlationId, sessionId, payload, replier);
       case 'get-chain-runs':
@@ -1427,6 +1437,238 @@ class MobileHandler extends EventEmitter {
         outputFormat: 'markdown'
       }
     });
+    return true;
+  }
+
+  // --- Boards & Insights ---
+  // Boards and insights live in server.js with substantial resolution logic
+  // (pin → live status, "where was I" briefings, cross-board insight generation).
+  // Rather than duplicate any of that here, the handler calls the server's own
+  // HTTP API over loopback (same process) so there is a single source of truth.
+
+  _localBase() {
+    return this.localBaseUrl || `http://127.0.0.1:${process.env.PORT || 3847}`;
+  }
+
+  async _localGet(pathname) {
+    const resp = await fetch(this._localBase() + pathname, { headers: { accept: 'application/json' } });
+    if (!resp.ok) throw new Error(`GET ${pathname} → ${resp.status}`);
+    return resp.json();
+  }
+
+  async _localPost(pathname, body) {
+    const resp = await fetch(this._localBase() + pathname, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!resp.ok) throw new Error(`POST ${pathname} → ${resp.status}`);
+    return resp.json();
+  }
+
+  _teamNameFor(teamId) {
+    if (!teamId) return null;
+    const t = this._loadTeams().find(o => o.id === teamId);
+    return t ? (t.name || teamId) : teamId;
+  }
+
+  // A light board card for the list: cached "where was I" snippet + badge counts.
+  // No LLM call here — we read the last persisted summary so the list stays fast.
+  _boardCard(b) {
+    const summary = b.summary || null;
+    const items = (summary && Array.isArray(summary.items)) ? summary.items : [];
+    const lower = (s) => String(s || '').toLowerCase();
+    const attention = items.filter(i => ['error', 'failed'].includes(lower(i.status))).length;
+    const running = items.filter(i => lower(i.status) === 'running').length;
+    const openChecklist = (Array.isArray(b.checklists) ? b.checklists : [])
+      .reduce((n, cl) => n + (Array.isArray(cl.items) ? cl.items.filter(i => !i.done).length : 0), 0);
+    const whereWasI = (summary && summary.text)
+      ? String(summary.text).replace(/\s+/g, ' ').trim().slice(0, 180)
+      : '';
+    return {
+      id: b.id,
+      name: b.name,
+      emoji: b.emoji || '📌',
+      teamId: b.teamId || null,
+      teamName: b.teamId ? this._teamNameFor(b.teamId) : null,
+      enabled: b.enabled !== false,
+      pinCount: Array.isArray(b.items) ? b.items.length : 0,
+      noteCount: Array.isArray(b.notes) ? b.notes.length : 0,
+      openChecklist,
+      attention,
+      running,
+      whereWasI,
+      summaryAt: (summary && summary.generatedAt) || null,
+      updatedAt: b.updatedAt || b.createdAt || '',
+    };
+  }
+
+  // Boards are team-scoped operations (each carries its own teamId). Under "all"
+  // (memberIds null) show every non-archived board; under a team show only that
+  // team's boards — mirrors the SPA's boardInCurrentTeam().
+  async _listBoards(correlationId, payload, replier) {
+    try {
+      const teamId = this._payloadTeamId(payload);
+      const memberIds = this._orgMemberIds(teamId);
+      const boards = await this._localGet('/api/boards');
+      const cards = (Array.isArray(boards) ? boards : [])
+        .filter(b => !b.archived)
+        .filter(b => this._opInOrg(memberIds, teamId, (b.teamId !== undefined ? b.teamId : b.orgId)))
+        .map(b => this._boardCard(b))
+        .sort((a, c) => String(c.updatedAt).localeCompare(String(a.updatedAt)));
+      await replier(correlationId, { type: 'result', payload: { boards: cards } });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
+    return true;
+  }
+
+  async _getBoard(correlationId, payload, replier) {
+    try {
+      const { boardId, refresh } = payload || {};
+      if (!boardId) { await replier(correlationId, { type: 'error', error: 'boardId is required' }); return true; }
+      const board = await this._localGet('/api/boards/' + encodeURIComponent(boardId));
+      if (!board || !board.id) { await replier(correlationId, { type: 'error', error: 'Board not found' }); return true; }
+
+      // "Where was I" resolves every pinned item to its live status + a briefing.
+      let briefing = null;
+      try {
+        briefing = await this._localPost('/api/boards/' + encodeURIComponent(boardId) + '/where-was-i', { force: !!refresh });
+      } catch {}
+      // Compliance: is the board blocked because pinned items aren't in its team?
+      let compliance = null;
+      try {
+        compliance = await this._localGet('/api/boards/' + encodeURIComponent(boardId) + '/compliance');
+      } catch {}
+
+      const items = (briefing && Array.isArray(briefing.items))
+        ? briefing.items
+        : ((board.summary && Array.isArray(board.summary.items)) ? board.summary.items : []);
+
+      await replier(correlationId, {
+        type: 'result',
+        payload: {
+          id: board.id,
+          name: board.name,
+          emoji: board.emoji || '📌',
+          teamId: board.teamId || null,
+          teamName: board.teamId ? this._teamNameFor(board.teamId) : null,
+          enabled: board.enabled !== false,
+          blocked: !!(compliance && compliance.blocked),
+          complianceIssues: (compliance && Array.isArray(compliance.issues))
+            ? compliance.issues.map(i => ({
+                itemId: i.itemId, kind: i.kind, label: i.label,
+                problems: (Array.isArray(i.problems) ? i.problems : []).map(p => ({
+                  kind: p.kind, role: p.role, opKind: p.opKind,
+                  currentTeamName: p.currentTeamName || null,
+                  employeeName: p.employeeName || null,
+                })),
+              }))
+            : [],
+          whereWasI: (briefing && briefing.summary) || (board.summary && board.summary.text) || '',
+          whereWasIAt: (briefing && briefing.generatedAt) || (board.summary && board.summary.generatedAt) || null,
+          items: items.map(it => ({
+            id: it.id, kind: it.kind, refId: it.refId,
+            label: it.label || it.refId, sublabel: it.sublabel || '',
+            status: it.status || '', detail: it.detail || '', when: it.when || null,
+          })),
+          deltas: (briefing && Array.isArray(briefing.deltas)) ? briefing.deltas : [],
+          notes: (Array.isArray(board.notes) ? board.notes : []).map(n => ({ id: n.id, text: n.text })),
+          checklists: (Array.isArray(board.checklists) ? board.checklists : []).map(cl => ({
+            id: cl.id, title: cl.title,
+            items: (Array.isArray(cl.items) ? cl.items : []).map(i => ({ id: i.id, text: i.text, done: !!i.done })),
+          })),
+        },
+      });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
+    return true;
+  }
+
+  _insightCard(v) {
+    const content = v.content || null;
+    const narrative = content && content.narrative
+      ? String(content.narrative).replace(/\s+/g, ' ').trim().slice(0, 220)
+      : '';
+    return {
+      id: v.id,
+      name: v.name,
+      emoji: v.emoji || '🔭',
+      builtin: !!v.builtin,
+      mode: v.mode,
+      boardCount: content && Array.isArray(content.boards) ? content.boards.length : (Array.isArray(v.boardIds) ? v.boardIds.length : 0),
+      checklistCount: content && Array.isArray(content.checklist) ? content.checklist.length : 0,
+      calloutCount: content && Array.isArray(content.callouts) ? content.callouts.length : 0,
+      narrative,
+      generatedAt: (content && content.generatedAt) || null,
+      generating: !!v.generating,
+      error: v.error || null,
+    };
+  }
+
+  _insightDetail(v) {
+    const content = v.content || null;
+    return {
+      id: v.id,
+      name: v.name,
+      emoji: v.emoji || '🔭',
+      builtin: !!v.builtin,
+      mode: v.mode,
+      generating: !!v.generating,
+      error: v.error || null,
+      generatedAt: (content && content.generatedAt) || null,
+      narrative: (content && content.narrative) || '',
+      checklist: content && Array.isArray(content.checklist)
+        ? content.checklist.map(c => ({ title: c.title, why: c.why, boardId: c.boardId, priority: c.priority }))
+        : [],
+      callouts: content && Array.isArray(content.callouts)
+        ? content.callouts.map(c => ({ type: c.type, text: c.text, boardId: c.boardId }))
+        : [],
+      boards: content && Array.isArray(content.boards)
+        ? content.boards.map(b => ({ boardId: b.boardId, name: b.name, emoji: b.emoji, teamName: b.teamName, whereWasI: b.whereWasI }))
+        : [],
+    };
+  }
+
+  // Insights are GLOBAL cross-board "views" — not team-scoped (the built-in
+  // Overview deliberately spans every team), so no team filtering here.
+  async _listInsights(correlationId, payload, replier) {
+    try {
+      const insights = await this._localGet('/api/insights');
+      const cards = (Array.isArray(insights) ? insights : []).map(v => this._insightCard(v));
+      await replier(correlationId, { type: 'result', payload: { insights: cards } });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
+    return true;
+  }
+
+  async _getInsight(correlationId, payload, replier) {
+    try {
+      const { insightId } = payload || {};
+      if (!insightId) { await replier(correlationId, { type: 'error', error: 'insightId is required' }); return true; }
+      const v = await this._localGet('/api/insights/' + encodeURIComponent(insightId));
+      if (!v || !v.id) { await replier(correlationId, { type: 'error', error: 'Insight not found' }); return true; }
+      await replier(correlationId, { type: 'result', payload: this._insightDetail(v) });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
+    return true;
+  }
+
+  async _generateInsight(correlationId, payload, replier) {
+    try {
+      const { insightId } = payload || {};
+      if (!insightId) { await replier(correlationId, { type: 'error', error: 'insightId is required' }); return true; }
+      await replier(correlationId, { type: 'status-update', payload: { status: 'running', message: 'Generating insight…' } });
+      await this._localPost('/api/insights/' + encodeURIComponent(insightId) + '/generate', {});
+      // Re-read so the reply carries the full, freshly-persisted insight record.
+      const v = await this._localGet('/api/insights/' + encodeURIComponent(insightId));
+      await replier(correlationId, { type: 'result', payload: this._insightDetail(v) });
+    } catch (err) {
+      await replier(correlationId, { type: 'error', error: err.message });
+    }
     return true;
   }
 

@@ -462,6 +462,9 @@ const eventListener = new EventListener(supervisor, managerAgent, db);
 // Mobile command handler — processes structured JSON messages from phone app
 const mobileHandler = new MobileHandler(supervisor, managerAgent, db, eventListener);
 eventListener.mobileHandler = mobileHandler;
+// Let the handler reach the server's own HTTP endpoints (boards/insights live
+// here with all their resolution logic) without duplicating that logic.
+mobileHandler.localBaseUrl = `http://127.0.0.1:${PORT}`;
 
 // Session cleanup interval for idle event listener sessions
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
