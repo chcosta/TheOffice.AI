@@ -4455,23 +4455,133 @@
                               <template x-if="p.type === 'pinned'">
                                 <div style="display:flex;flex-direction:column;gap:8px">
                                   <template x-for="item in p.items" :key="item.id">
-                                    <div class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
-                                      <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                                        <template x-if="pinStatus(item)">
-                                          <span class="pin-dot" :class="pinStatus(item).state" :title="pinStatusTitle(item)"></span>
-                                        </template>
-                                        <div style="min-width:0">
-                                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
-                                          <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                                    <div class="card" style="display:flex;flex-direction:column;padding:0">
+                                      <div class="clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
+                                        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                                          <template x-if="pinStatus(item)">
+                                            <span class="pin-dot" :class="pinStatus(item).state" :title="pinStatusTitle(item)"></span>
+                                          </template>
+                                          <div style="min-width:0">
+                                            <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
+                                            <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
+                                          </div>
+                                        </div>
+                                        <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
+                                          <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
+                                          <button class="icon-button" type="button" x-show="boardPinHasDetail(item)" :title="boardPinExpanded[item.id] ? 'Hide latest' : (item.kind === 'chat' ? 'Show latest message' : 'Show latest run')" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinExpanded[item.id] ? '▾' : '▸'"></button>
+                                          <button class="icon-button" type="button" title="Move up" @click.stop="movePin(item, -1)">▲</button>
+                                          <button class="icon-button" type="button" title="Move down" @click.stop="movePin(item, 1)">▼</button>
+                                          <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
+                                          <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
                                         </div>
                                       </div>
-                                      <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
-                                        <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
-                                        <button class="icon-button" type="button" title="Move up" @click.stop="movePin(item, -1)">▲</button>
-                                        <button class="icon-button" type="button" title="Move down" @click.stop="movePin(item, 1)">▼</button>
-                                        <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
-                                        <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
-                                      </div>
+                                      <!-- Latest run / message reveal (steps & reasoning when present). -->
+                                      <template x-if="boardPinHasDetail(item) && boardPinExpanded[item.id]">
+                                        <div @click.stop style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
+                                          <!-- Task / assignment: most recent run output + reasoning. -->
+                                          <template x-if="item.kind === 'task' || item.kind === 'assignment'">
+                                            <div>
+                                              <template x-if="boardPinLastRun(item)">
+                                                <div>
+                                                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                                                    <span class="status-badge" style="font-size:0.7rem" :class="statusClass(boardPinLastRun(item).status)" x-text="statusLabel(boardPinLastRun(item).status)"></span>
+                                                    <span class="hint" x-text="formatRelative(boardPinLastRun(item).finished_at || boardPinLastRun(item).started_at)"></span>
+                                                    <template x-if="boardPinLastRun(item).model"><span class="model-badge" :title="'Model: ' + boardPinLastRun(item).model" x-text="'🧠 ' + formatModelName(boardPinLastRun(item).model)"></span></template>
+                                                    <button class="btn ghost" style="font-size:0.7rem;margin-left:auto" type="button" title="Refresh" @click.stop="boardPinLoadDetail(item)">↻</button>
+                                                  </div>
+                                                  <div class="md-output" x-html="renderMarkdown(boardPinLastRun(item).output || boardPinLastRun(item).result || boardPinLastRun(item).error || 'No output captured.')"></div>
+                                                  <template x-if="runSteps(boardPinLastRun(item)).length">
+                                                    <details class="msg-activity" style="margin-top:8px">
+                                                      <summary>🔎 Reasoning &amp; steps (<span x-text="runSteps(boardPinLastRun(item)).length"></span>)</summary>
+                                                      <div class="msg-activity-body">
+                                                        <template x-for="(st, ai) in runSteps(boardPinLastRun(item))" :key="'bps-' + item.id + '-' + ai">
+                                                          <div class="msg-activity-step" :class="st.type">
+                                                            <template x-if="st.text">
+                                                              <details class="msg-activity-substep">
+                                                                <summary x-text="st.label"></summary>
+                                                                <pre class="live-stream-pre" x-text="st.text"></pre>
+                                                              </details>
+                                                            </template>
+                                                            <template x-if="!st.text">
+                                                              <div class="msg-activity-label" x-text="st.label"></div>
+                                                            </template>
+                                                          </div>
+                                                        </template>
+                                                      </div>
+                                                    </details>
+                                                  </template>
+                                                </div>
+                                              </template>
+                                              <div class="hint" x-show="!boardPinLastRun(item)" x-text="taskHistoryCache[item.refId] ? 'No run history yet.' : 'Loading…'"></div>
+                                            </div>
+                                          </template>
+                                          <!-- Flow: latest run, per-step output (expandable). -->
+                                          <template x-if="item.kind === 'flow'">
+                                            <div>
+                                              <template x-if="chainRunState[item.refId]">
+                                                <div>
+                                                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                                                    <span class="status-badge" style="font-size:0.7rem" :class="statusClass(chainRunState[item.refId].status)" x-text="chainRunState[item.refId].status"></span>
+                                                    <span class="hint" x-text="formatRelative(chainRunState[item.refId].startedAt || chainRunState[item.refId].finished_at)"></span>
+                                                    <button class="btn ghost" style="font-size:0.7rem;margin-left:auto" type="button" title="Refresh" @click.stop="boardPinLoadDetail(item)">↻</button>
+                                                  </div>
+                                                  <div class="run-list">
+                                                    <template x-for="(node, sid) in (chainRunState[item.refId].nodes || {})" :key="'bpn-' + item.id + '-' + sid">
+                                                      <div class="run-item" style="padding:0;flex-direction:column;align-items:stretch">
+                                                        <div style="padding:6px 10px;display:flex;align-items:center;gap:8px;cursor:pointer" @click.stop="toggleChainNode(item.refId, sid)">
+                                                          <span class="hint" x-text="expandedChainNodes[item.refId + '/' + sid] ? '▾' : '▸'"></span>
+                                                          <span class="status-badge" style="font-size:0.68rem" :class="statusClass(node.status)" x-text="node.status"></span>
+                                                          <span x-text="node.taskName || sid"></span>
+                                                          <span class="hint" x-show="node.code !== undefined && node.code !== null" x-text="'exit ' + node.code"></span>
+                                                        </div>
+                                                        <div x-show="expandedChainNodes[item.refId + '/' + sid]" style="padding:0 10px 10px">
+                                                          <div class="md-output" x-html="renderMarkdown(node.output || (node.status === 'running' ? 'Waiting for output…' : 'No output captured for this step.'))"></div>
+                                                        </div>
+                                                      </div>
+                                                    </template>
+                                                  </div>
+                                                </div>
+                                              </template>
+                                              <div class="hint" x-show="!chainRunState[item.refId]" x-text="(chainRuns[item.refId] && !chainRuns[item.refId].length) ? 'No runs yet.' : 'Loading…'"></div>
+                                            </div>
+                                          </template>
+                                          <!-- Chat: most recent message (with reasoning/steps when captured). -->
+                                          <template x-if="item.kind === 'chat'">
+                                            <div>
+                                              <template x-if="boardPinChatLast(item)">
+                                                <div>
+                                                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                                                    <span class="hint" x-text="(boardPinChatLast(item).role === 'assistant' ? '🤖 ' : '🧑 ') + (boardPinChatLast(item).timestamp ? formatRelative(boardPinChatLast(item).timestamp) : '')"></span>
+                                                    <button class="btn ghost" style="font-size:0.7rem;margin-left:auto" type="button" title="Refresh" @click.stop="boardPinLoadDetail(item)">↻</button>
+                                                  </div>
+                                                  <div class="md-output" x-html="renderMarkdown(boardPinChatLast(item).content || '(no content)')"></div>
+                                                  <template x-if="runSteps({ steps: boardPinChatLast(item).activity }).length">
+                                                    <details class="msg-activity" style="margin-top:8px">
+                                                      <summary>🔎 Reasoning &amp; steps (<span x-text="runSteps({ steps: boardPinChatLast(item).activity }).length"></span>)</summary>
+                                                      <div class="msg-activity-body">
+                                                        <template x-for="(st, ai) in runSteps({ steps: boardPinChatLast(item).activity })" :key="'bpc-' + item.id + '-' + ai">
+                                                          <div class="msg-activity-step" :class="st.type">
+                                                            <template x-if="st.text">
+                                                              <details class="msg-activity-substep">
+                                                                <summary x-text="st.label"></summary>
+                                                                <pre class="live-stream-pre" x-text="st.text"></pre>
+                                                              </details>
+                                                            </template>
+                                                            <template x-if="!st.text">
+                                                              <div class="msg-activity-label" x-text="st.label"></div>
+                                                            </template>
+                                                          </div>
+                                                        </template>
+                                                      </div>
+                                                    </details>
+                                                  </template>
+                                                </div>
+                                              </template>
+                                              <div class="hint" x-show="!boardPinChatLast(item)" x-text="boardChatCache[item.refId] ? 'No messages yet.' : 'Loading…'"></div>
+                                            </div>
+                                          </template>
+                                        </div>
+                                      </template>
                                     </div>
                                   </template>
                                 </div>
@@ -8196,6 +8306,9 @@
         chainRunState: {},
         chainRuns: {},
         expandedChainNodes: {},
+        // Board pins: per-pin "latest run/message" reveal + a small chat fetch cache.
+        boardPinExpanded: {},
+        boardChatCache: {},
         activeChat: null,
         chatDraft: '',
         _cliPollTimer: null,
@@ -11833,6 +11946,57 @@
           const s = this.pinStatus(item);
           if (!s) return '';
           return s.relative ? (s.label + ' · ' + s.relative) : s.label;
+        },
+        // ----- Board pins: inline "latest run / message" reveal -----
+        // Which pin kinds can show their last run/output (with steps & reasoning) or,
+        // for chats, their most recent message right on the board card.
+        boardPinHasDetail(item) {
+          return !!item && ['task', 'assignment', 'flow', 'chat'].includes(item.kind);
+        },
+        toggleBoardPinDetail(item) {
+          if (!item) return;
+          const open = !this.boardPinExpanded[item.id];
+          this.boardPinExpanded = { ...this.boardPinExpanded, [item.id]: open };
+          if (open) this.boardPinLoadDetail(item);
+        },
+        // Lazy-load the latest run/message for a pin, reusing the same data paths the
+        // detail pages use (no new run plumbing). Safe to call again to refresh.
+        async boardPinLoadDetail(item) {
+          if (!item) return;
+          try {
+            if (item.kind === 'task' || item.kind === 'assignment') {
+              const t = this.allTasks().find(x => x.taskKey === item.refId);
+              if (t) await this.loadTaskHistory(t);
+              else this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
+            } else if (item.kind === 'flow') {
+              await this.loadChainRuns(item.refId);
+              const last = (this.chainRuns[item.refId] || [])[0];
+              if (last && last.id) await this.openChainRun(item.refId, last.id);
+            } else if (item.kind === 'chat') {
+              const chat = await this.request('/api/chats/' + encodeURIComponent(item.refId));
+              this.boardChatCache = { ...this.boardChatCache, [item.refId]: chat || { messages: [] } };
+            }
+          } catch (e) {
+            // Mark as loaded-but-empty so the panel shows a message instead of spinning.
+            if (item.kind === 'chat') this.boardChatCache = { ...this.boardChatCache, [item.refId]: { messages: [] } };
+            else if (item.kind === 'task' || item.kind === 'assignment') this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
+          }
+        },
+        // Most recent completed run for a task/assignment pin (history is newest-first).
+        boardPinLastRun(item) {
+          if (!item) return null;
+          if (item.kind === 'task' || item.kind === 'assignment') {
+            return (this.taskHistoryCache[item.refId] || [])[0] || null;
+          }
+          return null;
+        },
+        // Latest assistant message (fallback: last message) for a pinned chat.
+        boardPinChatLast(item) {
+          const chat = item && this.boardChatCache[item.refId];
+          const msgs = (chat && chat.messages) || [];
+          if (!msgs.length) return null;
+          for (let i = msgs.length - 1; i >= 0; i--) { if (msgs[i].role === 'assistant') return msgs[i]; }
+          return msgs[msgs.length - 1];
         },
         // ----- Phase 3: checklist items that reference / run a board pin -----
         // Kinds that can be executed directly from a checklist item. Others
