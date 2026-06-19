@@ -2122,6 +2122,51 @@
       opacity: .5;
     }
     .board-panel:hover .board-resize { opacity: .9; }
+    /* ---- Board action buttons: compact, self-labelling icon buttons ----
+       Any .board-act with a data-tip shows an instant styled tooltip on hover so
+       the icon's meaning is never a guessing game. */
+    .board-act {
+      position: relative;
+      width: 28px; height: 28px;
+      display: inline-grid; place-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--cp-text-soft);
+      cursor: pointer;
+      font-size: 13px; line-height: 1;
+      transition: background .12s ease, color .12s ease, border-color .12s ease;
+    }
+    .board-act:hover { background: var(--cp-highlight); color: var(--cp-text); border-color: var(--cp-border); }
+    .board-act:disabled { opacity: .35; cursor: default; }
+    .board-act.danger:hover { color: var(--cp-danger); border-color: color-mix(in srgb, var(--cp-danger) 50%, transparent); background: color-mix(in srgb, var(--cp-danger) 10%, transparent); }
+    .board-act.active { color: var(--cp-accent); }
+    .board-act[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 6px); left: 50%;
+      transform: translateX(-50%) translateY(3px);
+      background: var(--cp-panel-strong); color: var(--cp-text);
+      border: 1px solid var(--cp-border); border-radius: 7px;
+      padding: 4px 8px; font-size: 11px; font-weight: 500; line-height: 1.2;
+      white-space: nowrap; letter-spacing: normal; text-transform: none;
+      box-shadow: var(--cp-shadow);
+      opacity: 0; pointer-events: none;
+      transition: opacity .12s ease, transform .12s ease;
+      z-index: 60;
+    }
+    .board-act[data-tip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+    /* edge-anchored variant so tooltips on the far-right buttons don't clip */
+    .board-act[data-tip].tip-end::after { left: auto; right: 0; transform: translateX(0) translateY(3px); }
+    .board-act[data-tip].tip-end:hover::after { transform: translateX(0) translateY(0); }
+    .board-pin-card.summary-muted { opacity: .62; }
+    .board-pin-card.summary-muted:hover { opacity: 1; }
+    .summary-muted-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 600; letter-spacing: .2px;
+      color: var(--cp-text-soft);
+      border: 1px dashed var(--cp-border-strong); border-radius: 999px;
+      padding: 1px 7px; background: var(--cp-surface-soft);
+    }
     .board-canvas-scroll { overflow: auto; max-width: 100%; min-height: 300px; padding-bottom: 2px; }
     .board-canvas-resize {
       position: absolute;
@@ -4702,24 +4747,28 @@
                               <template x-if="p.type === 'pinned'">
                                 <div style="display:flex;flex-direction:column;gap:8px">
                                   <template x-for="item in p.items" :key="item.id">
-                                    <div class="card" style="display:flex;flex-direction:column;padding:0">
+                                    <div class="card board-pin-card" :class="{ 'summary-muted': item.excludeFromSummary }" style="display:flex;flex-direction:column;padding:0">
                                       <div class="clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
                                         <div style="display:flex;align-items:center;gap:8px;min-width:0">
                                           <template x-if="pinStatus(item)">
                                             <span class="pin-dot" :class="pinStatus(item).state" :title="pinStatusTitle(item)"></span>
                                           </template>
                                           <div style="min-width:0">
-                                            <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></div>
+                                            <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                                              <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></span>
+                                              <span class="summary-muted-pill" x-show="item.excludeFromSummary" title="This panel is hidden from the Where was I? briefing and insights">🙈 Off summary</span>
+                                            </div>
                                             <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
                                           </div>
                                         </div>
-                                        <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
+                                        <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
                                           <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
-                                          <button class="icon-button" type="button" x-show="boardPinHasDetail(item)" :title="boardPinIsExpanded(item) ? 'Collapse' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
-                                          <button class="icon-button" type="button" title="Move up" @click.stop="movePin(item, -1)">▲</button>
-                                          <button class="icon-button" type="button" title="Move down" @click.stop="movePin(item, 1)">▼</button>
-                                          <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
-                                          <button class="icon-button" type="button" title="Unpin" @click.stop="unpinItem(item)">✕</button>
+                                          <button class="board-act" type="button" x-show="boardPinHasDetail(item)" :data-tip="boardPinIsExpanded(item) ? 'Hide details' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
+                                          <button class="board-act" :class="{ active: item.excludeFromSummary }" type="button" :data-tip="item.excludeFromSummary ? 'Include in summary &amp; insights' : 'Hide from summary &amp; insights'" @click.stop="toggleItemSummary(item)" x-text="item.excludeFromSummary ? '🙈' : '👁'"></button>
+                                          <button class="board-act" type="button" data-tip="Move up" @click.stop="movePin(item, -1)">↑</button>
+                                          <button class="board-act" type="button" data-tip="Move down" @click.stop="movePin(item, 1)">↓</button>
+                                          <button class="board-act" type="button" :data-tip="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
+                                          <button class="board-act danger tip-end" type="button" data-tip="Unpin from board" @click.stop="unpinItem(item)">✕</button>
                                         </div>
                                       </div>
                                       <!-- Latest run / message reveal (steps & reasoning when present). -->
@@ -12955,6 +13004,27 @@
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
           } catch (e) {
             this.showToast('Unpin', e.message, 'error');
+          }
+        },
+        // Toggle whether a pinned item feeds the "Where was I?" briefing + insights.
+        // The pin stays on the board either way; this only excludes it from summary analysis.
+        async toggleItemSummary(item) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const next = !item.excludeFromSummary;
+          item.excludeFromSummary = next; // optimistic
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items/' + encodeURIComponent(item.id), {
+              method: 'PATCH',
+              body: JSON.stringify({ excludeFromSummary: next })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.showToast('Board', next ? 'Hidden from summary & insights' : 'Included in summary again', 'success');
+          } catch (e) {
+            item.excludeFromSummary = !next; // revert
+            this.showToast('Board', e.message, 'error');
           }
         },
         // Route for a pinned item (quick-jump).

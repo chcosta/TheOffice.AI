@@ -5124,6 +5124,27 @@ app.delete('/api/boards/:id/items/:itemId', (req, res) => {
   res.json({ ok: true, board: b });
 });
 
+// Update a pinned item's metadata (currently: excludeFromSummary toggle). The item
+// stays on the board either way; excludeFromSummary only controls whether it feeds
+// the "Where was I?" briefing and the insights derived from it.
+app.patch('/api/boards/:id/items/:itemId', (req, res) => {
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  const it = b.items.find(x => x.id === req.params.itemId);
+  if (!it) return res.status(404).json({ error: 'Item not found' });
+  if (req.body && 'excludeFromSummary' in req.body) {
+    if (req.body.excludeFromSummary) it.excludeFromSummary = true;
+    else delete it.excludeFromSummary;
+  }
+  b.updatedAt = new Date().toISOString();
+  boards[idx] = b;
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: b.id });
+  res.json({ ok: true, board: b });
+});
+
 // ===================== BOARD TEAM-COMPLIANCE =====================
 // When a board is filed under a team, every pinned item must "belong" to that
 // team for the board to be usable. An item belongs when:
@@ -5379,12 +5400,17 @@ app.post('/api/boards/:id/migrate', (req, res) => {
 // Resolve a board's pinned items into (a) per-item digests `out` for the UI list
 // and (b) richer per-item `contextBlocks` (transcripts / run output / messages)
 // fed to the LLM for the "Where was I?" briefing.
-function _resolveBoardItems(b) {
+function _resolveBoardItems(b, opts = {}) {
+  // When forSummary is set, items the user flagged with excludeFromSummary are
+  // skipped entirely — they stay pinned on the board but contribute nothing to the
+  // "Where was I?" briefing or the cross-board insights derived from it.
+  const forSummary = !!opts.forSummary;
   const out = [];
   const contextBlocks = [];
   const tasks = loadTasks();
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
   for (const it of b.items) {
+    if (forSummary && it.excludeFromSummary) continue;
     let when = it.addedAt || null, status = '', detail = '', route = '', context = '';
     try {
       if (it.kind === 'agent') {
@@ -5542,7 +5568,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     }
   }
 
-  const { out, contextBlocks } = _resolveBoardItems(b);
+  const { out, contextBlocks } = _resolveBoardItems(b, { forSummary: true });
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
   // Deltas: what changed since the user last viewed (generated a briefing for) this
@@ -5711,7 +5737,7 @@ function _boardWhereWasI(b) {
     if (age >= 0 && age < 6 * 60 * 60 * 1000) return b.summary.text;
   }
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
-  const { out } = _resolveBoardItems(b);
+  const { out } = _resolveBoardItems(b, { forSummary: true });
   const notes = (Array.isArray(b.notes) ? b.notes : []).length;
   const open = (Array.isArray(b.checklists) ? b.checklists : []).reduce((n, cl) => n + (Array.isArray(cl.items) ? cl.items.filter(i => !i.done).length : 0), 0);
   if (!out.length && !notes && !open) return `No pinned items yet on "${b.name}".`;
