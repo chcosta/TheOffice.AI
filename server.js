@@ -5633,6 +5633,77 @@ app.post('/api/insights/:id/generate', async (req, res) => {
   }
 });
 
+// POST /api/insights/suggest — "Design with AI": propose NEW insight definitions
+// (with reasoning) based on the available enabled boards. Returns proposals only;
+// nothing is persisted until the user creates one.
+app.post('/api/insights/suggest', async (req, res) => {
+  const enabled = loadBoards().map(_normalizeBoard).filter(b => b.enabled !== false && !b.archived);
+  if (!enabled.length) return res.status(400).json({ error: 'No enabled boards to design insights from. Enable a board first.' });
+
+  const hint = String((req.body && req.body.hint) || '').trim();
+  const existing = loadInsights().map(_normalizeInsight).map(v => ({ name: v.name, mode: v.mode, boardIds: v.boardIds }));
+  const boards = enabled.map(b => ({
+    id: b.id, name: b.name,
+    team: b.teamId ? _teamName(b.teamId) : null,
+    state: String(_boardWhereWasI(b) || '').replace(/\s+/g, ' ').slice(0, 600)
+  }));
+
+  const prompt = [
+    'You design "Insights" for a work-board platform. An insight is a read-only AI view that summarizes and prioritizes work across a chosen set of boards. Propose CREATIVE, GENUINELY USEFUL new insights by grouping the available boards in ways the user may not have considered (by team, by theme, by urgency, by cross-cutting concern like "anything on fire", "due this week", "stalled work").',
+    '',
+    'AVAILABLE ENABLED BOARDS (only ever reference these exact ids):',
+    JSON.stringify(boards, null, 2),
+    '',
+    'EXISTING INSIGHTS (do not just repeat these):',
+    JSON.stringify(existing, null, 2),
+    '',
+    hint ? ('USER FOCUS: ' + hint) : 'No specific focus — surprise the user with useful groupings.',
+    '',
+    'Propose 4 insights. Each has:',
+    '- "mode": "all_enabled" (covers every enabled board) or "custom" (a chosen subset).',
+    '- For "custom", "boardIds" MUST be a non-empty subset of the available board ids above.',
+    '- A short "prompt": the focus instruction the insight\'s generator should emphasize (e.g. "highlight outages and anything due this week").',
+    '- A "reasoning": 1-2 sentences explaining WHY this grouping is useful and what the user would get from it. Be specific to the actual boards/state above.',
+    'Prefer "custom" groupings unless an all-boards view is genuinely the most useful. Vary the angle across the 4 suggestions.',
+    '',
+    'Respond with ONLY a JSON array (no prose) in this exact shape:',
+    '```json',
+    '[',
+    '  { "name": "...", "emoji": "🔭", "mode": "custom", "boardIds": ["<board id>", "..."], "prompt": "...", "reasoning": "..." }',
+    ']',
+    '```'
+  ].join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const text = acc.trim() ? acc : (result && result.output) || '';
+    const arr = parseSuggestionJson(text);
+    if (!arr) return res.status(502).json({ error: 'Could not parse AI suggestions. Try refreshing.', raw: String(text).slice(0, 500) });
+    const validIds = new Set(boards.map(b => b.id));
+    const byId = Object.fromEntries(boards.map(b => [b.id, b.name]));
+    const suggestions = arr.map(s => {
+      const mode = s && s.mode === 'custom' ? 'custom' : 'all_enabled';
+      let boardIds = Array.isArray(s && s.boardIds) ? s.boardIds.filter(x => validIds.has(x)) : [];
+      if (mode === 'custom' && !boardIds.length) return null; // custom needs real boards
+      const name = String((s && s.name) || '').trim();
+      if (!name) return null;
+      return {
+        id: 'isug-' + require('crypto').randomBytes(4).toString('hex'),
+        name, emoji: (s && s.emoji) || '🔭', mode,
+        boardIds: mode === 'custom' ? boardIds : [],
+        boardNames: (mode === 'custom' ? boardIds : boards.map(b => b.id)).map(id => byId[id]).filter(Boolean),
+        prompt: String((s && s.prompt) || '').trim(),
+        reasoning: String((s && s.reasoning) || '').trim()
+      };
+    }).filter(Boolean);
+    if (!suggestions.length) return res.status(502).json({ error: 'AI returned no valid suggestions. Try refreshing.' });
+    res.json({ suggestions });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'suggestion failed' });
+  }
+});
+
 // Board assistant — a board transformer + light orchestrator. It reads the board's
 // pinned context, the user's notes/checklists, and the installed-agent catalog, and
 // PROPOSES actions: note/checklist edits, running a PINNED agent to gather fresh info

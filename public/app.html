@@ -4990,6 +4990,7 @@
                 <p>AI-generated views that summarize and prioritize work across your enabled boards. Read-only — you choose the boards and focus; the assistant writes the briefing.</p>
               </div>
               <div class="toolbar">
+                <button class="btn ghost" type="button" @click="openInsightSuggest()">✨ Design with AI</button>
                 <button class="btn" type="button" @click="openInsightEditor(null)">＋ New insight</button>
               </div>
             </div>
@@ -5178,6 +5179,56 @@
                 <div class="modal-footer">
                   <button class="btn ghost" type="button" @click="insightEditorOpen=false">Cancel</button>
                   <button class="btn" type="button" @click="saveInsight()" x-text="insightEditor.id ? 'Save' : 'Create'"></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Design with AI: suggested insights with reasoning -->
+            <div class="modal-backdrop" x-show="insightSuggestOpen" x-transition.opacity style="display:flex" @click.self="insightSuggestOpen=false">
+              <div class="modal" style="max-width:640px">
+                <div class="modal-header">
+                  <h2>✨ Design insights with AI</h2>
+                  <button class="icon-btn" type="button" @click="insightSuggestOpen=false">✕</button>
+                </div>
+                <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+                  <div class="hint">Suggestions group your enabled boards into useful views, with reasoning. Create one directly or customize it first.</div>
+                  <div style="display:flex;gap:8px;align-items:flex-end">
+                    <div style="flex:1">
+                      <label class="field-label">Focus (optional)</label>
+                      <input class="input" type="text" x-model="insightSuggestHint" placeholder="e.g. surface outages and stalled work" @keydown.enter="loadInsightSuggestions()">
+                    </div>
+                    <button class="btn" type="button" :disabled="insightSuggestLoading" @click="loadInsightSuggestions()"
+                            x-text="insightSuggestLoading ? 'Thinking…' : (insightSuggestions.length ? '↻ Regenerate' : 'Suggest')"></button>
+                  </div>
+
+                  <div x-show="insightSuggestError" class="hint" style="color:var(--cp-danger)" x-text="insightSuggestError"></div>
+                  <div x-show="insightSuggestLoading && !insightSuggestions.length" class="hint" style="padding:16px">🛰️ Studying your boards and drafting insight ideas…</div>
+
+                  <div style="display:flex;flex-direction:column;gap:10px">
+                    <template x-for="s in insightSuggestions" :key="s.id">
+                      <div class="card" style="padding:12px">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                          <span style="font-size:18px" x-text="s.emoji || '🔭'"></span>
+                          <div style="font-weight:600;flex:1" x-text="s.name"></div>
+                          <span class="pill" style="font-size:10px;padding:1px 6px" x-text="s.mode === 'custom' ? (s.boardNames.length + ' boards') : 'All enabled'"></span>
+                        </div>
+                        <div class="hint" style="line-height:1.5;margin-bottom:6px" x-text="s.reasoning"></div>
+                        <div x-show="s.mode === 'custom' && s.boardNames.length" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+                          <template x-for="bn in s.boardNames" :key="bn">
+                            <span class="pill" style="font-size:11px;padding:1px 8px" x-text="bn"></span>
+                          </template>
+                        </div>
+                        <div class="hint" x-show="s.prompt" style="opacity:0.8;margin-bottom:8px" x-text="'Focus: ' + s.prompt"></div>
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                          <button class="btn ghost" type="button" @click="customizeSuggestion(s)">Customize</button>
+                          <button class="btn" type="button" :disabled="insightSuggestCreating" @click="createFromSuggestion(s)">Create</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn ghost" type="button" @click="insightSuggestOpen=false">Close</button>
                 </div>
               </div>
             </div>
@@ -8687,6 +8738,12 @@
         insightGenerating: {},
         insightEditorOpen: false,
         insightEditor: { id: '', name: '', emoji: '🔭', mode: 'all_enabled', boardIds: [], prompt: '', schedule: 'never' },
+        insightSuggestOpen: false,
+        insightSuggestLoading: false,
+        insightSuggestCreating: false,
+        insightSuggestions: [],
+        insightSuggestHint: '',
+        insightSuggestError: '',
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
@@ -12145,6 +12202,50 @@
           } catch (e) {
             this.showToast('Insights', e.message, 'error');
           }
+        },
+        // Design with AI: propose new insight definitions (with reasoning) from boards.
+        openInsightSuggest() {
+          this.insightSuggestOpen = true;
+          this.insightSuggestError = '';
+          if (!this.insightSuggestions.length && !this.insightSuggestLoading) this.loadInsightSuggestions();
+        },
+        async loadInsightSuggestions() {
+          if (this.insightSuggestLoading) return;
+          this.insightSuggestLoading = true;
+          this.insightSuggestError = '';
+          try {
+            const resp = await this.request('/api/insights/suggest', { method: 'POST', body: JSON.stringify({ hint: this.insightSuggestHint }) });
+            this.insightSuggestions = (resp && resp.suggestions) || [];
+            if (!this.insightSuggestions.length) this.insightSuggestError = 'No suggestions returned. Try a different focus.';
+          } catch (e) {
+            this.insightSuggestError = e.message || 'Could not generate suggestions';
+          } finally {
+            this.insightSuggestLoading = false;
+          }
+        },
+        async createFromSuggestion(s) {
+          if (!s || this.insightSuggestCreating) return;
+          this.insightSuggestCreating = true;
+          try {
+            const body = { name: s.name, emoji: s.emoji, mode: s.mode, boardIds: s.boardIds || [], prompt: s.prompt || '' };
+            const saved = await this.request('/api/insights', { method: 'POST', body: JSON.stringify(body) });
+            this.insightSuggestOpen = false;
+            this.insightSuggestions = this.insightSuggestions.filter(x => x.id !== s.id);
+            await this.loadInsights(saved && saved.id, true);
+            if (saved && saved.id) this.generateInsight(saved.id);
+            this.showToast('Insights', 'Created "' + s.name + '"', 'success');
+          } catch (e) {
+            this.showToast('Insights', e.message, 'error');
+          } finally {
+            this.insightSuggestCreating = false;
+          }
+        },
+        // Open the editor prefilled from a suggestion so the user can tweak before saving.
+        customizeSuggestion(s) {
+          if (!s) return;
+          this.insightSuggestOpen = false;
+          this.insightEditor = { id: '', name: s.name, emoji: s.emoji || '🔭', mode: s.mode || 'all_enabled', boardIds: [...(s.boardIds || [])], prompt: s.prompt || '', schedule: 'never', builtin: false };
+          this.insightEditorOpen = true;
         },
         // Boards visible under the current org: the global board (teamId null) is always shown.
         // Archived boards are hidden unless the user toggles "Show archived".
