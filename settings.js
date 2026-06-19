@@ -29,6 +29,12 @@ const DEFAULTS = {
   // Reports: equivalent USD cost per premium request (AIC). GitHub's documented
   // overage rate is $0.04/premium request; adjust in Settings to match your plan.
   costPerPremiumRequest: 0.04,
+  // Default Azure DevOps export target — auto-populates the "Export to AzDO"
+  // dialog so users don't retype their org/project/repo/branch every time.
+  exportOrg: '',
+  exportProject: '',
+  exportRepo: '',
+  exportBranch: '',
 };
 
 let cache = null;

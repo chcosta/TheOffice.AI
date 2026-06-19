@@ -6497,6 +6497,31 @@
               <p class="hint" x-show="modelsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
+            <!-- Default Export Repository Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">⤴ Default Export Repository</h3>
+              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>Export to AzDO</strong> dialog with this Azure DevOps target. When set, opening Export auto-connects and preselects the repo &amp; branch — you can still override per-export.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px">
+                <div>
+                  <label class="field-label">Organization</label>
+                  <input class="field-input" type="text" x-model="exportSettings.exportOrg" placeholder="e.g. dnceng" @change="saveExportSettings()" />
+                </div>
+                <div>
+                  <label class="field-label">Project</label>
+                  <input class="field-input" type="text" x-model="exportSettings.exportProject" placeholder="e.g. internal" @change="saveExportSettings()" />
+                </div>
+                <div>
+                  <label class="field-label">Repository</label>
+                  <input class="field-input" type="text" x-model="exportSettings.exportRepo" placeholder="e.g. dotnet-helix-machines" @change="saveExportSettings()" />
+                </div>
+                <div>
+                  <label class="field-label">Base branch</label>
+                  <input class="field-input" type="text" x-model="exportSettings.exportBranch" placeholder="e.g. main" @change="saveExportSettings()" />
+                </div>
+              </div>
+              <p class="hint" x-show="exportSettingsSaved" style="margin-top:12px">✅ Saved.</p>
+            </div>
+
             <!-- Cloud Sync Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
@@ -8966,6 +8991,8 @@
         syncStatus: { enabled: false, machineId: '', hostname: '' },
         models: [],
         modelSettings: { chatModel: '', executionModel: '', systemModel: '' },
+        exportSettings: { exportOrg: '', exportProject: '', exportRepo: '', exportBranch: '' },
+        exportSettingsSaved: false,
         modelsError: '',
         modelsSaved: false,
         syncConfig: { storageAccount: '', containerName: 'agent-supervisor', machineId: '' },
@@ -9805,12 +9832,30 @@
           } catch (e) { this.showToast('Validate failed', e.message, 'error'); }
         },
         // ---- Export agent to Azure DevOps ----
-        openExport() {
+        async openExport() {
           const a = this.selectedAgent;
+          // Pull saved export defaults (may not be loaded yet if Settings was never visited).
+          let d = this.exportSettings || {};
+          if (!d.exportOrg && !d.exportProject) {
+            try {
+              const s = await this.request('/api/settings');
+              if (s) { d = { exportOrg: s.exportOrg || '', exportProject: s.exportProject || '', exportRepo: s.exportRepo || '', exportBranch: s.exportBranch || '' }; this.exportSettings = d; }
+            } catch {}
+          }
           this.exp = { ...this.exp, open: true, agentId: a.id, agentName: a.config?.name || a.id,
-            layout: 'plugin', org: '', project: '', repo: '', branch: '', repos: [], branches: [],
+            layout: 'plugin', org: d.exportOrg || '', project: d.exportProject || '', repo: '', branch: '', repos: [], branches: [],
             basePath: '', createPr: false, loadingRepos: false, loadingBranches: false,
             busy: false, error: '', preview: null, result: null, branchOverride: '' };
+          // Auto-connect when a default org/project is configured, then preselect
+          // the default repo + branch so the dialog is ready to push.
+          if (this.exp.org.trim() && this.exp.project.trim()) {
+            await this.expLoadRepos();
+            if (d.exportRepo && this.exp.repos.some(r => r.name === d.exportRepo)) {
+              this.exp.repo = d.exportRepo;
+              await this.expRepoChange();
+              if (d.exportBranch && this.exp.branches.includes(d.exportBranch)) this.exp.branch = d.exportBranch;
+            }
+          }
         },
         async expLoadRepos() {
           const e = this.exp;
@@ -11288,12 +11333,36 @@
         async loadModelSettings() {
           try {
             const s = await this.request('/api/settings');
-            if (s) this.modelSettings = {
-              chatModel: s.chatModel || '',
-              executionModel: s.executionModel || '',
-              systemModel: s.systemModel || ''
-            };
+            if (s) {
+              this.modelSettings = {
+                chatModel: s.chatModel || '',
+                executionModel: s.executionModel || '',
+                systemModel: s.systemModel || ''
+              };
+              this.exportSettings = {
+                exportOrg: s.exportOrg || '',
+                exportProject: s.exportProject || '',
+                exportRepo: s.exportRepo || '',
+                exportBranch: s.exportBranch || ''
+              };
+            }
           } catch {}
+        },
+        async saveExportSettings() {
+          this.exportSettingsSaved = false;
+          try {
+            const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify(this.exportSettings) });
+            if (next) this.exportSettings = {
+              exportOrg: next.exportOrg || '',
+              exportProject: next.exportProject || '',
+              exportRepo: next.exportRepo || '',
+              exportBranch: next.exportBranch || ''
+            };
+            this.exportSettingsSaved = true;
+            setTimeout(() => { this.exportSettingsSaved = false; }, 2500);
+          } catch (err) {
+            this.showToast('Settings', 'Could not save export defaults: ' + err.message, 'error');
+          }
         },
         async saveModelSettings() {
           this.modelsSaved = false;
@@ -16512,8 +16581,20 @@
             p._applied = true;
             const attached = (r.attached || []).length;
             const name = r.created ? r.created.name : (p._name || 'Agent');
+            // If a specific team is in scope, add the new agent to it so it shows
+            // up in the team-scoped employees/agents list (otherwise it would only
+            // appear under "All teams" and seem to vanish).
+            let teamNote = '';
+            const newId = r.agentId || (r.created && r.created.id);
+            if (newId && this.currentTeamId && this.currentTeamId !== 'all') {
+              try {
+                await this.request('/api/teams/' + encodeURIComponent(this.currentTeamId) + '/members', { method: 'POST', body: JSON.stringify({ employeeId: newId }) });
+                const org = this.currentOrg();
+                teamNote = org ? ` · added to ${org.name}` : '';
+              } catch (_) { /* non-fatal: agent still exists under All teams */ }
+            }
             const label = `${name} created` + (attached ? ` with ${attached} capabilit${attached === 1 ? 'y' : 'ies'}` : '')
-              + ((r.failed && r.failed.length) ? ` (${r.failed.length} skipped)` : '');
+              + ((r.failed && r.failed.length) ? ` (${r.failed.length} skipped)` : '') + teamNote;
             this.showToast('Agent created', label, 'info');
             await this.refreshAll(false);
           } catch (e) {
