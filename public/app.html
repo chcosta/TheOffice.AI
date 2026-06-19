@@ -1068,6 +1068,7 @@
     }
     .board-pin-detail .md-output { max-height: none; overflow: visible; }
     .board-pin-detail .live-stream-pre { max-height: none; overflow: visible; }
+    .board-panel-body .md-output { max-height: none; overflow: visible; }
     .md-output pre {
       background: var(--cp-surface);
       padding: 12px;
@@ -4425,6 +4426,10 @@
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
+                        <label class="board-aw-check" title="Auto-fit card widths to the board. Turn off to set custom widths and stretch the canvas by dragging." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
+                          <input type="checkbox" :checked="boardAutoWidth()" @change="toggleAutoWidth($event.target.checked)" style="cursor:pointer">
+                          Auto-width
+                        </label>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
                         <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
@@ -12767,6 +12772,48 @@
           if (p.type === 'checklists') return '✅ Checklists';
           return this.boardKindIcon(p.kind) + ' ' + this.boardKindLabel(p.kind) + ' (' + p.items.length + ')';
         },
+        // ----- Auto-width -----
+        // Per-board flag (default ON). When ON, panel widths are managed automatically
+        // (summary full-width, everything else 50/50) and the canvas fits the window.
+        // When OFF, the user controls panel widths and can stretch the canvas by dragging.
+        boardAutoWidth() {
+          const b = this.activeBoard();
+          return !b || b.autoWidth !== false;
+        },
+        toggleAutoWidth(on) {
+          const b = this.activeBoard(); if (!b) return;
+          b.autoWidth = !!on;
+          if (on) {
+            // Re-tidy card widths back to clean columns; canvas size is left untouched.
+            this.normalizeBoardWidths();
+          } else {
+            this.persistLayout();
+          }
+          this.scheduleAutoFit();
+        },
+        // Quietly drop out of auto-width mode (e.g. when the user starts a manual resize).
+        _disableAutoWidth() {
+          const b = this.activeBoard();
+          if (b && b.autoWidth !== false) b.autoWidth = false;
+        },
+        // Reset every panel's x / width to a clean 2-column layout (summary spans full
+        // width). Vertical positions are then repacked by auto-fit. Does not touch canvas.
+        normalizeBoardWidths() {
+          const cols = this.boardCols, half = Math.floor(cols / 2);
+          const layout = { ...this.boardLayout };
+          const order = Object.keys(layout)
+            .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
+          let i = 0;
+          for (const id of order) {
+            const cur = layout[id];
+            if (id === 'wherewasi') { layout[id] = { ...cur, x: 0, w: cols }; continue; }
+            const left = (i % 2 === 0);
+            layout[id] = { ...cur, x: left ? 0 : half, w: left ? half : (cols - half) };
+            i++;
+          }
+          this.boardLayout = layout;
+          this.persistLayout();
+        },
         // Pull the active board's saved layout into a reactive copy and fill gaps.
         syncBoardLayout() {
           if (this.boardDragId) return; // don't disturb an in-progress drag/resize
@@ -12781,6 +12828,7 @@
             && Object.keys(this.boardLayout || {}).length;
           if (holding) {
             b.layout = this.boardLayout; // re-apply onto the freshly loaded board object
+            if (this._layoutHoldAutoWidth !== undefined) b.autoWidth = this._layoutHoldAutoWidth;
           } else {
             this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
           }
@@ -12900,21 +12948,36 @@
         startPanelDrag(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault();
+          const grid = ev.target.closest('.board-grid');
+          const gridRect = grid ? grid.getBoundingClientRect() : null;
           const { colW, rowH } = this._gridMetrics(ev);
           const base = this.boardLayout[id]; if (!base) return;
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
+          const manual = !this.boardAutoWidth();
+          const startCanvasW = (gridRect ? gridRect.width : 0);
+          let canvasGrew = false;
           const onMove = (e) => {
             const dx = Math.round((e.clientX - start.mx) / colW);
             const dy = Math.round((e.clientY - start.my) / rowH);
             const nx = Math.max(0, Math.min(cols - start.w, start.x + dx));
             const ny = Math.max(0, start.y + dy);
             this.boardLayout = { ...this.boardLayout, [id]: { x: nx, y: ny, w: start.w, h: start.h } };
+            // Manual mode: dragging past the right edge stretches the canvas to make room.
+            // The panel rides the rightmost column while the whole grid widens.
+            if (manual && gridRect && e.clientX > gridRect.right) {
+              const newW = Math.min(4000, Math.round(startCanvasW + (e.clientX - gridRect.right)));
+              if (!this.boardCanvas.w || newW > this.boardCanvas.w) {
+                this.boardCanvas = { ...this.boardCanvas, w: newW };
+                canvasGrew = true;
+              }
+            }
           };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             this.boardDragId = '';
+            if (canvasGrew) this._saveBoardCanvas();
             this.persistLayout();
             this.scheduleAutoFit();
           };
@@ -12929,6 +12992,8 @@
           const base = this.boardLayout[id]; if (!base) return;
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
+          // A manual width change takes the board out of auto-width mode.
+          this._disableAutoWidth();
           // Width-only resize: panel height is auto-fitted to content.
           const onMove = (e) => {
             const dw = Math.round((e.clientX - start.mx) / colW);
@@ -12953,16 +13018,20 @@
           // change with a stale server copy until the save below has had time to land.
           this._layoutHoldBoard = b.id;
           this._layoutHoldUntil = Date.now() + 2000;
+          this._layoutHoldAutoWidth = (b.autoWidth !== false);
           clearTimeout(this._layoutTimer);
-          const id = b.id, snapshot = this.boardLayout;
+          const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false);
           this._layoutTimer = setTimeout(() => {
-            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot }) })
+            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth }) })
               .then(() => { this._layoutHoldUntil = Date.now() + 600; })
               .catch(() => {});
           }, 450);
         },
         resetBoardLayout() {
+          const b = this.activeBoard();
+          if (b) b.autoWidth = true; // reset re-enables auto-width
           this.boardLayout = {};
+          this.resetBoardCanvas(); // back to window-fit width
           this.ensureBoardLayout(true);
           this.scheduleAutoFit();
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
@@ -12994,6 +13063,26 @@
               fit[id] = Math.max(3, Math.ceil(needed / rowH));
             });
             const layout = { ...this.boardLayout };
+            const auto = this.boardAutoWidth();
+            if (!auto) {
+              // Manual mode: only fit each panel's HEIGHT to its content (no inner
+              // scrollbar). Leave x / y / width alone so the user's free positioning —
+              // including a panel dragged down to stretch the canvas — is preserved.
+              let changed = false;
+              for (const id of Object.keys(layout)) {
+                if (fit[id] == null) continue;
+                const cur = layout[id];
+                const need = fit[id];
+                let h;
+                if (this.isPanelCollapsed(id)) h = need;
+                else if (need > cur.h) h = need;
+                else if (need < cur.h - 1) h = need;
+                else h = cur.h;
+                if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
+              }
+              if (changed) { this.boardLayout = layout; this.persistLayout(); }
+              return;
+            }
             const order = Object.keys(layout)
               .filter(id => fit[id] != null)
               .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
