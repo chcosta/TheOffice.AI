@@ -14151,7 +14151,7 @@
         // pin → Pin, everything else → Apply.
         actionConfirmLabel(a) {
           if (!a) return 'Apply';
-          if (a.type === 'pin_agent') return 'Pin';
+          if (a.type === 'pin_agent' || a.type === 'pin_item') return 'Pin';
           if (a.destructive) return '🗑 Delete';
           return 'Apply';
         },
@@ -14159,7 +14159,7 @@
         actionDoneLabel(a) {
           if (!a) return '✓ done';
           if (a.type === 'query_agent') return '✓ ran';
-          if (a.type === 'pin_agent') return '✓ pinned';
+          if (a.type === 'pin_agent' || a.type === 'pin_item') return '✓ pinned';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
           if (edits.includes(a.type)) return '✓ updated';
@@ -14222,12 +14222,12 @@
                 ? { ...c, items: (c.items || []).filter(i => i.id !== a.itemId), updatedAt: now }
                 : c);
               ok = await this._patchBoard(board, { checklists });
-            } else if (a.type === 'pin_agent') {
-              // Pin an installed agent to the board via the dedicated items endpoint
+            } else if (a.type === 'pin_agent' || a.type === 'pin_item') {
+              // Pin an employee or operation to the board via the items endpoint
               // (same path as quick-pin), then fold the updated board back in.
               const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
                 method: 'POST',
-                body: JSON.stringify({ kind: 'agent', refId: a.refId, label: a.pinLabel, sublabel: a.pinSublabel })
+                body: JSON.stringify({ kind: a.kind || 'agent', refId: a.refId, label: a.pinLabel, sublabel: a.pinSublabel })
               });
               const updated = (resp && resp.board) || resp;
               const idx = this.boards.findIndex(b => b.id === board.id);

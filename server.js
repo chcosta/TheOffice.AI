@@ -5995,6 +5995,11 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   const pinnedAgentIds = new Set(pins.filter(p => p.kind === 'agent').map(p => p.refId));
   const available = installed.filter(s => { const id = agentId(s); return id && !pinnedAgentIds.has(id); });
   const ctx = [];
+  // Catalog blocks (available agents/operations/employees) go in their OWN list so
+  // they keep a reserved budget — on a busy board the pinned transcripts + briefing
+  // would otherwise eat the whole context window and the assistant would never see
+  // what it can pin.
+  const catalogCtx = [];
   if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 9000));
   if (pins.length) {
     ctx.push('## BOARD PINS (link checklist items to these by kind:refId)\n' + pins.map(p => {
@@ -6014,11 +6019,66 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     }).join('\n'));
   }
   if (available.length) {
-    ctx.push('## AVAILABLE AGENTS (installed, NOT pinned — propose pin_agent to add one)\n' + available.slice(0, 25).map(s => {
+    catalogCtx.push('## AVAILABLE AGENTS (installed, NOT pinned — propose pin_item to add one)\n' + available.slice(0, 25).map(s => {
       const id = agentId(s); const c = s.config || {};
       const desc = clip(c.description || (Array.isArray(c.skills) ? c.skills.join(', ') : '') || '', 160);
-      return `- (${id}) "${clip(c.name || id, 80)}"${desc ? ' — ' + desc : ''}`;
+      return `- (agent:${id}) "${clip(c.name || id, 80)}"${desc ? ' — ' + desc : ''}`;
     }).join('\n'));
+  }
+  // ---- Available OPERATIONS & EMPLOYEES catalog (beyond agents): lets the assistant
+  // examine the whole system and propose pinning the right managers, tasks, flows, and
+  // assignments to build out the board for a stated goal. Respects the board's team
+  // scope — only items that belong to the team are offered, so a proposed pin never
+  // makes the board non-compliant. catalogByKey is also the resolver for pin_item.
+  const pinnedKeys = new Set(pins.map(p => p.kind + ':' + p.refId));
+  const boardTeamId = b.teamId || null;
+  const teamMembers = boardTeamId ? new Set((_teamById(boardTeamId) || {}).memberIds || []) : null;
+  const inTeam = (id) => !teamMembers || teamMembers.has(id);
+  const opOk = (opTeam, componentIds) => !boardTeamId || (opTeam === boardTeamId && (componentIds || []).every(inTeam));
+  const catalogByKey = new Map(); // kind:refId -> { kind, refId, label, sublabel }
+  const offer = (kind, refId, label, sublabel) => {
+    const key = kind + ':' + refId;
+    if (!refId || pinnedKeys.has(key) || catalogByKey.has(key)) return;
+    catalogByKey.set(key, { kind, refId, label: clip(label || refId, 120), sublabel: clip(sublabel || '', 80) });
+  };
+  const mgrName = (m) => (m && (m.name || (m.config && m.config.name))) || (m && m.id) || '';
+  const mgrAssignments = (m) => (m && (m.assignments || (m.config && m.config.assignments))) || [];
+  try { for (const m of loadManagers()) { if (inTeam(m.id)) offer('manager', m.id, mgrName(m), 'Manager'); } } catch {}
+  try {
+    for (const t of loadTasks()) {
+      if (!opOk(_opTeamOf(t), t.agentId ? [t.agentId] : [])) continue;
+      const agentNm = t.agentId && installedById.get(t.agentId) ? clip((installedById.get(t.agentId).config || {}).name || t.agentId, 40) : '';
+      offer('task', 'task-' + t.id, t.name || t.id, 'Task' + (agentNm ? ' · runs ' + agentNm : ''));
+    }
+  } catch {}
+  try {
+    for (const c of (chainEngine.list() || [])) {
+      const cids = _opComponentEmployees({ kind: 'flow', refId: c.id }).map(e => e.employeeId);
+      if (!opOk(_opTeamOf(c), cids)) continue;
+      offer('flow', c.id, c.name || c.id, 'Flow' + ((c.steps || []).length ? ' · ' + c.steps.length + ' steps' : ''));
+    }
+  } catch {}
+  try {
+    for (const m of loadManagers()) {
+      for (const a of mgrAssignments(m)) {
+        if (!opOk(_opTeamOf(a), [m.id])) continue;
+        offer('assignment', 'assignment-' + m.id + '-' + a.id, a.name || a.id, 'Assignment · ' + clip(mgrName(m), 40));
+      }
+    }
+  } catch {}
+  if (catalogByKey.size) {
+    const byKind = {};
+    for (const v of catalogByKey.values()) (byKind[v.kind] = byKind[v.kind] || []).push(v);
+    const order = ['manager', 'task', 'flow', 'assignment'];
+    const labelFor = { manager: 'managers (employees)', task: 'tasks (operations)', flow: 'flows (operations)', assignment: 'assignments (operations)' };
+    const lines = [];
+    for (const k of order) {
+      const arr = (byKind[k] || []).slice(0, 20);
+      if (!arr.length) continue;
+      lines.push('### ' + labelFor[k]);
+      for (const v of arr) lines.push(`- (${v.kind}:${v.refId}) "${v.label}"${v.sublabel ? ' — ' + v.sublabel : ''}`);
+    }
+    if (lines.length) catalogCtx.push('## AVAILABLE OPERATIONS & EMPLOYEES (' + (boardTeamId ? 'in this team, ' : '') + 'NOT pinned — propose pin_item to add)\n' + lines.join('\n'));
   }
   // Fold in the board's own "Where was I?" briefing so the assistant can answer
   // questions about it and build on it (it's the user's latest synthesized view of
@@ -6027,7 +6087,10 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     ctx.unshift('## WHERE WAS I? (latest AI briefing for this board)\n' + clip(b.summary.text, 2000));
   }
   const baseCtx = ctx.join('\n\n');
-  const contextStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 12000) || '(this board is empty — no pins, notes, or checklists yet)';
+  // Reserve a separate budget for the catalog so it always survives, then append it.
+  const contentStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 10000);
+  const catalogStr = catalogCtx.join('\n\n').slice(0, 4000);
+  const contextStr = [contentStr, catalogStr].filter(Boolean).join('\n\n') || '(this board is empty — no pins, notes, or checklists yet)';
 
   // ---- Prompt: force a single JSON object {reply, actions[]}. Actions are
   // constrained to notes/checklists only.
@@ -6047,7 +6110,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"edit_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>","text":"<new item text>"}  (rewrites one item)',
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
-    '- {"type":"pin_agent","agentId":"<id from AVAILABLE AGENTS>"}  (adds an installed agent to this board — propose when the user needs a capability that is not yet pinned, e.g. "I need email access")',
+    '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
@@ -6058,18 +6121,21 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...), pin handles (kind:refId), and agent ids that appear in the BOARD CONTEXT below. Never invent ids.',
     // Proactive gathering — don't fabricate; run/pin the right agent when context is thin.
     (canQuery
-      ? '- GATHER BEFORE YOU GUESS: if fulfilling the request needs facts that are NOT already in the BOARD CONTEXT (live status, URLs, a list from an epic/agent, etc.), do not fabricate, hand-wave, or emit placeholder items. If a PINNED agent can produce those facts, propose query_agent. If no pinned agent fits but one under AVAILABLE AGENTS clearly does, propose pin_agent (the user pins it, then asks you to run it). Only answer/build directly when the needed facts are already present in context.'
+      ? '- GATHER BEFORE YOU GUESS: if fulfilling the request needs facts that are NOT already in the BOARD CONTEXT (live status, URLs, a list from an epic/agent, etc.), do not fabricate, hand-wave, or emit placeholder items. If a PINNED agent can produce those facts, propose query_agent. If no pinned agent fits but one under AVAILABLE AGENTS clearly does, propose pin_item (the user pins it, then asks you to run it). Only answer/build directly when the needed facts are already present in context.'
       : '- You may still propose query_agent for a genuinely DIFFERENT agent or purpose if the request needs more data you do not yet have, but NEVER re-run the same agent for the same purpose.'),
     (agentJustRan ? '- You just received a fresh AGENT RESULT in the context below. Use it now to build the concrete notes/checklists the user asked for; do not ask the user to run the same agent again.' : ''),
     // Honor explicit agent requests.
     (canQuery ? '- HONOR explicit agent requests: if the user tells you to "use an agent" / "run an agent" / "have an agent find/fetch ..." to obtain information, you MUST propose query_agent for the best-matching pinned agent instead of shortcutting with whatever is already in the context — unless the BOARD CONTEXT already contains the EXACT, complete data needed (e.g. the real URLs themselves).' : ''),
     // Smart agent selection + auto-pin.
-    '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_agent when no pinned agent covers the need.',
+    '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_item when no pinned agent covers the need.',
+    // Proactively help build/modify the board from a direction.
+    '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
+    '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
     // Multi-step confirmable plans.
     '- MULTI-STEP PLANS: when a request needs several steps (e.g. gather data → build a checklist → add a note), briefly state the ordered plan in "reply", then propose ONLY the first actionable step now — usually a single query_agent. After each step runs/applies you will be called again to propose the next step. NEVER propose a query_agent together with the checklist/note that depends on its output in the same response.',
-    '- Use pin_agent ONLY for ids under AVAILABLE AGENTS. Pick the single best match for the stated capability.',
+    '- Use pin_item ONLY for kind:refId pairs under AVAILABLE AGENTS / AVAILABLE OPERATIONS & EMPLOYEES. Pick the single best match for the stated capability.',
     '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
     '- DESTRUCTIVE ACTIONS (delete_note, delete_checklist, delete_checklist_item) and edits (edit_note, edit_checklist, edit_checklist_item, uncheck_item) require explicit user intent: only propose them when the user clearly asks to remove, clear, delete, rename, rewrite, fix, or uncheck specific existing board content. NEVER delete or rewrite content proactively, and never delete more than the user asked for. Each one targets a single real id from the BOARD CONTEXT.',
     '- Propose actions ONLY when the user is clearly asking to add/change board content or orchestrate work. For pure questions, return an empty actions array and just answer in "reply".',
@@ -6208,14 +6274,30 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       // agent, letting the follow-up continue the chain (bounded by MAX_QUERY_DEPTH).
       return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), depth, label: 'Run agent', preview: `Run ${name}` + (q ? `: ${q}` : '') };
     }
-    if (type === 'pin_agent') {
-      const id = a.agentId || a.refId || a.id;
-      if (!id || pinnedAgentIds.has(id)) return null; // unknown or already pinned
-      const s = installedById.get(id); if (!s) return null;
-      const c = s.config || {};
-      const name = clip(c.name || id, 120);
-      const sub = clip(c.group || (Array.isArray(c.skills) ? c.skills.slice(0, 3).join(', ') : '') || 'Agent', 80);
-      return { type, refId: id, pinLabel: name, pinSublabel: sub, label: 'Pin agent', preview: `Pin ${name} to this board` };
+    if (type === 'pin_item' || type === 'pin_agent') {
+      // pin_agent is kept as a backward-compat alias: it's just pin_item kind:agent.
+      // refId may arrive as a bare id or as a "kind:refId" handle (strip the kind).
+      let kind = type === 'pin_agent' ? 'agent' : String(a.kind || '').trim();
+      let refId = a.refId || a.agentId || a.id || '';
+      if (typeof refId === 'string' && refId.includes(':')) {
+        const i = refId.indexOf(':');
+        const pre = refId.slice(0, i);
+        if (BOARD_KINDS.includes(pre)) { if (!kind) kind = pre; refId = refId.slice(i + 1); }
+      }
+      if (!kind || !refId) return null;
+      if (pins.some(p => p.kind === kind && p.refId === refId)) return null; // already pinned
+      // Agents come from the installed catalog; everything else from catalogByKey.
+      if (kind === 'agent') {
+        const s = installedById.get(refId); if (!s) return null;
+        const c = s.config || {};
+        const name = clip(c.name || refId, 120);
+        const sub = clip(c.group || (Array.isArray(c.skills) ? c.skills.slice(0, 3).join(', ') : '') || 'Agent', 80);
+        return { type: 'pin_item', kind, refId, pinLabel: name, pinSublabel: sub, label: 'Pin employee', preview: `Pin ${name} (agent) to this board` };
+      }
+      const hit = catalogByKey.get(kind + ':' + refId);
+      if (!hit) return null;
+      const isEmp = kind === 'manager';
+      return { type: 'pin_item', kind, refId, pinLabel: hit.label, pinSublabel: hit.sublabel, label: isEmp ? 'Pin employee' : 'Pin operation', preview: `Pin ${hit.label} (${kind}) to this board` };
     }
     return null;
   };
