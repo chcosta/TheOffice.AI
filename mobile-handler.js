@@ -20,7 +20,9 @@ const settings = require('./settings');
  *   list-tasks       → list running/recent tasks
  *   run-assignment   → execute an assignment
  *   run-agent        → execute an agent directly
- *   chat             → send a conversational message to a manager/agent
+ *   chat             → DISABLED (rejected): chat/get-chat-history/list-chat-
+ *                       threads/new-chat-thread/list-chats are blocked on the
+ *                       mobile channel for security. Chat lives on desktop only.
  *   get-activity     → get activity log (paginated)
  *   get-status       → get system status overview
  *   list-chains      → list all task chains with last-run status
@@ -160,16 +162,20 @@ class MobileHandler extends EventEmitter {
         return this._runAssignment(correlationId, sessionId, payload, replier);
       case 'run-agent':
         return this._runAgent(correlationId, sessionId, payload, replier);
+      // Chat is intentionally disabled on the mobile channel. Ad-hoc
+      // conversational access to agents/managers from a phone is a security
+      // gap (arbitrary prompt execution against local employees), so these
+      // message types are rejected regardless of client build. Mobile is
+      // read/triage-first; authoring + chat stay on the desktop SPA.
       case 'chat':
-        return this._chat(correlationId, sessionId, payload, replier);
       case 'get-chat-history':
-        return this._getChatHistory(correlationId, sessionId, payload, replier);
       case 'list-chat-threads':
-        return this._listChatThreads(correlationId, payload, replier);
       case 'new-chat-thread':
-        return this._newChatThread(correlationId, payload, replier);
       case 'list-chats':
-        return this._listChats(correlationId, sessionId, payload, replier);
+        return replier(correlationId, {
+          type: 'error',
+          error: 'Chat is disabled on mobile for security. Use the desktop app to converse with agents and managers.',
+        });
       case 'get-activity':
         return this._getActivity(correlationId, payload, replier);
       case 'get-run-history':
