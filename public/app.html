@@ -5035,14 +5035,14 @@
                                 <div style="min-width:0;flex:1">
                                   <div style="display:flex;align-items:center;gap:6px">
                                     <span class="ba-action-kind" x-text="a.label"></span>
-                                    <span class="hint" x-show="a._applied" style="color:var(--cp-success)" x-text="a.type==='query_agent' ? '✓ ran' : (a.type==='pin_agent' ? '✓ pinned' : '✓ added')"></span>
+                                    <span class="hint" x-show="a._applied" style="color:var(--cp-success)" x-text="actionDoneLabel(a)"></span>
                                     <span class="hint" x-show="a._dismissed">dismissed</span>
                                   </div>
                                   <div class="ba-action-preview" x-text="a.preview"></div>
                                 </div>
                                 <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
                                   <button x-show="a.type==='query_agent'" class="btn primary" type="button" style="padding:3px 10px" :disabled="a._running" @click="runAssistantQuery(a, m)"><span x-text="a._running ? 'Running…' : '▶ Run & continue'"></span></button>
-                                  <button x-show="a.type!=='query_agent'" class="btn primary" type="button" style="padding:3px 10px" @click="applyAssistantAction(a)" x-text="a.type==='pin_agent' ? 'Pin' : 'Apply'"></button>
+                                  <button x-show="a.type!=='query_agent'" type="button" :class="a.destructive ? 'btn danger' : 'btn primary'" style="padding:3px 10px" @click="applyAssistantAction(a)" x-text="actionConfirmLabel(a)"></button>
                                   <button class="icon-button" type="button" title="Dismiss" @click="a._dismissed=true">✕</button>
                                 </div>
                               </div>
@@ -14102,6 +14102,24 @@
           }
           return it;
         },
+        // Confirm-button label for a proposed action: destructive → Delete,
+        // pin → Pin, everything else → Apply.
+        actionConfirmLabel(a) {
+          if (!a) return 'Apply';
+          if (a.type === 'pin_agent') return 'Pin';
+          if (a.destructive) return '🗑 Delete';
+          return 'Apply';
+        },
+        // Past-tense status once an action has been applied.
+        actionDoneLabel(a) {
+          if (!a) return '✓ done';
+          if (a.type === 'query_agent') return '✓ ran';
+          if (a.type === 'pin_agent') return '✓ pinned';
+          if (a.destructive) return '✓ removed';
+          const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
+          if (edits.includes(a.type)) return '✓ updated';
+          return '✓ added';
+        },
         // Apply a single proposed action by constructing the same note/checklist
         // shapes the manual mutators use, then persisting via _patchBoard.
         async applyAssistantAction(a) {
@@ -14131,6 +14149,32 @@
             } else if (a.type === 'check_item') {
               const checklists = (board.checklists || []).map(c => c.id === a.checklistId
                 ? { ...c, items: (c.items || []).map(i => i.id === a.itemId ? { ...i, done: true } : i), updatedAt: now }
+                : c);
+              ok = await this._patchBoard(board, { checklists });
+            } else if (a.type === 'uncheck_item') {
+              const checklists = (board.checklists || []).map(c => c.id === a.checklistId
+                ? { ...c, items: (c.items || []).map(i => i.id === a.itemId ? { ...i, done: false } : i), updatedAt: now }
+                : c);
+              ok = await this._patchBoard(board, { checklists });
+            } else if (a.type === 'delete_note') {
+              const notes = (board.notes || []).filter(n => n.id !== a.noteId);
+              ok = await this._patchBoard(board, { notes });
+            } else if (a.type === 'edit_checklist') {
+              const checklists = (board.checklists || []).map(c => c.id === a.checklistId
+                ? { ...c, title: a.title, updatedAt: now }
+                : c);
+              ok = await this._patchBoard(board, { checklists });
+            } else if (a.type === 'delete_checklist') {
+              const checklists = (board.checklists || []).filter(c => c.id !== a.checklistId);
+              ok = await this._patchBoard(board, { checklists });
+            } else if (a.type === 'edit_checklist_item') {
+              const checklists = (board.checklists || []).map(c => c.id === a.checklistId
+                ? { ...c, items: (c.items || []).map(i => i.id === a.itemId ? { ...i, text: a.text, updatedAt: now } : i), updatedAt: now }
+                : c);
+              ok = await this._patchBoard(board, { checklists });
+            } else if (a.type === 'delete_checklist_item') {
+              const checklists = (board.checklists || []).map(c => c.id === a.checklistId
+                ? { ...c, items: (c.items || []).filter(i => i.id !== a.itemId), updatedAt: now }
                 : c);
               ok = await this._patchBoard(board, { checklists });
             } else if (a.type === 'pin_agent') {

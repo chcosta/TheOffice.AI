@@ -6040,6 +6040,12 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"add_checklist","title":"<title>","items":[<item>, ...]}',
     '- {"type":"add_checklist_items","checklistId":"<existing checklist id>","items":[<item>, ...]}',
     '- {"type":"check_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (marks the item done)',
+    '- {"type":"uncheck_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (marks the item NOT done)',
+    '- {"type":"delete_note","noteId":"<existing note id>"}  (removes the note)',
+    '- {"type":"edit_checklist","checklistId":"<existing checklist id>","title":"<new title>"}  (renames the checklist)',
+    '- {"type":"delete_checklist","checklistId":"<existing checklist id>"}  (removes the whole checklist and its items)',
+    '- {"type":"edit_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>","text":"<new item text>"}  (rewrites one item)',
+    '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_agent","agentId":"<id from AVAILABLE AGENTS>"}  (adds an installed agent to this board — propose when the user needs a capability that is not yet pinned, e.g. "I need email access")',
     '',
@@ -6065,6 +6071,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- MULTI-STEP PLANS: when a request needs several steps (e.g. gather data → build a checklist → add a note), briefly state the ordered plan in "reply", then propose ONLY the first actionable step now — usually a single query_agent. After each step runs/applies you will be called again to propose the next step. NEVER propose a query_agent together with the checklist/note that depends on its output in the same response.',
     '- Use pin_agent ONLY for ids under AVAILABLE AGENTS. Pick the single best match for the stated capability.',
     '- To start a brand-new checklist use add_checklist; to extend an existing one use add_checklist_items with its real id.',
+    '- DESTRUCTIVE ACTIONS (delete_note, delete_checklist, delete_checklist_item) and edits (edit_note, edit_checklist, edit_checklist_item, uncheck_item) require explicit user intent: only propose them when the user clearly asks to remove, clear, delete, rename, rewrite, fix, or uncheck specific existing board content. NEVER delete or rewrite content proactively, and never delete more than the user asked for. Each one targets a single real id from the BOARD CONTEXT.',
     '- Propose actions ONLY when the user is clearly asking to add/change board content or orchestrate work. For pure questions, return an empty actions array and just answer in "reply".',
     '- Keep checklist items short and imperative; embed real hyperlinks as described above. Keep notes concise.',
     '- Base proposals on the actual board context (pinned run output, agent results, notes, existing checklists) when relevant.',
@@ -6142,6 +6149,48 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
         return { type: 'add_checklist', title, items, label: 'New checklist', preview: title + ` (${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)})` };
       }
       return { type, checklistId: cl.id, checklistTitle: cl.title, items, label: 'Add to checklist', preview: `${cl.title}: +${items.length} item${items.length === 1 ? '' : 's'}${linkSuffix(items)}` };
+    }
+    // Item-targeting ops (check/uncheck/edit/delete a single item). Resolve the
+    // checklist (by id or title) then the item id within it.
+    const findItem = (cl, a) => {
+      const items = Array.isArray(cl && cl.items) ? cl.items : [];
+      if (a.itemId) { const it = items.find(i => i.id === a.itemId); if (it) return it; }
+      if (a.itemText || a.text) {
+        const want = String(a.itemText || a.text).toLowerCase().trim();
+        return items.find(i => String(i.text || '').toLowerCase().trim() === want) || null;
+      }
+      return null;
+    };
+    if (type === 'check_item' || type === 'uncheck_item') {
+      const cl = findChecklist(a); if (!cl) return null;
+      const it = findItem(cl, a); if (!it) return null;
+      const done = type === 'check_item';
+      return { type, checklistId: cl.id, itemId: it.id, label: done ? 'Check off item' : 'Uncheck item', preview: `${clip(cl.title, 60)}: ${done ? '☑' : '☐'} ${clip(it.text, 100)}` };
+    }
+    if (type === 'delete_note') {
+      const n = notes.find(n => n.id === a.noteId); if (!n) return null;
+      return { type, noteId: n.id, label: 'Delete note', preview: clip(n.text, 140), destructive: true };
+    }
+    if (type === 'edit_checklist') {
+      const cl = findChecklist(a); const title = clip(a.title, 120);
+      if (!cl || !title) return null;
+      return { type, checklistId: cl.id, title, label: 'Rename checklist', preview: `"${clip(cl.title, 70)}" → "${title}"` };
+    }
+    if (type === 'delete_checklist') {
+      const cl = findChecklist(a); if (!cl) return null;
+      const n = Array.isArray(cl.items) ? cl.items.length : 0;
+      return { type, checklistId: cl.id, label: 'Delete checklist', preview: `"${clip(cl.title, 100)}"` + (n ? ` (${n} item${n === 1 ? '' : 's'})` : ''), destructive: true };
+    }
+    if (type === 'edit_checklist_item') {
+      const cl = findChecklist(a); if (!cl) return null;
+      const it = findItem(cl, a); const text = clip(a.text || a.newText, 500);
+      if (!it || !text) return null;
+      return { type, checklistId: cl.id, itemId: it.id, text, label: 'Edit item', preview: `${clip(cl.title, 50)}: "${clip(it.text, 60)}" → "${clip(text, 80)}"` };
+    }
+    if (type === 'delete_checklist_item') {
+      const cl = findChecklist(a); if (!cl) return null;
+      const it = findItem(cl, a); if (!it) return null;
+      return { type, checklistId: cl.id, itemId: it.id, label: 'Delete item', preview: `${clip(cl.title, 60)}: ${clip(it.text, 100)}`, destructive: true };
     }
     if (type === 'query_agent') {
       if (!canQuery) return null;
