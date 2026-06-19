@@ -4423,7 +4423,7 @@
                       </div>
                       <div class="toolbar">
                         <button class="btn" type="button" @click="openPinPicker()">📌 Pin item</button>
-                        <button class="btn" type="button" @click="openBoardAssistant()" title="Ask the board assistant to help organize notes & checklists">💬 Ask board</button>
+                        <button class="btn" type="button" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                         <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
@@ -4742,19 +4742,53 @@
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
                     <span style="font-size:18px">💬</span>
                     <div style="min-width:0">
-                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'Ask ' + (activeBoard() ? activeBoard().name : 'board')"></div>
-                      <div class="hint" style="font-size:11px">Proposes notes & checklists — you confirm</div>
+                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Board AI</div>
+                      <div class="hint" style="font-size:11px" x-text="(activeBoard() ? activeBoard().name + ' · ' : '') + 'proposes notes & checklists — you confirm'"></div>
                     </div>
                   </div>
                   <button class="icon-button" type="button" @click="closeBoardAssistant()" title="Close">✕</button>
                 </div>
                 <div class="board-assistant-body" x-ref="baBody">
                   <div x-show="!boardAssistant.messages.length" class="empty-state" style="padding:16px;font-size:13px">
-                    Ask me to help tidy this board. For example:
-                    <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
-                      <button class="btn ghost" type="button" style="text-align:left" @click="boardAssistant.input='Turn the latest activity on this board into a checklist of next steps.'; sendBoardAssistant()">“Make a checklist of next steps from the latest activity”</button>
-                      <button class="btn ghost" type="button" style="text-align:left" @click="boardAssistant.input='Summarize the open items here as a short note.'; sendBoardAssistant()">“Jot a note summarizing the open items”</button>
-                    </div>
+                    <div style="margin-bottom:2px">Ask Board AI to help tidy this board, or pick a prompt:</div>
+
+                    <!-- Pinned prompts -->
+                    <template x-if="boardAiPinned.length">
+                      <div style="margin-top:12px">
+                        <div class="hint" style="font-size:11px;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">📌 Pinned</div>
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <template x-for="(p, pi) in boardAiPinned" :key="'bap-'+pi">
+                            <div style="display:flex;align-items:center;gap:6px">
+                              <button class="btn ghost" type="button" style="text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="p" @click="runBoardAiPrompt(p)" x-text="p"></button>
+                              <button class="icon-button" type="button" title="Unpin prompt" @click="boardAiUnpin(p)" style="color:var(--cp-accent);flex:0 0 auto">📌</button>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- Recent prompts (excluding ones already pinned) -->
+                    <template x-if="boardAiRecent.filter(r => !boardAiIsPinned(r)).length">
+                      <div style="margin-top:12px">
+                        <div class="hint" style="font-size:11px;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">🕘 Recent</div>
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <template x-for="(p, pi) in boardAiRecent.filter(r => !boardAiIsPinned(r))" :key="'bar-'+pi">
+                            <div style="display:flex;align-items:center;gap:6px">
+                              <button class="btn ghost" type="button" style="text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="p" @click="runBoardAiPrompt(p)" x-text="p"></button>
+                              <button class="icon-button" type="button" title="Pin this prompt for quick access" @click="boardAiPin(p)" style="flex:0 0 auto">📌</button>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- Fallback examples when there's no history at all -->
+                    <template x-if="!boardAiPinned.length && !boardAiRecent.length">
+                      <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
+                        <button class="btn ghost" type="button" style="text-align:left" @click="runBoardAiPrompt('Turn the latest activity on this board into a checklist of next steps.')">“Make a checklist of next steps from the latest activity”</button>
+                        <button class="btn ghost" type="button" style="text-align:left" @click="runBoardAiPrompt('Summarize the open items here as a short note.')">“Jot a note summarizing the open items”</button>
+                      </div>
+                    </template>
                   </div>
                   <template x-for="(m, mi) in boardAssistant.messages" :key="mi">
                     <div class="ba-msg" :class="m.role">
@@ -4790,7 +4824,7 @@
                   </div>
                 </div>
                 <div class="board-assistant-input">
-                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask the board assistant…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" style="flex:1;resize:none"></textarea>
+                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask Board AI…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" style="flex:1;resize:none"></textarea>
                   <button class="btn primary" type="button" @click="sendBoardAssistant()" :disabled="boardAssistant.busy || !boardAssistant.input.trim()">Send</button>
                 </div>
               </aside>
@@ -8365,6 +8399,10 @@
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
         boardAssistant: { open: false, busy: false, input: '', messages: [], resizing: false, width: Math.max(320, Math.min(720, parseInt(localStorage.getItem('ba-width'), 10) || 400)) },
+        // Board AI prompt history (global across boards): recent prompts shown in the
+        // empty-state, plus a separate pinned list for quick reuse.
+        boardAiRecent: (() => { try { return JSON.parse(localStorage.getItem('board-ai-recent') || '[]') || []; } catch { return []; } })(),
+        boardAiPinned: (() => { try { return JSON.parse(localStorage.getItem('board-ai-pinned') || '[]') || []; } catch { return []; } })(),
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
         boardDragId: '',
@@ -12649,10 +12687,41 @@
         _baScroll() {
           this.$nextTick(() => { try { const el = this.$refs.baBody; if (el) el.scrollTop = el.scrollHeight; } catch {} });
         },
+        // ----- Board AI prompt history (recent + pinned) -----
+        _saveBoardAi() {
+          try {
+            localStorage.setItem('board-ai-recent', JSON.stringify(this.boardAiRecent.slice(0, 8)));
+            localStorage.setItem('board-ai-pinned', JSON.stringify(this.boardAiPinned));
+          } catch {}
+        },
+        _recordBoardAiPrompt(text) {
+          const t = (text || '').trim();
+          if (!t) return;
+          this.boardAiRecent = [t, ...this.boardAiRecent.filter(x => x !== t)].slice(0, 8);
+          this._saveBoardAi();
+        },
+        boardAiIsPinned(text) { return this.boardAiPinned.includes((text || '').trim()); },
+        boardAiPin(text) {
+          const t = (text || '').trim();
+          if (!t || this.boardAiPinned.includes(t)) return;
+          this.boardAiPinned = [t, ...this.boardAiPinned];
+          this._saveBoardAi();
+        },
+        boardAiUnpin(text) {
+          this.boardAiPinned = this.boardAiPinned.filter(x => x !== text);
+          this._saveBoardAi();
+        },
+        // Run a saved/recent prompt: load it into the input and send immediately.
+        runBoardAiPrompt(text) {
+          if (this.boardAssistant.busy) return;
+          this.boardAssistant.input = text;
+          this.sendBoardAssistant();
+        },
         async sendBoardAssistant() {
           const board = this.activeBoard();
           const text = (this.boardAssistant.input || '').trim();
           if (!board || !text || this.boardAssistant.busy) return;
+          this._recordBoardAiPrompt(text);
           this.boardAssistant.messages.push({ role: 'user', content: text });
           this.boardAssistant.input = '';
           this.boardAssistant.busy = true;
