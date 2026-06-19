@@ -3317,6 +3317,7 @@
                   <button class="ag-tab" type="button" :class="agentTab === 'runs' ? 'active' : ''" @click="agentTab = 'runs'">🏃 Recent Runs <span class="ag-count" x-text="agentHistory.length"></span></button>
                   <button class="ag-tab" type="button" :class="agentTab === 'tasks' ? 'active' : ''" @click="agentTab = 'tasks'">🗂 Tasks &amp; Runs <span class="ag-count" x-text="tasksForAgent(selectedAgent.id).filter(t => t.type === 'agent').length + ' · ' + agentHistory.length"></span></button>
                   <button class="ag-tab" type="button" :class="agentTab === 'tools' ? 'active' : ''" @click="agentTab = 'tools'">🧩 Tools &amp; Skills <span class="ag-count" x-text="(selectedAgent.caps ? selectedAgent.caps.effective.mcp.length : 0) + ' · ' + (selectedAgent.caps ? selectedAgent.caps.effective.skills.length : 0)"></span></button>
+                  <button class="ag-tab" type="button" x-show="selectedAgent.config?.pluginDir" :class="agentTab === 'files' ? 'active' : ''" @click="agentTab = 'files'; loadAgentFiles(selectedAgent.id)">📁 Files <span class="ag-count" x-text="agentFiles.loaded ? agentFiles.files.length : '…'"></span></button>
                   <button class="ag-tab" type="button" x-show="managersForAgent(selectedAgent.id).length" :class="agentTab === 'managers' ? 'active' : ''" @click="agentTab = 'managers'">👔 Managers <span class="ag-count" x-text="managersForAgent(selectedAgent.id).length"></span></button>
                 </div>
 
@@ -3498,6 +3499,37 @@
                     <button class="btn" type="button" @click="validateCaps()">✓ Validate</button>
                     <button class="btn" type="button" @click="openExport()">⤴ Export to AzDO</button>
                   </div>
+                </section>
+                </div>
+
+                <div class="panel-stack" x-show="agentTab === 'files'">
+                <section class="detail-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="panel-title">Plugin Files</h2>
+                      <div class="hint">Everything bundled in this plugin's source. Auto-generated agents are flagged.</div>
+                    </div>
+                    <button class="btn ghost" type="button" @click="loadAgentFiles(selectedAgent.id, true)">↻ Refresh</button>
+                  </div>
+                  <div class="hint mono" style="word-break:break-all;margin-bottom:10px" x-show="agentFiles.root" x-text="agentFiles.root"></div>
+                  <div class="empty-state" x-show="agentFiles.loading">Loading files…</div>
+                  <div class="empty-state" x-show="agentFiles.loaded && agentFiles.missing">Source folder is no longer available.</div>
+                  <div class="empty-state" x-show="agentFiles.loaded && !agentFiles.missing && !agentFiles.files.length">No files found.</div>
+                  <div class="assignment-list" x-show="agentFiles.loaded && agentFiles.files.length">
+                    <template x-for="f in agentFiles.files" :key="f.path">
+                      <div class="assignment-item" style="padding:8px 12px">
+                        <div class="assignment-top" style="align-items:center">
+                          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                            <span x-text="fileIcon(f.path)"></span>
+                            <span class="mono" style="font-size:0.82rem;word-break:break-all" x-text="f.path"></span>
+                            <span class="tiny-badge" x-show="f.generated" style="background:var(--cp-accent-soft);color:var(--cp-accent)">auto-generated</span>
+                          </div>
+                          <span class="hint" style="white-space:nowrap" x-text="formatBytes(f.size)"></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="hint" style="margin-top:10px" x-show="agentFiles.truncated">Showing first <span x-text="agentFiles.files.length"></span> files (list truncated).</div>
                 </section>
                 </div>
 
@@ -8863,6 +8895,7 @@
         execAi: { loading: false, error: '', hint: '', focusAgentId: '', items: [], pinned: [], runs: {} },
         agentHistory: [],
         agentTab: 'runs',
+        agentFiles: { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false },
         managerTab: 'runs',
         liveOutput: {},
         managerHistory: [],
@@ -9778,9 +9811,14 @@
               this.selectedAgent.capCatalogFilter = '';
               this.selectedAgent._menu = false;
               this.agentTab = 'runs';
+              this.agentFiles = { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false };
             }
             this.agentHistory = history;
             this.loadAgentCapabilities(id);
+            // Keep the Files tab fresh if the user is looking at it during a refresh.
+            if (this.agentTab === 'files' && this.selectedAgent && this.selectedAgent.config && this.selectedAgent.config.pluginDir) {
+              this.loadAgentFiles(id, true);
+            }
             // If the agent is mid-run (e.g. a scheduled/auto-recovered run we
             // didn't start in this tab), seed the live panel from the server's
             // in-flight buffer so the user can watch it progress.
@@ -9796,6 +9834,48 @@
           } catch (error) {
             this.showToast('Agent detail failed', error.message, 'error');
           }
+        },
+
+        async loadAgentFiles(id, force) {
+          if (!id) return;
+          if (this.agentFiles.loaded && !force && this.agentFiles._for === id) return;
+          this.agentFiles = { ...this.agentFiles, loading: true, loaded: false, _for: id };
+          try {
+            const data = await this.request(`/api/agents/${encodeURIComponent(id)}/files`);
+            // Ignore a late response if the user navigated to another agent.
+            if (!this.selectedAgent || this.selectedAgent.id !== id) return;
+            this.agentFiles = {
+              root: data.root || '',
+              files: data.files || [],
+              truncated: !!data.truncated,
+              missing: !!data.missing,
+              loading: false,
+              loaded: true,
+              _for: id
+            };
+          } catch (e) {
+            this.agentFiles = { root: '', files: [], truncated: false, missing: false, loading: false, loaded: true, _for: id };
+            this.showToast('Files failed', e.message, 'error');
+          }
+        },
+
+        fileIcon(p) {
+          const n = (p || '').toLowerCase();
+          if (/\.agent\.md$/.test(n)) return '🤖';
+          if (n.endsWith('plugin.json') || n.endsWith('.mcp.json')) return '⚙️';
+          if (n.endsWith('skill.md')) return '🧠';
+          if (n.endsWith('.md')) return '📄';
+          if (/\.(json|ya?ml|toml|ini)$/.test(n)) return '🗂';
+          if (/\.(js|ts|py|sh|ps1|go|rb)$/.test(n)) return '📜';
+          if (/\.(png|jpe?g|gif|svg|ico)$/.test(n)) return '🖼';
+          return '📦';
+        },
+
+        formatBytes(b) {
+          b = Number(b) || 0;
+          if (b < 1024) return b + ' B';
+          if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+          return (b / 1024 / 1024).toFixed(1) + ' MB';
         },
 
         // ---- Marketplace: agent capabilities (MCP servers + skills) ----
