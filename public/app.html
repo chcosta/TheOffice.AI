@@ -364,15 +364,6 @@
       font-size: 10px; font-weight: 700; line-height: 1;
       border-radius: 999px; background: var(--cp-danger); color: #fff;
     }
-    .ql-unstar {
-      flex: 0 0 auto; width: 18px; height: 18px;
-      display: inline-grid; place-items: center;
-      border: none; background: transparent; color: var(--cp-text-soft);
-      cursor: pointer; border-radius: 5px; font-size: 11px; opacity: 0;
-      transition: opacity .12s ease, color .12s ease, background .12s ease;
-    }
-    .ql-chip:hover .ql-unstar { opacity: .8; }
-    .ql-unstar:hover { color: var(--cp-warning); background: var(--cp-highlight); opacity: 1; }
     .board-star-btn { color: var(--cp-text-muted); }
     .board-star-btn.starred { color: var(--cp-warning); border-color: color-mix(in srgb, var(--cp-warning) 45%, transparent); }
     .ql-star-btn {
@@ -2867,7 +2858,6 @@
           @click="quickLaunchOpen(item)" :title="item.kindLabel + ' · ' + item.name">
           <span class="ql-emoji" x-text="item.emoji || '📌'"></span>
           <span class="ql-name" x-text="item.name"></span>
-          <span class="ql-unstar" title="Remove from quick launch" @click.stop="toggleQuickPin(item)">✕</span>
         </button>
       </template>
     </nav>
