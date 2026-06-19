@@ -12029,6 +12029,8 @@
             if (item.kind === 'chat') this.boardChatCache = { ...this.boardChatCache, [item.refId]: { messages: [] } };
             else if (item.kind === 'task' || item.kind === 'assignment') this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
           }
+          // New content changes the panel's height — re-fit so the card grows/shrinks.
+          this.scheduleAutoFit();
         },
         // Most recent completed run for a task/assignment pin (history is newest-first).
         boardPinLastRun(item) {
