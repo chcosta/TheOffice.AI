@@ -4468,7 +4468,7 @@
                                         </div>
                                         <div style="display:flex;align-items:center;gap:6px;flex:0 0 auto">
                                           <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
-                                          <button class="icon-button" type="button" x-show="boardPinHasDetail(item)" :title="boardPinExpanded[item.id] ? 'Hide latest' : (item.kind === 'chat' ? 'Show latest message' : 'Show latest run')" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinExpanded[item.id] ? '▾' : '▸'"></button>
+                                          <button class="icon-button" type="button" x-show="boardPinHasDetail(item)" :title="boardPinIsExpanded(item) ? 'Collapse latest' : (item.kind === 'chat' ? 'Show latest message' : 'Show latest run')" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="icon-button" type="button" title="Move up" @click.stop="movePin(item, -1)">▲</button>
                                           <button class="icon-button" type="button" title="Move down" @click.stop="movePin(item, 1)">▼</button>
                                           <button class="icon-button" type="button" :title="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
@@ -4476,8 +4476,8 @@
                                         </div>
                                       </div>
                                       <!-- Latest run / message reveal (steps & reasoning when present). -->
-                                      <template x-if="boardPinHasDetail(item) && boardPinExpanded[item.id]">
-                                        <div @click.stop style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
+                                      <template x-if="boardPinHasDetail(item) && boardPinIsExpanded(item)">
+                                        <div @click.stop x-init="boardPinEnsureDetail(item)" style="border-top:1px solid var(--cp-border);background:var(--cp-surface-soft);padding:10px 12px">
                                           <!-- Task / assignment: most recent run output + reasoning. -->
                                           <template x-if="item.kind === 'task' || item.kind === 'assignment'">
                                             <div>
@@ -8306,8 +8306,9 @@
         chainRunState: {},
         chainRuns: {},
         expandedChainNodes: {},
-        // Board pins: per-pin "latest run/message" reveal + a small chat fetch cache.
-        boardPinExpanded: {},
+        // Board pins: latest run/message is shown EXPANDED by default; we persist only
+        // the pins the user has explicitly COLLAPSED (id -> true) in localStorage.
+        boardPinCollapsed: (() => { try { return JSON.parse(localStorage.getItem('board-pin-collapsed') || '{}') || {}; } catch { return {}; } })(),
         boardChatCache: {},
         activeChat: null,
         chatDraft: '',
@@ -11953,11 +11954,32 @@
         boardPinHasDetail(item) {
           return !!item && ['task', 'assignment', 'flow', 'chat'].includes(item.kind);
         },
+        // Expanded by default; collapsed only if the user collapsed this pin before.
+        boardPinIsExpanded(item) {
+          return !!item && !this.boardPinCollapsed[item.id];
+        },
+        _saveBoardPinCollapsed() {
+          try { localStorage.setItem('board-pin-collapsed', JSON.stringify(this.boardPinCollapsed)); } catch {}
+        },
         toggleBoardPinDetail(item) {
           if (!item) return;
-          const open = !this.boardPinExpanded[item.id];
-          this.boardPinExpanded = { ...this.boardPinExpanded, [item.id]: open };
-          if (open) this.boardPinLoadDetail(item);
+          const collapsed = { ...this.boardPinCollapsed };
+          if (collapsed[item.id]) delete collapsed[item.id]; else collapsed[item.id] = true;
+          this.boardPinCollapsed = collapsed;
+          this._saveBoardPinCollapsed();
+          if (this.boardPinIsExpanded(item)) this.boardPinEnsureDetail(item);
+        },
+        // Load the latest run/message the first time a pin's panel is shown (panels are
+        // expanded by default, so this runs on render via x-init). Cached → no-op.
+        boardPinEnsureDetail(item) {
+          if (!item) return;
+          if (item.kind === 'task' || item.kind === 'assignment') {
+            if (this.taskHistoryCache[item.refId] === undefined) this.boardPinLoadDetail(item);
+          } else if (item.kind === 'flow') {
+            if (this.chainRuns[item.refId] === undefined) this.boardPinLoadDetail(item);
+          } else if (item.kind === 'chat') {
+            if (this.boardChatCache[item.refId] === undefined) this.boardPinLoadDetail(item);
+          }
         },
         // Lazy-load the latest run/message for a pin, reusing the same data paths the
         // detail pages use (no new run plumbing). Safe to call again to refresh.
