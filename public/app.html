@@ -325,8 +325,8 @@
     .topbar > .search-trigger { justify-self: end; }
     /* ===== Starred-boards quick launch bar (under the topbar) ===== */
     .quick-launch {
-      display: flex; align-items: center; gap: 8px;
-      padding: 7px 20px;
+      display: flex; align-items: center; gap: 6px;
+      padding: 3px 16px;
       border-bottom: 1px solid var(--cp-border);
       background: color-mix(in srgb, var(--cp-bg-elevated) 88%, transparent);
       backdrop-filter: blur(14px);
@@ -336,22 +336,22 @@
     .quick-launch::-webkit-scrollbar { height: 6px; }
     .quick-launch::-webkit-scrollbar-thumb { background: var(--cp-border); border-radius: 999px; }
     .quick-launch-label {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: 11px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
       color: var(--cp-text-soft); flex: 0 0 auto; padding-right: 2px;
     }
     .ql-chip {
-      display: inline-flex; align-items: center; gap: 7px;
-      flex: 0 0 auto; max-width: 240px;
-      padding: 5px 11px 5px 10px;
+      display: inline-flex; align-items: center; gap: 6px;
+      flex: 0 0 auto; max-width: 220px;
+      padding: 2px 9px;
       border: 1px solid var(--cp-border); border-radius: 999px;
       background: var(--cp-surface); color: var(--cp-text);
-      cursor: pointer; font-size: 12.5px; font-weight: 500;
+      cursor: pointer; font-size: 12px; font-weight: 500; line-height: 1.5;
       transition: border-color .14s ease, background .14s ease, color .14s ease;
     }
     .ql-chip:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
     .ql-chip.active { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
-    .ql-chip .ql-emoji { font-size: 14px; line-height: 1; flex: 0 0 auto; }
+    .ql-chip .ql-emoji { font-size: 13px; line-height: 1; flex: 0 0 auto; }
     .ql-chip .ql-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ql-chip .ql-attn {
       flex: 0 0 auto; min-width: 16px; height: 16px; padding: 0 4px;
@@ -454,6 +454,18 @@
     .card.clickable { cursor: pointer; transition: border-color .12s, transform .12s, box-shadow .12s; }
     .card.clickable:hover { border-color: var(--cp-accent); transform: translateY(-1px); box-shadow: var(--cp-shadow); }
     .orgh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; }
+    .home-section-label {
+      display: flex; align-items: baseline; gap: 8px;
+      margin: 0 0 10px; padding-bottom: 7px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .home-section-label .hsl-icon { font-size: 15px; }
+    .home-section-label .hsl-text {
+      font-size: 13px; font-weight: 700; letter-spacing: .3px;
+      text-transform: uppercase; color: var(--cp-text-muted);
+    }
+    .home-section-label .hsl-sub { font-size: 12px; color: var(--cp-text-soft); font-weight: 500; }
+    .home-section { margin-bottom: 22px; }
     .orgh-card {
       background: var(--cp-surface); border: 1px solid var(--cp-border); border-left-width: 4px;
       border-radius: 14px; padding: 14px; cursor: pointer;
@@ -969,6 +981,21 @@
       grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
       gap: 8px;
       align-items: stretch;
+    }
+    .mkt-group { margin-bottom: 16px; }
+    .mkt-group-head {
+      display: flex; align-items: center; gap: 8px;
+      margin: 0 0 8px; padding-bottom: 6px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .mkt-group-icon { font-size: 15px; line-height: 1; }
+    .mkt-group-label { font-size: 13px; font-weight: 700; color: var(--cp-text); letter-spacing: .2px; }
+    .mkt-group-count {
+      min-width: 20px; padding: 0 7px; height: 18px;
+      display: inline-grid; place-items: center;
+      font-size: 11px; font-weight: 600; line-height: 1;
+      border-radius: 999px; background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border); color: var(--cp-text-muted);
     }
     .mkt-row {
       display: flex; align-items: center; gap: 12px;
@@ -2950,7 +2977,12 @@
             </div>
 
             <!-- Company / org-health overview (shown only in the company-wide "All" view) -->
-            <div x-show="currentTeamId === 'all' && companyOrgHealth().length" style="margin-bottom:22px">
+            <div x-show="currentTeamId === 'all' && companyOrgHealth().length" class="home-section">
+              <div class="home-section-label">
+                <span class="hsl-icon">🏢</span>
+                <span class="hsl-text">Teams</span>
+                <span class="hsl-sub" x-text="companyOrgHealth().length + ' team' + (companyOrgHealth().length === 1 ? '' : 's')"></span>
+              </div>
               <div class="company-band">
                 <button type="button" class="cb-item" @click="goTo('#/teams')" title="Manage teams"><strong x-text="companyStats().orgCount"></strong><span>teams</span></button>
                 <button type="button" class="cb-item" @click="goTo('#/resources')" title="View all employees"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></button>
@@ -2993,8 +3025,13 @@
               </div>
             </div>
 
-            <div class="card-grid" style="margin-bottom:18px">
-              <article class="card clickable" @click="goTo('#/activity')" title="View activity">
+            <div class="home-section">
+              <div class="home-section-label">
+                <span class="hsl-icon">📊</span>
+                <span class="hsl-text">At a glance</span>
+              </div>
+              <div class="card-grid" style="margin-bottom:0">
+                <article class="card clickable" @click="goTo('#/activity')" title="View activity">
                 <div class="hint">Running now</div>
                 <strong style="font-size:1.6rem" x-text="runningEntities().length"></strong>
                 <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px" x-show="runningEntities().length">
@@ -3029,6 +3066,7 @@
                 <div class="hint">Alerts (24h)</div>
                 <strong style="font-size:1.6rem" x-text="alerts().length"></strong>
               </article>
+              </div>
             </div>
 
             <!-- Team-scoped overview: Boards & Insights -->
@@ -3080,22 +3118,30 @@
               </section>
             </div>
 
-            <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:12px">
-              <div class="filter-pills">
-                <template x-for="f in ['all','agent','task','assignment','flow']" :key="f">
-                  <button class="pill" type="button" :class="{ active: scheduleTypeFilter === f }" @click="scheduleTypeFilter = f">
-                    <span x-text="f === 'all' ? 'All' : scheduleTypeMeta(f).icon + ' ' + scheduleTypeMeta(f).label + 's'"></span>
-                    <span class="hint" x-text="'(' + (scheduleCounts()[f] ?? 0) + ')'"></span>
-                  </button>
-                </template>
+            <section class="card home-section" style="margin-top:18px">
+              <div class="card-header">
+                <div>
+                  <h2 class="card-title">🗓 Schedules</h2>
+                  <div class="card-subtitle" x-text="scheduleCounts().all + ' scheduled item' + (scheduleCounts().all === 1 ? '' : 's') + ' across agents, tasks, assignments & flows'"></div>
+                </div>
+                <a class="btn ghost" href="#/tasks">Manage</a>
               </div>
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer" class="hint">
-                <input type="checkbox" x-model="scheduleHideDisabled" />
-                Hide disabled
-              </label>
-            </div>
+              <div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+                <div class="filter-pills">
+                  <template x-for="f in ['all','agent','task','assignment','flow']" :key="f">
+                    <button class="pill" type="button" :class="{ active: scheduleTypeFilter === f }" @click="scheduleTypeFilter = f">
+                      <span x-text="f === 'all' ? 'All' : scheduleTypeMeta(f).icon + ' ' + scheduleTypeMeta(f).label + 's'"></span>
+                      <span class="hint" x-text="'(' + (scheduleCounts()[f] ?? 0) + ')'"></span>
+                    </button>
+                  </template>
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer" class="hint">
+                  <input type="checkbox" x-model="scheduleHideDisabled" />
+                  Hide disabled
+                </label>
+              </div>
 
-            <div class="sched-table-wrap" x-show="filteredSchedules().length">
+              <div class="sched-table-wrap" x-show="filteredSchedules().length">
               <table class="sched-table">
                 <thead>
                   <tr>
@@ -3144,6 +3190,7 @@
             </div>
             <div class="empty-state" x-show="!schedulesLoading && !filteredSchedules().length">No scheduled items match this filter. Add a schedule to an agent, task, assignment, or flow to see it here.</div>
             <div class="empty-state" x-show="schedulesLoading && !(data.schedules || []).length">Loading schedules…</div>
+            </section>
 
             <!-- Team resources (employees + operations) -->
             <section class="card" style="margin-top:18px" x-show="currentTeamId !== 'all'">
@@ -7070,6 +7117,15 @@
                 </template>
               </div>
               <input type="text" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…" style="flex:1;min-width:200px">
+              <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
+                <span>Group by</span>
+                <select x-model="mkt.groupBy" style="cursor:pointer;padding:5px 8px">
+                  <option value="type">Type</option>
+                  <option value="source">Source</option>
+                  <option value="installed">Installed</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
               <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap" :title="'Hide the ' + mktInstalledCount() + ' items already installed or in use'">
                 <input type="checkbox" x-model="mkt.hideInstalled" style="cursor:pointer">
                 Hide installed<span x-show="mktInstalledCount()" x-text="' (' + mktInstalledCount() + ')'"></span>
@@ -7081,32 +7137,41 @@
               No sources yet. Click <strong>↻ Sync from installed agents</strong> to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
             </div>
 
-            <!-- Compact rows: scannable, multi-column when wide. Click a row for details. -->
-            <div class="mkt-list" x-show="mktFilteredEntries().length">
-              <template x-for="entry in mktFilteredEntries()" :key="entry.id">
-                <div class="mkt-row" :class="{ selected: mkt.selectedId === entry.id, 'is-installed': entry.installed || entry.inUse }"
-                     @click="mktSelectEntry(entry)" :title="entry.description || ''">
-                  <span class="mkt-ticon" x-text="mktTypeIcon(entry.type)"></span>
-                  <div class="mkt-main">
-                    <div class="mkt-name">
-                      <span class="mkt-name-txt" x-text="entry.displayName || entry.name"></span>
-                      <span class="mkt-mini-badge ok" x-show="entry.installed" title="A registered agent already matches this item">✓ Installed</span>
-                      <span class="mkt-mini-badge ok" x-show="!entry.installed && entry.inUse" title="This capability is already available to your system">✓ In use</span>
-                    </div>
-                    <div class="mkt-desc" x-text="entry.description || 'No description.'"></div>
-                  </div>
-                  <div class="mkt-row-right">
-                    <span class="mkt-src-chip" :title="mktSourceMeta(entry).title" x-text="mktSourceMeta(entry).icon + ' ' + mktSourceMeta(entry).kind"></span>
-                    <template x-if="entry.type === 'agent' || entry.type === 'plugin'">
-                      <button class="btn" :class="entry.installed ? 'ghost' : 'primary'" type="button" @click.stop="marketplaceInstall(entry)" :disabled="mkt.busy || entry.installed" x-text="entry.installed ? '✓' : 'Install'"></button>
-                    </template>
-                    <template x-if="entry.type === 'skill' || entry.type === 'mcp'">
-                      <button class="btn primary" type="button" @click.stop="openAddCap(entry)" :disabled="mkt.busy">Add…</button>
-                    </template>
-                  </div>
+            <!-- Compact rows grouped by the active dimension; multi-column when wide. Click a row for details. -->
+            <template x-for="grp in mktGroupedEntries()" :key="grp.key">
+              <div class="mkt-group">
+                <div class="mkt-group-head" x-show="mkt.groupBy !== 'none'">
+                  <span class="mkt-group-icon" x-text="grp.icon"></span>
+                  <span class="mkt-group-label" x-text="grp.label"></span>
+                  <span class="mkt-group-count" x-text="grp.items.length"></span>
                 </div>
-              </template>
-            </div>
+                <div class="mkt-list">
+                  <template x-for="entry in grp.items" :key="entry.id">
+                    <div class="mkt-row" :class="{ selected: mkt.selectedId === entry.id, 'is-installed': entry.installed || entry.inUse }"
+                         @click="mktSelectEntry(entry)" :title="entry.description || ''">
+                      <span class="mkt-ticon" x-text="mktTypeIcon(entry.type)"></span>
+                      <div class="mkt-main">
+                        <div class="mkt-name">
+                          <span class="mkt-name-txt" x-text="entry.displayName || entry.name"></span>
+                          <span class="mkt-mini-badge ok" x-show="entry.installed" title="A registered agent already matches this item">✓ Installed</span>
+                          <span class="mkt-mini-badge ok" x-show="!entry.installed && entry.inUse" title="This capability is already available to your system">✓ In use</span>
+                        </div>
+                        <div class="mkt-desc" x-text="entry.description || 'No description.'"></div>
+                      </div>
+                      <div class="mkt-row-right">
+                        <span class="mkt-src-chip" :title="mktSourceMeta(entry).title" x-text="mktSourceMeta(entry).icon + ' ' + mktSourceMeta(entry).kind"></span>
+                        <template x-if="entry.type === 'agent' || entry.type === 'plugin'">
+                          <button class="btn" :class="entry.installed ? 'ghost' : 'primary'" type="button" @click.stop="marketplaceInstall(entry)" :disabled="mkt.busy || entry.installed" x-text="entry.installed ? '✓' : 'Install'"></button>
+                        </template>
+                        <template x-if="entry.type === 'skill' || entry.type === 'mcp'">
+                          <button class="btn primary" type="button" @click.stop="openAddCap(entry)" :disabled="mkt.busy">Add…</button>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
             <div class="empty-state" x-show="(mkt.catalog.entries || []).length && !mktFilteredEntries().length">
               No items match the current filters.
               <a href="#" @click.prevent="mkt.sourceKindFilter = 'all'; mkt.hideInstalled = false">Clear filters</a>
@@ -9129,6 +9194,7 @@
           sourceKindFilter: 'all',
           sourceSel: 'all',
           hideInstalled: false,
+          groupBy: 'type',
           selectedId: null,
           showManageSources: false,
           q: '',
@@ -13001,7 +13067,18 @@
         },
         // Jump to a starred board from anywhere via the quick launch bar.
         quickLaunchBoard(boardId) {
-          this.insightGoToBoard(boardId);
+          if (!boardId) return;
+          const b = (this.boards || []).find(x => x.id === boardId);
+          // Auto-select the board's team in the org dropdown when it's team-scoped.
+          if (b && b.teamId) {
+            if (this.currentTeamId !== b.teamId) this.setCurrentOrg(b.teamId);
+          } else if (b && !b.teamId && this.currentTeamId !== 'all') {
+            // Office-wide board: drop to the company-wide view.
+            this.setCurrentOrg('all');
+          }
+          this.activeBoardId = boardId;
+          try { localStorage.setItem('active-board-id', boardId); } catch {}
+          window.location.hash = '#/boards/' + encodeURIComponent(boardId);
         },
         async setBoardArchived(board, archived) {
           if (!board) return;
@@ -16889,6 +16966,48 @@
           let out = (!f || f === 'all') ? entries : entries.filter(e => this.mktEntryKind(e) === f);
           if (this.mkt.hideInstalled) out = out.filter(e => !e.installed && !e.inUse);
           return out;
+        },
+        // Group the filtered entries by the active grouping dimension. Returns
+        // an ordered list of { key, label, icon, items } buckets for rendering.
+        mktGroupedEntries() {
+          const entries = this.mktFilteredEntries();
+          const mode = this.mkt.groupBy || 'none';
+          if (mode === 'none') {
+            return entries.length ? [{ key: 'all', label: 'All items', icon: '📦', items: entries }] : [];
+          }
+          const buckets = new Map();
+          const orderHint = {
+            type: ['agent', 'plugin', 'skill', 'mcp'],
+            source: ['azdo', 'local', 'installed'],
+            installed: ['installed', 'available'],
+          }[mode] || [];
+          const meta = (key) => {
+            if (mode === 'type') return { label: this.mktTypeLabel(key), icon: this.mktTypeIcon(key) };
+            if (mode === 'source') {
+              const m = { azdo: { label: 'Azure DevOps', icon: '🔷' }, local: { label: 'Local', icon: '📁' }, installed: { label: 'Installed', icon: '✓' } };
+              return m[key] || { label: key, icon: '•' };
+            }
+            if (mode === 'installed') {
+              return key === 'installed' ? { label: 'Installed / in use', icon: '✓' } : { label: 'Available', icon: '⬇️' };
+            }
+            return { label: key, icon: '•' };
+          };
+          for (const e of entries) {
+            let key;
+            if (mode === 'type') key = e.type || 'other';
+            else if (mode === 'source') key = this.mktEntryKind(e);
+            else if (mode === 'installed') key = (e.installed || e.inUse) ? 'installed' : 'available';
+            else key = 'all';
+            if (!buckets.has(key)) { const m = meta(key); buckets.set(key, { key, label: m.label, icon: m.icon, items: [] }); }
+            buckets.get(key).items.push(e);
+          }
+          const arr = [...buckets.values()];
+          arr.sort((a, b) => {
+            const ia = orderHint.indexOf(a.key), ib = orderHint.indexOf(b.key);
+            if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+            return a.label.localeCompare(b.label);
+          });
+          return arr;
         },
         // The entry currently shown in the detail drawer (resolved by id so it
         // survives catalog reloads).
