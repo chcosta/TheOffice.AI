@@ -7187,7 +7187,10 @@
                 Hide installed<span x-show="mktInstalledCount()" x-text="' (' + mktInstalledCount() + ')'"></span>
               </label>
             </div>
-            <div class="hint" style="margin-bottom:10px" x-show="mktFilteredEntries().length" x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></div>
+            <div class="hint" style="margin-bottom:10px" x-show="mktFilteredEntries().length">
+              <span x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></span>
+              <span x-show="mktDedupMerged() > 0" x-text="' · ' + mktDedupMerged() + ' duplicate MCP ' + (mktDedupMerged() === 1 ? 'entry' : 'entries') + ' merged'"></span>
+            </div>
 
             <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
               No sources yet. Click <strong>↻ Sync from installed agents</strong> to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
@@ -7211,6 +7214,8 @@
                           <span class="mkt-name-txt" x-text="entry.displayName || entry.name"></span>
                           <span class="mkt-mini-badge ok" x-show="entry.installed" title="A registered agent already matches this item">✓ Installed</span>
                           <span class="mkt-mini-badge ok" x-show="!entry.installed && entry.inUse" title="This capability is already available to your system">✓ In use</span>
+                          <span class="mkt-mini-badge" x-show="entry._dupCount > 1" :title="'Identical server referenced by ' + entry._dupCount + ' sources: ' + (entry._dupSources||[]).map(s => s.label).join(', ')" x-text="'⊕ ' + entry._dupCount + ' sources'"></span>
+                          <span class="mkt-mini-badge warn" x-show="entry._variant" :title="'Other catalog entries share this name but launch differently — see the command below'" x-text="'⚠ variant'"></span>
                         </div>
                         <div class="mkt-desc" x-text="entry.description || 'No description.'"></div>
                       </div>
@@ -7260,6 +7265,21 @@
                       <span x-text="mktSourceMeta(mktSelectedEntry()).location"></span>
                     </div>
 
+                    <template x-if="mktSelectedEntry().type === 'mcp' && mktMcpSources(mktSelectedEntry()).length > 1">
+                      <div>
+                        <div class="mkt-field-label" x-text="'Referenced by ' + mktMcpSources(mktSelectedEntry()).length + ' sources'"></div>
+                        <div class="hint" style="font-size:12px;margin-bottom:6px">These all declare an identical server (same command, args and env), so they're shown once. Adding it works from any of them.</div>
+                        <template x-for="s in mktMcpSources(mktSelectedEntry())" :key="s.location + s.label">
+                          <div class="mkt-code" style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                            <span style="font-weight:600" x-text="s.label"></span>
+                            <span class="mkt-mini-badge ok" x-show="s.installed">✓ Installed</span>
+                            <span class="mkt-mini-badge ok" x-show="!s.installed && s.inUse">✓ In use</span>
+                            <span style="opacity:.7;font-size:11px;word-break:break-all" x-text="s.location"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
                     <template x-if="mktSelectedEntry().type === 'mcp' && mktSelectedEntry().mcp">
                       <div>
                         <div class="mkt-field-label">MCP server</div>
@@ -7283,7 +7303,7 @@
                           Starts the server on this machine and attempts an MCP handshake to confirm its runtime/dependencies are installed.
                         </div>
                         <template x-if="mkt.mcpTest.busy">
-                          <div class="mkt-code" style="font-size:12px">Starting the server and waiting for an MCP handshake… (up to ~15s)</div>
+                          <div class="mkt-code" style="font-size:12px">Starting the server and waiting for an MCP handshake… (up to ~30s; first run may download packages)</div>
                         </template>
                         <template x-if="mkt.mcpTest.result && mkt.mcpTest.id === mktSelectedEntry().id">
                           <div class="mcp-test-result" :class="mcpTestStatusMeta(mkt.mcpTest.result.status).cls">
@@ -17146,12 +17166,73 @@
           const label = e.sourceLabel || 'Installed';
           return { key: 'installed|' + (e.sourceId || label), label, icon: '✓', title: 'Installed · ' + label };
         },
+        // Identity of what an MCP entry actually launches: same server name +
+        // command + args + env keys == same server, regardless of which plugin's
+        // .mcp.json happens to declare it.
+        mktEntryDupKey(e) {
+          const m = e.mcp || {};
+          const keys = (m.envKeys || []).slice().sort();
+          return [m.server || e.name || '', m.command || '', JSON.stringify(m.args || []), keys.join(',')].join('||');
+        },
+        // Collapse MCP entries that launch the identical server into a single card,
+        // recording every source that references it. Same-named servers that launch
+        // differently are kept separate and flagged as variants. Non-MCP entries
+        // pass through untouched.
+        mktDedupEntries(list) {
+          const out = [];
+          const idxByKey = new Map();
+          const keysByName = new Map();
+          for (const e of list) {
+            if (e.type !== 'mcp') { out.push(e); continue; }
+            const key = this.mktEntryDupKey(e);
+            const name = (e.mcp && e.mcp.server) || e.name || '';
+            if (!keysByName.has(name)) keysByName.set(name, new Set());
+            keysByName.get(name).add(key);
+            const src = { label: e.sourceLabel || this.mktSourceMeta(e).kind, kind: this.mktEntryKind(e), path: e.path, id: e.id, installed: !!e.installed, inUse: !!e.inUse };
+            if (idxByKey.has(key)) {
+              const idx = idxByKey.get(key);
+              const rep = out[idx];
+              rep._dupSources.push(src);
+              rep._dupCount = rep._dupSources.length;
+              if ((e.installed || e.inUse) && !(rep.installed || rep.inUse)) {
+                out[idx] = Object.assign({}, e, { _dupSources: rep._dupSources, _dupCount: rep._dupCount });
+              }
+            } else {
+              idxByKey.set(key, out.length);
+              out.push(Object.assign({}, e, { _dupSources: [src], _dupCount: 1 }));
+            }
+          }
+          for (const e of out) {
+            if (e.type !== 'mcp') continue;
+            const set = keysByName.get((e.mcp && e.mcp.server) || e.name || '');
+            if (set && set.size > 1) { e._variant = true; e._variantLabel = (e.mcp && e.mcp.command) || ''; }
+          }
+          return out;
+        },
+        // All catalog sources that reference the same MCP server as `entry` (used in
+        // the detail drawer so collapsed duplicates stay transparent).
+        mktMcpSources(entry) {
+          if (!entry || entry.type !== 'mcp') return [];
+          const key = this.mktEntryDupKey(entry);
+          const all = (this.mkt.catalog && this.mkt.catalog.entries) || [];
+          return all.filter(e => e.type === 'mcp' && this.mktEntryDupKey(e) === key)
+            .map(e => ({ label: e.sourceLabel || this.mktSourceMeta(e).kind, kind: this.mktEntryKind(e), location: this.mktSourceMeta(e).location, installed: !!e.installed, inUse: !!e.inUse }));
+        },
+        // How many MCP entries the current filter collapsed away (pre-dedup minus
+        // post-dedup), so the count line can explain the difference.
+        mktDedupMerged() {
+          const entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
+          const f = this.mkt.sourceKindFilter;
+          let out = (!f || f === 'all') ? entries : entries.filter(e => this.mktEntryKind(e) === f);
+          if (this.mkt.hideInstalled) out = out.filter(e => !e.installed && !e.inUse);
+          return out.length - this.mktDedupEntries(out).length;
+        },
         mktFilteredEntries() {
           const entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
           const f = this.mkt.sourceKindFilter;
           let out = (!f || f === 'all') ? entries : entries.filter(e => this.mktEntryKind(e) === f);
           if (this.mkt.hideInstalled) out = out.filter(e => !e.installed && !e.inUse);
-          return out;
+          return this.mktDedupEntries(out);
         },
         // Group the filtered entries by the active grouping dimension. Returns
         // an ordered list of { key, label, icon, items } buckets for rendering.
