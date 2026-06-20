@@ -5436,11 +5436,9 @@
                                             <div class="hint" style="margin-top:4px;font-size:11px;opacity:.7" x-show="note.createdAt" :title="stampTitle(note)" x-text="stampLine(note)"></div>
                                           </div>
                                         </template>
-                                        <button class="icon-button" type="button" title="Move up" @click="moveNote(note, -1)">▲</button>
                                         <div class="row-actions-menu" x-data="{ open:false }" @keydown.escape.window="open=false">
                                           <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
                                           <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
-                                            <button class="row-menu-item" type="button" @click="moveNote(note, 1)"><span>▼</span><span>Move down</span></button>
                                             <button class="row-menu-item danger" type="button" @click="deleteBoardNote(note); open=false"><span>✕</span><span>Delete note</span></button>
                                           </div>
                                         </div>
@@ -5466,8 +5464,6 @@
                                             <div class="row-actions-menu" x-data="{ open:false }" @keydown.escape.window="open=false">
                                               <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
                                               <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
-                                                <button class="row-menu-item" type="button" @click="moveChecklist(cl, -1)"><span>▲</span><span>Move up</span></button>
-                                                <button class="row-menu-item" type="button" @click="moveChecklist(cl, 1)"><span>▼</span><span>Move down</span></button>
                                                 <button class="row-menu-item danger" type="button" @click="deleteChecklist(cl); open=false"><span>✕</span><span>Delete checklist</span></button>
                                               </div>
                                             </div>
