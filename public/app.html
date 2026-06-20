@@ -7817,6 +7817,21 @@
                       </div>
                     </div>
 
+                    <template x-if="p.newSkills && p.newSkills.length">
+                      <div style="margin-top:10px">
+                        <div class="hint" style="margin-bottom:6px">🆕 New skills the AI will author (added to the marketplace catalog &amp; attached):</div>
+                        <div class="filter-pills">
+                          <template x-for="(s, si) in p.newSkills" :key="(s.slug||'') + ':' + si">
+                            <span class="pill" :title="s.description" style="display:inline-flex;align-items:center;gap:6px">
+                              <span x-text="'🧩 ' + (s.name || s.slug)"></span>
+                              <button type="button" @click="p.newSkills.splice(si, 1)" title="Remove this generated skill"
+                                style="border:none;background:none;cursor:pointer;color:var(--cp-text-muted);font-size:14px;line-height:1;padding:0;font-weight:600">×</button>
+                            </span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
                     <div class="form-row" style="margin-top:14px">
                       <label style="display:block;margin-bottom:5px" x-text="p.kind === 'create' ? 'New agent name' : 'New agent name (a copy — the original is untouched)'"></label>
                       <input type="text" x-model="p._name" placeholder="Name for the new agent" style="width:100%;box-sizing:border-box">
@@ -19413,6 +19428,7 @@
             const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: p, name: p._name, testPrompt }) });
             p._applied = true;
             const attached = (r.attached || []).length;
+            const genSkills = (r.generatedSkills || []).length;
             const name = r.created ? r.created.name : (p._name || 'Agent');
             // If a specific team is in scope, add the new agent to it so it shows
             // up in the team-scoped employees/agents list (otherwise it would only
@@ -19427,6 +19443,7 @@
               } catch (_) { /* non-fatal: agent still exists under All teams */ }
             }
             const label = `${name} created` + (attached ? ` with ${attached} capabilit${attached === 1 ? 'y' : 'ies'}` : '')
+              + (genSkills ? ` + ${genSkills} new skill${genSkills === 1 ? '' : 's'}` : '')
               + ((r.failed && r.failed.length) ? ` (${r.failed.length} skipped)` : '') + teamNote;
             this.showToast('Agent created', label, 'info');
             await this.refreshAll(false);

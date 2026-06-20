@@ -1669,7 +1669,33 @@ async function attachCapsToAgent(agentId, attachArr) {
   return { attached, failed };
 }
 
-// Build the runnable config a proposal describes WITHOUT persisting it to
+// Materialize an AI-authored proposal's newSkills.
+//  - persist (apply): write each skill into the catalog-scanned _generated-skills
+//    dir (so it surfaces in the marketplace catalog for reuse) AND attach it to
+//    the new agent's overlay.
+//  - !persist (test): attach the skill inline to the throwaway overlay only, so
+//    it's reaped with the overlay and never pollutes the shared catalog.
+// Returns { generated:[{name,catalog}], failed:[{name,error}] }.
+function materializeProposalSkills(agentId, newSkills, { persist } = {}) {
+  const generated = [];
+  const failed = [];
+  for (const s of Array.isArray(newSkills) ? newSkills : []) {
+    try {
+      if (!s || !s.slug || !s.name) { failed.push({ name: (s && s.name) || '?', error: 'invalid skill spec' }); continue; }
+      if (persist) {
+        const w = marketplaceDesign.writeGeneratedSkill(s);
+        capabilities.attachSkill(agentId, { name: w.name, sourceDir: w.dir });
+        generated.push({ name: w.name, catalog: true });
+      } else {
+        capabilities.attachSkill(agentId, { name: s.slug, description: s.description, body: s.body });
+        generated.push({ name: s.slug, catalog: false });
+      }
+    } catch (e) {
+      failed.push({ name: (s && s.slug) || '?', error: e.message });
+    }
+  }
+  return { generated, failed };
+}
 // agents.json. Used by the "test" flow so a suggestion can be exercised live
 // before the user commits to creating the agent. Returns { config, id }.
 const DESIGN_TEST_PREFIX = 'dtest-';
@@ -1740,8 +1766,9 @@ app.post('/api/marketplace/design/apply', async (req, res) => {
     supervisor.register(config);
 
     const { attached, failed } = await attachCapsToAgent(agentId, proposal.attach);
+    const skills = materializeProposalSkills(agentId, proposal.newSkills, { persist: true });
     broadcastSSE('agent-update', { agentId });
-    res.json({ ok: true, kind: proposal.kind, agentId, created: config, attached, failed });
+    res.json({ ok: true, kind: proposal.kind, agentId, created: config, attached, failed, generatedSkills: skills.generated, skillsFailed: skills.failed });
   } catch (e) {
     const msg = e.message || 'Apply failed';
     const code = /not found/i.test(msg) ? 404 : (/missing|required/i.test(msg) ? 400 : 500);
@@ -1764,12 +1791,13 @@ app.post('/api/marketplace/design/test', async (req, res) => {
 
     const { config, id: testId } = await buildProposalConfig(proposal, { persist: false });
     const { attached, failed } = await attachCapsToAgent(testId, proposal.attach);
+    const skills = materializeProposalSkills(testId, proposal.newSkills, { persist: false });
     config.name = `${config.name} (test)`;
 
     const sessionId = require('crypto').randomUUID();
     designTestSessions.set(sessionId, testId);
     runChatTurn({ sessionId, message: prompt, config, resume: false, agentId: testId });
-    res.json({ ok: true, sessionId, testId, prompt, attached, failed });
+    res.json({ ok: true, sessionId, testId, prompt, attached, failed, generatedSkills: skills.generated, skillsFailed: skills.failed });
   } catch (e) {
     const msg = e.message || 'Test failed';
     const code = /not found/i.test(msg) ? 404 : (/missing|required/i.test(msg) ? 400 : 500);

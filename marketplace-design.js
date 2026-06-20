@@ -21,6 +21,11 @@ const marketplace = require('./marketplace');
 const SUPERVISOR_DATA_DIR = process.env.SUPERVISOR_DATA_DIR
   || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.copilot', 'agent-supervisor');
 const GENERATED_AGENTS_DIR = path.join(SUPERVISOR_DATA_DIR, 'generated-agents');
+// Brand-new skills the AI authors are written here, under the plugins store that
+// capabilities.buildCatalog() scans for SKILL.md — so a generated skill
+// immediately surfaces in the marketplace catalog (reusable on other agents),
+// not just on the agent it was generated for.
+const GENERATED_SKILLS_DIR = path.join(SUPERVISOR_DATA_DIR, 'plugins', '_generated-skills');
 
 const KNOWN_TOOLS = ['powershell', 'bash', 'view', 'edit', 'create', 'grep', 'glob', 'web_search', 'web_fetch'];
 
@@ -71,6 +76,8 @@ function enhancePrompt(agentInfo, caps, catalog, hint) {
     '',
     'Propose up to 3 distinct enhancement ideas. Each idea bundles one or more available capabilities that together unlock something the agent cannot currently do. Only reference capabilities that appear in AVAILABLE CAPABILITIES, by their exact ref. Do not invent refs.',
     '',
+    'If — and ONLY if — no existing skill in the catalog covers a piece of know-how the idea needs, you may AUTHOR a brand-new skill for that idea. A skill is a SKILL.md document: focused instructions / domain knowledge that teaches the agent HOW to do something (it does NOT run code or call APIs by itself — pair it with an MCP server when the task needs live actions). Put authored skills in a top-level "newSkills" array (NOT in "attach"); they are attached automatically. Prefer reusing an existing "skill:" ref over authoring a new one.',
+    '',
     'For each idea also write a "testPrompt": a concrete, ready-to-run instruction (1-3 sentences) that exercises EXACTLY the new behavior this idea unlocks, using the attached capabilities on realistic inputs — not a generic "what can you do" question. It should read like a real task the enhanced agent would be asked to perform.',
     '',
     'Respond with ONLY a JSON array (no prose) in this exact shape:',
@@ -81,10 +88,12 @@ function enhancePrompt(agentInfo, caps, catalog, hint) {
     '    "title": "short idea name",',
     '    "rationale": "one or two sentences on what this unlocks",',
     '    "testPrompt": "a concrete task that exercises the new behavior",',
-    '    "attach": [ { "ref": "mcp:some-server", "why": "why this cap" }, { "ref": "skill:some-skill", "why": "..." } ]',
+    '    "attach": [ { "ref": "mcp:some-server", "why": "why this cap" }, { "ref": "skill:some-skill", "why": "..." } ],',
+    '    "newSkills": [ { "name": "Human Friendly Skill Name", "slug": "kebab-case-slug", "description": "one line on when to use it", "body": "# Skill\\nMarkdown instructions teaching the agent how to do the task..." } ]',
     '  }',
     ']',
     '```',
+    'Omit "newSkills" (or use an empty array) when the catalog already covers everything.',
   ].join('\n');
 }
 
@@ -102,6 +111,8 @@ function createPrompt(catalog, inspirationAgents, hint) {
     '',
     'Propose up to 3 new agent designs. Each agent has a focused persona and attaches a coherent set of available capabilities. The persona "body" is markdown describing the agent\'s role, how it should behave, and how it should use its tools/skills — but do NOT include any response-format or action-block section. Choose tools from this set only: ' + JSON.stringify(KNOWN_TOOLS) + '. Only reference catalog capabilities that exist, by exact ref.',
     '',
+    'If — and ONLY if — no existing skill in the catalog covers a piece of know-how an agent needs, you may AUTHOR a brand-new skill for it. A skill is a SKILL.md document: focused instructions / domain knowledge that teaches the agent HOW to do something (it does NOT run code or call APIs by itself — pair it with an MCP server when the task needs live actions). Put authored skills in that agent\'s "newSkills" array (NOT in "attach"); they are attached automatically. Prefer reusing an existing "skill:" ref over authoring a new one.',
+    '',
     'For each agent also write a "testPrompt": a concrete, ready-to-run instruction (1-3 sentences) that asks the agent to actually perform its core job on realistic inputs using its tools/skills — not a generic "what can you do" question. It should read like the first real task you would hand this agent.',
     '',
     'Respond with ONLY a JSON array (no prose) in this exact shape:',
@@ -113,10 +124,12 @@ function createPrompt(catalog, inspirationAgents, hint) {
     '    "rationale": "one line on why this agent is useful",',
     '    "testPrompt": "a concrete first task that exercises the agent\'s core job",',
     '    "agent": { "name": "Human Friendly Name", "slug": "kebab-case-slug", "description": "one line", "tools": ["powershell"], "body": "# Role\\n..." },',
-    '    "attach": [ { "ref": "skill:some-skill", "why": "..." }, { "ref": "mcp:some-server", "why": "..." } ]',
+    '    "attach": [ { "ref": "skill:some-skill", "why": "..." }, { "ref": "mcp:some-server", "why": "..." } ],',
+    '    "newSkills": [ { "name": "Human Friendly Skill Name", "slug": "kebab-case-slug", "description": "one line on when to use it", "body": "# Skill\\nMarkdown instructions teaching the agent how to do the task..." } ]',
     '  }',
     ']',
     '```',
+    'Omit "newSkills" (or use an empty array) when the catalog already covers everything.',
   ].join('\n');
 }
 
@@ -161,11 +174,31 @@ function resolveAttachments(rawAttach) {
   return out.filter(x => (seen.has(x.entryId) ? false : (seen.add(x.entryId), true)));
 }
 
+// Normalize the AI's authored skills into clean { name, slug, description, body }
+// specs. Drops entries without a usable name+body and de-dupes by slug.
+function normalizeNewSkills(rawArr) {
+  const out = [];
+  const seen = new Set();
+  for (const r of Array.isArray(rawArr) ? rawArr : []) {
+    if (!r || typeof r !== 'object') continue;
+    const name = String(r.name || r.title || r.slug || '').trim();
+    const body = String(r.body || '').trim();
+    const description = String(r.description || '').replace(/\r?\n/g, ' ').trim();
+    if (!name || (!body && !description)) continue;
+    const slug = slugify(r.slug || name, '');
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({ name, slug, description, body: body || `# ${name}\n\n${description}` });
+  }
+  return out;
+}
+
 function normalizeEnhance(raw, agentId) {
   if (!raw || typeof raw !== 'object') return null;
   const title = String(raw.title || '').trim();
   const attach = resolveAttachments(raw.attach);
-  if (!title || !attach.length) return null;
+  const newSkills = normalizeNewSkills(raw.newSkills);
+  if (!title || (!attach.length && !newSkills.length)) return null;
   return {
     id: 'mdz-' + crypto.randomBytes(5).toString('hex'),
     kind: 'enhance',
@@ -174,6 +207,7 @@ function normalizeEnhance(raw, agentId) {
     rationale: String(raw.rationale || '').trim(),
     testPrompt: String(raw.testPrompt || '').trim(),
     attach,
+    newSkills,
   };
 }
 
@@ -194,6 +228,7 @@ function normalizeCreate(raw) {
     testPrompt: String(raw.testPrompt || '').trim(),
     agent: { name, slug, description: String(a.description || '').trim(), tools, body },
     attach: resolveAttachments(raw.attach),
+    newSkills: normalizeNewSkills(raw.newSkills),
   };
 }
 
@@ -222,8 +257,31 @@ function writeGeneratedAgent(agentSpec) {
   return { slug, dir, agentMdPath };
 }
 
+// Materialize an AI-authored skill as <GENERATED_SKILLS_DIR>/<slug>/SKILL.md.
+// The leaf dir name becomes the catalog skill name (capabilities.buildCatalog
+// uses basename(dirname(SKILL.md))), so the skill is both catalog-visible
+// (reusable / "marketplace support") and attachable to the generated agent.
+function writeGeneratedSkill(spec) {
+  const slug = slugify(spec.slug || spec.name, '');
+  const dir = path.join(GENERATED_SKILLS_DIR, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const md = [
+    '---',
+    `name: ${slug}`,
+    `description: ${JSON.stringify(spec.description || '')}`,
+    '---',
+    '',
+    spec.body || `# ${spec.name}`,
+    '',
+  ].join('\n');
+  const skillMdPath = path.join(dir, 'SKILL.md');
+  fs.writeFileSync(skillMdPath, md);
+  return { name: slug, slug, dir, skillMdPath };
+}
+
 module.exports = {
   GENERATED_AGENTS_DIR,
+  GENERATED_SKILLS_DIR,
   KNOWN_TOOLS,
   slugify,
   compactCatalog,
@@ -233,5 +291,7 @@ module.exports = {
   resolveAttachments,
   normalizeEnhance,
   normalizeCreate,
+  normalizeNewSkills,
   writeGeneratedAgent,
+  writeGeneratedSkill,
 };
