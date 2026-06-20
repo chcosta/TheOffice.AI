@@ -2554,6 +2554,29 @@
     }
     .board-bottombar .bb-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .board-bottombar .bb-sep { width: 1px; height: 22px; background: var(--cp-border); flex: 0 0 auto; }
+    /* ----- Saved layouts dropdown ----- */
+    .bb-layouts-pop {
+      position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 50;
+      min-width: 220px; max-width: 320px; max-height: 320px; overflow-y: auto;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 10px; box-shadow: var(--cp-shadow); padding: 6px;
+    }
+    .bb-layouts-row { display: flex; align-items: center; gap: 4px; }
+    .bb-layouts-item {
+      display: block; width: 100%; text-align: left; padding: 7px 10px;
+      background: transparent; border: 0; border-radius: 7px; cursor: pointer;
+      color: var(--cp-text); font: inherit; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .bb-layouts-item.grow { flex: 1 1 auto; min-width: 0; }
+    .bb-layouts-item:hover { background: var(--cp-accent-soft); color: var(--cp-accent); }
+    .bb-layouts-del {
+      flex: 0 0 auto; background: transparent; border: 0; border-radius: 6px;
+      cursor: pointer; color: var(--cp-text-muted); padding: 4px 7px; font-size: 12px;
+    }
+    .bb-layouts-del:hover { background: var(--cp-danger); color: #fff; }
+    .bb-layouts-sep { height: 1px; background: var(--cp-border); margin: 5px 4px; }
+    .bb-layouts-empty { padding: 8px 10px; color: var(--cp-text-muted); font-size: 12px; }
     /* ----- Fullscreen board "focus" mode ----- */
     /* The active board is lifted out of the normal flow and made to fill the whole
        window, hiding the sidebar / topbar / other page chrome behind it. It's a flex
@@ -5557,6 +5580,20 @@
                           🧲 Auto-arrange
                         </label>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
+                        <div class="bb-layouts" style="position:relative;display:inline-flex">
+                          <button class="btn ghost" type="button" :class="{ active: boardLayoutsMenu }" @click="boardLayoutsMenu = !boardLayoutsMenu" title="Save the current arrangement (panel positions, sizes, zoom &amp; text size) as a named layout, or restore one you saved earlier"><span x-text="'🗂 Layouts' + (boardSavedLayouts().length ? ' (' + boardSavedLayouts().length + ')' : '')"></span></button>
+                          <div class="bb-layouts-pop" x-show="boardLayoutsMenu" @click.outside="boardLayoutsMenu=false" x-transition.opacity style="display:none">
+                            <button class="bb-layouts-item" type="button" @click="saveCurrentLayout()">💾 Save current layout…</button>
+                            <div class="bb-layouts-sep" x-show="boardSavedLayouts().length"></div>
+                            <template x-for="sl in boardSavedLayouts()" :key="sl.id">
+                              <div class="bb-layouts-row">
+                                <button class="bb-layouts-item grow" type="button" @click="restoreSavedLayout(sl.id)" :title="'Restore: ' + sl.name" x-text="sl.name"></button>
+                                <button class="bb-layouts-del" type="button" @click.stop="deleteSavedLayout(sl.id)" title="Delete this saved layout">✕</button>
+                              </div>
+                            </template>
+                            <div class="bb-layouts-empty" x-show="!boardSavedLayouts().length">No saved layouts yet</div>
+                          </div>
+                        </div>
                         <button class="btn ghost" type="button" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done editing — re-hide stashed items' : 'Edit items: reveal stashed items so you can hide or restore any item. Stashed items stay out of the board but still feed the AI.'" x-text="boardManageMode ? ('✓ Done' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : '')) : ('👁 Edit items' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : ''))"></button>
                         <button class="btn ghost" type="button" @click="pinifyBoard()" title="Pin-ify: collapse every item on the board to a small icon chip and pack them tightly. Click any chip to expand it again — chips hover to preview.">📌 Pin-ify</button>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
@@ -9798,6 +9835,8 @@
         boardAiPinned: [],
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
+        // Named saved layouts dropdown open state (UI only; layouts live on the board).
+        boardLayoutsMenu: false,
         boardDragId: '',
         _panelDragMoved: false,
         boardCols: 12,
@@ -15363,6 +15402,54 @@
           this.ensureBoardLayout(true);
           this.scheduleAutoFit(true);
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
+        },
+        // ----- Named saved layouts -----
+        // A saved layout is a full visual snapshot of the board: the panel grid map
+        // (boardLayout) plus the canvas zoom/font/dimensions (boardCanvas, normally only
+        // in localStorage). Saving captures both; restoring re-applies both.
+        boardSavedLayouts() {
+          const b = this.activeBoard();
+          return (b && Array.isArray(b.savedLayouts)) ? b.savedLayouts : [];
+        },
+        async saveCurrentLayout() {
+          const b = this.activeBoard(); if (!b) return;
+          const name = await this.uiPrompt({ title: 'Save layout', label: 'Name this layout', placeholder: 'e.g. Standup view', confirmLabel: 'Save' });
+          if (name == null) return;
+          const trimmed = String(name).trim();
+          if (!trimmed) return;
+          const entry = {
+            id: 'sl-' + Date.now(),
+            name: trimmed,
+            layout: JSON.parse(JSON.stringify(this.boardLayout || {})),
+            canvas: { ...this.boardCanvas },
+            createdAt: new Date().toISOString(),
+          };
+          const next = [...this.boardSavedLayouts(), entry];
+          const saved = await this._patchBoard(b, { savedLayouts: next });
+          if (saved) { this.boardLayoutsMenu = false; this.showToast('Board', `Saved layout "${trimmed}"`, 'success'); }
+        },
+        restoreSavedLayout(id) {
+          const b = this.activeBoard(); if (!b) return;
+          const entry = this.boardSavedLayouts().find(s => s.id === id);
+          if (!entry) return;
+          this.boardLayout = JSON.parse(JSON.stringify(entry.layout || {}));
+          this.persistLayout();
+          if (entry.canvas && typeof entry.canvas === 'object') {
+            const c = entry.canvas;
+            this.boardCanvas = { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1 };
+            this._saveBoardCanvas();
+          }
+          this.boardLayoutsMenu = false;
+          this.scheduleAutoFit(true);
+          this.showToast('Board', `Restored "${entry.name}"`, 'success');
+        },
+        async deleteSavedLayout(id) {
+          const b = this.activeBoard(); if (!b) return;
+          const entry = this.boardSavedLayouts().find(s => s.id === id);
+          if (!entry) return;
+          if (!await this.uiConfirm({ title: 'Delete layout', message: `Delete saved layout "${entry.name}"?`, confirmLabel: 'Delete', danger: true })) return;
+          const next = this.boardSavedLayouts().filter(s => s.id !== id);
+          await this._patchBoard(b, { savedLayouts: next });
         },
         // Pack the pin-view layout tightly: the "Where was I?" summary is anchored
         // full-width at the very top (unless the user has deliberately dragged it down

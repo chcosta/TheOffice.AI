@@ -5079,6 +5079,9 @@ function _normalizeBoard(b) {
     autoWidth: b.autoWidth !== false,
     pinView: !!b.pinView,
     autoArrange: !!b.autoArrange,
+    // Named saved layouts the user can restore: [{ id, name, layout:{}, canvas:{}, createdAt }].
+    // Each captures a full visual snapshot (panel grid positions/sizes + zoom/font/canvas).
+    savedLayouts: Array.isArray(b.savedLayouts) ? b.savedLayouts : [],
     lastViewedAt: b.lastViewedAt || null,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
@@ -5121,7 +5124,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, starred, hidden, locks } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
@@ -5138,6 +5141,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (autoWidth !== undefined) b.autoWidth = !!autoWidth;
   if (pinView !== undefined) b.pinView = !!pinView;
   if (autoArrange !== undefined) b.autoArrange = !!autoArrange;
+  if (Array.isArray(savedLayouts)) b.savedLayouts = savedLayouts;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);
