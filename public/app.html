@@ -2349,6 +2349,15 @@
     .board-panel.collapsed .board-panel-head { padding: 6px 4px 6px 8px; }
     /* Board panel content scales with the per-board text-size control (--board-fs). */
     .board-panel-body { overflow: visible; padding: 1px 10px 8px; font-size: calc(13px * var(--board-fs, 1)); }
+    /* Rendered markdown (chat/summary/run output) uses rem-based sizes that are
+       relative to the document root, so they ignore the body font-size above.
+       Re-base them on --board-fs so the text-size control actually scales content. */
+    .board-panel-body .md-output { font-size: calc(0.82rem * var(--board-fs, 1)); }
+    .board-panel-body .md-output pre,
+    .board-panel-body .md-output code,
+    .board-panel-body .md-output th,
+    .board-panel-body .md-output td { font-size: calc(0.78rem * var(--board-fs, 1)); }
+    .board-panel-body .hint { font-size: calc(0.8rem * var(--board-fs, 1)); }
     /* Resize grip: a clearly visible two-line corner handle in the bottom-right.
        Dragging it sets the panel WIDTH; height then auto-fits the content. */
     .board-resize {
@@ -5401,6 +5410,7 @@
                       <span class="bb-title">⚙ Layout</span>
                       <div class="bb-group">
                         <button class="btn ghost" type="button" @click="organizeBoard()" title="Tidy the board so no cards overlap — packs each column top-to-bottom and fits every card to its content">⊞ Organize</button>
+                        <button class="btn ghost" type="button" @click="compactBoard()" title="Compact: shrink every card to the narrowest width that fits its content, fit heights, then pack everything up and to the left to remove dead space (no overlaps)">⇲ Compact</button>
                         <label class="board-aw-check" title="Auto-arrange: when a panel is moved or resized, automatically push overlapping cards out of the way so nothing is hidden. Only runs on move/resize." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
                           <input type="checkbox" :checked="boardAutoArrange()" @change="toggleBoardAutoArrange()" style="cursor:pointer">
                           🧲 Auto-arrange
@@ -14382,26 +14392,23 @@
           this.scheduleAutoFit(); // text size changed → re-fit panel heights
         },
         bumpBoardFont(delta) { this.setBoardFont((this.boardCanvas.fs || 1) + delta); },
-        // Shrink a panel's WIDTH to the narrowest column count that still fits its content
-        // (no horizontal overflow) without making the panel any taller — i.e. without
-        // forcing extra line-wraps. Height is left untouched. On-demand, per panel.
-        // Panels are CSS-grid items (width comes from the column span, not inline width),
-        // so we measure on an off-DOM clone whose width we CAN control, then commit the
-        // resulting span to boardLayout (which is what actually drives the rendered width).
-        autoSizePanelWidth(id) {
-          const grid = document.querySelector('.board-grid'); if (!grid) return;
+        // Compute the narrowest column span that keeps a panel's content fitting
+        // without growing its height. Returns the best column count (>=2) or null if
+        // the panel can't be measured. Panels are CSS-grid items (width comes from the
+        // column span, not inline width), so we measure on an off-DOM clone whose width
+        // we CAN control. Collapsed panels keep their current width.
+        _panelMinWidth(id) {
+          const grid = document.querySelector('.board-grid'); if (!grid) return null;
           let el = null;
           grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
-          if (!el || el.classList.contains('pin-chip')) return;
-          const inner = el.querySelector('.board-panel-inner'); if (!inner) return;
-          const body = el.querySelector('.board-panel-body'); if (!body) return;
-          const cur = this.boardLayout[id]; if (!cur) return;
-          const cols = this._boardEffCols();
-          const colPx = this._boardColPx(); if (!colPx) return;
+          if (!el || el.classList.contains('pin-chip')) return null;
+          const inner = el.querySelector('.board-panel-inner'); if (!inner) return null;
+          const body = el.querySelector('.board-panel-body');
+          const cur = this.boardLayout[id]; if (!cur) return null;
+          const colPx = this._boardColPx(); if (!colPx) return null;
           const curW = Math.max(2, Math.round(cur.w));
-          const baseH = body.scrollHeight;          // content height at the current width — must not grow
-          // Off-DOM measuring clone: a plain absolutely-positioned box (NOT a grid item),
-          // so its width is honoured. Carry the board font scale so wrapping matches.
+          if (this.isPanelCollapsed(id) || !body) return curW;
+          const baseH = body.scrollHeight;          // content height now — must not grow
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
           meas.style.setProperty('--board-fs', String(this.boardFont()));
@@ -14415,17 +14422,84 @@
           if (cbody) {
             for (let w = 2; w < curW; w++) {
               meas.style.width = (w * colPx) + 'px';
-              void cbody.offsetHeight;               // force reflow
+              void cbody.offsetHeight;
               if (cbody.scrollWidth <= cbody.clientWidth + 1 && cbody.scrollHeight <= baseH + 1) { best = w; break; }
             }
           }
           document.body.removeChild(meas);
+          return best;
+        },
+        // Shrink a single panel's WIDTH to the narrowest column span that still fits its
+        // content without making the panel any taller. Height is left untouched.
+        autoSizePanelWidth(id) {
+          const cur = this.boardLayout[id]; if (!cur) return;
+          const best = this._panelMinWidth(id);
+          if (best == null) return;
+          const curW = Math.max(2, Math.round(cur.w));
+          const cols = this._boardEffCols();
           if (best >= curW) { this.showToast('Board', 'Already at its minimum width', 'info'); return; }
           let x = cur.x;
           if (x + best > cols) x = Math.max(0, cols - best);
           this.boardLayout = { ...this.boardLayout, [id]: { ...cur, x, w: best } };
           this.persistLayout();
           this.scheduleAutoFit(true, id);
+        },
+        // Compact the whole board: minimize each panel's width to its content, fit every
+        // panel's height to its content, then pack everything top-to-bottom / left-to-right
+        // to remove dead space — guaranteeing no overlap (a skyline bin-pack).
+        compactBoard() {
+          if (this.route !== 'boards') return;
+          this.$nextTick(() => {
+            const grid = document.querySelector('.board-grid');
+            if (!grid) { this.showToast('Board', 'Open a board first', 'error'); return; }
+            const cols = this._boardEffCols();
+            const rowH = this.boardRowH, gap = this.boardGap;
+            const meta = {};
+            grid.querySelectorAll('.board-panel').forEach(el => {
+              const id = el.getAttribute('data-pid'); if (!id) return;
+              const cur = this.boardLayout[id]; if (!cur) return;
+              const isChip = el.classList.contains('pin-chip');
+              const head = el.querySelector('.board-panel-head');
+              const body = el.querySelector('.board-panel-body');
+              // Chips (and anything we can't measure) keep their current footprint so we
+              // still pack around them and never overlap; real panels get shrunk to fit.
+              if (isChip) { meta[id] = { w: Math.max(1, Math.round(cur.w)), h: Math.max(1, Math.round(cur.h)) }; return; }
+              let w = this._panelMinWidth(id);
+              if (w == null) w = Math.round(cur.w);
+              w = Math.max(2, Math.min(cols, w));
+              let h;
+              if (this.isPanelCollapsed(id)) h = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+              else h = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+              meta[id] = { w, h };
+            });
+            const layout = { ...this.boardLayout };
+            // Drop orphaned layout entries (keys with no rendered panel) so a stale
+            // position can't be left overlapping the freshly packed cards.
+            for (const id of Object.keys(layout)) { if (!meta[id]) delete layout[id]; }
+            const order = Object.keys(meta)
+              .filter(id => layout[id])
+              .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
+            const colTop = new Array(cols).fill(0);
+            let changed = false;
+            for (const id of order) {
+              const w = meta[id].w, h = meta[id].h;
+              const maxX = Math.max(0, cols - w);
+              let bestX = 0, bestY = Infinity;
+              for (let x = 0; x <= maxX; x++) {
+                let y = 0; for (let c = x; c < x + w; c++) if (colTop[c] > y) y = colTop[c];
+                if (y < bestY) { bestY = y; bestX = x; }
+              }
+              if (!isFinite(bestY)) bestY = 0;
+              for (let c = bestX; c < bestX + w; c++) colTop[c] = bestY + h;
+              const cur = layout[id];
+              if (cur.x !== bestX || cur.y !== bestY || cur.w !== w || cur.h !== h) {
+                layout[id] = { ...cur, x: bestX, y: bestY, w, h }; changed = true;
+              }
+            }
+            if (changed) { this.boardLayout = layout; this.persistLayout(); }
+            this.scheduleAutoFit(true);
+            this.showToast('Board', 'Compacted — widths minimized, gaps removed', 'success');
+          });
         },
         // boardCanvas.w/h (the canvas size), this reflects where panels really are —
         // panels can be dragged past the canvas edge, so this can be larger.
