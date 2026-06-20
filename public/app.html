@@ -5223,7 +5223,7 @@
                                 <button class="board-panel-chevron stash-toggle" type="button" x-show="canStashPanel(p) && (boardManageMode || isPanelStashed(p))" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="!isPanelCollapsed(p.id)" @click.stop="autoSizePanelWidth(p.id)" @mousedown.stop title="Shrink width to the minimum that fits the content (height stays the same)">▸◂</button>
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
-                                <button class="board-panel-chevron" type="button" x-show="isChipPanel(p) && boardPinViewOn()" @click.stop="reducePinChip(p)" @mousedown.stop title="Reduce to icon">⊟</button>
+                                <button class="board-panel-chevron" type="button" x-show="isChipPanel(p)" @click.stop="reducePinChip(p)" @mousedown.stop title="Pin-ify: reduce this item to an icon chip">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
                               </div>
                             </div>
@@ -5558,10 +5558,7 @@
                         </label>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <button class="btn ghost" type="button" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done editing — re-hide stashed items' : 'Edit items: reveal stashed items so you can hide or restore any item. Stashed items stay out of the board but still feed the AI.'" x-text="boardManageMode ? ('✓ Done' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : '')) : ('👁 Edit items' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : ''))"></button>
-                        <label class="board-aw-check" title="Pin view: collapse pinned items to draggable icon chips. Hover to preview, click to expand." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
-                          <input type="checkbox" :checked="boardPinViewOn()" @change="toggleBoardPinView()" style="cursor:pointer">
-                          📌 Pin view
-                        </label>
+                        <button class="btn ghost" type="button" @click="pinifyBoard()" title="Pin-ify: collapse every item on the board to a small icon chip and pack them tightly. Click any chip to expand it again — chips hover to preview.">📌 Pin-ify</button>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                       </div>
                       <div class="bb-sep"></div>
@@ -9803,9 +9800,6 @@
         boardLayout: {},
         boardDragId: '',
         _panelDragMoved: false,
-        // Pin-view: when a board is in pin-view, pin panels collapse to icon chips.
-        // This map (keyed by item.id) records pins the user has permanently expanded.
-        boardPinViewOpen: {},
         boardCols: 12,
         boardRowH: 36,
         boardGap: 14,
@@ -14348,12 +14342,11 @@
         // plus the Notes and Checklists panels. Stable ids drive the layout map.
         boardPanels() {
           const b = this.activeBoard();
-          // Pin view gives EVERY panel (summary / pins / notes / checklists) its own
-          // coordinate space via a single 'pv:' prefix, so the compact pin-view
-          // arrangement is stored completely separately from the roomy normal-mode
-          // layout. Toggling pin view therefore never corrupts the other mode's
-          // positions/widths.
-          const pv = this.boardPinViewOn() ? 'pv:' : '';
+          // Notes, checklists and pins are each their own free-positioned panel keyed by
+          // a stable id. (Pin-ify is now an intrinsic per-panel state — a panel collapses
+          // to an icon chip when its layout entry carries chip:true — not a separate
+          // coordinate space, so there is no longer a 'pv:' prefix.)
+          const pv = '';
           const panels = [{ id: pv + 'wherewasi', type: 'summary' }];
           // One panel per pinned item (kept in kind-grouped order so related pins
           // still cluster by default, but each is now independently positionable).
@@ -14409,30 +14402,22 @@
           }
           return this.chipName(p);
         },
-        // ----- Pin view (icon-collapse mode) -----
-        // When ON, every pin panel collapses to a small draggable icon+name chip that
-        // expands on hover and can be permanently expanded with a click.
-        boardPinViewOn() {
-          const b = this.activeBoard();
-          return !!(b && b.pinView);
-        },
-        toggleBoardPinView() {
-          const b = this.activeBoard();
-          if (!b) return;
-          b.pinView = !b.pinView;
-          if (b.pinView) {
-            // Entering pin view: pack tidily if any current panel is missing a saved
-            // pin-view position (first entry, or notes/checklists/pins added since the
-            // last pack). Otherwise honor the user's existing chip arrangement.
-            const complete = this.boardPanels().every(p => this.boardLayout && this.boardLayout[p.id]);
-            if (complete) { this.persistLayout(); this.scheduleAutoFit(); }
-            else { this.packPinView(true); }
-          } else {
-            this.boardPinViewOpen = {};   // leaving pin-view clears manual expands
-            this.ensureBoardLayout(false); // seed any missing normal-mode positions
-            this.persistLayout();          // ALWAYS persist the pinView=false flip
-            this.scheduleAutoFit();
+        // ----- Pin-ify (intrinsic per-panel icon-collapse) -----
+        // A panel collapses to a small draggable icon+name chip when its layout entry
+        // carries chip:true. This is intrinsic per-panel state (persisted in the layout
+        // map) — NOT a board-wide view mode — so any item can be chipped or expanded at
+        // any moment, mixed freely with full panels. "Pin-ify" chips everything at once.
+        pinifyBoard() {
+          const layout = { ...this.boardLayout };
+          let n = 0;
+          for (const p of this.boardPanels()) {
+            if (!this.isChipPanel(p)) continue;
+            layout[p.id] = { ...(layout[p.id] || {}), chip: true };
+            n++;
           }
+          this.boardLayout = layout;
+          this.packPinView(true);
+          this.showToast('Board', n ? ('Pinned ' + n + ' item' + (n === 1 ? '' : 's') + ' to chips') : 'Nothing to pin-ify', 'success');
         },
         // Auto-arrange: when ON, a panel that is moved or resized triggers a gentle
         // de-overlap pass so nothing ends up hidden under another card. It only fires on
@@ -14456,14 +14441,16 @@
         isChipPanel(p) {
           return p && (p.type === 'pin' || p.type === 'note' || p.type === 'checklist');
         },
-        // A panel renders as a collapsed chip when pin-view is on AND the user hasn't
-        // permanently expanded it. Keyed by the (pin-view) panel id so it works for
-        // pins, notes and checklists uniformly.
+        // A panel renders as a collapsed chip when its layout entry carries chip:true and
+        // the user hasn't expanded it. Intrinsic per-panel state — works for pins, notes
+        // and checklists uniformly, with no board-wide mode.
         pinChipCollapsed(p) {
           // In manage mode, stashed pins reveal as full panels (head visible) so they
           // can be restored without first expanding a chip.
           if (this.boardManageMode && this.isPanelStashed(p)) return false;
-          return this.isChipPanel(p) && this.boardPinViewOn() && !this.boardPinViewOpen[p.id];
+          if (!this.isChipPanel(p)) return false;
+          const l = this.boardLayout && this.boardLayout[p.id];
+          return !!(l && l.chip);
         },
         // Icon shown on a collapsed chip, per panel type.
         chipIcon(p) {
@@ -14493,26 +14480,25 @@
           return '';
         },
         // Click on a chip — ignore if the gesture was actually a drag. Expanding a chip
-        // also widens its saved footprint to a readable half-width column (a chip's own
-        // width is icon-sized), so it doesn't expand into a skinny sliver.
+        // clears its chip flag (persisted) and widens its footprint to a readable
+        // half-width column (a chip's own width is icon-sized) so it doesn't expand into
+        // a skinny sliver.
         boardChipClick(p) {
           if (this._panelDragMoved) { this._panelDragMoved = false; return; }
-          this.boardPinViewOpen = { ...this.boardPinViewOpen, [p.id]: true };
           const cols = this.boardCols, half = Math.floor(cols / 2);
-          const cur = this.boardLayout[p.id];
-          if (cur && !(cur.w >= half - 0.5)) {
-            let x = cur.x, w = half;
-            if (x + w > cols) x = Math.max(0, cols - w);
-            this.boardLayout = { ...this.boardLayout, [p.id]: { ...cur, x, w, h: Math.max(cur.h || 0, 6) } };
-            this.persistLayout();
-          }
+          const cur = this.boardLayout[p.id] || {};
+          const { chip, ...rest } = cur;
+          let x = rest.x || 0, w = rest.w;
+          if (!(w >= half - 0.5)) { w = half; if (x + w > cols) x = Math.max(0, cols - w); }
+          this.boardLayout = { ...this.boardLayout, [p.id]: { ...rest, x, w, h: Math.max(rest.h || 0, 6) } };
+          this.persistLayout();
           this.scheduleAutoFit();
         },
-        // Reduce an expanded panel back to an icon chip.
+        // Reduce an expanded panel back to an icon chip (set the intrinsic chip flag).
         reducePinChip(p) {
-          const m = { ...this.boardPinViewOpen };
-          delete m[p.id];
-          this.boardPinViewOpen = m;
+          const cur = this.boardLayout[p.id] || {};
+          this.boardLayout = { ...this.boardLayout, [p.id]: { ...cur, chip: true } };
+          this.persistLayout();
           this.scheduleAutoFit();
         },
         // ----- Stash / hide items -----
@@ -15365,17 +15351,6 @@
         },
         resetBoardLayout() {
           const b = this.activeBoard();
-          if (this.boardPinViewOn()) {
-            // Pin view: collapse every pin back to a chip and pack the chips tightly
-            // in the top-left so the user doesn't have to hunt scattered items down.
-            // Only the pin-view coordinate space is recomputed — the normal-mode
-            // full-panel positions are left untouched.
-            this.boardPinViewOpen = {};
-            this.resetBoardCanvas();
-            this.packPinView(true);
-            this.showToast('Board', 'Pins packed', 'success');
-            return;
-          }
           // Preserve layout entries for panels whose position OR size is locked — a reset
           // shouldn't override a lock the user explicitly set. ensureBoardLayout fills the
           // rest and organize/auto-fit flows the unlocked panels around them.
@@ -15570,7 +15545,7 @@
               if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
             }
             // After heights settle, push overlaps off the anchor if auto-arrange is on.
-            if (arrangeAnchor && this.boardAutoArrange() && !this.boardPinViewOn()) {
+            if (arrangeAnchor && this.boardAutoArrange()) {
               const res = this._resolveOverlaps(layout, arrangeAnchor);
               if (res.changed) { layout = res.layout; changed = true; }
             }
