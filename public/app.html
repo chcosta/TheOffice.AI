@@ -2346,6 +2346,26 @@
       flex: 0 0 auto;
     }
     .board-panel-chevron:hover { background: var(--cp-highlight); color: var(--cp-text); }
+    /* Stashed (hidden) panels are only visible while "Edit items" mode is on; they read
+       as dimmed/dashed with a small badge so they're clearly off-board. */
+    .board-panel.stashed .board-panel-inner,
+    .board-panel.stashed .pin-chip-card { opacity: 0.55; border-style: dashed; border-color: var(--cp-border-strong); }
+    .board-panel.stashed { position: relative; }
+    .board-panel.stashed > .board-panel-inner::after,
+    .board-panel.stashed > .pin-chip-card::after {
+      content: 'Hidden'; position: absolute; top: 4px; right: 6px;
+      font-size: 9px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--cp-accent); background: var(--cp-accent-soft);
+      border: 1px solid var(--cp-accent); border-radius: 999px; padding: 1px 6px;
+      pointer-events: none; opacity: 0.9;
+    }
+    .board-panel-chevron.stash-toggle { font-size: 12px; }
+    .pin-chip-stash {
+      background: transparent; border: none; color: var(--cp-text-muted);
+      cursor: pointer; font-size: 12px; line-height: 1; padding: 0 2px; border-radius: 4px; flex: 0 0 auto;
+    }
+    .pin-chip-stash:hover { background: var(--cp-highlight); color: var(--cp-text); }
+    .board-bottombar .btn.ghost.active { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
     .board-panel.collapsed .board-panel-head { padding: 6px 4px 6px 8px; }
     /* Board panel content scales with the per-board text-size control (--board-fs). */
     .board-panel-body { overflow: visible; padding: 1px 10px 8px; font-size: calc(13px * var(--board-fs, 1)); }
@@ -5119,10 +5139,13 @@
                     <div class="board-canvas-scroll" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
                             <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="chipType(p) + ': ' + chipName(p) + ' — click to expand'">
+                              <template x-if="boardManageMode && canStashPanel(p)">
+                                <button class="pin-chip-stash" type="button" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
+                              </template>
                               <template x-if="p.type==='pin' && pinStatus(p.item)">
                                 <span class="pin-dot" :class="pinStatus(p.item).state" :title="pinStatusTitle(p.item)"></span>
                               </template>
@@ -5150,6 +5173,7 @@
                                 <div class="board-panel-title" x-show="isPanelCollapsed(p.id)" x-text="panelTitleText(p)"></div>
                               </div>
                               <div class="bph-right">
+                                <button class="board-panel-chevron stash-toggle" type="button" x-show="canStashPanel(p) && (boardManageMode || isPanelStashed(p))" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="!isPanelCollapsed(p.id)" @click.stop="autoSizePanelWidth(p.id)" @mousedown.stop title="Shrink width to the minimum that fits the content (height stays the same)">▸◂</button>
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p) && boardPinViewOn()" @click.stop="reducePinChip(p)" @mousedown.stop title="Reduce to icon">⊟</button>
@@ -5492,6 +5516,7 @@
                           🧲 Auto-arrange
                         </label>
                         <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
+                        <button class="btn ghost" type="button" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done editing — re-hide stashed items' : 'Edit items: reveal stashed items so you can hide or restore any item. Stashed items stay out of the board but still feed the AI.'" x-text="boardManageMode ? ('✓ Done' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : '')) : ('👁 Edit items' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : ''))"></button>
                         <label class="board-aw-check" title="Pin view: collapse pinned items to draggable icon chips. Hover to preview, click to expand." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
                           <input type="checkbox" :checked="boardPinViewOn()" @change="toggleBoardPinView()" style="cursor:pointer">
                           📌 Pin view
@@ -9692,6 +9717,9 @@
         boardLocGit: {},
         boardNoteDraft: '',
         boardEditingNote: '',
+        // Manage/"Edit items" mode: reveals stashed (hidden) panels so they can be
+        // toggled back on. Ephemeral (not persisted) — purely a view state.
+        boardManageMode: false,
         boardChecklistDraft: '',
         boardSummaryLoading: false,
         boardCompliance: {},
@@ -14294,6 +14322,9 @@
           // One panel per note and per checklist — no more aggregate cards.
           for (const n of ((b && b.notes) || [])) panels.push({ id: pv + 'note:' + n.id, type: 'note', note: n });
           for (const cl of ((b && b.checklists) || [])) panels.push({ id: pv + 'cl:' + cl.id, type: 'checklist', checklist: cl });
+          // Stashed items are hidden from the grid in normal use, but revealed (so they
+          // can be toggled back on) while "Edit items" / manage mode is active.
+          if (!this.boardManageMode) return panels.filter(p => !this.isPanelStashed(p));
           return panels;
         },
         panelTitle(p) {
@@ -14388,6 +14419,9 @@
         // permanently expanded it. Keyed by the (pin-view) panel id so it works for
         // pins, notes and checklists uniformly.
         pinChipCollapsed(p) {
+          // In manage mode, stashed pins reveal as full panels (head visible) so they
+          // can be restored without first expanding a chip.
+          if (this.boardManageMode && this.isPanelStashed(p)) return false;
           return this.isChipPanel(p) && this.boardPinViewOn() && !this.boardPinViewOpen[p.id];
         },
         // Icon shown on a collapsed chip, per panel type.
@@ -14439,6 +14473,53 @@
           delete m[p.id];
           this.boardPinViewOpen = m;
           this.scheduleAutoFit();
+        },
+        // ----- Stash / hide items -----
+        // A panel's stable id WITHOUT the pin-view 'pv:' prefix, so stash state is shared
+        // across normal mode and pin view (e.g. 'pin:pin-xxx', 'note:<id>', 'cl:<id>').
+        panelBaseId(p) { return String((p && p.id) || '').replace(/^pv:/, ''); },
+        boardHidden() { const b = this.activeBoard(); return (b && b.hidden) || {}; },
+        // True when a panel is stashed (hidden from the grid but still feeding the AI).
+        isPanelStashed(p) { return !!this.boardHidden()[this.panelBaseId(p)]; },
+        // The briefing is always visible; everything else can be stashed.
+        canStashPanel(p) { return !!p && p.type !== 'summary'; },
+        // Count of currently-stashed panels that still exist on the board.
+        boardStashedCount() {
+          const h = this.boardHidden();
+          const ids = new Set();
+          for (const g of this.boardItemsByKind()) for (const it of g.items) ids.add('pin:' + it.id);
+          const b = this.activeBoard();
+          for (const n of ((b && b.notes) || [])) ids.add('note:' + n.id);
+          for (const cl of ((b && b.checklists) || [])) ids.add('cl:' + cl.id);
+          let n = 0; for (const k of Object.keys(h)) { if (h[k] && ids.has(k)) n++; }
+          return n;
+        },
+        toggleBoardManage() {
+          this.boardManageMode = !this.boardManageMode;
+          if (this.boardManageMode) {
+            // Revealed stashed panels may lack a position in the current coordinate space.
+            this.$nextTick(() => { this.ensureBoardLayout(false); this.scheduleAutoFit(); });
+          }
+        },
+        // Persist just the hidden map (display-only; the server keeps using every item
+        // for AI context, so stashed items still contribute to the board).
+        persistHidden(hidden) {
+          const b = this.activeBoard(); if (!b) return;
+          this.request('/api/boards/' + encodeURIComponent(b.id), { method: 'PUT', body: JSON.stringify({ hidden }) }).catch(() => {});
+        },
+        // Stash (hide) or restore a panel. Stashing removes it from the grid; restoring
+        // brings it back and makes sure it has a position.
+        togglePanelStash(p) {
+          const b = this.activeBoard(); if (!b || !this.canStashPanel(p)) return;
+          const key = this.panelBaseId(p);
+          const hidden = { ...(b.hidden || {}) };
+          const nowHidden = !hidden[key];
+          if (nowHidden) hidden[key] = true; else delete hidden[key];
+          const idx = this.boards.findIndex(x => x.id === b.id);
+          if (idx >= 0) this.boards[idx] = { ...this.boards[idx], hidden };
+          this.persistHidden(hidden);
+          this.showToast('Board', nowHidden ? 'Stashed — hidden from the board but still used by AI' : 'Restored to the board', nowHidden ? 'info' : 'success');
+          if (!nowHidden) this.$nextTick(() => { this.ensureBoardLayout(true); this.scheduleAutoFit(true); });
         },
         // ----- Auto-width -----
         // Per-board flag (default ON). When ON, panel widths are managed automatically

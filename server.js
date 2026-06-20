@@ -5065,6 +5065,9 @@ function _normalizeBoard(b) {
     notes: Array.isArray(b.notes) ? b.notes : [],
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
     layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
+    // Stashed items: { '<panelBaseId>': true }. Stashed pins/notes/checklists are hidden
+    // from the board grid but still feed the AI context (where-was-i, assistant). Display-only.
+    hidden: (b.hidden && typeof b.hidden === 'object' && !Array.isArray(b.hidden)) ? b.hidden : {},
     summary: (b.summary && typeof b.summary === 'object' && !Array.isArray(b.summary)) ? b.summary : null,
     archived: !!b.archived,
     enabled: b.enabled !== false,
@@ -5114,7 +5117,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, starred } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, starred, hidden } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
@@ -5123,6 +5126,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
+  if (hidden && typeof hidden === 'object' && !Array.isArray(hidden)) b.hidden = hidden;
   if (archived !== undefined) b.archived = !!archived;
   if (enabled !== undefined) b.enabled = !!enabled;
   if (starred !== undefined) b.starred = !!starred;
