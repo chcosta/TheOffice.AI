@@ -1583,7 +1583,7 @@
     .lp-card:hover { border-color: var(--cp-accent); transform: translateY(-1px); }
     .lp-card-top { display: flex; align-items: flex-start; gap: 10px; }
     .lp-av { width: 36px; height: 36px; border-radius: 9px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 18px; background: linear-gradient(135deg, var(--cp-accent), var(--cp-accent-hover)); }
-    .lp-card h3 { margin: 0; font-size: 1rem; line-height: 1.2; }
+    .lp-card h3 { margin: 0; font-size: 1rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .lp-card .lp-sub { font-size: 0.78rem; color: var(--cp-text-muted); margin-top: 2px; }
     .lp-sdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
     .lp-desc { font-size: 0.83rem; color: var(--cp-text-soft); margin: 11px 0; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.4em; }
@@ -1594,9 +1594,9 @@
     .lp-avstack { display: flex; align-items: center; }
     .lp-avstack .mini { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--cp-surface); margin-left: -7px; display: flex; align-items: center; justify-content: center; font-size: 11px; background: var(--cp-surface-soft); color: var(--cp-text); }
     .lp-avstack .mini:first-child { margin-left: 0; }
-    .lp-qa { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; opacity: 0; transition: opacity .12s; }
+    .lp-qa { position: absolute; top: 10px; right: 10px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: calc(100% - 56px); opacity: 0; transition: opacity .12s; background: var(--cp-panel-strong); border: 1px solid var(--cp-border); border-radius: 10px; padding: 5px; box-shadow: var(--cp-shadow); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 2; }
     .lp-card:hover .lp-qa { opacity: 1; }
-    .lp-qa button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--cp-border); background: var(--cp-bg-elevated); color: var(--cp-text); cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; }
+    .lp-qa button { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--cp-border); background: var(--cp-bg-elevated); color: var(--cp-text); cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
     .lp-qa button:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
     .lp-tbl { width: 100%; border-collapse: collapse; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 14px; overflow: hidden; }
     .lp-tbl th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-text-soft); padding: 11px 14px; border-bottom: 1px solid var(--cp-border); }
@@ -2274,6 +2274,18 @@
     .pin-chip-card:hover .pin-chip-pop { opacity: 1; visibility: visible; transform: translateY(0); }
     .pin-chip-pop .pin-chip-pop-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; color: var(--cp-text); }
     .pin-chip-pop .pin-chip-pop-meta { font-size: 11.5px; color: var(--cp-text-muted); }
+    .pin-chip-pop .pin-chip-type {
+      display: inline-block;
+      margin: 2px 0 4px;
+      padding: 1px 8px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      color: var(--cp-accent);
+      background: var(--cp-accent-soft);
+      border-radius: 999px;
+    }
     .board-panel-inner {
       height: 100%;
       display: flex;
@@ -5003,16 +5015,17 @@
                         <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
-                            <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="(p.item.label || p.item.refId) + ' — click to expand'">
-                              <template x-if="pinStatus(p.item)">
+                            <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="chipType(p) + ': ' + chipName(p) + ' — click to expand'">
+                              <template x-if="p.type==='pin' && pinStatus(p.item)">
                                 <span class="pin-dot" :class="pinStatus(p.item).state" :title="pinStatusTitle(p.item)"></span>
                               </template>
-                              <span class="pin-chip-icon" x-text="boardKindIcon(p.kind)"></span>
-                              <span class="pin-chip-name" x-text="p.item.label || p.item.refId"></span>
+                              <span class="pin-chip-icon" x-text="chipIcon(p)"></span>
+                              <span class="pin-chip-name" x-text="chipName(p)"></span>
                               <div class="pin-chip-pop">
-                                <div style="font-weight:600;margin-bottom:2px" x-text="boardKindIcon(p.kind) + ' ' + (p.item.label || p.item.refId)"></div>
-                                <div class="hint" x-show="p.item.sublabel" x-text="p.item.sublabel"></div>
-                                <div class="hint" x-show="pinStatus(p.item)" x-text="pinStatus(p.item) ? (pinStatus(p.item).state + (pinStatus(p.item).relative ? ' · ' + pinStatus(p.item).relative : '')) : ''"></div>
+                                <div style="font-weight:600;margin-bottom:2px" x-text="chipIcon(p) + ' ' + chipName(p)"></div>
+                                <div class="pin-chip-type" x-text="chipType(p)"></div>
+                                <div class="hint" x-show="p.type==='pin' && p.item && p.item.sublabel" x-text="p.item ? p.item.sublabel : ''"></div>
+                                <div class="hint" x-show="p.type==='pin' && pinStatus(p.item)" x-text="(p.type==='pin' && pinStatus(p.item)) ? (pinStatus(p.item).state + (pinStatus(p.item).relative ? ' · ' + pinStatus(p.item).relative : '')) : ''"></div>
                                 <div class="hint" style="opacity:.65;margin-top:4px">Click to expand · drag to move</div>
                               </div>
                             </div>
@@ -5025,7 +5038,7 @@
                                 <div class="board-panel-title" x-text="panelTitle(p)"></div>
                               </div>
                               <div style="display:flex;align-items:center;gap:4px;flex:0 0 auto">
-                                <button class="board-panel-chevron" type="button" x-show="p.type==='pin' && boardPinViewOn()" @click.stop="reducePinChip(p.item)" @mousedown.stop title="Reduce to icon">⊟</button>
+                                <button class="board-panel-chevron" type="button" x-show="isChipPanel(p) && boardPinViewOn()" @click.stop="reducePinChip(p)" @mousedown.stop title="Reduce to icon">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
                               </div>
                             </div>
@@ -10254,7 +10267,7 @@
           return { route: 'home', param: null };
         },
 
-        async handleRouteChange() {
+        async handleRouteChange(opts = {}) {
           if (this.route === 'agent-detail' && this.app.routeParam) {
             await this.loadAgentDetail(this.app.routeParam);
           } else if (this.route === 'manager-detail' && this.app.routeParam) {
@@ -10300,8 +10313,17 @@
           } else if (this.route === 'teams') {
             await this.loadOrganizations();
           } else if (this.route === 'boards') {
-            await this.loadBoards(this.app.routeParam);
-            this.$nextTick(() => this._scheduleBoardCanvasH());
+            // Background refreshes are driven by streaming agent-status SSE while an
+            // agent runs (scheduleRefresh → refreshAll). A full loadBoards re-fetches,
+            // re-syncs layout, re-fits and re-renders the entire canvas — doing that
+            // ~1×/sec looks exactly like "panels resizing every second". The board is
+            // already rendered; live pin status reads from this.data.* (refreshed above)
+            // and real board content/layout changes arrive via the throttled
+            // 'boards-changed' handler. So only do the heavy reload on genuine route entry.
+            if (!opts.background) {
+              await this.loadBoards(this.app.routeParam);
+              this.$nextTick(() => this._scheduleBoardCanvasH());
+            }
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'home') {
@@ -10322,7 +10344,7 @@
           window.location.hash = hash;
         },
 
-        async refreshAll(showLoading = true) {
+        async refreshAll(showLoading = true, opts = {}) {
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
@@ -10343,8 +10365,9 @@
             this.data.chains = Array.isArray(chains) ? chains : [];
             this.data.teams = Array.isArray(organizations) ? organizations : [];
             this._reconcileCurrentOrg();
+            this._reconcileQuickPins();
             await this.loadActivity();
-            await this.handleRouteChange();
+            await this.handleRouteChange(opts);
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } catch (error) {
             this.errorMessage = error.message;
@@ -10814,8 +10837,18 @@
               if (this.activeChat && this.activeChat.id === chatId) this.activeChat.title = title;
             });
             // Boards changed elsewhere → refresh the board list while on the page.
+            // Throttle: other tabs/clients can emit boards-changed many times per second
+            // (e.g. layout persists). Coalesce into at most one reload every ~1.2s with a
+            // trailing edge, so we don't re-fetch + re-fit + re-render the whole board on
+            // every event (which looks like panels resizing every second).
             source.addEventListener('boards-changed', () => {
-              if (this.route === 'boards') this.loadBoards(this.activeBoardId, true);
+              if (this.route !== 'boards') return;
+              const now = Date.now();
+              const last = this._boardsReloadAt || 0;
+              const run = () => { this._boardsReloadAt = Date.now(); if (this.route === 'boards') this.loadBoards(this.activeBoardId, true); };
+              clearTimeout(this._boardsChangedTimer);
+              if (now - last >= 1200) { run(); }
+              else { this._boardsChangedTimer = setTimeout(run, 1200 - (now - last)); }
             });
             // Team membership / op-team changes can flip a board's compliance.
             source.addEventListener('teams-changed', () => {
@@ -10901,7 +10934,7 @@
         scheduleRefresh() {
           clearTimeout(this.refreshTimer);
           this.refreshTimer = setTimeout(() => {
-            this.refreshAll(false);
+            this.refreshAll(false, { background: true });
             if (this.route === 'home') this.loadSchedules();
           }, 400);
         },
@@ -10912,9 +10945,9 @@
           return [
             { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
             { key: 'home', label: 'Home', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
-            { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
+            { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
             { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
               { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
               { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
@@ -13384,11 +13417,28 @@
             items.push({ kind: 'board', kindLabel: 'Board', id: b.id, name: b.name, emoji: b.emoji || '📌', teamId: b.teamId || null });
           }
           for (const p of (this.quickPins || [])) {
+            // Skip employee pins whose underlying agent/manager was removed (ghost entries).
+            if (p.kind === 'employee' && this._employeesLoaded() && !this._employeeExists(p.id)) continue;
             const kindLabel = p.kind === 'employee' ? 'Employee' : 'Operation';
             const fallback = p.kind === 'employee' ? '🧑' : '⚙️';
             items.push({ kind: p.kind, kindLabel, id: p.id, name: p.name, emoji: p.emoji || fallback, teamId: p.teamId || null, route: p.route });
           }
           return items;
+        },
+        _employeesLoaded() {
+          return (this.data.agents || []).length > 0 || (this.data.managers || []).length > 0;
+        },
+        _employeeExists(id) {
+          return (this.data.agents || []).some(a => a.id === id) || (this.data.managers || []).some(m => m.id === id);
+        },
+        // Permanently drop quick-launch pins for employees that no longer exist.
+        // Guarded so it only runs once agents/managers are loaded (avoids pruning
+        // valid pins during an empty mid-load state).
+        _reconcileQuickPins() {
+          if (!this._employeesLoaded()) return;
+          const before = (this.quickPins || []).length;
+          this.quickPins = (this.quickPins || []).filter(p => p.kind !== 'employee' || this._employeeExists(p.id));
+          if (this.quickPins.length !== before) this._saveQuickPins();
         },
         isQuickPinned(kind, id) {
           if (kind === 'board') { const b = (this.boards || []).find(x => x.id === id); return !!(b && b.starred); }
@@ -14072,18 +14122,21 @@
         // plus the Notes and Checklists panels. Stable ids drive the layout map.
         boardPanels() {
           const b = this.activeBoard();
-          const panels = [{ id: 'wherewasi', type: 'summary' }];
+          // Pin view gives EVERY panel (summary / pins / notes / checklists) its own
+          // coordinate space via a single 'pv:' prefix, so the compact pin-view
+          // arrangement is stored completely separately from the roomy normal-mode
+          // layout. Toggling pin view therefore never corrupts the other mode's
+          // positions/widths.
+          const pv = this.boardPinViewOn() ? 'pv:' : '';
+          const panels = [{ id: pv + 'wherewasi', type: 'summary' }];
           // One panel per pinned item (kept in kind-grouped order so related pins
           // still cluster by default, but each is now independently positionable).
-          // Pin-view chips live in their own coordinate space ('pinv:' prefix) so the
-          // tight chip packing never clobbers the roomy full-panel ('pin:') positions.
-          const pinPrefix = this.boardPinViewOn() ? 'pinv:' : 'pin:';
           for (const g of this.boardItemsByKind()) {
-            for (const item of g.items) panels.push({ id: pinPrefix + item.id, type: 'pin', kind: item.kind, item });
+            for (const item of g.items) panels.push({ id: pv + 'pin:' + item.id, type: 'pin', kind: item.kind, item });
           }
           // One panel per note and per checklist — no more aggregate cards.
-          for (const n of ((b && b.notes) || [])) panels.push({ id: 'note:' + n.id, type: 'note', note: n });
-          for (const cl of ((b && b.checklists) || [])) panels.push({ id: 'cl:' + cl.id, type: 'checklist', checklist: cl });
+          for (const n of ((b && b.notes) || [])) panels.push({ id: pv + 'note:' + n.id, type: 'note', note: n });
+          for (const cl of ((b && b.checklists) || [])) panels.push({ id: pv + 'cl:' + cl.id, type: 'checklist', checklist: cl });
           return panels;
         },
         panelTitle(p) {
@@ -14113,33 +14166,77 @@
           if (!b) return;
           b.pinView = !b.pinView;
           if (b.pinView) {
-            // Entering pin view: if we have no saved chip positions yet, pack them
-            // tight so pins don't scatter across the board; otherwise honor the
-            // user's prior chip arrangement.
-            const hasChips = Object.keys(this.boardLayout || {}).some(k => k.startsWith('pinv:'));
-            if (hasChips) { this.persistLayout(); this.scheduleAutoFit(); }
+            // Entering pin view: pack tidily if any current panel is missing a saved
+            // pin-view position (first entry, or notes/checklists/pins added since the
+            // last pack). Otherwise honor the user's existing chip arrangement.
+            const complete = this.boardPanels().every(p => this.boardLayout && this.boardLayout[p.id]);
+            if (complete) { this.persistLayout(); this.scheduleAutoFit(); }
             else { this.packPinView(true); }
           } else {
-            this.boardPinViewOpen = {}; // leaving pin-view clears manual expands
-            this.ensureBoardLayout(true); // seed / restore full-panel positions
+            this.boardPinViewOpen = {};   // leaving pin-view clears manual expands
+            this.ensureBoardLayout(false); // seed any missing normal-mode positions
+            this.persistLayout();          // ALWAYS persist the pinView=false flip
             this.scheduleAutoFit();
           }
         },
-        // A pin renders as a collapsed chip when pin-view is on AND the user hasn't
-        // permanently expanded it.
-        pinChipCollapsed(p) {
-          return p.type === 'pin' && this.boardPinViewOn() && !this.boardPinViewOpen[p.item.id];
+        // Every panel except the "Where was I?" summary can collapse to an icon chip
+        // in pin view (pins, notes and checklists alike).
+        isChipPanel(p) {
+          return p && (p.type === 'pin' || p.type === 'note' || p.type === 'checklist');
         },
-        // Click on a chip — ignore if the gesture was actually a drag.
+        // A panel renders as a collapsed chip when pin-view is on AND the user hasn't
+        // permanently expanded it. Keyed by the (pin-view) panel id so it works for
+        // pins, notes and checklists uniformly.
+        pinChipCollapsed(p) {
+          return this.isChipPanel(p) && this.boardPinViewOn() && !this.boardPinViewOpen[p.id];
+        },
+        // Icon shown on a collapsed chip, per panel type.
+        chipIcon(p) {
+          if (p.type === 'pin') return this.boardKindIcon(p.kind);
+          if (p.type === 'note') return '📝';
+          if (p.type === 'checklist') return '✅';
+          return '•';
+        },
+        // Short name shown on a collapsed chip, per panel type.
+        chipName(p) {
+          if (p.type === 'pin') return (p.item && (p.item.label || p.item.refId)) || '';
+          if (p.type === 'note') {
+            const first = String((p.note && p.note.text) || '').split('\n').map(s => s.trim()).find(Boolean) || 'Note';
+            return first.replace(/^#+\s*/, '').replace(/[*_`>-]/g, '').trim() || 'Note';
+          }
+          if (p.type === 'checklist') {
+            const pr = this.checklistProgress(p.checklist);
+            return ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
+          }
+          return '';
+        },
+        // Human-readable resource type for a collapsed chip (Agent, Task, Chat, Note, …).
+        chipType(p) {
+          if (p.type === 'pin') return this.boardKindLabel(p.kind);
+          if (p.type === 'note') return 'Note';
+          if (p.type === 'checklist') return 'Checklist';
+          return '';
+        },
+        // Click on a chip — ignore if the gesture was actually a drag. Expanding a chip
+        // also widens its saved footprint to a readable half-width column (a chip's own
+        // width is icon-sized), so it doesn't expand into a skinny sliver.
         boardChipClick(p) {
           if (this._panelDragMoved) { this._panelDragMoved = false; return; }
-          this.boardPinViewOpen = { ...this.boardPinViewOpen, [p.item.id]: true };
+          this.boardPinViewOpen = { ...this.boardPinViewOpen, [p.id]: true };
+          const cols = this.boardCols, half = Math.floor(cols / 2);
+          const cur = this.boardLayout[p.id];
+          if (cur && !(cur.w >= half - 0.5)) {
+            let x = cur.x, w = half;
+            if (x + w > cols) x = Math.max(0, cols - w);
+            this.boardLayout = { ...this.boardLayout, [p.id]: { ...cur, x, w, h: Math.max(cur.h || 0, 6) } };
+            this.persistLayout();
+          }
           this.scheduleAutoFit();
         },
-        // Reduce an expanded pin back to an icon chip.
-        reducePinChip(item) {
+        // Reduce an expanded panel back to an icon chip.
+        reducePinChip(p) {
           const m = { ...this.boardPinViewOpen };
-          delete m[item.id];
+          delete m[p.id];
           this.boardPinViewOpen = m;
           this.scheduleAutoFit();
         },
@@ -14251,12 +14348,17 @@
         normalizeBoardWidths() {
           const cols = this.boardCols, half = Math.floor(cols / 2);
           const layout = { ...this.boardLayout };
-          const order = Object.keys(layout)
+          // Only re-column the panels currently on screen (skip pin-view chips, which
+          // are free-floating). This leaves the inactive coordinate space untouched.
+          const order = this.boardPanels()
+            .filter(p => !this.pinChipCollapsed(p))
+            .map(p => p.id)
+            .filter(id => layout[id])
             .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
           let i = 0;
           for (const id of order) {
             const cur = layout[id];
-            if (id === 'wherewasi') { layout[id] = { ...cur, x: 0, w: cols }; continue; }
+            if (id.endsWith('wherewasi')) { layout[id] = { ...cur, x: 0, w: cols }; continue; }
             const left = (i % 2 === 0);
             layout[id] = { ...cur, x: left ? 0 : half, w: left ? half : (cols - half) };
             i++;
@@ -14279,12 +14381,20 @@
           if (holding) {
             b.layout = this.boardLayout; // re-apply onto the freshly loaded board object
             if (this._layoutHoldAutoWidth !== undefined) b.autoWidth = this._layoutHoldAutoWidth;
+            if (this._layoutHoldPinView !== undefined) b.pinView = this._layoutHoldPinView;
           } else {
             this.boardLayout = (b && b.layout && typeof b.layout === 'object') ? { ...b.layout } : {};
           }
           this.ensureBoardLayout(false);
           this.maybeRefreshSummary();
-          this.scheduleAutoFit();
+          // Only auto-fit when this sync is NOT just our own recently-persisted layout
+          // echoing back (boards-changed SSE → loadBoards → here). Re-fitting on that echo
+          // re-measures the DOM, and the 1s relative-time re-render nudges scrollHeight
+          // across a row boundary, flipping a panel's height by ±1 row, which persists,
+          // which echoes again — panels visibly resize every second. Skipping the refit
+          // during the hold window breaks that loop; genuine external changes (outside the
+          // hold window) still refit normally.
+          if (!holding) this.scheduleAutoFit();
         },
         // Assign default slots to any panel without a saved position (2-column,
         // 50/50). Prunes layout entries for panels that no longer exist. Persists
@@ -14305,8 +14415,9 @@
           }
           for (const p of panels) {
             if (layout[p.id]) continue;
-            // The "Where was I?" briefing defaults to a full-width panel at the top.
-            if (p.id === 'wherewasi') {
+            // The "Where was I?" briefing defaults to a full-width panel at the top
+            // (matches in either coordinate space — 'wherewasi' or 'pv:wherewasi').
+            if (p.type === 'summary') {
               const y = Math.max(yL, yR);
               layout[p.id] = { x: 0, y, w: cols, h: 5 };
               yL = yR = y + 5;
@@ -14318,13 +14429,17 @@
             else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
             changed = true;
           }
-          // Prune layout entries for panels that no longer exist. Keep BOTH pin
-          // coordinate spaces ('pin:' full + 'pinv:' chip) for every live item so
-          // toggling pin view doesn't discard the inactive mode's saved positions.
-          const ids = new Set(panels.map(p => p.id));
+          // Prune layout entries for panels that no longer exist. Keep BOTH coordinate
+          // spaces (normal '' + pin-view 'pv:') for every live panel so toggling pin
+          // view never discards the inactive mode's saved positions/widths.
+          const ids = new Set();
+          ids.add('wherewasi'); ids.add('pv:wherewasi');
           for (const g of this.boardItemsByKind()) {
-            for (const item of g.items) { ids.add('pin:' + item.id); ids.add('pinv:' + item.id); }
+            for (const item of g.items) { ids.add('pin:' + item.id); ids.add('pv:pin:' + item.id); }
           }
+          const bb = this.activeBoard();
+          for (const n of ((bb && bb.notes) || [])) { ids.add('note:' + n.id); ids.add('pv:note:' + n.id); }
+          for (const cl of ((bb && bb.checklists) || [])) { ids.add('cl:' + cl.id); ids.add('pv:cl:' + cl.id); }
           for (const k of Object.keys(layout)) { if (!ids.has(k)) { delete layout[k]; changed = true; } }
           if (changed) { this.boardLayout = layout; if (persist) this.persistLayout(); }
         },
@@ -14519,11 +14634,18 @@
               const pushBottom = wantNy + start.h > canvasRows;
               const vpR = hScroll ? Math.min(hScroll.getBoundingClientRect().right, window.innerWidth) : window.innerWidth;
               const vpB = hScroll ? Math.min(hScroll.getBoundingClientRect().bottom, window.innerHeight) : window.innerHeight;
+              // Only grow when the CURSOR itself is in the viewport edge zone — not merely
+              // because a tall panel's far edge pokes past the wall. (A tall expanded panel
+              // exceeds the canvas height even at the top; without this gate it would force
+              // continuous bottom-growth and the panel would ride away downward, impossible
+              // to drag back up.)
+              const inRightZone = lastX > vpR - EDGE;
+              const inBottomZone = lastY > vpB - EDGE;
               // Ease the per-frame step by how deep into the edge zone the cursor is, so the
               // growth feels fluid (a slow crawl near the edge, faster the harder you push).
               // Divide by zoom so layout growth keeps a consistent on-screen speed.
               const easeStep = (into) => Math.max(2, Math.round((Math.min(EDGE, Math.max(0, into)) / EDGE) * STEP_MAX)) / z;
-              if (pushRight) {
+              if (pushRight && inRightZone) {
                 atRight = true;
                 // Pushing past the wall hand-positions the panel, so leave auto-width mode
                 // (capturing the current window-fit width as the fixed column base).
@@ -14536,7 +14658,7 @@
                   canvasGrew = true;
                 }
               }
-              if (pushBottom) {
+              if (pushBottom && inBottomZone) {
                 atBottom = true;
                 const curH = this.boardCanvas.h || (r.height / z);
                 const nh = Math.min(MAXH, Math.round(curH + easeStep(lastY - (vpB - EDGE))));
@@ -14604,6 +14726,7 @@
           this._layoutHoldBoard = b.id;
           this._layoutHoldUntil = Date.now() + 2000;
           this._layoutHoldAutoWidth = (b.autoWidth !== false);
+          this._layoutHoldPinView = !!b.pinView;
           clearTimeout(this._layoutTimer);
           const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false), pinView = !!b.pinView;
           this._layoutTimer = setTimeout(() => {
@@ -14632,11 +14755,13 @@
           this.scheduleAutoFit();
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
         },
-        // Compactly pack pin-view chips into the top-left, flowing left-to-right and
-        // wrapping at the canvas width, so a reset clusters them instead of spreading
-        // them across the board. Full panels (summary / notes / checklists) flow in a
-        // 50/50 column block beneath the chip cluster. Normal-mode ('pin:') positions
-        // are preserved. Measures rendered chips, so it runs on the next tick.
+        // Pack the pin-view layout tightly: the "Where was I?" summary is anchored
+        // full-width at the very top (unless the user has deliberately dragged it down
+        // out of the top row), the pin chips flow left-to-right beneath it, and the
+        // notes / checklists (and any permanently-expanded pins) flow in a 50/50 column
+        // block below the chips. Operates purely in the 'pv:' coordinate space, so the
+        // normal-mode layout is never touched. Measures rendered DOM, so it runs on the
+        // next tick.
         packPinView(persist = true) {
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
@@ -14651,12 +14776,39 @@
               const id = el.getAttribute('data-pid'); if (id) els[id] = el;
             });
             const panels = this.boardPanels();
+            const summaryP = panels.find(p => p.type === 'summary');
             const chips = [], fulls = [];
-            for (const p of panels) (this.pinChipCollapsed(p) ? chips : fulls).push(p);
-            // Keep every other entry (notably the inactive-mode 'pin:' positions).
+            for (const p of panels) {
+              if (p.type === 'summary') continue;
+              (this.pinChipCollapsed(p) ? chips : fulls).push(p);
+            }
+            // Keep every other entry (notably the inactive normal-mode positions).
             const layout = { ...this.boardLayout };
+            // Measure a full panel's height (in grid rows) from its rendered content.
+            const measureH = (p, fallback) => {
+              const el = els[p.id];
+              const head = el && el.querySelector('.board-panel-head');
+              const body = el && el.querySelector('.board-panel-body');
+              if (el && this.isPanelCollapsed(p.id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+              if (el) return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+              return fallback;
+            };
+            // 1. Anchor the summary full-width at the top — unless the user dragged it
+            //    away from the top row, in which case leave it where it is and pack the
+            //    rest from y = 0.
+            let startY = 0;
+            if (summaryP) {
+              const cur = layout[summaryP.id];
+              const movedAway = cur && Number.isFinite(cur.y) && cur.y > 1.5;
+              if (!movedAway) {
+                const hS = measureH(summaryP, 5);
+                layout[summaryP.id] = { x: 0, y: 0, w: cols, h: hS };
+                startY = hS;
+              }
+            }
+            // 2. Chips flow left-to-right below the summary, wrapping at the canvas edge.
             const hgap = 10, vgap = 10;
-            let x = 0, y = 0, rowMaxH = 0;
+            let x = 0, y = startY * rowH, rowMaxH = 0;
             for (const p of chips) {
               const card = els[p.id] && els[p.id].querySelector('.pin-chip-card');
               const r = card ? card.getBoundingClientRect() : null;
@@ -14668,18 +14820,11 @@
               x += slotW + hgap;
               rowMaxH = Math.max(rowMaxH, ch);
             }
-            // Full panels flow below the chips.
-            const yBlock = chips.length ? (y + rowMaxH + vgap + gap) / rowH : 0;
+            // 3. Notes / checklists / expanded pins flow in a 50/50 block below the chips.
+            const yBlock = chips.length ? (y + rowMaxH + vgap + gap) / rowH : startY;
             let yL = yBlock, yR = yBlock;
             for (const p of fulls) {
-              const el = els[p.id];
-              const head = el && el.querySelector('.board-panel-head');
-              const body = el && el.querySelector('.board-panel-body');
-              let h;
-              if (el && this.isPanelCollapsed(p.id)) h = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
-              else if (el) h = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
-              else h = p.id === 'wherewasi' ? 5 : (p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
-              if (p.id === 'wherewasi') { const yy = Math.max(yL, yR); layout[p.id] = { x: 0, y: yy, w: cols, h }; yL = yR = yy + h; continue; }
+              const h = measureH(p, p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
               if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
               else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
             }
@@ -14736,7 +14881,12 @@
                 else h = cur.h;
                 if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
               }
-              if (changed) { this.boardLayout = layout; this.persistLayout(); }
+              // Apply locally only — never persist. Height-fitting is derived purely from
+              // rendered content, so every client recomputes it on render; saving it would
+              // emit boards-changed → all tabs reload → re-fit → save … a broadcast storm
+              // that makes panels resize every second. User gestures (drag/resize/collapse/
+              // reset/pack) persist through their own paths.
+              if (changed) this.boardLayout = layout;
               return;
             }
             const order = Object.keys(layout)
@@ -14747,10 +14897,8 @@
               const cur = layout[id];
               const need = fit[id];
               // Hysteresis: always grow to clear an inner scrollbar, but only shrink
-              // when there are 2+ rows of slack. A live panel whose content sits on a
-              // row boundary otherwise flips ±1 row each pass, and because a changed
-              // layout is persisted (→ boards-changed SSE → reload → re-fit) that
-              // jitter loops forever, adding/removing a scrollbar every second.
+              // when there are 2+ rows of slack, so a panel whose content sits on a row
+              // boundary doesn't flip ±1 row each pass.
               let h;
               if (this.isPanelCollapsed(id)) h = need;
               else if (need > cur.h) h = need;
@@ -14763,7 +14911,10 @@
               else { ny = yR; yR += h; }
               if (cur.y !== ny || cur.h !== h) { layout[id] = { ...cur, y: ny, h }; changed = true; }
             }
-            if (changed) { this.boardLayout = layout; this.persistLayout(); }
+            // Local-only (see manual branch): auto-pack heights/positions are recomputed on
+            // every render, so they are never persisted — persisting them broadcasts
+            // boards-changed and creates a feedback loop across all open tabs.
+            if (changed) this.boardLayout = layout;
           });
         },
         isPanelCollapsed(id) {

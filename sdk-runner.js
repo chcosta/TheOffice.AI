@@ -293,28 +293,46 @@ class SdkRunner {
   }
 
   /**
-   * Find the project-agent .agent.md in <cwd>/.github/agents whose frontmatter
-   * name (or file slug) matches config.agent. Returns CustomAgentConfig or null.
+   * Find the project-agent definition in <cwd>/.github/agents that belongs to
+   * this config. Resolution order:
+   *   1. config.source.path basename — authoritative. Sibling agents installed
+   *      from the same repo share one checkout (e.g. autoscaler.md and
+   *      autoscaler-standup.agent.md under dotnet-autoscaler), so each agent must
+   *      bind to its OWN file. Without this, a name miss + the single-file
+   *      fallback below would cross-resolve to the wrong sibling.
+   *   2. frontmatter name / file slug matching config.agent.
+   *   3. single-file fallback when the checkout holds exactly one agent file.
+   * Considers both `*.md` and `*.agent.md` (the CLI auto-discovers either).
+   * Returns CustomAgentConfig or null.
    */
   _resolveProjectAgent(config) {
     if (!config.cwd) return null;
     const agentsDir = path.join(config.cwd, '.github', 'agents');
     let files;
     try {
-      files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+      files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
     } catch (e) {
       return null;
     }
+    if (!files.length) return null;
+    const slugOf = f => f.replace(/\.agent\.md$/, '').replace(/\.md$/, '').toLowerCase();
+    // 1. Authoritative: bind to the agent's own source file.
+    const srcPath = config.source && config.source.path;
+    if (srcPath) {
+      const base = path.basename(String(srcPath)).toLowerCase();
+      const own = files.find(f => f.toLowerCase() === base);
+      if (own) return this._parseAgentMd(path.join(agentsDir, own));
+    }
+    // 2. Match by frontmatter name or file slug.
     const want = (config.agent || config.name || '').trim().toLowerCase();
     let fallback = null;
     for (const f of files) {
       const cfg = this._parseAgentMd(path.join(agentsDir, f));
       if (!cfg) continue;
-      const slug = f.replace(/\.agent\.md$/, '').toLowerCase();
-      if ((cfg.name || '').toLowerCase() === want || slug === want) return cfg;
+      if ((cfg.name || '').toLowerCase() === want || slugOf(f) === want) return cfg;
       if (!fallback) fallback = cfg;
     }
-    // If exactly one agent file exists, use it even if the name didn't match.
+    // 3. If exactly one agent file exists, use it even if the name didn't match.
     if (files.length === 1 && fallback) return fallback;
     return null;
   }
