@@ -15663,7 +15663,7 @@
         // in the panels' current reading order (left column / right column / full-width
         // rows kept distinct), fitting every card to its content. On-demand only — runs
         // when the user clicks Organize, then persists.
-        organizeBoard(silent) {
+        organizeBoard(silent, balance) {
           if (this.route !== 'boards') return;
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
@@ -15701,6 +15701,14 @@
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
               let nx = cur.x, nw = sizeLk ? cur.w : cur.w, ny;
               if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; nx = sizeLk ? cur.x : 0; nw = sizeLk ? cur.w : cols; }
+              // Balanced mode (used by AI Layout): drop each half-width panel into the
+              // SHORTER column so the two columns stay even — kills the lopsided,
+              // wasted-space stacks the simple "keep it in its current column" pack made.
+              else if (balance) {
+                if (yL <= yR) { nx = 0; ny = yL; yL += h; }
+                else { nx = half; ny = yR; yR += h; }
+                if (!sizeLk) nw = half;
+              }
               else if (cur.x < half) { ny = yL; yL += h; }
               else { ny = yR; yR += h; }
               if (cur.x !== nx || cur.y !== ny || cur.w !== nw || cur.h !== h) {
@@ -15797,7 +15805,7 @@
           // to content and packs columns so nothing is hidden). Silent so our own
           // reasoning toast is the one the user sees.
           this.$nextTick(() => {
-            this.organizeBoard(true);
+            this.organizeBoard(true, true);
             const msg = plan.reasoning || ((kept) + ' kept open, ' + collapsed + ' collapsed · zoom ' + Math.round((plan.zoom || 1) * 100) + '%');
             this.showToast('Board', '✨ ' + msg, 'success');
           });
