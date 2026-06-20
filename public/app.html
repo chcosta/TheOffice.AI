@@ -14091,7 +14091,6 @@
             this.showToast('Search', e.message, 'error');
           } finally {
             this.boardLocSearchBusy = { ...this.boardLocSearchBusy, [item.id]: false };
-            this.scheduleAutoFit();
           }
         },
         async unpinItem(item) {
@@ -14293,8 +14292,9 @@
             else if (item.kind === 'comment') this.boardChatCache = { ...this.boardChatCache, [this._commentChatId(item.refId)]: { messages: [] } };
             else if (item.kind === 'task' || item.kind === 'assignment') this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
           }
-          // New content changes the panel's height — re-fit so the card grows/shrinks.
-          this.scheduleAutoFit();
+          // Detail content loaded — but boards are manual-size, so DON'T auto-resize the
+          // panel (that fired on render via x-init and reshuffled the layout on its own).
+          // The panel keeps the height the user set; they can Fit on demand.
         },
         // Most recent completed run for a task/assignment pin (history is newest-first).
         boardPinLastRun(item) {
@@ -14996,14 +14996,12 @@
           }
           this.ensureBoardLayout(false);
           this.maybeRefreshSummary();
-          // Only auto-fit when this sync is NOT just our own recently-persisted layout
-          // echoing back (boards-changed SSE → loadBoards → here). Re-fitting on that echo
-          // re-measures the DOM, and the 1s relative-time re-render nudges scrollHeight
-          // across a row boundary, flipping a panel's height by ±1 row, which persists,
-          // which echoes again — panels visibly resize every second. Skipping the refit
-          // during the hold window breaks that loop; genuine external changes (outside the
-          // hold window) still refit normally.
-          if (!holding) this.scheduleAutoFit();
+          // NO auto-fit on sync. Boards are manual-size: panels keep the heights the user
+          // last set (or fit on demand). Re-fitting on every loadBoards/SSE echo re-measured
+          // the DOM and — combined with the 1s relative-time re-render nudging scrollHeight
+          // across a row boundary — made panels visibly resize on their own ("jitter").
+          // Auto-sizing now happens ONLY from explicit user gestures (Fit / Fit width /
+          // Fit vertical / Compact / Organize / AI Layout / resize / collapse).
         },
         // Assign default slots to any panel without a saved position (2-column,
         // 50/50). Prunes layout entries for panels that no longer exist. Persists
@@ -16215,7 +16213,11 @@
             const updated = (resp && resp.board) || resp;
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
-            this.scheduleAutoFit();
+            // Place any newly-added panel (note/checklist/pin) WITHOUT resizing existing
+            // panels. ensureBoardLayout only assigns slots to panels lacking a position and
+            // prunes dead ones — it never content-fits heights, so a board write (incl. a
+            // note text edit) no longer auto-resizes panels the user already sized.
+            this.ensureBoardLayout();
             // Return the persisted board so callers can confirm the write actually
             // landed (and reflect server truth); false signals a failed/invalid save.
             return (updated && updated.id) ? updated : false;
@@ -16235,7 +16237,9 @@
             const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [], deltas: r.deltas || [] };
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0) this.boards[idx] = { ...this.boards[idx], summary };
-            this.scheduleAutoFit();
+            // Briefing text changed height, but don't auto-resize the panel — the summary
+            // can refresh on its own (maybeRefreshSummary on sync), and re-fitting here was
+            // a non-user-initiated resize. The user fits on demand.
           } catch (e) {
             if (force) this.showToast('Where was I', e.message, 'error');
           } finally {
