@@ -5596,14 +5596,15 @@
                         </div>
                         <button class="btn ghost" type="button" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done editing — re-hide stashed items' : 'Edit items: reveal stashed items so you can hide or restore any item. Stashed items stay out of the board but still feed the AI.'" x-text="boardManageMode ? ('✓ Done' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : '')) : ('👁 Edit items' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : ''))"></button>
                         <button class="btn ghost" type="button" @click="pinifyBoard()" title="Pin-ify: collapse every item on the board to a small icon chip and pack them tightly. Click any chip to expand it again — chips hover to preview.">📌 Pin-ify</button>
-                        <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
+                        <button class="btn ghost" type="button" @click="resetBoardCanvas()" title="Fit width: stretch the board to fill the window width">↔ Fit width</button>
                       </div>
                       <div class="bb-sep"></div>
                       <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
                         <button type="button" @click="setBoardZoom(1)" title="Reset zoom to 100%" style="background:none;border:none;padding:0;cursor:pointer;opacity:0.8;font-size:13px;line-height:1;color:inherit">🔍</button>
                         <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:120px;cursor:pointer" title="Board zoom">
                         <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
-                        <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Zoom to fit the whole board in view" style="padding:2px 8px">Fit</button>
+                        <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Fit: zoom so the whole board fits in view" style="padding:2px 8px">⤢ Fit</button>
+                        <button class="btn ghost" type="button" @click="fitBoardVertical()" title="Fit vertical: zoom so the board's full height fits the viewport" style="padding:2px 8px">↕ Fit vertical</button>
                       </span>
                       <div class="bb-sep"></div>
                       <span class="board-zoom" title="Text size of board panel content (this board only)" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
@@ -14818,7 +14819,23 @@
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
         },
-        // Fullscreen "focus" mode: the active board fills the whole window (the rest of
+        // Zoom the canvas so the board's full content HEIGHT fits the viewport height
+        // (height-constrained only — width may still overflow into a horizontal scroll).
+        // Complements fitBoardZoom (fit whole board) and resetBoardCanvas (fit width).
+        fitBoardVertical() {
+          const grid = document.querySelector('.board-grid');
+          const scroll = grid && grid.closest('.board-canvas-scroll');
+          if (!scroll) return;
+          const pad = 16;
+          const vh = scroll.clientHeight;
+          const ext = this._boardContentExtent();
+          if (ext.h <= 0 || vh <= 0) return;
+          let z = Math.min(vh / ext.h, 1);
+          if (z < 1) z = Math.min((vh - pad) / ext.h, 1);
+          z = Math.max(0.3, Math.floor(z * 20) / 20);
+          this.boardCanvas = { ...this.boardCanvas, z };
+          this._saveBoardCanvas();
+        },
         // the app shell is hidden behind it) so the user can concentrate on one board.
         // Board AI still works on top — its overlay sits above the focus layer, and the
         // docked variant reflows beside it (see the .board-focus CSS).
