@@ -5068,6 +5068,10 @@ function _normalizeBoard(b) {
     // Stashed items: { '<panelBaseId>': true }. Stashed pins/notes/checklists are hidden
     // from the board grid but still feed the AI context (where-was-i, assistant). Display-only.
     hidden: (b.hidden && typeof b.hidden === 'object' && !Array.isArray(b.hidden)) ? b.hidden : {},
+    // Per-panel locks: { '<panelBaseId>': { vis?:true, size?:true, pos?:true } }. A lock
+    // blocks that aspect from being changed by the user OR the AI/auto-layout tools, so
+    // the AI is told about them and must not stash/move/resize a locked panel.
+    locks: (b.locks && typeof b.locks === 'object' && !Array.isArray(b.locks)) ? b.locks : {},
     summary: (b.summary && typeof b.summary === 'object' && !Array.isArray(b.summary)) ? b.summary : null,
     archived: !!b.archived,
     enabled: b.enabled !== false,
@@ -5117,7 +5121,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, starred, hidden } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, starred, hidden, locks } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
@@ -5127,6 +5131,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(checklists)) b.checklists = checklists;
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   if (hidden && typeof hidden === 'object' && !Array.isArray(hidden)) b.hidden = hidden;
+  if (locks && typeof locks === 'object' && !Array.isArray(locks)) b.locks = locks;
   if (archived !== undefined) b.archived = !!archived;
   if (enabled !== undefined) b.enabled = !!enabled;
   if (starred !== undefined) b.starred = !!starred;
@@ -6376,6 +6381,17 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   const notes = (Array.isArray(b.notes) ? b.notes : []);
   const checklists = (Array.isArray(b.checklists) ? b.checklists : []);
   const pins = (Array.isArray(b.items) ? b.items : []);
+  // Visibility (stash) + per-panel lock state, so the assistant knows which panels are
+  // hidden (still in context, just off the board) and which are locked against changes.
+  const hiddenMap = (b.hidden && typeof b.hidden === 'object' && !Array.isArray(b.hidden)) ? b.hidden : {};
+  const locksMap = (b.locks && typeof b.locks === 'object' && !Array.isArray(b.locks)) ? b.locks : {};
+  const viewFlags = (baseId) => {
+    const bits = [];
+    if (hiddenMap[baseId]) bits.push('hidden');
+    const lk = locksMap[baseId];
+    if (lk && (lk.vis || lk.size || lk.pos)) bits.push('locked:' + ['vis', 'size', 'pos'].filter(k => lk[k]).join('+'));
+    return bits.length ? ' [' + bits.join('; ') + ']' : '';
+  };
   // Index of pins on this board so the model can only link checklist items to
   // things that are actually pinned here (kind:refId is the stable handle).
   const pinByKey = new Map(pins.map(p => [p.kind + ':' + p.refId, p]));
@@ -6399,7 +6415,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     ctx.push('## BOARD PINS (link checklist items to these by kind:refId)\n' + pins.map(p => {
       const key = p.kind + ':' + p.refId;
       const run = RUNNABLE.has(p.kind) ? 'runnable' : 'open-only';
-      return `- (${key}) ${p.kind} "${clip(p.label || p.refId, 120)}" [${run}]`;
+      return `- (${key}) ${p.kind} "${clip(p.label || p.refId, 120)}" [${run}]${viewFlags('pin:' + p.id)}`;
     }).join('\n'));
   }
   // Pinned source locations (folders) are searchable context. List each with its
@@ -6419,13 +6435,13 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     }).join('\n');
   }
   if (notes.length) {
-    ctx.push('## NOTES\n' + notes.map(n => `- (${n.id}) ${clip(n.text, 300)}`).join('\n'));
+    ctx.push('## NOTES\n' + notes.map(n => `- (${n.id})${viewFlags('note:' + n.id)} ${clip(n.text, 300)}`).join('\n'));
   }
   if (checklists.length) {
     ctx.push('## CHECKLISTS\n' + checklists.map(cl => {
       const items = Array.isArray(cl.items) ? cl.items : [];
       const lines = items.map(i => `    - [${i.done ? 'x' : ' '}] (${i.id}) ${clip(i.text, 200)}`);
-      return `- (${cl.id}) "${clip(cl.title, 120)}"${lines.length ? '\n' + lines.join('\n') : ''}`;
+      return `- (${cl.id})${viewFlags('cl:' + cl.id)} "${clip(cl.title, 120)}"${lines.length ? '\n' + lines.join('\n') : ''}`;
     }).join('\n'));
   }
   if (available.length) {
@@ -6526,7 +6542,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
-    '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
+    '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "stash the finished checklist", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
@@ -6548,7 +6564,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_item when no pinned agent covers the need.',
     // Proactively help build/modify the board from a direction.
     '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
-    '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing is visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
+    '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / stash / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing and hiding/stashing are visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes", "stash the finished checklist") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
+    '- VISIBILITY & LOCKS: items in BOARD CONTEXT may be tagged [hidden] (currently stashed off the board but still part of context) and/or [locked:...] where the locked aspects are vis (visibility/stash), size, and/or pos (position). A hidden item still contributes to the board and you SHOULD feel free to "show" it when relevant. But you MUST NOT change any LOCKED aspect of a panel: never hide/show a [locked:vis] panel, never move/organize/compact a [locked:pos] panel, and never resize/widen a [locked:size] panel. If a presentation request would require changing a locked aspect, skip that panel and say so briefly in "reply".',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
@@ -6746,6 +6763,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       if (a.collapse === 'all' || a.collapse === 'none') { out.collapse = a.collapse; has = true; }
       else if (Array.isArray(a.collapse)) { const arr = a.collapse.map(normTarget).filter(Boolean).slice(0, 60); if (arr.length) { out.collapse = arr; has = true; } }
       if (Array.isArray(a.expand)) { const arr = a.expand.map(normTarget).filter(Boolean).slice(0, 60); if (arr.length) { out.expand = arr; has = true; } }
+      if (Array.isArray(a.hide)) { const arr = a.hide.map(normTarget).filter(Boolean).slice(0, 60); if (arr.length) { out.hide = arr; has = true; } }
+      if (Array.isArray(a.show)) { const arr = a.show.map(normTarget).filter(Boolean).slice(0, 60); if (arr.length) { out.show = arr; has = true; } }
       const f = normTarget(a.focus); if (f) { out.focus = f; has = true; }
       if (typeof a.zoom === 'number' && isFinite(a.zoom)) { out.zoom = Math.max(0.5, Math.min(1.2, a.zoom)); has = true; }
       if (typeof a.fontScale === 'number' && isFinite(a.fontScale)) { out.fontScale = Math.max(0.8, Math.min(1.3, a.fontScale)); has = true; }
@@ -6760,6 +6779,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       else if (out.collapse === 'none') bits.push('expand all panels');
       else if (Array.isArray(out.collapse)) bits.push('collapse ' + out.collapse.length + ' panel' + (out.collapse.length === 1 ? '' : 's'));
       if (Array.isArray(out.expand)) bits.push('expand ' + out.expand.length + ' panel' + (out.expand.length === 1 ? '' : 's'));
+      if (Array.isArray(out.hide)) bits.push('hide ' + out.hide.length + ' panel' + (out.hide.length === 1 ? '' : 's'));
+      if (Array.isArray(out.show)) bits.push('show ' + out.show.length + ' panel' + (out.show.length === 1 ? '' : 's'));
       if (typeof out.zoom === 'number') bits.push('zoom ' + Math.round(out.zoom * 100) + '%');
       if (typeof out.fontScale === 'number') bits.push('font ' + Math.round(out.fontScale * 100) + '%');
       if (out.compact) bits.push('compact');
@@ -6847,12 +6868,22 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
     title: clip(p.title, 120),
     text: clip(p.text, 600),
     collapsed: !!p.collapsed,
+    hidden: !!p.hidden,
+    visLocked: !!p.visLocked,
+    sizeLocked: !!p.sizeLocked,
+    posLocked: !!p.posLocked,
   }));
   if (!panels.length) return res.status(400).json({ error: 'No valid panels' });
-  const digest = panels.map((p, i) =>
-    `${i + 1}. id=${JSON.stringify(p.id)} type=${p.type || 'item'} title="${p.title}"` +
-    `\n   content: ${p.text || '(empty)'}`
-  ).join('\n');
+  const digest = panels.map((p, i) => {
+    const flags = [];
+    if (p.hidden) flags.push('hidden');
+    if (p.visLocked) flags.push('vis-locked');
+    if (p.sizeLocked) flags.push('size-locked');
+    if (p.posLocked) flags.push('pos-locked');
+    return `${i + 1}. id=${JSON.stringify(p.id)} type=${p.type || 'item'} title="${p.title}"` +
+      (flags.length ? ` [${flags.join(', ')}]` : '') +
+      `\n   content: ${p.text || '(empty)'}`;
+  }).join('\n');
 
   const sys = [
     `You are a layout designer for a work board named "${b.name}". You are given every panel currently on the board with its type, title, and a snippet of its live content. Decide how to PRESENT the board so the most useful, active, or attention-worthy panels are immediately visible and low-signal ones get out of the way. You change presentation only — you never edit, add, or delete board content.`,
@@ -6861,6 +6892,9 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
     '- importance: "high" (key / attention-worthy — keep expanded and prominent), "normal" (relevant — keep expanded), or "low" (stale, empty, finished, or background — collapse it).',
     '- collapsed: true to collapse the panel to a small header chip, false to keep it open. Collapse low-importance and empty/finished panels; keep high and normal panels open.',
     '- width: optional "full" (span the whole board width — use ONLY for the single most important / widest-content panel, e.g. a substantive briefing or a long note) or "half" (the default column width). Use "full" sparingly (at most one or two panels).',
+    '- hidden: optional true/false to STASH a panel off the board (it stays in the data but is removed from view) or restore it. Stash genuinely finished/empty/duplicate panels that add clutter; restore a hidden panel only if it is now relevant. Omit this field to leave a panel\'s current visibility unchanged.',
+    '',
+    'LOCKS — some panels are tagged in the list below: a [hidden] panel is currently stashed; a [vis-locked] panel\'s visibility is locked; a [size-locked] panel\'s size is locked; a [pos-locked] panel\'s position is locked. You MUST respect locks: for a [vis-locked] panel never change "hidden"; for a [size-locked] panel never set width (leave width off); a [pos-locked] panel must keep its place (it will not be moved regardless). You may still set importance/collapsed on locked panels.',
     '',
     'Also choose, for the WHOLE board:',
     '- zoom: a number from 0.6 to 1.0 — how far to zoom the canvas so the expanded panels fit comfortably without wasted space. Many open/important panels → zoom out a little (toward 0.7); only a few → 1.0.',
@@ -6869,7 +6903,7 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
     'Heuristics for what is interesting: panels with fresh status, errors/failures, action items, unchecked work, recent agent output, or a substantive briefing are HIGH. Empty notes, fully-completed checklists, idle/placeholder pins, and duplicates are LOW. A briefing-style panel ("Where was I?") that has real content is usually HIGH and a good "full"-width candidate.',
     '',
     'Respond with a SINGLE JSON object and nothing else — no code fences, no prose outside the JSON:',
-    '{"zoom":<num>,"fontScale":<num>,"reasoning":"<one short sentence on the focus you chose>","panels":[{"id":"<exact id>","importance":"high|normal|low","collapsed":<bool>,"width":"full|half"}]}',
+    '{"zoom":<num>,"fontScale":<num>,"reasoning":"<one short sentence on the focus you chose>","panels":[{"id":"<exact id>","importance":"high|normal|low","collapsed":<bool>,"width":"full|half","hidden":<bool optional>}]}',
     'Include EVERY panel id exactly as given below. Never invent ids.',
     '',
     '# BOARD PANELS',
@@ -6890,6 +6924,7 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
     } catch {}
     if (!parsed || typeof parsed !== 'object') return res.status(502).json({ ok: false, error: 'Could not parse a layout plan' });
     const known = new Set(panels.map(p => p.id));
+    const visLockedIds = new Set(panels.filter(p => p.visLocked).map(p => p.id));
     const clampNum = (v, lo, hi, dflt) => { let n = parseFloat(v); if (!isFinite(n)) n = dflt; return Math.max(lo, Math.min(hi, Math.round(n * 100) / 100)); };
     const outPanels = (Array.isArray(parsed.panels) ? parsed.panels : [])
       .filter(p => p && known.has(String(p.id)))
@@ -6897,7 +6932,10 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
         const importance = ['high', 'normal', 'low'].includes(p.importance) ? p.importance : 'normal';
         const collapsed = typeof p.collapsed === 'boolean' ? p.collapsed : (importance === 'low');
         const width = (p.width === 'full' || p.width === 'half') ? p.width : null;
-        return { id: String(p.id), importance, collapsed, width };
+        const o = { id: String(p.id), importance, collapsed, width };
+        // Only surface a visibility change for panels whose vis is NOT locked.
+        if (typeof p.hidden === 'boolean' && !visLockedIds.has(String(p.id))) o.hidden = p.hidden;
+        return o;
       });
     res.json({
       ok: true,

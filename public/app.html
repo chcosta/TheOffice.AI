@@ -2289,6 +2289,44 @@
       background: var(--cp-accent-soft);
       border-radius: 999px;
     }
+    /* Per-panel lock control: a 🔒/🔓 chevron in the panel head that reveals a small
+       hover popover with Position / Size / Visibility toggles. CSS-hover only (no Alpine
+       state) so it never re-renders the grid. */
+    .bph-lock { position: relative; display: inline-flex; }
+    .bph-lock.locked > .board-panel-chevron { color: var(--cp-accent); }
+    .bph-lock-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 45;
+      min-width: 168px;
+      padding: 6px;
+      background: var(--cp-panel-strong);
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 10px;
+      box-shadow: var(--cp-shadow);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-4px);
+      transition: opacity .12s ease, transform .12s ease, visibility .12s;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .bph-lock:hover .bph-lock-pop { opacity: 1; visibility: visible; transform: translateY(0); }
+    .bph-lock-pop .bph-lock-title {
+      font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+      color: var(--cp-text-muted); padding: 2px 6px 4px;
+    }
+    .bph-lock-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 5px 8px; border-radius: 7px; cursor: pointer; font-size: 12.5px;
+      color: var(--cp-text); background: transparent; border: none; text-align: left; width: 100%;
+    }
+    .bph-lock-row:hover { background: var(--cp-surface-soft); }
+    .bph-lock-row .bph-lock-state { font-size: 13px; opacity: .85; }
+    .bph-lock-row.on { color: var(--cp-accent); }
+    .bph-lock-row.on .bph-lock-state { opacity: 1; }
     .board-panel-inner {
       height: 100%;
       display: flex;
@@ -5173,6 +5211,15 @@
                                 <div class="board-panel-title" x-show="isPanelCollapsed(p.id)" x-text="panelTitleText(p)"></div>
                               </div>
                               <div class="bph-right">
+                                <div class="bph-lock" :class="{ locked: hasAnyLock(p) }">
+                                  <button class="board-panel-chevron" type="button" @click.stop @mousedown.stop :title="hasAnyLock(p) ? 'Locks active — hover to manage' : 'Lock position / size / visibility'" x-text="hasAnyLock(p) ? '🔒' : '🔓'"></button>
+                                  <div class="bph-lock-pop" @mousedown.stop>
+                                    <div class="bph-lock-title">Lock against changes</div>
+                                    <button class="bph-lock-row" :class="{ on: isPosLocked(p) }" type="button" @click.stop="togglePanelLock(p,'pos')"><span>Position</span><span class="bph-lock-state" x-text="isPosLocked(p) ? '🔒' : '🔓'"></span></button>
+                                    <button class="bph-lock-row" :class="{ on: isSizeLocked(p) }" type="button" @click.stop="togglePanelLock(p,'size')"><span>Size</span><span class="bph-lock-state" x-text="isSizeLocked(p) ? '🔒' : '🔓'"></span></button>
+                                    <button class="bph-lock-row" x-show="canStashPanel(p)" :class="{ on: isVisLocked(p) }" type="button" @click.stop="togglePanelLock(p,'vis')"><span>Visibility</span><span class="bph-lock-state" x-text="isVisLocked(p) ? '🔒' : '🔓'"></span></button>
+                                  </div>
+                                </div>
                                 <button class="board-panel-chevron stash-toggle" type="button" x-show="canStashPanel(p) && (boardManageMode || isPanelStashed(p))" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="!isPanelCollapsed(p.id)" @click.stop="autoSizePanelWidth(p.id)" @mousedown.stop title="Shrink width to the minimum that fits the content (height stays the same)">▸◂</button>
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
@@ -14511,6 +14558,7 @@
         // brings it back and makes sure it has a position.
         togglePanelStash(p) {
           const b = this.activeBoard(); if (!b || !this.canStashPanel(p)) return;
+          if (this.isVisLocked(p)) { this.showToast('Board', 'Visibility is locked for this panel', 'info'); return; }
           const key = this.panelBaseId(p);
           const hidden = { ...(b.hidden || {}) };
           const nowHidden = !hidden[key];
@@ -14520,6 +14568,38 @@
           this.persistHidden(hidden);
           this.showToast('Board', nowHidden ? 'Stashed — hidden from the board but still used by AI' : 'Restored to the board', nowHidden ? 'info' : 'success');
           if (!nowHidden) this.$nextTick(() => { this.ensureBoardLayout(true); this.scheduleAutoFit(true); });
+        },
+        // ----- Per-panel locks (visibility / size / position) -----
+        // Board-level map keyed by the same base id as stash: { '<baseId>': {vis,size,pos} }.
+        // A lock blocks that aspect for BOTH the user and the AI/auto-layout tools; only
+        // toggling the lock itself is ever allowed. The server is told about locks so the
+        // assistant + AI Layout won't move/resize/hide a locked panel.
+        boardLocks() { const b = this.activeBoard(); return (b && b.locks) || {}; },
+        panelLockSet(p) { return this.boardLocks()[this.panelBaseId(p)] || null; },
+        isVisLocked(p) { const l = this.panelLockSet(p); return !!(l && l.vis); },
+        isSizeLocked(p) { const l = this.panelLockSet(p); return !!(l && l.size); },
+        isPosLocked(p) { const l = this.panelLockSet(p); return !!(l && l.pos); },
+        hasAnyLock(p) { const l = this.panelLockSet(p); return !!(l && (l.vis || l.size || l.pos)); },
+        // Lock lookup by raw panel id (bulk ops pass p.id strings, not panel objects).
+        _lockFor(id, which) { const l = this.boardLocks()[String(id || '').replace(/^pv:/, '')]; return !!(l && l[which]); },
+        persistLocks(locks) {
+          const b = this.activeBoard(); if (!b) return;
+          this.request('/api/boards/' + encodeURIComponent(b.id), { method: 'PUT', body: JSON.stringify({ locks }) }).catch(() => {});
+        },
+        togglePanelLock(p, which) {
+          const b = this.activeBoard(); if (!b || !['vis', 'size', 'pos'].includes(which)) return;
+          if (which === 'vis' && !this.canStashPanel(p)) return; // summary can't be stashed → no vis lock
+          const key = this.panelBaseId(p);
+          const locks = { ...(b.locks || {}) };
+          const cur = { ...(locks[key] || {}) };
+          const nowOn = !cur[which];
+          if (nowOn) cur[which] = true; else delete cur[which];
+          if (cur.vis || cur.size || cur.pos) locks[key] = cur; else delete locks[key];
+          const idx = this.boards.findIndex(x => x.id === b.id);
+          if (idx >= 0) this.boards[idx] = { ...this.boards[idx], locks };
+          this.persistLocks(locks);
+          const label = which === 'vis' ? 'Visibility' : which === 'size' ? 'Size' : 'Position';
+          this.showToast('Board', label + (nowOn ? ' locked' : ' unlocked'), nowOn ? 'info' : 'success');
         },
         // ----- Auto-width -----
         // Per-board flag (default ON). When ON, panel widths are managed automatically
@@ -14592,6 +14672,7 @@
         // Shrink a single panel's WIDTH to the narrowest column span that still fits its
         // content without making the panel any taller. Height is left untouched.
         autoSizePanelWidth(id) {
+          if (this._lockFor(id, 'size')) { this.showToast('Board', 'Size is locked for this panel', 'info'); return; }
           const cur = this.boardLayout[id]; if (!cur) return;
           const best = this._panelMinWidth(id);
           if (best == null) return;
@@ -14624,6 +14705,8 @@
               // Chips (and anything we can't measure) keep their current footprint so we
               // still pack around them and never overlap; real panels get shrunk to fit.
               if (isChip) { meta[id] = { w: Math.max(1, Math.round(cur.w)), h: Math.max(1, Math.round(cur.h)) }; return; }
+              // Size-locked panels keep their exact footprint (never shrunk).
+              if (this._lockFor(id, 'size')) { meta[id] = { w: Math.max(1, Math.round(cur.w)), h: Math.max(1, Math.round(cur.h)) }; return; }
               let w = this._panelMinWidth(id);
               if (w == null) w = Math.round(cur.w);
               w = Math.max(2, Math.min(cols, w));
@@ -14640,8 +14723,19 @@
               .filter(id => layout[id])
               .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
             const colTop = new Array(cols).fill(0);
+            // Position-locked panels are fixed obstacles: keep them where they are and seed
+            // the skyline so packed panels never land on top of them.
+            const fixed = new Set();
+            for (const id of order) {
+              if (!this._lockFor(id, 'pos')) continue;
+              fixed.add(id);
+              const cur = layout[id]; const w = meta[id].w, h = meta[id].h;
+              const x0 = Math.max(0, Math.min(cols - 1, Math.round(cur.x)));
+              for (let c = x0; c < Math.min(cols, x0 + w); c++) colTop[c] = Math.max(colTop[c], Math.round(cur.y) + h);
+            }
             let changed = false;
             for (const id of order) {
+              if (fixed.has(id)) continue;
               const w = meta[id].w, h = meta[id].h;
               const maxX = Math.max(0, cols - w);
               let bestX = 0, bestY = Infinity;
@@ -14999,6 +15093,7 @@
         },
         startPanelDrag(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
+          if (this._lockFor(id, 'pos')) { ev.preventDefault(); this.showToast('Board', 'Position is locked for this panel', 'info'); return; }
           ev.preventDefault();
           const grid = ev.target.closest('.board-grid');
           if (!grid) return;
@@ -15165,6 +15260,7 @@
         },
         startPanelResize(id, ev, mode = 'w') {
           if (ev.button !== undefined && ev.button !== 0) return;
+          if (this._lockFor(id, 'size')) { ev.preventDefault(); ev.stopPropagation(); this.showToast('Board', 'Size is locked for this panel', 'info'); return; }
           ev.preventDefault(); ev.stopPropagation();
           const rowH = this.boardRowH;
           const base = this.boardLayout[id]; if (!base) return;
@@ -15286,7 +15382,14 @@
             this.showToast('Board', 'Pins packed', 'success');
             return;
           }
-          this.boardLayout = {};
+          // Preserve layout entries for panels whose position OR size is locked — a reset
+          // shouldn't override a lock the user explicitly set. ensureBoardLayout fills the
+          // rest and organize/auto-fit flows the unlocked panels around them.
+          const keep = {};
+          for (const [id, l] of Object.entries(this.boardLayout || {})) {
+            if (this._lockFor(id, 'pos') || this._lockFor(id, 'size')) keep[id] = l;
+          }
+          this.boardLayout = keep;
           this.resetBoardCanvas(); // back to window-fit width
           this.ensureBoardLayout(true);
           this.scheduleAutoFit(true);
@@ -15509,10 +15612,22 @@
             let yL = 0, yR = 0, changed = false;
             for (const id of order) {
               const cur = layout[id];
-              const h = fit[id];
+              // Position-locked panels never move; flow other panels around them by
+              // advancing the affected column cursor(s) past their footprint.
+              if (this._lockFor(id, 'pos')) {
+                const lh = (this._lockFor(id, 'size') ? cur.h : (fit[id] || cur.h));
+                const bottom = (cur.y || 0) + lh;
+                const fw = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
+                if (fw) { yL = Math.max(yL, bottom); yR = Math.max(yR, bottom); }
+                else if (cur.x < half) yL = Math.max(yL, bottom);
+                else yR = Math.max(yR, bottom);
+                continue;
+              }
+              const sizeLk = this._lockFor(id, 'size');
+              const h = sizeLk ? cur.h : fit[id];
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
-              let nx = cur.x, nw = cur.w, ny;
-              if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; nx = 0; nw = cols; }
+              let nx = cur.x, nw = sizeLk ? cur.w : cur.w, ny;
+              if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; nx = sizeLk ? cur.x : 0; nw = sizeLk ? cur.w : cols; }
               else if (cur.x < half) { ny = yL; yL += h; }
               else { ny = yR; yR += h; }
               if (cur.x !== nx || cur.y !== ny || cur.w !== nw || cur.h !== h) {
@@ -15549,6 +15664,10 @@
             title: (this.panelTypeLabel(p) ? this.panelTypeLabel(p) + ': ' : '') + this.panelTitleText(p),
             text: bodyText(p.id),
             collapsed: this.isPanelCollapsed(p.id),
+            hidden: this.isPanelStashed(p),
+            visLocked: this.isVisLocked(p),
+            sizeLocked: this.isSizeLocked(p),
+            posLocked: this.isPosLocked(p),
           }));
           this.boardAiLayoutBusy = true;
           this.showToast('Board', '✨ Designing a layout…', 'info');
@@ -15573,15 +15692,31 @@
           this.ensureBoardLayout();
           const layout = { ...this.boardLayout };
           let kept = 0, collapsed = 0;
+          const hideMap = { ...(this.activeBoard() || {}).hidden || {} };
+          let hideChanged = false;
           for (const d of (plan.panels || [])) {
             const cur = layout[d.id]; if (!cur) continue;
             const next = { ...cur, collapsed: !!d.collapsed };
-            if (d.width === 'full') { next.w = cols; if (next.x !== 0) next.x = 0; }
-            else if (d.width === 'half' && cur.w >= cols) { next.w = half; }
+            // Width changes touch size (half) and position (full sets x=0) — skip when locked.
+            if (d.width === 'full' && !this._lockFor(d.id, 'size') && !this._lockFor(d.id, 'pos')) { next.w = cols; if (next.x !== 0) next.x = 0; }
+            else if (d.width === 'half' && cur.w >= cols && !this._lockFor(d.id, 'size')) { next.w = half; }
             layout[d.id] = next;
             if (d.collapsed) collapsed++; else kept++;
+            // Visibility change (stash/unstash) — only when vis is not locked and not the summary.
+            if (typeof d.hidden === 'boolean' && !this._lockFor(d.id, 'vis')) {
+              const base = String(d.id).replace(/^pv:/, '');
+              if (base !== 'wherewasi') {
+                if (d.hidden && !hideMap[base]) { hideMap[base] = true; hideChanged = true; }
+                else if (!d.hidden && hideMap[base]) { delete hideMap[base]; hideChanged = true; }
+              }
+            }
           }
           this.boardLayout = layout;
+          if (hideChanged) {
+            const idx = this.boards.findIndex(x => x.id === (this.activeBoard() || {}).id);
+            if (idx >= 0) this.boards[idx] = { ...this.boards[idx], hidden: hideMap };
+            this.persistHidden(hideMap);
+          }
           if (typeof plan.fontScale === 'number') this.setBoardFont(plan.fontScale);
           if (typeof plan.zoom === 'number') this.setBoardZoom(plan.zoom);
           this.persistLayout();
@@ -15633,10 +15768,33 @@
             if (focusId) {
               panels.forEach(p => setCollapsed(p.id, p.id !== focusId));
               const cur = layout[focusId] || { x: 0, y: 0, w: cols, h: 3 };
-              layout[focusId] = { ...cur, collapsed: false, x: 0, w: cols };
+              const next = { ...cur, collapsed: false };
+              // Widening/repositioning the spotlight panel respects size/position locks.
+              if (!this._lockFor(focusId, 'pos')) next.x = 0;
+              if (!this._lockFor(focusId, 'size') && !this._lockFor(focusId, 'pos')) next.w = cols;
+              layout[focusId] = next;
             }
           }
           this.boardLayout = layout;
+          // Visibility directives: hide/show resolve {kind,refId} → panel → base id, then
+          // stash/unstash through the board hidden map (never touching vis-locked panels or
+          // the summary, which can't be stashed).
+          const hideMap = { ...(board.hidden || {}) };
+          let hideChanged = false;
+          const setHidden = (id, want) => {
+            if (!id || this._lockFor(id, 'vis')) return;
+            const base = String(id).replace(/^pv:/, '');
+            if (base === 'wherewasi') return;
+            if (want && !hideMap[base]) { hideMap[base] = true; hideChanged = true; }
+            else if (!want && hideMap[base]) { delete hideMap[base]; hideChanged = true; }
+          };
+          if (Array.isArray(a.hide)) a.hide.forEach(t => setHidden(idFor(t), true));
+          if (Array.isArray(a.show)) a.show.forEach(t => setHidden(idFor(t), false));
+          if (hideChanged) {
+            const idx = this.boards.findIndex(x => x.id === board.id);
+            if (idx >= 0) this.boards[idx] = { ...this.boards[idx], hidden: hideMap };
+            this.persistHidden(hideMap);
+          }
           if (typeof a.fontScale === 'number') this.setBoardFont(a.fontScale);
           if (typeof a.zoom === 'number') this.setBoardZoom(a.zoom);
           this.persistLayout();
