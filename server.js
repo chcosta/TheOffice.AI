@@ -5858,7 +5858,7 @@ function _resolveBoardItems(b, opts = {}) {
       }
     } catch {}
     out.push({ id: it.id, kind: it.kind, refId: it.refId, label: it.label, sublabel: it.sublabel, route, when, status, detail });
-    if (context) contextBlocks.push(`### ${String(it.kind).toUpperCase()}: ${it.label || it.refId}\n${context}`);
+    if (context) contextBlocks.push(`### ${String(it.kind).toUpperCase()}: ${it.label || it.refId}${route ? ` [source link: ${route}]` : ''}\n${context}`);
   }
   out.sort((a, c) => new Date(c.when || 0) - new Date(a.when || 0));
   return { out, contextBlocks };
@@ -5960,11 +5960,14 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 
   const prompt = [
     `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections. Checklist lines marked "[x]" are done and "[ ]" are still open.`,
+    'Each pinned-item section is headed "### KIND: Name [source link: <route>]". The route after "source link:" is the primary source for everything in that section.',
     'Write a "Where was I?" briefing that reorients the user:',
     '- If a "SINCE LAST VIEWED" section is present, begin with one sentence highlighting what changed since the user last looked (call out any items marked ⚠ as needing attention).',
     '- 3 to 6 sentences of plain prose summarizing what is going on across these items, the current state, and what the notes/checklists indicate.',
+    '- CITE YOUR PRIMARY SOURCES: when a statement draws on a specific pinned item, attribute it inline as a markdown link using that item\'s Name and its source link, e.g. "the latest run failed ([Autoscaler agent](#/agents/autoscaler))". Only cite items that actually have a source link in their heading; never invent a route. Notes/checklists are the user\'s own input and do not need a citation.',
     '- Then, only if there are concrete pending actions, add a line "Next steps:" followed by a short bullet list (each line starting with "- "). Treat unchecked checklist items as pending actions.',
-    'Be specific and concrete. No preamble, no headings other than "Next steps:", no surrounding quotes.',
+    '- Finally, add a line "Sources:" followed by a short bullet list of the primary pinned items you actually drew from, each as a markdown link "[Name](route)" using its source link. Omit this line only if no pinned item had a source link.',
+    'Be specific and concrete. No preamble, no headings other than "Next steps:" and "Sources:", no surrounding quotes.',
     '',
     contextBlocks.join('\n\n').slice(0, 9000),
     '',
