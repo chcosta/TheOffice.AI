@@ -12,6 +12,7 @@ const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
 const azdo = require('./azdo');
 const capabilities = require('./capabilities');
+const mcpTest = require('./mcpTest');
 const agentPackage = require('./agentPackage');
 const agentExport = require('./agentExport');
 const marketplace = require('./marketplace');
@@ -2120,6 +2121,38 @@ app.post('/api/agents/:id/capabilities/mcp', (req, res) => {
     capabilities.attachMcp(req.params.id, name, config);
     broadcastSSE('agent-update', { agentId: req.params.id, capability: 'mcp', action: 'attach', name });
     res.json({ ok: true, effective: capabilities.getEffectiveCapabilities(entry.config) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Validate that an MCP server is usable on this machine by actually starting it
+// (the way the agent runtime would) and attempting an MCP `initialize`
+// handshake. Body: { name, sourcePath } / { catalogName } / { config }.
+app.post('/api/mcp/test', async (req, res) => {
+  let { name, config, sourcePath, catalogName } = req.body || {};
+  try {
+    if (!config) {
+      if (sourcePath && (name || catalogName)) {
+        config = capabilities.resolveCatalogMcp(sourcePath, name || catalogName);
+        name = name || catalogName;
+      }
+      if (!config) {
+        const cat = capabilities.buildCatalog();
+        const match = cat.mcp.find(m =>
+          (sourcePath && m.sourcePath === sourcePath && (!name || m.name === name)) ||
+          (catalogName && m.name === catalogName) ||
+          (name && m.name === name));
+        if (match) {
+          name = name || match.name;
+          config = capabilities.resolveCatalogMcp(match.sourcePath, match.name)
+            || { command: match.command, args: match.args || [], env: {} };
+        }
+      }
+    }
+    if (!config) return res.status(400).json({ error: 'MCP server config not found; provide sourcePath+name or an explicit config' });
+    const result = await mcpTest.testServer(config);
+    res.json(Object.assign({ name: name || null }, result));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

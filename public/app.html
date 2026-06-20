@@ -1065,6 +1065,14 @@
       border-radius: 8px; padding: 8px 10px; word-break: break-all; color: var(--cp-text);
     }
     @media (max-width: 720px) { .mkt-list { grid-template-columns: 1fr; } }
+    .mcp-test-result {
+      margin-top: 8px; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--cp-border); background: var(--cp-surface-soft);
+      border-left-width: 4px;
+    }
+    .mcp-test-result.ok { border-left-color: var(--cp-success); }
+    .mcp-test-result.warn { border-left-color: var(--cp-warning); }
+    .mcp-test-result.err { border-left-color: var(--cp-danger); }
     .toolbar {
       display: flex;
       align-items: center;
@@ -7246,10 +7254,37 @@
                         <div class="mkt-field-label">MCP server</div>
                         <div class="mkt-code">
                           <span x-text="mktSelectedEntry().mcp.command"></span>
+                          <template x-if="mktSelectedEntry().mcp.args && mktSelectedEntry().mcp.args.length">
+                            <div style="opacity:.85" x-text="mktSelectedEntry().mcp.args.join(' ')"></div>
+                          </template>
                           <template x-if="mktSelectedEntry().mcp.envKeys && mktSelectedEntry().mcp.envKeys.length">
                             <div style="margin-top:6px;opacity:.85">env: <span x-text="mktSelectedEntry().mcp.envKeys.join(', ')"></span></div>
                           </template>
                         </div>
+
+                        <div class="mkt-field-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                          <span>Compatibility check</span>
+                          <button class="btn ghost" type="button" style="padding:2px 10px;font-size:12px"
+                            @click="testSelectedMcp()" :disabled="mkt.mcpTest.busy"
+                            x-text="mkt.mcpTest.busy ? 'Testing…' : '▶ Test'"></button>
+                        </div>
+                        <div class="hint" x-show="!mkt.mcpTest.result && !mkt.mcpTest.busy" style="font-size:12px">
+                          Starts the server on this machine and attempts an MCP handshake to confirm its runtime/dependencies are installed.
+                        </div>
+                        <template x-if="mkt.mcpTest.busy">
+                          <div class="mkt-code" style="font-size:12px">Starting the server and waiting for an MCP handshake… (up to ~15s)</div>
+                        </template>
+                        <template x-if="mkt.mcpTest.result && mkt.mcpTest.id === mktSelectedEntry().id">
+                          <div class="mcp-test-result" :class="mcpTestStatusMeta(mkt.mcpTest.result.status).cls">
+                            <div style="display:flex;align-items:center;gap:8px;font-weight:700">
+                              <span x-text="mcpTestStatusMeta(mkt.mcpTest.result.status).icon"></span>
+                              <span x-text="mcpTestStatusMeta(mkt.mcpTest.result.status).label"></span>
+                            </div>
+                            <div style="margin-top:4px;font-size:13px" x-text="mkt.mcpTest.result.summary"></div>
+                            <div style="margin-top:4px;font-size:12px;opacity:.85;line-height:1.5" x-show="mkt.mcpTest.result.detail" x-text="mkt.mcpTest.result.detail"></div>
+                            <div class="mkt-code" style="margin-top:8px;font-size:11px;white-space:pre-wrap;max-height:160px;overflow:auto" x-show="mkt.mcpTest.result.stderr" x-text="mkt.mcpTest.result.stderr"></div>
+                          </div>
+                        </template>
                       </div>
                     </template>
 
@@ -9245,6 +9280,7 @@
           tab: 'browse',
           autoPopulated: false,
           design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], inited: false, capCatalog: [] },
+          mcpTest: { id: null, busy: false, result: null },
           busy: false,
           error: '',
         },
@@ -17150,6 +17186,39 @@
         },
         mktSelectEntry(entry) {
           this.mkt.selectedId = (entry && entry.id) || null;
+          // Reset any prior test result when switching entries.
+          this.mkt.mcpTest = { id: null, busy: false, result: null };
+        },
+        // Validate that the selected MCP server can actually start on this
+        // machine by asking the backend to spawn it and attempt a handshake.
+        async testSelectedMcp() {
+          const e = this.mktSelectedEntry();
+          if (!e || e.type !== 'mcp') return;
+          const name = (e.mcp && e.mcp.server) || e.name;
+          this.mkt.mcpTest = { id: e.id, busy: true, result: null };
+          try {
+            const r = await fetch('/api/mcp/test', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, sourcePath: e.path }),
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            this.mkt.mcpTest = { id: e.id, busy: false, result: data };
+          } catch (err) {
+            this.mkt.mcpTest = { id: e.id, busy: false, result: { status: 'error', summary: 'Test failed', detail: String(err && err.message || err) } };
+          }
+        },
+        mcpTestStatusMeta(status) {
+          const map = {
+            ok: { icon: '✓', label: 'Usable', cls: 'ok' },
+            started: { icon: '◐', label: 'Started (no handshake)', cls: 'warn' },
+            url: { icon: '🌐', label: 'Reachable', cls: 'ok' },
+            missing: { icon: '⚠', label: 'Dependency missing', cls: 'err' },
+            error: { icon: '✕', label: 'Error', cls: 'err' },
+            'needs-input': { icon: '🔑', label: 'Needs input', cls: 'warn' },
+            unknown: { icon: '?', label: 'Nothing to test', cls: 'warn' },
+          };
+          return map[status] || map.unknown;
         },
         mktInstalledCount() {
           return ((this.mkt.catalog && this.mkt.catalog.entries) || []).filter(e => e.installed || e.inUse).length;
