@@ -5510,7 +5510,7 @@
                         <div style="display:flex;flex-direction:column;gap:6px">
                           <template x-for="(p, pi) in boardAiPinned" :key="'bap-'+pi">
                             <div style="display:flex;align-items:center;gap:6px">
-                              <button class="btn ghost" type="button" style="text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="p" @click="runBoardAiPrompt(p)" x-text="p"></button>
+                              <button class="btn ghost" type="button" style="text-align:left;flex:1;min-width:0;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" :title="p" @click="runBoardAiPrompt(p)" x-text="p"></button>
                               <button class="icon-button" type="button" title="Unpin prompt" @click="boardAiUnpin(p)" style="color:var(--cp-accent);flex:0 0 auto">📌</button>
                             </div>
                           </template>
@@ -5525,7 +5525,7 @@
                         <div style="display:flex;flex-direction:column;gap:6px">
                           <template x-for="(p, pi) in boardAiRecent.filter(r => !boardAiIsPinned(r))" :key="'bar-'+pi">
                             <div style="display:flex;align-items:center;gap:6px">
-                              <button class="btn ghost" type="button" style="text-align:left;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="p" @click="runBoardAiPrompt(p)" x-text="p"></button>
+                              <button class="btn ghost" type="button" style="text-align:left;flex:1;min-width:0;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3" :title="p" @click="runBoardAiPrompt(p)" x-text="p"></button>
                               <button class="icon-button" type="button" title="Pin this prompt for quick access" @click="boardAiPin(p)" style="flex:0 0 auto">📌</button>
                             </div>
                           </template>
