@@ -5212,6 +5212,60 @@ app.post('/api/fs/folder-summary', (req, res) => {
   res.json({ ok: true, path: dir, name: path.basename(dir.replace(/[\\/]+$/, '')) || dir, summary: rs.summary, hasReadme: rs.hasReadme, readmePath: rs.readmePath, isGit: _isGitRepo(dir) });
 });
 
+// List immediate child directories of a path, for the source-location folder
+// browser. With no path (or path === ''), returns the available roots — drive
+// letters on Windows plus a few convenient starting points (home, repos). Files
+// are omitted; we only browse folders since a pinned location is always a folder.
+app.post('/api/fs/list', (req, res) => {
+  const raw = String((req.body && req.body.path) || '').trim();
+  try {
+    // Root view: drives + handy shortcuts.
+    if (!raw) {
+      const roots = [];
+      const seen = new Set();
+      const add = (p, label) => {
+        if (!p || seen.has(p) || !_validDir(p)) return;
+        seen.add(p);
+        roots.push({ name: label || p, path: p, isGit: false });
+      };
+      if (process.platform === 'win32') {
+        for (let c = 67 /* C */; c <= 90 /* Z */; c++) {
+          const drive = String.fromCharCode(c) + ':\\';
+          if (_validDir(drive)) roots.push({ name: drive, path: drive, isGit: false, drive: true });
+        }
+        add(process.env.USERPROFILE, '🏠 ' + (process.env.USERNAME || 'Home'));
+        add(process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'repos') : '', '📦 repos');
+        add('C:\\repos', '📦 C:\\repos');
+      } else {
+        add(process.env.HOME, '🏠 Home');
+        add('/', '/');
+      }
+      return res.json({ ok: true, path: '', parent: null, dirs: roots });
+    }
+    if (!_validDir(raw)) return res.status(404).json({ error: 'Folder not found', path: raw });
+    const dir = path.resolve(raw);
+    const parentDir = path.dirname(dir);
+    const parent = parentDir && parentDir !== dir ? parentDir : '';
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) {
+      return res.status(403).json({ error: 'Cannot read folder', path: dir });
+    }
+    const dirs = entries
+      .filter(e => { try { return e.isDirectory(); } catch { return false; } })
+      .map(e => e.name)
+      .filter(name => !name.startsWith('$') && name !== 'node_modules')
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      .slice(0, 500)
+      .map(name => {
+        const full = path.join(dir, name);
+        return { name, path: full, hidden: name.startsWith('.'), isGit: fs.existsSync(path.join(full, '.git')) };
+      });
+    res.json({ ok: true, path: dir, parent, isGit: _isGitRepo(dir), dirs });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'list failed' });
+  }
+});
+
 // Open a folder in an editor (VS Code Insiders → VS Code), a Copilot CLI session, or
 // the OS file explorer.
 app.post('/api/fs/open', (req, res) => {
@@ -6594,14 +6648,19 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
   const rawText = (acc.trim() || (result && result.output) || '').trim();
   const parsed = parseModel(rawText);
+  // Newline-preserving normalizer for the chat reply so block markdown (headings,
+  // tables, lists, code fences) survives to the client renderer. clip() would
+  // collapse every newline into a space, flattening the whole reply into one
+  // paragraph — only inline markdown (bold/code) would then render.
+  const replyText = (s, n = 6000) => String(s == null ? '' : s).replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
   let reply, actions = [];
   if (parsed && typeof parsed === 'object') {
-    reply = clip(parsed.reply, 1500) || 'Here is what I suggest.';
+    reply = replyText(parsed.reply) || 'Here is what I suggest.';
     const proposed = Array.isArray(parsed.actions) ? parsed.actions : [];
     actions = proposed.map(resolveAction).filter(Boolean).slice(0, 8).map((a, i) => ({ id: 'act-' + Date.now().toString(36) + '-' + i, ...a }));
   } else {
     // Model didn't return JSON — treat the whole thing as a plain reply.
-    reply = clip(rawText, 1500) || "I couldn't generate a response. Try rephrasing.";
+    reply = replyText(rawText) || "I couldn't generate a response. Try rephrasing.";
   }
   return { reply, actions };
 }
