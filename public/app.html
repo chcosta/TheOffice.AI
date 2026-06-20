@@ -2461,7 +2461,7 @@
     /* ----- Board layout controls bottom bar ----- */
     .board-bottombar {
       position: sticky; bottom: 0; z-index: 8;
-      display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap;
+      display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap;
       margin-top: 12px; padding: 8px 14px;
       border: 1px solid var(--cp-border); border-radius: 0.625rem;
       background: var(--cp-panel-strong); backdrop-filter: blur(10px);
@@ -2473,6 +2473,24 @@
     }
     .board-bottombar .bb-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .board-bottombar .bb-sep { width: 1px; height: 22px; background: var(--cp-border); flex: 0 0 auto; }
+    /* ----- Fullscreen board "focus" mode ----- */
+    /* The active board is lifted out of the normal flow and made to fill the whole
+       window, hiding the sidebar / topbar / other page chrome behind it. It's a flex
+       column so the toolbar pins to the top, the canvas takes the remaining height,
+       and the layout bottombar stays anchored at the bottom — all on screen at once. */
+    .board-focus {
+      position: fixed; inset: 0; z-index: 900;
+      background: var(--cp-bg);
+      padding: 14px 18px;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .board-focus > .card:first-child { flex: 0 0 auto; margin-bottom: 12px; }
+    .board-focus .board-canvas-scroll { height: auto !important; flex: 1 1 auto; min-height: 0; }
+    .board-focus .board-bottombar { flex: 0 0 auto; margin-top: 10px; }
+    /* When Board AI is docked, reflow the focused board to the LEFT of the panel so the
+       docked drawer sits beside it instead of covering the right edge (mirrors the
+       body.ba-docked .app-shell padding the normal view uses). */
+    body.ba-docked .board-focus { padding-right: calc(18px + var(--ba-dock-width, 400px)); }
     /* ----- Board assistant slide-over ("Ask board") ----- */
     .board-assistant-backdrop {
       position: fixed; inset: 0; z-index: 9998;
@@ -4959,7 +4977,7 @@
                 </div>
 
                 <template x-if="activeBoard()">
-                  <div>
+                  <div :class="{ 'board-focus': boardFocus }" @keydown.escape.window="boardFocus && !boardAssistant.open && (boardFocus = false)">
                     <!-- Active board toolbar -->
                     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
                       <div style="display:flex;align-items:center;gap:10px;min-width:0">
@@ -4975,6 +4993,7 @@
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()" title="Add a checklist as its own panel">✅ Checklist</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
+                        <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
                         <!-- Secondary board actions tucked behind an overflow menu so the
                              toolbar stays focused on the things you reach for constantly. -->
                         <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
@@ -9686,6 +9705,7 @@
         boardCanvas: { w: null, h: null, baseW: null, z: 1 },
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
+        boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
@@ -14563,6 +14583,19 @@
           z = Math.max(0.3, Math.floor(z * 20) / 20); // round down to the 0.05 step
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
+        },
+        // Fullscreen "focus" mode: the active board fills the whole window (the rest of
+        // the app shell is hidden behind it) so the user can concentrate on one board.
+        // Board AI still works on top — its overlay sits above the focus layer, and the
+        // docked variant reflows beside it (see the .board-focus CSS).
+        toggleBoardFocus() {
+          this.boardFocus = !this.boardFocus;
+          // Entering/leaving focus changes the scroller's width and height, so re-measure
+          // the grid's layout width and re-pack so panels fill the new space cleanly.
+          this.$nextTick(() => {
+            this._scheduleBoardCanvasH();
+            this.scheduleAutoFit(true);
+          });
         },
         // Size the canvas scroller so it ends exactly at the bottom of the page's content
         // area — making it the SOLE vertical scroller (no double scrollbars from .content).
