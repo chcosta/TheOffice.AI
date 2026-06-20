@@ -3354,6 +3354,7 @@
                           <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                           <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
                           <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to board">📌</button>
+                          <button @click.stop="quickStarEmp(agent.id, agent.name, 'agent', agent.config.pluginDir ? '🧩' : '🤖', agent.teamId)" :title="empStarred(agent.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(agent.id) ? '★' : '☆'"></button>
                           <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                         </div>
                         <div class="lp-card-top">
@@ -3394,6 +3395,7 @@
                         <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                         <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
                         <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to board">📌</button>
+                        <button @click.stop="quickStarEmp(agent.id, agent.name, 'agent', agent.config.pluginDir ? '🧩' : '🤖', agent.teamId)" :title="empStarred(agent.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(agent.id) ? '★' : '☆'"></button>
                         <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                       </div></td>
                     </tr>
@@ -3434,6 +3436,7 @@
                 </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
                 <button class="btn" type="button" @click="openQuickPin('agent', selectedAgent.id, selectedAgent.name, selectedAgent.config?.group || 'Agent')" title="Pin to board">📌 Pin</button>
+                <button class="btn" type="button" @click="quickStarEmp(selectedAgent.id, selectedAgent.name, 'agent', selectedAgent.config?.pluginDir ? '🧩' : '🤖', selectedAgent.teamId)" :title="empStarred(selectedAgent.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedAgent.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedAgent.id) ? 'Starred' : 'Star'"></span></button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="openAgentCliSession(selectedAgent.id)" title="Open an interactive Copilot CLI terminal wired with this agent; the conversation mirrors here as a chat">⌨ CLI session</button>
                 <button class="btn ghost" type="button" @click="selectedAgent._menu = !selectedAgent._menu" title="More actions">⋯</button>
@@ -3926,6 +3929,7 @@
                     <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
                     <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
                     <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to board">📌</button>
+                    <button @click.stop="quickStarEmp(manager.id, manager.name, 'manager', '🧑‍💼', manager.teamId)" :title="empStarred(manager.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(manager.id) ? '★' : '☆'"></button>
                     <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                   </div>
                   <div class="lp-card-top">
@@ -3966,6 +3970,7 @@
                         <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
                         <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
                         <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to board">📌</button>
+                        <button @click.stop="quickStarEmp(manager.id, manager.name, 'manager', '🧑‍💼', manager.teamId)" :title="empStarred(manager.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(manager.id) ? '★' : '☆'"></button>
                         <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                       </div></td>
                     </tr>
@@ -3993,6 +3998,7 @@
               <div class="ag-hero-actions">
                 <button class="btn primary" type="button" @click="managerTab = 'assignments'; resetManagerAssignmentForm()">＋ New Assignment</button>
                 <button class="btn" type="button" @click="openQuickPin('manager', selectedManager.id, selectedManager.name, 'Manager')" title="Pin to board">📌 Pin</button>
+                <button class="btn" type="button" @click="quickStarEmp(selectedManager.id, selectedManager.name, 'manager', '🧑‍💼', selectedManager.teamId)" :title="empStarred(selectedManager.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedManager.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedManager.id) ? 'Starred' : 'Star'"></span></button>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="selectedManager._menu = !selectedManager._menu" @click.outside="selectedManager._menu = false">⋯</button>
                 <div class="ag-menu" x-show="selectedManager._menu" x-transition style="display:none">
@@ -5706,6 +5712,7 @@
                     </div>
                     <div class="toolbar">
                       <button class="btn" type="button" @click.stop="openQuickPin(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
+                      <button class="btn" type="button" @click.stop="quickStarOp(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.type === 'assignment' ? '📋' : '⚙️', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
                       <button class="btn" type="button" @click="openTaskModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
@@ -5903,6 +5910,7 @@
                     </div>
                     <div class="toolbar">
                       <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to board">📌</button>
+                      <button class="btn" type="button" @click.stop="quickStarOp('flow', chain.id, chain.name || chain.id, '🔀', chain.id, chain.teamId)" :title="opStarred(chain.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(chain.id) ? '★' : '☆'"></button>
                       <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
                     </div>
@@ -5946,6 +5954,7 @@
                     </div>
                     <div class="toolbar">
                       <button class="btn" type="button" @click.stop="openQuickPin('assignment', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
+                      <button class="btn" type="button" @click.stop="quickStarOp('assignment', task.taskKey, task.name, '📋', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
                       <button class="btn" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
@@ -5995,6 +6004,7 @@
                   </div>
                   <div class="toolbar">
                     <button class="btn" type="button" @click="openQuickPin(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().ownerName)" title="Pin to board">📌</button>
+                    <button class="btn" type="button" @click="quickStarOp(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().type === 'assignment' ? '📋' : '⚙️', null, opDetail().teamId)" :title="opStarred(opDetail().taskKey) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="opStarred(opDetail().taskKey) ? '★' : '☆'"></span> <span x-text="opStarred(opDetail().taskKey) ? 'Starred' : 'Star'"></span></button>
                     <button class="btn" type="button" @click="editOpFromDetail(opDetail())">✏️ Edit</button>
                     <button class="btn primary" type="button" @click="runTask(opDetail())">▶ Run</button>
                     <button class="btn danger" type="button" @click="deleteOpFromDetail(opDetail())">🗑 Delete</button>
@@ -6135,6 +6145,7 @@
                   </div>
                   <div class="toolbar">
                     <button class="btn" type="button" @click="openQuickPin('flow', detailChain().id, detailChain().name, 'Flow')" title="Pin to board">📌</button>
+                    <button class="btn" type="button" @click="quickStarOp('flow', detailChain().id, detailChain().name, '🔀', detailChain().id, detailChain().teamId)" :title="opStarred(detailChain().id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="opStarred(detailChain().id) ? '★' : '☆'"></span> <span x-text="opStarred(detailChain().id) ? 'Starred' : 'Star'"></span></button>
                     <button class="btn" type="button" @click="openChainModal(detailChain())">✏️ Edit</button>
                     <button class="btn primary" type="button" @click="runChain(detailChain())">▶ Run</button>
                   </div>
@@ -13196,6 +13207,19 @@
           const i = (this.quickPins || []).findIndex(p => p.kind === item.kind && p.id === item.id);
           if (i >= 0) { this.quickPins.splice(i, 1); this._saveQuickPins(); }
         },
+        // Quick-launch STAR (≠ board Pin) helpers, used across the agent / manager
+        // / operation surfaces so you can star to quick launch from anywhere you
+        // can pin-to-board.
+        quickStarEmp(id, name, type, icon, teamId) {
+          if (!id) return;
+          this.toggleEmployeePin({ id, name: name || id, type: type || 'agent', icon: icon || (type === 'manager' ? '🧑‍💼' : '🤖'), teamId: teamId || (this.currentTeamId !== 'all' ? this.currentTeamId : null) });
+        },
+        empStarred(id) { return this.isQuickPinned('employee', id); },
+        quickStarOp(kind, key, name, icon, chainId, teamId) {
+          if (!key) return;
+          this.toggleOperationPin({ kind, key, chainId: chainId || key, name: name || key, icon: icon || '⚙️', teamId: teamId || (this.currentTeamId !== 'all' ? this.currentTeamId : null) });
+        },
+        opStarred(key) { return this.isQuickPinned('operation', key); },
         // Navigate to a quick-launch item, selecting its team scope first.
         quickLaunchOpen(item) {
           if (!item) return;

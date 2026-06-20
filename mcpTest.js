@@ -17,7 +17,7 @@
 
 const { spawn } = require('child_process');
 
-const HANDSHAKE_TIMEOUT_MS = 15000;
+const HANDSHAKE_TIMEOUT_MS = 30000;
 const URL_TIMEOUT_MS = 8000;
 
 // Resolve ${env:NAME} placeholders from a merged env; flag ${input:...} which
@@ -58,7 +58,7 @@ function testStdio(cfg) {
 
     let timer = setTimeout(() => {
       // Alive but silent: likely downloading deps or non-stdio transport.
-      finish({ status: 'started', summary: 'Started but no MCP handshake within ' + (HANDSHAKE_TIMEOUT_MS / 1000) + 's', detail: 'The process launched and is still running but did not answer an `initialize` request. It may be downloading dependencies, waiting on input, or using a non-stdio transport.', stderr: tail(stderr) });
+      finish({ status: 'started', summary: 'Started but no MCP handshake within ' + (HANDSHAKE_TIMEOUT_MS / 1000) + 's', detail: 'The process launched and is still running but did not answer an `initialize` request in time. On a first run, `npx`/`uvx` servers download their package before starting, and proxy servers register remote tools over the network — both can exceed the timeout. Try running the test again now that any packages are cached, or check that required dependencies/credentials are installed.', stderr: tail(stderr) });
     }, HANDSHAKE_TIMEOUT_MS);
 
     try {
