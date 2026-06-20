@@ -1067,6 +1067,18 @@
       background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
       border-radius: 8px; padding: 8px 10px; word-break: break-all; color: var(--cp-text);
     }
+    .mkt-src-opt {
+      display: block; cursor: pointer; margin-bottom: 6px;
+      background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+      border-radius: 8px; padding: 8px 10px;
+    }
+    .mkt-src-opt.sel { border-color: var(--cp-accent); box-shadow: inset 0 0 0 1px var(--cp-accent); }
+    .mkt-src-opt .src-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .mkt-src-opt .src-name { font-weight: 600; font-size: 13px; color: var(--cp-text); }
+    .mkt-src-opt .src-loc {
+      font-family: var(--mono, Consolas, monospace); font-size: 11px;
+      color: var(--cp-text-muted); word-break: break-all; margin-top: 5px; padding-left: 24px;
+    }
     @media (max-width: 720px) { .mkt-list { grid-template-columns: 1fr; } }
     .mcp-test-result {
       margin-top: 8px; padding: 10px 12px; border-radius: 8px;
@@ -7667,13 +7679,14 @@
                         <div class="mkt-field-label" x-text="'Source — offered by ' + mktDupSources(mktSelectedEntry()).length + ' sources'"></div>
                         <div class="hint" style="font-size:12px;margin-bottom:6px">Identical item from several sources, merged into one. Pick which source to install / add from — the choice can matter for updates and team availability.</div>
                         <template x-for="s in mktDupSources(mktSelectedEntry())" :key="s.id">
-                          <label class="mkt-code" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer"
-                                 :style="mkt.sourcePickId === s.id ? 'outline:2px solid var(--cp-accent)' : ''">
-                            <input type="radio" name="mktSrcPick" :value="s.id" x-model="mkt.sourcePickId" style="margin:0">
-                            <span style="font-weight:600" x-text="s.label"></span>
-                            <span class="mkt-mini-badge ok" x-show="s.installed">✓ Installed</span>
-                            <span class="mkt-mini-badge ok" x-show="!s.installed && s.inUse">✓ In use</span>
-                            <span style="opacity:.7;font-size:11px;word-break:break-all;margin-left:auto" x-text="s.location"></span>
+                          <label class="mkt-src-opt" :class="mkt.sourcePickId === s.id ? 'sel' : ''">
+                            <div class="src-top">
+                              <input type="radio" name="mktSrcPick" :value="s.id" x-model="mkt.sourcePickId" style="margin:0">
+                              <span class="src-name" x-text="s.label"></span>
+                              <span class="mkt-mini-badge ok" x-show="s.installed">✓ Installed</span>
+                              <span class="mkt-mini-badge ok" x-show="!s.installed && s.inUse">✓ In use</span>
+                            </div>
+                            <div class="src-loc" x-text="s.location" x-show="s.location"></div>
                           </label>
                         </template>
                       </div>
@@ -7761,8 +7774,11 @@
                   </select>
                 </div>
                 <div class="form-row" style="margin-bottom:12px">
-                  <label x-text="mkt.design.mode === 'enhance' ? 'Focus (optional)' : 'What should this agent do? (optional)'"></label>
-                  <textarea x-model="mkt.design.hint" rows="2" :placeholder="mkt.design.mode === 'enhance' ? 'e.g. give it the ability to query Azure DevOps' : 'e.g. an agent that watches Azure status and emails me on outages'"></textarea>
+                  <label style="display:block;margin-bottom:6px" x-text="mkt.design.mode === 'enhance' ? 'Focus (optional)' : 'What should this agent do? (optional)'"></label>
+                  <textarea x-model="mkt.design.hint" rows="4"
+                    style="width:100%;box-sizing:border-box;min-height:88px;max-height:320px;resize:vertical;font:inherit;line-height:1.45"
+                    @input="$el.style.height='auto';$el.style.height=Math.min($el.scrollHeight,320)+'px'"
+                    :placeholder="mkt.design.mode === 'enhance' ? 'e.g. give it the ability to query Azure DevOps' : 'e.g. an agent that watches Azure status and emails me on outages'"></textarea>
                 </div>
                 <div class="toolbar">
                   <button class="btn primary" type="button" @click="mktDesignGenerate()"
