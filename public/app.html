@@ -2358,22 +2358,38 @@
     .board-panel-body .md-output th,
     .board-panel-body .md-output td { font-size: calc(0.78rem * var(--board-fs, 1)); }
     .board-panel-body .hint { font-size: calc(0.8rem * var(--board-fs, 1)); }
-    /* Resize grip: a clearly visible two-line corner handle in the bottom-right.
-       Dragging it sets the panel WIDTH; height then auto-fits the content. */
+    /* Resize grips. The corner sets both width & height (manual); the right edge sets
+       width (height auto-fits); the bottom edge sets height (manual). Edges are
+       invisible grab-strips along the panel border; the corner is the visible grip. */
     .board-resize {
       position: absolute;
       right: 3px;
       bottom: 3px;
       width: 20px;
       height: 20px;
-      cursor: ew-resize;
+      cursor: se-resize;
       opacity: .5;
       border-bottom-right-radius: 14px;
+      z-index: 4;
       background:
         linear-gradient(135deg,
           transparent 44%, var(--cp-border-strong) 44%, var(--cp-border-strong) 54%, transparent 54%,
           transparent 66%, var(--cp-border-strong) 66%, var(--cp-border-strong) 76%, transparent 76%);
     }
+    .board-resize-w {
+      position: absolute;
+      top: 10px; bottom: 22px; right: 0; width: 8px;
+      cursor: ew-resize; z-index: 3;
+      background: transparent;
+    }
+    .board-resize-h {
+      position: absolute;
+      left: 10px; right: 22px; bottom: 0; height: 8px;
+      cursor: ns-resize; z-index: 3;
+      background: transparent;
+    }
+    .board-panel:hover .board-resize-w:hover,
+    .board-panel:hover .board-resize-h:hover { background: color-mix(in srgb, var(--cp-accent) 35%, transparent); }
     .board-panel:hover .board-resize { opacity: .95; }
     .board-resize:hover {
       background:
@@ -5396,7 +5412,9 @@
                                 </div>
                               </template>
                             </div>
-                            <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize — width follows your drag, height fits the content"></div>
+                            <div class="board-resize-w" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event, 'w')" title="Drag to resize width — height fits the content"></div>
+                            <div class="board-resize-h" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event, 'h')" title="Drag to resize height"></div>
+                            <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event, 'se')" title="Drag to resize — width and height together"></div>
                           </div>
                           </template>
                         </div>
@@ -9667,6 +9685,7 @@
         // Per-board resizable canvas (px). null = fit to window width / auto height.
         boardCanvas: { w: null, h: null, baseW: null, z: 1 },
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
+        boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
@@ -14562,6 +14581,9 @@
           const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
           const bottom = window.innerHeight - padB;
           this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - 4));
+          // The unstretched grid fills the scroller; capture its content width so the grid
+          // can be given an explicit pixel width (required for transform:scale zoom).
+          if (sc.clientWidth) this.boardCanvasW = sc.clientWidth;
         },
         // Recalc now and again across a few frames/timeouts — first-paint layout (fonts,
         // panel render, route transition) can settle after the initial measure.
@@ -14712,15 +14734,36 @@
           }
           return maxY * this.boardRowH + 8;
         },
-        // Canvas size: width is explicit px (enables horizontal scroll) when the user
-        // has dragged wider; height grows beyond content when dragged taller.
+        // Canvas size + zoom. Uses transform:scale (NOT css zoom) over an EXPLICIT pixel
+        // width so content wraps identically at every zoom — making scrollHeight
+        // zoom-independent (kills the auto-fit "jitter") and giving a true zoom-out
+        // instead of a per-zoom reflow. The flow box is margin-compensated so a scaled
+        // grid reserves exactly its on-screen size: centered when zoomed out (no dead
+        // space / no h-scrollbar), overflow-scrolled when zoomed in.
         boardGridStyle() {
           const contentH = this.boardGridHeight();
           const h = this.boardCanvas.h ? Math.max(contentH, this.boardCanvas.h) : contentH;
-          const w = this.boardCanvas.w ? this.boardCanvas.w + 'px' : '100%';
           const z = this.boardCanvas.z || 1;
           const fs = this.boardCanvas.fs || 1;
-          return `position:relative; width:${w}; height:${h}px; zoom:${z}; --board-fs:${fs};`;
+          let layoutW;
+          if (this.boardCanvas.w) layoutW = this.boardCanvas.w;
+          else {
+            const sc = document.querySelector('.board-canvas-scroll');
+            layoutW = this.boardCanvasW || (sc && sc.clientWidth) || 0;
+          }
+          if (!layoutW) {
+            // First paint before the scroller is measured: fluid width, no transform.
+            return `position:relative; width:100%; height:${h}px; --board-fs:${fs};`;
+          }
+          const spanW = layoutW * (1 - z);
+          let ml, mr;
+          if (z <= 1) { ml = spanW / 2; mr = -spanW / 2; } // centered, no h-scrollbar
+          else { ml = 0; mr = -spanW; }                    // overflow → h-scroll
+          const mb = -(h * (1 - z));
+          return `position:relative; width:${layoutW}px; height:${h}px;`
+            + ` transform:scale(${z}); transform-origin:0 0;`
+            + ` margin-left:${ml}px; margin-right:${mr}px; margin-bottom:${mb}px;`
+            + ` --board-fs:${fs};`;
         },
         loadBoardCanvas(boardId) {
           let map = {};
@@ -14917,7 +14960,7 @@
           document.addEventListener('mouseup', onUp);
           raf = requestAnimationFrame(tick);
         },
-        startPanelResize(id, ev) {
+        startPanelResize(id, ev, mode = 'w') {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault(); ev.stopPropagation();
           const rowH = this.boardRowH;
@@ -14925,17 +14968,28 @@
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
           const z = this.boardCanvas.z || 1;
-          // Visual column size = layout column px scaled by zoom (cursor deltas are visual px).
+          // Visual column / row size = layout size scaled by zoom (cursor deltas are visual px).
           const colW = (this._boardColPx() * z) || 1;
+          const rowV = (rowH * z) || 1;
+          const doW = mode === 'w' || mode === 'se';
+          const doH = mode === 'h' || mode === 'se';
           let curH = start.h, rafPending = false;
-          // Drag the width; the height refits to the content live so a wider card gets
-          // shorter and a narrower card gets taller (and vice-versa) as you drag.
           const onMove = (e) => {
             const eff = this._boardEffCols();
-            const dw = Math.round((e.clientX - start.mx) / colW);
-            const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
-            this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: curH } };
-            if (!rafPending) {
+            let nw = start.w, nh = curH;
+            if (doW) {
+              const dw = Math.round((e.clientX - start.mx) / colW);
+              nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
+            }
+            if (doH) {
+              const dh = Math.round((e.clientY - start.my) / rowV);
+              nh = Math.max(2, start.h + dh);
+              curH = nh;
+            }
+            this.boardLayout = { ...this.boardLayout, [id]: { ...this.boardLayout[id], x: start.x, y: start.y, w: nw, h: nh } };
+            // Width-ONLY drag: refit the height to the content live so a wider card gets
+            // shorter and a narrower card gets taller (and vice-versa) as you drag.
+            if (mode === 'w' && !rafPending) {
               rafPending = true;
               requestAnimationFrame(() => {
                 rafPending = false;
@@ -14953,8 +15007,18 @@
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             this.boardDragId = '';
-            // Persist the fitted height the user just produced by dragging the width,
-            // and de-overlap around this panel if auto-arrange is on.
+            const cur = this.boardLayout[id];
+            if (cur) {
+              if (doH) {
+                // Manual height: pin it (mh) so auto-fit honours it instead of content-fitting.
+                this.boardLayout = { ...this.boardLayout, [id]: { ...cur, mh: cur.h } };
+              } else if (cur.mh != null) {
+                // Width-only drag: height is content-fit again — drop the manual-height pin.
+                const { mh, ...rest } = cur;
+                this.boardLayout = { ...this.boardLayout, [id]: rest };
+              }
+            }
+            // Persist the result and de-overlap around this panel if auto-arrange is on.
             this.scheduleAutoFit(true, id);
             this.persistLayout();
           };
@@ -15172,6 +15236,7 @@
               // doesn't flip ±1 row each pass.
               let h;
               if (this.isPanelCollapsed(id)) h = need;
+              else if (cur.mh != null) h = cur.mh;   // manual height pinned — keep exactly
               else if (need > cur.h) h = need;
               else if (need < cur.h - 1) h = need;
               else h = cur.h;
