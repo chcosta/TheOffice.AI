@@ -2363,6 +2363,24 @@
     .board-panel-body .md-output th,
     .board-panel-body .md-output td { font-size: calc(0.78rem * var(--board-fs, 1)); }
     .board-panel-body .hint { font-size: calc(0.8rem * var(--board-fs, 1)); }
+    /* Overflow "⋯" action menu for board rows (checklist items/headers, notes).
+       Secondary actions collapse behind a kebab so they never spill past a
+       narrow panel; the flyout is a vertical, labelled menu. */
+    .row-actions-menu { position: relative; flex: 0 0 auto; display: flex; }
+    .row-actions-pop {
+      position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
+      display: flex; flex-direction: column; gap: 2px; min-width: 150px;
+      padding: 5px; background: var(--cp-panel-strong);
+      border: 1px solid var(--cp-border); border-radius: 8px; box-shadow: var(--cp-shadow);
+    }
+    .row-menu-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      text-align: left; background: transparent; border: none; color: var(--cp-text);
+      padding: 5px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;
+    }
+    .row-menu-item:hover { background: var(--cp-highlight); }
+    .row-menu-item > span:first-child { width: 16px; text-align: center; flex: 0 0 auto; opacity: .85; }
+    .row-menu-item.danger:hover { background: color-mix(in srgb, var(--cp-danger) 18%, transparent); color: var(--cp-danger); }
     /* Resize grips. The corner sets both width & height (manual); the right edge sets
        width (height auto-fits); the bottom edge sets height (manual). Edges are
        invisible grab-strips along the panel border; the corner is the visible grip. */
@@ -5348,8 +5366,13 @@
                                           </div>
                                         </template>
                                         <button class="icon-button" type="button" title="Move up" @click="moveNote(note, -1)">▲</button>
-                                        <button class="icon-button" type="button" title="Move down" @click="moveNote(note, 1)">▼</button>
-                                        <button class="icon-button" type="button" title="Delete note" @click="deleteBoardNote(note)">✕</button>
+                                        <div class="row-actions-menu" x-data="{ open:false }" @keydown.escape.window="open=false">
+                                          <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
+                                          <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
+                                            <button class="row-menu-item" type="button" @click="moveNote(note, 1)"><span>▼</span><span>Move down</span></button>
+                                            <button class="row-menu-item danger" type="button" @click="deleteBoardNote(note); open=false"><span>✕</span><span>Delete note</span></button>
+                                          </div>
+                                        </div>
                                       </div>
                                     </template>
                                   </div>
@@ -5369,9 +5392,14 @@
                                           </div>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
-                                            <button class="icon-button" type="button" title="Move up" @click="moveChecklist(cl, -1)">▲</button>
-                                            <button class="icon-button" type="button" title="Move down" @click="moveChecklist(cl, 1)">▼</button>
-                                            <button class="icon-button" type="button" title="Delete checklist" @click="deleteChecklist(cl)">✕</button>
+                                            <div class="row-actions-menu" x-data="{ open:false }" @keydown.escape.window="open=false">
+                                              <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
+                                              <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
+                                                <button class="row-menu-item" type="button" @click="moveChecklist(cl, -1)"><span>▲</span><span>Move up</span></button>
+                                                <button class="row-menu-item" type="button" @click="moveChecklist(cl, 1)"><span>▼</span><span>Move down</span></button>
+                                                <button class="row-menu-item danger" type="button" @click="deleteChecklist(cl); open=false"><span>✕</span><span>Delete checklist</span></button>
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
                                         <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
@@ -5405,10 +5433,15 @@
                                                     </span>
                                                   </template>
                                                   <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Edit text" @click="startEditChecklistItem(item)">✎</button>
-                                                  <button class="icon-button" type="button" x-show="!item.ref && boardChecklistItemEdit[item.id] === undefined" :title="boardRefPickFor === item.id ? 'Cancel link' : 'Link a pinned item'" @click="boardRefPickFor = (boardRefPickFor === item.id ? '' : item.id)">🔗</button>
-                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Move up" @click="moveChecklistItem(cl, item, -1)">▲</button>
-                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Move down" @click="moveChecklistItem(cl, item, 1)">▼</button>
-                                                  <button class="icon-button" type="button" x-show="boardChecklistItemEdit[item.id] === undefined" title="Remove" @click="deleteChecklistItem(cl, item)">✕</button>
+                                                  <div class="row-actions-menu" x-show="boardChecklistItemEdit[item.id] === undefined" x-data="{ open:false }" @keydown.escape.window="open=false">
+                                                    <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
+                                                    <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
+                                                      <button class="row-menu-item" type="button" x-show="!item.ref" @click="boardRefPickFor = item.id; open=false"><span>🔗</span><span>Link a pinned item</span></button>
+                                                      <button class="row-menu-item" type="button" @click="moveChecklistItem(cl, item, -1)"><span>▲</span><span>Move up</span></button>
+                                                      <button class="row-menu-item" type="button" @click="moveChecklistItem(cl, item, 1)"><span>▼</span><span>Move down</span></button>
+                                                      <button class="row-menu-item danger" type="button" @click="deleteChecklistItem(cl, item); open=false"><span>✕</span><span>Remove</span></button>
+                                                    </div>
+                                                  </div>
                                                 </div>
                                               </div>
                                               <!-- Inline pin picker: choose a pin already on this board to link to the item. -->
