@@ -4827,12 +4827,20 @@
                         <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
-                        <button class="btn ghost" type="button" @click="openBoardModal(activeBoard())">✏ Edit</button>
-                        <button class="btn ghost" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)" title="Archive this board">🗄 Archive</button>
-                        <button class="btn ghost" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)" title="Restore this board">↩ Restore</button>
-                        <button class="btn ghost" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)" title="Enable this board (only enabled boards feed Insights)">✅ Enable</button>
-                        <button class="btn ghost" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)" title="Disable this board (hidden from Insights)">⏸ Disable</button>
-                        <button class="btn ghost" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)">🗑 Delete</button>
+                        <!-- Secondary board actions tucked behind an overflow menu so the
+                             toolbar stays focused on the things you reach for constantly. -->
+                        <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
+                          <button class="btn ghost" type="button" @click="open = !open" :class="{ active: open }" title="More board actions" aria-haspopup="true" :aria-expanded="open">⋯ More</button>
+                          <div class="org-menu" x-show="open" x-transition.opacity.duration.120ms x-cloak style="min-width:180px" @click="open = false">
+                            <button class="org-menu-item" type="button" @click="openBoardModal(activeBoard())"><span>✏</span><span class="org-menu-label">Edit</span></button>
+                            <button class="org-menu-item" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)"><span>🗄</span><span class="org-menu-label">Archive</span></button>
+                            <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
+                            <button class="org-menu-item" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)"><span>✅</span><span class="org-menu-label">Enable</span></button>
+                            <button class="org-menu-item" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)"><span>⏸</span><span class="org-menu-label">Disable</span></button>
+                            <div class="org-menu-sep"></div>
+                            <button class="org-menu-item" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)"><span>🗑</span><span class="org-menu-label">Delete</span></button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
