@@ -2382,6 +2382,23 @@
     .ba-enter { transition: transform .18s ease, opacity .18s ease; }
     .ba-enter-start { transform: translateX(24px); opacity: 0; }
     .ba-enter-end { transform: translateX(0); opacity: 1; }
+    /* ===== Docked ("locked to side") Board AI ===== */
+    /* When locked, the panel pins to the right edge full-height and the whole shell
+       reflows to its left (we pad .app-shell), so nothing is covered and the board
+       grid recomputes its width. The backdrop becomes a transparent click-through
+       layer so the board stays fully interactive alongside the panel. */
+    .board-assistant-backdrop.docked {
+      background: transparent; pointer-events: none;
+    }
+    .board-assistant-backdrop.docked .board-assistant-drawer { pointer-events: auto; }
+    .board-assistant-drawer.docked {
+      position: fixed; top: 0; right: 0; bottom: 0; height: 100vh; max-width: none;
+      box-shadow: -10px 0 28px rgba(0,0,0,0.14);
+    }
+    body.ba-docked .app-shell {
+      padding-right: var(--ba-dock-width, 400px);
+      transition: padding-right .18s ease;
+    }
     .board-assistant-head {
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
       padding: 14px 16px; border-bottom: 1px solid var(--cp-border); flex: 0 0 auto;
@@ -2818,7 +2835,7 @@
   </style>
 </head>
 <body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)" :class="{ 'nav-collapsed': navCollapsed }">
-  <div class="app-shell">
+  <div class="app-shell" x-effect="syncBaDock()">
     <header class="topbar">
       <div class="brand">
         <button class="icon-button nav-toggle-btn" type="button" @click="toggleMainNav()" :aria-label="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" :title="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">☰</button>
@@ -5282,8 +5299,8 @@
 
             <!-- Board assistant slide-over ("Ask board"). Fixed overlay OUTSIDE the
                  auto-fit grid so its height never disturbs board layout. -->
-            <div class="board-assistant-backdrop" x-show="boardAssistant.open" x-transition.opacity.duration.150ms @click.self="closeBoardAssistant()" x-cloak>
-              <aside class="board-assistant-drawer" :class="{ open: boardAssistant.open }" :style="'width:' + boardAssistant.width + 'px'" x-show="boardAssistant.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+            <div class="board-assistant-backdrop" :class="{ docked: boardAssistant.docked }" x-show="boardAssistant.open" x-transition.opacity.duration.150ms @click.self="!boardAssistant.docked && closeBoardAssistant()" x-cloak>
+              <aside class="board-assistant-drawer" :class="{ open: boardAssistant.open, docked: boardAssistant.docked }" :style="'width:' + boardAssistant.width + 'px'" x-show="boardAssistant.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
                 <div class="ba-resize" :class="{ dragging: boardAssistant.resizing }" @mousedown.prevent="baResizeStart($event)" title="Drag to resize"></div>
                 <div class="board-assistant-head">
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
@@ -5293,7 +5310,10 @@
                       <div class="hint" style="font-size:11px" x-text="(activeBoard() ? activeBoard().name + ' · ' : '') + 'proposes notes & checklists — you confirm'"></div>
                     </div>
                   </div>
-                  <button class="icon-button" type="button" @click="closeBoardAssistant()" title="Close">✕</button>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <button class="icon-button" type="button" @click="toggleBoardDock()" :class="{ active: boardAssistant.docked }" x-text="boardAssistant.docked ? '🔒' : '🔓'" :title="boardAssistant.docked ? 'Unlock — float as overlay' : 'Lock to the side of the screen'"></button>
+                    <button class="icon-button" type="button" x-show="!boardAssistant.docked" @click="closeBoardAssistant()" title="Close">✕</button>
+                  </div>
                 </div>
                 <div class="board-assistant-body" x-ref="baBody">
                   <div x-show="!boardAssistant.messages.length" class="empty-state" style="padding:16px;font-size:13px">
@@ -9498,7 +9518,7 @@
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
-        boardAssistant: { open: false, busy: false, input: '', messages: [], resizing: false, activity: null, width: Math.max(320, Math.min(720, parseInt(localStorage.getItem('ba-width'), 10) || 400)) },
+        boardAssistant: { open: false, docked: (function(){ try { return localStorage.getItem('ba-docked') === '1'; } catch { return false; } })(), busy: false, input: '', messages: [], resizing: false, activity: null, width: Math.max(320, Math.min(720, parseInt(localStorage.getItem('ba-width'), 10) || 400)) },
         // Live elapsed-seconds counter for the board assistant's in-flight work (drives
         // the ticking timer so the user can see the agent/model is still active).
         baElapsed: 0,
@@ -14761,7 +14781,34 @@
           this.boardAssistant.open = true;
           this.$nextTick(() => { try { this.$refs.baBody && (this.$refs.baBody.scrollTop = this.$refs.baBody.scrollHeight); } catch {} });
         },
-        closeBoardAssistant() { this.boardAssistant.open = false; },
+        closeBoardAssistant() { this.boardAssistant.open = false; this.syncBaDock(); },
+        // Toggle the "lock to side" (docked) mode. Docked keeps the panel pinned to
+        // the right edge and reflows the whole shell left so the board narrows beside
+        // it. Undocking returns it to the floating overlay (kept open for continuity).
+        toggleBoardDock() {
+          this.boardAssistant.docked = !this.boardAssistant.docked;
+          try { localStorage.setItem('ba-docked', this.boardAssistant.docked ? '1' : '0'); } catch {}
+          if (this.boardAssistant.docked && !this.boardAssistant.open) this.openBoardAssistant();
+          this.syncBaDock();
+        },
+        // Keep the docked layout in sync with state. Driven by x-effect on .app-shell
+        // (reads route/activeBoardId/open/docked/width so it re-runs on any change).
+        // When locked AND viewing a board, auto-show the panel and pad the shell by
+        // the panel width; otherwise release the padding (also clears phantom padding
+        // when navigating away from boards).
+        syncBaDock() {
+          const onBoards = this.route === 'boards';
+          const docked = !!this.boardAssistant.docked;
+          const w = this.boardAssistant.width || 400;
+          const board = onBoards ? this.activeBoard() : null;
+          if (docked && onBoards && board && !this.boardAssistant.open) this.boardAssistant.open = true;
+          const active = docked && onBoards && !!board && this.boardAssistant.open;
+          try {
+            document.body.classList.toggle('ba-docked', active);
+            if (active) document.body.style.setProperty('--ba-dock-width', w + 'px');
+            else document.body.style.removeProperty('--ba-dock-width');
+          } catch {}
+        },
         // Clamp drawer width to a reasonable range (min 320px; max 720px but never
         // wider than 92% of the viewport so it stays usable on small screens).
         _baClampWidth(w) { return Math.max(320, Math.min(Math.round(w), 720, Math.round(window.innerWidth * 0.92))); },
@@ -14772,7 +14819,7 @@
           const startW = this.boardAssistant.width || 400;
           this.boardAssistant.resizing = true;
           document.body.style.userSelect = 'none';
-          const onMove = (ev) => { this.boardAssistant.width = this._baClampWidth(startW + (startX - ev.clientX)); };
+          const onMove = (ev) => { this.boardAssistant.width = this._baClampWidth(startW + (startX - ev.clientX)); if (this.boardAssistant.docked) this.syncBaDock(); };
           const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
