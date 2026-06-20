@@ -14652,6 +14652,50 @@
           this.scheduleAutoFit(); // text size changed → re-fit panel heights
         },
         bumpBoardFont(delta) { this.setBoardFont((this.boardCanvas.fs || 1) + delta); },
+        // The HARD minimum width for a panel: the narrowest column span at which the
+        // panel's content (button rows, the agent model pill, long unbreakable text, …)
+        // does NOT overflow horizontally outside the panel. Unlike _panelMinWidth this
+        // lets the height grow as much as it needs — it only guarantees nothing is clipped
+        // sideways. Used to clamp interactive resizes so a panel can never be dragged so
+        // small that its controls/text spill out of the card. Returns a column count
+        // (>=3) or null when it can't be measured (collapsed/chip/no grid).
+        _panelHardMinCols(id) {
+          const grid = document.querySelector('.board-grid'); if (!grid) return null;
+          let el = null;
+          grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+          if (!el || el.classList.contains('pin-chip')) return null;
+          if (this.isPanelCollapsed(id)) return null;
+          const inner = el.querySelector('.board-panel-inner'); if (!inner) return null;
+          const colPx = this._boardColPx(); if (!colPx) return null;
+          const eff = this._boardEffCols();
+          const upper = Math.max(3, Math.min(eff, Math.round((this.boardLayout[id] || {}).w || eff)));
+          const meas = document.createElement('div');
+          meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+          meas.style.setProperty('--board-fs', String(this.boardFont()));
+          const clone = inner.cloneNode(true);
+          clone.style.width = '100%';
+          clone.style.height = 'auto';
+          meas.appendChild(clone);
+          document.body.appendChild(meas);
+          // Widest horizontal-overflow across the whole card (head control strip AND body),
+          // so neither the buttons nor the content get clipped.
+          const overflowsAt = (w) => {
+            meas.style.width = (w * colPx) + 'px';
+            void clone.offsetHeight;
+            const probes = clone.querySelectorAll('.board-panel-body, .board-panel-head, .bph-right, .bph-left');
+            for (const el2 of probes) {
+              if (el2.scrollWidth > el2.clientWidth + 1) return true;
+            }
+            return false;
+          };
+          let best = 3;
+          for (let w = 3; w <= upper; w++) {
+            if (!overflowsAt(w)) { best = w; break; }
+            best = w;
+          }
+          document.body.removeChild(meas);
+          return Math.max(3, best);
+        },
         // Compute the narrowest column span that keeps a panel's content fitting
         // without growing its height. Returns the best column count (>=2) or null if
         // the panel can't be measured. Panels are CSS-grid items (width comes from the
@@ -15354,6 +15398,11 @@
           const colW = (this._boardColPx() * z) || 1;
           const rowV = (rowH * z) || 1;
           const doH = mode === 'h' || mode === 'se';
+          // Content-aware hard minimum width: a width/corner drag can never shrink the
+          // panel narrower than the point where its controls/model pill/text would spill
+          // outside the card. (Height-only drags never narrow the panel, so they don't
+          // need this.) Measured once up front — the content doesn't change mid-drag.
+          const minW = (mode === 'w' || mode === 'se') ? (this._panelHardMinCols(id) || 3) : 3;
           let curH = start.h, rafPending = false;
           // For height-aware drags ('h' and 'se') build a reusable off-screen content
           // measurer so we keep content fitting WITHOUT a scrollbar: shrinking the height
@@ -15365,7 +15414,7 @@
             const cur0 = this.boardLayout[id] || {};
             if (mode === 'w') {
               const dw = Math.round((e.clientX - start.mx) / colW);
-              const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
+              const nw = Math.max(minW, Math.min(eff - start.x, start.w + dw));
               this.boardLayout = { ...this.boardLayout, [id]: { ...cur0, x: start.x, y: start.y, w: nw, h: curH } };
               // Width-only: refit the height to the content live (wider => shorter, narrower => taller).
               if (!rafPending) {
@@ -15402,7 +15451,7 @@
             // mode 'se' (corner): user drives both; clamp height so the content never scrolls.
             const dw = Math.round((e.clientX - start.mx) / colW);
             const dh = Math.round((e.clientY - start.my) / rowV);
-            const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
+            const nw = Math.max(minW, Math.min(eff - start.x, start.w + dw));
             let nh = Math.max(2, start.h + dh);
             if (measurer) {
               const mr = measurer.rowsAt(nw);
