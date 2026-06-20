@@ -2302,16 +2302,27 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 5px 6px 2px 10px;
+      padding: 3px 4px 1px 8px;
       background: transparent;
       cursor: move;
       flex: 0 0 auto;
     }
-    .board-panel-head .bph-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .board-panel-head .bph-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
     .board-panel-head .bph-right { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; opacity: .55; transition: opacity .12s ease; }
     .board-panel:hover .board-panel-head .bph-right,
     .board-panel.collapsed .board-panel-head .bph-right { opacity: 1; }
     .board-panel-tag { font-size: 14px; line-height: 1; flex: 0 0 auto; opacity: .9; }
+    .board-panel-type {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--cp-text-soft);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 0 1 auto;
+    }
     .board-panel-title {
       font-weight: 600;
       font-size: 12.5px;
@@ -2335,8 +2346,9 @@
       flex: 0 0 auto;
     }
     .board-panel-chevron:hover { background: var(--cp-highlight); color: var(--cp-text); }
-    .board-panel.collapsed .board-panel-head { padding: 7px 6px 7px 10px; }
-    .board-panel-body { overflow: visible; padding: 2px 12px 12px; }
+    .board-panel.collapsed .board-panel-head { padding: 6px 4px 6px 8px; }
+    /* Board panel content scales with the per-board text-size control (--board-fs). */
+    .board-panel-body { overflow: visible; padding: 1px 10px 8px; font-size: calc(13px * var(--board-fs, 1)); }
     /* Resize grip: a clearly visible two-line corner handle in the bottom-right.
        Dragging it sets the panel WIDTH; height then auto-fits the content. */
     .board-resize {
@@ -5067,9 +5079,11 @@
                             <div class="board-panel-head" :class="{ collapsed: isPanelCollapsed(p.id) }" @mousedown="startPanelDrag(p.id, $event)" :title="panelTypeLabel(p) + ' · ' + panelTitleText(p)">
                               <div class="bph-left">
                                 <span class="board-panel-tag" x-text="panelIcon(p)" :title="panelTypeLabel(p)"></span>
+                                <span class="board-panel-type" x-show="!isPanelCollapsed(p.id)" x-text="panelTypeLabel(p)"></span>
                                 <div class="board-panel-title" x-show="isPanelCollapsed(p.id)" x-text="panelTitleText(p)"></div>
                               </div>
                               <div class="bph-right">
+                                <button class="board-panel-chevron" type="button" x-show="!isPanelCollapsed(p.id)" @click.stop="autoSizePanelWidth(p.id)" @mousedown.stop title="Shrink width to the minimum that fits the content (height stays the same)">▸◂</button>
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p) && boardPinViewOn()" @click.stop="reducePinChip(p)" @mousedown.stop title="Reduce to icon">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
@@ -5404,6 +5418,14 @@
                         <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:120px;cursor:pointer" title="Board zoom">
                         <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
                         <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Zoom to fit the whole board in view" style="padding:2px 8px">Fit</button>
+                      </span>
+                      <div class="bb-sep"></div>
+                      <span class="board-zoom" title="Text size of board panel content (this board only)" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
+                        <span style="opacity:.8;font-size:13px" title="Text size">🔤</span>
+                        <button class="btn ghost" type="button" @click="bumpBoardFont(-0.1)" title="Smaller text" style="padding:2px 8px;font-size:11px">A−</button>
+                        <span x-text="Math.round(boardFont()*100) + '%'" style="width:38px;text-align:center;font-variant-numeric:tabular-nums"></span>
+                        <button class="btn ghost" type="button" @click="bumpBoardFont(0.1)" title="Larger text" style="padding:2px 8px;font-size:14px">A+</button>
+                        <button class="btn ghost" type="button" x-show="boardFont() !== 1" @click="setBoardFont(1)" title="Reset text size to 100%" style="padding:2px 8px">↺</button>
                       </span>
                     </div>
                   </div>
@@ -14348,7 +14370,63 @@
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
         },
-        // Actual rendered extent of all panels, in LAYOUT (pre-zoom) px. Unlike
+        // ----- Panel text size (per-board) -----
+        // A simple content-font multiplier applied to .board-panel-body via the
+        // --board-fs CSS variable. Persisted with the board canvas like zoom.
+        boardFont() { return this.boardCanvas.fs || 1; },
+        setBoardFont(v) {
+          let fs = parseFloat(v); if (!isFinite(fs)) fs = 1;
+          fs = Math.max(0.8, Math.min(1.6, Math.round(fs * 100) / 100));
+          this.boardCanvas = { ...this.boardCanvas, fs };
+          this._saveBoardCanvas();
+          this.scheduleAutoFit(); // text size changed → re-fit panel heights
+        },
+        bumpBoardFont(delta) { this.setBoardFont((this.boardCanvas.fs || 1) + delta); },
+        // Shrink a panel's WIDTH to the narrowest column count that still fits its content
+        // (no horizontal overflow) without making the panel any taller — i.e. without
+        // forcing extra line-wraps. Height is left untouched. On-demand, per panel.
+        // Panels are CSS-grid items (width comes from the column span, not inline width),
+        // so we measure on an off-DOM clone whose width we CAN control, then commit the
+        // resulting span to boardLayout (which is what actually drives the rendered width).
+        autoSizePanelWidth(id) {
+          const grid = document.querySelector('.board-grid'); if (!grid) return;
+          let el = null;
+          grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+          if (!el || el.classList.contains('pin-chip')) return;
+          const inner = el.querySelector('.board-panel-inner'); if (!inner) return;
+          const body = el.querySelector('.board-panel-body'); if (!body) return;
+          const cur = this.boardLayout[id]; if (!cur) return;
+          const cols = this._boardEffCols();
+          const colPx = this._boardColPx(); if (!colPx) return;
+          const curW = Math.max(2, Math.round(cur.w));
+          const baseH = body.scrollHeight;          // content height at the current width — must not grow
+          // Off-DOM measuring clone: a plain absolutely-positioned box (NOT a grid item),
+          // so its width is honoured. Carry the board font scale so wrapping matches.
+          const meas = document.createElement('div');
+          meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+          meas.style.setProperty('--board-fs', String(this.boardFont()));
+          const clone = inner.cloneNode(true);
+          clone.style.width = '100%';
+          clone.style.height = 'auto';
+          meas.appendChild(clone);
+          document.body.appendChild(meas);
+          const cbody = clone.querySelector('.board-panel-body');
+          let best = curW;
+          if (cbody) {
+            for (let w = 2; w < curW; w++) {
+              meas.style.width = (w * colPx) + 'px';
+              void cbody.offsetHeight;               // force reflow
+              if (cbody.scrollWidth <= cbody.clientWidth + 1 && cbody.scrollHeight <= baseH + 1) { best = w; break; }
+            }
+          }
+          document.body.removeChild(meas);
+          if (best >= curW) { this.showToast('Board', 'Already at its minimum width', 'info'); return; }
+          let x = cur.x;
+          if (x + best > cols) x = Math.max(0, cols - best);
+          this.boardLayout = { ...this.boardLayout, [id]: { ...cur, x, w: best } };
+          this.persistLayout();
+          this.scheduleAutoFit(true, id);
+        },
         // boardCanvas.w/h (the canvas size), this reflects where panels really are —
         // panels can be dragged past the canvas edge, so this can be larger.
         _boardContentExtent() {
@@ -14567,23 +14645,24 @@
           const h = this.boardCanvas.h ? Math.max(contentH, this.boardCanvas.h) : contentH;
           const w = this.boardCanvas.w ? this.boardCanvas.w + 'px' : '100%';
           const z = this.boardCanvas.z || 1;
-          return `position:relative; width:${w}; height:${h}px; zoom:${z};`;
+          const fs = this.boardCanvas.fs || 1;
+          return `position:relative; width:${w}; height:${h}px; zoom:${z}; --board-fs:${fs};`;
         },
         loadBoardCanvas(boardId) {
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
           const c = boardId && map[boardId];
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1 } : { w: null, h: null, baseW: null, z: 1 };
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1 } : { w: null, h: null, baseW: null, z: 1, fs: 1 };
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1 };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1 };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1 };
+          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1 };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
