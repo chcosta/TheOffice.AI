@@ -8222,6 +8222,46 @@
                 <button class="btn" type="button" @click="loadUpdates()" :disabled="updatesLoading">↻ Refresh</button>
               </div>
             </div>
+
+            <!-- Not backed up: items that only live on this box (no git repo) -->
+            <div class="card" style="margin-bottom:18px;border-color:var(--cp-warning)"
+              x-show="!backups.loading && (backups.agents.length || backups.caps.length)" x-transition.opacity.duration.150ms>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+                <strong style="font-size:14px">💾 Not backed up</strong>
+                <span class="type-badge" style="background:var(--cp-warning);color:var(--cp-accent-fg)"
+                  x-text="(backups.counts.agents || 0) + ' agent' + ((backups.counts.agents===1)?'':'s') + (backups.counts.caps ? ' · ' + backups.counts.caps + ' skill/MCP' : '')"></span>
+                <button class="btn ghost" type="button" style="margin-left:auto" @click="loadBackups()" :disabled="backups.loading" title="Re-scan">↻</button>
+              </div>
+              <p class="hint" style="margin-bottom:12px">
+                These are not backed by a git repo, so they exist only on this machine. Export an agent to share it or restore it later
+                — its bundled skills &amp; MCP servers go with it. <span x-show="backups.counts.agentsBacked" x-text="'(' + backups.counts.agentsBacked + ' of ' + backups.counts.agentsTotal + ' agents are backed.)'"></span>
+              </p>
+
+              <template x-for="a in backups.agents" :key="'bk-' + a.id">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--cp-border)">
+                  <a href="#" @click.prevent="goTo('#/agents/' + encodeURIComponent(a.id))" class="upd-name" x-text="a.name"></a>
+                  <span class="type-badge" x-text="a.kind"></span>
+                  <span class="hint" x-text="a.originLabel"></span>
+                  <span class="hint upd-srcdetail" x-show="a.sourceDetail" x-text="a.sourceDetail" style="flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                  <button class="btn primary" type="button" style="margin-left:auto" x-show="a.exportable"
+                    @click="openExport({ id: a.id, config: { name: a.name } })">⤴ Export</button>
+                  <span class="hint" x-show="!a.exportable" title="No agent definition found to serialize">Not exportable</span>
+                </div>
+              </template>
+
+              <div x-show="backups.caps.length" style="margin-top:12px">
+                <div class="hint" style="margin-bottom:6px"><strong>Standalone skills &amp; MCP</strong> (not part of any backed agent — attach to an agent and export it, or commit the source folder):</div>
+                <template x-for="c in backups.caps" :key="'bkc-' + c.type + '-' + c.name">
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--cp-border)">
+                    <span class="type-badge" x-text="c.type"></span>
+                    <strong style="font-size:13px" x-text="c.name"></strong>
+                    <span class="hint" x-show="c.source" x-text="c.source"></span>
+                    <span class="hint upd-srcdetail" x-show="c.sourcePath" x-text="c.sourcePath" style="flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+
             <div class="empty-state" x-show="updatesLoading">Loading inventory…</div>
             <div class="upd-table-wrap" x-show="!updatesLoading && updatesList.length">
               <table class="upd-table">
@@ -9886,6 +9926,7 @@
         quickPin: { open: false, kind: '', refId: '', label: '', sublabel: '' },
         updatesList: [],
         updatesLoading: false,
+        backups: { loading: false, agents: [], caps: [], counts: {} },
         updatesChecking: false,
         updateChecks: {},
         reinstallingUpdateId: null,
@@ -16639,6 +16680,7 @@
 
         async loadUpdates() {
           this.updatesLoading = true;
+          this.loadBackups();
           try {
             this.updatesList = await this.request('/api/updates/inventory');
             this.updateChecks = {};
@@ -16649,6 +16691,16 @@
             this.showToast('Failed to load inventory', e.message, 'error');
           } finally {
             this.updatesLoading = false;
+          }
+        },
+
+        async loadBackups() {
+          this.backups.loading = true;
+          try {
+            const r = await this.request('/api/export/unbacked');
+            this.backups = { loading: false, agents: r.agents || [], caps: r.caps || [], counts: r.counts || {} };
+          } catch (e) {
+            this.backups = { loading: false, agents: [], caps: [], counts: {} };
           }
         },
 

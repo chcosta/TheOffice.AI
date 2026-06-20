@@ -4102,6 +4102,117 @@ app.get('/api/updates/inventory', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ============ Backup / export discovery ============
+// Find agents/plugins/skills/mcp that are NOT backed by a git repo and therefore
+// can only be shared or restored by exporting them. "Backed" means one of:
+//   - remote git   : an AzDO source we can re-fetch from (source.type==='azdo')
+//   - app repo      : lives inside this application's own committed tree (__dirname)
+//   - local git     : resides inside any local git working tree (a .git ancestor)
+// Everything else (AI-designed agents, generated skills, ad-hoc local items) lives
+// only on this box and is at risk if lost — these are the export candidates.
+function _isInside(child, parent) {
+  if (!child || !parent) return false;
+  try {
+    const c = path.resolve(child), p = path.resolve(parent);
+    return c === p || c.startsWith(p + path.sep);
+  } catch { return false; }
+}
+function _isInGitRepo(p) {
+  if (!p) return false;
+  try {
+    let dir = path.resolve(p);
+    if (fs.existsSync(dir) && !fs.statSync(dir).isDirectory()) dir = path.dirname(dir);
+    for (let i = 0; i < 14 && dir; i++) {
+      if (fs.existsSync(path.join(dir, '.git'))) return true;
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+  } catch {}
+  return false;
+}
+// Returns 'remote-git' | 'app-repo' | 'local-git' | 'none'.
+function _agentBacking(a) {
+  const s = a.source || null;
+  if (s && s.type === 'azdo') return 'remote-git';
+  const cands = [s && s.type === 'local' ? s.path : null, a.pluginDir, a.sourceDir, a.cwd].filter(Boolean);
+  if (cands.some(c => _isInside(c, __dirname))) return 'app-repo';
+  if (cands.some(c => _isInGitRepo(c))) return 'local-git';
+  return 'none';
+}
+const _BACKING_LABEL = { 'remote-git': 'Azure DevOps repo', 'app-repo': 'App repository', 'local-git': 'Local git repo', 'none': 'Not backed up' };
+
+app.get('/api/export/unbacked', (req, res) => {
+  try {
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const backedDirs = []; // install dirs of every backed agent (to cover their bundled skills/mcp)
+    const backedPluginNames = new Set(); // plugin folder names of backed agents (covers materialized copies under PLUGINS_DIR)
+    const unbackedAgents = [];
+    let backedCount = 0;
+    for (const a of agents) {
+      const backing = _agentBacking(a);
+      const s = a.source || null;
+      const kind = (s && s.kind) || (a.pluginDir ? 'plugin' : 'agent');
+      if (backing !== 'none') {
+        backedCount++;
+        for (const d of [a.pluginDir, a.sourceDir, a.cwd]) if (d) backedDirs.push(d);
+        if (a.pluginDir) backedPluginNames.add(path.basename(a.pluginDir).toLowerCase());
+        continue;
+      }
+      let originLabel = 'Local';
+      if (s && s.type === 'design') originLabel = s.kind === 'enhanced-clone' ? 'AI-enhanced clone' : 'Designed with AI';
+      else if (s && s.type === 'local') originLabel = 'Local folder';
+      else if (a.pluginDir) originLabel = 'Local plugin';
+      else if (a.cwd) originLabel = 'Local project';
+      unbackedAgents.push({
+        id: a.id,
+        name: a.name || a.id,
+        kind,
+        originType: (s && s.type) || (a.pluginDir ? 'local' : 'builtin'),
+        originLabel,
+        sourceDetail: a.pluginDir || a.cwd || '',
+        exportable: !!(a.pluginDir || a.cwd)
+      });
+    }
+
+    // Standalone catalog skills + MCP not covered by a backed agent's package.
+    const capBacked = (label, p) => {
+      const l = String(label || '');
+      if (l.startsWith('azdo:') || l.startsWith('builtin:')) return true;
+      // A plugin:<name> cap is backed when <name> belongs to a backed agent's
+      // plugin, even if the catalog found a materialized copy elsewhere.
+      const pm = l.match(/^plugin:(.+)$/);
+      if (pm && backedPluginNames.has(pm[1].toLowerCase())) return true;
+      if (!p) return false;
+      if (_isInside(p, __dirname)) return true;
+      if (backedDirs.some(d => _isInside(p, d))) return true;
+      return _isInGitRepo(p);
+    };
+    let catalog = { skills: [], mcp: [] };
+    try { catalog = capabilities.buildCatalog() || catalog; } catch {}
+    const caps = [];
+    for (const sk of (catalog.skills || [])) {
+      if (!capBacked(sk.source, sk.sourceDir)) {
+        caps.push({ type: 'skill', name: sk.name, source: sk.source || '', sourcePath: sk.sourceDir || '', description: sk.description || '' });
+      }
+    }
+    for (const m of (catalog.mcp || [])) {
+      if (!capBacked(m.source, m.sourcePath)) {
+        caps.push({ type: 'mcp', name: m.name, source: m.source || '', sourcePath: m.sourcePath || '' });
+      }
+    }
+
+    unbackedAgents.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    caps.sort((a, b) => (a.type + a.name).localeCompare(b.type + b.name));
+    res.json({
+      agents: unbackedAgents,
+      caps,
+      counts: { agents: unbackedAgents.length, caps: caps.length, agentsBacked: backedCount, agentsTotal: agents.length },
+      backingLabels: _BACKING_LABEL
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Aggregate count of agents/plugins with an update available. Server-cached for
 // 5 minutes since azdo checks are network-bound; pass ?force=1 to bypass.
 let _updAvailCache = null; // { at, data }
