@@ -1604,13 +1604,18 @@ app.post('/api/marketplace/design/generate', async (req, res) => {
       prompt = marketplaceDesign.createPrompt(catalog, inspiration, hint);
     }
 
-    let acc = '';
-    const result = await sdkRunner.runChat({
-      config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname,
-      onChunk: (c) => { acc += c; }
-    });
-    const text = acc.trim() ? acc : (result.output || '');
-    const arr = marketplaceDesign.parseProposals(text);
+    // One-shot generation with a single retry — model output is occasionally
+    // unparseable; a fresh attempt usually succeeds.
+    let arr = null, text = '';
+    for (let attempt = 0; attempt < 2 && !arr; attempt++) {
+      let acc = '';
+      const result = await sdkRunner.runChat({
+        config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname,
+        onChunk: (c) => { acc += c; }
+      });
+      text = acc.trim() ? acc : (result.output || '');
+      arr = marketplaceDesign.parseProposals(text);
+    }
     if (!arr) return res.status(502).json({ error: 'Could not parse AI proposals. Try again.', raw: text.slice(0, 500) });
     const proposals = arr
       .map(p => mode === 'enhance' ? marketplaceDesign.normalizeEnhance(p, agentId) : marketplaceDesign.normalizeCreate(p))

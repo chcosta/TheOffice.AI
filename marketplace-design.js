@@ -135,25 +135,54 @@ function createPrompt(catalog, inspirationAgents, hint) {
 
 // ---- parsing + normalization --------------------------------------------
 
-// Pull a JSON array (or single object) out of an AI reply.
+// Repair the JSON mistakes models most commonly make: raw control characters
+// (newlines/tabs) inside string values — typically markdown `body` fields — and
+// trailing commas before } or ]. Walks char-by-char tracking string context so
+// only characters INSIDE strings are escaped.
+function repairLooseJson(src) {
+  let out = '';
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inStr) {
+      if (esc) { out += ch; esc = false; continue; }
+      if (ch === '\\') { out += ch; esc = true; continue; }
+      if (ch === '"') { out += ch; inStr = false; continue; }
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') { out += '\\r'; continue; }
+      if (ch === '\t') { out += '\\t'; continue; }
+      if (ch < ' ') { continue; } // drop other stray control chars
+      out += ch;
+      continue;
+    }
+    if (ch === '"') { inStr = true; out += ch; continue; }
+    out += ch;
+  }
+  // strip trailing commas: , } -> }  and  , ] -> ]
+  return out.replace(/,(\s*[}\]])/g, '$1');
+}
+
+// Pull a JSON array (or single object) out of an AI reply. Tolerant of the
+// common model mistakes (raw newlines in strings, trailing commas, prose around
+// the JSON, code fences).
 function parseProposals(text) {
   if (!text) return null;
-  let body = null;
-  const fence = String(text).match(/```(?:json)?\s*\n([\s\S]*?)```/);
-  if (fence) body = fence[1];
-  if (!body) {
-    const s = text.indexOf('['); const e = text.lastIndexOf(']');
-    if (s >= 0 && e > s) body = text.slice(s, e + 1);
+  const candidates = [];
+  const fence = String(text).match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fence) candidates.push(fence[1]);
+  { const s = text.indexOf('['); const e = text.lastIndexOf(']'); if (s >= 0 && e > s) candidates.push(text.slice(s, e + 1)); }
+  { const s = text.indexOf('{'); const e = text.lastIndexOf('}'); if (s >= 0 && e > s) candidates.push(text.slice(s, e + 1)); }
+  for (const body of candidates) {
+    const trimmed = String(body).trim();
+    for (const attempt of [trimmed, repairLooseJson(trimmed)]) {
+      try {
+        const parsed = JSON.parse(attempt);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch (_) { /* try next */ }
+    }
   }
-  if (!body) {
-    const s = text.indexOf('{'); const e = text.lastIndexOf('}');
-    if (s >= 0 && e > s) body = text.slice(s, e + 1);
-  }
-  if (!body) return null;
-  try {
-    const parsed = JSON.parse(body.trim());
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch (_) { return null; }
+  return null;
 }
 
 // Resolve a list of { ref, why } against the live catalog. Drops unknown refs.
