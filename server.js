@@ -5200,6 +5200,34 @@ function _isGitRepo(p) {
   } catch {}
   return false;
 }
+// Current git branch for a folder (or the repo it sits in), or '' if not a repo /
+// indeterminable. Reads .git/HEAD directly (no shelling out): a normal repo has a
+// .git directory; a worktree/submodule has a .git FILE containing "gitdir: <path>".
+// HEAD is either "ref: refs/heads/<branch>" or a raw SHA when detached.
+function _gitBranch(p) {
+  try {
+    let dir = path.resolve(p), gitPath = null;
+    for (let i = 0; i < 40; i++) {
+      const cand = path.join(dir, '.git');
+      if (fs.existsSync(cand)) { gitPath = cand; break; }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    if (!gitPath) return '';
+    let gitDir = gitPath;
+    const st = fs.statSync(gitPath);
+    if (st.isFile()) {
+      const m = fs.readFileSync(gitPath, 'utf8').match(/gitdir:\s*(.+)\s*/);
+      if (!m) return '';
+      gitDir = path.resolve(dir, m[1].trim());
+    }
+    const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+    const ref = head.match(/^ref:\s*refs\/heads\/(.+)$/);
+    if (ref) return ref[1].trim();
+    return head.length >= 7 ? `(detached @ ${head.slice(0, 8)})` : '';
+  } catch { return ''; }
+}
 // Directories we never descend into when summarizing / searching a source folder.
 const FS_SKIP_DIRS = new Set(['.git', 'node_modules', '.vs', '.vscode', 'bin', 'obj', 'dist', 'build', 'out', '.next', '.cache', '__pycache__', '.venv', 'venv', 'target', 'packages']);
 
@@ -6351,14 +6379,19 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   }
   // Pinned source locations (folders) are searchable context. List each with its
   // path + README summary so the assistant knows what lives there and can propose
-  // search_location to look inside when it needs to find something.
+  // search_location to look inside when it needs to find something. Built into its
+  // OWN string with a reserved budget (like the catalog) so a busy board's pinned
+  // transcripts can't slice the locations — and their git branch — out of context.
   const locationPins = pins.filter(p => p.kind === 'location');
+  let locationStr = '';
   if (locationPins.length) {
-    ctx.push('## PINNED SOURCE LOCATIONS (folders you can search via search_location, refId = the path)\n' + locationPins.map(p => {
+    locationStr = '## PINNED SOURCE LOCATIONS (folders you can search via search_location, refId = the path)\n' + locationPins.map(p => {
       let sum = '';
       try { sum = _readmeSummary(String(p.refId), 400).summary; } catch {}
-      return `- (location:${p.refId}) "${clip(p.label || p.refId, 80)}"${sum ? ' — ' + clip(sum, 360) : ' — (no README)'}`;
-    }).join('\n'));
+      let git = '';
+      try { const br = _gitBranch(String(p.refId)); if (br) git = ` [git branch: ${br}]`; else if (_isGitRepo(String(p.refId))) git = ' [git repo]'; else git = ' [not a git repo]'; } catch {}
+      return `- (location:${p.refId})${git} "${clip(p.label || p.refId, 80)}"${sum ? ' — ' + clip(sum, 360) : ' — (no README)'}`;
+    }).join('\n');
   }
   if (notes.length) {
     ctx.push('## NOTES\n' + notes.map(n => `- (${n.id}) ${clip(n.text, 300)}`).join('\n'));
@@ -6439,10 +6472,14 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     ctx.unshift('## WHERE WAS I? (latest AI briefing for this board)\n' + clip(b.summary.text, 2000));
   }
   const baseCtx = ctx.join('\n\n');
-  // Reserve a separate budget for the catalog so it always survives, then append it.
-  const contentStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, 10000);
-  const catalogStr = catalogCtx.join('\n\n').slice(0, 4000);
-  const contextStr = [contentStr, catalogStr].filter(Boolean).join('\n\n') || '(this board is empty — no pins, notes, or checklists yet)';
+  // Reserved budgets per section so a busy board's pinned transcripts can't crowd out
+  // the catalog or source locations. Modern models have large context windows, so we
+  // keep the main content budget generous.
+  const CTX_CONTENT_MAX = 32000, CTX_LOCATION_MAX = 1600, CTX_CATALOG_MAX = 4000;
+  const contentStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, CTX_CONTENT_MAX);
+  const catalogStr = catalogCtx.join('\n\n').slice(0, CTX_CATALOG_MAX);
+  const locStr = locationStr.slice(0, CTX_LOCATION_MAX);
+  const contextStr = [contentStr, locStr, catalogStr].filter(Boolean).join('\n\n') || '(this board is empty — no pins, notes, or checklists yet)';
 
   // ---- Prompt: force a single JSON object {reply, actions[]}. Actions are
   // constrained to notes/checklists only.
@@ -6472,6 +6509,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '',
     'Rules:',
     '- Only reference ids (note ids like note-..., checklist ids like cl-..., item ids like ci-...), pin handles (kind:refId), and agent ids that appear in the BOARD CONTEXT below. Never invent ids.',
+    // Anti-hallucination for plain factual questions.
+    '- STAY GROUNDED ON FACTS: when the user asks a factual question (about a source location, its git branch/repo/remote, a file, a status, a URL, a number, who owns something, etc.), answer ONLY from what is actually in the BOARD CONTEXT below. Do NOT guess plausible-sounding defaults. In particular, if the user asks about a source location or its branch and there is NO "PINNED SOURCE LOCATIONS" section (or that specific folder is not listed), say that no source location is pinned to this board rather than naming a branch like "main". If a location IS pinned but its branch is not shown in context, say you can search the folder but do not have its branch — never invent one. When the needed fact is genuinely absent, say so plainly (and, if a pinned agent or a search_location could fetch it, offer that) instead of fabricating an answer.',
     // Proactive gathering — don't fabricate; run/pin the right agent when context is thin.
     (canQuery
       ? '- GATHER BEFORE YOU GUESS: if fulfilling the request needs facts that are NOT already in the BOARD CONTEXT (live status, URLs, a list from an epic/agent, etc.), do not fabricate, hand-wave, or emit placeholder items. If a PINNED agent can produce those facts, propose query_agent. If no pinned agent fits but one under AVAILABLE AGENTS clearly does, propose pin_item (the user pins it, then asks you to run it). Only answer/build directly when the needed facts are already present in context.'
