@@ -5071,6 +5071,7 @@ function _normalizeBoard(b) {
     starred: !!b.starred,
     autoWidth: b.autoWidth !== false,
     pinView: !!b.pinView,
+    autoArrange: !!b.autoArrange,
     lastViewedAt: b.lastViewedAt || null,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
@@ -5113,7 +5114,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, starred } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, starred } = req.body || {};
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
@@ -5127,6 +5128,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (starred !== undefined) b.starred = !!starred;
   if (autoWidth !== undefined) b.autoWidth = !!autoWidth;
   if (pinView !== undefined) b.pinView = !!pinView;
+  if (autoArrange !== undefined) b.autoArrange = !!autoArrange;
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);
@@ -6779,6 +6781,89 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'assistant failed' });
+  }
+});
+
+// AI Layout — the model reviews a digest of the board's panels (supplied by the
+// client, which knows the live rendered content) and returns a PRESENTATION plan:
+// which panels are interesting (keep expanded / make prominent) vs. low-signal
+// (collapse), plus a good canvas zoom and content font size. It proposes presentation
+// only — it never edits board content. The client applies the plan and re-organizes.
+app.post('/api/boards/:id/ai-layout', async (req, res) => {
+  const raw = loadBoards().find(b => b.id === req.params.id);
+  if (!raw) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(raw);
+  const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const inPanels = Array.isArray(req.body && req.body.panels) ? req.body.panels : [];
+  if (!inPanels.length) return res.status(400).json({ error: 'No panels' });
+  // Keep only well-formed entries; cap count + per-field size we feed the model.
+  const panels = inPanels.filter(p => p && p.id).slice(0, 60).map(p => ({
+    id: String(p.id),
+    type: clip(p.type, 24),
+    title: clip(p.title, 120),
+    text: clip(p.text, 600),
+    collapsed: !!p.collapsed,
+  }));
+  if (!panels.length) return res.status(400).json({ error: 'No valid panels' });
+  const digest = panels.map((p, i) =>
+    `${i + 1}. id=${JSON.stringify(p.id)} type=${p.type || 'item'} title="${p.title}"` +
+    `\n   content: ${p.text || '(empty)'}`
+  ).join('\n');
+
+  const sys = [
+    `You are a layout designer for a work board named "${b.name}". You are given every panel currently on the board with its type, title, and a snippet of its live content. Decide how to PRESENT the board so the most useful, active, or attention-worthy panels are immediately visible and low-signal ones get out of the way. You change presentation only — you never edit, add, or delete board content.`,
+    '',
+    'For EACH panel decide:',
+    '- importance: "high" (key / attention-worthy — keep expanded and prominent), "normal" (relevant — keep expanded), or "low" (stale, empty, finished, or background — collapse it).',
+    '- collapsed: true to collapse the panel to a small header chip, false to keep it open. Collapse low-importance and empty/finished panels; keep high and normal panels open.',
+    '- width: optional "full" (span the whole board width — use ONLY for the single most important / widest-content panel, e.g. a substantive briefing or a long note) or "half" (the default column width). Use "full" sparingly (at most one or two panels).',
+    '',
+    'Also choose, for the WHOLE board:',
+    '- zoom: a number from 0.6 to 1.0 — how far to zoom the canvas so the expanded panels fit comfortably without wasted space. Many open/important panels → zoom out a little (toward 0.7); only a few → 1.0.',
+    '- fontScale: a number from 0.85 to 1.2 — content text size. Use ~1.0 normally; nudge up when there is little content, down when the board is dense.',
+    '',
+    'Heuristics for what is interesting: panels with fresh status, errors/failures, action items, unchecked work, recent agent output, or a substantive briefing are HIGH. Empty notes, fully-completed checklists, idle/placeholder pins, and duplicates are LOW. A briefing-style panel ("Where was I?") that has real content is usually HIGH and a good "full"-width candidate.',
+    '',
+    'Respond with a SINGLE JSON object and nothing else — no code fences, no prose outside the JSON:',
+    '{"zoom":<num>,"fontScale":<num>,"reasoning":"<one short sentence on the focus you chose>","panels":[{"id":"<exact id>","importance":"high|normal|low","collapsed":<bool>,"width":"full|half"}]}',
+    'Include EVERY panel id exactly as given below. Never invent ids.',
+    '',
+    '# BOARD PANELS',
+    digest,
+    '',
+    'JSON:',
+  ].join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt: sys, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const rawText = (acc.trim() || (result && result.output) || '').trim();
+    let parsed = null;
+    try {
+      let t = rawText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+      const s = t.indexOf('{'), e = t.lastIndexOf('}');
+      if (s >= 0 && e > s) parsed = JSON.parse(t.slice(s, e + 1));
+    } catch {}
+    if (!parsed || typeof parsed !== 'object') return res.status(502).json({ ok: false, error: 'Could not parse a layout plan' });
+    const known = new Set(panels.map(p => p.id));
+    const clampNum = (v, lo, hi, dflt) => { let n = parseFloat(v); if (!isFinite(n)) n = dflt; return Math.max(lo, Math.min(hi, Math.round(n * 100) / 100)); };
+    const outPanels = (Array.isArray(parsed.panels) ? parsed.panels : [])
+      .filter(p => p && known.has(String(p.id)))
+      .map(p => {
+        const importance = ['high', 'normal', 'low'].includes(p.importance) ? p.importance : 'normal';
+        const collapsed = typeof p.collapsed === 'boolean' ? p.collapsed : (importance === 'low');
+        const width = (p.width === 'full' || p.width === 'half') ? p.width : null;
+        return { id: String(p.id), importance, collapsed, width };
+      });
+    res.json({
+      ok: true,
+      zoom: clampNum(parsed.zoom, 0.5, 1.2, 0.9),
+      fontScale: clampNum(parsed.fontScale, 0.8, 1.3, 1.0),
+      reasoning: clip(parsed.reasoning, 240),
+      panels: outPanels,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) || 'ai-layout failed' });
   }
 });
 

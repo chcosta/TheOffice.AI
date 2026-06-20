@@ -5448,6 +5448,7 @@
                       <div class="bb-group">
                         <button class="btn ghost" type="button" @click="organizeBoard()" title="Tidy the board so no cards overlap — packs each column top-to-bottom and fits every card to its content">⊞ Organize</button>
                         <button class="btn ghost" type="button" @click="compactBoard()" title="Compact: shrink every card to the narrowest width that fits its content, fit heights, then pack everything up and to the left to remove dead space (no overlaps)">⇲ Compact</button>
+                        <button class="btn ghost" type="button" @click="aiLayoutBoard()" :disabled="boardAiLayoutBusy" :title="boardAiLayoutBusy ? 'Designing a layout…' : 'AI Layout: let AI review every panel and design the view — collapse low-signal cards, keep the interesting ones open and prominent, and set a good zoom + font size'" x-text="boardAiLayoutBusy ? '✨ Designing…' : '✨ AI Layout'"></button>
                         <label class="board-aw-check" title="Auto-arrange: when a panel is moved or resized, automatically push overlapping cards out of the way so nothing is hidden. Only runs on move/resize." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
                           <input type="checkbox" :checked="boardAutoArrange()" @change="toggleBoardAutoArrange()" style="cursor:pointer">
                           🧲 Auto-arrange
@@ -9706,6 +9707,7 @@
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
+        boardAiLayoutBusy: false, // true while the AI Layout designer is running
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
@@ -15290,11 +15292,11 @@
         // in the panels' current reading order (left column / right column / full-width
         // rows kept distinct), fitting every card to its content. On-demand only — runs
         // when the user clicks Organize, then persists.
-        organizeBoard() {
+        organizeBoard(silent) {
           if (this.route !== 'boards') return;
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
-            if (!grid) { this.showToast('Board', 'Open a board first', 'error'); return; }
+            if (!grid) { if (!silent) this.showToast('Board', 'Open a board first', 'error'); return; }
             const rowH = this.boardRowH, gap = this.boardGap, cols = this.boardCols, half = Math.floor(cols / 2);
             const fit = {};
             grid.querySelectorAll('.board-panel').forEach(el => {
@@ -15323,7 +15325,78 @@
               }
             }
             if (changed) { this.boardLayout = layout; this.persistLayout(); }
-            this.showToast('Board', 'Organized — no overlaps', 'success');
+            if (!silent) this.showToast('Board', 'Organized — no overlaps', 'success');
+          });
+        },
+        // ----- AI Layout -----
+        // Let AI review the live board and design the view: collapse low-signal panels,
+        // keep the interesting ones open (optionally promoting one to full width), and
+        // pick a good canvas zoom + content font size. We send the model a digest of
+        // every panel (type, title, and the visible body text) and apply its plan, then
+        // re-organize so nothing overlaps. Presentation only — never edits content.
+        async aiLayoutBoard() {
+          if (this.route !== 'boards' || this.boardAiLayoutBusy) return;
+          const board = this.activeBoard();
+          if (!board) { this.showToast('Board', 'Open a board first', 'error'); return; }
+          const panels = this.boardPanels();
+          if (!panels.length) { this.showToast('Board', 'Nothing on this board yet', 'info'); return; }
+          const grid = document.querySelector('.board-grid');
+          const bodyText = (id) => {
+            if (!grid) return '';
+            let el = null;
+            grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+            const body = el && el.querySelector('.board-panel-body');
+            return body ? String(body.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 600) : '';
+          };
+          const digest = panels.map(p => ({
+            id: p.id,
+            type: p.type,
+            title: (this.panelTypeLabel(p) ? this.panelTypeLabel(p) + ': ' : '') + this.panelTitleText(p),
+            text: bodyText(p.id),
+            collapsed: this.isPanelCollapsed(p.id),
+          }));
+          this.boardAiLayoutBusy = true;
+          this.showToast('Board', '✨ Designing a layout…', 'info');
+          try {
+            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/ai-layout', {
+              method: 'POST', body: JSON.stringify({ panels: digest }),
+            });
+            if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+            this.applyAiLayout(r);
+          } catch (e) {
+            this.showToast('Board', 'AI layout failed — ' + (e.message || 'try again'), 'error');
+          } finally {
+            this.boardAiLayoutBusy = false;
+          }
+        },
+        // Apply an AI layout plan: set per-panel collapse + optional width, then the
+        // board-wide zoom and font, persist, and re-flow (organize) so the result has
+        // no overlaps and heights fit the new expanded/collapsed state.
+        applyAiLayout(plan) {
+          const cols = this.boardCols;
+          const half = Math.max(2, Math.floor(cols / 2));
+          this.ensureBoardLayout();
+          const layout = { ...this.boardLayout };
+          let kept = 0, collapsed = 0;
+          for (const d of (plan.panels || [])) {
+            const cur = layout[d.id]; if (!cur) continue;
+            const next = { ...cur, collapsed: !!d.collapsed };
+            if (d.width === 'full') { next.w = cols; if (next.x !== 0) next.x = 0; }
+            else if (d.width === 'half' && cur.w >= cols) { next.w = half; }
+            layout[d.id] = next;
+            if (d.collapsed) collapsed++; else kept++;
+          }
+          this.boardLayout = layout;
+          if (typeof plan.fontScale === 'number') this.setBoardFont(plan.fontScale);
+          if (typeof plan.zoom === 'number') this.setBoardZoom(plan.zoom);
+          this.persistLayout();
+          // Re-flow once the new collapse/width state has rendered (organize fits heights
+          // to content and packs columns so nothing is hidden). Silent so our own
+          // reasoning toast is the one the user sees.
+          this.$nextTick(() => {
+            this.organizeBoard(true);
+            const msg = plan.reasoning || ((kept) + ' kept open, ' + collapsed + ' collapsed · zoom ' + Math.round((plan.zoom || 1) * 100) + '%');
+            this.showToast('Board', '✨ ' + msg, 'success');
           });
         },
         isPanelCollapsed(id) {
