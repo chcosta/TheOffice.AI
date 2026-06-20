@@ -5596,7 +5596,7 @@
                         </div>
                         <button class="btn ghost" type="button" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done editing — re-hide stashed items' : 'Edit items: reveal stashed items so you can hide or restore any item. Stashed items stay out of the board but still feed the AI.'" x-text="boardManageMode ? ('✓ Done' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : '')) : ('👁 Edit items' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : ''))"></button>
                         <button class="btn ghost" type="button" @click="pinifyBoard()" title="Pin-ify: collapse every item on the board to a small icon chip and pack them tightly. Click any chip to expand it again — chips hover to preview.">📌 Pin-ify</button>
-                        <button class="btn ghost" type="button" @click="resetBoardCanvas()" title="Fit width: stretch the board to fill the window width">↔ Fit width</button>
+                        <button class="btn ghost" type="button" @click="fitBoardWidth()" title="Fit width: shrink the board so its width matches the rightmost panel — removes empty space on the sides">↔ Fit width</button>
                       </div>
                       <div class="bb-sep"></div>
                       <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
@@ -15067,6 +15067,37 @@
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
+        // Fit width: shrink the canvas so its right edge sits at the RIGHTMOST panel,
+        // eliminating dead space on the sides. Panels keep their positions and sizes;
+        // only the canvas width is trimmed (or, when content already fills the window,
+        // we fall back to a fluid full-window fit). This replaces the old behaviour of
+        // always stretching to the window width regardless of where the panels actually sit.
+        fitBoardWidth() {
+          this.$nextTick(() => {
+            const cols = this.boardCols;
+            const sc = document.querySelector('.board-canvas-scroll');
+            const winW = (sc && sc.clientWidth) || 0;
+            // Rightmost used column across every panel (layout columns).
+            let maxRight = 0;
+            for (const p of this.boardPanels()) {
+              const l = this.boardLayout[p.id]; if (!l) continue;
+              maxRight = Math.max(maxRight, (l.x || 0) + (l.w || 0));
+            }
+            maxRight = Math.ceil(maxRight);
+            if (maxRight <= 0 || !winW) { this.resetBoardCanvas(); return; }
+            const stretched = this._boardStretched();
+            // Not stretched and the panels already span the full width → nothing to trim;
+            // keep the fluid full-window fit.
+            if (!stretched && maxRight >= cols) { this.resetBoardCanvas(); return; }
+            const baseW = stretched ? this.boardCanvas.baseW : winW;
+            const colPx = baseW / cols;
+            const w = Math.round(maxRight * colPx);
+            this.boardCanvas = { ...this.boardCanvas, w, baseW };
+            this._saveBoardCanvas();
+            this.scheduleAutoFit();
+            this.showToast('Board', 'Width fit to content', 'success');
+          });
+        },
         startCanvasResize(ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault(); ev.stopPropagation();
@@ -15140,6 +15171,22 @@
           const base = this.boardLayout[id]; if (!base) return;
           const start = { w: base.w, h: base.h };
           const z = this.boardCanvas.z || 1;
+          // Pin chips render at their CONTENT width (CSS forces width:auto), which is
+          // often much narrower than their stored grid footprint. Dragging with the
+          // inflated footprint clamps the chip far from the cursor and trips the
+          // canvas-grow long before the chip reaches the edge. Use the real rendered
+          // width so the chip tracks the cursor to the true edge (and we persist the
+          // corrected, tighter footprint on drop).
+          if (panelEl && panelEl.classList.contains('pin-chip')) {
+            const colPxNow = this._boardColPx()
+              || ((grid.getBoundingClientRect().width / z) / cols);
+            const card = panelEl.querySelector('.pin-chip-card') || panelEl;
+            const wpx = card.getBoundingClientRect().width / z; // layout px
+            if (colPxNow > 0 && wpx > 0) {
+              const wc = Math.max(1, wpx / colPxNow);
+              if (wc < start.w) start.w = wc;
+            }
+          }
           const EDGE = 64;          // size of the viewport edge zone (px)
           const STEP_MAX = 14;      // fastest canvas growth per frame (px); eases with depth
           const MAXW = 4000, MAXH = 8000;
@@ -15805,7 +15852,7 @@
           // to content and packs columns so nothing is hidden). Silent so our own
           // reasoning toast is the one the user sees.
           this.$nextTick(() => {
-            this.organizeBoard(true, true);
+            this.organizeBoard(true);
             const msg = plan.reasoning || ((kept) + ' kept open, ' + collapsed + ' collapsed · zoom ' + Math.round((plan.zoom || 1) * 100) + '%');
             this.showToast('Board', '✨ ' + msg, 'success');
           });
