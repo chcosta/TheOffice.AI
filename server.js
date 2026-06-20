@@ -2158,6 +2158,23 @@ app.post('/api/mcp/test', async (req, res) => {
   }
 });
 
+// Probe a named MCP server attached to a specific agent (base/plugin or overlay).
+// Resolves the RAW config (real env) server-side and runs the same start/handshake
+// probe used by the marketplace Test, so failures (missing runtime, crash on
+// launch, exit code + stderr) are surfaced for the exact server the agent uses.
+app.post('/api/agents/:id/capabilities/mcp/:name/test', async (req, res) => {
+  const entry = supervisor.agents.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Agent not found' });
+  try {
+    const config = capabilities.resolveAgentMcp(entry.config, req.params.name);
+    if (!config) return res.status(404).json({ error: 'MCP server "' + req.params.name + '" not found for this agent' });
+    const result = await mcpTest.testServer(config);
+    res.json(Object.assign({ name: req.params.name }, result));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Detach an MCP server.
 app.delete('/api/agents/:id/capabilities/mcp/:name', (req, res) => {
   const entry = supervisor.agents.get(req.params.id);

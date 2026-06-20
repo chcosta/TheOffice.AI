@@ -916,6 +916,9 @@
       font-weight: 600;
       white-space: nowrap;
     }
+    .tiny-badge.mcp-st-ok { border-color: var(--cp-success); color: var(--cp-success); background: color-mix(in srgb, var(--cp-success) 12%, transparent); }
+    .tiny-badge.mcp-st-warn { border-color: var(--cp-warning); color: var(--cp-warning); background: color-mix(in srgb, var(--cp-warning) 14%, transparent); }
+    .tiny-badge.mcp-st-err { border-color: var(--cp-danger); color: var(--cp-danger); background: color-mix(in srgb, var(--cp-danger) 12%, transparent); }
     .model-badge {
       display: inline-flex;
       align-items: center;
@@ -3759,8 +3762,19 @@
                                 <span class="tiny-badge" x-text="k + '=' + m.config.env[k]"></span>
                               </template>
                             </div>
+                            <div x-show="mcpProbe[m.name]" style="margin-top:8px">
+                              <div class="split-meta" style="gap:6px;align-items:center">
+                                <span class="tiny-badge" :class="mcpProbe[m.name] && mcpProbe[m.name].busy ? '' : 'mcp-st-' + (mcpProbe[m.name] && mcpProbe[m.name].cls)"
+                                      x-text="mcpProbe[m.name] && mcpProbe[m.name].busy ? '◐ Testing…' : ((mcpProbe[m.name] && mcpProbe[m.name].icon ? mcpProbe[m.name].icon + ' ' : '') + (mcpProbe[m.name] && mcpProbe[m.name].label || ''))"></span>
+                                <span class="hint" x-show="mcpProbe[m.name] && mcpProbe[m.name].summary" x-text="mcpProbe[m.name] && mcpProbe[m.name].summary"></span>
+                              </div>
+                              <div class="hint" style="margin-top:4px;white-space:pre-wrap" x-show="mcpProbe[m.name] && mcpProbe[m.name].detail" x-text="mcpProbe[m.name] && mcpProbe[m.name].detail"></div>
+                              <pre x-show="mcpProbe[m.name] && mcpProbe[m.name].stderr" x-text="mcpProbe[m.name] && mcpProbe[m.name].stderr"
+                                   style="margin-top:6px;max-height:160px;overflow:auto;background:var(--cp-surface-soft,#f5f5f5);border:1px solid var(--cp-border,#ddd);border-radius:6px;padding:8px;font-size:11px;white-space:pre-wrap"></pre>
+                            </div>
                           </div>
                           <div class="toolbar">
+                            <button class="btn" type="button" x-show="m.testable" :disabled="mcpProbe[m.name] && mcpProbe[m.name].busy" @click="testAgentMcp(m.name)">⏱ Test</button>
                             <button class="btn" type="button" x-show="m.removable" @click="detachCapMcp(m.name)">✕ Detach</button>
                             <span class="hint" x-show="!m.removable">locked</span>
                           </div>
@@ -7671,6 +7685,8 @@
               <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
                 <button class="btn ghost" type="button" @click="mkt.addCap.entry = null">Cancel</button>
                 <button class="btn primary" type="button" @click="confirmAddCap()" :disabled="!mkt.addCap.agentId || mkt.busy">Add</button>
+              </div>
+            </div>
           </div>
 
           <!-- Assign installed item to a team -->
@@ -9509,6 +9525,7 @@
         scheduleHideDisabled: false,
         schedulesLoading: false,
         selectedAgent: null,
+        mcpProbe: {},
         selectedManager: null,
         managerTemplates: [],
         managerEdit: { open: false, id: null, name: '', description: '', agent: '' },
@@ -10466,6 +10483,7 @@
               this.selectedAgent.capCatalogFilter = '';
               this.selectedAgent._menu = false;
               this.agentTab = 'runs';
+              this.mcpProbe = {};
               this.agentFiles = { root: '', files: [], loading: false, loaded: false, truncated: false, missing: false };
             }
             this.agentHistory = history;
@@ -10575,6 +10593,23 @@
             this.showToast('MCP detached', name, 'info');
             await this.loadAgentCapabilities(id);
           } catch (e) { this.showToast('Detach failed', e.message, 'error'); }
+        },
+        // Probe a named MCP server attached to the selected agent and surface the
+        // start/handshake outcome (incl. exit code + stderr) inline.
+        async testAgentMcp(name) {
+          const id = this.selectedAgent && this.selectedAgent.id;
+          if (!id) return;
+          // Reassign the whole map so Alpine reliably reacts to the new key.
+          this.mcpProbe = { ...this.mcpProbe, [name]: { busy: true } };
+          try {
+            const r = await fetch(`/api/agents/${encodeURIComponent(id)}/capabilities/mcp/${encodeURIComponent(name)}/test`, { method: 'POST' });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            const meta = this.mcpTestStatusMeta(data.status);
+            this.mcpProbe = { ...this.mcpProbe, [name]: { busy: false, icon: meta.icon, label: meta.label, cls: meta.cls, summary: data.summary || '', detail: data.detail || '', stderr: data.stderr || '' } };
+          } catch (e) {
+            this.mcpProbe = { ...this.mcpProbe, [name]: { busy: false, icon: '✕', label: 'Error', cls: 'err', summary: 'Test failed', detail: String(e && e.message || e), stderr: '' } };
+          }
         },
         async attachCapSkillFromCatalog(entry) {
           const id = this.selectedAgent.id;

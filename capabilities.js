@@ -188,7 +188,9 @@ function getEffectiveCapabilities(config) {
   }
   for (const p of baseMcpPaths) {
     const j = readJson(p);
-    if (j && j.mcpServers) for (const k of Object.keys(j.mcpServers)) baseMcp[k] = true;
+    if (j && j.mcpServers) for (const k of Object.keys(j.mcpServers)) {
+      if (!baseMcp[k]) baseMcp[k] = { server: j.mcpServers[k] || {}, path: p };
+    }
   }
 
   // Base skills: plugin skills/ + co-located repo skills.
@@ -207,10 +209,10 @@ function getEffectiveCapabilities(config) {
   }
 
   const mcp = [];
-  for (const name of Object.keys(baseMcp)) mcp.push({ name, source: 'base', attached: true, removable: false });
+  for (const name of Object.keys(baseMcp)) mcp.push({ name, source: 'base', attached: true, removable: false, testable: true, config: redact(baseMcp[name].server) });
   for (const name of Object.keys(overlayMcp)) {
     if (mcp.find(m => m.name === name)) continue;
-    mcp.push({ name, source: 'overlay', attached: true, removable: true, config: redact(overlayMcp[name]) });
+    mcp.push({ name, source: 'overlay', attached: true, removable: true, testable: true, config: redact(overlayMcp[name]) });
   }
 
   const skills = [];
@@ -295,6 +297,29 @@ function resolveCatalogMcp(sourcePath, name) {
   return srv ? sanitizeServer(srv) : null;
 }
 
+// Resolve the RAW (non-redacted) server config for a named MCP server attached
+// to a specific agent — checking the agent's base (plugin/co-located) .mcp.json
+// files first, then its UI overlay. Used server-side to actually probe a server
+// (so the real env/secrets are supplied); never returned to the client.
+function resolveAgentMcp(config, name) {
+  if (!config || !name) return null;
+  const paths = [];
+  if (config.pluginDir) paths.push(path.join(config.pluginDir, '.mcp.json'));
+  if (config.cwd) paths.push(path.join(config.cwd, '.mcp.json'));
+  if (config.mcpConfig) {
+    paths.push(path.isAbsolute(config.mcpConfig)
+      ? config.mcpConfig : path.resolve(config.cwd || '.', config.mcpConfig));
+  }
+  for (const p of paths) {
+    const j = readJson(p);
+    const srv = j && j.mcpServers && j.mcpServers[name];
+    if (srv) return sanitizeServer(srv);
+  }
+  const overlay = getOverlayMcp(config.id);
+  if (overlay && overlay[name]) return sanitizeServer(overlay[name]);
+  return null;
+}
+
 // Resolve a catalog skill's source dir (must contain SKILL.md).
 function resolveCatalogSkill(sourceDir) {
   if (!sourceDir) return null;
@@ -337,5 +362,6 @@ module.exports = {
   getEffectiveCapabilities,
   buildCatalog,
   resolveCatalogMcp,
+  resolveAgentMcp,
   resolveCatalogSkill,
 };
