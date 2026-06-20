@@ -2295,19 +2295,23 @@
       flex-direction: column;
       overflow: visible;
       padding: 0;
+      position: relative;
     }
     .board-panel-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 9px 12px;
-      border-bottom: 1px solid var(--cp-border);
-      background: var(--cp-surface-soft);
+      padding: 5px 6px 2px 10px;
+      background: transparent;
       cursor: move;
       flex: 0 0 auto;
-      border-radius: 16px 16px 0 0;
     }
+    .board-panel-head .bph-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .board-panel-head .bph-right { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; opacity: .55; transition: opacity .12s ease; }
+    .board-panel:hover .board-panel-head .bph-right,
+    .board-panel.collapsed .board-panel-head .bph-right { opacity: 1; }
+    .board-panel-tag { font-size: 14px; line-height: 1; flex: 0 0 auto; opacity: .9; }
     .board-panel-title {
       font-weight: 600;
       font-size: 12.5px;
@@ -2318,7 +2322,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .board-panel-grip { color: var(--cp-text-soft); opacity: .55; font-size: 13px; }
+    .board-panel-grip { color: var(--cp-text-soft); opacity: .55; font-size: 13px; cursor: move; }
     .board-panel-chevron {
       background: transparent;
       border: none;
@@ -2331,21 +2335,31 @@
       flex: 0 0 auto;
     }
     .board-panel-chevron:hover { background: var(--cp-highlight); color: var(--cp-text); }
-    .board-panel.collapsed .board-panel-head { border-bottom: none; border-radius: 16px; }
-    .board-panel-body { overflow: visible; padding: 12px; }
+    .board-panel.collapsed .board-panel-head { padding: 7px 6px 7px 10px; }
+    .board-panel-body { overflow: visible; padding: 2px 12px 12px; }
+    /* Resize grip: a clearly visible two-line corner handle in the bottom-right.
+       Dragging it sets the panel WIDTH; height then auto-fits the content. */
     .board-resize {
       position: absolute;
-      right: 4px;
-      bottom: 12px;
-      width: 16px;
-      height: 16px;
+      right: 3px;
+      bottom: 3px;
+      width: 20px;
+      height: 20px;
       cursor: ew-resize;
-      border-right: 2px solid var(--cp-border-strong);
-      border-bottom: 2px solid var(--cp-border-strong);
-      border-bottom-right-radius: 6px;
       opacity: .5;
+      border-bottom-right-radius: 14px;
+      background:
+        linear-gradient(135deg,
+          transparent 44%, var(--cp-border-strong) 44%, var(--cp-border-strong) 54%, transparent 54%,
+          transparent 66%, var(--cp-border-strong) 66%, var(--cp-border-strong) 76%, transparent 76%);
     }
-    .board-panel:hover .board-resize { opacity: .9; }
+    .board-panel:hover .board-resize { opacity: .95; }
+    .board-resize:hover {
+      background:
+        linear-gradient(135deg,
+          transparent 44%, var(--cp-accent) 44%, var(--cp-accent) 54%, transparent 54%,
+          transparent 66%, var(--cp-accent) 66%, var(--cp-accent) 76%, transparent 76%);
+    }
     /* ---- Board action buttons: compact, self-labelling icon buttons ----
        Any .board-act with a data-tip shows an instant styled tooltip on hover so
        the icon's meaning is never a guessing game. */
@@ -5046,12 +5060,17 @@
                           </template>
                           <template x-if="!pinChipCollapsed(p)">
                           <div class="board-panel-inner card">
-                            <div class="board-panel-head" @mousedown="startPanelDrag(p.id, $event)">
-                              <div style="display:flex;align-items:center;gap:6px;min-width:0">
-                                <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
-                                <div class="board-panel-title" x-text="panelTitle(p)"></div>
+                            <!-- Slim, frameless control strip: a small type icon on the left and the
+                                 collapse / reduce / drag controls on the right. The title is only shown
+                                 when collapsed (the expanded content carries its own heading), so an
+                                 expanded panel reclaims the space the old framed header bar used. -->
+                            <div class="board-panel-head" :class="{ collapsed: isPanelCollapsed(p.id) }" @mousedown="startPanelDrag(p.id, $event)" :title="panelTypeLabel(p) + ' · ' + panelTitleText(p)">
+                              <div class="bph-left">
+                                <span class="board-panel-tag" x-text="panelIcon(p)" :title="panelTypeLabel(p)"></span>
+                                <div class="board-panel-title" x-show="isPanelCollapsed(p.id)" x-text="panelTitleText(p)"></div>
                               </div>
-                              <div style="display:flex;align-items:center;gap:4px;flex:0 0 auto">
+                              <div class="bph-right">
+                                <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p) && boardPinViewOn()" @click.stop="reducePinChip(p)" @mousedown.stop title="Reduce to icon">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
                               </div>
@@ -5354,8 +5373,8 @@
                                 </div>
                               </template>
                             </div>
+                            <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize — width follows your drag, height fits the content"></div>
                           </div>
-                          <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize"></div>
                           </template>
                         </div>
                       </template>
@@ -5367,11 +5386,12 @@
                     <div class="board-bottombar">
                       <span class="bb-title">⚙ Layout</span>
                       <div class="bb-group">
-                        <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
-                        <label class="board-aw-check" title="Auto-fit card widths to the board. Turn off to set custom widths and stretch the canvas by dragging." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
-                          <input type="checkbox" :checked="boardAutoWidth()" @change="toggleAutoWidth($event.target.checked)" style="cursor:pointer">
-                          Auto-width
+                        <button class="btn ghost" type="button" @click="organizeBoard()" title="Tidy the board so no cards overlap — packs each column top-to-bottom and fits every card to its content">⊞ Organize</button>
+                        <label class="board-aw-check" title="Auto-arrange: when a panel is moved or resized, automatically push overlapping cards out of the way so nothing is hidden. Only runs on move/resize." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
+                          <input type="checkbox" :checked="boardAutoArrange()" @change="toggleBoardAutoArrange()" style="cursor:pointer">
+                          🧲 Auto-arrange
                         </label>
+                        <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
                         <label class="board-aw-check" title="Pin view: collapse pinned items to draggable icon chips. Hover to preview, click to expand." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
                           <input type="checkbox" :checked="boardPinViewOn()" @change="toggleBoardPinView()" style="cursor:pointer">
                           📌 Pin view
@@ -5563,36 +5583,9 @@
                     <div class="hint">Pin a folder so the board AI can read its README and search inside it.</div>
                     <div style="display:flex;gap:6px">
                       <input class="field-input" type="text" x-model="boardLocPath" placeholder="C:\repos\my-project" style="flex:1" @keydown.enter.prevent="previewLocation()" />
-                      <button class="btn" type="button" @click="toggleLocBrowser()" :title="boardLocBrowseOpen ? 'Hide folder browser' : 'Browse for a folder'" x-text="boardLocBrowseOpen ? '✕ Browse' : '🗀 Browse'"></button>
+                      <button class="btn" type="button" :disabled="boardLocBrowseBusy" @click="boardBrowseFolderNative()" title="Open the system folder picker" x-text="boardLocBrowseBusy ? 'Opening…' : '🗀 Browse'"></button>
                       <button class="btn" type="button" :disabled="boardLocBusy || !boardLocPath.trim()" @click="previewLocation()" x-text="boardLocBusy ? '…' : 'Preview'"></button>
                     </div>
-                    <!-- Folder browser -->
-                    <template x-if="boardLocBrowseOpen">
-                      <div style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden">
-                        <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--cp-surface-soft);border-bottom:1px solid var(--cp-border)">
-                          <button class="btn ghost" type="button" title="Up one level" :disabled="boardLocBrowseBusy || boardLocBrowseParent === null" @click="browseLoc(boardLocBrowseParent || '')">⬆</button>
-                          <button class="btn ghost" type="button" title="Drives / roots" :disabled="boardLocBrowseBusy" @click="browseLoc('')">🗗</button>
-                          <div class="hint" style="flex:1;min-width:0;word-break:break-all;font-family:Consolas,monospace" x-text="boardLocBrowsePath || 'This PC'"></div>
-                          <button class="btn" type="button" title="Pin this folder" :disabled="!boardLocBrowsePath" @click="useBrowsedLocation()">Select ✓</button>
-                        </div>
-                        <div style="max-height:34vh;overflow:auto">
-                          <div x-show="boardLocBrowseBusy" class="hint" style="padding:12px">Loading…</div>
-                          <div x-show="!boardLocBrowseBusy && boardLocBrowseError" class="hint" style="padding:12px;color:var(--cp-danger)" x-text="boardLocBrowseError"></div>
-                          <div x-show="!boardLocBrowseBusy && !boardLocBrowseError && !boardLocBrowseDirs.length" class="hint" style="padding:12px">No subfolders here.</div>
-                          <template x-for="d in boardLocBrowseDirs" :key="d.path">
-                            <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--cp-border)"
-                                 :style="d.hidden ? 'opacity:.6' : ''"
-                                 @click="browseLoc(d.path)"
-                                 @dblclick="boardLocPath=d.path; boardLocBrowseOpen=false; previewLocation()">
-                              <span x-text="d.drive ? '💽' : '📁'"></span>
-                              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.name"></span>
-                              <span x-show="d.isGit" class="summary-muted-pill" title="Git repository">🔀</span>
-                              <button class="btn ghost" type="button" title="Select this folder" @click.stop="boardLocPath=d.path; boardLocBrowseOpen=false; previewLocation()">Pick</button>
-                            </div>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
                     <template x-if="boardLocPreview && boardLocPreview.ok">
                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
                         <div style="display:flex;align-items:center;gap:8px">
@@ -13752,6 +13745,24 @@
           }
         },
         // ----- Source-location folder browser -----
+        // Open the OS-native folder picker (same one the marketplace uses) and, on a
+        // selection, drop the path into the field and preview it.
+        async boardBrowseFolderNative() {
+          if (this.boardLocBrowseBusy) return;
+          this.boardLocBrowseBusy = true;
+          this.boardLocBrowseError = '';
+          try {
+            const r = await this.request('/api/browse-folder', { method: 'POST' });
+            if (r && r.folder) {
+              this.boardLocPath = r.folder;
+              this.previewLocation();
+            }
+          } catch (e) {
+            this.boardLocBrowseError = e.message || 'Could not open folder picker';
+          } finally {
+            this.boardLocBrowseBusy = false;
+          }
+        },
         toggleLocBrowser() {
           this.boardLocBrowseOpen = !this.boardLocBrowseOpen;
           if (this.boardLocBrowseOpen && !this.boardLocBrowseDirs.length) {
@@ -14189,6 +14200,32 @@
           if (p.type === 'pin') return this.boardKindIcon(p.kind) + ' ' + ((p.item && (p.item.label || p.item.refId)) || '');
           return '';
         },
+        // Just the type icon for the panel control strip (no title text).
+        panelIcon(p) {
+          if (p.type === 'summary') return '🧭';
+          if (p.type === 'note') return '📝';
+          if (p.type === 'checklist') return '✅';
+          if (p.type === 'pin') return this.boardKindIcon(p.kind);
+          return '•';
+        },
+        // Human-readable resource type, used for the icon tooltip and the head title attr.
+        panelTypeLabel(p) {
+          if (p.type === 'summary') return 'Briefing';
+          if (p.type === 'note') return 'Note';
+          if (p.type === 'checklist') return 'Checklist';
+          if (p.type === 'pin') return this.boardKindLabel(p.kind);
+          return '';
+        },
+        // Title text WITHOUT the leading icon (the icon is rendered separately as a tag).
+        // Shown only when a panel is collapsed; expanded panels show their own content.
+        panelTitleText(p) {
+          if (p.type === 'summary') return 'Where was I?';
+          if (p.type === 'checklist') {
+            const pr = this.checklistProgress(p.checklist);
+            return ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
+          }
+          return this.chipName(p);
+        },
         // ----- Pin view (icon-collapse mode) -----
         // When ON, every pin panel collapses to a small draggable icon+name chip that
         // expands on hover and can be permanently expanded with a click.
@@ -14212,6 +14249,23 @@
             this.ensureBoardLayout(false); // seed any missing normal-mode positions
             this.persistLayout();          // ALWAYS persist the pinView=false flip
             this.scheduleAutoFit();
+          }
+        },
+        // Auto-arrange: when ON, a panel that is moved or resized triggers a gentle
+        // de-overlap pass so nothing ends up hidden under another card. It only fires on
+        // those gestures (never on a timer / passive reload), keeping the board still.
+        boardAutoArrange() {
+          const b = this.activeBoard();
+          return !!(b && b.autoArrange);
+        },
+        toggleBoardAutoArrange() {
+          const b = this.activeBoard();
+          if (!b) return;
+          b.autoArrange = !b.autoArrange;
+          this.persistLayout();
+          if (b.autoArrange) {
+            // Tidy once immediately so the board reflects the new mode.
+            this.organizeBoard();
           }
         },
         // Every panel except the "Where was I?" summary can collapse to an icon chip
@@ -14279,26 +14333,13 @@
         // Per-board flag (default ON). When ON, panel widths are managed automatically
         // (summary full-width, everything else 50/50) and the canvas fits the window.
         // When OFF, the user controls panel widths and can stretch the canvas by dragging.
+        // Boards are always manual-size now (no auto-width). Kept returning false so the
+        // few remaining call sites stay valid; the auto-width toggle + repack were removed
+        // because the periodic re-pack was the source of the "resize every second" jitter.
         boardAutoWidth() {
-          const b = this.activeBoard();
-          return !b || b.autoWidth !== false;
+          return false;
         },
-        toggleAutoWidth(on) {
-          const b = this.activeBoard(); if (!b) return;
-          b.autoWidth = !!on;
-          if (on) {
-            // Re-tidy card widths back to clean columns; canvas size is left untouched.
-            this.normalizeBoardWidths();
-          } else {
-            this.persistLayout();
-          }
-          this.scheduleAutoFit();
-        },
-        // Quietly drop out of auto-width mode (e.g. when the user starts a manual resize).
-        _disableAutoWidth() {
-          const b = this.activeBoard();
-          if (b && b.autoWidth !== false) b.autoWidth = false;
-        },
+        _disableAutoWidth() { /* no-op: boards are always manual-size */ },
         // ----- Canvas zoom -----
         boardZoom() { return this.boardCanvas.z || 1; },
         setBoardZoom(v) {
@@ -14715,7 +14756,7 @@
             this.boardDragId = '';
             if (canvasGrew) this._saveBoardCanvas();
             this.persistLayout();
-            this.scheduleAutoFit();
+            this.scheduleAutoFit(true, id); // de-overlap around the moved panel if auto-arrange is on
           };
           this.boardDragId = id;
           this._panelDragMoved = false;
@@ -14731,23 +14772,38 @@
           const start = { mx: ev.clientX, my: ev.clientY, x: base.x, y: base.y, w: base.w, h: base.h };
           const cols = this.boardCols;
           const z = this.boardCanvas.z || 1;
-          // A manual width change takes the board out of auto-width mode.
-          this._disableAutoWidth();
           // Visual column size = layout column px scaled by zoom (cursor deltas are visual px).
           const colW = (this._boardColPx() * z) || 1;
-          // Width-only resize: panel height is auto-fitted to content.
+          let curH = start.h, rafPending = false;
+          // Drag the width; the height refits to the content live so a wider card gets
+          // shorter and a narrower card gets taller (and vice-versa) as you drag.
           const onMove = (e) => {
             const eff = this._boardEffCols();
             const dw = Math.round((e.clientX - start.mx) / colW);
             const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
-            this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: start.h } };
+            this.boardLayout = { ...this.boardLayout, [id]: { x: start.x, y: start.y, w: nw, h: curH } };
+            if (!rafPending) {
+              rafPending = true;
+              requestAnimationFrame(() => {
+                rafPending = false;
+                // boardDragId is set, so autoFitBoard() bails — measure + apply inline.
+                const need = this._measurePanelRows(id);
+                const cur = this.boardLayout[id];
+                if (need != null && cur && need !== cur.h) {
+                  curH = need;
+                  this.boardLayout = { ...this.boardLayout, [id]: { ...cur, h: need } };
+                }
+              });
+            }
           };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             this.boardDragId = '';
+            // Persist the fitted height the user just produced by dragging the width,
+            // and de-overlap around this panel if auto-arrange is on.
+            this.scheduleAutoFit(true, id);
             this.persistLayout();
-            this.scheduleAutoFit();
           };
           this.boardDragId = id;
           document.addEventListener('mousemove', onMove);
@@ -14763,9 +14819,9 @@
           this._layoutHoldAutoWidth = (b.autoWidth !== false);
           this._layoutHoldPinView = !!b.pinView;
           clearTimeout(this._layoutTimer);
-          const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false), pinView = !!b.pinView;
+          const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false), pinView = !!b.pinView, autoArrange = !!b.autoArrange;
           this._layoutTimer = setTimeout(() => {
-            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth, pinView }) })
+            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth, pinView, autoArrange }) })
               .then(() => { this._layoutHoldUntil = Date.now() + 600; })
               .catch(() => {});
           }, 450);
@@ -14783,11 +14839,10 @@
             this.showToast('Board', 'Pins packed', 'success');
             return;
           }
-          if (b) b.autoWidth = true; // reset re-enables auto-width
           this.boardLayout = {};
           this.resetBoardCanvas(); // back to window-fit width
           this.ensureBoardLayout(true);
-          this.scheduleAutoFit();
+          this.scheduleAutoFit(true);
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
         },
         // Pack the pin-view layout tightly: the "Where was I?" summary is anchored
@@ -14870,16 +14925,74 @@
         // Auto-size every panel to fit its content so no panel needs an inner scrollbar.
         // Measures rendered content height, converts to grid rows, and repacks panels
         // down their current column (preserving column + order) to avoid overlap.
-        scheduleAutoFit() {
+        scheduleAutoFit(persist = false, arrangeAnchor = null) {
           clearTimeout(this._autoFitTimer);
-          this._autoFitTimer = setTimeout(() => this.autoFitBoard(), 70);
+          this._autoFitPersist = this._autoFitPersist || persist;
+          if (arrangeAnchor) this._autoFitArrange = arrangeAnchor;
+          this._autoFitTimer = setTimeout(() => {
+            const p = this._autoFitPersist; this._autoFitPersist = false;
+            const a = this._autoFitArrange; this._autoFitArrange = null;
+            this.autoFitBoard(p, a);
+          }, 70);
         },
-        autoFitBoard() {
+        // Push overlapping panels down so nothing is hidden, keeping the anchor (the card
+        // the user just moved/resized) exactly where they put it. Pure layout math — does
+        // not move the anchor and never compacts upward, so the gesture result is honored.
+        // Returns { layout, changed }.
+        _resolveOverlaps(layout, anchorId) {
+          const overlaps = (a, b) =>
+            a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+          const ids = Object.keys(layout).filter(id => layout[id]);
+          // Place the anchor first (fixed), then the rest in reading order; each card that
+          // collides with an already-placed one slides straight down past it.
+          const order = ids.slice().sort((x, y) => {
+            if (x === anchorId) return -1;
+            if (y === anchorId) return 1;
+            return (layout[x].y - layout[y].y) || (layout[x].x - layout[y].x);
+          });
+          const placed = [];
+          const out = { ...layout };
+          let changed = false;
+          for (const id of order) {
+            let r = { ...layout[id] };
+            let guard = 0;
+            let moved = true;
+            while (moved && guard++ < 200) {
+              moved = false;
+              for (const p of placed) {
+                if (overlaps(r, p)) { r = { ...r, y: p.y + p.h }; moved = true; }
+              }
+            }
+            placed.push(r);
+            if (r.y !== layout[id].y) { out[id] = r; changed = true; }
+          }
+          return { layout: out, changed };
+        },
+        // Measure one panel's content and return the number of grid rows it needs so it
+        // shows without an inner scrollbar. Used for live height-fit while resizing width.
+        _measurePanelRows(id) {
+          const grid = document.querySelector('.board-grid'); if (!grid) return null;
+          let el = null;
+          grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+          if (!el || el.classList.contains('pin-chip')) return null;
+          const rowH = this.boardRowH, gap = this.boardGap;
+          const head = el.querySelector('.board-panel-head');
+          if (this.isPanelCollapsed(id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+          const body = el.querySelector('.board-panel-body');
+          return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+        },
+        // Fit every panel's HEIGHT to its rendered content (no inner scrollbar). Width,
+        // column and Y are left exactly where the user put them — boards are manual-size,
+        // so this never repacks or moves cards. Height is derived from content, so it is
+        // recomputed on every render and applied LOCALLY by default; pass persist=true
+        // from a user gesture (resize / collapse / organize / add) to save the result.
+        // If arrangeAnchor is given AND auto-arrange is on, also de-overlap around it.
+        autoFitBoard(persist = false, arrangeAnchor = null) {
           if (this.route !== 'boards' || this.boardDragId) return;
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
             if (!grid) return;
-            const rowH = this.boardRowH, gap = this.boardGap, cols = this.boardCols, half = Math.floor(cols / 2);
+            const rowH = this.boardRowH, gap = this.boardGap;
             const fit = {};
             grid.querySelectorAll('.board-panel').forEach(el => {
               const id = el.getAttribute('data-pid'); if (!id) return;
@@ -14888,7 +15001,6 @@
               if (el.classList.contains('pin-chip')) return;
               const head = el.querySelector('.board-panel-head');
               if (this.isPanelCollapsed(id)) {
-                // Collapsed: size to the header only (body is hidden via x-show).
                 fit[id] = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
                 return;
               }
@@ -14896,60 +15008,71 @@
               const needed = (head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6;
               fit[id] = Math.max(3, Math.ceil(needed / rowH));
             });
-            const layout = { ...this.boardLayout };
-            // Pin-view boards are free-form (chips/panels dragged anywhere), so never
-            // repack them into columns — only height-fit, like manual mode.
-            const auto = this.boardAutoWidth() && !this.boardPinViewOn();
-            if (!auto) {
-              // Manual mode: only fit each panel's HEIGHT to its content (no inner
-              // scrollbar). Leave x / y / width alone so the user's free positioning —
-              // including a panel dragged down to stretch the canvas — is preserved.
-              let changed = false;
-              for (const id of Object.keys(layout)) {
-                if (fit[id] == null) continue;
-                const cur = layout[id];
-                const need = fit[id];
-                let h;
-                if (this.isPanelCollapsed(id)) h = need;
-                else if (need > cur.h) h = need;
-                else if (need < cur.h - 1) h = need;
-                else h = cur.h;
-                if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
-              }
-              // Apply locally only — never persist. Height-fitting is derived purely from
-              // rendered content, so every client recomputes it on render; saving it would
-              // emit boards-changed → all tabs reload → re-fit → save … a broadcast storm
-              // that makes panels resize every second. User gestures (drag/resize/collapse/
-              // reset/pack) persist through their own paths.
-              if (changed) this.boardLayout = layout;
-              return;
-            }
-            const order = Object.keys(layout)
-              .filter(id => fit[id] != null)
-              .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
-            let yL = 0, yR = 0, changed = false;
-            for (const id of order) {
+            let layout = { ...this.boardLayout };
+            let changed = false;
+            for (const id of Object.keys(layout)) {
+              if (fit[id] == null) continue;
               const cur = layout[id];
               const need = fit[id];
-              // Hysteresis: always grow to clear an inner scrollbar, but only shrink
-              // when there are 2+ rows of slack, so a panel whose content sits on a row
-              // boundary doesn't flip ±1 row each pass.
+              // Hysteresis: always grow to clear an inner scrollbar, but only shrink when
+              // there are 2+ rows of slack so a panel whose content sits on a row boundary
+              // doesn't flip ±1 row each pass.
               let h;
               if (this.isPanelCollapsed(id)) h = need;
               else if (need > cur.h) h = need;
               else if (need < cur.h - 1) h = need;
               else h = cur.h;
+              if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
+            }
+            // After heights settle, push overlaps off the anchor if auto-arrange is on.
+            if (arrangeAnchor && this.boardAutoArrange() && !this.boardPinViewOn()) {
+              const res = this._resolveOverlaps(layout, arrangeAnchor);
+              if (res.changed) { layout = res.layout; changed = true; }
+            }
+            if (changed) {
+              this.boardLayout = layout;
+              if (persist) this.persistLayout();
+            }
+          });
+        },
+        // "Organize": tidy the board so nothing overlaps. Packs each column top-to-bottom
+        // in the panels' current reading order (left column / right column / full-width
+        // rows kept distinct), fitting every card to its content. On-demand only — runs
+        // when the user clicks Organize, then persists.
+        organizeBoard() {
+          if (this.route !== 'boards') return;
+          this.$nextTick(() => {
+            const grid = document.querySelector('.board-grid');
+            if (!grid) { this.showToast('Board', 'Open a board first', 'error'); return; }
+            const rowH = this.boardRowH, gap = this.boardGap, cols = this.boardCols, half = Math.floor(cols / 2);
+            const fit = {};
+            grid.querySelectorAll('.board-panel').forEach(el => {
+              const id = el.getAttribute('data-pid'); if (!id) return;
+              if (el.classList.contains('pin-chip')) return;
+              const head = el.querySelector('.board-panel-head');
+              if (this.isPanelCollapsed(id)) { fit[id] = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH)); return; }
+              const body = el.querySelector('.board-panel-body');
+              fit[id] = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+            });
+            const layout = { ...this.boardLayout };
+            const order = Object.keys(layout)
+              .filter(id => layout[id] && fit[id] != null)
+              .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
+            let yL = 0, yR = 0, changed = false;
+            for (const id of order) {
+              const cur = layout[id];
+              const h = fit[id];
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
-              let ny;
-              if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; }
+              let nx = cur.x, nw = cur.w, ny;
+              if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; nx = 0; nw = cols; }
               else if (cur.x < half) { ny = yL; yL += h; }
               else { ny = yR; yR += h; }
-              if (cur.y !== ny || cur.h !== h) { layout[id] = { ...cur, y: ny, h }; changed = true; }
+              if (cur.x !== nx || cur.y !== ny || cur.w !== nw || cur.h !== h) {
+                layout[id] = { ...cur, x: nx, y: ny, w: nw, h }; changed = true;
+              }
             }
-            // Local-only (see manual branch): auto-pack heights/positions are recomputed on
-            // every render, so they are never persisted — persisting them broadcasts
-            // boards-changed and creates a feedback loop across all open tabs.
-            if (changed) this.boardLayout = layout;
+            if (changed) { this.boardLayout = layout; this.persistLayout(); }
+            this.showToast('Board', 'Organized — no overlaps', 'success');
           });
         },
         isPanelCollapsed(id) {
@@ -14961,7 +15084,7 @@
           const cur = this.boardLayout[id] || { x: 0, y: 0, w: this.boardCols, h: 3 };
           this.boardLayout = { ...this.boardLayout, [id]: { ...cur, collapsed: !cur.collapsed } };
           this.persistLayout();
-          this.scheduleAutoFit();
+          this.scheduleAutoFit(true);
         },
         // ----- Notes -----
         async addBoardNote() {
