@@ -15033,6 +15033,55 @@
           document.addEventListener('mouseup', onUp);
           raf = requestAnimationFrame(tick);
         },
+        // Build a reusable off-screen measurer of a panel's content height at any width.
+        // Used by height-aware resizes so we can keep content fitting WITHOUT a scrollbar:
+        //   rowsAt(w)            -> content row-span at column width w (Infinity if content
+        //                          overflows horizontally at that width — i.e. too narrow)
+        //   widthForHeight(nh,…) -> the minimum width whose content fits within nh rows,
+        //                          plus feasible=false (clamped to max width) when even the
+        //                          widest the panel can be still needs more than nh rows.
+        // Call destroy() when the drag ends to remove the hidden clone.
+        _makeHeightMeasurer(id) {
+          const grid = document.querySelector('.board-grid'); if (!grid) return null;
+          let el = null;
+          grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+          if (!el || el.classList.contains('pin-chip') || this.isPanelCollapsed(id)) return null;
+          const inner = el.querySelector('.board-panel-inner'); if (!inner) return null;
+          const colPx = this._boardColPx(); if (!colPx) return null;
+          const rowH = this.boardRowH, gap = this.boardGap;
+          const meas = document.createElement('div');
+          meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+          meas.style.setProperty('--board-fs', String(this.boardFont()));
+          const clone = inner.cloneNode(true);
+          clone.style.width = '100%';
+          clone.style.height = 'auto';
+          meas.appendChild(clone);
+          document.body.appendChild(meas);
+          const chead = clone.querySelector('.board-panel-head');
+          const cbody = clone.querySelector('.board-panel-body');
+          const rowsAt = (w) => {
+            meas.style.width = (Math.max(2, w) * colPx) + 'px';
+            void (cbody ? cbody.offsetHeight : clone.offsetHeight);
+            // Width too narrow for the content (horizontal overflow) — not a valid fit.
+            if (cbody && cbody.scrollWidth > cbody.clientWidth + 1) return Infinity;
+            const hh = (chead ? chead.offsetHeight : 0) + (cbody ? cbody.scrollHeight : 0) + gap + 6;
+            return Math.max(3, Math.ceil(hh / rowH));
+          };
+          const widthForHeight = (nh, x, eff) => {
+            const maxW = Math.max(3, eff - x);
+            const rMax = rowsAt(maxW);
+            if (!(rMax <= nh)) return { w: maxW, rows: rMax === Infinity ? maxW : rMax, feasible: false };
+            // rowsAt is non-increasing in w → binary-search the smallest width that fits.
+            let lo = 3, hi = maxW, ans = maxW, ra = rMax;
+            while (lo <= hi) {
+              const mid = (lo + hi) >> 1;
+              const r = rowsAt(mid);
+              if (r <= nh) { ans = mid; ra = r; hi = mid - 1; } else { lo = mid + 1; }
+            }
+            return { w: ans, rows: ra, feasible: true };
+          };
+          return { rowsAt, widthForHeight, destroy() { try { document.body.removeChild(meas); } catch (e) {} } };
+        },
         startPanelResize(id, ev, mode = 'w') {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault(); ev.stopPropagation();
@@ -15044,41 +15093,68 @@
           // Visual column / row size = layout size scaled by zoom (cursor deltas are visual px).
           const colW = (this._boardColPx() * z) || 1;
           const rowV = (rowH * z) || 1;
-          const doW = mode === 'w' || mode === 'se';
           const doH = mode === 'h' || mode === 'se';
           let curH = start.h, rafPending = false;
+          // For height-aware drags ('h' and 'se') build a reusable off-screen content
+          // measurer so we keep content fitting WITHOUT a scrollbar: shrinking the height
+          // grows the width to fit (or refuses past what fits at max width), and a corner
+          // drag never shrinks height below the content at the chosen width.
+          const measurer = doH ? this._makeHeightMeasurer(id) : null;
           const onMove = (e) => {
             const eff = this._boardEffCols();
-            let nw = start.w, nh = curH;
-            if (doW) {
+            const cur0 = this.boardLayout[id] || {};
+            if (mode === 'w') {
               const dw = Math.round((e.clientX - start.mx) / colW);
-              nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
+              const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
+              this.boardLayout = { ...this.boardLayout, [id]: { ...cur0, x: start.x, y: start.y, w: nw, h: curH } };
+              // Width-only: refit the height to the content live (wider => shorter, narrower => taller).
+              if (!rafPending) {
+                rafPending = true;
+                requestAnimationFrame(() => {
+                  rafPending = false;
+                  const need = this._measurePanelRows(id);
+                  const cur = this.boardLayout[id];
+                  if (need != null && cur && need !== cur.h) {
+                    curH = need;
+                    this.boardLayout = { ...this.boardLayout, [id]: { ...cur, h: need } };
+                  }
+                });
+              }
+              return;
             }
-            if (doH) {
+            if (mode === 'h') {
               const dh = Math.round((e.clientY - start.my) / rowV);
-              nh = Math.max(2, start.h + dh);
-              curH = nh;
-            }
-            this.boardLayout = { ...this.boardLayout, [id]: { ...this.boardLayout[id], x: start.x, y: start.y, w: nw, h: nh } };
-            // Width-ONLY drag: refit the height to the content live so a wider card gets
-            // shorter and a narrower card gets taller (and vice-versa) as you drag.
-            if (mode === 'w' && !rafPending) {
-              rafPending = true;
-              requestAnimationFrame(() => {
-                rafPending = false;
-                // boardDragId is set, so autoFitBoard() bails — measure + apply inline.
-                const need = this._measurePanelRows(id);
-                const cur = this.boardLayout[id];
-                if (need != null && cur && need !== cur.h) {
-                  curH = need;
-                  this.boardLayout = { ...this.boardLayout, [id]: { ...cur, h: need } };
+              const want = Math.max(2, start.h + dh);
+              let nw = start.w, nh = want;
+              if (measurer) {
+                const fit = measurer.widthForHeight(want, start.x, eff);
+                if (fit) {
+                  // Only ever GROW width (never narrow when the user pulls taller); shrinking
+                  // the height widens the panel so the content keeps fitting.
+                  nw = Math.min(eff - start.x, Math.max(start.w, fit.w));
+                  nh = fit.feasible ? want : fit.rows;   // refuse to shrink past the feasible minimum
                 }
-              });
+              }
+              curH = nh;
+              this.boardLayout = { ...this.boardLayout, [id]: { ...cur0, x: start.x, y: start.y, w: nw, h: nh } };
+              return;
             }
+            // mode 'se' (corner): user drives both; clamp height so the content never scrolls.
+            const dw = Math.round((e.clientX - start.mx) / colW);
+            const dh = Math.round((e.clientY - start.my) / rowV);
+            const nw = Math.max(3, Math.min(eff - start.x, start.w + dw));
+            let nh = Math.max(2, start.h + dh);
+            if (measurer) {
+              const mr = measurer.rowsAt(nw);
+              if (Number.isFinite(mr)) nh = Math.max(nh, mr);
+            }
+            curH = nh;
+            this.boardLayout = { ...this.boardLayout, [id]: { ...cur0, x: start.x, y: start.y, w: nw, h: nh } };
           };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            if (measurer) measurer.destroy();
             this.boardDragId = '';
             const cur = this.boardLayout[id];
             if (cur) {
