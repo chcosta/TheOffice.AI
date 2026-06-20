@@ -2222,6 +2222,58 @@
     .board-panel { box-sizing: border-box; transition: top .08s ease, left .08s ease, width .08s ease, height .08s ease; }
     .board-panel.dragging { transition: none; z-index: 30; }
     .board-panel.dragging .board-panel-inner { box-shadow: var(--cp-shadow); border-color: var(--cp-accent); }
+
+    /* Pin view: collapse a pin panel to a draggable icon+name chip. The panel
+       wrapper is content-sized (panelStyle still positions left/top), so chips
+       float freely and can overlap without the grid layout. */
+    .board-panel.pin-chip { width: auto !important; height: auto !important; overflow: visible; }
+    .pin-chip-card {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      max-width: 220px;
+      padding: 6px 11px 6px 9px;
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+      cursor: grab;
+      user-select: none;
+      transition: border-color .12s ease, box-shadow .12s ease;
+    }
+    .pin-chip-card:hover { border-color: var(--cp-border-strong); }
+    .board-panel.dragging .pin-chip-card { cursor: grabbing; box-shadow: var(--cp-shadow); border-color: var(--cp-accent); }
+    .pin-chip-icon { font-size: 15px; line-height: 1; flex: 0 0 auto; }
+    .pin-chip-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--cp-text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pin-chip-pop {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      z-index: 40;
+      min-width: 220px;
+      max-width: 320px;
+      padding: 10px 12px;
+      background: var(--cp-panel-strong);
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 12px;
+      box-shadow: var(--cp-shadow);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-4px);
+      transition: opacity .12s ease, transform .12s ease, visibility .12s;
+      pointer-events: none;
+    }
+    .pin-chip-card:hover .pin-chip-pop { opacity: 1; visibility: visible; transform: translateY(0); }
+    .pin-chip-pop .pin-chip-pop-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; color: var(--cp-text); }
+    .pin-chip-pop .pin-chip-pop-meta { font-size: 11.5px; color: var(--cp-text-muted); }
     .board-panel-inner {
       height: 100%;
       display: flex;
@@ -4843,6 +4895,8 @@
                       <div class="toolbar">
                         <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
+                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
+                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()" title="Add a checklist as its own panel">✅ Checklist</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <!-- Secondary board actions tucked behind an overflow menu so the
                              toolbar stays focused on the things you reach for constantly. -->
@@ -4946,14 +5000,34 @@
                     <div class="board-canvas-scroll" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                          <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
+                          <template x-if="pinChipCollapsed(p)">
+                            <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="(p.item.label || p.item.refId) + ' — click to expand'">
+                              <template x-if="pinStatus(p.item)">
+                                <span class="pin-dot" :class="pinStatus(p.item).state" :title="pinStatusTitle(p.item)"></span>
+                              </template>
+                              <span class="pin-chip-icon" x-text="boardKindIcon(p.kind)"></span>
+                              <span class="pin-chip-name" x-text="p.item.label || p.item.refId"></span>
+                              <div class="pin-chip-pop">
+                                <div style="font-weight:600;margin-bottom:2px" x-text="boardKindIcon(p.kind) + ' ' + (p.item.label || p.item.refId)"></div>
+                                <div class="hint" x-show="p.item.sublabel" x-text="p.item.sublabel"></div>
+                                <div class="hint" x-show="pinStatus(p.item)" x-text="pinStatus(p.item) ? (pinStatus(p.item).state + (pinStatus(p.item).relative ? ' · ' + pinStatus(p.item).relative : '')) : ''"></div>
+                                <div class="hint" style="opacity:.65;margin-top:4px">Click to expand · drag to move</div>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="!pinChipCollapsed(p)">
                           <div class="board-panel-inner card">
                             <div class="board-panel-head" @mousedown="startPanelDrag(p.id, $event)">
                               <div style="display:flex;align-items:center;gap:6px;min-width:0">
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
                                 <div class="board-panel-title" x-text="panelTitle(p)"></div>
                               </div>
-                              <span class="board-panel-grip" title="Drag to move">⠿</span>
+                              <div style="display:flex;align-items:center;gap:4px;flex:0 0 auto">
+                                <button class="board-panel-chevron" type="button" x-show="p.type==='pin' && boardPinViewOn()" @click.stop="reducePinChip(p.item)" @mousedown.stop title="Reduce to icon">⊟</button>
+                                <span class="board-panel-grip" title="Drag to move">⠿</span>
+                              </div>
                             </div>
                             <div class="board-panel-body" x-show="!isPanelCollapsed(p.id)">
                               <!-- Where was I? AI briefing -->
@@ -4978,10 +5052,10 @@
                                 </div>
                               </template>
 
-                              <!-- Pinned items of a kind -->
-                              <template x-if="p.type === 'pinned'">
+                              <!-- Pinned item (one panel per pin) -->
+                              <template x-if="p.type === 'pin'">
                                 <div style="display:flex;flex-direction:column;gap:8px">
-                                  <template x-for="item in p.items" :key="item.id">
+                                  <template x-for="item in [p.item]" :key="item.id">
                                     <div class="card board-pin-card" :class="{ 'summary-muted': item.excludeFromSummary }" style="display:flex;flex-direction:column;padding:0">
                                       <div class="clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
                                         <div style="display:flex;align-items:center;gap:8px;min-width:0">
@@ -5149,18 +5223,11 @@
                               </template>
 
                               <!-- Notes -->
-                              <template x-if="p.type === 'notes'">
+                              <!-- Note (one panel per note) -->
+                              <template x-if="p.type === 'note'">
                                 <div>
-                                  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
-                                    <textarea class="field-input" rows="2" x-model="boardNoteDraft" placeholder="Add a note… (Markdown supported — **bold**, lists, # headings, links)" style="resize:vertical;min-height:42px" @keydown.enter="if($event.ctrlKey || $event.metaKey){ $event.preventDefault(); addBoardNote(); }"></textarea>
-                                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-                                      <span class="hint" style="font-size:11px;opacity:.75">Markdown supported · ⌘/Ctrl+Enter to add</span>
-                                      <button class="btn" type="button" @click="addBoardNote()" :disabled="!boardNoteDraft.trim()">Add</button>
-                                    </div>
-                                  </div>
-                                  <div x-show="!(activeBoard().notes||[]).length" class="hint">No notes.</div>
                                   <div style="display:flex;flex-direction:column;gap:8px">
-                                    <template x-for="note in (activeBoard().notes||[])" :key="note.id">
+                                    <template x-for="note in [p.note]" :key="note.id">
                                       <div style="background:var(--cp-surface-soft);border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start">
                                         <template x-if="boardEditingNote === note.id">
                                           <textarea class="field-input" rows="3" style="flex:1;resize:vertical" x-init="$el.value = note.text; $nextTick(() => $el.focus())" @blur="updateBoardNote(note, $event.target.value); boardEditingNote=''" @keydown.escape.stop="boardEditingNote=''"></textarea>
@@ -5180,16 +5247,11 @@
                                 </div>
                               </template>
 
-                              <!-- Checklists -->
-                              <template x-if="p.type === 'checklists'">
+                              <!-- Checklist (one panel per checklist) -->
+                              <template x-if="p.type === 'checklist'">
                                 <div>
-                                  <div style="display:flex;gap:6px;margin-bottom:10px">
-                                    <input class="field-input" type="text" x-model="boardChecklistDraft" placeholder="New checklist…" @keydown.enter="addChecklist()" style="flex:1" />
-                                    <button class="btn" type="button" @click="addChecklist()">Add</button>
-                                  </div>
-                                  <div x-show="!(activeBoard().checklists||[]).length" class="hint">No checklists.</div>
                                   <div style="display:flex;flex-direction:column;gap:14px">
-                                    <template x-for="cl in (activeBoard().checklists||[])" :key="cl.id">
+                                    <template x-for="cl in [p.checklist]" :key="cl.id">
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
                                           <div style="min-width:0">
@@ -5267,6 +5329,7 @@
                             </div>
                           </div>
                           <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event)" title="Drag to resize"></div>
+                          </template>
                         </div>
                       </template>
                       <div class="board-canvas-resize" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
@@ -5281,6 +5344,10 @@
                         <label class="board-aw-check" title="Auto-fit card widths to the board. Turn off to set custom widths and stretch the canvas by dragging." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
                           <input type="checkbox" :checked="boardAutoWidth()" @change="toggleAutoWidth($event.target.checked)" style="cursor:pointer">
                           Auto-width
+                        </label>
+                        <label class="board-aw-check" title="Pin view: collapse pinned items to draggable icon chips. Hover to preview, click to expand." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
+                          <input type="checkbox" :checked="boardPinViewOn()" @change="toggleBoardPinView()" style="cursor:pointer">
+                          📌 Pin view
                         </label>
                         <button class="btn ghost" type="button" x-show="boardCanvas.w || boardCanvas.h" @click="resetBoardCanvas()" title="Fit the board back to the window width">↔ Fit width</button>
                       </div>
@@ -9535,6 +9602,10 @@
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
         boardDragId: '',
+        _panelDragMoved: false,
+        // Pin-view: when a board is in pin-view, pin panels collapse to icon chips.
+        // This map (keyed by item.id) records pins the user has permanently expanded.
+        boardPinViewOpen: {},
         boardCols: 12,
         boardRowH: 36,
         boardGap: 14,
@@ -14000,17 +14071,65 @@
         // The panels rendered on a board: one per pinned kind that has items,
         // plus the Notes and Checklists panels. Stable ids drive the layout map.
         boardPanels() {
+          const b = this.activeBoard();
           const panels = [{ id: 'wherewasi', type: 'summary' }];
-          for (const g of this.boardItemsByKind()) panels.push({ id: 'kind:' + g.kind, type: 'pinned', kind: g.kind, items: g.items });
-          panels.push({ id: 'notes', type: 'notes' });
-          panels.push({ id: 'checklists', type: 'checklists' });
+          // One panel per pinned item (kept in kind-grouped order so related pins
+          // still cluster by default, but each is now independently positionable).
+          for (const g of this.boardItemsByKind()) {
+            for (const item of g.items) panels.push({ id: 'pin:' + item.id, type: 'pin', kind: item.kind, item });
+          }
+          // One panel per note and per checklist — no more aggregate cards.
+          for (const n of ((b && b.notes) || [])) panels.push({ id: 'note:' + n.id, type: 'note', note: n });
+          for (const cl of ((b && b.checklists) || [])) panels.push({ id: 'cl:' + cl.id, type: 'checklist', checklist: cl });
           return panels;
         },
         panelTitle(p) {
           if (p.type === 'summary') return '🧭 Where was I?';
-          if (p.type === 'notes') return '📝 Notes';
-          if (p.type === 'checklists') return '✅ Checklists';
-          return this.boardKindIcon(p.kind) + ' ' + this.boardKindLabel(p.kind) + ' (' + p.items.length + ')';
+          if (p.type === 'note') {
+            // First non-empty line of the note (stripped of markdown markers) as a title.
+            const first = String((p.note && p.note.text) || '').split('\n').map(s => s.trim()).find(Boolean) || 'Note';
+            const clean = first.replace(/^#+\s*/, '').replace(/[*_`>-]/g, '').trim() || 'Note';
+            return '📝 ' + (clean.length > 42 ? clean.slice(0, 42) + '…' : clean);
+          }
+          if (p.type === 'checklist') {
+            const pr = this.checklistProgress(p.checklist);
+            return '✅ ' + ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
+          }
+          if (p.type === 'pin') return this.boardKindIcon(p.kind) + ' ' + ((p.item && (p.item.label || p.item.refId)) || '');
+          return '';
+        },
+        // ----- Pin view (icon-collapse mode) -----
+        // When ON, every pin panel collapses to a small draggable icon+name chip that
+        // expands on hover and can be permanently expanded with a click.
+        boardPinViewOn() {
+          const b = this.activeBoard();
+          return !!(b && b.pinView);
+        },
+        toggleBoardPinView() {
+          const b = this.activeBoard();
+          if (!b) return;
+          b.pinView = !b.pinView;
+          if (!b.pinView) this.boardPinViewOpen = {}; // leaving pin-view clears manual expands
+          this.persistLayout();
+          this.scheduleAutoFit();
+        },
+        // A pin renders as a collapsed chip when pin-view is on AND the user hasn't
+        // permanently expanded it.
+        pinChipCollapsed(p) {
+          return p.type === 'pin' && this.boardPinViewOn() && !this.boardPinViewOpen[p.item.id];
+        },
+        // Click on a chip — ignore if the gesture was actually a drag.
+        boardChipClick(p) {
+          if (this._panelDragMoved) { this._panelDragMoved = false; return; }
+          this.boardPinViewOpen = { ...this.boardPinViewOpen, [p.item.id]: true };
+          this.scheduleAutoFit();
+        },
+        // Reduce an expanded pin back to an icon chip.
+        reducePinChip(item) {
+          const m = { ...this.boardPinViewOpen };
+          delete m[item.id];
+          this.boardPinViewOpen = m;
+          this.scheduleAutoFit();
         },
         // ----- Auto-width -----
         // Per-board flag (default ON). When ON, panel widths are managed automatically
@@ -14182,7 +14301,7 @@
               changed = true;
               continue;
             }
-            const h = p.type === 'pinned' ? Math.min(16, Math.max(4, 2 + (p.items ? p.items.length : 0) * 2)) : 7;
+            const h = p.type === 'pin' ? 4 : (p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
             if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
             else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
             changed = true;
@@ -14361,7 +14480,7 @@
             }
             this.boardLayout = { ...this.boardLayout, [id]: { x: nx, y: ny, w: start.w, h: start.h } };
           };
-          const onMove = (e) => { lastX = e.clientX; lastY = e.clientY; place(false, false); };
+          const onMove = (e) => { this._panelDragMoved = true; lastX = e.clientX; lastY = e.clientY; place(false, false); };
           // Continuous auto-grow: while the cursor sits in an edge zone, keep stretching
           // the canvas (and auto-scrolling) every frame — not just on mouse movement.
           const tick = () => {
@@ -14424,6 +14543,7 @@
             this.scheduleAutoFit();
           };
           this.boardDragId = id;
+          this._panelDragMoved = false;
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
           raf = requestAnimationFrame(tick);
@@ -14467,9 +14587,9 @@
           this._layoutHoldUntil = Date.now() + 2000;
           this._layoutHoldAutoWidth = (b.autoWidth !== false);
           clearTimeout(this._layoutTimer);
-          const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false);
+          const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false), pinView = !!b.pinView;
           this._layoutTimer = setTimeout(() => {
-            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth }) })
+            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth, pinView }) })
               .then(() => { this._layoutHoldUntil = Date.now() + 600; })
               .catch(() => {});
           }, 450);
@@ -14510,7 +14630,9 @@
               fit[id] = Math.max(3, Math.ceil(needed / rowH));
             });
             const layout = { ...this.boardLayout };
-            const auto = this.boardAutoWidth();
+            // Pin-view boards are free-form (chips/panels dragged anywhere), so never
+            // repack them into columns — only height-fit, like manual mode.
+            const auto = this.boardAutoWidth() && !this.boardPinViewOn();
             if (!auto) {
               // Manual mode: only fit each panel's HEIGHT to its content (no inner
               // scrollbar). Leave x / y / width alone so the user's free positioning —
@@ -14577,6 +14699,17 @@
           await this._patchBoard(board, { notes });
           this.boardNoteDraft = '';
         },
+        // Quick-add from the toolbar: create an empty note (its own panel) and open it
+        // for editing right away.
+        async addBoardNoteQuick() {
+          const board = this.activeBoard();
+          if (!board) return;
+          const id = 'note-' + Date.now().toString(36);
+          const notes = [...(board.notes || []), { id, text: '', createdAt: new Date().toISOString() }];
+          await this._patchBoard(board, { notes });
+          this.scheduleAutoFit();
+          this.$nextTick(() => { this.boardEditingNote = id; });
+        },
         async updateBoardNote(note, text) {
           const board = this.activeBoard();
           if (!board) return;
@@ -14600,6 +14733,17 @@
           const checklists = [...(board.checklists || []), { id: 'cl-' + Date.now().toString(36), title, items: [], createdAt: now, updatedAt: now }];
           await this._patchBoard(board, { checklists });
           this.boardChecklistDraft = '';
+        },
+        // Quick-add from the toolbar: prompt for a title, create a checklist panel.
+        async addChecklistQuick() {
+          const board = this.activeBoard();
+          if (!board) return;
+          const title = (await this.uiPrompt({ title: 'New checklist', label: 'Checklist title', value: '' }) || '').trim();
+          if (!title) return;
+          const now = new Date().toISOString();
+          const checklists = [...(board.checklists || []), { id: 'cl-' + Date.now().toString(36), title, items: [], createdAt: now, updatedAt: now }];
+          await this._patchBoard(board, { checklists });
+          this.scheduleAutoFit();
         },
         async deleteChecklist(cl) {
           const board = this.activeBoard();
