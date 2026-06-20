@@ -5346,6 +5346,25 @@ function _fsSearchNode(root, query, maxMatches) {
   walk(root, 0);
   return matches;
 }
+// Synchronous "search a folder" used by both the manual /api/fs/search endpoint,
+// the confirm-gated /assistant/search, and the board assistant's automatic search.
+// Prefers ripgrep, falls back to a bounded Node scan. Returns file/line/snippet rows.
+function _locationSearch(dir, query, maxMatches = 80) {
+  const { spawnSync } = require('child_process');
+  try {
+    const rg = spawnSync('rg', ['--no-heading', '--line-number', '--color', 'never', '-i', '--max-count', '3', '-m', String(maxMatches), '--', query, dir], { encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024, timeout: 15000 });
+    if (rg.status === 0 || rg.status === 1) {
+      const matches = [];
+      for (const ln of String(rg.stdout || '').split(/\r?\n/)) {
+        if (!ln || matches.length >= maxMatches) break;
+        const m = ln.match(/^(.*?):(\d+):(.*)$/);
+        if (m) matches.push({ file: path.relative(dir, m[1]), line: parseInt(m[2], 10), text: m[3].trim().slice(0, 240) });
+      }
+      return matches;
+    }
+  } catch {}
+  return _fsSearchNode(dir, query, maxMatches);
+}
 app.post('/api/fs/search', (req, res) => {
   const dir = String((req.body && req.body.path) || '').trim();
   const query = String((req.body && req.body.query) || '').trim();
@@ -6441,7 +6460,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
-    (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder and folds the matches back so you can answer from real file contents — propose this when the user asks about, or you need to find something in, a pinned source location)' : ''),
+    (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
@@ -6662,6 +6681,27 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     // Model didn't return JSON — treat the whole thing as a plain reply.
     reply = replyText(rawText) || "I couldn't generate a response. Try rephrasing.";
   }
+
+  // AUTO-SEARCH pinned source locations. Searching a folder is read-only and safe,
+  // so we never make the user click a confirm button for it: when the model proposes
+  // search_location action(s) and we still have query budget, run them server-side,
+  // fold the matches back in as context, and recurse once to produce the real answer
+  // in a single round trip. (query_agent stays confirm-gated — it has side effects.)
+  if (canQuery) {
+    const searches = actions.filter(a => a.type === 'search_location').slice(0, 3);
+    if (searches.length) {
+      const blocks = [];
+      for (const s of searches) {
+        let matches = [];
+        try { matches = _locationSearch(s.refId, s.query, 60); } catch {}
+        const lines = matches.slice(0, 40).map(m => `${m.file}:${m.line}: ${m.text}`).join('\n');
+        blocks.push(`### Search of "${s.locationLabel}" for "${s.query}"\n` + (lines ? lines : '(no matches found)'));
+      }
+      const searchCtx = (extraContext ? extraContext + '\n\n' : '') + '## SEARCH RESULT\n' + blocks.join('\n\n');
+      return await runBoardAssistant(b, { message, history, extraContext: searchCtx, allowQuery, depth: depth + 1 });
+    }
+  }
+
   return { reply, actions };
 }
 
@@ -6738,18 +6778,7 @@ app.post('/api/boards/:id/assistant/search', async (req, res) => {
   if (!_validDir(refId)) return res.status(404).json({ error: 'Folder not found' });
   const name = pin.label || refId;
   try {
-    const { spawnSync } = require('child_process');
-    let matches = [];
-    try {
-      const rg = spawnSync('rg', ['--no-heading', '--line-number', '--color', 'never', '-i', '--max-count', '3', '-m', '80', '--', query, refId], { encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024, timeout: 15000 });
-      if (rg.status === 0 || rg.status === 1) {
-        for (const ln of String(rg.stdout || '').split(/\r?\n/)) {
-          if (!ln || matches.length >= 80) break;
-          const m = ln.match(/^(.*?):(\d+):(.*)$/);
-          if (m) matches.push({ file: path.relative(refId, m[1]), line: parseInt(m[2], 10), text: m[3].trim().slice(0, 240) });
-        }
-      } else { matches = _fsSearchNode(refId, query, 80); }
-    } catch { matches = _fsSearchNode(refId, query, 80); }
+    const matches = _locationSearch(refId, query, 80);
     const lines = matches.slice(0, 60).map(m => `${m.file}:${m.line}: ${m.text}`).join('\n');
     const extraContext = `## SEARCH RESULT (the user searched the pinned location "${name}" for "${query}" — use these matches now)\n` + (lines || '(no matches found)');
     const followUp = message || `Use the search results from "${name}" to answer my request.`;

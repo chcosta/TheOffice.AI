@@ -5114,23 +5114,7 @@
                                               </div>
                                               <div class="hint" style="word-break:break-all;margin-bottom:6px" x-text="item.refId"></div>
                                               <div class="md-output" x-show="item.sublabel" x-text="item.sublabel" style="margin-bottom:8px"></div>
-                                              <div style="display:flex;gap:6px">
-                                                <input class="field-input" type="text" x-model="boardLocSearch[item.id]" placeholder="Search this folder…" style="flex:1;font-size:0.8rem" @keydown.enter.prevent="searchLocation(item)" @click.stop />
-                                                <button class="btn" style="font-size:0.72rem" type="button" :disabled="boardLocSearchBusy[item.id]" @click.stop="searchLocation(item)" x-text="boardLocSearchBusy[item.id] ? '…' : 'Search'"></button>
-                                              </div>
-                                              <template x-if="boardLocResults[item.id]">
-                                                <div style="margin-top:8px">
-                                                  <div class="hint" x-show="!boardLocResults[item.id].length">No matches.</div>
-                                                  <div class="run-list" style="max-height:200px;overflow:auto">
-                                                    <template x-for="(mt, mi) in boardLocResults[item.id]" :key="'bls-'+item.id+'-'+mi">
-                                                      <div class="run-item" style="flex-direction:column;align-items:stretch;padding:4px 8px">
-                                                        <div class="hint" style="font-size:11px" x-text="mt.file + ':' + mt.line"></div>
-                                                        <pre class="live-stream-pre" style="margin:0;white-space:pre-wrap;font-size:11px" x-text="mt.text"></pre>
-                                                      </div>
-                                                    </template>
-                                                  </div>
-                                                </div>
-                                              </template>
+                                              <div class="hint" style="font-size:11px;opacity:0.8">💬 Ask Board AI about this folder — it can search the contents to answer.</div>
                                             </div>
                                           </template>
                                         </div>
