@@ -5275,8 +5275,6 @@
                                           <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
                                           <button class="board-act" type="button" x-show="boardPinHasDetail(item)" :data-tip="boardPinIsExpanded(item) ? 'Hide details' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="board-act" :class="{ active: item.excludeFromSummary }" type="button" :data-tip="item.excludeFromSummary ? 'Include in summary &amp; insights' : 'Hide from summary &amp; insights'" @click.stop="toggleItemSummary(item)" x-text="item.excludeFromSummary ? '🙈' : '👁'"></button>
-                                          <button class="board-act" type="button" data-tip="Move up" @click.stop="movePin(item, -1)">↑</button>
-                                          <button class="board-act" type="button" data-tip="Move down" @click.stop="movePin(item, 1)">↓</button>
                                           <button class="board-act" type="button" :data-tip="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
                                           <button class="board-act danger tip-end" type="button" data-tip="Unpin from board" @click.stop="unpinItem(item)">✕</button>
                                         </div>
