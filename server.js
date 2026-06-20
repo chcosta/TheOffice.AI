@@ -5186,6 +5186,20 @@ app.patch('/api/boards/:id/items/:itemId', (req, res) => {
 function _validDir(p) {
   try { const s = fs.statSync(p); return s.isDirectory(); } catch { return false; }
 }
+// True when the folder is (or sits inside) a git repo. A worktree/submodule uses a
+// .git file rather than a directory, so accept either; walk up to catch subfolders.
+function _isGitRepo(p) {
+  try {
+    let dir = path.resolve(p);
+    for (let i = 0; i < 40; i++) {
+      if (fs.existsSync(path.join(dir, '.git'))) return true;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {}
+  return false;
+}
 // Directories we never descend into when summarizing / searching a source folder.
 const FS_SKIP_DIRS = new Set(['.git', 'node_modules', '.vs', '.vscode', 'bin', 'obj', 'dist', 'build', 'out', '.next', '.cache', '__pycache__', '.venv', 'venv', 'target', 'packages']);
 
@@ -5195,7 +5209,7 @@ app.post('/api/fs/folder-summary', (req, res) => {
   if (!dir) return res.status(400).json({ error: 'path required' });
   if (!_validDir(dir)) return res.status(404).json({ error: 'Folder not found', path: dir });
   const rs = _readmeSummary(dir, 320);
-  res.json({ ok: true, path: dir, name: path.basename(dir.replace(/[\\/]+$/, '')) || dir, summary: rs.summary, hasReadme: rs.hasReadme, readmePath: rs.readmePath });
+  res.json({ ok: true, path: dir, name: path.basename(dir.replace(/[\\/]+$/, '')) || dir, summary: rs.summary, hasReadme: rs.hasReadme, readmePath: rs.readmePath, isGit: _isGitRepo(dir) });
 });
 
 // Open a folder in an editor (VS Code Insiders → VS Code), a Copilot CLI session, or

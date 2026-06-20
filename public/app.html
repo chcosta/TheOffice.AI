@@ -4965,6 +4965,9 @@
                                           </template>
                                           <div style="min-width:0">
                                             <div style="display:flex;align-items:center;gap:6px;min-width:0">
+                                              <template x-if="item.kind === 'location'">
+                                                <span x-init="boardLocEnsureGit(item)" class="summary-muted-pill" :title="boardLocGit[item.refId] === true ? 'This folder is a git repository' : (boardLocGit[item.refId] === false ? 'Not a git repository' : 'Checking…')" x-text="boardLocGit[item.refId] === true ? '🔀 Git' : (boardLocGit[item.refId] === false ? '○ No git' : '…')"></span>
+                                              </template>
                                               <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></span>
                                               <span class="summary-muted-pill" x-show="item.excludeFromSummary" title="This panel is hidden from the Where was I? briefing and insights">🙈 Off summary</span>
                                             </div>
@@ -5459,7 +5462,10 @@
                     </div>
                     <template x-if="boardLocPreview && boardLocPreview.ok">
                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
-                        <div style="font-weight:600" x-text="'📂 ' + boardLocPreview.name"></div>
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <div style="font-weight:600" x-text="'📂 ' + boardLocPreview.name"></div>
+                          <span class="summary-muted-pill" :title="boardLocPreview.isGit ? 'This folder is a git repository' : 'Not a git repository'" x-text="boardLocPreview.isGit ? '🔀 Git' : '○ No git'"></span>
+                        </div>
                         <div class="hint" style="word-break:break-all" x-text="boardLocPreview.path"></div>
                         <div x-show="boardLocPreview.hasReadme" style="font-size:.85em;color:var(--cp-text-soft)" x-text="boardLocPreview.summary"></div>
                         <div x-show="!boardLocPreview.hasReadme" class="hint">No README found — it will be pinned without a summary.</div>
@@ -9440,6 +9446,7 @@
         boardLocSearch: {},
         boardLocSearchBusy: {},
         boardLocResults: {},
+        boardLocGit: {},
         boardNoteDraft: '',
         boardEditingNote: '',
         boardChecklistDraft: '',
@@ -13566,6 +13573,19 @@
             await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify({ path: item.refId, target }) });
           } catch (e) {
             this.showToast('Open', e.message, 'error');
+          }
+        },
+        // Lazily resolve whether a pinned folder is a git repo; cache by path so the
+        // badge survives re-renders and we only hit the server once per location.
+        async boardLocEnsureGit(item) {
+          const p = item && item.refId;
+          if (!p || this.boardLocGit[p] !== undefined) return;
+          this.boardLocGit = { ...this.boardLocGit, [p]: null }; // mark in-flight
+          try {
+            const resp = await this.request('/api/fs/folder-summary', { method: 'POST', body: JSON.stringify({ path: p }) });
+            this.boardLocGit = { ...this.boardLocGit, [p]: !!(resp && resp.isGit) };
+          } catch {
+            this.boardLocGit = { ...this.boardLocGit, [p]: false };
           }
         },
         async searchLocation(item) {
