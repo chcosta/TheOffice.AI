@@ -5101,6 +5101,35 @@
                                               <div class="hint" x-show="!boardPinCommentMsg(item)" x-text="boardChatCache[_commentChatId(item.refId)] ? 'Message not found.' : 'Loading…'"></div>
                                             </div>
                                           </template>
+                                          <!-- Source location: open buttons, README summary, search. -->
+                                          <template x-if="item.kind === 'location'">
+                                            <div>
+                                              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                                                <button class="btn ghost" style="font-size:0.72rem" type="button" title="Open in VS Code Insiders (falls back to VS Code)" @click.stop="openLocation(item,'editor')">📝 Editor</button>
+                                                <button class="btn ghost" style="font-size:0.72rem" type="button" title="Open a Copilot CLI session here" @click.stop="openLocation(item,'cli')">💻 CLI</button>
+                                                <button class="btn ghost" style="font-size:0.72rem" type="button" title="Open in File Explorer" @click.stop="openLocation(item,'explorer')">🗂 Explorer</button>
+                                              </div>
+                                              <div class="hint" style="word-break:break-all;margin-bottom:6px" x-text="item.refId"></div>
+                                              <div class="md-output" x-show="item.sublabel" x-text="item.sublabel" style="margin-bottom:8px"></div>
+                                              <div style="display:flex;gap:6px">
+                                                <input class="field-input" type="text" x-model="boardLocSearch[item.id]" placeholder="Search this folder…" style="flex:1;font-size:0.8rem" @keydown.enter.prevent="searchLocation(item)" @click.stop />
+                                                <button class="btn" style="font-size:0.72rem" type="button" :disabled="boardLocSearchBusy[item.id]" @click.stop="searchLocation(item)" x-text="boardLocSearchBusy[item.id] ? '…' : 'Search'"></button>
+                                              </div>
+                                              <template x-if="boardLocResults[item.id]">
+                                                <div style="margin-top:8px">
+                                                  <div class="hint" x-show="!boardLocResults[item.id].length">No matches.</div>
+                                                  <div class="run-list" style="max-height:200px;overflow:auto">
+                                                    <template x-for="(mt, mi) in boardLocResults[item.id]" :key="'bls-'+item.id+'-'+mi">
+                                                      <div class="run-item" style="flex-direction:column;align-items:stretch;padding:4px 8px">
+                                                        <div class="hint" style="font-size:11px" x-text="mt.file + ':' + mt.line"></div>
+                                                        <pre class="live-stream-pre" style="margin:0;white-space:pre-wrap;font-size:11px" x-text="mt.text"></pre>
+                                                      </div>
+                                                    </template>
+                                                  </div>
+                                                </div>
+                                              </template>
+                                            </div>
+                                          </template>
                                         </div>
                                       </template>
                                     </div>
@@ -5333,7 +5362,8 @@
                                 </div>
                                 <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
                                   <button x-show="a.type==='query_agent'" class="btn primary" type="button" style="padding:3px 10px" :disabled="a._running" @click="runAssistantQuery(a, m)"><span x-text="a._running ? ('Running… ' + (baElapsed>0 ? baElapsedText() : '')) : '▶ Run & continue'"></span></button>
-                                  <button x-show="a.type!=='query_agent'" type="button" :class="a.destructive ? 'btn danger' : 'btn primary'" style="padding:3px 10px" @click="applyAssistantAction(a)" x-text="actionConfirmLabel(a)"></button>
+                                  <button x-show="a.type==='search_location'" class="btn primary" type="button" style="padding:3px 10px" :disabled="a._running" @click="runAssistantSearch(a, m)"><span x-text="a._running ? ('Searching… ' + (baElapsed>0 ? baElapsedText() : '')) : '🔎 Search & continue'"></span></button>
+                                  <button x-show="a.type!=='query_agent' && a.type!=='search_location'" type="button" :class="a.destructive ? 'btn danger' : 'btn primary'" style="padding:3px 10px" @click="applyAssistantAction(a)" x-text="actionConfirmLabel(a)"></button>
                                   <button class="icon-button" type="button" title="Dismiss" @click="a._dismissed=true">✕</button>
                                 </div>
                               </div>
@@ -5404,12 +5434,12 @@
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <template x-for="k in ['session','chat','task','assignment','flow','agent','manager']" :key="k">
+                    <template x-for="k in ['session','chat','task','assignment','flow','agent','manager','location']" :key="k">
                       <button type="button" class="pill" :class="{ active: boardPinKind === k }" @click="boardPinKind = k" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
                     </template>
                   </div>
-                  <input class="field-input" type="text" x-model="boardPinSearch" placeholder="Search…" />
-                  <div style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
+                  <input class="field-input" type="text" x-show="boardPinKind !== 'location'" x-model="boardPinSearch" placeholder="Search…" />
+                  <div x-show="boardPinKind !== 'location'" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
                     <div x-show="!pinCandidates().length" class="hint" style="padding:12px">No matching items in this team.</div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
                       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px">
@@ -5419,6 +5449,27 @@
                         </div>
                         <button class="btn" type="button" :disabled="cand.pinned" @click="pinCandidate(cand)" x-text="cand.pinned ? '✓ Pinned' : '📌 Pin'"></button>
                       </div>
+                    </template>
+                  </div>
+                  <div x-show="boardPinKind === 'location'" style="display:flex;flex-direction:column;gap:10px">
+                    <div class="hint">Pin a folder so the board AI can read its README and search inside it.</div>
+                    <div style="display:flex;gap:6px">
+                      <input class="field-input" type="text" x-model="boardLocPath" placeholder="C:\repos\my-project" style="flex:1" @keydown.enter.prevent="previewLocation()" />
+                      <button class="btn" type="button" :disabled="boardLocBusy || !boardLocPath.trim()" @click="previewLocation()" x-text="boardLocBusy ? '…' : 'Preview'"></button>
+                    </div>
+                    <template x-if="boardLocPreview && boardLocPreview.ok">
+                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+                        <div style="font-weight:600" x-text="'📂 ' + boardLocPreview.name"></div>
+                        <div class="hint" style="word-break:break-all" x-text="boardLocPreview.path"></div>
+                        <div x-show="boardLocPreview.hasReadme" style="font-size:.85em;color:var(--cp-text-soft)" x-text="boardLocPreview.summary"></div>
+                        <div x-show="!boardLocPreview.hasReadme" class="hint">No README found — it will be pinned without a summary.</div>
+                        <div style="display:flex;justify-content:flex-end">
+                          <button class="btn" type="button" @click="pinLocation()">📌 Pin location</button>
+                        </div>
+                      </div>
+                    </template>
+                    <template x-if="boardLocPreview && !boardLocPreview.ok">
+                      <div class="hint" style="color:var(--cp-danger)" x-text="boardLocPreview.error || 'Folder not found'"></div>
                     </template>
                   </div>
                   <div style="display:flex;justify-content:flex-end">
@@ -9383,6 +9434,12 @@
         boardPinOpen: false,
         boardPinKind: 'task',
         boardPinSearch: '',
+        boardLocPath: '',
+        boardLocPreview: null,
+        boardLocBusy: false,
+        boardLocSearch: {},
+        boardLocSearchBusy: {},
+        boardLocResults: {},
         boardNoteDraft: '',
         boardEditingNote: '',
         boardChecklistDraft: '',
@@ -13413,10 +13470,10 @@
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location' })[kind] || kind;
         },
         boardKindIcon(kind) {
-          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️' })[kind] || '📌';
+          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂' })[kind] || '📌';
         },
         openPinPicker() {
           if (!this.activeBoard()) { this.showToast('Board', 'Select or create a board first', 'error'); return; }
@@ -13470,6 +13527,60 @@
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
           } catch (e) {
             this.showToast('Pin', e.message, 'error');
+          }
+        },
+        async previewLocation() {
+          const p = (this.boardLocPath || '').trim();
+          if (!p) return;
+          this.boardLocBusy = true;
+          this.boardLocPreview = null;
+          try {
+            const resp = await this.request('/api/fs/folder-summary', { method: 'POST', body: JSON.stringify({ path: p }) });
+            this.boardLocPreview = { ok: true, ...resp };
+          } catch (e) {
+            this.boardLocPreview = { ok: false, error: e.message };
+          } finally {
+            this.boardLocBusy = false;
+          }
+        },
+        async pinLocation() {
+          const board = this.activeBoard();
+          const pv = this.boardLocPreview;
+          if (!board || !pv || !pv.ok) return;
+          try {
+            const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
+              method: 'POST',
+              body: JSON.stringify({ kind: 'location', refId: pv.path, label: pv.name, sublabel: pv.hasReadme ? (pv.summary || '').slice(0, 160) : '' })
+            });
+            const updated = (resp && resp.board) || resp;
+            const idx = this.boards.findIndex(b => b.id === board.id);
+            if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            this.boardLocPath = '';
+            this.boardLocPreview = null;
+          } catch (e) {
+            this.showToast('Pin', e.message, 'error');
+          }
+        },
+        async openLocation(item, target) {
+          try {
+            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify({ path: item.refId, target }) });
+          } catch (e) {
+            this.showToast('Open', e.message, 'error');
+          }
+        },
+        async searchLocation(item) {
+          const q = (this.boardLocSearch[item.id] || '').trim();
+          if (!q) return;
+          this.boardLocSearchBusy = { ...this.boardLocSearchBusy, [item.id]: true };
+          try {
+            const resp = await this.request('/api/fs/search', { method: 'POST', body: JSON.stringify({ path: item.refId, query: q, max: 60 }) });
+            this.boardLocResults = { ...this.boardLocResults, [item.id]: (resp && resp.matches) || [] };
+          } catch (e) {
+            this.boardLocResults = { ...this.boardLocResults, [item.id]: [] };
+            this.showToast('Search', e.message, 'error');
+          } finally {
+            this.boardLocSearchBusy = { ...this.boardLocSearchBusy, [item.id]: false };
+            this.scheduleAutoFit();
           }
         },
         async unpinItem(item) {
@@ -13542,13 +13653,15 @@
         boardJump(item) {
           // CLI sessions resume directly in a terminal rather than opening the list page.
           if (item.kind === 'session') { this.resumeCliSession({ id: item.refId, cwd: item.cwd }); return; }
+          // Source locations have no route — toggle their detail (open buttons + search).
+          if (item.kind === 'location') { this.toggleBoardPinDetail(item); return; }
           const r = item.route || this.boardItemRoute(item);
           if (r) this.goTo(r);
         },
         boardItemsByKind() {
           const board = this.activeBoard();
           const items = (board && board.items) || [];
-          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager'];
+          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location'];
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
@@ -13609,7 +13722,7 @@
         // Which pin kinds can show their last run/output (with steps & reasoning) or,
         // for chats, their most recent message right on the board card.
         boardPinHasDetail(item) {
-          return !!item && ['task', 'assignment', 'flow', 'chat', 'comment'].includes(item.kind);
+          return !!item && ['task', 'assignment', 'flow', 'chat', 'comment', 'location'].includes(item.kind);
         },
         // Expanded by default; collapsed only if the user collapsed this pin before.
         boardPinIsExpanded(item) {
@@ -14707,6 +14820,7 @@
         actionDoneLabel(a) {
           if (!a) return '✓ done';
           if (a.type === 'query_agent') return '✓ ran';
+          if (a.type === 'search_location') return '✓ searched';
           if (a.type === 'pin_agent' || a.type === 'pin_item') return '✓ pinned';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
@@ -14818,6 +14932,35 @@
             this.boardAssistant.messages.push({ role: 'assistant', content: r.reply || ('Ran ' + (a.agentLabel || 'the agent') + '.'), actions });
           } catch (e) {
             this.boardAssistant.messages.push({ role: 'assistant', content: 'Sorry — ' + (e.message || 'the agent run failed.'), actions: [] });
+          } finally {
+            a._running = false;
+            this.boardAssistant.busy = false;
+            this._baStopActivity();
+            this._baScroll();
+          }
+        },
+        // Run a pinned-location search the assistant proposed (search_location), then
+        // append the assistant's follow-up built from the matches as a new message.
+        async runAssistantSearch(a, m) {
+          const board = this.activeBoard();
+          if (!board || a._applied || a._dismissed || a._running) return;
+          a._running = true;
+          this.boardAssistant.busy = true;
+          this._baStartActivity('Searching ' + (a.locationLabel || 'location'), 'agent');
+          this._baScroll();
+          const history = this.boardAssistant.messages
+            .filter(mm => mm.role === 'user' || mm.role === 'assistant')
+            .map(mm => ({ role: mm.role, content: mm.content }));
+          try {
+            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/assistant/search', {
+              method: 'POST',
+              body: JSON.stringify({ refId: a.refId, query: a.query, message: '', history, depth: a.depth || 0 })
+            });
+            a._applied = true;
+            const actions = (r.actions || []).map(x => ({ ...x, _applied: false, _dismissed: false, _running: false }));
+            this.boardAssistant.messages.push({ role: 'assistant', content: r.reply || ('Searched ' + (a.locationLabel || 'the location') + '.'), actions });
+          } catch (e) {
+            this.boardAssistant.messages.push({ role: 'assistant', content: 'Sorry — ' + (e.message || 'the search failed.'), actions: [] });
           } finally {
             a._running = false;
             this.boardAssistant.busy = false;

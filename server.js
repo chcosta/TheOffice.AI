@@ -5030,7 +5030,7 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
 // references to CLI sessions, chats, tasks, flows, assignments, and agents, plus
 // freeform notes and checklists. Boards are team-scoped (teamId) or global (teamId
 // null). Stored wholesale in boards.json.
-const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'assignment', 'agent', 'manager'];
+const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'assignment', 'agent', 'manager', 'location'];
 
 function _boardId(name) {
   return 'board-' + String(name || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) + '-' + Date.now().toString(36).slice(-4);
@@ -5180,8 +5180,137 @@ app.patch('/api/boards/:id/items/:itemId', (req, res) => {
   res.json({ ok: true, board: b });
 });
 
-// ===================== BOARD TEAM-COMPLIANCE =====================
-// When a board is filed under a team, every pinned item must "belong" to that
+// ===================== SOURCE LOCATIONS (folder pins) =====================
+// Helpers + endpoints backing the "pin a source location" board feature: derive a
+// README summary, open the folder in an editor / CLI / file explorer, and search it.
+function _validDir(p) {
+  try { const s = fs.statSync(p); return s.isDirectory(); } catch { return false; }
+}
+// Directories we never descend into when summarizing / searching a source folder.
+const FS_SKIP_DIRS = new Set(['.git', 'node_modules', '.vs', '.vscode', 'bin', 'obj', 'dist', 'build', 'out', '.next', '.cache', '__pycache__', '.venv', 'venv', 'target', 'packages']);
+
+// Brief summary of a folder, sourced from its README when present.
+app.post('/api/fs/folder-summary', (req, res) => {
+  const dir = String((req.body && req.body.path) || '').trim();
+  if (!dir) return res.status(400).json({ error: 'path required' });
+  if (!_validDir(dir)) return res.status(404).json({ error: 'Folder not found', path: dir });
+  const rs = _readmeSummary(dir, 320);
+  res.json({ ok: true, path: dir, name: path.basename(dir.replace(/[\\/]+$/, '')) || dir, summary: rs.summary, hasReadme: rs.hasReadme, readmePath: rs.readmePath });
+});
+
+// Open a folder in an editor (VS Code Insiders → VS Code), a Copilot CLI session, or
+// the OS file explorer.
+app.post('/api/fs/open', (req, res) => {
+  const dir = String((req.body && req.body.path) || '').trim();
+  const target = String((req.body && req.body.target) || 'editor').trim();
+  if (!dir) return res.status(400).json({ error: 'path required' });
+  if (!_validDir(dir)) return res.status(404).json({ error: 'Folder not found', path: dir });
+  const { spawn, spawnSync, exec } = require('child_process');
+  try {
+    if (target === 'explorer') {
+      // explorer returns exit code 1 even on success; ignore it.
+      spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref();
+      return res.json({ ok: true, target });
+    }
+    if (target === 'cli') {
+      const copilotCmd = process.env.COPILOT_PATH || 'copilot';
+      const copilotIsPath = /[\\/:]/.test(copilotCmd);
+      const guardLines = copilotIsPath
+        ? [`if not exist "${copilotCmd}" goto nocopilot`]
+        : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
+      const batContent = [
+        '@echo off',
+        `if not exist "${dir}" goto nodir`,
+        `cd /d "${dir}"`,
+        ...guardLines,
+        `"${copilotCmd}" --yolo`,
+        'pause', 'exit /b 0',
+        ':nodir', `echo ERROR: Working directory not found: ${dir}`, 'pause', 'exit /b 1',
+        ':nocopilot', 'echo ERROR: copilot not found in PATH', 'echo PATH=%PATH%', 'pause', 'exit /b 1',
+      ].join('\r\n');
+      const batPath = path.join(__dirname, `temp-loc-cli-${Date.now().toString(36)}.bat`);
+      fs.writeFileSync(batPath, batContent);
+      exec(`start "Copilot Session" "${batPath}"`);
+      return res.json({ ok: true, target });
+    }
+    // default: editor
+    const insiders = spawnSync('where', ['code-insiders'], { shell: true, encoding: 'utf-8' });
+    const editor = insiders.status === 0 ? 'code-insiders' : 'code';
+    spawn(editor, [dir], { shell: true, detached: true, stdio: 'ignore' }).unref();
+    return res.json({ ok: true, target, editor });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) || 'open failed' });
+  }
+});
+
+// Search a pinned source folder for a text query. Prefers ripgrep; falls back to a
+// bounded Node recursive scan. Returns file/line/snippet matches.
+function _fsSearchNode(root, query, maxMatches) {
+  const ql = query.toLowerCase();
+  const matches = [];
+  let scanned = 0;
+  const walk = (dir, depth) => {
+    if (matches.length >= maxMatches || depth > 12 || scanned > 20000) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      if (matches.length >= maxMatches) return;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (FS_SKIP_DIRS.has(ent.name) || ent.name.startsWith('.')) continue;
+        walk(full, depth + 1);
+      } else if (ent.isFile()) {
+        scanned++;
+        let st; try { st = fs.statSync(full); } catch { continue; }
+        if (st.size > 1_500_000) continue; // skip large/binary
+        let txt; try { txt = fs.readFileSync(full, 'utf-8'); } catch { continue; }
+        if (txt.indexOf('\u0000') !== -1) continue; // binary
+        const lines = txt.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].toLowerCase().includes(ql)) {
+            matches.push({ file: path.relative(root, full), line: i + 1, text: lines[i].trim().slice(0, 240) });
+            if (matches.length >= maxMatches) return;
+          }
+        }
+      }
+    }
+  };
+  walk(root, 0);
+  return matches;
+}
+app.post('/api/fs/search', (req, res) => {
+  const dir = String((req.body && req.body.path) || '').trim();
+  const query = String((req.body && req.body.query) || '').trim();
+  const maxMatches = Math.min(Math.max(parseInt((req.body && req.body.max), 10) || 60, 1), 200);
+  if (!dir || !query) return res.status(400).json({ error: 'path and query required' });
+  if (!_validDir(dir)) return res.status(404).json({ error: 'Folder not found', path: dir });
+  const { spawnSync } = require('child_process');
+  // Try ripgrep first (fast, respects .gitignore, skips binary).
+  try {
+    const args = ['--no-heading', '--line-number', '--color', 'never', '-i', '--max-count', '3', '-m', String(maxMatches), '--', query, dir];
+    const rg = spawnSync('rg', args, { encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024, timeout: 15000 });
+    if (rg.status === 0 || rg.status === 1) {
+      const matches = [];
+      for (const ln of String(rg.stdout || '').split(/\r?\n/)) {
+        if (!ln || matches.length >= maxMatches) break;
+        // <file>:<line>:<text>
+        const m = ln.match(/^(.*?):(\d+):(.*)$/);
+        if (!m) continue;
+        matches.push({ file: path.relative(dir, m[1]), line: parseInt(m[2], 10), text: m[3].trim().slice(0, 240) });
+      }
+      return res.json({ ok: true, engine: 'rg', query, count: matches.length, truncated: matches.length >= maxMatches, matches });
+    }
+  } catch {}
+  // Fallback: Node scan.
+  try {
+    const matches = _fsSearchNode(dir, query, maxMatches);
+    return res.json({ ok: true, engine: 'node', query, count: matches.length, truncated: matches.length >= maxMatches, matches });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) || 'search failed' });
+  }
+});
+
+
 // team for the board to be usable. An item belongs when:
 //   - operation (task/flow/assignment): its own teamId === board.teamId AND each
 //     of its component employees (the agent a task runs, the manager owning an
@@ -5435,6 +5564,48 @@ app.post('/api/boards/:id/migrate', (req, res) => {
 // Resolve a board's pinned items into (a) per-item digests `out` for the UI list
 // and (b) richer per-item `contextBlocks` (transcripts / run output / messages)
 // fed to the LLM for the "Where was I?" briefing.
+// ---- Pinned source-location (folder) helpers ----
+// A location pin's refId is an absolute folder path. We surface a brief summary
+// derived from a README in that folder (if present) and let the board/assistant
+// open, search, and reason about the folder's contents.
+const README_NAMES = ['README.md', 'readme.md', 'Readme.md', 'README.markdown', 'README.rst', 'README.txt', 'README'];
+function _findReadme(dir) {
+  try {
+    for (const n of README_NAMES) { const p = path.join(dir, n); if (fs.existsSync(p) && fs.statSync(p).isFile()) return p; }
+    // Case-insensitive fallback for odd casings.
+    const entries = fs.readdirSync(dir);
+    const hit = entries.find(e => /^readme(\.(md|markdown|rst|txt))?$/i.test(e));
+    if (hit) { const p = path.join(dir, hit); if (fs.statSync(p).isFile()) return p; }
+  } catch {}
+  return null;
+}
+// Strip markdown/badge noise and pull the first meaningful prose paragraph.
+function _readmeSummary(dir, maxLen = 280) {
+  const rp = _findReadme(dir);
+  if (!rp) return { summary: '', readmePath: null, hasReadme: false };
+  let raw = '';
+  try { raw = fs.readFileSync(rp, 'utf-8'); } catch { return { summary: '', readmePath: rp, hasReadme: true }; }
+  const lines = raw.split(/\r?\n/);
+  const para = [];
+  for (const ln of lines) {
+    const t = ln.trim();
+    if (!t) { if (para.length) break; else continue; }
+    if (/^#{1,6}\s/.test(t)) { if (para.length) break; else continue; } // heading
+    if (/^!\[/.test(t) || /^\[!\[/.test(t)) continue;                    // badge/image line
+    if (/^[-=*_]{3,}$/.test(t)) continue;                                // hr
+    if (/^<.*>$/.test(t)) continue;                                      // bare html
+    para.push(t);
+    if (para.join(' ').length > maxLen * 1.5) break;
+  }
+  let summary = para.join(' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')          // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')       // links → text
+    .replace(/[`*_>#]+/g, '')                       // md punctuation
+    .replace(/\s+/g, ' ').trim();
+  if (summary.length > maxLen) summary = summary.slice(0, maxLen - 1).trimEnd() + '…';
+  return { summary, readmePath: rp, hasReadme: true };
+}
+
 function _resolveBoardItems(b, opts = {}) {
   // When forSummary is set, items the user flagged with excludeFromSummary are
   // skipped entirely — they stay pinned on the board but contribute nothing to the
@@ -5527,6 +5698,25 @@ function _resolveBoardItems(b, opts = {}) {
             }
           } catch {}
         }
+      } else if (it.kind === 'location') {
+        // A pinned source folder. Status reflects whether the path still exists;
+        // the README summary feeds both the card and the AI context so the board
+        // assistant knows what lives there (and can be asked to search it).
+        const dir = String(it.refId);
+        try {
+          if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+            status = 'location';
+            try { when = new Date(fs.statSync(dir).mtimeMs).toISOString(); } catch {}
+            const rs = _readmeSummary(dir, 600);
+            detail = rs.summary ? clip(rs.summary, 240) : clip(it.sublabel || '', 240);
+            context = (rs.summary ? rs.summary : 'A pinned source folder (no README found).')
+              + `\n(path: ${dir}${rs.hasReadme ? '' : ' — no README'})`;
+          } else {
+            status = 'missing';
+            detail = 'Folder not found';
+            context = `Pinned folder no longer exists: ${dir}`;
+          }
+        } catch {}
       } else if (it.kind === 'session') {
         route = '#/sessions';
         try {
@@ -6034,7 +6224,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // runs. agentJustRan = this turn already has a fresh agent result folded into context.
   const MAX_QUERY_DEPTH = 3;
   const canQuery = allowQuery && depth < MAX_QUERY_DEPTH;
-  const agentJustRan = /## AGENT RESULT/.test(extraContext || '');
+  const agentJustRan = /## AGENT RESULT|## SEARCH RESULT/.test(extraContext || '');
 
   // ---- Board context (pins + notes + checklists, with stable ids the model can
   // reference back in its proposed actions). Reuses the same resolver as the
@@ -6067,6 +6257,17 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const key = p.kind + ':' + p.refId;
       const run = RUNNABLE.has(p.kind) ? 'runnable' : 'open-only';
       return `- (${key}) ${p.kind} "${clip(p.label || p.refId, 120)}" [${run}]`;
+    }).join('\n'));
+  }
+  // Pinned source locations (folders) are searchable context. List each with its
+  // path + README summary so the assistant knows what lives there and can propose
+  // search_location to look inside when it needs to find something.
+  const locationPins = pins.filter(p => p.kind === 'location');
+  if (locationPins.length) {
+    ctx.push('## PINNED SOURCE LOCATIONS (folders you can search via search_location, refId = the path)\n' + locationPins.map(p => {
+      let sum = '';
+      try { sum = _readmeSummary(String(p.refId), 400).summary; } catch {}
+      return `- (location:${p.refId}) "${clip(p.label || p.refId, 80)}"${sum ? ' — ' + clip(sum, 360) : ' — (no README)'}`;
     }).join('\n'));
   }
   if (notes.length) {
@@ -6172,6 +6373,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
+    (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder and folds the matches back so you can answer from real file contents — propose this when the user asks about, or you need to find something in, a pinned source location)' : ''),
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
@@ -6184,7 +6386,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     (canQuery
       ? '- GATHER BEFORE YOU GUESS: if fulfilling the request needs facts that are NOT already in the BOARD CONTEXT (live status, URLs, a list from an epic/agent, etc.), do not fabricate, hand-wave, or emit placeholder items. If a PINNED agent can produce those facts, propose query_agent. If no pinned agent fits but one under AVAILABLE AGENTS clearly does, propose pin_item (the user pins it, then asks you to run it). Only answer/build directly when the needed facts are already present in context.'
       : '- You may still propose query_agent for a genuinely DIFFERENT agent or purpose if the request needs more data you do not yet have, but NEVER re-run the same agent for the same purpose.'),
-    (agentJustRan ? '- You just received a fresh AGENT RESULT in the context below. Use it now to build the concrete notes/checklists the user asked for; do not ask the user to run the same agent again.' : ''),
+    (agentJustRan ? '- You just received a fresh AGENT RESULT or SEARCH RESULT in the context below. Use it now to answer the user and build the concrete notes/checklists they asked for; do not ask the user to run the same agent or search again.' : ''),
     // Honor explicit agent requests.
     (canQuery ? '- HONOR explicit agent requests: if the user tells you to "use an agent" / "run an agent" / "have an agent find/fetch ..." to obtain information, you MUST propose query_agent for the best-matching pinned agent instead of shortcutting with whatever is already in the context — unless the BOARD CONTEXT already contains the EXACT, complete data needed (e.g. the real URLs themselves).' : ''),
     // Smart agent selection + auto-pin.
@@ -6335,6 +6537,17 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       // agent, letting the follow-up continue the chain (bounded by MAX_QUERY_DEPTH).
       return { type, agentId: refId, agentLabel: name, prompt: q, purpose: clip(a.purpose, 200), depth, label: 'Run agent', preview: `Run ${name}` + (q ? `: ${q}` : '') };
     }
+    if (type === 'search_location') {
+      if (!canQuery) return null;
+      let refId = a.refId || a.path || a.locationRefId || '';
+      if (typeof refId === 'string' && refId.indexOf('location:') === 0) refId = refId.slice(9);
+      const pin = pins.find(p => p.kind === 'location' && p.refId === refId);
+      if (!pin) return null; // only locations pinned to THIS board may be searched
+      const q = clip(a.query || a.prompt || message, 200);
+      if (!q) return null;
+      const name = pin.label || refId;
+      return { type, refId, locationLabel: name, query: q, purpose: clip(a.purpose, 200), depth, label: 'Search location', preview: `Search ${name} for "${q}"` };
+    }
     if (type === 'pin_item' || type === 'pin_agent') {
       // pin_agent is kept as a backward-compat alias: it's just pin_item kind:agent.
       // refId may arrive as a bare id or as a "kind:refId" handle (strip the kind).
@@ -6432,6 +6645,46 @@ app.post('/api/boards/:id/assistant/query', async (req, res) => {
     res.json({ ok: true, reply: out.reply, actions: out.actions, agentOutput: output, agentLabel: name });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'agent query failed' });
+  }
+});
+
+// Search a pinned source location, then fold the matches back into the assistant so
+// it can answer / build from the real file contents. Mirrors /assistant/query: the
+// search runs only because the user confirmed it, and only against a pinned folder.
+app.post('/api/boards/:id/assistant/search', async (req, res) => {
+  const raw = loadBoards().find(b => b.id === req.params.id);
+  if (!raw) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(raw);
+  const refId = String((req.body && req.body.refId) || '').trim();
+  const query = String((req.body && req.body.query) || '').trim();
+  const message = String((req.body && req.body.message) || '').trim();
+  if (!refId || !query) return res.status(400).json({ error: 'Missing refId or query' });
+  const pins = Array.isArray(b.items) ? b.items : [];
+  const pin = pins.find(p => p.kind === 'location' && p.refId === refId);
+  if (!pin) return res.status(403).json({ error: 'Location is not pinned to this board' });
+  if (!_validDir(refId)) return res.status(404).json({ error: 'Folder not found' });
+  const name = pin.label || refId;
+  try {
+    const { spawnSync } = require('child_process');
+    let matches = [];
+    try {
+      const rg = spawnSync('rg', ['--no-heading', '--line-number', '--color', 'never', '-i', '--max-count', '3', '-m', '80', '--', query, refId], { encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024, timeout: 15000 });
+      if (rg.status === 0 || rg.status === 1) {
+        for (const ln of String(rg.stdout || '').split(/\r?\n/)) {
+          if (!ln || matches.length >= 80) break;
+          const m = ln.match(/^(.*?):(\d+):(.*)$/);
+          if (m) matches.push({ file: path.relative(refId, m[1]), line: parseInt(m[2], 10), text: m[3].trim().slice(0, 240) });
+        }
+      } else { matches = _fsSearchNode(refId, query, 80); }
+    } catch { matches = _fsSearchNode(refId, query, 80); }
+    const lines = matches.slice(0, 60).map(m => `${m.file}:${m.line}: ${m.text}`).join('\n');
+    const extraContext = `## SEARCH RESULT (the user searched the pinned location "${name}" for "${query}" — use these matches now)\n` + (lines || '(no matches found)');
+    const followUp = message || `Use the search results from "${name}" to answer my request.`;
+    const depth = Number(req.body && req.body.depth) || 0;
+    const out = await runBoardAssistant(b, { message: followUp, history: Array.isArray(req.body && req.body.history) ? req.body.history : [], extraContext, allowQuery: true, depth: depth + 1 });
+    res.json({ ok: true, reply: out.reply, actions: out.actions, matches, query, locationLabel: name });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) || 'location search failed' });
   }
 });
 
