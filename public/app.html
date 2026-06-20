@@ -15576,7 +15576,7 @@
               const ch = r ? r.height / z : 34;
               const slotW = cw + padX * 2;
               if (x > 0 && x + slotW > gridW) { x = 0; y += rowMaxH + vgap; rowMaxH = 0; }
-              layout[p.id] = { x: x / colPx, y: y / rowH, w: slotW / colPx, h: Math.max(1, (ch + gap) / rowH) };
+              layout[p.id] = { ...layout[p.id], x: x / colPx, y: y / rowH, w: slotW / colPx, h: Math.max(1, (ch + gap) / rowH), chip: true };
               x += slotW + hgap;
               rowMaxH = Math.max(rowMaxH, ch);
             }
