@@ -2349,6 +2349,11 @@
     .board-panel.collapsed .board-panel-head { padding: 6px 4px 6px 8px; }
     /* Board panel content scales with the per-board text-size control (--board-fs). */
     .board-panel-body { overflow: visible; padding: 1px 10px 8px; font-size: calc(13px * var(--board-fs, 1)); }
+    /* When a manual height is pinned (user dragged the height handle), the content
+       area fills the frame and scrolls instead of leaving dead space below or
+       spilling past a too-short frame. Content-fit panels stay overflow:visible so
+       auto-fit can measure their true scrollHeight. */
+    .board-panel.manual-h:not(.dragging) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
     /* Rendered markdown (chat/summary/run output) uses rem-based sizes that are
        relative to the document root, so they ignore the body font-size above.
        Re-base them on --board-fs so the text-size control actually scales content. */
@@ -5096,7 +5101,7 @@
                     <div class="board-canvas-scroll" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
                             <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="chipType(p) + ': ' + chipName(p) + ' — click to expand'">
