@@ -16,6 +16,8 @@ server-err.log
 # Runtime plugin/mcp store now lives under ~/.copilot/agent-supervisor/
 /plugins/
 /mcp-configs/
+# Board MCP config is generated at startup with a machine-specific path/port
+/builtin-plugins/board/.mcp.json
 settings.json
 service.out.log
 service.err.log

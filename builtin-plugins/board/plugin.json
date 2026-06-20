@@ -1,0 +1,6 @@
+{
+  "name": "board",
+  "description": "Read and update TheOffice.AI boards: list boards, read a board's pins/notes/checklists, add notes and checklists, check off items, and pin resources to a board.",
+  "version": "1.0.0",
+  "skills": "skills/"
+}

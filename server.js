@@ -204,6 +204,36 @@ if (!process.env.COPILOT_PATH) {
   }
 })();
 
+// Generate the board MCP's .mcp.json at startup with an absolute path to the
+// committed board-mcp.js and the live server's base URL. The file is gitignored
+// (the path/port are machine-specific) but the server source + skill are
+// committed. capabilities.buildCatalog() scans builtin-plugins/ for .mcp.json,
+// so writing this here auto-surfaces the board MCP in the per-agent attach
+// picker AND in Design-with-AI's catalog with no further wiring.
+(function ensureBoardPlugin() {
+  try {
+    const boardDir = path.join(BUILTIN_PLUGINS_DIR, 'board');
+    const mcpEntry = path.join(boardDir, 'mcp', 'board-mcp.js');
+    if (!fs.existsSync(mcpEntry)) return;
+    const mcpJsonPath = path.join(boardDir, '.mcp.json');
+    const desired = {
+    mcpServers: {
+      board: {
+        command: 'node',
+        args: [mcpEntry],
+        env: { BOARD_API_BASE: `http://127.0.0.1:${PORT}` },
+      },
+    },
+    };
+    let current = null;
+    try { current = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8')); } catch { current = null; }
+    if (JSON.stringify(current) !== JSON.stringify(desired)) {
+    fs.writeFileSync(mcpJsonPath, JSON.stringify(desired, null, 2));
+    console.log('[supervisor] Generated board MCP config (.mcp.json)');
+    }
+  } catch (e) { console.warn('[supervisor] Could not generate board MCP config:', e.message); }
+})();
+
 // Get git version info and process identity at startup
 const PROCESS_START = new Date().toISOString();
 const PROCESS_PID = process.pid;
