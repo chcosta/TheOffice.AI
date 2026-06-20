@@ -14075,8 +14075,11 @@
           const panels = [{ id: 'wherewasi', type: 'summary' }];
           // One panel per pinned item (kept in kind-grouped order so related pins
           // still cluster by default, but each is now independently positionable).
+          // Pin-view chips live in their own coordinate space ('pinv:' prefix) so the
+          // tight chip packing never clobbers the roomy full-panel ('pin:') positions.
+          const pinPrefix = this.boardPinViewOn() ? 'pinv:' : 'pin:';
           for (const g of this.boardItemsByKind()) {
-            for (const item of g.items) panels.push({ id: 'pin:' + item.id, type: 'pin', kind: item.kind, item });
+            for (const item of g.items) panels.push({ id: pinPrefix + item.id, type: 'pin', kind: item.kind, item });
           }
           // One panel per note and per checklist — no more aggregate cards.
           for (const n of ((b && b.notes) || [])) panels.push({ id: 'note:' + n.id, type: 'note', note: n });
@@ -14109,9 +14112,18 @@
           const b = this.activeBoard();
           if (!b) return;
           b.pinView = !b.pinView;
-          if (!b.pinView) this.boardPinViewOpen = {}; // leaving pin-view clears manual expands
-          this.persistLayout();
-          this.scheduleAutoFit();
+          if (b.pinView) {
+            // Entering pin view: if we have no saved chip positions yet, pack them
+            // tight so pins don't scatter across the board; otherwise honor the
+            // user's prior chip arrangement.
+            const hasChips = Object.keys(this.boardLayout || {}).some(k => k.startsWith('pinv:'));
+            if (hasChips) { this.persistLayout(); this.scheduleAutoFit(); }
+            else { this.packPinView(true); }
+          } else {
+            this.boardPinViewOpen = {}; // leaving pin-view clears manual expands
+            this.ensureBoardLayout(true); // seed / restore full-panel positions
+            this.scheduleAutoFit();
+          }
         },
         // A pin renders as a collapsed chip when pin-view is on AND the user hasn't
         // permanently expanded it.
@@ -14306,7 +14318,13 @@
             else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
             changed = true;
           }
+          // Prune layout entries for panels that no longer exist. Keep BOTH pin
+          // coordinate spaces ('pin:' full + 'pinv:' chip) for every live item so
+          // toggling pin view doesn't discard the inactive mode's saved positions.
           const ids = new Set(panels.map(p => p.id));
+          for (const g of this.boardItemsByKind()) {
+            for (const item of g.items) { ids.add('pin:' + item.id); ids.add('pinv:' + item.id); }
+          }
           for (const k of Object.keys(layout)) { if (!ids.has(k)) { delete layout[k]; changed = true; } }
           if (changed) { this.boardLayout = layout; if (persist) this.persistLayout(); }
         },
@@ -14596,12 +14614,78 @@
         },
         resetBoardLayout() {
           const b = this.activeBoard();
+          if (this.boardPinViewOn()) {
+            // Pin view: collapse every pin back to a chip and pack the chips tightly
+            // in the top-left so the user doesn't have to hunt scattered items down.
+            // Only the pin-view coordinate space is recomputed — the normal-mode
+            // full-panel positions are left untouched.
+            this.boardPinViewOpen = {};
+            this.resetBoardCanvas();
+            this.packPinView(true);
+            this.showToast('Board', 'Pins packed', 'success');
+            return;
+          }
           if (b) b.autoWidth = true; // reset re-enables auto-width
           this.boardLayout = {};
           this.resetBoardCanvas(); // back to window-fit width
           this.ensureBoardLayout(true);
           this.scheduleAutoFit();
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
+        },
+        // Compactly pack pin-view chips into the top-left, flowing left-to-right and
+        // wrapping at the canvas width, so a reset clusters them instead of spreading
+        // them across the board. Full panels (summary / notes / checklists) flow in a
+        // 50/50 column block beneath the chip cluster. Normal-mode ('pin:') positions
+        // are preserved. Measures rendered chips, so it runs on the next tick.
+        packPinView(persist = true) {
+          this.$nextTick(() => {
+            const grid = document.querySelector('.board-grid');
+            if (!grid) { this.ensureBoardLayout(persist); return; }
+            const z = this.boardCanvas.z || 1;
+            const gridW = grid.getBoundingClientRect().width / z;
+            const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap, half = Math.floor(cols / 2);
+            const colPx = (gridW / cols) || 1;
+            const padX = gap / 2; // matches panelStyle horizontal padding
+            const els = {};
+            grid.querySelectorAll('.board-panel').forEach(el => {
+              const id = el.getAttribute('data-pid'); if (id) els[id] = el;
+            });
+            const panels = this.boardPanels();
+            const chips = [], fulls = [];
+            for (const p of panels) (this.pinChipCollapsed(p) ? chips : fulls).push(p);
+            // Keep every other entry (notably the inactive-mode 'pin:' positions).
+            const layout = { ...this.boardLayout };
+            const hgap = 10, vgap = 10;
+            let x = 0, y = 0, rowMaxH = 0;
+            for (const p of chips) {
+              const card = els[p.id] && els[p.id].querySelector('.pin-chip-card');
+              const r = card ? card.getBoundingClientRect() : null;
+              const cw = r ? r.width / z : 150;
+              const ch = r ? r.height / z : 34;
+              const slotW = cw + padX * 2;
+              if (x > 0 && x + slotW > gridW) { x = 0; y += rowMaxH + vgap; rowMaxH = 0; }
+              layout[p.id] = { x: x / colPx, y: y / rowH, w: slotW / colPx, h: Math.max(1, (ch + gap) / rowH) };
+              x += slotW + hgap;
+              rowMaxH = Math.max(rowMaxH, ch);
+            }
+            // Full panels flow below the chips.
+            const yBlock = chips.length ? (y + rowMaxH + vgap + gap) / rowH : 0;
+            let yL = yBlock, yR = yBlock;
+            for (const p of fulls) {
+              const el = els[p.id];
+              const head = el && el.querySelector('.board-panel-head');
+              const body = el && el.querySelector('.board-panel-body');
+              let h;
+              if (el && this.isPanelCollapsed(p.id)) h = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+              else if (el) h = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+              else h = p.id === 'wherewasi' ? 5 : (p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
+              if (p.id === 'wherewasi') { const yy = Math.max(yL, yR); layout[p.id] = { x: 0, y: yy, w: cols, h }; yL = yR = yy + h; continue; }
+              if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
+              else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
+            }
+            this.boardLayout = layout;
+            if (persist) this.persistLayout();
+          });
         },
         // Auto-size every panel to fit its content so no panel needs an inner scrollbar.
         // Measures rendered content height, converts to grid rows, and repacks panels
@@ -14619,6 +14703,9 @@
             const fit = {};
             grid.querySelectorAll('.board-panel').forEach(el => {
               const id = el.getAttribute('data-pid'); if (!id) return;
+              // Pin-view chips are content-sized (CSS height:auto) and have no panel
+              // body — skip them so their tightly-packed height isn't disturbed.
+              if (el.classList.contains('pin-chip')) return;
               const head = el.querySelector('.board-panel-head');
               if (this.isPanelCollapsed(id)) {
                 // Collapsed: size to the header only (body is hidden via x-show).
