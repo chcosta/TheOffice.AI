@@ -15399,6 +15399,59 @@
             this.showToast('Board', '✨ ' + msg, 'success');
           });
         },
+        // Apply a board-assistant set_layout action: a presentation-only directive
+        // (focus / collapse / expand / zoom / font / organize / compact / aiDesign).
+        // Resolves the assistant's {kind,refId} targets against the LIVE panels so the
+        // pv: prefix and current pin-view state are handled here, then writes the
+        // collapse/width flags into boardLayout and re-flows. Returns true if applied.
+        applyLayoutAction(a) {
+          if (this.route !== 'boards') return false;
+          const board = this.activeBoard();
+          if (!board || !a) return false;
+          // Defer the whole view to the AI Layout pass (its own toast covers feedback).
+          if (a.aiDesign) { this.aiLayoutBoard(); return true; }
+          this.ensureBoardLayout();
+          const panels = this.boardPanels();
+          const cols = this.boardCols;
+          // Map an assistant target {kind,refId} to the current panel id.
+          const idFor = (t) => {
+            if (!t || !t.refId) return null;
+            const kind = String(t.kind || '').toLowerCase();
+            const refId = String(t.refId);
+            if (kind === 'summary' || kind === 'briefing') { const p = panels.find(p => p.type === 'summary'); return p ? p.id : null; }
+            if (kind === 'note') { const p = panels.find(p => p.type === 'note' && p.note && p.note.id === refId); return p ? p.id : null; }
+            if (kind === 'checklist' || kind === 'cl') { const p = panels.find(p => p.type === 'checklist' && p.checklist && p.checklist.id === refId); return p ? p.id : null; }
+            const p = panels.find(p => p.type === 'pin' && p.kind === kind && p.item && p.item.refId === refId);
+            return p ? p.id : null;
+          };
+          const layout = { ...this.boardLayout };
+          const setCollapsed = (id, v) => { if (!id) return; const cur = layout[id] || { x: 0, y: 0, w: cols, h: 3 }; layout[id] = { ...cur, collapsed: !!v }; };
+          // collapse: "all" | "none" | [targets]
+          if (a.collapse === 'all') panels.forEach(p => setCollapsed(p.id, true));
+          else if (a.collapse === 'none') panels.forEach(p => setCollapsed(p.id, false));
+          else if (Array.isArray(a.collapse)) a.collapse.forEach(t => setCollapsed(idFor(t), true));
+          if (Array.isArray(a.expand)) a.expand.forEach(t => setCollapsed(idFor(t), false));
+          // focus: spotlight ONE panel — collapse every other, expand + widen it.
+          let focusId = null;
+          if (a.focus) {
+            focusId = idFor(a.focus);
+            if (focusId) {
+              panels.forEach(p => setCollapsed(p.id, p.id !== focusId));
+              const cur = layout[focusId] || { x: 0, y: 0, w: cols, h: 3 };
+              layout[focusId] = { ...cur, collapsed: false, x: 0, w: cols };
+            }
+          }
+          this.boardLayout = layout;
+          if (typeof a.fontScale === 'number') this.setBoardFont(a.fontScale);
+          if (typeof a.zoom === 'number') this.setBoardZoom(a.zoom);
+          this.persistLayout();
+          // Re-flow once the new collapse/width state has rendered so nothing overlaps.
+          this.$nextTick(() => {
+            if (a.compact) this.compactBoard();
+            else if (a.organize || a.focus || a.collapse || a.expand) this.organizeBoard(true);
+          });
+          return true;
+        },
         isPanelCollapsed(id) {
           const l = this.boardLayout && this.boardLayout[id];
           return !!(l && l.collapsed);
@@ -15803,6 +15856,7 @@
         actionConfirmLabel(a) {
           if (!a) return 'Apply';
           if (a.type === 'pin_agent' || a.type === 'pin_item') return 'Pin';
+          if (a.type === 'set_layout') return '✨ Apply';
           if (a.destructive) return '🗑 Delete';
           return 'Apply';
         },
@@ -15812,6 +15866,7 @@
           if (a.type === 'query_agent') return '✓ ran';
           if (a.type === 'search_location') return '✓ searched';
           if (a.type === 'pin_agent' || a.type === 'pin_item') return '✓ pinned';
+          if (a.type === 'set_layout') return '✓ applied';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
           if (edits.includes(a.type)) return '✓ updated';
@@ -15822,6 +15877,14 @@
         async applyAssistantAction(a) {
           const board = this.activeBoard();
           if (!board || a._applied || a._dismissed) return;
+          // Presentation-only action: never persisted via _patchBoard — it just
+          // re-arranges the live board view (collapse/focus/zoom/font/organize).
+          if (a.type === 'set_layout') {
+            const applied = this.applyLayoutAction(a);
+            if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Layout') + ' applied', 'success'); }
+            else this.showToast('Board assistant', 'Open a board first', 'error');
+            return;
+          }
           const now = new Date().toISOString();
           const rid = (p) => p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
           try {

@@ -6522,6 +6522,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
+    '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
@@ -6543,6 +6544,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_item when no pinned agent covers the need.',
     // Proactively help build/modify the board from a direction.
     '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
+    '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing is visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
@@ -6722,6 +6724,44 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       if (!hit) return null;
       const isEmp = kind === 'manager';
       return { type: 'pin_item', kind, refId, pinLabel: hit.label, pinSublabel: hit.sublabel, label: isEmp ? 'Pin employee' : 'Pin operation', preview: `Pin ${hit.label} (${kind}) to this board` };
+    }
+    if (type === 'set_layout') {
+      // Presentation-only action: validate/normalize a layout directive. The client
+      // resolves the {kind,refId} targets against the live panels and applies it —
+      // we just sanitize the fields here. Targets reuse the board's own id space:
+      // notes by note id (kind "note"), checklists by cl id (kind "checklist"),
+      // pins by their real kind:refId.
+      const normTarget = (t) => {
+        if (!t || typeof t !== 'object') return null;
+        const k = clip(t.kind, 40).toLowerCase(); const r = clip(t.refId, 200);
+        if (!k || !r) return null; return { kind: k, refId: r };
+      };
+      const out = { type, label: 'Adjust layout' };
+      let has = false;
+      if (a.aiDesign === true) { out.aiDesign = true; has = true; }
+      if (a.collapse === 'all' || a.collapse === 'none') { out.collapse = a.collapse; has = true; }
+      else if (Array.isArray(a.collapse)) { const arr = a.collapse.map(normTarget).filter(Boolean).slice(0, 60); if (arr.length) { out.collapse = arr; has = true; } }
+      if (Array.isArray(a.expand)) { const arr = a.expand.map(normTarget).filter(Boolean).slice(0, 60); if (arr.length) { out.expand = arr; has = true; } }
+      const f = normTarget(a.focus); if (f) { out.focus = f; has = true; }
+      if (typeof a.zoom === 'number' && isFinite(a.zoom)) { out.zoom = Math.max(0.5, Math.min(1.2, a.zoom)); has = true; }
+      if (typeof a.fontScale === 'number' && isFinite(a.fontScale)) { out.fontScale = Math.max(0.8, Math.min(1.3, a.fontScale)); has = true; }
+      if (a.organize === true) { out.organize = true; has = true; }
+      if (a.compact === true) { out.compact = true; has = true; }
+      if (!has) return null;
+      // Human-readable preview describing the change.
+      const bits = [];
+      if (out.aiDesign) bits.push('AI-design the view');
+      if (out.focus) bits.push('focus the ' + out.focus.kind);
+      if (out.collapse === 'all') bits.push('collapse all panels');
+      else if (out.collapse === 'none') bits.push('expand all panels');
+      else if (Array.isArray(out.collapse)) bits.push('collapse ' + out.collapse.length + ' panel' + (out.collapse.length === 1 ? '' : 's'));
+      if (Array.isArray(out.expand)) bits.push('expand ' + out.expand.length + ' panel' + (out.expand.length === 1 ? '' : 's'));
+      if (typeof out.zoom === 'number') bits.push('zoom ' + Math.round(out.zoom * 100) + '%');
+      if (typeof out.fontScale === 'number') bits.push('font ' + Math.round(out.fontScale * 100) + '%');
+      if (out.compact) bits.push('compact');
+      else if (out.organize) bits.push('organize');
+      out.preview = clip(a.summary, 140) || bits.join(' · ') || 'Adjust the board layout';
+      return out;
     }
     return null;
   };
