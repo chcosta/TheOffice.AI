@@ -13826,6 +13826,7 @@
         },
         selectBoard(id) {
           this.activeBoardId = id;
+          this._disconnectBoardObserver();
           this._loadBoardAiPrompts();
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
           this.syncBoardLayout();
@@ -14846,9 +14847,8 @@
               let w = this._panelMinWidth(id);
               if (w == null) w = Math.round(cur.w);
               w = Math.max(2, Math.min(cols, w));
-              let h;
-              if (this.isPanelCollapsed(id)) h = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
-              else h = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+              // Height precedence via the shared engine (manual height wins unless collapsed).
+              const h = this._constrainPanelHeight(id, cur, this._fitRowsFromEl(el, id));
               meta[id] = { w, h };
             });
             const layout = { ...this.boardLayout };
@@ -15645,15 +15645,7 @@
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
             if (!grid) { this.ensureBoardLayout(persist); return; }
-            const z = this.boardCanvas.z || 1;
-            const gridW = grid.getBoundingClientRect().width / z;
-            const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap, half = Math.floor(cols / 2);
-            const colPx = (gridW / cols) || 1;
-            const padX = gap / 2; // matches panelStyle horizontal padding
-            const els = {};
-            grid.querySelectorAll('.board-panel').forEach(el => {
-              const id = el.getAttribute('data-pid'); if (id) els[id] = el;
-            });
+            const cols = this.boardCols, half = Math.floor(cols / 2);
             const panels = this.boardPanels();
             const summaryP = panels.find(p => p.type === 'summary');
             const chips = [], fulls = [];
@@ -15661,54 +15653,77 @@
               if (p.type === 'summary') continue;
               (this.pinChipCollapsed(p) ? chips : fulls).push(p);
             }
-            // Keep every other entry (notably the inactive normal-mode positions).
-            const layout = { ...this.boardLayout };
-            // Measure a full panel's height (in grid rows) from its rendered content.
-            const measureH = (p, fallback) => {
-              const el = els[p.id];
-              const head = el && el.querySelector('.board-panel-head');
-              const body = el && el.querySelector('.board-panel-body');
-              if (el && this.isPanelCollapsed(p.id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
-              if (el) return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
-              return fallback;
-            };
-            // 1. Anchor the summary full-width at the top — unless the user dragged it
-            //    away from the top row, in which case leave it where it is and pack the
-            //    rest from y = 0.
-            let startY = 0;
+            // PASS 1 — apply final WIDTHS first (summary full-width, expanded panels half),
+            // then let the DOM reflow before measuring. Content height depends on width
+            // (narrower wraps taller), so measuring BEFORE the widen is exactly what left the
+            // briefing with an oversized empty frame. Heights are computed in pass 2.
+            const w1 = { ...this.boardLayout };
+            let summaryAnchored = false;
             if (summaryP) {
-              const cur = layout[summaryP.id];
+              const cur = w1[summaryP.id];
               const movedAway = cur && Number.isFinite(cur.y) && cur.y > 1.5;
-              if (!movedAway) {
+              if (!movedAway) { w1[summaryP.id] = { ...cur, x: 0, y: 0, w: cols }; summaryAnchored = true; }
+            }
+            for (const p of fulls) w1[p.id] = { ...w1[p.id], w: half };
+            this.boardLayout = w1;
+            // PASS 2 — widths are applied and reflowed; measure heights at the FINAL width,
+            // then position the summary, chips, and the 50/50 block.
+            this.$nextTick(() => {
+              const z = this.boardCanvas.z || 1;
+              const gridW = grid.getBoundingClientRect().width / z;
+              const rowH = this.boardRowH, gap = this.boardGap;
+              const colPx = (gridW / cols) || 1;
+              const padX = gap / 2; // matches panelStyle horizontal padding
+              const els = {};
+              grid.querySelectorAll('.board-panel').forEach(el => {
+                const id = el.getAttribute('data-pid'); if (id) els[id] = el;
+              });
+              const layout = { ...this.boardLayout };
+              // Measure a full panel's height (in grid rows) from its rendered content.
+              // Honors a user-pinned manual height (mh) — measuring a flex-filled manual-h
+              // body returns the frame height it already has (a feedback loop), so skip it.
+              const measureH = (p, fallback) => {
+                const cur = layout[p.id];
+                if (cur && cur.mh != null) return cur.mh;
+                const el = els[p.id];
+                const head = el && el.querySelector('.board-panel-head');
+                const body = el && el.querySelector('.board-panel-body');
+                if (el && this.isPanelCollapsed(p.id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+                if (el) return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+                return fallback;
+              };
+              // 1. Anchor the summary full-width at the top (unless the user dragged it away).
+              let startY = 0;
+              if (summaryP && summaryAnchored) {
                 const hS = measureH(summaryP, 5);
-                layout[summaryP.id] = { x: 0, y: 0, w: cols, h: hS };
+                layout[summaryP.id] = { ...layout[summaryP.id], x: 0, y: 0, w: cols, h: hS };
                 startY = hS;
               }
-            }
-            // 2. Chips flow left-to-right below the summary, wrapping at the canvas edge.
-            const hgap = 10, vgap = 10;
-            let x = 0, y = startY * rowH, rowMaxH = 0;
-            for (const p of chips) {
-              const card = els[p.id] && els[p.id].querySelector('.pin-chip-card');
-              const r = card ? card.getBoundingClientRect() : null;
-              const cw = r ? r.width / z : 150;
-              const ch = r ? r.height / z : 34;
-              const slotW = cw + padX * 2;
-              if (x > 0 && x + slotW > gridW) { x = 0; y += rowMaxH + vgap; rowMaxH = 0; }
-              layout[p.id] = { ...layout[p.id], x: x / colPx, y: y / rowH, w: slotW / colPx, h: Math.max(1, (ch + gap) / rowH), chip: true };
-              x += slotW + hgap;
-              rowMaxH = Math.max(rowMaxH, ch);
-            }
-            // 3. Notes / checklists / expanded pins flow in a 50/50 block below the chips.
-            const yBlock = chips.length ? (y + rowMaxH + vgap + gap) / rowH : startY;
-            let yL = yBlock, yR = yBlock;
-            for (const p of fulls) {
-              const h = measureH(p, p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
-              if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
-              else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
-            }
-            this.boardLayout = layout;
-            if (persist) this.persistLayout();
+              // 2. Chips flow left-to-right below the summary, wrapping at the canvas edge.
+              const hgap = 10, vgap = 10;
+              let x = 0, y = startY * rowH, rowMaxH = 0;
+              for (const p of chips) {
+                const card = els[p.id] && els[p.id].querySelector('.pin-chip-card');
+                const r = card ? card.getBoundingClientRect() : null;
+                const cw = r ? r.width / z : 150;
+                const ch = r ? r.height / z : 34;
+                const slotW = cw + padX * 2;
+                if (x > 0 && x + slotW > gridW) { x = 0; y += rowMaxH + vgap; rowMaxH = 0; }
+                layout[p.id] = { ...layout[p.id], x: x / colPx, y: y / rowH, w: slotW / colPx, h: Math.max(1, (ch + gap) / rowH), chip: true };
+                x += slotW + hgap;
+                rowMaxH = Math.max(rowMaxH, ch);
+              }
+              // 3. Notes / checklists / expanded pins flow in a 50/50 block below the chips.
+              const yBlock = chips.length ? (y + rowMaxH + vgap + gap) / rowH : startY;
+              let yL = yBlock, yR = yBlock;
+              for (const p of fulls) {
+                const h = measureH(p, p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
+                if (yL <= yR) { layout[p.id] = { ...layout[p.id], x: 0, y: yL, w: half, h }; yL += h; }
+                else { layout[p.id] = { ...layout[p.id], x: half, y: yR, w: half, h }; yR += h; }
+              }
+              this.boardLayout = layout;
+              if (persist) this.persistLayout();
+            });
           });
         },
         // Auto-size every panel to fit its content so no panel needs an inner scrollbar.
@@ -15759,16 +15774,111 @@
         },
         // Measure one panel's content and return the number of grid rows it needs so it
         // shows without an inner scrollbar. Used for live height-fit while resizing width.
-        _measurePanelRows(id) {
-          const grid = document.querySelector('.board-grid'); if (!grid) return null;
-          let el = null;
-          grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+        // ----- Board sizing engine: ONE measurement + ONE height-precedence path -----
+        // _fitRowsFromEl is the single content-fit measurement for a rendered panel
+        // element: how many grid rows its content needs at its CURRENT width, with no
+        // inner scrollbar. Returns null for chips / unmeasurable nodes. This replaces the
+        // identical inline calc that used to live in autoFit / organize / compact.
+        _fitRowsFromEl(el, id) {
           if (!el || el.classList.contains('pin-chip')) return null;
           const rowH = this.boardRowH, gap = this.boardGap;
           const head = el.querySelector('.board-panel-head');
           if (this.isPanelCollapsed(id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
           const body = el.querySelector('.board-panel-body');
           return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+        },
+        // _constrainPanelHeight is the single place the HEIGHT precedence lives, given a
+        // panel's content-fit row count: a manual pinned height (mh) wins over content-fit
+        // (except a collapsed panel always uses its collapsed fit), and opts.hysteresis
+        // reproduces autoFit's grow-always / shrink-only-with-slack behaviour. Size-lock
+        // and chip handling stay with the caller (they also drive width/position there).
+        // Used by autoFitBoard (hysteresis), organizeBoard and compactBoard.
+        _constrainPanelHeight(id, cur, fitRows, opts = {}) {
+          if (fitRows == null) return cur.h;
+          if (cur.mh != null && !this.isPanelCollapsed(id)) return Math.max(1, Math.round(cur.mh));
+          if (!opts.hysteresis) return fitRows;
+          if (this.isPanelCollapsed(id)) return fitRows;
+          if (fitRows > cur.h) return fitRows;        // grow to clear an inner scrollbar
+          if (fitRows < cur.h - 1) return fitRows;     // shrink only with 2+ rows of slack
+          return cur.h;
+        },
+        _measurePanelRows(id) {
+          const grid = document.querySelector('.board-grid'); if (!grid) return null;
+          let el = null;
+          grid.querySelectorAll('.board-panel').forEach(e => { if (e.getAttribute('data-pid') === id) el = e; });
+          return this._fitRowsFromEl(el, id);
+        },
+        // ----- Step 3: durable async content-settle (ResizeObserver) -----
+        // A board-scoped ResizeObserver watches each panel's content (.board-panel-body).
+        // When content height changes AFTER the render-time fit — late markdown, an AI
+        // briefing arriving, an image loading — we settle THAT panel's height in place once
+        // its content has been quiet for SETTLE_MS (capped by SETTLE_MAX). We never repack
+        // or move neighbours: only the panel whose content changed resizes, honouring
+        // locks / mh / collapse via the shared _constrainPanelHeight. Generalises the old
+        // one-shot _refitSummaryPanel to every fit panel. Loop-safe: a content-fit body is
+        // content-sized (overflow:visible) so our grid-h writes don't change its box.
+        _BOARD_SETTLE_MS: 220,
+        _BOARD_SETTLE_MAX: 1600,
+        _syncBoardObserver() {
+          if (typeof ResizeObserver === 'undefined') return;
+          const grid = document.querySelector('.board-grid');
+          if (!grid) { this._disconnectBoardObserver(); return; }
+          if (!this._boardRO) {
+            this._boardRO = new ResizeObserver(entries => {
+              if (this._settleApplying) return;        // ignore reflow from our own in-place writes
+              for (const en of entries) {
+                const panel = en.target.closest('.board-panel');
+                const id = panel && panel.getAttribute('data-pid');
+                if (id) this._schedulePanelSettle(id);
+              }
+            });
+          }
+          // Re-observe the current bodies; disconnect first so removed nodes drop cleanly.
+          this._boardRO.disconnect();
+          grid.querySelectorAll('.board-panel:not(.pin-chip) .board-panel-body').forEach(b => this._boardRO.observe(b));
+        },
+        _disconnectBoardObserver() {
+          if (this._boardRO) this._boardRO.disconnect();
+          if (this._boardSettleTimers) for (const t of Object.values(this._boardSettleTimers)) clearTimeout(t);
+          this._boardSettleTimers = {};
+          this._boardSettleSince = {};
+        },
+        // Per-panel "stable-for-N" gate: settle only once the content has stopped changing
+        // for SETTLE_MS, or SETTLE_MAX has elapsed since it first started moving.
+        _schedulePanelSettle(id) {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          this._boardSettleTimers = this._boardSettleTimers || {};
+          this._boardSettleSince = this._boardSettleSince || {};
+          if (this._boardSettleSince[id] == null) this._boardSettleSince[id] = Date.now();
+          clearTimeout(this._boardSettleTimers[id]);
+          const overdue = (Date.now() - this._boardSettleSince[id]) >= this._BOARD_SETTLE_MAX;
+          this._boardSettleTimers[id] = setTimeout(() => {
+            delete this._boardSettleTimers[id];
+            delete this._boardSettleSince[id];
+            this._settlePanelHeight(id);
+          }, overdue ? 0 : this._BOARD_SETTLE_MS);
+        },
+        // Settle ONE panel's height to its now-stable content, in place. Skips size-locked /
+        // chip / mh-pinned / collapsed panels (their height is the user's or intentionally
+        // fixed) and only commits a meaningful (>= 2 row) change so a panel on a row
+        // boundary can't oscillate.
+        _settlePanelHeight(id) {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          const cur = this.boardLayout[id]; if (!cur) return;
+          if (cur.mh != null) return;                  // user pinned a height — their choice wins
+          if (this._lockFor(id, 'size')) return;       // size-locked — never auto-resize
+          if (this.isPanelCollapsed(id)) return;       // collapsed height is fixed by the header
+          const grid = document.querySelector('.board-grid'); if (!grid) return;
+          let el = null;
+          grid.querySelectorAll('.board-panel').forEach(x => { if (x.getAttribute('data-pid') === id) el = x; });
+          const rows = this._fitRowsFromEl(el, id);
+          if (rows == null) return;                    // chip / unmeasurable
+          const h = this._constrainPanelHeight(id, cur, rows);
+          if (Math.abs(h - cur.h) < 2) return;         // ignore ±1-row churn
+          this._settleApplying = true;
+          this.boardLayout = { ...this.boardLayout, [id]: { ...cur, h } };
+          this.persistLayout();
+          this.$nextTick(() => { this._settleApplying = false; });
         },
         // Fit every panel's HEIGHT to its rendered content (no inner scrollbar). Width,
         // column and Y are left exactly where the user put them — boards are manual-size,
@@ -15788,14 +15898,7 @@
               // Pin-view chips are content-sized (CSS height:auto) and have no panel
               // body — skip them so their tightly-packed height isn't disturbed.
               if (el.classList.contains('pin-chip')) return;
-              const head = el.querySelector('.board-panel-head');
-              if (this.isPanelCollapsed(id)) {
-                fit[id] = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
-                return;
-              }
-              const body = el.querySelector('.board-panel-body');
-              const needed = (head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6;
-              fit[id] = Math.max(3, Math.ceil(needed / rowH));
+              fit[id] = this._fitRowsFromEl(el, id);
             });
             let layout = { ...this.boardLayout };
             let changed = false;
@@ -15803,15 +15906,9 @@
               if (fit[id] == null) continue;
               const cur = layout[id];
               const need = fit[id];
-              // Hysteresis: always grow to clear an inner scrollbar, but only shrink when
-              // there are 2+ rows of slack so a panel whose content sits on a row boundary
-              // doesn't flip ±1 row each pass.
-              let h;
-              if (this.isPanelCollapsed(id)) h = need;
-              else if (cur.mh != null) h = cur.mh;   // manual height pinned — keep exactly
-              else if (need > cur.h) h = need;
-              else if (need < cur.h - 1) h = need;
-              else h = cur.h;
+              // Height precedence (the size-mode rules) lives in _constrainPanelHeight; the
+              // hysteresis flag keeps a boundary panel from flipping ±1 row each pass.
+              const h = this._constrainPanelHeight(id, cur, need, { hysteresis: true });
               if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
             }
             // After heights settle, push overlaps off the anchor if auto-arrange is on.
@@ -15823,6 +15920,9 @@
               this.boardLayout = layout;
               if (persist) this.persistLayout();
             }
+            // Keep the content-settle observer tracking the current panel bodies so late
+            // content (briefing, markdown) can resize its own card in place afterwards.
+            this._syncBoardObserver();
           });
         },
         // "Organize": tidy the board so nothing overlaps. Packs each column top-to-bottom
@@ -15839,10 +15939,7 @@
             grid.querySelectorAll('.board-panel').forEach(el => {
               const id = el.getAttribute('data-pid'); if (!id) return;
               if (el.classList.contains('pin-chip')) return;
-              const head = el.querySelector('.board-panel-head');
-              if (this.isPanelCollapsed(id)) { fit[id] = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH)); return; }
-              const body = el.querySelector('.board-panel-body');
-              fit[id] = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+              fit[id] = this._fitRowsFromEl(el, id);
             });
             const layout = { ...this.boardLayout };
             const order = Object.keys(layout)
@@ -15854,7 +15951,7 @@
               // Position-locked panels never move; flow other panels around them by
               // advancing the affected column cursor(s) past their footprint.
               if (this._lockFor(id, 'pos')) {
-                const lh = (this._lockFor(id, 'size') ? cur.h : (fit[id] || cur.h));
+                const lh = this._lockFor(id, 'size') ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
                 const bottom = (cur.y || 0) + lh;
                 const fw = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
                 if (fw) { yL = Math.max(yL, bottom); yR = Math.max(yR, bottom); }
@@ -15863,7 +15960,10 @@
                 continue;
               }
               const sizeLk = this._lockFor(id, 'size');
-              const h = sizeLk ? cur.h : fit[id];
+              // Height precedence via the shared engine: a size-locked panel keeps its
+              // exact height; otherwise the user's pinned manual height (mh) wins over
+              // content-fit, except a collapsed panel always uses its collapsed fit.
+              const h = sizeLk ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
               let nx = cur.x, nw = sizeLk ? cur.w : cur.w, ny;
               if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; nx = sizeLk ? cur.x : 0; nw = sizeLk ? cur.w : cols; }
@@ -16278,9 +16378,15 @@
             const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [], deltas: r.deltas || [] };
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0) this.boards[idx] = { ...this.boards[idx], summary };
-            // Briefing text changed height, but don't auto-resize the panel — the summary
-            // can refresh on its own (maybeRefreshSummary on sync), and re-fitting here was
-            // a non-user-initiated resize. The user fits on demand.
+            // The briefing text just changed length. The board-scoped content-settle
+            // observer (_syncBoardObserver) already watches this panel's body and will
+            // resize it in place once the new text settles; nudge a settle directly so the
+            // correction is immediate rather than waiting on the next ResizeObserver tick.
+            this.$nextTick(() => {
+              this._syncBoardObserver();
+              const sp = this.boardPanels().find(p => p.type === 'summary');
+              if (sp) this._schedulePanelSettle(sp.id);
+            });
           } catch (e) {
             if (force) this.showToast('Where was I', e.message, 'error');
           } finally {
