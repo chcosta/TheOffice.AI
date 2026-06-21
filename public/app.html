@@ -13850,6 +13850,7 @@
         },
         selectBoard(id) {
           this.activeBoardId = id;
+          this._boardJustOpened = id; // one-shot: heal a broken saved layout on open only
           this._disconnectBoardObserver();
           this._loadBoardAiPrompts();
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
@@ -15099,7 +15100,29 @@
           for (const n of ((bb && bb.notes) || [])) { ids.add('note:' + n.id); ids.add('pv:note:' + n.id); }
           for (const cl of ((bb && bb.checklists) || [])) { ids.add('cl:' + cl.id); ids.add('pv:cl:' + cl.id); }
           for (const k of Object.keys(layout)) { if (!ids.has(k)) { delete layout[k]; changed = true; } }
-          if (changed) { this.boardLayout = layout; if (persist) this.persistLayout(); }
+          // Heal a SAVED layout that loads with overlapping panels (stale geometry from an
+          // older build, a card saved taller than its neighbours expected, etc.). This runs
+          // ONCE per board open (the _boardJustOpened one-shot from selectBoard) so it never
+          // touches periodic SSE/reload syncs or a post-drag overlap the user left on purpose
+          // — i.e. it does NOT re-introduce auto-arrange. It is MODEL-ONLY (operates on the
+          // stored grid coords, never measures the DOM) so it can't cause the auto-fit
+          // "jitter" syncBoardLayout deliberately avoids. Scope it to the ACTIVE coordinate
+          // space's panels (boardLayout also holds the inactive pin-view/normal keys, which
+          // must not be mixed). Colliders slide straight DOWN (anchor-topmost) — a no-op on a
+          // clean board. Force-persist a real repair so the fixed layout sticks.
+          let forcePersist = false;
+          if (this._boardJustOpened && this._boardJustOpened === this.activeBoardId) {
+            this._boardJustOpened = null;
+            const active = {};
+            for (const p of panels) { if (layout[p.id]) active[p.id] = layout[p.id]; }
+            const res = this._resolveOverlaps(active, null);
+            if (res.changed) {
+              for (const k of Object.keys(res.layout)) layout[k] = res.layout[k];
+              changed = true;
+              forcePersist = true;
+            }
+          }
+          if (changed) { this.boardLayout = layout; if (persist || forcePersist) this.persistLayout(); }
         },
         // True when the canvas has an explicit (stretched) pixel width. In that mode
         // panel widths are FIXED pixels (a column = baseW/cols, the original window-fit
