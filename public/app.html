@@ -2420,16 +2420,17 @@
     .board-panel.collapsed .board-panel-head { padding: 6px 4px 6px 8px; }
     /* Board panel content scales with the per-board text-size control (--board-fs). */
     .board-panel-body { overflow: visible; padding: 1px 10px 8px; font-size: calc(13px * var(--board-fs, 1)); }
-    /* When a manual height is pinned (user dragged the height handle), the content
-       area fills the frame and scrolls instead of leaving dead space below or
-       spilling past a too-short frame. Content-fit panels stay overflow:visible so
-       auto-fit can measure their true scrollHeight. */
-    .board-panel.manual-h:not(.dragging) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
-    /* Fixed panels (user opted a panel out of all automatic resize/reflow): geometry is
-       frozen at exactly x/y/w/h and content over/underflow is absorbed by an inner
-       scrollbar instead of growing, clipping, or moving the card. Same body treatment as
-       a pinned manual height. */
-    .board-panel.is-fixed:not(.dragging) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+    /* The frame ALWAYS contains its contents: every non-dragging, non-chip panel body
+       fills the card and scrolls, so content that is taller than the frame is absorbed
+       by an inner scrollbar instead of spilling past the card onto the panel below
+       (overlap) — a structural guarantee that holds even for size-locked / collapsed /
+       manual-height / fixed panels and during the brief window before the content-settle
+       grows a fluid panel to fit. scrollHeight (used by _fitRowsFromEl) still measures
+       the true content extent on a bounded body, so auto-fit / settle keep working; the
+       ResizeObserver therefore watches each body's content child (which stays
+       content-sized) rather than the now frame-bounded body. The head — and the lock /
+       Fixed popover it anchors — is a flex sibling of the body and is unaffected. */
+    .board-panel:not(.dragging):not(.pin-chip) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
     /* Rendered markdown (chat/summary/run output) uses rem-based sizes that are
        relative to the document root, so they ignore the body font-size above.
        Re-base them on --board-fs so the text-size control actually scales content. */
@@ -13867,6 +13868,7 @@
         selectBoard(id) {
           this.activeBoardId = id;
           this._boardJustOpened = id; // one-shot: heal a broken saved layout on open only
+          this._boardFitOnOpen = id;  // one-shot: fit fluid panels to their content on open only
           this._aiLayoutUndo = null;  // undo is scoped to the board it was captured on
           this._disconnectBoardObserver();
           this._loadBoardAiPrompts();
@@ -15086,12 +15088,36 @@
           }
           this.ensureBoardLayout(false);
           this.maybeRefreshSummary();
-          // NO auto-fit on sync. Boards are manual-size: panels keep the heights the user
-          // last set (or fit on demand). Re-fitting on every loadBoards/SSE echo re-measured
-          // the DOM and — combined with the 1s relative-time re-render nudging scrollHeight
-          // across a row boundary — made panels visibly resize on their own ("jitter").
-          // Auto-sizing now happens ONLY from explicit user gestures (Fit / Fit width /
-          // Fit vertical / Compact / Organize / AI Layout / resize / collapse).
+          // NO blanket auto-fit on sync. Boards are manual-size: panels keep the heights the
+          // user last set (or fit on demand). Re-fitting EVERY panel on every loadBoards/SSE
+          // echo re-measured the whole DOM and — combined with the 1s relative-time re-render
+          // nudging scrollHeight across a row boundary — made panels visibly resize on their
+          // own ("jitter"). Auto-sizing from a full pass happens ONLY from explicit user
+          // gestures (Fit / Fit width / Fit vertical / Compact / Organize / AI Layout /
+          // resize / collapse).
+          //
+          // BUT re-attach the content-settle observer to the freshly rendered panel bodies:
+          // a reload swaps in the STORED heights, and a stored height can now be shorter than
+          // the panel's current (dynamic / async) content — without this, the observer would
+          // be watching detached nodes and the too-short frame would never recover. The body
+          // is frame-bounded so such content is contained (inner scrollbar, never spills),
+          // and re-observing fires a per-panel settle that grows the frame back to fit. This
+          // is gated by the same >= 2-row / stable-for-220ms machinery, so it ignores the
+          // ±1-row relative-time churn that caused the old jitter.
+          if (this.route === 'boards' && !this.boardDragId) {
+            this.$nextTick(() => {
+              this._syncBoardObserver();
+              // One-shot on board OPEN: fit fluid panels to their content so a stored height
+              // that is now too short (content grew → inner scrollbar) or too tall (dead space)
+              // is corrected ONCE and persisted — clean frames, no scrollbars, arrangement
+              // kept. Gated to the just-opened board so it never runs on periodic SSE echoes
+              // (a per-echo full re-fit is the jitter the comment above deliberately avoids).
+              if (this._boardFitOnOpen && this._boardFitOnOpen === this.activeBoardId) {
+                this._boardFitOnOpen = null;
+                this._fitFluidOnOpen();
+              }
+            });
+          }
         },
         // Assign default slots to any panel without a saved position (2-column,
         // 50/50). Prunes layout entries for panels that no longer exist. Persists
@@ -15946,21 +15972,64 @@
           const grid = document.querySelector('.board-grid');
           if (!grid) { this._disconnectBoardObserver(); return; }
           if (!this._boardRO) {
+            this._roBaseline = new WeakMap();   // observed node -> last content height we acted on
+            this._roObserved = new Set();       // nodes currently under observation
             this._boardRO = new ResizeObserver(entries => {
               if (this._settleApplying) return;        // ignore reflow from our own in-place writes
               for (const en of entries) {
-                const panel = en.target.closest('.board-panel');
+                const el = en.target;
+                const h = en.contentRect ? en.contentRect.height : (el.getBoundingClientRect().height || 0);
+                const base = this._roBaseline.get(el);
+                this._roBaseline.set(el, h);
+                // Suppress the SYNTHETIC initial callback (base == null) and sub-2px churn
+                // (the 1s relative-time re-render). Only a REAL content-height change from the
+                // established baseline schedules a settle — this is what stops a re-observe or
+                // a relative-time tick from triggering a board-wide re-fit ("periodic jumble").
+                if (base == null || Math.abs(h - base) < 2) continue;
+                const panel = el.closest('.board-panel');
                 const id = panel && panel.getAttribute('data-pid');
                 if (id) this._schedulePanelSettle(id);
               }
             });
           }
-          // Re-observe the current bodies; disconnect first so removed nodes drop cleanly.
-          this._boardRO.disconnect();
-          grid.querySelectorAll('.board-panel:not(.pin-chip) .board-panel-body').forEach(b => this._boardRO.observe(b));
+          // Reconcile the observed set with the current panel bodies' content child WITHOUT a
+          // blanket disconnect+re-observe. The old code disconnected and re-observed every body
+          // on EVERY syncBoardLayout (each SSE echo) — and a fresh observe() fires a synthetic
+          // initial callback, so it scheduled a settle for every panel at once = the periodic
+          // jumble. On a normal echo Alpine keeps the same keyed nodes, so reconciling here is a
+          // no-op (no observes, no callbacks). Observe only genuinely-new nodes (seeding their
+          // baseline so the initial fire is ignored) and unobserve nodes that left the DOM. The
+          // body is frame-bounded (overflow:auto); its content child stays content-sized, so
+          // real async growth (briefing / markdown / image) still fires a settle.
+          const want = new Set();
+          grid.querySelectorAll('.board-panel:not(.pin-chip) .board-panel-body').forEach(b => {
+            const t = b.firstElementChild || b;
+            want.add(t);
+            if (!this._roObserved.has(t)) {
+              this._roBaseline.set(t, t.getBoundingClientRect().height || 0); // seed → ignore initial fire
+              this._boardRO.observe(t);
+              this._roObserved.add(t);
+            }
+          });
+          for (const t of [...this._roObserved]) {
+            if (!want.has(t)) { try { this._boardRO.unobserve(t); } catch {} this._roObserved.delete(t); }
+          }
+        },
+        // After one of OUR OWN layout writes (a settle or the on-open fit) the frame changes
+        // size, the inner scrollbar appears/disappears, and the content rewraps wider/narrower
+        // — a real but self-induced height change the observer would otherwise read as fresh
+        // async growth and chase. Re-seed every observed node's baseline to its post-write
+        // height so that rewrap is absorbed (not echoed into another settle). Position-only
+        // reflows leave content-child heights unchanged, so reseeding all is safe.
+        _reseedObserverBaselines() {
+          if (!this._boardRO || !this._roObserved || !this._roBaseline) return;
+          for (const t of this._roObserved) {
+            if (t && t.isConnected) this._roBaseline.set(t, t.getBoundingClientRect().height || 0);
+          }
         },
         _disconnectBoardObserver() {
           if (this._boardRO) this._boardRO.disconnect();
+          if (this._roObserved) this._roObserved.clear();   // forget the old board's nodes
           if (this._boardSettleTimers) for (const t of Object.values(this._boardSettleTimers)) clearTimeout(t);
           this._boardSettleTimers = {};
           this._boardSettleSince = {};
@@ -16011,7 +16080,37 @@
           this._settleApplying = true;
           this.boardLayout = next;
           this.persistLayout();
-          this.$nextTick(() => { this._settleApplying = false; });
+          this.$nextTick(() => { this._settleApplying = false; this._reseedObserverBaselines(); });
+        },
+        // One-shot fit-on-open: size every FLUID panel to its rendered content in a single
+        // batched pass, then resolve any overlaps the height changes introduced (downward only
+        // — preserves the user's columns/arrangement; just opens vertical room where a card
+        // grew). Unlike autoFitBoard this reflows, so a grow never overlaps the panel below;
+        // unlike the per-panel settle it commits ONCE (no cascade), so a freshly opened board
+        // lands clean with no inner scrollbars and no dead space. Skips fixed / size-locked /
+        // manual-height (mh) / collapsed panels and chips — their height is the user's choice.
+        // Runs only from selectBoard's one-shot gate, never per echo.
+        _fitFluidOnOpen() {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          const grid = document.querySelector('.board-grid'); if (!grid) return;
+          let layout = { ...this.boardLayout };
+          let changed = false;
+          grid.querySelectorAll('.board-panel:not(.pin-chip)').forEach(el => {
+            const id = el.getAttribute('data-pid'); if (!id) return;
+            const cur = layout[id]; if (!cur) return;
+            if (this._isFixed(id) || cur.mh != null || this._lockFor(id, 'size') || this.isPanelCollapsed(id)) return;
+            const rows = this._fitRowsFromEl(el, id, { fresh: true });
+            if (rows == null) return;
+            const h = this._constrainPanelHeight(id, cur, rows);
+            if (h !== cur.h) { layout[id] = { ...cur, h }; changed = true; }
+          });
+          if (!changed) return;
+          const res = this._resolveOverlaps(layout, null);  // slide colliders down; arrangement kept
+          if (res.changed) layout = res.layout;
+          this._settleApplying = true;                       // our own write — don't let the RO echo it
+          this.boardLayout = layout;
+          this.persistLayout();
+          this.$nextTick(() => { this._settleApplying = false; this._reseedObserverBaselines(); });
         },
         // Relative reflow for the fluid view: when `anchorId` changed height by `delta` rows
         // (its old bottom was `oldBottom`), shift every panel stacked BELOW it down/up by the

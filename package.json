@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "install-service": "node install-service.js",
-    "uninstall-service": "node uninstall-service.js"
+    "uninstall-service": "node uninstall-service.js",
+    "test:board": "node tests/board-jumble.regression.mjs"
   },
   "dependencies": {
     "@azure/identity": "^4.13.1",
@@ -25,5 +26,8 @@
     "sql.js": "^1.10.3",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.1.0"
   }
 }
