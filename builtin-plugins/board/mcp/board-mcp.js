@@ -258,6 +258,78 @@ const TOOLS = {
       return { ok: true, alreadyPinned: !!r.alreadyPinned };
     },
   },
+
+  get_board_layout: {
+    description: "Read a board's layout digest: every panel's id, kind, title, and current state (collapsed, chip, hidden/stashed, grid x/y/w/h on a 12-column grid, and which aspects are locked — vis/size/pos). Panel ids are 'wherewasi' (the summary), 'pin:<itemId>', 'note:<noteId>', 'cl:<checklistId>'. Use these ids as the target of set_board_layout intents.",
+    inputSchema: {
+      type: 'object',
+      properties: { boardId: { type: 'string' } },
+      required: ['boardId'],
+      additionalProperties: false,
+    },
+    async run({ boardId }) {
+      if (!boardId) throw new Error('boardId is required');
+      const d = await api('/api/boards/' + encodeURIComponent(boardId) + '/layout');
+      return { version: d.version, cols: d.cols, panels: d.panels };
+    },
+  },
+
+  set_board_layout: {
+    description: "Apply a batch of layout intents to a board. Each intent is { type, target, ...args }. type is one of: collapse, expand, stash, unstash, move (args x,y), resize (args w,h; 2..12 grid columns wide). target is a panel id from get_board_layout. Locks are enforced server-side: an intent against a locked aspect (vis/size/pos) is REFUSED, not applied — the response lists every applied and refused intent (with a reason) so you can see what stuck. Use get_board_layout first to learn panel ids and lock state.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        intents: {
+          type: 'array',
+          description: 'Layout intents to apply, in order.',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['collapse', 'expand', 'stash', 'unstash', 'move', 'resize'] },
+              target: { type: 'string', description: 'Panel id (from get_board_layout).' },
+              x: { type: 'number' }, y: { type: 'number' },
+              w: { type: 'number' }, h: { type: 'number' },
+            },
+            required: ['type', 'target'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['boardId', 'intents'],
+      additionalProperties: false,
+    },
+    async run({ boardId, intents }) {
+      if (!boardId) throw new Error('boardId is required');
+      if (!Array.isArray(intents) || !intents.length) throw new Error('intents must be a non-empty array');
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/layout/intents', {
+        method: 'POST',
+        body: { version: 1, actor: 'mcp', intents },
+      });
+      return { ok: true, applied: r.applied, refused: r.refused, summary: r.summary, changed: r.changed, txnId: r.txnId };
+    },
+  },
+
+  undo_board_layout: {
+    description: "Undo the most recent layout change made through set_board_layout — but only if the user has not edited the board layout since (the server refuses with 409 if a conflicting edit landed). Pass the txnId returned by set_board_layout to undo a specific transaction.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        txnId: { type: 'string', description: 'Optional: the transaction id to undo (from set_board_layout).' },
+      },
+      required: ['boardId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, txnId }) {
+      if (!boardId) throw new Error('boardId is required');
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/layout/undo', {
+        method: 'POST',
+        body: txnId ? { txnId } : {},
+      });
+      return { ok: true, undone: r.undone };
+    },
+  },
 };
 
 function toolList() {

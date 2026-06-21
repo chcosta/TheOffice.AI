@@ -5257,8 +5257,152 @@ function _normalizeBoard(b) {
     // Each captures a full visual snapshot (panel grid positions/sizes + zoom/font/canvas).
     savedLayouts: Array.isArray(b.savedLayouts) ? b.savedLayouts : [],
     lastViewedAt: b.lastViewedAt || null,
+    // Last headless (AI / MCP) layout transaction, for causality-bounded undo:
+    // { id, actor, at, prev:{layout,hidden}, sig } where sig is the layout
+    // signature AFTER the transaction. Undo reverts only if the live board still
+    // matches sig (i.e. no conflicting user edit landed since).
+    layoutTxn: (b.layoutTxn && typeof b.layoutTxn === 'object' && !Array.isArray(b.layoutTxn)) ? b.layoutTxn : null,
     createdAt: b.createdAt || new Date().toISOString(),
     updatedAt: b.updatedAt || new Date().toISOString(),
+  };
+}
+
+// ---- Board layout intents — the single lock-aware, versioned applier --------
+// One headless writer that AI Layout, the board assistant, and the board MCP all
+// speak to with a FIXED, versioned vocabulary. Locks are enforced HERE (not just
+// hinted in a prompt), so an external caller that targets a locked panel is
+// refused and told why — locks are real, not theatre. Operates purely on the
+// persisted board model (layout grid + hidden map under the locks map); no DOM,
+// so it is safe to run server-side. Panel ids match the SPA's keys exactly:
+// 'wherewasi' (the summary), 'pin:<itemId>', 'note:<noteId>', 'cl:<clId>'.
+const BOARD_INTENT_VERSION = 1;
+const BOARD_INTENT_TYPES = ['collapse', 'expand', 'stash', 'unstash', 'move', 'resize'];
+const BOARD_GRID_COLS = 12;
+
+function _boardLockFor(b, id, which) {
+  const locks = (b && b.locks && typeof b.locks === 'object') ? b.locks : {};
+  const l = locks[String(id || '').replace(/^pv:/, '')];
+  return !!(l && l[which]);
+}
+
+// Stable signature of a board's layout + stash state, used to detect whether a
+// conflicting edit landed after a headless transaction (the undo causality gate).
+function _boardLayoutSig(b) {
+  const L = (b && b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {};
+  const parts = Object.keys(L).sort().map(k => {
+    const g = L[k] || {};
+    return k + ':' + (g.x || 0) + ',' + (g.y || 0) + ',' + (g.w || 0) + ',' + (g.h || 0)
+      + ',' + (g.collapsed ? 1 : 0) + ',' + (g.mh == null ? '-' : g.mh) + ',' + (g.chip ? 1 : 0);
+  });
+  const hidden = (b && b.hidden && typeof b.hidden === 'object') ? Object.keys(b.hidden).filter(k => b.hidden[k]).sort().join(',') : '';
+  return parts.join('|') + '#' + hidden;
+}
+
+// Canonical read serialization of a board's layout state for a model / MCP. The
+// panel list is built from board CONTENT (never the legacy pv: keys), so a
+// headless caller addresses real panels by their stable ids and sees the live
+// collapsed / stashed / locked / geometry state for each.
+function boardLayoutDigest(b) {
+  const layout = (b && b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {};
+  const hidden = (b && b.hidden && typeof b.hidden === 'object') ? b.hidden : {};
+  const locks = (b && b.locks && typeof b.locks === 'object') ? b.locks : {};
+  const panels = [];
+  const push = (id, kind, title) => {
+    const g = layout[id] || {};
+    const base = String(id).replace(/^pv:/, '');
+    const lk = locks[base] || {};
+    panels.push({
+      id, kind,
+      title: String(title == null ? '' : title).replace(/\s+/g, ' ').trim().slice(0, 120),
+      collapsed: !!g.collapsed,
+      chip: !!g.chip,
+      hidden: !!hidden[base],
+      x: Number.isFinite(g.x) ? g.x : null,
+      y: Number.isFinite(g.y) ? g.y : null,
+      w: Number.isFinite(g.w) ? g.w : null,
+      h: Number.isFinite(g.h) ? g.h : null,
+      locks: { vis: !!lk.vis, size: !!lk.size, pos: !!lk.pos },
+    });
+  };
+  push('wherewasi', 'summary', 'Where was I?');
+  for (const it of (Array.isArray(b && b.items) ? b.items : [])) push('pin:' + it.id, it.kind, it.label || it.refId || it.kind);
+  for (const n of (Array.isArray(b && b.notes) ? b.notes : [])) push('note:' + n.id, 'note', (n.text || '').slice(0, 80));
+  for (const cl of (Array.isArray(b && b.checklists) ? b.checklists : [])) push('cl:' + cl.id, 'checklist', cl.title || 'Checklist');
+  return { version: BOARD_INTENT_VERSION, cols: BOARD_GRID_COLS, panels };
+}
+
+function _summarizeBoardIntents(applied, refused) {
+  const byType = {};
+  for (const a of applied) byType[a.type] = (byType[a.type] || 0) + 1;
+  const order = ['collapse', 'expand', 'stash', 'unstash', 'move', 'resize'];
+  const verb = { collapse: 'collapsed', expand: 'expanded', stash: 'stashed', unstash: 'restored', move: 'moved', resize: 'resized' };
+  const nice = order.filter(t => byType[t]).map(t => byType[t] + ' ' + verb[t]);
+  let s = nice.length ? nice.join(', ') : 'no changes';
+  if (refused.length) s += ` · ${refused.length} refused`;
+  return s;
+}
+
+// Apply a versioned intent payload to a board's layout/hidden maps, enforcing
+// locks. Returns { ok, version, layout, hidden, applied, refused, summary, changed }
+// WITHOUT persisting — the caller decides whether to save + stamp an undo txn.
+function applyBoardLayoutIntents(b, payload) {
+  const v = payload && payload.version;
+  if (v !== BOARD_INTENT_VERSION) return { ok: false, error: `Unsupported intent version (expected ${BOARD_INTENT_VERSION})` };
+  const intents = Array.isArray(payload && payload.intents) ? payload.intents : [];
+  if (!intents.length) return { ok: false, error: 'No intents' };
+  const layout = { ...((b && b.layout) || {}) };
+  const hidden = { ...((b && b.hidden) || {}) };
+  const cols = BOARD_GRID_COLS;
+  const known = new Set(boardLayoutDigest(b).panels.map(p => p.id));
+  const applied = [], refused = [];
+  // Write a patch to a panel's grid entry, mirroring to a legacy pv: twin if one
+  // still exists on older boards (current boards have none).
+  const patchGrid = (id, patch) => {
+    layout[id] = { ...(layout[id] || { x: 0, y: 0, w: cols, h: 3 }), ...patch };
+    const pv = 'pv:' + id;
+    if (layout[pv]) layout[pv] = { ...layout[pv], ...patch };
+  };
+  for (const raw of intents.slice(0, 80)) {
+    const t = raw && String(raw.type || '').toLowerCase();
+    const id = raw && String(raw.target || raw.id || '');
+    if (!BOARD_INTENT_TYPES.includes(t)) { refused.push({ id, type: t || '?', reason: 'unknown-intent' }); continue; }
+    if (!known.has(id)) { refused.push({ id, type: t, reason: 'unknown-target' }); continue; }
+    const base = id.replace(/^pv:/, '');
+    if (t === 'collapse' || t === 'expand') {
+      patchGrid(id, { collapsed: t === 'collapse' });
+      applied.push({ id, type: t });
+    } else if (t === 'stash' || t === 'unstash') {
+      if (id === 'wherewasi') { refused.push({ id, type: t, reason: 'summary-cannot-stash' }); continue; }
+      if (_boardLockFor(b, id, 'vis')) { refused.push({ id, type: t, reason: 'vis-locked' }); continue; }
+      if (t === 'stash') hidden[base] = true; else delete hidden[base];
+      applied.push({ id, type: t });
+    } else if (t === 'move') {
+      if (_boardLockFor(b, id, 'pos')) { refused.push({ id, type: t, reason: 'pos-locked' }); continue; }
+      const patch = {};
+      if (Number.isFinite(raw.x)) patch.x = Math.max(0, Math.min(cols - 1, Math.round(raw.x)));
+      if (Number.isFinite(raw.y)) patch.y = Math.max(0, Math.round(raw.y));
+      if (!Object.keys(patch).length) { refused.push({ id, type: t, reason: 'no-coords' }); continue; }
+      patchGrid(id, patch);
+      applied.push({ id, type: t, ...patch });
+    } else if (t === 'resize') {
+      if (_boardLockFor(b, id, 'size')) { refused.push({ id, type: t, reason: 'size-locked' }); continue; }
+      const patch = {};
+      if (Number.isFinite(raw.w)) patch.w = Math.max(2, Math.min(cols, Math.round(raw.w)));
+      if (Number.isFinite(raw.h)) patch.h = Math.max(2, Math.round(raw.h));
+      if (!Object.keys(patch).length) { refused.push({ id, type: t, reason: 'no-size' }); continue; }
+      // Keep the panel on-grid: if a wider width would overflow the right edge at
+      // the current x, shift x left (unless position is locked).
+      const cur = layout[id] || {};
+      if (patch.w && Number.isFinite(cur.x) && cur.x + patch.w > cols && !_boardLockFor(b, id, 'pos')) {
+        patch.x = Math.max(0, cols - patch.w);
+      }
+      patchGrid(id, patch);
+      applied.push({ id, type: t, ...patch });
+    }
+  }
+  return {
+    ok: true, version: BOARD_INTENT_VERSION, layout, hidden, applied, refused,
+    summary: _summarizeBoardIntents(applied, refused), changed: applied.length > 0,
   };
 }
 
@@ -5270,6 +5414,70 @@ app.get('/api/boards/:id', (req, res) => {
   const board = loadBoards().find(b => b.id === req.params.id);
   if (!board) return res.status(404).json({ error: 'Board not found' });
   res.json(_normalizeBoard(board));
+});
+
+// ---- Layout intents API (shared by AI Layout / Ask board / board MCP) --------
+// Canonical, lock-aware, versioned layout surface. Read the digest, post a batch
+// of intents (locks enforced server-side → refusals are real), or undo the last
+// headless transaction (only if no conflicting user edit landed since).
+
+// Read the layout digest a model / MCP should reason over.
+app.get('/api/boards/:id/layout', (req, res) => {
+  const board = loadBoards().find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  res.json({ ok: true, ...boardLayoutDigest(_normalizeBoard(board)) });
+});
+
+// Apply a versioned batch of layout intents. Persists + stamps an undo txn when
+// anything changed, and broadcasts so any open client reflows invisibly.
+app.post('/api/boards/:id/layout/intents', (req, res) => {
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  const actor = String((req.body && req.body.actor) || 'ai');
+  const result = applyBoardLayoutIntents(b, req.body || {});
+  if (!result.ok) return res.status(400).json({ ok: false, error: result.error });
+  if (result.changed) {
+    const prev = { layout: b.layout || {}, hidden: b.hidden || {} };
+    b.layout = result.layout;
+    b.hidden = result.hidden;
+    b.updatedAt = new Date().toISOString();
+    b.layoutTxn = { id: 'txn-' + Date.now().toString(36), actor, at: b.updatedAt, prev, sig: _boardLayoutSig(b) };
+    boards[idx] = b;
+    saveBoards(boards);
+    broadcastSSE('boards-changed', { id: b.id });
+  }
+  res.json({
+    ok: true, applied: result.applied, refused: result.refused,
+    summary: result.summary, changed: result.changed,
+    txnId: result.changed ? b.layoutTxn.id : null,
+  });
+});
+
+// Undo the last headless layout transaction — but only if the live board still
+// matches the post-transaction signature (i.e. the user hasn't edited since).
+app.post('/api/boards/:id/layout/undo', (req, res) => {
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'Board not found' });
+  const b = _normalizeBoard(boards[idx]);
+  const txn = b.layoutTxn;
+  if (!txn) return res.status(404).json({ ok: false, error: 'Nothing to undo' });
+  if (req.body && req.body.txnId && req.body.txnId !== txn.id) {
+    return res.status(409).json({ ok: false, error: 'A newer layout change exists' });
+  }
+  if (_boardLayoutSig(b) !== txn.sig) {
+    return res.status(409).json({ ok: false, error: 'Board changed since — undo skipped' });
+  }
+  b.layout = (txn.prev && txn.prev.layout) || {};
+  b.hidden = (txn.prev && txn.prev.hidden) || {};
+  b.layoutTxn = null;
+  b.updatedAt = new Date().toISOString();
+  boards[idx] = b;
+  saveBoards(boards);
+  broadcastSSE('boards-changed', { id: b.id });
+  res.json({ ok: true, undone: txn.id });
 });
 
 // Create a board
