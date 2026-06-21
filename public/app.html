@@ -15567,7 +15567,13 @@
           const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false), pinView = !!b.pinView, autoArrange = !!b.autoArrange;
           this._layoutTimer = setTimeout(() => {
             this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth, pinView, autoArrange }) })
-              .then(() => { this._layoutHoldUntil = Date.now() + 600; })
+              // Extend (never shrink) the optimistic hold past save. A board reload that
+              // started BEFORE this PUT landed can still be in flight carrying the stale
+              // pre-change layout; if the hold lapsed before that stale reload applied,
+              // syncBoardLayout would revert our just-saved layout (the post-Organize
+              // "re-arranges nicely, then jumbles" bug). Hold a healthy buffer past the
+              // save and only ever move the deadline forward.
+              .then(() => { this._layoutHoldUntil = Math.max(this._layoutHoldUntil || 0, Date.now() + 1500); })
               .catch(() => {});
           }, 450);
         },
@@ -15779,13 +15785,55 @@
         // element: how many grid rows its content needs at its CURRENT width, with no
         // inner scrollbar. Returns null for chips / unmeasurable nodes. This replaces the
         // identical inline calc that used to live in autoFit / organize / compact.
-        _fitRowsFromEl(el, id) {
+        _fitRowsFromEl(el, id, opts = {}) {
           if (!el || el.classList.contains('pin-chip')) return null;
+          // Step 4: dirty-panel measurement cache. Reuse the last row count when none of the
+          // inputs that affect a panel's content-fit height have changed, so a relayout pass
+          // only forces a reflow on the panels that actually changed — never all of them, and
+          // never (via the cache) on a width-drag frame whose width repeats. opts.fresh
+          // bypasses the cache for the ResizeObserver settle path, which is the authority on
+          // async content growth and must always re-measure.
+          this._fitCache = this._fitCache || {};
+          const sig = this._fitSig(el, id);
+          if (!opts.fresh) { const c = this._fitCache[id]; if (c && c.sig === sig) return c.rows; }
           const rowH = this.boardRowH, gap = this.boardGap;
           const head = el.querySelector('.board-panel-head');
-          if (this.isPanelCollapsed(id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+          let rows;
+          if (this.isPanelCollapsed(id)) {
+            rows = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
+          } else {
+            const body = el.querySelector('.board-panel-body');
+            rows = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+          }
+          this._fitCache[id] = { sig, rows };
+          return rows;
+        },
+        // Fast 32-bit FNV-1a — fingerprints panel text for the fit cache (not crypto).
+        _strHash(s) {
+          let h = 0x811c9dc5;
+          for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+          return h >>> 0;
+        },
+        // Cheap, reflow-free signature of every input that changes a panel's content-fit
+        // height: its column width + collapsed state (per-panel), the board's zoom / canvas
+        // width basis / font scale, the active light-dark + org theme, the window width
+        // bucket (captures resizes without a listener), and a hash of the rendered text.
+        // Reading attributes / textContent never forces layout; only a cache miss does.
+        _fitSig(el, id) {
+          const cur = this.boardLayout[id] || {};
+          const head = el.querySelector('.board-panel-head');
           const body = el.querySelector('.board-panel-body');
-          return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+          const txt = (head ? head.textContent : '') + '\u0001' + (body ? body.textContent : '');
+          const c = this.boardCanvas || {};
+          const de = document.documentElement;
+          return [
+            cur.w || 0,
+            this.isPanelCollapsed(id) ? 1 : 0,
+            c.z || 1, c.w || 0, c.baseW || 0, c.fs || 1,
+            de.getAttribute('data-theme') || '', de.getAttribute('data-org-theme') || '',
+            Math.round((window.innerWidth || 0) / 40),
+            this._strHash(txt)
+          ].join('|');
         },
         // _constrainPanelHeight is the single place the HEIGHT precedence lives, given a
         // panel's content-fit row count: a manual pinned height (mh) wins over content-fit
@@ -15842,6 +15890,7 @@
           if (this._boardSettleTimers) for (const t of Object.values(this._boardSettleTimers)) clearTimeout(t);
           this._boardSettleTimers = {};
           this._boardSettleSince = {};
+          this._fitCache = {};                       // drop cached measurements for the old board
         },
         // Per-panel "stable-for-N" gate: settle only once the content has stopped changing
         // for SETTLE_MS, or SETTLE_MAX has elapsed since it first started moving.
@@ -15871,7 +15920,7 @@
           const grid = document.querySelector('.board-grid'); if (!grid) return;
           let el = null;
           grid.querySelectorAll('.board-panel').forEach(x => { if (x.getAttribute('data-pid') === id) el = x; });
-          const rows = this._fitRowsFromEl(el, id);
+          const rows = this._fitRowsFromEl(el, id, { fresh: true });
           if (rows == null) return;                    // chip / unmeasurable
           const h = this._constrainPanelHeight(id, cur, rows);
           if (Math.abs(h - cur.h) < 2) return;         // ignore ±1-row churn
@@ -15934,12 +15983,42 @@
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
             if (!grid) { if (!silent) this.showToast('Board', 'Open a board first', 'error'); return; }
-            const rowH = this.boardRowH, gap = this.boardGap, cols = this.boardCols, half = Math.floor(cols / 2);
+            const cols = this.boardCols, half = Math.floor(cols / 2);
+            // Phase 1 — set each panel's FINAL width BEFORE measuring its height. Organize
+            // changes some widths (half->full, or full->half in balanced mode); if we measured
+            // first and changed width after, the packed heights would be wrong for the rendered
+            // width, and the async content-settle would then grow/shrink the card in place on a
+            // zero-slack board and overlap its neighbours ("re-arranges nicely, then jumbles").
+            // Width never depends on height, so we can decide it up front, then re-measure.
+            const widths = { ...this.boardLayout };
+            let wChanged = false;
+            for (const id of Object.keys(widths)) {
+              const cur = widths[id]; if (!cur) continue;
+              if (this._lockFor(id, 'pos') || this._lockFor(id, 'size')) continue;
+              const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
+              let nw = cur.w, nx = cur.x;
+              if (fullWidth) { nw = cols; nx = 0; }
+              else if (balance) { nw = half; }
+              if (nw !== cur.w || nx !== cur.x) { widths[id] = { ...cur, w: nw, x: nx }; wChanged = true; }
+            }
+            if (wChanged) this.boardLayout = widths;
+            // Phase 2 — after the DOM reflows at the final widths, measure and pack.
+            this.$nextTick(() => this._packOrganize(silent, balance));
+          });
+        },
+        _packOrganize(silent, balance) {
+          if (this.route !== 'boards') return;
+          const grid = document.querySelector('.board-grid');
+          if (!grid) return;
+          {
+            const cols = this.boardCols, half = Math.floor(cols / 2);
+            // Measure fresh: widths are now final, so these heights match what renders and the
+            // ResizeObserver settle that fires afterward computes the same h (a no-op).
             const fit = {};
             grid.querySelectorAll('.board-panel').forEach(el => {
               const id = el.getAttribute('data-pid'); if (!id) return;
               if (el.classList.contains('pin-chip')) return;
-              fit[id] = this._fitRowsFromEl(el, id);
+              fit[id] = this._fitRowsFromEl(el, id, { fresh: true });
             });
             const layout = { ...this.boardLayout };
             const order = Object.keys(layout)
@@ -15983,7 +16062,7 @@
             }
             if (changed) { this.boardLayout = layout; this.persistLayout(); }
             if (!silent) this.showToast('Board', 'Organized — no overlaps', 'success');
-          });
+          }
         },
         // ----- AI Layout -----
         // Let AI review the live board and design the view: collapse low-signal panels,
