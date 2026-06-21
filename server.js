@@ -5316,6 +5316,7 @@ function boardLayoutDigest(b) {
       title: String(title == null ? '' : title).replace(/\s+/g, ' ').trim().slice(0, 120),
       collapsed: !!g.collapsed,
       chip: !!g.chip,
+      fixed: !!g.fixed,
       hidden: !!hidden[base],
       x: Number.isFinite(g.x) ? g.x : null,
       y: Number.isFinite(g.y) ? g.y : null,

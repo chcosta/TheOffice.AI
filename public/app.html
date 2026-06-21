@@ -2339,6 +2339,7 @@
     .bph-lock-row .bph-lock-state { font-size: 13px; opacity: .85; }
     .bph-lock-row.on { color: var(--cp-accent); }
     .bph-lock-row.on .bph-lock-state { opacity: 1; }
+    .bph-lock-sep { height: 1px; background: var(--cp-border); margin: 3px 2px; opacity: .7; }
     .board-panel-inner {
       height: 100%;
       display: flex;
@@ -2424,6 +2425,11 @@
        spilling past a too-short frame. Content-fit panels stay overflow:visible so
        auto-fit can measure their true scrollHeight. */
     .board-panel.manual-h:not(.dragging) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+    /* Fixed panels (user opted a panel out of all automatic resize/reflow): geometry is
+       frozen at exactly x/y/w/h and content over/underflow is absorbed by an inner
+       scrollbar instead of growing, clipping, or moving the card. Same body treatment as
+       a pinned manual height. */
+    .board-panel.is-fixed:not(.dragging) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
     /* Rendered markdown (chat/summary/run output) uses rem-based sizes that are
        relative to the document root, so they ignore the body font-size above.
        Re-base them on --board-fs so the text-size control actually scales content. */
@@ -5224,7 +5230,7 @@
                     <div class="board-canvas-scroll" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <div class="board-grid" :style="boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
                             <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="chipType(p) + ': ' + chipName(p) + ' — click to expand'">
@@ -5265,6 +5271,9 @@
                                     <button class="bph-lock-row" :class="{ on: isPosLocked(p) }" type="button" @click.stop="togglePanelLock(p,'pos')"><span>Position</span><span class="bph-lock-state" x-text="isPosLocked(p) ? '🔒' : '🔓'"></span></button>
                                     <button class="bph-lock-row" :class="{ on: isSizeLocked(p) }" type="button" @click.stop="togglePanelLock(p,'size')"><span>Size</span><span class="bph-lock-state" x-text="isSizeLocked(p) ? '🔒' : '🔓'"></span></button>
                                     <button class="bph-lock-row" x-show="canStashPanel(p)" :class="{ on: isVisLocked(p) }" type="button" @click.stop="togglePanelLock(p,'vis')"><span>Visibility</span><span class="bph-lock-state" x-text="isVisLocked(p) ? '🔒' : '🔓'"></span></button>
+                                    <div class="bph-lock-sep"></div>
+                                    <div class="bph-lock-title">Resize behaviour</div>
+                                    <button class="bph-lock-row" :class="{ on: isPanelFixed(p) }" type="button" @click.stop="togglePanelFixed(p)" :title="isPanelFixed(p) ? 'Fixed: geometry frozen, content scrolls inside' : 'Pin this panel\'s exact size/position; content scrolls instead of resizing or moving it'"><span>📌 Fixed (scroll)</span><span class="bph-lock-state" x-text="isPanelFixed(p) ? '📌' : '↔'"></span></button>
                                   </div>
                                 </div>
                                 <button class="board-panel-chevron stash-toggle" type="button" x-show="canStashPanel(p)" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
@@ -14694,6 +14703,27 @@
         hasAnyLock(p) { const l = this.panelLockSet(p); return !!(l && (l.vis || l.size || l.pos)); },
         // Lock lookup by raw panel id (bulk ops pass p.id strings, not panel objects).
         _lockFor(id, which) { const l = this.boardLocks()[String(id || '').replace(/^pv:/, '')]; return !!(l && l[which]); },
+        // ----- Fixed panels (per-panel opt-out of all automatic resize/reflow) -----
+        // A fixed panel's geometry (x/y/w/h) is frozen exactly as the user left it: content
+        // over/underflow is absorbed by an inner scrollbar (the .is-fixed CSS) instead of
+        // growing/clipping the card, and the panel is never moved by content-settle reflow,
+        // organize, compact, or auto-fit. Distinct from locks: locks block USER/AI edits;
+        // fixed exempts a panel from AUTOMATIC content-driven changes (the user can still
+        // drag/resize it by hand). Stored on the layout entry so it persists with the grid.
+        _isFixed(id) { const g = this.boardLayout && this.boardLayout[String(id || '')]; return !!(g && g.fixed); },
+        isPanelFixed(p) { return this._isFixed(p && p.id); },
+        togglePanelFixed(p) {
+          const id = p && p.id; const cur = id && this.boardLayout && this.boardLayout[id];
+          if (!cur) return;
+          const nowOn = !cur.fixed;
+          const next = { ...cur };
+          if (nowOn) next.fixed = true; else delete next.fixed;
+          this.boardLayout = { ...this.boardLayout, [id]: next };
+          this.persistLayout();
+          this.showToast('Board', nowOn ? 'Panel fixed — geometry frozen, content scrolls' : 'Panel unfixed — resizes to fit again', nowOn ? 'info' : 'success');
+          // When releasing a fixed panel, let it settle back to its content height in place.
+          if (!nowOn) this.$nextTick(() => this._schedulePanelSettle(id));
+        },
         persistLocks(locks) {
           const b = this.activeBoard(); if (!b) return;
           this.request('/api/boards/' + encodeURIComponent(b.id), { method: 'PUT', body: JSON.stringify({ locks }) }).catch(() => {});
@@ -14861,8 +14891,8 @@
               // Chips (and anything we can't measure) keep their current footprint so we
               // still pack around them and never overlap; real panels get shrunk to fit.
               if (isChip) { meta[id] = { w: Math.max(1, Math.round(cur.w)), h: Math.max(1, Math.round(cur.h)) }; return; }
-              // Size-locked panels keep their exact footprint (never shrunk).
-              if (this._lockFor(id, 'size')) { meta[id] = { w: Math.max(1, Math.round(cur.w)), h: Math.max(1, Math.round(cur.h)) }; return; }
+              // Size-locked or fixed panels keep their exact footprint (never shrunk).
+              if (this._lockFor(id, 'size') || this._isFixed(id)) { meta[id] = { w: Math.max(1, Math.round(cur.w)), h: Math.max(1, Math.round(cur.h)) }; return; }
               let w = this._panelMinWidth(id);
               if (w == null) w = Math.round(cur.w);
               w = Math.max(2, Math.min(cols, w));
@@ -14882,7 +14912,7 @@
             // the skyline so packed panels never land on top of them.
             const fixed = new Set();
             for (const id of order) {
-              if (!this._lockFor(id, 'pos')) continue;
+              if (!this._lockFor(id, 'pos') && !this._isFixed(id)) continue;
               fixed.add(id);
               const cur = layout[id]; const w = meta[id].w, h = meta[id].h;
               const x0 = Math.max(0, Math.min(cols - 1, Math.round(cur.x)));
@@ -15625,7 +15655,7 @@
           // rest and organize/auto-fit flows the unlocked panels around them.
           const keep = {};
           for (const [id, l] of Object.entries(this.boardLayout || {})) {
-            if (this._lockFor(id, 'pos') || this._lockFor(id, 'size')) keep[id] = l;
+            if (this._lockFor(id, 'pos') || this._lockFor(id, 'size') || this._isFixed(id)) keep[id] = l;
           }
           this.boardLayout = keep;
           this.resetBoardCanvas(); // back to window-fit width
@@ -15883,6 +15913,7 @@
         // and chip handling stay with the caller (they also drive width/position there).
         // Used by autoFitBoard (hysteresis), organizeBoard and compactBoard.
         _constrainPanelHeight(id, cur, fitRows, opts = {}) {
+          if (this._isFixed(id)) return cur.h;           // fixed: geometry frozen, content scrolls
           if (fitRows == null) return cur.h;
           if (cur.mh != null && !this.isPanelCollapsed(id)) return Math.max(1, Math.round(cur.mh));
           if (!opts.hysteresis) return fitRows;
@@ -15961,6 +15992,7 @@
         _settlePanelHeight(id) {
           if (this.route !== 'boards' || this.boardDragId) return;
           const cur = this.boardLayout[id]; if (!cur) return;
+          if (this._isFixed(id)) return;                 // fixed — geometry frozen, content scrolls
           if (cur.mh != null) return;                  // user pinned a height — their choice wins
           if (this._lockFor(id, 'size')) return;       // size-locked — never auto-resize
           if (this.isPanelCollapsed(id)) return;       // collapsed height is fixed by the header
@@ -15998,6 +16030,7 @@
           for (const pid of Object.keys(out)) {
             if (pid === anchorId) continue;
             const p = out[pid]; if (!p) continue;
+            if (this._isFixed(pid)) continue;          // fixed — never moved by reflow
             if (this._lockFor(pid, 'pos')) continue;   // pinned in place by the user
             if (p.y < oldBottom) continue;             // beside / above the anchor — not below it
             if (!overlapX(a, p)) continue;             // different column — untouched
@@ -16069,7 +16102,7 @@
             let wChanged = false;
             for (const id of Object.keys(widths)) {
               const cur = widths[id]; if (!cur) continue;
-              if (this._lockFor(id, 'pos') || this._lockFor(id, 'size')) continue;
+              if (this._lockFor(id, 'pos') || this._lockFor(id, 'size') || this._isFixed(id)) continue;
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
               let nw = cur.w, nx = cur.x;
               if (fullWidth) { nw = cols; nx = 0; }
@@ -16102,10 +16135,10 @@
             let yL = 0, yR = 0, changed = false;
             for (const id of order) {
               const cur = layout[id];
-              // Position-locked panels never move; flow other panels around them by
-              // advancing the affected column cursor(s) past their footprint.
-              if (this._lockFor(id, 'pos')) {
-                const lh = this._lockFor(id, 'size') ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
+              // Position-locked AND fixed panels never move; flow other panels around them
+              // by advancing the affected column cursor(s) past their footprint.
+              if (this._lockFor(id, 'pos') || this._isFixed(id)) {
+                const lh = (this._lockFor(id, 'size') || this._isFixed(id)) ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
                 const bottom = (cur.y || 0) + lh;
                 const fw = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
                 if (fw) { yL = Math.max(yL, bottom); yR = Math.max(yR, bottom); }
