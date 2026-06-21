@@ -15870,11 +15870,13 @@
         // A board-scoped ResizeObserver watches each panel's content (.board-panel-body).
         // When content height changes AFTER the render-time fit — late markdown, an AI
         // briefing arriving, an image loading — we settle THAT panel's height in place once
-        // its content has been quiet for SETTLE_MS (capped by SETTLE_MAX). We never repack
-        // or move neighbours: only the panel whose content changed resizes, honouring
-        // locks / mh / collapse via the shared _constrainPanelHeight. Generalises the old
-        // one-shot _refitSummaryPanel to every fit panel. Loop-safe: a content-fit body is
-        // content-sized (overflow:visible) so our grid-h writes don't change its box.
+        // its content has been quiet for SETTLE_MS (capped by SETTLE_MAX), honouring locks /
+        // mh / collapse via the shared _constrainPanelHeight. In the fluid (default) view a
+        // grow then pushes the panels stacked BELOW it down by the same delta (and a shrink
+        // pulls them back up) so neighbours make room without losing their relative layout —
+        // see _reflowBelow. Side-by-side siblings and unrelated columns never move. Loop-safe:
+        // a content-fit body is content-sized (overflow:visible) so our grid writes don't
+        // change its box.
         _BOARD_SETTLE_MS: 220,
         _BOARD_SETTLE_MAX: 1600,
         _syncBoardObserver() {
@@ -15920,7 +15922,11 @@
         // Settle ONE panel's height to its now-stable content, in place. Skips size-locked /
         // chip / mh-pinned / collapsed panels (their height is the user's or intentionally
         // fixed) and only commits a meaningful (>= 2 row) change so a panel on a row
-        // boundary can't oscillate.
+        // boundary can't oscillate. After the height change, _reflowBelow shifts the panels
+        // stacked under it by the same delta so a grow makes room (and a shrink reclaims it)
+        // without disturbing their relative spacing — the "relative positions" of the fluid
+        // view. A downward-only overlap pass anchored on this panel cleans up any rare
+        // residual interleave.
         _settlePanelHeight(id) {
           if (this.route !== 'boards' || this.boardDragId) return;
           const cur = this.boardLayout[id]; if (!cur) return;
@@ -15934,10 +15940,41 @@
           if (rows == null) return;                    // chip / unmeasurable
           const h = this._constrainPanelHeight(id, cur, rows);
           if (Math.abs(h - cur.h) < 2) return;         // ignore ±1-row churn
+          const delta = h - cur.h;
+          let next = { ...this.boardLayout, [id]: { ...cur, h } };
+          next = this._reflowBelow(next, id, cur.y + cur.h, delta);
+          const res = this._resolveOverlaps(next, id);  // safety net (downward only, anchor fixed)
+          if (res.changed) next = res.layout;
           this._settleApplying = true;
-          this.boardLayout = { ...this.boardLayout, [id]: { ...cur, h } };
+          this.boardLayout = next;
           this.persistLayout();
           this.$nextTick(() => { this._settleApplying = false; });
+        },
+        // Relative reflow for the fluid view: when `anchorId` changed height by `delta` rows
+        // (its old bottom was `oldBottom`), shift every panel stacked BELOW it down/up by the
+        // same delta so the stack keeps its spacing — a grow pushes neighbours away, a shrink
+        // pulls them back (no downward drift over repeated grow/shrink cycles). Only panels
+        // that (a) start at or below the anchor's old bottom and (b) share a column with the
+        // anchor are moved; side-by-side siblings and other columns stay put. Position-locked
+        // panels are left where the user pinned them. y is clamped to >= 0. Returns a new map
+        // (or the same one if nothing moved).
+        _reflowBelow(layout, anchorId, oldBottom, delta) {
+          if (!delta) return layout;
+          const a = layout[anchorId]; if (!a) return layout;
+          const overlapX = (p, q) => p.x < q.x + q.w && q.x < p.x + p.w;
+          const out = { ...layout };
+          let changed = false;
+          for (const pid of Object.keys(out)) {
+            if (pid === anchorId) continue;
+            const p = out[pid]; if (!p) continue;
+            if (this._lockFor(pid, 'pos')) continue;   // pinned in place by the user
+            if (p.y < oldBottom) continue;             // beside / above the anchor — not below it
+            if (!overlapX(a, p)) continue;             // different column — untouched
+            let ny = p.y + delta;
+            if (ny < 0) ny = 0;
+            if (ny !== p.y) { out[pid] = { ...p, y: ny }; changed = true; }
+          }
+          return changed ? out : layout;
         },
         // Fit every panel's HEIGHT to its rendered content (no inner scrollbar). Width,
         // column and Y are left exactly where the user put them — boards are manual-size,
