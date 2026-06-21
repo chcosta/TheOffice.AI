@@ -2565,6 +2565,18 @@
       color: var(--cp-text-soft); flex: 0 0 auto;
     }
     .board-bottombar .bb-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .board-bottombar .bb-cluster { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .board-bottombar .bb-glabel {
+      font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+      color: var(--cp-text-soft); opacity: .75; flex: 0 0 auto; margin-right: -2px;
+    }
+    .board-bottombar .bb-hidden {
+      font-size: 12px; color: var(--cp-text-muted); background: transparent;
+      border: 1px dashed var(--cp-border); border-radius: 7px; padding: 4px 9px;
+      cursor: pointer; white-space: nowrap;
+    }
+    .board-bottombar .bb-hidden:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
+    .board-bottombar .bb-hidden.active { border-style: solid; border-color: var(--cp-accent); color: var(--cp-accent); }
     .board-bottombar .bb-sep { width: 1px; height: 22px; background: var(--cp-border); flex: 0 0 auto; }
     /* ----- Saved layouts dropdown ----- */
     .bb-layouts-pop {
@@ -5255,7 +5267,7 @@
                                     <button class="bph-lock-row" x-show="canStashPanel(p)" :class="{ on: isVisLocked(p) }" type="button" @click.stop="togglePanelLock(p,'vis')"><span>Visibility</span><span class="bph-lock-state" x-text="isVisLocked(p) ? '🔒' : '🔓'"></span></button>
                                   </div>
                                 </div>
-                                <button class="board-panel-chevron stash-toggle" type="button" x-show="canStashPanel(p) && (boardManageMode || isPanelStashed(p))" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
+                                <button class="board-panel-chevron stash-toggle" type="button" x-show="canStashPanel(p)" @click.stop="togglePanelStash(p)" @mousedown.stop :title="isPanelStashed(p) ? 'Restore to the board' : 'Stash — hide from the board (AI still uses it)'" x-text="isPanelStashed(p) ? '🙈' : '👁'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="!isPanelCollapsed(p.id)" @click.stop="autoSizePanelWidth(p.id)" @mousedown.stop title="Shrink width to the minimum that fits the content (height stays the same)">▸◂</button>
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p)" @click.stop="reducePinChip(p)" @mousedown.stop title="Pin-ify: reduce this item to an icon chip">⊟</button>
@@ -5580,22 +5592,51 @@
                     </div>
                     </div>
 
-                    <!-- Layout controls: docked to the bottom of the board view -->
+                    <!-- Layout controls: docked to the bottom of the board view.
+                         Three calm groups — Arrange (explicit, user-invoked moves only),
+                         View (frame the canvas; never moves panels), Layouts (save/restore/reset).
+                         Auto-arrange was removed: a drag moves ONLY the dragged panel; overlaps
+                         resolve via an explicit Organize. Compact's manual button was folded out
+                         (its tight-pack stays available to AI Layout). -->
                     <div class="board-bottombar">
-                      <span class="bb-title">⚙ Layout</span>
+                      <div class="bb-cluster">
+                      <span class="bb-glabel" title="Explicit layout commands — the board only rearranges when you press one of these">Arrange</span>
                       <div class="bb-group">
                         <button class="btn ghost" type="button" @click="organizeBoard()" title="Tidy the board so no cards overlap — packs each column top-to-bottom and fits every card to its content">⊞ Organize</button>
-                        <button class="btn ghost" type="button" @click="compactBoard()" title="Compact: shrink every card to the narrowest width that fits its content, fit heights, then pack everything up and to the left to remove dead space (no overlaps)">⇲ Compact</button>
+                        <button class="btn ghost" type="button" @click="pinifyBoard()" title="Pin-ify: collapse every item on the board to a small icon chip and pack them tightly. Click any chip to expand it again — chips hover to preview.">📌 Pin-ify</button>
                         <button class="btn ghost" type="button" @click="aiLayoutBoard()" :disabled="boardAiLayoutBusy" :title="boardAiLayoutBusy ? 'Designing a layout…' : 'AI Layout: let AI review every panel and design the view — collapse low-signal cards, keep the interesting ones open and prominent, and set a good zoom + font size'" x-text="boardAiLayoutBusy ? '✨ Designing…' : '✨ AI Layout'"></button>
-                        <label class="board-aw-check" title="Auto-arrange: when a panel is moved or resized, automatically push overlapping cards out of the way so nothing is hidden. Only runs on move/resize." style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);cursor:pointer;user-select:none;white-space:nowrap">
-                          <input type="checkbox" :checked="boardAutoArrange()" @change="toggleBoardAutoArrange()" style="cursor:pointer">
-                          🧲 Auto-arrange
-                        </label>
-                        <button class="btn ghost" type="button" @click="resetBoardLayout()" title="Reset panels to a 50/50 layout">↺ Reset layout</button>
+                      </div>
+                      </div>
+                      <div class="bb-sep"></div>
+                      <div class="bb-cluster">
+                      <span class="bb-glabel" title="Frame the canvas — these change the view only, never move your panels">View</span>
+                      <div class="bb-group">
+                        <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
+                          <button type="button" @click="setBoardZoom(1)" title="Reset zoom to 100%" style="background:none;border:none;padding:0;cursor:pointer;opacity:0.8;font-size:13px;line-height:1;color:inherit">🔍</button>
+                          <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:110px;cursor:pointer" title="Board zoom">
+                          <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
+                        </span>
+                        <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Fit: zoom so the whole board fits in view" style="padding:2px 8px">⤢ Fit</button>
+                        <button class="btn ghost" type="button" @click="fitBoardWidth()" title="Fit width: shrink the board so its width matches the rightmost panel — removes empty space on the sides" style="padding:2px 8px">↔ Fit width</button>
+                        <button class="btn ghost" type="button" @click="fitBoardVertical()" title="Fit vertical: zoom so the board's full height fits the viewport" style="padding:2px 8px">↕ Fit vertical</button>
+                        <span class="board-zoom" title="Text size of board panel content (this board only)" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
+                          <span style="opacity:.8;font-size:13px" title="Text size">🔤</span>
+                          <button class="btn ghost" type="button" @click="bumpBoardFont(-0.1)" title="Smaller text" style="padding:2px 8px;font-size:11px">A−</button>
+                          <span x-text="Math.round(boardFont()*100) + '%'" style="width:38px;text-align:center;font-variant-numeric:tabular-nums"></span>
+                          <button class="btn ghost" type="button" @click="bumpBoardFont(0.1)" title="Larger text" style="padding:2px 8px;font-size:14px">A+</button>
+                          <button class="btn ghost" type="button" x-show="boardFont() !== 1" @click="setBoardFont(1)" title="Reset text size to 100%" style="padding:2px 8px">↺</button>
+                        </span>
+                      </div>
+                      </div>
+                      <div class="bb-sep"></div>
+                      <div class="bb-cluster">
+                      <span class="bb-glabel" title="Save, restore or reset named arrangements">Layouts</span>
+                      <div class="bb-group">
                         <div class="bb-layouts" style="position:relative;display:inline-flex">
-                          <button class="btn ghost" type="button" :class="{ active: boardLayoutsMenu }" @click="boardLayoutsMenu = !boardLayoutsMenu" title="Save the current arrangement (panel positions, sizes, zoom &amp; text size) as a named layout, or restore one you saved earlier"><span x-text="'🗂 Layouts' + (boardSavedLayouts().length ? ' (' + boardSavedLayouts().length + ')' : '')"></span></button>
+                          <button class="btn ghost" type="button" :class="{ active: boardLayoutsMenu }" @click="boardLayoutsMenu = !boardLayoutsMenu" title="Save the current arrangement (panel positions, sizes, zoom &amp; text size) as a named layout, restore one you saved earlier, or reset to a default 50/50 layout"><span x-text="'🗂 Layouts' + (boardSavedLayouts().length ? ' (' + boardSavedLayouts().length + ')' : '')"></span></button>
                           <div class="bb-layouts-pop" x-show="boardLayoutsMenu" @click.outside="boardLayoutsMenu=false" x-transition.opacity style="display:none">
                             <button class="bb-layouts-item" type="button" @click="saveCurrentLayout()">💾 Save current layout…</button>
+                            <button class="bb-layouts-item" type="button" @click="resetBoardLayout(); boardLayoutsMenu=false" title="Reset panels to a default 50/50 layout">↺ Reset to default layout</button>
                             <div class="bb-layouts-sep" x-show="boardSavedLayouts().length"></div>
                             <template x-for="sl in boardSavedLayouts()" :key="sl.id">
                               <div class="bb-layouts-row">
@@ -5606,26 +5647,9 @@
                             <div class="bb-layouts-empty" x-show="!boardSavedLayouts().length">No saved layouts yet</div>
                           </div>
                         </div>
-                        <button class="btn ghost" type="button" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done editing — re-hide stashed items' : 'Edit items: reveal stashed items so you can hide or restore any item. Stashed items stay out of the board but still feed the AI.'" x-text="boardManageMode ? ('✓ Done' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : '')) : ('👁 Edit items' + (boardStashedCount() ? ' (' + boardStashedCount() + ' hidden)' : ''))"></button>
-                        <button class="btn ghost" type="button" @click="pinifyBoard()" title="Pin-ify: collapse every item on the board to a small icon chip and pack them tightly. Click any chip to expand it again — chips hover to preview.">📌 Pin-ify</button>
-                        <button class="btn ghost" type="button" @click="fitBoardWidth()" title="Fit width: shrink the board so its width matches the rightmost panel — removes empty space on the sides">↔ Fit width</button>
+                        <button class="bb-hidden" type="button" x-show="boardStashedCount() > 0" :class="{ active: boardManageMode }" @click="toggleBoardManage()" :title="boardManageMode ? 'Done — re-hide stashed items' : 'Reveal stashed items so you can restore any of them. Stashed items stay off the board but still feed the AI. (Stash any item from its 👁 button.)'" x-text="boardManageMode ? '✓ Done' : (boardStashedCount() + ' hidden ▸ show')"></button>
                       </div>
-                      <div class="bb-sep"></div>
-                      <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
-                        <button type="button" @click="setBoardZoom(1)" title="Reset zoom to 100%" style="background:none;border:none;padding:0;cursor:pointer;opacity:0.8;font-size:13px;line-height:1;color:inherit">🔍</button>
-                        <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:120px;cursor:pointer" title="Board zoom">
-                        <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
-                        <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Fit: zoom so the whole board fits in view" style="padding:2px 8px">⤢ Fit</button>
-                        <button class="btn ghost" type="button" @click="fitBoardVertical()" title="Fit vertical: zoom so the board's full height fits the viewport" style="padding:2px 8px">↕ Fit vertical</button>
-                      </span>
-                      <div class="bb-sep"></div>
-                      <span class="board-zoom" title="Text size of board panel content (this board only)" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
-                        <span style="opacity:.8;font-size:13px" title="Text size">🔤</span>
-                        <button class="btn ghost" type="button" @click="bumpBoardFont(-0.1)" title="Smaller text" style="padding:2px 8px;font-size:11px">A−</button>
-                        <span x-text="Math.round(boardFont()*100) + '%'" style="width:38px;text-align:center;font-variant-numeric:tabular-nums"></span>
-                        <button class="btn ghost" type="button" @click="bumpBoardFont(0.1)" title="Larger text" style="padding:2px 8px;font-size:14px">A+</button>
-                        <button class="btn ghost" type="button" x-show="boardFont() !== 1" @click="setBoardFont(1)" title="Reset text size to 100%" style="padding:2px 8px">↺</button>
-                      </span>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -14532,23 +14556,9 @@
           this.packPinView(true);
           this.showToast('Board', n ? ('Pinned ' + n + ' item' + (n === 1 ? '' : 's') + ' to chips') : 'Nothing to pin-ify', 'success');
         },
-        // Auto-arrange: when ON, a panel that is moved or resized triggers a gentle
-        // de-overlap pass so nothing ends up hidden under another card. It only fires on
-        // those gestures (never on a timer / passive reload), keeping the board still.
-        boardAutoArrange() {
-          const b = this.activeBoard();
-          return !!(b && b.autoArrange);
-        },
-        toggleBoardAutoArrange() {
-          const b = this.activeBoard();
-          if (!b) return;
-          b.autoArrange = !b.autoArrange;
-          this.persistLayout();
-          if (b.autoArrange) {
-            // Tidy once immediately so the board reflects the new mode.
-            this.organizeBoard();
-          }
-        },
+        // Auto-arrange was REMOVED (calm-first redesign): a drag/resize moves ONLY the
+        // dragged panel; overlaps are the user's own placement and resolve via an explicit
+        // Organize. No live de-overlap on move/resize — the board never moves on its own.
         // Every panel except the "Where was I?" summary can collapse to an icon chip
         // in pin view (pins, notes and checklists alike).
         isChipPanel(p) {
@@ -15960,11 +15970,8 @@
               const h = this._constrainPanelHeight(id, cur, need, { hysteresis: true });
               if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
             }
-            // After heights settle, push overlaps off the anchor if auto-arrange is on.
-            if (arrangeAnchor && this.boardAutoArrange()) {
-              const res = this._resolveOverlaps(layout, arrangeAnchor);
-              if (res.changed) { layout = res.layout; changed = true; }
-            }
+            // Auto-arrange removed: never push neighbours off the dragged panel. A drag
+            // moves only the dragged card; the user tidies overlaps with explicit Organize.
             if (changed) {
               this.boardLayout = layout;
               if (persist) this.persistLayout();
