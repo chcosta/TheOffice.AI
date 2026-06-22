@@ -9942,6 +9942,14 @@
         boardAiPinned: [],
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
+        // Board writer-lease (multi-client single-writer). Optimistic: assume we hold
+        // until the server/SSE demotes us (only happens under genuine contention), so
+        // the lone-client and test cases work with zero latency. _boardLeaseHeld gates
+        // _layoutActive() alongside visibility.
+        _boardClientId: '',
+        _boardLeaseHeld: true,
+        _boardLeaseHolder: '',
+        _boardLeaseTimer: null,
         // Named saved layouts dropdown open state (UI only; layouts live on the board).
         boardLayoutsMenu: false,
         boardDragId: '',
@@ -10156,9 +10164,15 @@
               clearTimeout(this._autoFitTimer);
               clearTimeout(this._boardSettleTimer); this._boardSettleTimer = null;
               this._boardSettleStart = null; this._boardSettleDirty = null;
+              this._releaseBoardLease(); // cede writer status so a visible peer can become master
             } else {
+              this._claimBoardLease(); // back in focus -> reclaim master, then re-fit to our viewport
               this.$nextTick(() => { this._syncBoardObserver(); this.scheduleAutoFit(); });
             }
+          });
+          // Cede the lease promptly on tab close so a peer doesn't wait out the TTL.
+          window.addEventListener('beforeunload', () => {
+            if (this.route === 'boards') { try { this._releaseBoardLease(); } catch {} }
           });
         },
 
@@ -11220,6 +11234,20 @@
               clearTimeout(this._boardsChangedTimer);
               if (now - last >= 1200) { run(); }
               else { this._boardsChangedTimer = setTimeout(run, 1200 - (now - last)); }
+            });
+            // Writer-lease changed elsewhere → if a peer became master of the board we're
+            // viewing, drop to read-only listener (stop computing/persisting layout). If
+            // the lease was released (holderId null) and we're the active visible board,
+            // reclaim it so a lone remaining client resumes writing.
+            source.addEventListener('board-lease', (event) => {
+              const { boardId, holderId } = JSON.parse(event.data || '{}');
+              if (this.route !== 'boards' || boardId !== this.activeBoardId) return;
+              if (holderId && holderId !== this._clientId()) {
+                this._boardLeaseHolder = holderId;
+                this._boardLeaseHeld = false; // a peer is master → we listen
+              } else if (!holderId) {
+                if (typeof document === 'undefined' || document.visibilityState !== 'hidden') this._claimBoardLease();
+              }
             });
             // Team membership / op-team changes can flip a board's compliance.
             source.addEventListener('teams-changed', () => {
@@ -13903,6 +13931,7 @@
           this._boardFitOnOpen = id;  // one-shot: fit fluid panels to their content on open only
           this._aiLayoutUndo = null;  // undo is scoped to the board it was captured on
           this._disconnectBoardObserver();
+          this._claimBoardLease();    // opening a board = becoming its most-recent-active (master) client
           this._loadBoardAiPrompts();
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
           this.syncBoardLayout();
@@ -14933,6 +14962,7 @@
         // to remove dead space — guaranteeing no overlap (a skyline bin-pack).
         compactBoard() {
           if (this.route !== 'boards') return;
+          this._ensureBoardLease();
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
             if (!grid) { this.showToast('Board', 'Open a board first', 'error'); return; }
@@ -15428,6 +15458,7 @@
         startPanelDrag(id, ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
           if (this._lockFor(id, 'pos')) { ev.preventDefault(); this.showToast('Board', 'Position is locked for this panel', 'info'); return; }
+          this._ensureBoardLease(); // interacting = become this board's master writer
           ev.preventDefault();
           const grid = ev.target.closest('.board-grid');
           if (!grid) return;
@@ -15619,6 +15650,7 @@
         startPanelResize(id, ev, mode = 'w') {
           if (ev.button !== undefined && ev.button !== 0) return;
           if (this._lockFor(id, 'size')) { ev.preventDefault(); ev.stopPropagation(); this.showToast('Board', 'Size is locked for this panel', 'info'); return; }
+          this._ensureBoardLease(); // interacting = become this board's master writer
           ev.preventDefault(); ev.stopPropagation();
           const rowH = this.boardRowH;
           const base = this.boardLayout[id]; if (!base) return;
@@ -15747,8 +15779,9 @@
           this._layoutHoldPinView = !!b.pinView;
           clearTimeout(this._layoutTimer);
           const id = b.id, snapshot = this.boardLayout, autoWidth = (b.autoWidth !== false), pinView = !!b.pinView, autoArrange = !!b.autoArrange;
+          const clientId = this._clientId();
           this._layoutTimer = setTimeout(() => {
-            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth, pinView, autoArrange }) })
+            this.request('/api/boards/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ layout: snapshot, autoWidth, pinView, autoArrange, clientId }) })
               // Extend (never shrink) the optimistic hold past save. A board reload that
               // started BEFORE this PUT landed can still be in flight carrying the stale
               // pre-change layout; if the hold lapsed before that stale reload applied,
@@ -15756,10 +15789,18 @@
               // "re-arranges nicely, then jumbles" bug). Hold a healthy buffer past the
               // save and only ever move the deadline forward.
               .then(() => { this._layoutHoldUntil = Math.max(this._layoutHoldUntil || 0, Date.now() + 1500); })
-              .catch(() => {});
+              .catch((err) => {
+                // 409 = a peer holds the writer lease. Drop to read-only listener so we stop
+                // fighting them; the SSE board-lease + our next interaction will reconcile.
+                if (err && err.status === 409) {
+                  this._boardLeaseHeld = false;
+                  this._boardLeaseHolder = (err.body && err.body.holderId) || '';
+                }
+              });
           }, 450);
         },
         resetBoardLayout() {
+          this._ensureBoardLease();
           const b = this.activeBoard();
           // Preserve layout entries for panels whose position OR size is locked — a reset
           // shouldn't override a lock the user explicitly set. ensureBoardLayout fills the
@@ -15935,11 +15976,66 @@
             this.autoFitBoard(p, a);
           }, 70);
         },
-        // A client is the layout WRITER only while visible. Hidden background tabs apply server
-        // layout read-only and never compute/persist, so an unfocused client can't degrade the
-        // focused one. (visibilityState is 'visible' under puppeteer/headless, so tests are the
-        // active writer as expected.)
-        _layoutActive() { return (typeof document === 'undefined') || document.visibilityState !== 'hidden'; },
+        // A client is the layout WRITER only while visible AND it holds the board
+        // writer-lease. Hidden background tabs OR non-holder listeners apply server
+        // layout read-only and never compute/persist, so a secondary client can't
+        // degrade the focused one. (visibilityState is 'visible' under puppeteer and
+        // _boardLeaseHeld defaults true, so tests are the active writer as expected.)
+        _layoutActive() {
+          return (typeof document === 'undefined')
+            || (document.visibilityState !== 'hidden' && this._boardLeaseHeld !== false);
+        },
+        // ---- Board writer-lease coordination ----
+        _clientId() {
+          if (this._boardClientId) return this._boardClientId;
+          let id = '';
+          try { id = sessionStorage.getItem('cp-board-client') || ''; } catch {}
+          if (!id) {
+            id = 'c-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+            try { sessionStorage.setItem('cp-board-client', id); } catch {}
+          }
+          this._boardClientId = id;
+          return id;
+        },
+        async _leaseRequest(action) {
+          const id = this.activeBoardId; if (!id) return;
+          try {
+            const r = await this.request('/api/boards/' + encodeURIComponent(id) + '/lease', {
+              method: 'POST', body: JSON.stringify({ clientId: this._clientId(), action })
+            });
+            if (r && Object.prototype.hasOwnProperty.call(r, 'isHolder')) {
+              this._boardLeaseHolder = r.holderId || '';
+              this._boardLeaseHeld = !!r.isHolder;
+            }
+          } catch {}
+        },
+        // Become the layout master (most-recently-active client wins). Optimistic flip
+        // so the very next gesture writes immediately; the server 'steal' confirms +
+        // broadcasts so any prior holder drops to listener.
+        _claimBoardLease() {
+          this._boardLeaseHeld = true;
+          this._boardLeaseHolder = this._clientId();
+          this._leaseRequest('steal');
+          this._startLeaseHeartbeat();
+        },
+        // Re-claim only if we aren't already the confirmed holder (cheap no-op for the
+        // steady-state holder; the heartbeat keeps the lease alive).
+        _ensureBoardLease() {
+          if (this._boardLeaseHeld && this._boardLeaseHolder === this._clientId()) return;
+          this._claimBoardLease();
+        },
+        _startLeaseHeartbeat() {
+          clearInterval(this._boardLeaseTimer);
+          this._boardLeaseTimer = setInterval(() => {
+            if (this.route !== 'boards' || (typeof document !== 'undefined' && document.visibilityState === 'hidden') || !this._boardLeaseHeld) return;
+            this._leaseRequest('acquire'); // renew the TTL
+          }, 5000);
+        },
+        _releaseBoardLease() {
+          clearInterval(this._boardLeaseTimer); this._boardLeaseTimer = null;
+          this._boardLeaseHeld = false;
+          this._leaseRequest('release');
+        },
         // Push overlapping panels down so nothing is hidden, keeping the anchor (the card
         // the user just moved/resized) exactly where they put it. Pure layout math — does
         // not move the anchor and never compacts upward, so the gesture result is honored.
@@ -16486,6 +16582,7 @@
         // when the user clicks Organize, then persists.
         organizeBoard(silent, balance) {
           if (this.route !== 'boards') return;
+          this._ensureBoardLease();
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
             if (!grid) { if (!silent) this.showToast('Board', 'Open a board first', 'error'); return; }

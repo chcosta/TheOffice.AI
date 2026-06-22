@@ -625,6 +625,23 @@ const SPA_PATH = path.join(__dirname, 'public', 'app.html');
 // SSE (Server-Sent Events) for real-time updates
 const sseClients = new Set();
 
+// ---- Board layout writer-lease (single-writer concurrency) ----
+// Multiple humans may have the same board open. To stop two simultaneously-visible
+// clients from fighting over the layout (each fits to its own viewport width and
+// PUTs -> last-write-wins jumble), exactly one client at a time holds a short-lived
+// writer lease. Non-holders render the server's layout read-only. The lease is
+// in-memory + TTL'd: if the holder closes/idles, it expires and the next active
+// client claims it. The AI / headless actor (POST /layout/intents) is EXEMPT — it
+// writes regardless of who holds the human lease.
+const boardLeases = new Map(); // boardId -> { holderId, expiresAt }
+const BOARD_LEASE_TTL_MS = 12000;
+function boardLeaseHolder(boardId) {
+  const l = boardLeases.get(boardId);
+  if (l && l.expiresAt > Date.now()) return l;
+  if (l) boardLeases.delete(boardId);
+  return null;
+}
+
 app.get('/api/events', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -5481,7 +5498,36 @@ app.post('/api/boards/:id/layout/undo', (req, res) => {
   res.json({ ok: true, undone: txn.id });
 });
 
-// Create a board
+// Board layout writer-lease. action: 'acquire' (claim/renew if free or mine),
+// 'steal' (force-claim — most-recently-active client becomes master), 'release'.
+// Broadcasts 'board-lease' on any holder change so other clients drop to listener.
+app.post('/api/boards/:id/lease', (req, res) => {
+  const { clientId, action } = req.body || {};
+  if (!clientId) return res.status(400).json({ ok: false, error: 'clientId required' });
+  const boardId = req.params.id;
+  const cur = boardLeaseHolder(boardId);
+  if (action === 'release') {
+    if (cur && cur.holderId === clientId) {
+      boardLeases.delete(boardId);
+      broadcastSSE('board-lease', { boardId, holderId: null });
+    }
+    return res.json({ ok: true, holderId: cur && cur.holderId !== clientId ? cur.holderId : null, isHolder: false });
+  }
+  const force = action === 'steal';
+  let holderId, expiresAt = Date.now() + BOARD_LEASE_TTL_MS;
+  if (!cur || cur.holderId === clientId || force) {
+    const changed = !cur || cur.holderId !== clientId;
+    holderId = clientId;
+    boardLeases.set(boardId, { holderId, expiresAt });
+    if (changed) broadcastSSE('board-lease', { boardId, holderId, expiresAt });
+  } else {
+    holderId = cur.holderId; // someone else holds a live lease; politely decline
+    expiresAt = cur.expiresAt;
+  }
+  res.json({ ok: true, holderId, isHolder: holderId === clientId, ttlMs: BOARD_LEASE_TTL_MS });
+});
+
+
 app.post('/api/boards', (req, res) => {
   const { name, emoji, teamId, orgId } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Missing required field: name' });
@@ -5507,7 +5553,17 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId } = req.body || {};
+  // Writer-lease guard: only the current lease holder may persist LAYOUT. A stale /
+  // background client whose clientId != holder is rejected (409) so it cannot clobber
+  // the focused client's layout. Non-layout updates (notes/checklists/items/star/...)
+  // are unrestricted. No holder, or no clientId supplied, => unrestricted (back-compat).
+  if (layout && typeof layout === 'object' && !Array.isArray(layout)) {
+    const holder = boardLeaseHolder(req.params.id);
+    if (holder && clientId && holder.holderId !== clientId) {
+      return res.status(409).json({ ok: false, error: 'Not the board layout writer', holderId: holder.holderId });
+    }
+  }
   if (name != null) b.name = String(name).trim();
   if (emoji != null) b.emoji = emoji;
   const teamScope = teamId !== undefined ? teamId : orgId;
