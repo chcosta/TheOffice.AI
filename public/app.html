@@ -10144,6 +10144,22 @@
           setInterval(() => { this.now = Date.now(); }, 1000);
           // Keep the board canvas sized so it's the only scroller (no double scrollbars).
           window.addEventListener('resize', () => { if (this.route === 'boards') this._recalcBoardCanvasH(); });
+          // Multi-client single-writer: when this tab becomes the visible client again, re-fit ONCE
+          // to its own viewport (its width may differ from whoever was writing while we were hidden,
+          // and the server layout we passively rendered was fit to their viewport). When it goes
+          // hidden, cancel pending layout timers so a deferred fit/settle can't fire + persist after
+          // we've ceded writer status. This keeps an unfocused client from ever degrading the focused
+          // one — only the visible tab computes/persists layout.
+          document.addEventListener('visibilitychange', () => {
+            if (this.route !== 'boards') return;
+            if (document.visibilityState === 'hidden') {
+              clearTimeout(this._autoFitTimer);
+              clearTimeout(this._boardSettleTimer); this._boardSettleTimer = null;
+              this._boardSettleStart = null; this._boardSettleDirty = null;
+            } else {
+              this.$nextTick(() => { this._syncBoardObserver(); this.scheduleAutoFit(); });
+            }
+          });
         },
 
         initTheme() {
@@ -13559,6 +13575,22 @@
             }
             try { localStorage.setItem('active-board-id', this.activeBoardId || ''); } catch {}
             this._loadBoardAiPrompts();
+            // One-shot fit-on-open for the COLD-LOAD path. selectBoard() arms this gate when
+            // the user clicks a board pill, but a deep-link / reload / default-page load resolves
+            // activeBoardId straight from localStorage here (no selectBoard call), so without this
+            // the freshly rendered panels keep their stored heights — and a stored height that is
+            // now too short for the (static or async) content shows a stuck inner scrollbar that
+            // nothing ever clears. Arm the gate the FIRST time each board is resolved this session
+            // (tracked in _fitDoneBoards, marked when the gate fires in syncBoardLayout) so the fit
+            // runs exactly once on open and silent SSE echoes — same id, already in the set — never
+            // re-fit (re-fitting per echo was the old "jitter").
+            if (this.activeBoardId) {
+              this._fitDoneBoards = this._fitDoneBoards || new Set();
+              if (!this._fitDoneBoards.has(this.activeBoardId) && this._boardFitOnOpen !== this.activeBoardId) {
+                this._boardJustOpened = this.activeBoardId;
+                this._boardFitOnOpen = this.activeBoardId;
+              }
+            }
             this.syncBoardLayout();
             if (this.activeBoardId) this.loadBoardCompliance(this.activeBoardId);
           } catch (e) {
@@ -14515,8 +14547,29 @@
           for (const cl of ((b && b.checklists) || [])) panels.push({ id: pv + 'cl:' + cl.id, type: 'checklist', checklist: cl });
           // Stashed items are hidden from the grid in normal use, but revealed (so they
           // can be toggled back on) while "Edit items" / manage mode is active.
-          if (!this.boardManageMode) return panels.filter(p => !this.isPanelStashed(p));
-          return panels;
+          const filtered = this.boardManageMode ? panels : panels.filter(p => !this.isPanelStashed(p));
+          // STABLE PANEL IDENTITY: this getter runs inside the board x-for and is
+          // re-evaluated on every reactive change — including the rapid boardLayout
+          // mutations of a drag/resize. If we returned brand-new {id,...} objects each
+          // call, Alpine's keyed x-for (with its nested x-if blocks) churns the panel
+          // blocks and tears down child scopes mid-flush, whose queued effects then
+          // throw "p is not defined". Reusing one cached object per id keeps element
+          // identity constant (Alpine patches in place) while still refreshing the
+          // mutable payload (item/note/checklist) so content stays live.
+          if (!this._panelCache) this._panelCache = new Map();
+          const cache = this._panelCache;
+          const keep = new Set();
+          const out = filtered.map(fresh => {
+            keep.add(fresh.id);
+            const cached = cache.get(fresh.id);
+            if (!cached) { cache.set(fresh.id, fresh); return fresh; }
+            // Refresh payload fields onto the stable object; drop any that no longer apply.
+            for (const k of Object.keys(cached)) { if (!(k in fresh)) delete cached[k]; }
+            Object.assign(cached, fresh);
+            return cached;
+          });
+          for (const k of [...cache.keys()]) { if (!keep.has(k)) cache.delete(k); }
+          return out;
         },
         panelTitle(p) {
           if (p.type === 'summary') return '🧭 Where was I?';
@@ -14773,7 +14826,7 @@
           fs = Math.max(0.8, Math.min(1.6, Math.round(fs * 100) / 100));
           this.boardCanvas = { ...this.boardCanvas, fs };
           this._saveBoardCanvas();
-          this.scheduleAutoFit(); // text size changed → re-fit panel heights
+          this._refitFluidReflow(); // text size changed → re-fit heights AND reflow so grown cards don't overlap
         },
         bumpBoardFont(delta) { this.setBoardFont((this.boardCanvas.fs || 1) + delta); },
         // The HARD minimum width for a panel: the narrowest column span at which the
@@ -14795,6 +14848,7 @@
           const upper = Math.max(3, Math.min(eff, Math.round((this.boardLayout[id] || {}).w || eff)));
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+          meas.setAttribute('x-ignore', '');
           meas.style.setProperty('--board-fs', String(this.boardFont()));
           const clone = inner.cloneNode(true);
           clone.style.width = '100%';
@@ -14839,6 +14893,7 @@
           const baseH = body.scrollHeight;          // content height now — must not grow
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+          meas.setAttribute('x-ignore', '');
           meas.style.setProperty('--board-fs', String(this.boardFont()));
           const clone = inner.cloneNode(true);
           clone.style.width = '100%';
@@ -15113,8 +15168,9 @@
               // kept. Gated to the just-opened board so it never runs on periodic SSE echoes
               // (a per-echo full re-fit is the jitter the comment above deliberately avoids).
               if (this._boardFitOnOpen && this._boardFitOnOpen === this.activeBoardId) {
+                (this._fitDoneBoards = this._fitDoneBoards || new Set()).add(this.activeBoardId);
                 this._boardFitOnOpen = null;
-                this._fitFluidOnOpen();
+                this._fitFluidOnOpenSettling();
               }
             });
           }
@@ -15305,7 +15361,7 @@
             const w = Math.round(maxRight * colPx);
             this.boardCanvas = { ...this.boardCanvas, w, baseW };
             this._saveBoardCanvas();
-            this.scheduleAutoFit();
+            this._refitFluidReflow(); // width changed → re-fit heights AND reflow so grown cards don't overlap
             this.showToast('Board', 'Width fit to content', 'success');
           });
         },
@@ -15329,13 +15385,13 @@
             const w = Math.max(minW, Math.min(maxW, Math.round(startW + (e.clientX - mx) / z)));
             const h = Math.max(contentH, Math.round(startH + (e.clientY - my) / z));
             this.boardCanvas = { ...this.boardCanvas, w, h, baseW };
-          };
+              };
           const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             this.boardDragId = '';
             this._saveBoardCanvas();
-            this.scheduleAutoFit(); // re-fit panel heights to the new width
+              this._refitFluidReflow(); // re-fit heights to the new width AND reflow so grown cards don't overlap
           };
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
@@ -15493,9 +15549,15 @@
             document.removeEventListener('mouseup', onUp);
             cancelAnimationFrame(raf);
             this.boardDragId = '';
+            // Calm lens: a plain drag moves ONLY the dragged card. The drop can leave an
+            // overlap — that's the user's arrangement to tidy with explicit Organize. Suppress
+            // the content-settle reflow for a short window so the post-drop ResizeObserver
+            // churn can't fire _reflowBelow/_resolveOverlaps and cascade neighbours away.
+            this._suppressSettleUntil = Date.now() + 1500;
+            this._lastBoardInteract = Date.now();   // stop any cold-load settling series — board is the user's now
             if (canvasGrew) this._saveBoardCanvas();
             this.persistLayout();
-            this.scheduleAutoFit(true, id); // de-overlap around the moved panel if auto-arrange is on
+            this.scheduleAutoFit(true, id); // re-fit the dragged card's height in place (no neighbour move)
           };
           this.boardDragId = id;
           this._panelDragMoved = false;
@@ -15521,8 +15583,10 @@
           const rowH = this.boardRowH, gap = this.boardGap;
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+          meas.setAttribute('x-ignore', '');
           meas.style.setProperty('--board-fs', String(this.boardFont()));
           const clone = inner.cloneNode(true);
+          clone.setAttribute('x-ignore', '');
           clone.style.width = '100%';
           clone.style.height = 'auto';
           meas.appendChild(clone);
@@ -15643,7 +15707,25 @@
                 this.boardLayout = { ...this.boardLayout, [id]: rest };
               }
             }
-            // Persist the result and de-overlap around this panel if auto-arrange is on.
+            // A RESIZE is a SYSTEM-driven geometry change (unlike a free drag, where overlaps are
+            // the user's deliberate placement). So unlike onUp for a drag, here we MUST keep the
+            // resized card from overlapping the panels below it: reflow the same-column stack below
+            // by the height delta (grow pushes down, shrink reclaims up — no drift), then resolve
+            // any residual overlap with the resized panel ANCHORED (only colliders slide down; the
+            // resized card never moves). Mirrors the calm content-settle path (_settlePanelHeight),
+            // applied to the user's explicit resize.
+            const fin = this.boardLayout[id];
+            if (fin) {
+              const delta = fin.h - start.h;
+              let next = this.boardLayout;
+              if (delta) next = this._reflowBelow(next, id, start.y + start.h, delta);
+              const res = this._resolveOverlaps(next, id);
+              if (res && res.changed) next = res.layout;
+              if (next !== this.boardLayout) this.boardLayout = next;
+            }
+            // Persist the result and re-fit ONLY this panel's height in place.
+            this._suppressSettleUntil = Date.now() + 1500;
+            this._lastBoardInteract = Date.now();   // stop any cold-load settling series — board is the user's now
             this.scheduleAutoFit(true, id);
             this.persistLayout();
           };
@@ -15653,6 +15735,9 @@
         },
         persistLayout() {
           const b = this.activeBoard(); if (!b) return;
+          // Single-writer rule (see scheduleAutoFit): a hidden tab never writes layout — it would
+          // broadcast a viewport-specific fit and jumble the focused client.
+          if (!this._layoutActive()) return;
           b.layout = this.boardLayout; // keep local board in sync immediately
           // Mark the layout dirty so periodic board reloads don't clobber this optimistic
           // change with a stale server copy until the save below has had time to land.
@@ -15686,7 +15771,7 @@
           this.boardLayout = keep;
           this.resetBoardCanvas(); // back to window-fit width
           this.ensureBoardLayout(true);
-          this.scheduleAutoFit(true);
+          this._refitFluidReflow(); // grow cards to content AND reflow so the 50/50 reset can't overlap
           this.showToast('Board', 'Layout reset to 50 / 50', 'success');
         },
         // ----- Named saved layouts -----
@@ -15792,7 +15877,7 @@
                 const head = el && el.querySelector('.board-panel-head');
                 const body = el && el.querySelector('.board-panel-body');
                 if (el && this.isPanelCollapsed(p.id)) return Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
-                if (el) return Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+                if (el) { const r = this._fitRowsFromEl(el, p.id, { fresh: true }); if (r != null) return r; }
                 return fallback;
               };
               // 1. Anchor the summary full-width at the top (unless the user dragged it away).
@@ -15833,15 +15918,28 @@
         // Measures rendered content height, converts to grid rows, and repacks panels
         // down their current column (preserving column + order) to avoid overlap.
         scheduleAutoFit(persist = false, arrangeAnchor = null) {
+          // Multi-client single-writer rule: a HIDDEN tab (one of several open on the same board)
+          // must never COMPUTE or PERSIST layout. Each client fits to its OWN viewport width, so a
+          // background tab that re-fits + PUTs would broadcast a different layout via SSE and jumble
+          // the focused tab. Hidden tabs render the server's layout passively (see syncBoardLayout);
+          // only the visible client is the layout writer. When it becomes visible again it re-fits
+          // once to its own viewport (visibilitychange handler).
           clearTimeout(this._autoFitTimer);
+          if (!this._layoutActive()) return;
           this._autoFitPersist = this._autoFitPersist || persist;
           if (arrangeAnchor) this._autoFitArrange = arrangeAnchor;
           this._autoFitTimer = setTimeout(() => {
+            if (!this._layoutActive()) return;       // went hidden before the deferred fit fired
             const p = this._autoFitPersist; this._autoFitPersist = false;
             const a = this._autoFitArrange; this._autoFitArrange = null;
             this.autoFitBoard(p, a);
           }, 70);
         },
+        // A client is the layout WRITER only while visible. Hidden background tabs apply server
+        // layout read-only and never compute/persist, so an unfocused client can't degrade the
+        // focused one. (visibilityState is 'visible' under puppeteer/headless, so tests are the
+        // active writer as expected.)
+        _layoutActive() { return (typeof document === 'undefined') || document.visibilityState !== 'hidden'; },
         // Push overlapping panels down so nothing is hidden, keeping the anchor (the card
         // the user just moved/resized) exactly where they put it. Pure layout math — does
         // not move the anchor and never compacts upward, so the gesture result is honored.
@@ -15900,7 +15998,31 @@
             rows = Math.max(2, Math.ceil(((head ? head.offsetHeight : 0) + gap + 6) / rowH));
           } else {
             const body = el.querySelector('.board-panel-body');
-            rows = Math.max(3, Math.ceil(((head ? head.offsetHeight : 0) + (body ? body.scrollHeight : 0) + gap + 6) / rowH));
+            const headH = head ? head.offsetHeight : 0;
+            if (!body) {
+              rows = Math.max(3, Math.ceil((headH + gap + 6) / rowH));
+            } else {
+              // The body is flex-stretched (flex:1 1 auto), so its OWN scrollHeight reports the
+              // FRAME height whenever content fits — reading it directly made every fit pass grow
+              // the panel by one more row forever (non-convergent creep -> jumble). Size instead
+              // relative to the CURRENT frame: grow only by the real overflow, shrink only when a
+              // whole row of dead space sits below the intrinsic content, otherwise hold. This is
+              // monotonic and converges — a panel that already fits re-measures to the same count.
+              let childSum = 0; for (const ch of body.children) childSum += ch.offsetHeight;
+              const cs = getComputedStyle(body);
+              const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+              const intrinsic = childSum + pad;            // frame-independent content height (~= scrollHeight when overflowing)
+              const cur = this.boardLayout[id] || {};
+              const overflow = body.scrollHeight - body.clientHeight;  // >0 only when content exceeds frame
+              if (cur.h == null) {
+                rows = Math.max(3, Math.ceil((headH + intrinsic + gap + 6) / rowH));   // bootstrap from content
+              } else if (overflow > 1) {
+                rows = cur.h + Math.ceil(overflow / rowH);   // grow exactly enough to clear the scrollbar
+              } else {
+                const dead = body.clientHeight - intrinsic;  // empty space below the content
+                rows = (dead >= rowH) ? Math.max(3, cur.h - Math.floor(dead / rowH)) : cur.h;  // shrink whole rows, else converged
+              }
+            }
           }
           this._fitCache[id] = { sig, rows };
           return rows;
@@ -15925,6 +16047,7 @@
           const de = document.documentElement;
           return [
             cur.w || 0,
+            cur.h || 0,
             this.isPanelCollapsed(id) ? 1 : 0,
             c.z || 1, c.w || 0, c.baseW || 0, c.fs || 1,
             de.getAttribute('data-theme') || '', de.getAttribute('data-org-theme') || '',
@@ -15976,6 +16099,7 @@
             this._roObserved = new Set();       // nodes currently under observation
             this._boardRO = new ResizeObserver(entries => {
               if (this._settleApplying) return;        // ignore reflow from our own in-place writes
+              if (!this._layoutActive()) return;       // hidden tab: don't settle (single-writer)
               for (const en of entries) {
                 const el = en.target;
                 const h = en.contentRect ? en.contentRect.height : (el.getBoundingClientRect().height || 0);
@@ -15992,8 +16116,29 @@
               }
             });
           }
-          // Reconcile the observed set with the current panel bodies' content child WITHOUT a
-          // blanket disconnect+re-observe. The old code disconnected and re-observed every body
+          // Per-body MutationObserver: the RO watches a body's CONTENT CHILD, but async renders
+          // (markdown swap, briefing arrival, chat preview) REPLACE that child — detaching the
+          // observed node so its later growth escapes the RO entirely (the cold-load "stuck
+          // scrollbar" race). A childList MutationObserver on each body catches the swap itself:
+          // it re-syncs the RO onto the new child and schedules a settle so the panel is fitted to
+          // the freshly-arrived content regardless of any polling schedule — making late content
+          // deterministic, not timing-dependent.
+          if (!this._boardMO) {
+            this._moBodies = new WeakSet();
+            this._boardMO = new MutationObserver(muts => {
+              if (this._settleApplying) return;
+              const ids = new Set();
+              for (const m of muts) {
+                const body = m.target && m.target.closest ? m.target.closest('.board-panel-body') : null;
+                const panel = body && body.closest('.board-panel');
+                const id = panel && panel.getAttribute('data-pid');
+                if (id) ids.add(id);
+              }
+              if (!ids.size) return;
+              this._syncBoardObserver();        // re-observe any swapped-in content child
+              for (const id of ids) this._schedulePanelSettle(id);
+            });
+          }
           // on EVERY syncBoardLayout (each SSE echo) — and a fresh observe() fires a synthetic
           // initial callback, so it scheduled a settle for every panel at once = the periodic
           // jumble. On a normal echo Alpine keeps the same keyed nodes, so reconciling here is a
@@ -16003,12 +16148,25 @@
           // real async growth (briefing / markdown / image) still fires a settle.
           const want = new Set();
           grid.querySelectorAll('.board-panel:not(.pin-chip) .board-panel-body').forEach(b => {
+            // Watch the body itself for child swaps (markdown/briefing replacing its content).
+            if (this._boardMO && !this._moBodies.has(b)) {
+              try { this._boardMO.observe(b, { childList: true }); this._moBodies.add(b); } catch {}
+            }
             const t = b.firstElementChild || b;
             want.add(t);
             if (!this._roObserved.has(t)) {
               this._roBaseline.set(t, t.getBoundingClientRect().height || 0); // seed → ignore initial fire
               this._boardRO.observe(t);
               this._roObserved.add(t);
+              // Seed-time repair: if a newly-observed panel ALREADY overflows its frame
+              // (content rendered before the panel was sized — the cold-load race), the RO
+              // will never fire for it (no future growth to detect), so schedule a settle now
+              // so a fluid panel can't be left with a stuck inner scrollbar.
+              if ((b.scrollHeight - b.clientHeight) > 2) {
+                const panel = b.closest('.board-panel');
+                const id = panel && panel.getAttribute('data-pid');
+                if (id) this._schedulePanelSettle(id);
+              }
             }
           });
           for (const t of [...this._roObserved]) {
@@ -16029,26 +16187,50 @@
         },
         _disconnectBoardObserver() {
           if (this._boardRO) this._boardRO.disconnect();
+          if (this._boardMO) { this._boardMO.disconnect(); this._moBodies = new WeakSet(); }
           if (this._roObserved) this._roObserved.clear();   // forget the old board's nodes
-          if (this._boardSettleTimers) for (const t of Object.values(this._boardSettleTimers)) clearTimeout(t);
-          this._boardSettleTimers = {};
-          this._boardSettleSince = {};
+          clearTimeout(this._boardSettleTimer);
+          this._boardSettleTimer = null;
+          this._boardSettleStart = null;
+          this._boardSettleDirty = null;
           this._fitCache = {};                       // drop cached measurements for the old board
         },
-        // Per-panel "stable-for-N" gate: settle only once the content has stopped changing
-        // for SETTLE_MS, or SETTLE_MAX has elapsed since it first started moving.
+        // Board-wide "stable-for-N" settle gate. The ResizeObserver fires per panel as async
+        // content (briefing, chat preview, markdown, images) renders late, but settling each
+        // panel INDEPENDENTLY makes every one run its own board-wide _resolveOverlaps, and when
+        // several land in the same window those passes COMPOUND — the "jumble" the board showed
+        // a moment after load (panels growing and cascading their neighbours down with ever-
+        // increasing deltas). Instead we COLLECT the dirty panels and, once content has been
+        // quiet for SETTLE_MS (or SETTLE_MAX has elapsed since the first change), run ONE
+        // batched pass that grows them all and resolves overlaps a single time — a converging
+        // settle, not a cascade.
         _schedulePanelSettle(id) {
           if (this.route !== 'boards' || this.boardDragId) return;
-          this._boardSettleTimers = this._boardSettleTimers || {};
-          this._boardSettleSince = this._boardSettleSince || {};
-          if (this._boardSettleSince[id] == null) this._boardSettleSince[id] = Date.now();
-          clearTimeout(this._boardSettleTimers[id]);
-          const overdue = (Date.now() - this._boardSettleSince[id]) >= this._BOARD_SETTLE_MAX;
-          this._boardSettleTimers[id] = setTimeout(() => {
-            delete this._boardSettleTimers[id];
-            delete this._boardSettleSince[id];
-            this._settlePanelHeight(id);
+          if (!this._layoutActive()) return;             // hidden tab: single-writer, no settle
+          if (this._suppressSettleUntil && Date.now() < this._suppressSettleUntil) return;
+          this._boardSettleDirty = this._boardSettleDirty || new Set();
+          this._boardSettleDirty.add(id);
+          if (this._boardSettleStart == null) this._boardSettleStart = Date.now();
+          clearTimeout(this._boardSettleTimer);
+          const overdue = (Date.now() - this._boardSettleStart) >= this._BOARD_SETTLE_MAX;
+          this._boardSettleTimer = setTimeout(() => {
+            this._boardSettleTimer = null;
+            this._boardSettleStart = null;
+            this._boardSettleDirty = null;
+            this._settleBoardBatch();
           }, overdue ? 0 : this._BOARD_SETTLE_MS);
+        },
+        // The batched settle: size every FLUID panel to its now-stable content in one pass and
+        // resolve overlaps ONCE, identical to the on-open fit so a settle triggered by late
+        // content lands the board exactly as opening it would — calm, converged, no inner
+        // scrollbars, no compounding cascade. The `_suppressSettleUntil` guard keeps it from
+        // firing in the window right after a user drag/resize, so a content echo can't tidy a
+        // positional overlap the user just created by dropping a card (theirs to Organize).
+        _settleBoardBatch() {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          if (!this._layoutActive()) return;
+          if (this._suppressSettleUntil && Date.now() < this._suppressSettleUntil) return;
+          this._fitFluidOnOpen();
         },
         // Settle ONE panel's height to its now-stable content, in place. Skips size-locked /
         // chip / mh-pinned / collapsed panels (their height is the user's or intentionally
@@ -16060,6 +16242,7 @@
         // residual interleave.
         _settlePanelHeight(id) {
           if (this.route !== 'boards' || this.boardDragId) return;
+          if (this._suppressSettleUntil && Date.now() < this._suppressSettleUntil) return;
           const cur = this.boardLayout[id]; if (!cur) return;
           if (this._isFixed(id)) return;                 // fixed — geometry frozen, content scrolls
           if (cur.mh != null) return;                  // user pinned a height — their choice wins
@@ -16071,7 +16254,15 @@
           const rows = this._fitRowsFromEl(el, id, { fresh: true });
           if (rows == null) return;                    // chip / unmeasurable
           const h = this._constrainPanelHeight(id, cur, rows);
-          if (Math.abs(h - cur.h) < 2) return;         // ignore ±1-row churn
+          // Suppress ±1-row SHRINK churn (the oscillation direction: a 1-row shrink frees space,
+          // the neighbour pulls up, then content reflows and needs the row back → flicker). But
+          // ALWAYS honor a grow — including a single-row grow — because a late async grow (the AI
+          // briefing that finishes rendering after _refitFluidReflow's schedule has ended) is what
+          // leaves a 1-row overlap with the card below; growing pushes the neighbour down (via
+          // _reflowBelow) and is monotonic/stable, so it never oscillates. Dead space (a 1-row-too-
+          // tall card after a shrink) is calm; an overlap is not — bias toward growing.
+          if (h <= cur.h && cur.h - h < 2) return;     // ignore ±1-row shrink; honor every grow
+
           const delta = h - cur.h;
           let next = { ...this.boardLayout, [id]: { ...cur, h } };
           next = this._reflowBelow(next, id, cur.y + cur.h, delta);
@@ -16104,13 +16295,106 @@
             const h = this._constrainPanelHeight(id, cur, rows);
             if (h !== cur.h) { layout[id] = { ...cur, h }; changed = true; }
           });
-          if (!changed) return;
+          // Always reconcile overlaps as the terminal step, even when no height changed:
+          // a prior reflow, SSE echo, or relative push can leave the board overlapping
+          // while every panel's content fits, so a height-only early-return would strand
+          // those overlaps as the final state (the Fit-width "1 grid row x zoom" bug).
           const res = this._resolveOverlaps(layout, null);  // slide colliders down; arrangement kept
           if (res.changed) layout = res.layout;
+          if (!changed && !res.changed) return false;        // nothing to do — no write/persist churn
           this._settleApplying = true;                       // our own write — don't let the RO echo it
           this.boardLayout = layout;
           this.persistLayout();
           this.$nextTick(() => { this._settleApplying = false; this._reseedObserverBaselines(); });
+            return true;
+        },
+        // True if ANY genuinely-fluid panel (not chip / fixed / mh-pinned / size-locked /
+        // collapsed) currently overflows its frame — i.e. shows a stuck inner scrollbar.
+        // This is the exact invariant the UX suite asserts, so terminating the open-fit
+        // series on it (rather than a guess-based "two quiet passes" counter) guarantees a
+        // freshly opened board lands with every fluid panel grown to fit its content, no
+        // matter when its async content (markdown / briefing / image) actually rendered.
+        _anyStuckFluid() {
+          const grid = document.querySelector('.board-grid'); if (!grid) return false;
+          let stuck = false;
+          grid.querySelectorAll('.board-panel:not(.pin-chip)').forEach(el => {
+            if (stuck) return;
+            const id = el.getAttribute('data-pid'); if (!id) return;
+            const cur = this.boardLayout[id]; if (!cur) return;
+            if (this._isFixed(id) || cur.mh != null || this._lockFor(id, 'size') || this.isPanelCollapsed(id)) return;
+            const body = el.querySelector('.board-panel-body');
+            if (body && (body.scrollHeight - body.clientHeight) > 2) stuck = true;
+          });
+          return stuck;
+        },
+        // Fit-on-open as a short, SELF-TERMINATING settling series. A single fit in the open
+        // $nextTick is too early: a board's panel content renders asynchronously — markdown is
+        // committed a tick or two after the panel mounts, and the AI briefing arrives seconds
+        // later — so a one-shot pass measures empty bodies and locks every panel to its minimum
+        // height (stuck inner scrollbars that never clear). Re-run _fitFluidOnOpen across the
+        // FULL growing-delay schedule (NOT stopping early on a momentarily-clean board): each
+        // pass re-measures fresh, so a panel whose content rendered late — or whose RO baseline
+        // was lost when async markdown swapped its content child, or whose grown height was
+        // reverted by a persist/SSE echo — is re-grown on the next pass. A no-op pass writes
+        // nothing (silent when the board is already settled), so running the tail of the
+        // schedule on a calm board is invisible; the late passes only matter when something is
+        // still (or again) stuck. Yields PERMANENTLY the instant the user manipulates the board
+        // (_lastBoardInteract) so a convergence pass can never tidy an overlap the user just
+        // created by dragging/resizing a card. Bound to the board it was armed on (aborts on
+        // board switch / drag).
+        _fitFluidOnOpenSettling() {
+            const board = this.activeBoardId;
+            const armed = Date.now();
+            // ABSOLUTE offsets from arm time (not chained gaps) so a pass reliably lands late
+            // in the convergence window — a fit at ~5.2s re-grows any panel reverted or left
+            // stuck by a late content render, close to when the board is actually looked at.
+            const offsets = [120, 350, 700, 1300, 2200, 3200, 4200, 5200, 6500, 8000];
+            const tick = () => {
+                if (this.route !== 'boards' || this.activeBoardId !== board || this.boardDragId) return;
+                // Yield permanently the moment the user manipulates the board: a cold-load
+                // convergence pass must never run _resolveOverlaps over an overlap the user
+                // just created by dragging/resizing a card (which would cascade neighbours —
+                // the exact "I moved one panel and 9 others jumped" complaint).
+                if (this._lastBoardInteract && this._lastBoardInteract > armed) return;
+                this._fitFluidOnOpen();   // fresh board-wide re-fit; no-op (silent) when nothing changed
+            };
+            offsets.forEach(ms => setTimeout(tick, ms));
+        },
+        // Reflow-aware re-fit for a GLOBAL content-height change (font size, canvas
+        // width/Fit-width, Reset layout). Unlike scheduleAutoFit (which grows each card's
+        // height IN PLACE and deliberately never moves neighbours — correct for a single
+        // drag), a global change grows MANY cards at once, so growing in place would push
+        // every grown card straight through the panel below it (the "jumble"/overlap
+        // cascade). _fitFluidOnOpen grows every fluid card to its content AND slides
+        // colliders downward (_resolveOverlaps), preserving the user's columns/arrangement
+        // while opening vertical room — exactly the calm-settle contract.
+        //
+        // These triggers (font / width / reset) only ever REWRAP text that is already in the
+        // DOM — no async content arrives — so the new content height is fully determined by
+        // ONE synchronous layout. We therefore do NOT guess with an escalating setTimeout
+        // schedule (the old approach raced the reflow: the first tick measured BEFORE the
+        // narrower content had grown, the early-terminate then stopped, and the card was left
+        // a fraction of a row too short → the ~11px Fit-width overlap). Instead we wait
+        // deterministically for the reflow to LAND: $nextTick flushes the reactive style
+        // change (new canvas width / font scale) into the DOM, then a double rAF guarantees
+        // the browser has performed layout at the new width before we measure — frame 1 the
+        // new style is in effect, frame 2 reading scrollHeight reflects the rewrapped content.
+        // A single _fitFluidOnOpen then grows + resolves once, correctly. The board-scoped
+        // ResizeObserver remains the safety net for genuinely-async content (briefings/images).
+        _refitFluidReflow() {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          if (!this._layoutActive()) return;             // hidden tab: single-writer, no reflow
+          const board = this.activeBoardId;
+          const raf = (typeof requestAnimationFrame === 'function')
+            ? requestAnimationFrame.bind(window)
+            : (fn => setTimeout(fn, 16));
+          this.$nextTick(() => {                          // reactive style (width/font) flushed to DOM
+            raf(() => raf(() => {                         // layout performed at the new width → measure true height
+              if (this.route !== 'boards' || this.activeBoardId !== board || this.boardDragId) return;
+              if (!this._layoutActive()) return;
+              this._fitFluidOnOpen();                     // grow every fluid card to content + resolve overlaps, once
+            }));
+          });
         },
         // Relative reflow for the fluid view: when `anchorId` changed height by `delta` rows
         // (its old bottom was `oldBottom`), shift every panel stacked BELOW it down/up by the
@@ -16150,28 +16434,43 @@
           this.$nextTick(() => {
             const grid = document.querySelector('.board-grid');
             if (!grid) return;
-            const rowH = this.boardRowH, gap = this.boardGap;
+            // When an anchor is given (a drag / resize / shrink-width gesture) fit ONLY that
+            // card's height in place and leave every other panel exactly where the cold-load
+            // fit left it. Re-fitting the WHOLE board on a single-card gesture re-measured the
+            // others through the cached fit and could under-size them — a stuck inner scrollbar
+            // that then never re-settled (the observer baseline got reseeded). Scoping the
+            // gesture to its own card is both calmer and correct.
+            const onlyId = arrangeAnchor;
             const fit = {};
             grid.querySelectorAll('.board-panel').forEach(el => {
               const id = el.getAttribute('data-pid'); if (!id) return;
+              if (onlyId && id !== onlyId) return;
               // Pin-view chips are content-sized (CSS height:auto) and have no panel
               // body — skip them so their tightly-packed height isn't disturbed.
               if (el.classList.contains('pin-chip')) return;
-              fit[id] = this._fitRowsFromEl(el, id);
+              fit[id] = this._fitRowsFromEl(el, id, onlyId ? { fresh: true } : {});
             });
             let layout = { ...this.boardLayout };
             let changed = false;
-            for (const id of Object.keys(layout)) {
+            const ids = onlyId ? [onlyId] : Object.keys(layout);
+            for (const id of ids) {
               if (fit[id] == null) continue;
-              const cur = layout[id];
+              const cur = layout[id]; if (!cur) continue;
               const need = fit[id];
               // Height precedence (the size-mode rules) lives in _constrainPanelHeight; the
               // hysteresis flag keeps a boundary panel from flipping ±1 row each pass.
               const h = this._constrainPanelHeight(id, cur, need, { hysteresis: true });
               if (cur.h !== h) { layout[id] = { ...cur, h }; changed = true; }
             }
-            // Auto-arrange removed: never push neighbours off the dragged panel. A drag
-            // moves only the dragged card; the user tidies overlaps with explicit Organize.
+            // A full-board height-fit can GROW a card into the one below it (content settled
+            // taller than its slot). Reconcile downward-only so the terminal state is never
+            // overlapping — same invariant as _fitFluidOnOpen. A single-card gesture (onlyId)
+            // grow likewise pushes only the colliders beneath it down; non-overlapping cards
+            // are never repacked (calm: arrangement preserved, we only ever slide DOWN).
+            if (changed) {
+              const res = this._resolveOverlaps(layout, null);
+              if (res.changed) layout = res.layout;
+            }
             if (changed) {
               this.boardLayout = layout;
               if (persist) this.persistLayout();
@@ -16231,6 +16530,30 @@
             const order = Object.keys(layout)
               .filter(id => layout[id] && fit[id] != null)
               .sort((a, b) => (layout[a].y - layout[b].y) || (layout[a].x - layout[b].x));
+            // Immovable obstacles: Fixed and position-locked panels keep their exact rows.
+            // A flowing panel above one of them can be TALLER than the gap, so advancing the
+            // column cursor only when we REACH the obstacle in y-order isn't enough — we must
+            // make flowing panels jump PAST any obstacle whose rows they'd land in. Collect the
+            // obstacle row-spans per column up front, then skip over them while packing.
+            const obstacles = [];
+            for (const id of order) {
+              if (!(this._lockFor(id, 'pos') || this._isFixed(id))) continue;
+              const cur = layout[id];
+              const lh = (this._lockFor(id, 'size') || this._isFixed(id)) ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
+              const fw = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
+              obstacles.push({ left: fw || cur.x < half, right: fw || cur.x >= half, top: cur.y || 0, bottom: (cur.y || 0) + lh });
+            }
+            // Push a candidate y down until [y, y+h] clears every obstacle in the given column(s).
+            const avoid = (y, h, left, right) => {
+              for (let pass = 0; pass < obstacles.length + 1; pass++) {
+                let moved = false;
+                for (const o of obstacles) {
+                  if (((left && o.left) || (right && o.right)) && y < o.bottom && o.top < y + h) { y = o.bottom; moved = true; }
+                }
+                if (!moved) break;
+              }
+              return y;
+            };
             let yL = 0, yR = 0, changed = false;
             for (const id of order) {
               const cur = layout[id];
@@ -16252,17 +16575,17 @@
               const h = sizeLk ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
               let nx = cur.x, nw = sizeLk ? cur.w : cur.w, ny;
-              if (fullWidth) { ny = Math.max(yL, yR); yL = yR = ny + h; nx = sizeLk ? cur.x : 0; nw = sizeLk ? cur.w : cols; }
+              if (fullWidth) { ny = avoid(Math.max(yL, yR), h, true, true); yL = yR = ny + h; nx = sizeLk ? cur.x : 0; nw = sizeLk ? cur.w : cols; }
               // Balanced mode (used by AI Layout): drop each half-width panel into the
               // SHORTER column so the two columns stay even — kills the lopsided,
               // wasted-space stacks the simple "keep it in its current column" pack made.
               else if (balance) {
-                if (yL <= yR) { nx = 0; ny = yL; yL += h; }
-                else { nx = half; ny = yR; yR += h; }
+                if (yL <= yR) { nx = 0; ny = avoid(yL, h, true, false); yL = ny + h; }
+                else { nx = half; ny = avoid(yR, h, false, true); yR = ny + h; }
                 if (!sizeLk) nw = half;
               }
-              else if (cur.x < half) { ny = yL; yL += h; }
-              else { ny = yR; yR += h; }
+              else if (cur.x < half) { ny = avoid(yL, h, true, false); yL = ny + h; }
+              else { ny = avoid(yR, h, false, true); yR = ny + h; }
               if (cur.x !== nx || cur.y !== ny || cur.w !== nw || cur.h !== h) {
                 layout[id] = { ...cur, x: nx, y: ny, w: nw, h }; changed = true;
               }

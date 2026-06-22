@@ -7,7 +7,8 @@
     "start": "node server.js",
     "install-service": "node install-service.js",
     "uninstall-service": "node uninstall-service.js",
-    "test:board": "node tests/board-jumble.regression.mjs"
+    "test:board": "node tests/board-jumble.regression.mjs",
+    "test:board:ux": "node tests/board-ux.regression.mjs"
   },
   "dependencies": {
     "@azure/identity": "^4.13.1",
