@@ -15376,6 +15376,13 @@
                 (this._fitDoneBoards = this._fitDoneBoards || new Set()).add(this.activeBoardId);
                 this._boardFitOnOpen = null;
                 this._fitFluidOnOpenSettling();
+              } else {
+                // Listener re-fit: after applying this (possibly authoritative / SSE-echoed)
+                // layout, a fluid panel can be left too short for THIS client's content and the
+                // ResizeObserver won't fire (same keyed nodes). Repair any stuck-scrollbar panel
+                // in place. No-op on the master (its panels already fit) and on the open path
+                // above (the settling series owns that). See _repairStuckFluids.
+                this._repairStuckFluids();
               }
             });
           }
@@ -16159,6 +16166,37 @@
           return (typeof document === 'undefined')
             || (document.visibilityState !== 'hidden' && this._boardLeaseHeld !== false);
         },
+        // A client may COMPUTE layout (content-fit a fluid panel to its OWN viewport, in
+        // place) whenever it is VISIBLE — even as a non-master listener. This is the split
+        // that fixes the multi-client "stuck scrollbar": two side-by-side visible clients
+        // each fit their own content height locally so neither shows a clipped panel, but
+        // only the lease holder (_layoutActive) ever PERSISTS — persistLayout() self-guards
+        // on _layoutActive(), so a listener's local fit never PUTs and so can't jumble the
+        // master. Hidden background tabs stay fully passive (render the server's layout).
+        _layoutRenderable() {
+          return (typeof document === 'undefined') || document.visibilityState !== 'hidden';
+        },
+        // After applying an authoritative layout (an SSE echo from the master, or a periodic
+        // reload), a fluid panel can be left with a stored height that is too short for THIS
+        // client's content (different viewport width, or the master simply hasn't persisted a
+        // grow). The ResizeObserver won't fire — Alpine keeps the same keyed nodes on an echo,
+        // so the observed content-child height is unchanged — so nothing would re-fit it and
+        // the panel keeps a stuck inner scrollbar (the listener half of the multi-client bug).
+        // Schedule a settle for any genuinely-fluid panel that currently overflows; the batch
+        // gate dedupes/converges and the local settle grows it in place (persist no-ops unless
+        // we hold the lease). On the master this is a no-op — its panels already fit.
+        _repairStuckFluids() {
+          if (this.route !== 'boards' || this.boardDragId) return;
+          if (!this._layoutRenderable()) return;
+          const grid = document.querySelector('.board-grid'); if (!grid) return;
+          grid.querySelectorAll('.board-panel:not(.pin-chip)').forEach(el => {
+            const id = el.getAttribute('data-pid'); if (!id) return;
+            const cur = this.boardLayout[id]; if (!cur) return;
+            if (this._isFixed(id) || cur.mh != null || this._lockFor(id, 'size') || this.isPanelCollapsed(id)) return;
+            const body = el.querySelector('.board-panel-body'); if (!body) return;
+            if ((body.scrollHeight - body.clientHeight) > 2) this._schedulePanelSettle(id);
+          });
+        },
         // ---- Board writer-lease coordination ----
         _clientId() {
           if (this._boardClientId) return this._boardClientId;
@@ -16374,7 +16412,7 @@
             this._roObserved = new Set();       // nodes currently under observation
             this._boardRO = new ResizeObserver(entries => {
               if (this._settleApplying) return;        // ignore reflow from our own in-place writes
-              if (!this._layoutActive()) return;       // hidden tab: don't settle (single-writer)
+              if (!this._layoutRenderable()) return;    // hidden tab: don't settle; visible listeners DO (local fit)
               for (const en of entries) {
                 const el = en.target;
                 const h = en.contentRect ? en.contentRect.height : (el.getBoundingClientRect().height || 0);
@@ -16481,7 +16519,7 @@
         // settle, not a cascade.
         _schedulePanelSettle(id) {
           if (this.route !== 'boards' || this.boardDragId) return;
-          if (!this._layoutActive()) return;             // hidden tab: single-writer, no settle
+          if (!this._layoutRenderable()) return;         // hidden tab: no settle; visible listeners settle locally
           if (this._suppressSettleUntil && Date.now() < this._suppressSettleUntil) return;
           this._boardSettleDirty = this._boardSettleDirty || new Set();
           this._boardSettleDirty.add(id);
@@ -16503,7 +16541,7 @@
         // positional overlap the user just created by dropping a card (theirs to Organize).
         _settleBoardBatch() {
           if (this.route !== 'boards' || this.boardDragId) return;
-          if (!this._layoutActive()) return;
+          if (!this._layoutRenderable()) return;
           if (this._suppressSettleUntil && Date.now() < this._suppressSettleUntil) return;
           this._fitFluidOnOpen();
         },
@@ -16658,7 +16696,7 @@
         // ResizeObserver remains the safety net for genuinely-async content (briefings/images).
         _refitFluidReflow() {
           if (this.route !== 'boards' || this.boardDragId) return;
-          if (!this._layoutActive()) return;             // hidden tab: single-writer, no reflow
+          if (!this._layoutRenderable()) return;          // hidden tab: no reflow; visible listeners grow locally
           const board = this.activeBoardId;
           const raf = (typeof requestAnimationFrame === 'function')
             ? requestAnimationFrame.bind(window)
@@ -16666,7 +16704,7 @@
           this.$nextTick(() => {                          // reactive style (width/font) flushed to DOM
             raf(() => raf(() => {                         // layout performed at the new width → measure true height
               if (this.route !== 'boards' || this.activeBoardId !== board || this.boardDragId) return;
-              if (!this._layoutActive()) return;
+              if (!this._layoutRenderable()) return;
               this._fitFluidOnOpen();                     // grow every fluid card to content + resolve overlaps, once
             }));
           });
