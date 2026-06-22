@@ -2543,6 +2543,59 @@
       padding: 1px 7px; background: var(--cp-surface-soft);
     }
     .board-canvas-scroll { overflow: auto; max-width: 100%; min-height: 300px; padding-bottom: 2px; }
+    /* ----- Tabbed view ----- */
+    .board-tab-col { display: contents; }
+    .board-canvas-scroll.board-tabbed { display: flex; flex-direction: row; align-items: stretch; gap: 14px; height: auto !important; overflow: visible; }
+    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 12px; }
+    .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; }
+    .board-tab-rail {
+      flex: 0 0 auto; width: 210px; max-height: 72vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 6px; background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border); border-radius: 12px;
+    }
+    .board-tab-empty { padding: 10px; }
+    .board-tab {
+      position: relative; display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 8px 10px; text-align: left;
+      background: none; border: 1px solid transparent; border-radius: 9px;
+      color: var(--cp-text); cursor: pointer; font: inherit;
+      transition: background .12s ease, border-color .12s ease;
+    }
+    .board-tab:hover { background: var(--cp-surface); border-color: var(--cp-border); }
+    .board-tab.active { background: var(--cp-accent-soft); border-color: var(--cp-accent); }
+    .board-tab-icon { font-size: 15px; line-height: 1; flex: 0 0 auto; }
+    .board-tab-name { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board-tab .pin-dot { flex: 0 0 auto; }
+    .board-tab-flag { flex: 0 0 auto; font-size: 9px; color: var(--cp-accent); line-height: 1; }
+    .board-tab-flag.attention { color: var(--cp-danger); }
+    .board-tab-pop {
+      position: absolute; left: calc(100% + 8px); top: 0; z-index: 40;
+      min-width: 200px; max-width: 300px; padding: 10px 12px;
+      background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong);
+      border-radius: 12px; box-shadow: var(--cp-shadow);
+      opacity: 0; visibility: hidden; transform: translateX(-4px);
+      transition: opacity .12s ease, transform .12s ease, visibility .12s;
+      pointer-events: none;
+    }
+    .board-tab:hover .board-tab-pop { opacity: 1; visibility: visible; transform: translateX(0); }
+    .board-tab-brief {
+      flex: 0 0 auto; background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 12px; padding: 8px 12px;
+    }
+    .board-tab-brief-head { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 13px; user-select: none; }
+    .board-tab-brief-caret { font-size: 11px; color: var(--cp-text-muted); }
+    .board-tab-brief-body { margin-top: 8px; font-size: 13px; }
+    .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
+    .board-canvas-scroll.board-tabbed .board-panel-body { overflow: visible; }
+    .board-view-toggle { display: inline-flex; border: 1px solid var(--cp-border); border-radius: 8px; overflow: hidden; }
+    .board-view-toggle button {
+      background: var(--cp-surface); border: none; padding: 5px 11px;
+      font: inherit; font-size: 12.5px; color: var(--cp-text-muted); cursor: pointer;
+      transition: background .12s ease, color .12s ease;
+    }
+    .board-view-toggle button + button { border-left: 1px solid var(--cp-border); }
+    .board-view-toggle button.active { background: var(--cp-accent); color: var(--cp-accent-fg); }
     .board-canvas-resize {
       position: absolute;
       right: 0;
@@ -5123,6 +5176,10 @@
                         </div>
                       </div>
                       <div class="toolbar">
+                        <div class="board-view-toggle" role="group" aria-label="Board view mode">
+                          <button type="button" :class="{ active: !boardIsTabbed() }" @click="setBoardView('pin')" title="Pin view — free-form spatial board">📌 Pins</button>
+                          <button type="button" :class="{ active: boardIsTabbed() }" @click="setBoardView('tabbed')" title="Tabbed view — vertical tabs with one focused panel">🗂 Tabs</button>
+                        </div>
                         <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
@@ -5228,10 +5285,58 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
-                    <div class="board-grid" :style="boardGridStyle()">
+                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardIsTabbed() ? '' : (boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '')) + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
+                    <!-- Tabbed view: vertical tab rail (icons + names) on the left -->
+                    <template x-if="boardIsTabbed()">
+                      <div class="board-tab-rail">
+                        <template x-if="!boardTabPanels().length">
+                          <div class="board-tab-empty hint">Nothing pinned yet.</div>
+                        </template>
+                        <template x-for="p in boardTabPanels()" :key="'tab-' + p.id">
+                          <button type="button" class="board-tab" :class="{ active: isActiveTab(p), contributed: !!_tabContributed(p) }" @click="selectBoardTab(p)" :title="chipType(p) + ': ' + chipName(p)">
+                            <span class="board-tab-icon" x-text="chipIcon(p)"></span>
+                            <span class="board-tab-name" x-text="chipName(p)"></span>
+                            <template x-if="p.type==='pin' && pinStatus(p.item)">
+                              <span class="pin-dot" :class="pinStatus(p.item).state"></span>
+                            </template>
+                            <template x-if="!!_tabContributed(p)">
+                              <span class="board-tab-flag" :class="{ attention: _tabContributed(p).attention }" title="Contributed to the briefing">●</span>
+                            </template>
+                            <div class="board-tab-pop">
+                              <div class="pin-chip-pop-title" x-text="chipName(p)"></div>
+                              <span class="pin-chip-type" x-text="chipType(p)"></span>
+                              <div class="pin-chip-pop-meta" x-text="panelTitleText(p)"></div>
+                            </div>
+                          </button>
+                        </template>
+                      </div>
+                    </template>
+                    <div class="board-tab-col">
+                    <!-- Tabbed view: collapsible "Where was I?" briefing across the top -->
+                    <template x-if="boardIsTabbed()">
+                      <div class="board-tab-brief" :class="{ collapsed: !boardBriefOpen() }">
+                        <div class="board-tab-brief-head" @click="toggleBoardBrief()">
+                          <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
+                          <span>🧭 Where was I?</span>
+                          <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="margin-left:auto;padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                        </div>
+                        <div class="board-tab-brief-body" x-show="boardBriefOpen()">
+                          <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+                              <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
+                              <template x-for="d in (activeBoard().summary.deltas||[])" :key="d.kind + ':' + d.label">
+                                <span class="pill" :style="'cursor:pointer;font-size:11px;padding:2px 8px;' + (d.attention ? 'border-color:var(--cp-danger);color:var(--cp-danger)' : '')" @click="d.route && goTo(d.route)" :title="d.status + (d.when ? ' · ' + formatRelative(d.when) : '')" x-text="(d.attention ? '⚠ ' : '') + d.label"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
+                          <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
+                        </div>
+                      </div>
+                    </template>
+                    <div class="board-grid" :style="boardIsTabbed() ? '' : boardGridStyle()">
                       <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                        <div class="board-panel" x-show="!boardIsTabbed() || isActiveTab(p)" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
                             <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="chipType(p) + ': ' + chipName(p) + ' — click to expand'">
@@ -5258,13 +5363,13 @@
                                  collapse / reduce / drag controls on the right. The title is only shown
                                  when collapsed (the expanded content carries its own heading), so an
                                  expanded panel reclaims the space the old framed header bar used. -->
-                            <div class="board-panel-head" :class="{ collapsed: isPanelCollapsed(p.id) }" @mousedown="startPanelDrag(p.id, $event)" :title="panelTypeLabel(p) + ' · ' + panelTitleText(p)">
+                            <div class="board-panel-head" :class="{ collapsed: isPanelCollapsed(p.id) }" @mousedown="!boardIsTabbed() && startPanelDrag(p.id, $event)" :title="panelTypeLabel(p) + ' · ' + panelTitleText(p)">
                               <div class="bph-left">
                                 <span class="board-panel-tag" x-text="panelIcon(p)" :title="panelTypeLabel(p)"></span>
                                 <span class="board-panel-type" x-show="!isPanelCollapsed(p.id)" x-text="panelTypeLabel(p)"></span>
                                 <div class="board-panel-title" x-show="isPanelCollapsed(p.id)" x-text="panelTitleText(p)"></div>
                               </div>
-                              <div class="bph-right">
+                              <div class="bph-right" x-show="!boardIsTabbed()">
                                 <div class="bph-lock" :class="{ locked: hasAnyLock(p) }">
                                   <button class="board-panel-chevron" type="button" @click.stop @mousedown.stop :title="hasAnyLock(p) ? 'Locks active — hover to manage' : 'Lock position / size / visibility'" x-text="hasAnyLock(p) ? '🔒' : '🔓'"></button>
                                   <div class="bph-lock-pop" @mousedown.stop>
@@ -5591,14 +5696,15 @@
                                 </div>
                               </template>
                             </div>
-                            <div class="board-resize-w" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event, 'w')" title="Drag to resize width — height fits the content"></div>
-                            <div class="board-resize-h" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event, 'h')" title="Drag to resize height"></div>
-                            <div class="board-resize" x-show="!isPanelCollapsed(p.id)" @mousedown="startPanelResize(p.id, $event, 'se')" title="Drag to resize — width and height together"></div>
+                            <div class="board-resize-w" x-show="!isPanelCollapsed(p.id) && !boardIsTabbed()" @mousedown="startPanelResize(p.id, $event, 'w')" title="Drag to resize width — height fits the content"></div>
+                            <div class="board-resize-h" x-show="!isPanelCollapsed(p.id) && !boardIsTabbed()" @mousedown="startPanelResize(p.id, $event, 'h')" title="Drag to resize height"></div>
+                            <div class="board-resize" x-show="!isPanelCollapsed(p.id) && !boardIsTabbed()" @mousedown="startPanelResize(p.id, $event, 'se')" title="Drag to resize — width and height together"></div>
                           </div>
                           </template>
                         </div>
                       </template>
-                      <div class="board-canvas-resize" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
+                      <div class="board-canvas-resize" x-show="!boardIsTabbed()" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
+                    </div>
                     </div>
                     </div>
 
@@ -5609,7 +5715,7 @@
                          resolve via an explicit Organize. Compact's manual button was folded out
                          (its tight-pack stays available to AI Layout). -->
                     <div class="board-bottombar">
-                      <div class="bb-cluster">
+                      <div class="bb-cluster" x-show="!boardIsTabbed()">
                       <span class="bb-glabel" title="Explicit layout commands — the board only rearranges when you press one of these">Arrange</span>
                       <div class="bb-group">
                         <button class="btn ghost" type="button" @click="organizeBoard()" title="Tidy the board so no cards overlap — packs each column top-to-bottom and fits every card to its content">⊞ Organize</button>
@@ -5618,18 +5724,18 @@
                         <button class="btn ghost" type="button" x-show="!!_aiLayoutUndo" @click="undoAiLayout()" :title="'Undo the last ' + ((_aiLayoutUndo && _aiLayoutUndo.label) || 'AI') + ' layout change (only if you haven\'t moved anything since)'" style="display:none">↩ Undo</button>
                       </div>
                       </div>
-                      <div class="bb-sep"></div>
+                      <div class="bb-sep" x-show="!boardIsTabbed()"></div>
                       <div class="bb-cluster">
                       <span class="bb-glabel" title="Frame the canvas — these change the view only, never move your panels">View</span>
                       <div class="bb-group">
-                        <span class="board-zoom" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
+                        <span class="board-zoom" x-show="!boardIsTabbed()" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
                           <button type="button" @click="setBoardZoom(1)" title="Reset zoom to 100%" style="background:none;border:none;padding:0;cursor:pointer;opacity:0.8;font-size:13px;line-height:1;color:inherit">🔍</button>
                           <input type="range" min="0.3" max="1.5" step="0.05" :value="boardZoom()" @input="setBoardZoom($event.target.value)" style="width:110px;cursor:pointer" title="Board zoom">
                           <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
                         </span>
-                        <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Fit: zoom so the whole board fits in view" style="padding:2px 8px">⤢ Fit</button>
-                        <button class="btn ghost" type="button" @click="fitBoardWidth()" title="Fit width: zoom the board so its full width fills the viewport edge-to-edge (zooms in or out as needed so everything is shown across the screen)" style="padding:2px 8px">↔ Fit width</button>
-                        <button class="btn ghost" type="button" @click="fitBoardVertical()" title="Fit vertical: zoom so the board's full height fits the viewport" style="padding:2px 8px">↕ Fit vertical</button>
+                        <button class="btn ghost" type="button" x-show="!boardIsTabbed()" @click="fitBoardZoom()" title="Fit: zoom so the whole board fits in view" style="padding:2px 8px">⤢ Fit</button>
+                        <button class="btn ghost" type="button" x-show="!boardIsTabbed()" @click="fitBoardWidth()" title="Fit width: zoom the board so its full width fills the viewport edge-to-edge (zooms in or out as needed so everything is shown across the screen)" style="padding:2px 8px">↔ Fit width</button>
+                        <button class="btn ghost" type="button" x-show="!boardIsTabbed()" @click="fitBoardVertical()" title="Fit vertical: zoom so the board's full height fits the viewport" style="padding:2px 8px">↕ Fit vertical</button>
                         <span class="board-zoom" title="Text size of board panel content (this board only)" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
                           <span style="opacity:.8;font-size:13px" title="Text size">🔤</span>
                           <button class="btn ghost" type="button" @click="bumpBoardFont(-0.1)" title="Smaller text" style="padding:2px 8px;font-size:11px">A−</button>
@@ -5639,8 +5745,8 @@
                         </span>
                       </div>
                       </div>
-                      <div class="bb-sep"></div>
-                      <div class="bb-cluster">
+                      <div class="bb-sep" x-show="!boardIsTabbed()"></div>
+                      <div class="bb-cluster" x-show="!boardIsTabbed()">
                       <span class="bb-glabel" title="Save, restore or reset named arrangements">Layouts</span>
                       <div class="bb-group">
                         <div class="bb-layouts" style="position:relative;display:inline-flex">
@@ -9958,7 +10064,7 @@
         boardRowH: 36,
         boardGap: 14,
         // Per-board resizable canvas (px). null = fit to window width / auto height.
-        boardCanvas: { w: null, h: null, baseW: null, z: 1 },
+        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true },
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
@@ -14679,6 +14785,8 @@
         // the user hasn't expanded it. Intrinsic per-panel state — works for pins, notes
         // and checklists uniformly, with no board-wide mode.
         pinChipCollapsed(p) {
+          // Tabbed view renders the active panel full-size; no pin-chip chrome.
+          if (this.boardIsTabbed()) return false;
           // In manage mode, stashed pins reveal as full panels (head visible) so they
           // can be restored without first expanding a chip.
           if (this.boardManageMode && this.isPanelStashed(p)) return false;
@@ -14867,6 +14975,64 @@
           this._refitFluidReflow(); // text size changed → re-fit heights AND reflow so grown cards don't overlap
         },
         bumpBoardFont(delta) { this.setBoardFont((this.boardCanvas.fs || 1) + delta); },
+        // ----- Board view mode (Pin view default vs Tabbed view) -----
+        // Tabbed view is a pure CLIENT-side RE-RENDER of the same pinned items — it
+        // never mutates boardLayout (the pin-view geometry), so switching back to
+        // pins restores the exact layout. State lives on boardCanvas (localStorage).
+        boardViewMode() { return this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'; },
+        boardIsTabbed() { return this.boardViewMode() === 'tabbed'; },
+        setBoardView(mode) {
+          const view = mode === 'tabbed' ? 'tabbed' : 'pin';
+          if (this.boardViewMode() === view) return;
+          let tab = this.boardCanvas.tab;
+          if (view === 'tabbed') {
+            const tabs = this.boardTabPanels();
+            if (!tab || !tabs.some(p => this.panelBaseId(p) === tab)) tab = tabs.length ? this.panelBaseId(tabs[0]) : null;
+          }
+          this.boardCanvas = { ...this.boardCanvas, view, tab };
+          this._saveBoardCanvas();
+          if (view === 'pin') {
+            // Returning to pins: re-fit to this viewport once (geometry was untouched).
+            this.$nextTick(() => { this._syncBoardObserver && this._syncBoardObserver(); this.scheduleAutoFit && this.scheduleAutoFit(true); });
+          } else {
+            this.$nextTick(() => { this._boardObserver && this._boardObserver.disconnect && this._boardObserver.disconnect(); });
+          }
+        },
+        // All tab-able panels = every board panel except the summary ("Where was I?").
+        boardTabPanels() { return this.boardPanels().filter(p => p.type !== 'summary'); },
+        activeTabId() {
+          const tabs = this.boardTabPanels();
+          if (!tabs.length) return null;
+          const cur = this.boardCanvas.tab;
+          if (cur && tabs.some(p => this.panelBaseId(p) === cur)) return cur;
+          return this.panelBaseId(tabs[0]);
+        },
+        activeTabPanel() {
+          const id = this.activeTabId();
+          return this.boardTabPanels().find(p => this.panelBaseId(p) === id) || null;
+        },
+        isActiveTab(p) { return this.panelBaseId(p) === this.activeTabId(); },
+        selectBoardTab(p) {
+          const id = this.panelBaseId(p);
+          if (this.boardCanvas.tab === id) return;
+          this.boardCanvas = { ...this.boardCanvas, tab: id };
+          this._saveBoardCanvas();
+        },
+        boardBriefOpen() { return this.boardCanvas.briefOpen !== false; },
+        toggleBoardBrief() {
+          this.boardCanvas = { ...this.boardCanvas, briefOpen: !this.boardBriefOpen() };
+          this._saveBoardCanvas();
+        },
+        // Returns the briefing delta a panel contributed (for the tab "contributed"
+        // highlight), or null. Matches on kind + label/refId against summary.deltas[].
+        _tabContributed(p) {
+          const b = this.activeBoard();
+          const deltas = b && b.summary && Array.isArray(b.summary.deltas) ? b.summary.deltas : null;
+          if (!deltas || !deltas.length || !p || !p.item) return null;
+          const it = p.item;
+          const label = it.label || it.refId || it.name || '';
+          return deltas.find(d => d && d.kind === it.kind && (d.label === label || d.label === it.refId || d.label === it.name)) || null;
+        },
         // The HARD minimum width for a panel: the narrowest column span at which the
         // panel's content (button rows, the agent model pill, long unbreakable text, …)
         // does NOT overflow horizontally outside the panel. Unlike _panelMinWidth this
@@ -15303,6 +15469,11 @@
           return Math.max(this.boardCols, Math.round(this.boardCanvas.w / colPx));
         },
         panelStyle(id) {
+          if (this.boardIsTabbed()) {
+            // Tabbed view: the active panel fills the main column statically; others are
+            // hidden via x-show. No absolute positioning so it can't disturb the layout.
+            return 'position:relative; left:auto; top:auto; width:100%; height:auto; padding:0;';
+          }
           const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap;
           const l = this.boardLayout[id] || { x: 0, y: 0, w: Math.floor(cols / 2), h: 6 };
           const h = l.collapsed ? 2 : l.h;
@@ -15359,17 +15530,17 @@
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
           const c = boardId && map[boardId];
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1 } : { w: null, h: null, baseW: null, z: 1, fs: 1 };
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: (c.view === 'tabbed' ? 'tabbed' : 'pin'), tab: c.tab || null, briefOpen: (c.briefOpen !== false) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'pin', tab: null, briefOpen: true };
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1 };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false) };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1 };
+          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false) };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
@@ -16927,6 +17098,7 @@
           return true;
         },
         isPanelCollapsed(id) {
+          if (this.boardIsTabbed()) return false;
           const l = this.boardLayout && this.boardLayout[id];
           return !!(l && l.collapsed);
         },
