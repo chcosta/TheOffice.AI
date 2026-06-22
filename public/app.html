@@ -2579,6 +2579,7 @@
       pointer-events: none;
     }
     .board-tab:hover .board-tab-pop { opacity: 1; visibility: visible; transform: translateX(0); }
+    .board-tab-pop-body { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--cp-text-muted); white-space: pre-wrap; max-height: 320px; overflow: hidden; }
     .board-tab-brief {
       flex: 0 0 auto; background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 12px; padding: 8px 12px;
@@ -5303,9 +5304,9 @@
                               <span class="board-tab-flag" :class="{ attention: _tabContributed(p).attention }" title="Contributed to the briefing">●</span>
                             </template>
                             <div class="board-tab-pop">
-                              <div class="pin-chip-pop-title" x-text="chipName(p)"></div>
+                              <div class="pin-chip-pop-title" x-text="chipIcon(p) + ' ' + chipName(p)"></div>
                               <span class="pin-chip-type" x-text="chipType(p)"></span>
-                              <div class="pin-chip-pop-meta" x-text="panelTitleText(p)"></div>
+                              <div class="board-tab-pop-body" x-text="_tabPreview(p)"></div>
                             </div>
                           </button>
                         </template>
@@ -15033,6 +15034,28 @@
           const label = it.label || it.refId || it.name || '';
           return deltas.find(d => d && d.kind === it.kind && (d.label === label || d.label === it.refId || d.label === it.name)) || null;
         },
+        // A short text preview of a panel's CONTENT for the hover flyout, so a user can
+        // peek a tab without selecting it. Per type: note body, checklist progress + first
+        // items, pin status/sublabel, else the panel's title text.
+        _tabPreview(p) {
+          if (!p) return '';
+          if (p.type === 'note' && p.note) return String(p.note.text || '').trim().slice(0, 400) || '(empty note)';
+          if (p.type === 'checklist' && p.checklist) {
+            const items = p.checklist.items || [];
+            const done = items.filter(i => i && i.done).length;
+            const lines = items.slice(0, 8).map(i => (i && i.done ? '☑ ' : '☐ ') + String((i && i.text) || ''));
+            if (items.length > 8) lines.push('… +' + (items.length - 8) + ' more');
+            return done + '/' + items.length + ' done' + (lines.length ? '\n' + lines.join('\n') : '');
+          }
+          if (p.type === 'pin' && p.item) {
+            const st = this.pinStatus(p.item);
+            const bits = [];
+            if (p.item.sublabel) bits.push(String(p.item.sublabel));
+            if (st) bits.push(st.state + (st.relative ? ' · ' + st.relative : ''));
+            return bits.join('\n') || (this.chipType(p) || '');
+          }
+          return this.panelTitleText(p) || '';
+        },
         // The HARD minimum width for a panel: the narrowest column span at which the
         // panel's content (button rows, the agent model pill, long unbreakable text, …)
         // does NOT overflow horizontally outside the panel. Unlike _panelMinWidth this
@@ -15477,9 +15500,13 @@
         },
         panelStyle(id) {
           if (this.boardIsTabbed()) {
-            // Tabbed view: the active panel fills the main column statically; others are
-            // hidden via x-show. No absolute positioning so it can't disturb the layout.
-            return 'position:relative; left:auto; top:auto; width:100%; height:auto; padding:0;';
+            // Tabbed view: ONLY the active tab's panel renders, full-width in the main
+            // column. Visibility is owned here (the single writer of the style attribute)
+            // rather than a competing x-show — an x-show display:none gets clobbered when
+            // :style re-evaluates, which is why every panel used to leak through.
+            const base = String(id || '').replace(/^pv:/, '');
+            if (base !== this.activeTabId()) return 'display:none !important;';
+            return 'position:relative; left:auto; top:auto; width:100%; height:auto; padding:0; display:block;';
           }
           const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap;
           const l = this.boardLayout[id] || { x: 0, y: 0, w: Math.floor(cols / 2), h: 6 };
