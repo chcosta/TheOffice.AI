@@ -2549,37 +2549,53 @@
     .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 12px; }
     .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; }
     .board-tab-rail {
-      flex: 0 0 auto; width: 210px; max-height: 72vh; overflow-y: auto;
-      display: flex; flex-direction: column; gap: 4px;
-      padding: 6px; background: var(--cp-surface-soft);
-      border: 1px solid var(--cp-border); border-radius: 12px;
+      flex: 0 0 auto; width: 230px; max-height: 72vh;
+      /* Vertical scroll only — overflow-x is hidden so the rail can never grow a
+         phantom horizontal scrollbar. The hover preview is no longer an absolutely
+         positioned child here (it's a JS-positioned, body-teleported flyout), so
+         clipping the x-axis is safe and tab names simply truncate with an ellipsis. */
+      overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
+      display: flex; flex-direction: column; gap: 5px;
+      padding: 8px; background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border); border-radius: 14px;
     }
+    .board-tab-rail::-webkit-scrollbar { width: 8px; }
+    .board-tab-rail::-webkit-scrollbar-thumb { background: var(--cp-border-strong); border-radius: 8px; }
     .board-tab-empty { padding: 10px; }
     .board-tab {
-      position: relative; display: flex; align-items: center; gap: 8px;
-      width: 100%; padding: 8px 10px; text-align: left;
-      background: none; border: 1px solid transparent; border-radius: 9px;
+      position: relative; display: flex; align-items: center; gap: 9px;
+      width: 100%; padding: 7px 9px 7px 11px; text-align: left;
+      background: none; border: 1px solid transparent; border-radius: 10px;
       color: var(--cp-text); cursor: pointer; font: inherit;
-      transition: background .12s ease, border-color .12s ease;
+      transition: background .12s ease, border-color .12s ease, box-shadow .12s ease, opacity .12s ease;
     }
+    .board-tab::before { content: ""; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 3px; border-radius: 3px; background: transparent; transition: background .12s ease; }
     .board-tab:hover { background: var(--cp-surface); border-color: var(--cp-border); }
+    .board-tab:hover .board-tab-grip { opacity: 1; }
     .board-tab.active { background: var(--cp-accent-soft); border-color: var(--cp-accent); }
-    .board-tab-icon { font-size: 15px; line-height: 1; flex: 0 0 auto; }
-    .board-tab-name { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board-tab.active::before { background: var(--cp-accent); }
+    .board-tab.active .board-tab-tile { border-color: var(--cp-accent); color: var(--cp-accent); }
+    .board-tab.contributed { box-shadow: 0 0 0 1px var(--cp-highlight); }
+    .board-tab.tab-dragging { opacity: .4; }
+    .board-tab.tab-drag-over::after { content: ""; position: absolute; left: 8px; right: 8px; top: -3px; height: 2px; border-radius: 2px; background: var(--cp-accent); }
+    .board-tab-grip { flex: 0 0 auto; color: var(--cp-text-soft); font-size: 12px; letter-spacing: -2px; opacity: 0; cursor: grab; transition: opacity .12s ease; }
+    .board-tab-grip:active { cursor: grabbing; }
+    .board-tab-tile { width: 27px; height: 27px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 8px; background: var(--cp-surface); border: 1px solid var(--cp-border); font-size: 14px; line-height: 1; }
+    .board-tab-body { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; }
+    .board-tab-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board-tab-meta { font-size: 10.5px; color: var(--cp-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .board-tab .pin-dot { flex: 0 0 auto; }
     .board-tab-flag { flex: 0 0 auto; font-size: 9px; color: var(--cp-accent); line-height: 1; }
     .board-tab-flag.attention { color: var(--cp-danger); }
-    .board-tab-pop {
-      position: absolute; left: calc(100% + 8px); top: 0; z-index: 40;
-      min-width: 200px; max-width: 300px; padding: 10px 12px;
+    /* Hover preview flyout — rendered ONCE, teleported to <body>, position:fixed and
+       placed via JS from the hovered tab's bounding box. Because it lives outside the
+       rail, it contributes nothing to the rail's scroll width. */
+    .board-tab-flyout {
+      position: fixed; z-index: 60; width: 290px; max-width: 320px; padding: 11px 13px;
       background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong);
-      border-radius: 12px; box-shadow: var(--cp-shadow);
-      opacity: 0; visibility: hidden; transform: translateX(-4px);
-      transition: opacity .12s ease, transform .12s ease, visibility .12s;
-      pointer-events: none;
+      border-radius: 12px; box-shadow: var(--cp-shadow); pointer-events: none;
     }
-    .board-tab:hover .board-tab-pop { opacity: 1; visibility: visible; transform: translateX(0); }
-    .board-tab-pop-body { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--cp-text-muted); white-space: pre-wrap; max-height: 320px; overflow: hidden; }
+    .board-tab-flyout-body { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--cp-text-muted); white-space: pre-wrap; max-height: 320px; overflow: hidden; }
     .board-tab-brief {
       flex: 0 0 auto; background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 12px; padding: 8px 12px;
@@ -5289,27 +5305,46 @@
                     <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardIsTabbed() ? '' : (boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '')) + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <!-- Tabbed view: vertical tab rail (icons + names) on the left -->
                     <template x-if="boardIsTabbed()">
+                      <div style="display:contents">
                       <div class="board-tab-rail">
                         <template x-if="!boardTabPanels().length">
                           <div class="board-tab-empty hint">Nothing pinned yet.</div>
                         </template>
                         <template x-for="p in boardTabPanels()" :key="'tab-' + p.id">
-                          <button type="button" class="board-tab" :class="{ active: isActiveTab(p), contributed: !!_tabContributed(p) }" @click="selectBoardTab(p)" :title="chipType(p) + ': ' + chipName(p)">
-                            <span class="board-tab-icon" x-text="chipIcon(p)"></span>
-                            <span class="board-tab-name" x-text="chipName(p)"></span>
+                          <button type="button" class="board-tab"
+                                  :class="{ active: isActiveTab(p), contributed: !!_tabContributed(p), 'tab-dragging': isTabDragging(p), 'tab-drag-over': isTabDragOver(p) }"
+                                  draggable="true"
+                                  @click="selectBoardTab(p)"
+                                  @dragstart="onTabDragStart(p, $event)"
+                                  @dragover="onTabDragOver(p, $event)"
+                                  @drop="onTabDrop(p, $event)"
+                                  @dragend="onTabDragEnd()"
+                                  @mouseenter="_showTabFlyout(p, $event)"
+                                  @mouseleave="_hideTabFlyout()"
+                                  :title="chipType(p) + ': ' + chipName(p)">
+                            <span class="board-tab-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
+                            <span class="board-tab-tile" x-text="chipIcon(p)"></span>
+                            <span class="board-tab-body">
+                              <span class="board-tab-name" x-text="_tabName(p)"></span>
+                              <span class="board-tab-meta" x-text="_tabMeta(p)"></span>
+                            </span>
                             <template x-if="p.type==='pin' && pinStatus(p.item)">
                               <span class="pin-dot" :class="pinStatus(p.item).state"></span>
                             </template>
                             <template x-if="!!_tabContributed(p)">
                               <span class="board-tab-flag" :class="{ attention: _tabContributed(p).attention }" title="Contributed to the briefing">●</span>
                             </template>
-                            <div class="board-tab-pop">
-                              <div class="pin-chip-pop-title" x-text="chipIcon(p) + ' ' + chipName(p)"></div>
-                              <span class="pin-chip-type" x-text="chipType(p)"></span>
-                              <div class="board-tab-pop-body" x-text="_tabPreview(p)"></div>
-                            </div>
                           </button>
                         </template>
+                      </div>
+                      <!-- Single hover preview flyout (body-teleported, fixed-positioned via JS). -->
+                      <template x-teleport="body">
+                        <div class="board-tab-flyout" x-show="_tabFlyout.show" :style="'top:' + _tabFlyout.top + 'px; left:' + _tabFlyout.left + 'px;'">
+                          <div class="pin-chip-pop-title"><span x-text="_tabFlyout.icon"></span> <span x-text="_tabFlyout.name"></span></div>
+                          <span class="pin-chip-type" x-text="_tabFlyout.type"></span>
+                          <div class="board-tab-flyout-body" x-text="_tabFlyout.body"></div>
+                        </div>
+                      </template>
                       </div>
                     </template>
                     <div class="board-tab-col">
@@ -10065,7 +10100,11 @@
         boardRowH: 36,
         boardGap: 14,
         // Per-board resizable canvas (px). null = fit to window width / auto height.
-        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true },
+        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null },
+        // Tabbed-view hover preview flyout (single, body-teleported, JS-positioned).
+        _tabFlyout: { show: false, top: 0, left: 0, icon: '', name: '', type: '', body: '' },
+        // Tabbed-view drag-to-reorder transient state.
+        _tabDrag: { id: null, overId: null },
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
@@ -15000,7 +15039,20 @@
           }
         },
         // All tab-able panels = every board panel except the summary ("Where was I?").
-        boardTabPanels() { return this.boardPanels().filter(p => p.type !== 'summary'); },
+        // All tab-able panels = every board panel except the summary, then re-ordered by
+        // the user's saved drag order (boardCanvas.tabOrder, a list of panel base ids).
+        // Items not present in tabOrder (newly added) keep their natural kind-grouped order
+        // and fall after ordered ones. Stable tiebreak on natural index.
+        boardTabPanels() {
+          const base = this.boardPanels().filter(p => p.type !== 'summary');
+          const order = (this.boardCanvas && Array.isArray(this.boardCanvas.tabOrder)) ? this.boardCanvas.tabOrder : null;
+          if (!order || !order.length) return base;
+          const rank = new Map(order.map((id, i) => [id, i]));
+          return base
+            .map((p, i) => ({ p, i, r: rank.has(this.panelBaseId(p)) ? rank.get(this.panelBaseId(p)) : Infinity }))
+            .sort((a, b) => (a.r - b.r) || (a.i - b.i))
+            .map(x => x.p);
+        },
         activeTabId() {
           const tabs = this.boardTabPanels();
           if (!tabs.length) return null;
@@ -15056,6 +15108,83 @@
           }
           return this.panelTitleText(p) || '';
         },
+        // ----- Tabbed-rail presentation helpers -----
+        // The bold first line of a tab: the resource's name only (no progress suffix —
+        // that lives in the meta line so the title can ellipsis cleanly).
+        _tabName(p) {
+          if (!p) return '';
+          if (p.type === 'checklist') return (p.checklist && p.checklist.title) || 'Checklist';
+          return this.chipName(p) || this.panelTitleText(p) || '';
+        },
+        // The muted second line of a tab: type label plus a status / progress hint.
+        _tabMeta(p) {
+          if (!p) return '';
+          if (p.type === 'pin') {
+            const t = this.boardKindLabel(p.kind) || 'Pin';
+            const st = this.pinStatus(p.item);
+            if (st) return t + ' · ' + st.state + (st.relative ? ' ' + st.relative : '');
+            if (p.item && p.item.sublabel) return t + ' · ' + p.item.sublabel;
+            return t;
+          }
+          if (p.type === 'note') return 'Note';
+          if (p.type === 'checklist') {
+            const pr = this.checklistProgress(p.checklist);
+            return 'Checklist · ' + pr.done + '/' + pr.total;
+          }
+          return this.chipType(p) || '';
+        },
+        // ----- Tabbed-rail hover preview flyout (body-teleported, fixed-positioned) -----
+        _showTabFlyout(p, ev) {
+          const el = ev && (ev.currentTarget || ev.target);
+          if (!el || !el.getBoundingClientRect) return;
+          const r = el.getBoundingClientRect();
+          const W = 290, gap = 10;
+          let left = r.right + gap;
+          // Flip to the left of the rail if there isn't room on the right.
+          if (left + W > window.innerWidth - 8) left = Math.max(8, r.left - W - gap);
+          let top = r.top;
+          const maxTop = window.innerHeight - 90;
+          if (top > maxTop) top = Math.max(8, maxTop);
+          if (top < 8) top = 8;
+          this._tabFlyout = { show: true, top, left, icon: this.chipIcon(p), name: this._tabName(p), type: this._tabMeta(p), body: this._tabPreview(p) };
+        },
+        _hideTabFlyout() { if (this._tabFlyout && this._tabFlyout.show) this._tabFlyout = { ...this._tabFlyout, show: false }; },
+        // ----- Tabbed-rail drag-to-reorder -----
+        _tabBaseOrder() { return this.boardTabPanels().map(p => this.panelBaseId(p)); },
+        isTabDragging(p) { return !!(this._tabDrag && this._tabDrag.id && this._tabDrag.id === this.panelBaseId(p)); },
+        isTabDragOver(p) {
+          const id = this.panelBaseId(p);
+          return !!(this._tabDrag && this._tabDrag.overId === id && this._tabDrag.id && this._tabDrag.id !== id);
+        },
+        onTabDragStart(p, ev) {
+          this._hideTabFlyout();
+          this._tabDrag = { id: this.panelBaseId(p), overId: null };
+          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', this._tabDrag.id); } catch {}
+        },
+        onTabDragOver(p, ev) {
+          if (!this._tabDrag || !this._tabDrag.id) return;
+          ev.preventDefault();
+          try { ev.dataTransfer.dropEffect = 'move'; } catch {}
+          const over = this.panelBaseId(p);
+          if (this._tabDrag.overId !== over) this._tabDrag = { ...this._tabDrag, overId: over };
+        },
+        onTabDrop(p, ev) {
+          if (ev) ev.preventDefault();
+          const dragId = this._tabDrag && this._tabDrag.id;
+          const targetId = this.panelBaseId(p);
+          this._tabDrag = { id: null, overId: null };
+          if (!dragId || dragId === targetId) return;
+          const order = this._tabBaseOrder();
+          const from = order.indexOf(dragId);
+          if (from === -1) return;
+          order.splice(from, 1);
+          const insertAt = order.indexOf(targetId);   // place the dragged tab just BEFORE its target
+          if (insertAt === -1) order.push(dragId);
+          else order.splice(insertAt, 0, dragId);
+          this.boardCanvas = { ...this.boardCanvas, tabOrder: order };
+          this._saveBoardCanvas();
+        },
+        onTabDragEnd() { this._tabDrag = { id: null, overId: null }; },
         // The HARD minimum width for a panel: the narrowest column span at which the
         // panel's content (button rows, the agent model pill, long unbreakable text, …)
         // does NOT overflow horizontally outside the panel. Unlike _panelMinWidth this
@@ -15564,17 +15693,17 @@
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
           const c = boardId && map[boardId];
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: (c.view === 'tabbed' ? 'tabbed' : 'pin'), tab: c.tab || null, briefOpen: (c.briefOpen !== false) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'pin', tab: null, briefOpen: true };
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: (c.view === 'tabbed' ? 'tabbed' : 'pin'), tab: c.tab || null, briefOpen: (c.briefOpen !== false), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null };
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false) };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null) };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false) };
+          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null) };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
@@ -16056,7 +16185,7 @@
           this.persistLayout();
           if (entry.canvas && typeof entry.canvas === 'object') {
             const c = entry.canvas;
-            this.boardCanvas = { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1 };
+            this.boardCanvas = { ...this.boardCanvas, w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1 };
             this._saveBoardCanvas();
           }
           this.boardLayoutsMenu = false;
