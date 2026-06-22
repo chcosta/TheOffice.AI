@@ -2587,6 +2587,33 @@
     .board-tab .pin-dot { flex: 0 0 auto; }
     .board-tab-flag { flex: 0 0 auto; font-size: 9px; color: var(--cp-accent); line-height: 1; }
     .board-tab-flag.attention { color: var(--cp-danger); }
+    /* Pinned-item marker: a small 📌 tucked on the icon tile so the rail visually
+       distinguishes pinned operations from board-native notes/checklists. */
+    .board-tab-tile { position: relative; }
+    .board-tab-pinmark { position: absolute; right: -4px; bottom: -5px; font-size: 10px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.45)); pointer-events: none; }
+    /* Per-tab remove/unpin affordance — revealed on hover, confirms before acting. */
+    .board-tab-remove { flex: 0 0 auto; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 6px; color: var(--cp-text-soft); font-size: 11px; opacity: 0; cursor: pointer; transition: opacity .12s ease, background .12s ease, color .12s ease; }
+    .board-tab:hover .board-tab-remove { opacity: .8; }
+    .board-tab-remove:hover { background: var(--cp-danger); color: #fff; opacity: 1; }
+    /* Section headers (rail style C — grouped by type). */
+    .board-tab-section { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--cp-text-soft); padding: 8px 8px 2px; }
+    .board-tab-section:first-child { padding-top: 2px; }
+    /* ----- Rail style B · Elevated cards ----- */
+    .board-tab-rail.rail-b { gap: 8px; background: transparent; border-color: transparent; padding: 4px; }
+    .board-tab-rail.rail-b .board-tab { padding: 9px 10px; border: 1px solid var(--cp-border); background: var(--cp-surface); border-radius: 12px; box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14); }
+    .board-tab-rail.rail-b .board-tab::before { display: none; }
+    .board-tab-rail.rail-b .board-tab:hover { transform: translateX(2px); box-shadow: var(--cp-shadow); }
+    .board-tab-rail.rail-b .board-tab.active { border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .board-tab-rail.rail-b .board-tab.active .board-tab-tile { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
+    .board-tab-rail.rail-b .board-tab-tile { width: 30px; height: 30px; font-size: 15px; }
+    /* ----- Rail style C · Grouped + segmented ----- */
+    .board-tab-rail.rail-c .board-tab { padding: 7px 10px; border-radius: 9px; }
+    .board-tab-rail.rail-c .board-tab::before { display: none; }
+    .board-tab-rail.rail-c .board-tab:hover { background: var(--cp-surface); }
+    .board-tab-rail.rail-c .board-tab.active { background: var(--cp-surface); border-color: var(--cp-border); box-shadow: 0 1px 2px rgba(0,0,0,.14); }
+    .board-tab-rail.rail-c .board-tab.active .board-tab-tile { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
+    /* In-panel pinned marker (board-panel head, both views). */
+    .board-panel-pinmark { flex: 0 0 auto; font-size: 11px; line-height: 1; opacity: .85; }
     /* Hover preview flyout — rendered ONCE, teleported to <body>, position:fixed and
        placed via JS from the hovered tab's bounding box. Because it lives outside the
        rail, it contributes nothing to the rail's scroll width. */
@@ -5154,7 +5181,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>📌 Boards</h1>
-                <p>Pin sessions, chats, tasks, flows, assignments, agents &amp; managers you're actively working on. Add notes and checklists, and ask "Where was I?".</p>
+                <p>Pin sessions, chats, tasks, flows, assignments, agents &amp; managers you're actively working on. Add notes and checklists, and get a <strong>Briefing</strong> of where you left off.</p>
               </div>
               <div class="toolbar">
                 <button class="btn" type="button" @click="openBoardModal(null)">＋ New Board</button>
@@ -5213,6 +5240,15 @@
                             <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
                             <button class="org-menu-item" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)"><span>✅</span><span class="org-menu-label">Enable</span></button>
                             <button class="org-menu-item" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)"><span>⏸</span><span class="org-menu-label">Disable</span></button>
+                            <template x-if="boardIsTabbed()">
+                              <div style="display:contents">
+                                <div class="org-menu-sep"></div>
+                                <div class="org-menu-empty" style="padding-bottom:2px">Tab rail style</div>
+                                <button class="org-menu-item" type="button" :class="{ active: boardTabRailStyle==='a' }" @click.stop="setBoardTabRailStyle('a')"><span x-text="boardTabRailStyle==='a' ? '●' : '○'"></span><span class="org-menu-label">List</span></button>
+                                <button class="org-menu-item" type="button" :class="{ active: boardTabRailStyle==='b' }" @click.stop="setBoardTabRailStyle('b')"><span x-text="boardTabRailStyle==='b' ? '●' : '○'"></span><span class="org-menu-label">Cards</span></button>
+                                <button class="org-menu-item" type="button" :class="{ active: boardTabRailStyle==='c' }" @click.stop="setBoardTabRailStyle('c')"><span x-text="boardTabRailStyle==='c' ? '●' : '○'"></span><span class="org-menu-label">Grouped</span></button>
+                              </div>
+                            </template>
                             <div class="org-menu-sep"></div>
                             <button class="org-menu-item" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)"><span>🗑</span><span class="org-menu-label">Delete</span></button>
                           </div>
@@ -5306,35 +5342,46 @@
                     <!-- Tabbed view: vertical tab rail (icons + names) on the left -->
                     <template x-if="boardIsTabbed()">
                       <div style="display:contents">
-                      <div class="board-tab-rail">
+                      <div class="board-tab-rail" :class="'rail-' + boardTabRailStyle">
                         <template x-if="!boardTabPanels().length">
                           <div class="board-tab-empty hint">Nothing pinned yet.</div>
                         </template>
-                        <template x-for="p in boardTabPanels()" :key="'tab-' + p.id">
-                          <button type="button" class="board-tab"
-                                  :class="{ active: isActiveTab(p), contributed: !!_tabContributed(p), 'tab-dragging': isTabDragging(p), 'tab-drag-over': isTabDragOver(p) }"
-                                  draggable="true"
-                                  @click="selectBoardTab(p)"
-                                  @dragstart="onTabDragStart(p, $event)"
-                                  @dragover="onTabDragOver(p, $event)"
-                                  @drop="onTabDrop(p, $event)"
-                                  @dragend="onTabDragEnd()"
-                                  @mouseenter="_showTabFlyout(p, $event)"
-                                  @mouseleave="_hideTabFlyout()"
-                                  :title="chipType(p) + ': ' + chipName(p)">
-                            <span class="board-tab-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
-                            <span class="board-tab-tile" x-text="chipIcon(p)"></span>
-                            <span class="board-tab-body">
-                              <span class="board-tab-name" x-text="_tabName(p)"></span>
-                              <span class="board-tab-meta" x-text="_tabMeta(p)"></span>
-                            </span>
-                            <template x-if="p.type==='pin' && pinStatus(p.item)">
-                              <span class="pin-dot" :class="pinStatus(p.item).state"></span>
+                        <template x-for="row in boardTabRailRows()" :key="row.key">
+                          <div style="display:contents">
+                            <template x-if="row.header">
+                              <div class="board-tab-section" x-text="row.header"></div>
                             </template>
-                            <template x-if="!!_tabContributed(p)">
-                              <span class="board-tab-flag" :class="{ attention: _tabContributed(p).attention }" title="Contributed to the briefing">●</span>
+                            <template x-if="row.panel">
+                              <button type="button" class="board-tab"
+                                      :class="{ active: isActiveTab(row.panel), contributed: !!_tabContributed(row.panel), 'tab-dragging': isTabDragging(row.panel), 'tab-drag-over': isTabDragOver(row.panel) }"
+                                      draggable="true"
+                                      @click="selectBoardTab(row.panel)"
+                                      @dragstart="onTabDragStart(row.panel, $event)"
+                                      @dragover="onTabDragOver(row.panel, $event)"
+                                      @drop="onTabDrop(row.panel, $event)"
+                                      @dragend="onTabDragEnd()"
+                                      @mouseenter="_showTabFlyout(row.panel, $event)"
+                                      @mouseleave="_hideTabFlyout()"
+                                      :title="chipType(row.panel) + ': ' + chipName(row.panel)">
+                                <span class="board-tab-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
+                                <span class="board-tab-tile">
+                                  <span x-text="chipIcon(row.panel)"></span>
+                                  <template x-if="panelIsPinned(row.panel)"><span class="board-tab-pinmark" title="Pinned operation (not a board note/checklist)">📌</span></template>
+                                </span>
+                                <span class="board-tab-body">
+                                  <span class="board-tab-name" x-text="_tabName(row.panel)"></span>
+                                  <span class="board-tab-meta" x-text="_tabMeta(row.panel)"></span>
+                                </span>
+                                <template x-if="row.panel.type==='pin' && pinStatus(row.panel.item)">
+                                  <span class="pin-dot" :class="pinStatus(row.panel.item).state"></span>
+                                </template>
+                                <template x-if="!!_tabContributed(row.panel)">
+                                  <span class="board-tab-flag" :class="{ attention: _tabContributed(row.panel).attention }" title="Contributed to the briefing">●</span>
+                                </template>
+                                <span class="board-tab-remove" @click.stop="confirmRemovePanel(row.panel)" @mousedown.stop @dragstart.stop.prevent :title="panelRemoveLabel(row.panel)">✕</span>
+                              </button>
                             </template>
-                          </button>
+                          </div>
                         </template>
                       </div>
                       <!-- Single hover preview flyout (body-teleported, fixed-positioned via JS). -->
@@ -5353,7 +5400,7 @@
                       <div class="board-tab-brief" :class="{ collapsed: !boardBriefOpen() }">
                         <div class="board-tab-brief-head" @click="toggleBoardBrief()">
                           <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
-                          <span>🧭 Where was I?</span>
+                          <span>🧭 Briefing</span>
                           <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="margin-left:auto;padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
                         </div>
                         <div class="board-tab-brief-body" x-show="boardBriefOpen()">
@@ -5403,6 +5450,7 @@
                               <div class="bph-left">
                                 <span class="board-panel-tag" x-text="panelIcon(p)" :title="panelTypeLabel(p)"></span>
                                 <span class="board-panel-type" x-show="!isPanelCollapsed(p.id)" x-text="panelTypeLabel(p)"></span>
+                                <span class="board-panel-pinmark" x-show="panelIsPinned(p) && !isPanelCollapsed(p.id)" title="Pinned operation — a reference on this board (not a board-native note/checklist)">📌</span>
                                 <div class="board-panel-title" x-show="isPanelCollapsed(p.id)" x-text="panelTitleText(p)"></div>
                               </div>
                               <div class="bph-right" x-show="!boardIsTabbed()">
@@ -5423,6 +5471,11 @@
                                 <button class="board-panel-chevron" type="button" @click.stop="togglePanelCollapse(p.id)" @mousedown.stop :title="isPanelCollapsed(p.id) ? 'Expand' : 'Collapse'" x-text="isPanelCollapsed(p.id) ? '▸' : '▾'"></button>
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p)" @click.stop="reducePinChip(p)" @mousedown.stop title="Pin-ify: reduce this item to an icon chip">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
+                              </div>
+                              <!-- Tabbed view: lightweight remove/unpin control (the full pin-view
+                                   control strip is hidden in tabbed mode). -->
+                              <div class="bph-right" x-show="boardIsTabbed() && p.type !== 'summary'" style="opacity:1">
+                                <button class="board-panel-chevron" type="button" @click.stop="confirmRemovePanel(p)" :title="panelRemoveLabel(p)" x-text="panelIsPinned(p) ? '📌' : '🗑'"></button>
                               </div>
                             </div>
                             <div class="board-panel-body" x-show="!isPanelCollapsed(p.id)">
@@ -5464,7 +5517,7 @@
                                                 <span x-init="boardLocEnsureGit(item)" class="summary-muted-pill" :title="boardLocGit[item.refId] === true ? 'This folder is a git repository' : (boardLocGit[item.refId] === false ? 'Not a git repository' : 'Checking…')" x-text="boardLocGit[item.refId] === true ? '🔀 Git' : (boardLocGit[item.refId] === false ? '○ No git' : '…')"></span>
                                               </template>
                                               <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="item.label || item.refId"></span>
-                                              <span class="summary-muted-pill" x-show="item.excludeFromSummary" title="This panel is hidden from the Where was I? briefing and insights">🙈 Off summary</span>
+                                              <span class="summary-muted-pill" x-show="item.excludeFromSummary" title="This panel is hidden from the Briefing and insights">🙈 Off summary</span>
                                             </div>
                                             <div class="hint" x-show="item.sublabel" x-text="item.sublabel"></div>
                                           </div>
@@ -10082,6 +10135,9 @@
         boardAiPinnedMap: (() => { try { const v = JSON.parse(localStorage.getItem('board-ai-pinned') || '{}'); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; } catch { return {}; } })(),
         boardAiRecent: [],
         boardAiPinned: [],
+        // Tabbed-view rail visual style: 'a' = list (default), 'b' = elevated cards,
+        // 'c' = grouped by type. Persisted globally (a display preference, not per-board).
+        boardTabRailStyle: (() => { try { const v = localStorage.getItem('board-tab-rail-style'); return (v === 'a' || v === 'b' || v === 'c') ? v : 'a'; } catch { return 'a'; } })(),
         // Free-form board layout: panelId -> {x,y,w,h} in grid units.
         boardLayout: {},
         // Board writer-lease (multi-client single-writer). Optimistic: assume we hold
@@ -14756,7 +14812,7 @@
           return out;
         },
         panelTitle(p) {
-          if (p.type === 'summary') return '🧭 Where was I?';
+          if (p.type === 'summary') return '🧭 Briefing';
           if (p.type === 'note') {
             // First non-empty line of the note (stripped of markdown markers) as a title.
             const first = String((p.note && p.note.text) || '').split('\n').map(s => s.trim()).find(Boolean) || 'Note';
@@ -14789,7 +14845,7 @@
         // Title text WITHOUT the leading icon (the icon is rendered separately as a tag).
         // Shown only when a panel is collapsed; expanded panels show their own content.
         panelTitleText(p) {
-          if (p.type === 'summary') return 'Where was I?';
+          if (p.type === 'summary') return 'Briefing';
           if (p.type === 'checklist') {
             const pr = this.checklistProgress(p.checklist);
             return ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
@@ -15185,6 +15241,59 @@
           this._saveBoardCanvas();
         },
         onTabDragEnd() { this._tabDrag = { id: null, overId: null }; },
+        // Is this panel a pinned operation (a reference) vs. a board-native note/checklist?
+        panelIsPinned(p) { return !!p && p.type === 'pin'; },
+        // Persist the tab-rail visual style preference (a/b/c).
+        setBoardTabRailStyle(s) {
+          if (s !== 'a' && s !== 'b' && s !== 'c') return;
+          this.boardTabRailStyle = s;
+          try { localStorage.setItem('board-tab-rail-style', s); } catch {}
+        },
+        // Rows for the tab rail. Styles a/b = a flat list of tab rows; style c = the
+        // same tabs bucketed by kind under section headers (Pinned / Notes / Checklists),
+        // emitting interleaved {key, header} and {key, panel} rows. Within-group order
+        // still follows the user's tabOrder (boardTabPanels is already sorted).
+        boardTabRailRows() {
+          const panels = this.boardTabPanels();
+          if (this.boardTabRailStyle !== 'c') {
+            return panels.map(p => ({ key: 'tab-' + p.id, panel: p }));
+          }
+          const groupOf = (p) => p.type === 'note' ? 'Notes' : (p.type === 'checklist' ? 'Checklists' : 'Pinned');
+          const order = ['Pinned', 'Notes', 'Checklists'];
+          const rows = [];
+          for (const g of order) {
+            const inGroup = panels.filter(p => groupOf(p) === g);
+            if (!inGroup.length) continue;
+            rows.push({ key: 'h-' + g, header: g });
+            for (const p of inGroup) rows.push({ key: 'tab-' + p.id, panel: p });
+          }
+          return rows;
+        },
+        // Tooltip/label for the per-tab and per-panel remove control.
+        panelRemoveLabel(p) {
+          if (!p) return 'Remove';
+          if (p.type === 'pin') return 'Unpin from this board';
+          if (p.type === 'note') return 'Delete this note';
+          if (p.type === 'checklist') return 'Delete this checklist';
+          return 'Remove';
+        },
+        // Remove a panel's underlying item, with a confirmation. Pins are unpinned
+        // (the referenced operation is untouched); notes/checklists are deleted.
+        async confirmRemovePanel(p) {
+          if (!p) return;
+          if (p.type === 'pin') {
+            const name = (p.item && (p.item.label || p.item.refId)) || 'this item';
+            const ok = await this.uiConfirm({ title: 'Unpin item', message: 'Remove "' + name + '" from this board? The underlying ' + this.boardKindLabel(p.kind).toLowerCase() + ' is not deleted — only its pin on this board.', confirmLabel: 'Unpin', danger: true });
+            if (ok) await this.unpinItem(p.item);
+          } else if (p.type === 'note') {
+            const ok = await this.uiConfirm({ title: 'Delete note', message: 'Delete this note from the board? This cannot be undone.', confirmLabel: 'Delete', danger: true });
+            if (ok) await this.deleteBoardNote(p.note);
+          } else if (p.type === 'checklist') {
+            const name = (p.checklist && p.checklist.title) || 'this checklist';
+            const ok = await this.uiConfirm({ title: 'Delete checklist', message: 'Delete "' + name + '" from the board? This cannot be undone.', confirmLabel: 'Delete', danger: true });
+            if (ok) await this.deleteChecklist(p.checklist);
+          }
+        },
         // The HARD minimum width for a panel: the narrowest column span at which the
         // panel's content (button rows, the agent model pill, long unbreakable text, …)
         // does NOT overflow horizontally outside the panel. Unlike _panelMinWidth this
