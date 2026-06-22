@@ -5628,7 +5628,7 @@
                           <span x-text="Math.round(boardZoom()*100) + '%'" style="width:34px;text-align:right;font-variant-numeric:tabular-nums"></span>
                         </span>
                         <button class="btn ghost" type="button" @click="fitBoardZoom()" title="Fit: zoom so the whole board fits in view" style="padding:2px 8px">⤢ Fit</button>
-                        <button class="btn ghost" type="button" @click="fitBoardWidth()" title="Fit width: shrink the board so its width matches the rightmost panel — removes empty space on the sides" style="padding:2px 8px">↔ Fit width</button>
+                        <button class="btn ghost" type="button" @click="fitBoardWidth()" title="Fit width: zoom the board so its full width fills the viewport edge-to-edge (zooms in or out as needed so everything is shown across the screen)" style="padding:2px 8px">↔ Fit width</button>
                         <button class="btn ghost" type="button" @click="fitBoardVertical()" title="Fit vertical: zoom so the board's full height fits the viewport" style="padding:2px 8px">↕ Fit vertical</button>
                         <span class="board-zoom" title="Text size of board panel content (this board only)" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
                           <span style="opacity:.8;font-size:13px" title="Text size">🔤</span>
@@ -13617,6 +13617,15 @@
               if (!this._fitDoneBoards.has(this.activeBoardId) && this._boardFitOnOpen !== this.activeBoardId) {
                 this._boardJustOpened = this.activeBoardId;
                 this._boardFitOnOpen = this.activeBoardId;
+                // Cold-load / deep-link / reload resolves the board here WITHOUT going through
+                // selectBoard(), so the writer lease would never be claimed server-side and the
+                // whole single-writer mechanism stays dormant (holder unknown, no broadcast).
+                // Claim once on open — exactly like selectBoard — so the most-recently-opened
+                // visible client becomes master and peers learn the holder via the SSE broadcast.
+                // Only when visible: a background cold-load must not steal from a foreground peer.
+                if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+                  this._claimBoardLease();
+                }
               }
             }
             this.syncBoardLayout();
@@ -15364,35 +15373,29 @@
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
-        // Fit width: shrink the canvas so its right edge sits at the RIGHTMOST panel,
-        // eliminating dead space on the sides. Panels keep their positions and sizes;
-        // only the canvas width is trimmed (or, when content already fills the window,
-        // we fall back to a fluid full-window fit). This replaces the old behaviour of
-        // always stretching to the window width regardless of where the panels actually sit.
+        // Fit width: zoom the canvas so the board's full content WIDTH fills 100% of the
+        // viewport width. Unlike Fit / Fit vertical (which only ever shrink, capped at
+        // 100%), this MAY zoom IN past 100% — up to the slider max — so a board that is
+        // currently zoomed way out is brought back in to a size where everything is shown
+        // edge-to-edge across the screen. Panels keep their positions and sizes; only the
+        // zoom changes (the geometry-neutral CSS transform), so there is nothing to reflow.
         fitBoardWidth() {
           this.$nextTick(() => {
-            const cols = this.boardCols;
-            const sc = document.querySelector('.board-canvas-scroll');
-            const winW = (sc && sc.clientWidth) || 0;
-            // Rightmost used column across every panel (layout columns).
-            let maxRight = 0;
-            for (const p of this.boardPanels()) {
-              const l = this.boardLayout[p.id]; if (!l) continue;
-              maxRight = Math.max(maxRight, (l.x || 0) + (l.w || 0));
-            }
-            maxRight = Math.ceil(maxRight);
-            if (maxRight <= 0 || !winW) { this.resetBoardCanvas(); return; }
-            const stretched = this._boardStretched();
-            // Not stretched and the panels already span the full width → nothing to trim;
-            // keep the fluid full-window fit.
-            if (!stretched && maxRight >= cols) { this.resetBoardCanvas(); return; }
-            const baseW = stretched ? this.boardCanvas.baseW : winW;
-            const colPx = baseW / cols;
-            const w = Math.round(maxRight * colPx);
-            this.boardCanvas = { ...this.boardCanvas, w, baseW };
+            const grid = document.querySelector('.board-grid');
+            const scroll = grid && grid.closest('.board-canvas-scroll');
+            if (!scroll) return;
+            const pad = 16; // breathing room so panels aren't flush against the right edge
+            const vw = scroll.clientWidth;
+            const ext = this._boardContentExtent();
+            if (ext.w <= 0 || vw <= 0) return;
+            // Zoom so content width == viewport width. Floor to the 0.05 slider step so it
+            // always fits (no horizontal scrollbar); clamp to the slider range [0.3, 1.5]
+            // so a narrow board can zoom IN to fill the width.
+            let z = (vw - pad) / ext.w;
+            z = Math.max(0.3, Math.min(1.5, Math.floor(z * 20) / 20));
+            this.boardCanvas = { ...this.boardCanvas, z };
             this._saveBoardCanvas();
-            this._refitFluidReflow(); // width changed → re-fit heights AND reflow so grown cards don't overlap
-            this.showToast('Board', 'Width fit to content', 'success');
+            this.showToast('Board', 'Width fit to viewport', 'success');
           });
         },
         startCanvasResize(ev) {
@@ -16004,8 +16007,13 @@
               method: 'POST', body: JSON.stringify({ clientId: this._clientId(), action })
             });
             if (r && Object.prototype.hasOwnProperty.call(r, 'isHolder')) {
-              this._boardLeaseHolder = r.holderId || '';
               this._boardLeaseHeld = !!r.isHolder;
+              // Adopt a CONCRETE holder only. A 'release' returns holderId:null ("we no
+              // longer hold") — that must not blank a real holder we may have just learned
+              // via the SSE board-lease broadcast (the two responses race). If WE are the
+              // holder, record our own id.
+              if (r.holderId) this._boardLeaseHolder = r.holderId;
+              else if (r.isHolder) this._boardLeaseHolder = this._clientId();
             }
           } catch {}
         },
