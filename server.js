@@ -11,6 +11,7 @@ const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
 const azdo = require('./azdo');
+const devitems = require('./devitems');
 const capabilities = require('./capabilities');
 const mcpTest = require('./mcpTest');
 const agentPackage = require('./agentPackage');
@@ -5255,6 +5256,11 @@ function _normalizeBoard(b) {
     items: Array.isArray(b.items) ? b.items : [],
     notes: Array.isArray(b.notes) ? b.notes : [],
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
+    // Dev items: { id, title, org, project, repo, baseBranch, branch, workItemId,
+    // prId, worktreePath, worktreeStatus, git, workItem, pr, summary, ... }. Group an
+    // AzDo work item + PR + a git worktree; metadata persists here, heavy git/AzDo/AI
+    // work runs through the dedicated /dev-items action endpoints.
+    devItems: Array.isArray(b.devItems) ? b.devItems : [],
     layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
     // Stashed items: { '<panelBaseId>': true }. Stashed pins/notes/checklists are hidden
     // from the board grid but still feed the AI context (where-was-i, assistant). Display-only.
@@ -5553,7 +5559,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId } = req.body || {};
   // Writer-lease guard: only the current lease holder may persist LAYOUT. A stale /
   // background client whose clientId != holder is rejected (409) so it cannot clobber
   // the focused client's layout. Non-layout updates (notes/checklists/items/star/...)
@@ -5571,6 +5577,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(items)) b.items = items;
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
+  if (Array.isArray(devItems)) b.devItems = devItems;
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   if (hidden && typeof hidden === 'object' && !Array.isArray(hidden)) b.hidden = hidden;
   if (locks && typeof locks === 'object' && !Array.isArray(locks)) b.locks = locks;
@@ -5802,7 +5809,11 @@ app.post('/api/fs/open', (req, res) => {
       exec(`start "Copilot Session" "${batPath}"`);
       return res.json({ ok: true, target });
     }
-    // default: editor
+    // default: editor (Insiders preferred). target 'code' forces stable VS Code.
+    if (target === 'code') {
+      spawn('code', [dir], { shell: true, detached: true, stdio: 'ignore' }).unref();
+      return res.json({ ok: true, target, editor: 'code' });
+    }
     const insiders = spawnSync('where', ['code-insiders'], { shell: true, encoding: 'utf-8' });
     const editor = insiders.status === 0 ? 'code-insiders' : 'code';
     spawn(editor, [dir], { shell: true, detached: true, stdio: 'ignore' }).unref();
@@ -6485,6 +6496,155 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     const saved = persist(digest);
     res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false, error: (e && e.message) || 'llm failed' });
   }
+});
+
+// ============================================================================
+// DEV ITEMS — group an AzDo work item + PR + a git worktree on a board. Metadata
+// lives on board.devItems[] (persisted via PUT /api/boards/:id); the heavy git /
+// AzDo / AI work runs through these dedicated action endpoints. Opening the
+// worktree in an editor/CLI reuses POST /api/fs/open (a worktree is just a
+// folder), so no new launch code is needed here.
+// ============================================================================
+
+// Locate a dev item on a board; persist a mutated copy back. Returns helpers.
+function _devItemCtx(boardId, devId) {
+  const boards = loadBoards();
+  const idx = boards.findIndex(b => b.id === boardId);
+  if (idx < 0) return null;
+  const board = boards[idx];
+  const items = Array.isArray(board.devItems) ? board.devItems : [];
+  const di = items.findIndex(d => d && d.id === devId);
+  if (di < 0) return null;
+  return {
+    board, dev: items[di],
+    // Merge a partial onto the dev item, persist the whole board, broadcast.
+    save(partial) {
+      const updated = { ...items[di], ...partial, updatedAt: new Date().toISOString() };
+      items[di] = updated;
+      board.devItems = items;
+      board.updatedAt = new Date().toISOString();
+      boards[idx] = board;
+      saveBoards(boards);
+      broadcastSSE('boards-changed', { id: board.id });
+      return updated;
+    }
+  };
+}
+
+// Create (or reuse) the worktree for a dev item. Runs in the background since a
+// first-time clone can be slow; the item flips worktreeStatus creating→ready/error
+// and the SPA re-renders off the boards-changed SSE.
+app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  if (!d.org || !d.project || !d.repo) {
+    return res.status(400).json({ error: 'Dev item is missing org/project/repo.' });
+  }
+  ctx.save({ worktreeStatus: 'creating', worktreeError: null });
+  res.json({ ok: true, status: 'creating' });
+  // Fire-and-forget; persist the outcome.
+  (async () => {
+    try {
+      const r = devitems.createWorktree({
+        org: d.org, project: d.project, repo: d.repo,
+        baseBranch: d.baseBranch, branch: d.branch, devId: d.id
+      });
+      let git = null;
+      try { git = devitems.worktreeStatus(r.worktreePath, { baseBranch: d.baseBranch }); } catch {}
+      const fresh = _devItemCtx(req.params.id, req.params.devId);
+      if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git });
+    } catch (e) {
+      const fresh = _devItemCtx(req.params.id, req.params.devId);
+      if (fresh) fresh.save({ worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
+    }
+  })();
+});
+
+// Refresh a dev item's live state: git ahead/behind/dirty + work item + PR.
+app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  const partial = {};
+  // Git status (only if a worktree exists).
+  if (d.worktreePath) {
+    try { partial.git = devitems.worktreeStatus(d.worktreePath, { baseBranch: d.baseBranch }); } catch (e) { partial.gitError = (e && e.message) || 'git failed'; }
+  }
+  // Work item.
+  if (d.workItemId && d.org && d.project) {
+    try { partial.workItem = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch (e) { partial.workItemError = (e && e.message) || 'work item failed'; }
+  }
+  // Pull request.
+  if (d.prId && d.org && d.project && d.repo) {
+    try { partial.pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch (e) { partial.prError = (e && e.message) || 'PR failed'; }
+  }
+  const updated = ctx.save(partial);
+  res.json({ ok: true, dev: updated });
+});
+
+// Sync the worktree with origin (fetch + fast-forward).
+app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  if (!d.worktreePath) return res.status(400).json({ error: 'No worktree to sync — create one first.' });
+  let r;
+  try { r = devitems.syncWorktree(d.worktreePath, { baseBranch: d.baseBranch }); }
+  catch (e) { return res.status(500).json({ ok: false, error: (e && e.message) || 'Sync failed' }); }
+  const updated = ctx.save({ git: r.status || d.git });
+  res.json({ ok: r.ok, message: r.message, dev: updated });
+});
+
+// Regenerate the AI summary of where the dev work stands (work item + PR + diff).
+app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  // Pull the freshest work item + PR for the prompt (best-effort).
+  let wi = d.workItem, pr = d.pr;
+  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
+  let diff = '';
+  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch }); } catch {}
+
+  const ctxLines = [];
+  ctxLines.push(`Dev item: ${d.title || d.repo}`);
+  ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}  Branch: ${d.branch || '(none)'}  Base: ${d.baseBranch || 'main'}`);
+  if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
+  if (pr) ctxLines.push(`PR #${pr.id} "${pr.title}" — status: ${pr.status}${pr.isDraft ? ' (draft)' : ''}, merge: ${pr.mergeStatus || 'n/a'}, ${pr.sourceBranch} → ${pr.targetBranch}`);
+  if (d.git) ctxLines.push(`Local branch: ${d.git.ahead || 0} ahead / ${d.git.behind || 0} behind origin${d.git.dirty ? ', uncommitted changes present' : ', clean working tree'}`);
+  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 5000)); }
+
+  const prompt = [
+    'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work is, where it stands, and what is left to do next.',
+    'Be concrete. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
+    '',
+    ctxLines.join('\n').slice(0, 8000),
+    '',
+    'Status briefing:'
+  ].join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const text = (acc.trim() || (result && result.output) || '').trim();
+    if (!text) throw new Error('Empty summary');
+    const updated = ctx.save({ summary: { text, generatedAt: new Date().toISOString() }, workItem: wi || d.workItem, pr: pr || d.pr });
+    res.json({ ok: true, dev: updated });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) || 'Summary failed' });
+  }
+});
+
+// Remove a dev item's worktree (best-effort) without deleting the item record.
+app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  try { devitems.removeWorktree(d.org, d.project, d.repo, d.id, d.worktreePath); } catch {}
+  const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null });
+  res.json({ ok: true, dev: updated });
 });
 
 // ============================================================================

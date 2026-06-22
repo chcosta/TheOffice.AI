@@ -396,6 +396,59 @@ async function createPullRequest(org, project, repo, { sourceBranch, targetBranc
   return { pullRequestId: d.pullRequestId, url: webUrl };
 }
 
+// ----- Dev item helpers (work item + PR state, clone URL) -----
+
+// HTTPS clone URL for a repo. Auth is injected at git time via an
+// `http.extraheader` bearer token (see devitems.js) so no PAT/credential
+// manager is required.
+function cloneUrl(org, project, repo) {
+  return `https://dev.azure.com/${seg(org)}/${seg(project)}/_git/${seg(repo)}`;
+}
+
+// Web (browser) URLs for quick-navigation from the board.
+function workItemUrl(org, project, id) {
+  return `https://dev.azure.com/${seg(org)}/${seg(project)}/_workitems/edit/${seg(id)}`;
+}
+function pullRequestUrl(org, project, repo, prId) {
+  return `https://dev.azure.com/${seg(org)}/${seg(project)}/_git/${seg(repo)}/pullrequest/${seg(prId)}`;
+}
+
+// Fetch a work item's headline fields. Returns a compact, UI-friendly shape.
+async function getWorkItem(org, project, id) {
+  const d = await apiSend(org, `${seg(project)}/_apis/wit/workitems/${seg(id)}?api-version=${API_VERSION}`);
+  const f = d.fields || {};
+  const assigned = f['System.AssignedTo'];
+  return {
+    id: d.id,
+    title: f['System.Title'] || '',
+    state: f['System.State'] || '',
+    type: f['System.WorkItemType'] || '',
+    assignedTo: assigned ? (assigned.displayName || assigned.uniqueName || '') : '',
+    url: workItemUrl(org, project, id)
+  };
+}
+
+// Fetch a pull request's status. Returns a compact, UI-friendly shape.
+async function getPullRequest(org, project, repo, prId) {
+  const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}?api-version=${API_VERSION}`);
+  const strip = (r) => (r || '').replace(/^refs\/heads\//, '');
+  return {
+    id: d.pullRequestId,
+    title: d.title || '',
+    status: d.status || '',            // active | completed | abandoned
+    isDraft: !!d.isDraft,
+    mergeStatus: d.mergeStatus || '',  // succeeded | conflicts | queued | ...
+    sourceBranch: strip(d.sourceRefName),
+    targetBranch: strip(d.targetRefName),
+    reviewers: (d.reviewers || []).map(rv => ({
+      name: rv.displayName || rv.uniqueName || '',
+      vote: rv.vote,                   // 10 approve, 5 approve-w/-sug, 0 none, -5 waiting, -10 reject
+      isRequired: !!rv.isRequired
+    })),
+    url: pullRequestUrl(org, project, repo, prId)
+  };
+}
+
 module.exports = {
   AZDO_STORE,
   getToken,
@@ -412,5 +465,10 @@ module.exports = {
   getRepo,
   getRefObjectId,
   pushFiles,
-  createPullRequest
+  createPullRequest,
+  cloneUrl,
+  workItemUrl,
+  pullRequestUrl,
+  getWorkItem,
+  getPullRequest
 };

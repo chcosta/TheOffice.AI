@@ -5235,6 +5235,8 @@
                         <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
                           <button class="btn ghost" type="button" @click="open = !open" :class="{ active: open }" title="More board actions" aria-haspopup="true" :aria-expanded="open">⋯ More</button>
                           <div class="org-menu" x-show="open" x-transition.opacity.duration.120ms x-cloak style="min-width:180px" @click="open = false">
+                            <button class="org-menu-item" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev item — groups an Azure DevOps work item, PR and a git worktree with AI state tracking"><span>🧰</span><span class="org-menu-label">Add Dev item</span></button>
+                            <div class="org-menu-sep"></div>
                             <button class="org-menu-item" type="button" @click="openBoardModal(activeBoard())"><span>✏</span><span class="org-menu-label">Edit</span></button>
                             <button class="org-menu-item" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)"><span>🗄</span><span class="org-menu-label">Archive</span></button>
                             <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
@@ -5784,6 +5786,92 @@
                                   </div>
                                 </div>
                               </template>
+
+                              <!-- Dev item: work item + PR + worktree tracker -->
+                              <template x-if="p.type === 'dev'">
+                                <div style="display:flex;flex-direction:column;gap:10px">
+                                  <template x-for="d in [p.dev]" :key="d.id">
+                                    <div style="display:flex;flex-direction:column;gap:10px">
+                                      <!-- Header: title + quick links + actions -->
+                                      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                                        <div style="min-width:0">
+                                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev item'"></div>
+                                          <div class="hint" style="font-size:11px" x-text="(d.org ? d.org + ' / ' : '') + (d.project ? d.project + ' / ' : '') + (d.repo || '') + (d.branch ? ' @ ' + d.branch : '')"></div>
+                                        </div>
+                                        <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
+                                          <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
+                                          <button class="board-act" type="button" data-tip="Edit dev item" @click="openDevModal(d)">✎</button>
+                                          <button class="board-act danger tip-end" type="button" data-tip="Remove from board" @click="confirmRemovePanel(p)">✕</button>
+                                        </div>
+                                      </div>
+
+                                      <!-- Work item + PR link row -->
+                                      <div style="display:flex;flex-wrap:wrap;gap:8px">
+                                        <template x-if="d.workItemId">
+                                          <a class="pill" :href="devWorkItemUrl(d)" target="_blank" rel="noopener" style="font-size:11px;text-decoration:none" :title="d.workItem ? (d.workItem.type + ': ' + d.workItem.title) : 'Open work item'">
+                                            <span x-text="'📋 #' + d.workItemId"></span>
+                                            <span x-show="d.workItem && d.workItem.state" x-text="' · ' + (d.workItem ? d.workItem.state : '')"></span>
+                                          </a>
+                                        </template>
+                                        <template x-if="d.prId">
+                                          <a class="pill" :href="devPrUrl(d)" target="_blank" rel="noopener" :style="'font-size:11px;text-decoration:none;' + (d.pr && d.pr.status==='active' ? '' : '')" :title="d.pr ? d.pr.title : 'Open pull request'">
+                                            <span x-text="'🔀 !' + d.prId"></span>
+                                            <span x-show="d.pr && d.pr.status" x-text="' · ' + (d.pr ? (d.pr.isDraft ? 'draft' : d.pr.status) : '')"></span>
+                                          </a>
+                                        </template>
+                                        <span class="hint" x-show="!d.workItemId && !d.prId" style="font-size:11px">No work item / PR linked — ✎ to add.</span>
+                                      </div>
+
+                                      <!-- Worktree status + git badge + sync -->
+                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+                                        <template x-if="!d.worktreePath && d.worktreeStatus !== 'creating'">
+                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                            <span class="hint" style="font-size:11px">No worktree yet.</span>
+                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="createDevWorktree(d)" x-text="devBusy[d.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                          </div>
+                                        </template>
+                                        <template x-if="d.worktreeStatus === 'creating'">
+                                          <div class="hint" style="font-size:11px">🌱 Creating worktree… (clone may take a moment)</div>
+                                        </template>
+                                        <template x-if="d.worktreeStatus === 'error'">
+                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                            <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (d.worktreeError || 'Worktree failed')"></span>
+                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="createDevWorktree(d)">↻ Retry</button>
+                                          </div>
+                                        </template>
+                                        <template x-if="d.worktreePath && d.worktreeStatus !== 'creating'">
+                                          <div style="display:flex;flex-direction:column;gap:6px">
+                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                              <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(d).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(d).text" :title="devGitBadge(d).title"></span>
+                                              <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="syncDevItem(d)" :title="'Fetch and fast-forward ' + (d.branch||'branch') + ' from origin'" x-text="devBusy[d.id]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
+                                            </div>
+                                            <div class="hint" style="font-size:10px;word-break:break-all;opacity:.7" x-text="d.worktreePath"></div>
+                                            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code)" @click="openDevItem(d,'editor')">🟢 Insiders</button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code (stable)" @click="openDevItem(d,'code')">🔵 Code</button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree" @click="openDevItem(d,'cli')">🤖 CLI</button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="openDevItem(d,'explorer')">📁 Folder</button>
+                                            </div>
+                                          </div>
+                                        </template>
+                                      </div>
+
+                                      <!-- AI summary of the work item / PR / diff state -->
+                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+                                          <span style="font-weight:600;font-size:12px">🧠 State summary</span>
+                                          <div style="display:flex;align-items:center;gap:8px">
+                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? 'Thinking…' : '↻ Refresh'"></button>
+                                          </div>
+                                        </div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.5;font-size:0.8rem" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
+                                        <div class="hint" x-show="!(d.summary && d.summary.text)" style="font-size:11px">No summary yet — click ↻ Refresh to have AI review the work item, PR and code diff.</div>
+                                      </div>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
                             </div>
                             <div class="board-resize-w" x-show="!isPanelCollapsed(p.id) && !boardIsTabbed()" @mousedown="startPanelResize(p.id, $event, 'w')" title="Drag to resize width — height fits the content"></div>
                             <div class="board-resize-h" x-show="!isPanelCollapsed(p.id) && !boardIsTabbed()" @mousedown="startPanelResize(p.id, $event, 'h')" title="Drag to resize height"></div>
@@ -6004,7 +6092,75 @@
               </div>
             </div>
 
-            <!-- Pin picker modal -->
+            <!-- Dev item create / edit modal -->
+            <div class="modal-backdrop modal-overlay" x-show="devModal.open" x-transition.opacity.duration.150ms @click.self="devModal.open=false" x-cloak style="z-index:9999">
+              <div class="modal-card" style="max-width:560px">
+                <div class="modal-header">
+                  <h2 class="modal-title" x-text="devModal.id ? 'Edit dev item' : 'New dev item'"></h2>
+                  <button class="icon-button" type="button" @click="devModal.open=false">✕</button>
+                </div>
+                <div style="padding:18px;display:flex;flex-direction:column;gap:12px;max-height:74vh;overflow:auto">
+                  <label>
+                    <div class="field-label">Title</div>
+                    <input class="field-input" type="text" x-model="devModal.title" placeholder="e.g. Autoscaler retry fix" />
+                  </label>
+                  <div style="display:flex;gap:10px">
+                    <label style="flex:1">
+                      <div class="field-label">Azure DevOps org</div>
+                      <input class="field-input" type="text" x-model="devModal.org" placeholder="dnceng" @change="devLoadRepos()" />
+                    </label>
+                    <label style="flex:1">
+                      <div class="field-label">Project</div>
+                      <input class="field-input" type="text" x-model="devModal.project" placeholder="internal" @change="devLoadRepos()" />
+                    </label>
+                  </div>
+                  <label>
+                    <div class="field-label">Repository</div>
+                    <div style="display:flex;gap:6px">
+                      <select class="field-input" x-model="devModal.repo" @change="devRepoChange()" style="flex:1">
+                        <option value="" x-text="devModal.loadingRepos ? 'Loading…' : (devModal.repos.length ? 'Select a repo…' : 'Enter org + project, then Load')"></option>
+                        <template x-for="r in devModal.repos" :key="r.name">
+                          <option :value="r.name" x-text="r.name"></option>
+                        </template>
+                      </select>
+                      <button class="btn" type="button" :disabled="devModal.loadingRepos || !devModal.org.trim() || !devModal.project.trim()" @click="devLoadRepos()" x-text="devModal.loadingRepos ? '…' : 'Load'"></button>
+                    </div>
+                  </label>
+                  <div style="display:flex;gap:10px">
+                    <label style="flex:1">
+                      <div class="field-label">Base branch</div>
+                      <select class="field-input" x-model="devModal.baseBranch" :disabled="!devModal.branches.length">
+                        <option value="" x-text="devModal.loadingBranches ? 'Loading…' : 'default'"></option>
+                        <template x-for="b in devModal.branches" :key="b">
+                          <option :value="b" x-text="b"></option>
+                        </template>
+                      </select>
+                    </label>
+                    <label style="flex:1">
+                      <div class="field-label">Working branch <span class="hint" style="font-weight:400">(blank = base)</span></div>
+                      <input class="field-input" type="text" x-model="devModal.branch" placeholder="e.g. dev/my-fix" />
+                    </label>
+                  </div>
+                  <div style="display:flex;gap:10px">
+                    <label style="flex:1">
+                      <div class="field-label">Work item #</div>
+                      <input class="field-input" type="text" inputmode="numeric" x-model="devModal.workItemId" placeholder="optional" />
+                    </label>
+                    <label style="flex:1">
+                      <div class="field-label">Pull request #</div>
+                      <input class="field-input" type="text" inputmode="numeric" x-model="devModal.prId" placeholder="optional" />
+                    </label>
+                  </div>
+                  <div class="hint" x-show="devModal.error" style="color:var(--cp-danger)" x-text="devModal.error"></div>
+                  <div class="hint" style="font-size:11px">The worktree isn't created yet — save the item, then click <strong>🌱 Create worktree</strong> on its panel.</div>
+                  <div style="display:flex;justify-content:flex-end;gap:8px">
+                    <button class="btn" type="button" @click="devModal.open=false">Cancel</button>
+                    <button class="btn primary" type="button" :disabled="devModal.busy || !devModal.repo" @click="saveDevItem()" x-text="devModal.id ? 'Save' : 'Add to board'"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="modal-backdrop modal-overlay" x-show="boardPinOpen" x-transition.opacity.duration.150ms @click.self="boardPinOpen=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:620px">
                 <div class="modal-header">
@@ -10105,6 +10261,10 @@
         boardChecklistItemDraft: {},
         boardChecklistItemEdit: {},
         boardRefPickFor: '',
+        // Dev items — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
+        // the create/edit modal form state.
+        devBusy: {},
+        devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false },
         // Insights — read-only AI-generated cross-board views.
         insights: [],
         activeInsightId: '',
@@ -14785,6 +14945,8 @@
           // One panel per note and per checklist — no more aggregate cards.
           for (const n of ((b && b.notes) || [])) panels.push({ id: pv + 'note:' + n.id, type: 'note', note: n });
           for (const cl of ((b && b.checklists) || [])) panels.push({ id: pv + 'cl:' + cl.id, type: 'checklist', checklist: cl });
+          // One panel per dev item (work item + PR + worktree tracker).
+          for (const d of ((b && b.devItems) || [])) panels.push({ id: pv + 'dev:' + d.id, type: 'dev', dev: d });
           // Stashed items are hidden from the grid in normal use, but revealed (so they
           // can be toggled back on) while "Edit items" / manage mode is active.
           const filtered = this.boardManageMode ? panels : panels.filter(p => !this.isPanelStashed(p));
@@ -14824,6 +14986,7 @@
             return '✅ ' + ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
           }
           if (p.type === 'pin') return this.boardKindIcon(p.kind) + ' ' + ((p.item && (p.item.label || p.item.refId)) || '');
+          if (p.type === 'dev') return '🧰 ' + ((p.dev && (p.dev.title || p.dev.repo)) || 'Dev item');
           return '';
         },
         // Just the type icon for the panel control strip (no title text).
@@ -14832,6 +14995,7 @@
           if (p.type === 'note') return '📝';
           if (p.type === 'checklist') return '✅';
           if (p.type === 'pin') return this.boardKindIcon(p.kind);
+          if (p.type === 'dev') return '🧰';
           return '•';
         },
         // Human-readable resource type, used for the icon tooltip and the head title attr.
@@ -14840,6 +15004,7 @@
           if (p.type === 'note') return 'Note';
           if (p.type === 'checklist') return 'Checklist';
           if (p.type === 'pin') return this.boardKindLabel(p.kind);
+          if (p.type === 'dev') return 'Dev item';
           return '';
         },
         // Title text WITHOUT the leading icon (the icon is rendered separately as a tag).
@@ -14875,7 +15040,7 @@
         // Every panel except the "Where was I?" summary can collapse to an icon chip
         // in pin view (pins, notes and checklists alike).
         isChipPanel(p) {
-          return p && (p.type === 'pin' || p.type === 'note' || p.type === 'checklist');
+          return p && (p.type === 'pin' || p.type === 'note' || p.type === 'checklist' || p.type === 'dev');
         },
         // A panel renders as a collapsed chip when its layout entry carries chip:true and
         // the user hasn't expanded it. Intrinsic per-panel state — works for pins, notes
@@ -14895,6 +15060,7 @@
           if (p.type === 'pin') return this.boardKindIcon(p.kind);
           if (p.type === 'note') return '📝';
           if (p.type === 'checklist') return '✅';
+          if (p.type === 'dev') return '🧰';
           return '•';
         },
         // Short name shown on a collapsed chip, per panel type.
@@ -14908,6 +15074,7 @@
             const pr = this.checklistProgress(p.checklist);
             return ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
           }
+          if (p.type === 'dev') return (p.dev && (p.dev.title || p.dev.repo)) || 'Dev item';
           return '';
         },
         // Human-readable resource type for a collapsed chip (Agent, Task, Chat, Note, …).
@@ -14915,6 +15082,7 @@
           if (p.type === 'pin') return this.boardKindLabel(p.kind);
           if (p.type === 'note') return 'Note';
           if (p.type === 'checklist') return 'Checklist';
+          if (p.type === 'dev') return 'Dev item';
           return '';
         },
         // Click on a chip — ignore if the gesture was actually a drag. Expanding a chip
@@ -15162,6 +15330,16 @@
             if (st) bits.push(st.state + (st.relative ? ' · ' + st.relative : ''));
             return bits.join('\n') || (this.chipType(p) || '');
           }
+          if (p.type === 'dev' && p.dev) {
+            const d = p.dev, bits = [];
+            if (d.repo) bits.push('Repo: ' + d.repo + (d.branch ? ' @ ' + d.branch : ''));
+            if (d.workItemId) bits.push('Work item #' + d.workItemId + (d.workItem && d.workItem.state ? ' · ' + d.workItem.state : ''));
+            if (d.prId) bits.push('PR !' + d.prId + (d.pr && d.pr.status ? ' · ' + d.pr.status : ''));
+            const g = this.devGitBadge(d);
+            if (g && g.text) bits.push('Git: ' + g.text);
+            if (d.summary && d.summary.text) bits.push('\n' + String(d.summary.text).trim().slice(0, 220));
+            return bits.join('\n') || 'Dev item';
+          }
           return this.panelTitleText(p) || '';
         },
         // ----- Tabbed-rail presentation helpers -----
@@ -15258,8 +15436,8 @@
           if (this.boardTabRailStyle !== 'c') {
             return panels.map(p => ({ key: 'tab-' + p.id, panel: p }));
           }
-          const groupOf = (p) => p.type === 'note' ? 'Notes' : (p.type === 'checklist' ? 'Checklists' : 'Pinned');
-          const order = ['Pinned', 'Notes', 'Checklists'];
+          const groupOf = (p) => p.type === 'note' ? 'Notes' : (p.type === 'checklist' ? 'Checklists' : (p.type === 'dev' ? 'Dev items' : 'Pinned'));
+          const order = ['Pinned', 'Dev items', 'Notes', 'Checklists'];
           const rows = [];
           for (const g of order) {
             const inGroup = panels.filter(p => groupOf(p) === g);
@@ -15275,6 +15453,7 @@
           if (p.type === 'pin') return 'Unpin from this board';
           if (p.type === 'note') return 'Delete this note';
           if (p.type === 'checklist') return 'Delete this checklist';
+          if (p.type === 'dev') return 'Remove this dev item';
           return 'Remove';
         },
         // Remove a panel's underlying item, with a confirmation. Pins are unpinned
@@ -15292,6 +15471,10 @@
             const name = (p.checklist && p.checklist.title) || 'this checklist';
             const ok = await this.uiConfirm({ title: 'Delete checklist', message: 'Delete "' + name + '" from the board? This cannot be undone.', confirmLabel: 'Delete', danger: true });
             if (ok) await this.deleteChecklist(p.checklist);
+          } else if (p.type === 'dev') {
+            const name = (p.dev && (p.dev.title || p.dev.repo)) || 'this dev item';
+            const ok = await this.uiConfirm({ title: 'Remove dev item', message: 'Remove "' + name + '" from the board? Its worktree folder on disk is left intact (remove it separately first if you want it deleted).', confirmLabel: 'Remove', danger: true });
+            if (ok) await this.deleteDevItem(p.dev);
           }
         },
         // The HARD minimum width for a panel: the narrowest column span at which the
@@ -17614,6 +17797,221 @@
           } catch (e) {
             this.showToast('Board', e.message, 'error');
             return false;
+          }
+        },
+        // ===== Dev items =================================================
+        // A Dev item groups an Azure DevOps work item + PR + a git worktree, with
+        // an AI-maintained status summary. Metadata persists through the generic
+        // board PUT (_patchBoard {devItems}); heavy git/AzDo/AI work goes through
+        // the dedicated /api/boards/:id/dev-items/:devId/* action endpoints.
+        devWorkItemUrl(d) {
+          if (!d) return '#';
+          if (d.workItem && d.workItem.url) return d.workItem.url;
+          if (!d.org || !d.project || !d.workItemId) return '#';
+          return 'https://dev.azure.com/' + encodeURIComponent(d.org) + '/' + encodeURIComponent(d.project) + '/_workitems/edit/' + encodeURIComponent(d.workItemId);
+        },
+        devPrUrl(d) {
+          if (!d) return '#';
+          if (d.pr && d.pr.url) return d.pr.url;
+          if (!d.org || !d.project || !d.repo || !d.prId) return '#';
+          return 'https://dev.azure.com/' + encodeURIComponent(d.org) + '/' + encodeURIComponent(d.project) + '/_git/' + encodeURIComponent(d.repo) + '/pullrequest/' + encodeURIComponent(d.prId);
+        },
+        // Compact git badge for the worktree state. attention=true (red) when the
+        // branch is behind origin or has uncommitted changes.
+        devGitBadge(d) {
+          const g = d && d.git;
+          if (!g) return { text: 'untracked', title: 'No git status yet — refresh to check.', attention: false };
+          const ahead = g.ahead || 0, behind = g.behind || 0, dirty = !!g.dirty;
+          if (!ahead && !behind && !dirty) return { text: '✓ up to date', title: 'Up to date with origin, clean working tree.', attention: false };
+          const parts = [];
+          if (ahead) parts.push('↑' + ahead);
+          if (behind) parts.push('↓' + behind);
+          if (dirty) parts.push('● dirty');
+          const title = [
+            ahead ? ahead + ' ahead of origin' : '',
+            behind ? behind + ' behind origin' : '',
+            dirty ? 'uncommitted changes' : ''
+          ].filter(Boolean).join(', ');
+          return { text: parts.join(' '), title: title || 'modified', attention: behind > 0 || dirty };
+        },
+        // Replace one dev item in the active board (from an action endpoint's {dev}).
+        _applyDevUpdate(devId, updated) {
+          if (!updated) return;
+          const idx = this.boards.findIndex(b => b.id === this.activeBoardId);
+          if (idx < 0) return;
+          const b = this.boards[idx];
+          const items = (b.devItems || []).map(d => d.id === devId ? updated : d);
+          this.boards[idx] = { ...b, devItems: items };
+        },
+        // ----- Create / edit modal -----
+        openDevModal(d) {
+          const m = this.devModal;
+          if (d) {
+            m.id = d.id; m.title = d.title || ''; m.org = d.org || ''; m.project = d.project || '';
+            m.repo = d.repo || ''; m.baseBranch = d.baseBranch || ''; m.branch = d.branch || '';
+            m.workItemId = d.workItemId ? String(d.workItemId) : ''; m.prId = d.prId ? String(d.prId) : '';
+            m.repos = d.repo ? [{ name: d.repo }] : []; m.branches = d.baseBranch ? [d.baseBranch] : [];
+          } else {
+            // Default org/project from any prior dev item on this board for convenience.
+            const prior = (this.activeBoard() && (this.activeBoard().devItems || [])[0]) || {};
+            m.id = null; m.title = ''; m.org = prior.org || ''; m.project = prior.project || '';
+            m.repo = ''; m.baseBranch = ''; m.branch = ''; m.workItemId = ''; m.prId = '';
+            m.repos = []; m.branches = [];
+          }
+          m.error = ''; m.busy = false; m.loadingRepos = false; m.loadingBranches = false;
+          m.open = true;
+          if (m.org && m.project) this.devLoadRepos();
+        },
+        async devLoadRepos() {
+          const m = this.devModal;
+          const org = (m.org || '').trim(), project = (m.project || '').trim();
+          m.error = ''; m.repos = [];
+          if (!org || !project) return;
+          m.loadingRepos = true;
+          try {
+            const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
+            m.repos = data.repos || [];
+            if (!m.repos.length) { m.error = 'No repositories found (or no access).'; return; }
+            if (m.repo && m.repos.some(r => r.name === m.repo)) { await this.devLoadBranches(true); }
+            else { m.repo = ''; m.baseBranch = ''; m.branches = []; }
+          } catch (e) {
+            m.error = e.message || 'Could not list repositories';
+          } finally {
+            m.loadingRepos = false;
+          }
+        },
+        async devRepoChange() {
+          this.devModal.baseBranch = '';
+          this.devModal.branches = [];
+          await this.devLoadBranches(false);
+        },
+        async devLoadBranches(preserve) {
+          const m = this.devModal;
+          const org = (m.org || '').trim(), project = (m.project || '').trim();
+          if (!m.repo) return;
+          m.loadingBranches = true;
+          try {
+            const data = await this.request('/api/azdo/branches?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project) + '&repo=' + encodeURIComponent(m.repo));
+            m.branches = data.branches || [];
+            const r = m.repos.find(x => x.name === m.repo);
+            if (preserve && m.baseBranch && m.branches.includes(m.baseBranch)) { /* keep */ }
+            else if (r && r.defaultBranch && m.branches.includes(r.defaultBranch)) { m.baseBranch = r.defaultBranch; }
+            else if (m.branches.includes('main')) { m.baseBranch = 'main'; }
+            else { m.baseBranch = ''; }
+          } catch (e) {
+            m.error = e.message || 'Could not list branches';
+          } finally {
+            m.loadingBranches = false;
+          }
+        },
+        async saveDevItem() {
+          const board = this.activeBoard();
+          const m = this.devModal;
+          if (!board) return;
+          if (!m.repo) { m.error = 'Pick a repository.'; return; }
+          m.error = ''; m.busy = true;
+          try {
+            const now = new Date().toISOString();
+            const fields = {
+              title: (m.title || '').trim() || m.repo,
+              org: (m.org || '').trim(), project: (m.project || '').trim(), repo: m.repo,
+              baseBranch: (m.baseBranch || '').trim(), branch: (m.branch || '').trim(),
+              workItemId: (m.workItemId || '').toString().trim(),
+              prId: (m.prId || '').toString().trim()
+            };
+            let devItems;
+            if (m.id) {
+              devItems = (board.devItems || []).map(d => d.id === m.id ? { ...d, ...fields, updatedAt: now } : d);
+            } else {
+              const item = {
+                id: 'dev-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                ...fields,
+                worktreePath: '', worktreeStatus: null, worktreeError: null,
+                git: null, workItem: null, pr: null, summary: null,
+                createdAt: now, updatedAt: now
+              };
+              devItems = [...(board.devItems || []), item];
+            }
+            const ok = await this._patchBoard(board, { devItems });
+            if (ok) { m.open = false; this.scheduleAutoFit(); }
+          } catch (e) {
+            m.error = e.message || 'Could not save dev item';
+          } finally {
+            m.busy = false;
+          }
+        },
+        async deleteDevItem(d) {
+          const board = this.activeBoard();
+          if (!board || !d) return;
+          // Best-effort: drop the worktree registration first so we don't leave a
+          // dangling git worktree behind, then remove the metadata record.
+          if (d.worktreePath) {
+            try { await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(d.id) + '/remove-worktree', { method: 'POST', body: '{}' }); } catch {}
+          }
+          const devItems = (board.devItems || []).filter(x => x.id !== d.id);
+          await this._patchBoard(board, { devItems });
+        },
+        // ----- Action endpoints (git / AzDo / AI) -----
+        _devUrl(d, op) {
+          return '/api/boards/' + encodeURIComponent(this.activeBoardId) + '/dev-items/' + encodeURIComponent(d.id) + '/' + op;
+        },
+        async createDevWorktree(d) {
+          if (!d || this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'worktree';
+          try {
+            await this.request(this._devUrl(d, 'worktree'), { method: 'POST', body: '{}' });
+            // The server flips creating→ready in the background and broadcasts
+            // boards-changed; mark optimistically so the panel shows "Creating…".
+            this._applyDevUpdate(d.id, { ...d, worktreeStatus: 'creating', worktreeError: null });
+          } catch (e) {
+            this.showToast('Dev item', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        async refreshDevItem(d) {
+          if (!d || this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'refresh';
+          try {
+            const r = await this.request(this._devUrl(d, 'refresh'), { method: 'POST', body: '{}' });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+          } catch (e) {
+            this.showToast('Dev item', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        async syncDevItem(d) {
+          if (!d || this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'sync';
+          try {
+            const r = await this.request(this._devUrl(d, 'sync'), { method: 'POST', body: '{}' });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            if (r && r.message) this.showToast('Sync', r.message, r.ok ? 'success' : 'error');
+          } catch (e) {
+            this.showToast('Dev item', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        async refreshDevSummary(d) {
+          if (!d || this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'summary';
+          try {
+            const r = await this.request(this._devUrl(d, 'summary'), { method: 'POST', body: '{}' });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+          } catch (e) {
+            this.showToast('Dev item', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        async openDevItem(d, target) {
+          if (!d || !d.worktreePath) { this.showToast('Dev item', 'No worktree to open — create one first.', 'error'); return; }
+          try {
+            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify({ path: d.worktreePath, target }) });
+          } catch (e) {
+            this.showToast('Open', e.message, 'error');
           }
         },
         // ----- Where was I (AI briefing) -----
