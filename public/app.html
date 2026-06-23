@@ -2617,7 +2617,9 @@
       background: var(--cp-panel-strong); border: 1px solid var(--cp-border-strong);
       border-radius: 12px; box-shadow: var(--cp-shadow); pointer-events: none;
     }
-    .board-tab-flyout-body { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--cp-text-muted); white-space: pre-wrap; max-height: 320px; overflow: hidden; }
+    .board-tab-flyout-body { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--cp-text-muted); white-space: normal; max-height: 320px; overflow: hidden; }
+    .board-tab-flyout-body.md-output > *:first-child { margin-top: 0; }
+    .board-tab-flyout-body.md-output > *:last-child { margin-bottom: 0; }
     .board-tab-brief {
       flex: 0 0 auto; background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 12px; padding: 8px 12px;
@@ -5390,7 +5392,7 @@
                         <div class="board-tab-flyout" x-show="_tabFlyout.show" :style="'top:' + _tabFlyout.top + 'px; left:' + _tabFlyout.left + 'px;'">
                           <div class="pin-chip-pop-title"><span x-text="_tabFlyout.icon"></span> <span x-text="_tabFlyout.name"></span></div>
                           <span class="pin-chip-type" x-text="_tabFlyout.type"></span>
-                          <div class="board-tab-flyout-body" x-text="_tabFlyout.body"></div>
+                          <div class="board-tab-flyout-body md-output" x-html="renderMarkdown((_tabFlyout.body||'').replace(/\n/g,'  \n'))"></div>
                         </div>
                       </template>
                       </div>
@@ -5853,8 +5855,7 @@
                                             </div>
                                             <div class="hint" style="font-size:10px;word-break:break-all;opacity:.7" x-text="d.worktreePath"></div>
                                             <div style="display:flex;flex-wrap:wrap;gap:6px">
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code)" @click="openDevItem(d,'editor')">🟢 Insiders</button>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code (stable)" @click="openDevItem(d,'code')">🔵 Code</button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code stable)" @click="openDevItem(d,'editor')">🔵 VS Code</button>
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree" @click="openDevItem(d,'cli')">🤖 CLI</button>
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="openDevItem(d,'explorer')">📁 Folder</button>
                                             </div>

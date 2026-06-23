@@ -241,6 +241,28 @@ function removeWorktree(org, project, repo, devId, wt) {
   return true;
 }
 
+// Offload the (synchronous, potentially minutes-long) clone+worktree to a worker
+// thread so the main HTTP event loop stays responsive while a large repo clones.
+// Without this, execFileSync('git clone') blocks every other request — e.g. a Dev
+// item's "Refresh summary" appears to do nothing until the clone finishes. The
+// worker re-acquires its own AzDO token via `az`, so it is fully self-contained.
+// Resolves to { worktreePath, branch, reused, git }.
+function createWorktreeAsync(params) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const { Worker } = require('worker_threads');
+    const worker = new Worker(__filename, { workerData: { __wtJob: params } });
+    worker.once('message', (msg) => {
+      settled = true;
+      if (msg && msg.ok) resolve(msg.result);
+      else reject(new Error((msg && msg.error) || 'Worktree failed'));
+      worker.terminate();
+    });
+    worker.once('error', (err) => { if (!settled) { settled = true; reject(err); } });
+    worker.once('exit', (code) => { if (!settled) { settled = true; reject(new Error('Worktree worker exited with code ' + code)); } });
+  });
+}
+
 module.exports = {
   DEV_REPOS,
   DEV_WORKTREES,
@@ -248,6 +270,7 @@ module.exports = {
   worktreePath,
   ensureClone,
   createWorktree,
+  createWorktreeAsync,
   worktreeStatus,
   syncWorktree,
   diffSummary,
@@ -255,3 +278,21 @@ module.exports = {
   addGitExclude,
   removeWorktree
 };
+
+// Worker-thread entry: when this module is loaded inside a Worker carrying a
+// __wtJob, run the blocking clone+worktree here (off the main event loop) and
+// post the result back. No-op in the main thread.
+try {
+  const { isMainThread, parentPort, workerData } = require('worker_threads');
+  if (!isMainThread && workerData && workerData.__wtJob && parentPort) {
+    const job = workerData.__wtJob;
+    try {
+      const r = createWorktree(job);
+      let git = null;
+      try { git = worktreeStatus(r.worktreePath, { baseBranch: job.baseBranch }); } catch {}
+      parentPort.postMessage({ ok: true, result: { ...r, git } });
+    } catch (e) {
+      parentPort.postMessage({ ok: false, error: (e && e.message) || 'Worktree failed' });
+    }
+  }
+} catch {}

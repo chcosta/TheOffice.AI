@@ -6546,17 +6546,16 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   }
   ctx.save({ worktreeStatus: 'creating', worktreeError: null });
   res.json({ ok: true, status: 'creating' });
-  // Fire-and-forget; persist the outcome.
+  // Fire-and-forget; persist the outcome. createWorktreeAsync runs the blocking
+  // clone in a worker thread so this server stays responsive during a big clone.
   (async () => {
     try {
-      const r = devitems.createWorktree({
+      const r = await devitems.createWorktreeAsync({
         org: d.org, project: d.project, repo: d.repo,
         baseBranch: d.baseBranch, branch: d.branch, devId: d.id
       });
-      let git = null;
-      try { git = devitems.worktreeStatus(r.worktreePath, { baseBranch: d.baseBranch }); } catch {}
       const fresh = _devItemCtx(req.params.id, req.params.devId);
-      if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git });
+      if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null });
     } catch (e) {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
       if (fresh) fresh.save({ worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
