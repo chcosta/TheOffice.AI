@@ -99,9 +99,23 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId }) {
   }
   fs.mkdirSync(path.dirname(wt), { recursive: true });
 
+  // Clear any stale worktree registrations (e.g. a prior worktree dir that was deleted
+  // out from under git) so re-adding a branch whose old worktree is gone won't fail with
+  // "already checked out" / "missing but locked".
+  _gitTry(['worktree', 'prune'], clone);
+
+  // Does the branch already exist locally in the managed clone? This happens when a
+  // worktree was created before and later removed (remove-worktree deletes the worktree
+  // dir but leaves the local branch behind). Attach the existing branch instead of
+  // trying to (re-)create it, which would fail with "a branch named '…' already exists".
+  const localHas = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok;
   // Does the branch already exist on origin?
   const remoteHas = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + br], clone).ok;
-  if (remoteHas) {
+  if (localHas) {
+    // Check out the pre-existing local branch into the new worktree (no -b/-B so we
+    // don't discard any local commits the branch already carries).
+    _git(['worktree', 'add', wt, br], clone);
+  } else if (remoteHas) {
     // Track the existing remote branch.
     _git(['worktree', 'add', '--track', '-B', br, wt, 'origin/' + br], clone);
   } else {

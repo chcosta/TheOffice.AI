@@ -1241,6 +1241,9 @@
     .board-pin-detail .md-output { max-height: none; overflow: visible; }
     .board-pin-detail .live-stream-pre { max-height: none; overflow: visible; }
     .board-panel-body .md-output { max-height: none; overflow: visible; }
+    /* The tabbed-view briefing auto-expands to fit its content — it must not inherit the
+       300px cap / inner scrollbar from the base .md-output rule (the board grid scrolls). */
+    .board-tab-brief .md-output { max-height: none; overflow: visible; }
     .md-output pre {
       background: var(--cp-surface);
       padding: 12px;
@@ -5029,7 +5032,7 @@
                 <h2 class="modal-title" x-text="orgForm.id ? 'Edit team' : 'New team'"></h2>
                 <button class="icon-button" type="button" @click="orgModalOpen=false">✕</button>
               </div>
-              <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+              <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
                 <div style="display:flex;gap:12px">
                   <label style="flex:0 0 84px">
                     <div class="field-label">Emoji</div>
@@ -5063,10 +5066,10 @@
                     </template>
                   </div>
                 </div>
-                <div style="display:flex;justify-content:flex-end;gap:8px">
-                  <button class="btn" type="button" @click="orgModalOpen=false">Cancel</button>
-                  <button class="btn primary" type="button" @click="saveOrg()" x-text="orgForm.id ? 'Save' : 'Create'"></button>
-                </div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn" type="button" @click="orgModalOpen=false">Cancel</button>
+                <button class="btn primary" type="button" @click="saveOrg()" x-text="orgForm.id ? 'Save' : 'Create'"></button>
               </div>
             </div>
           </div>
