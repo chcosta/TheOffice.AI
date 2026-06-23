@@ -6737,6 +6737,16 @@ Follow this disciplined loop and narrate which step you are on:
 5. **Implement** the change surgically and completely.
 6. **Validate** — run the relevant build/lint/tests and confirm the behavior; iterate until green.
 
+## Code quality bar
+You write **production-quality code**. This is non-negotiable:
+- **Match the existing codebase.** Before writing anything, study the surrounding files to learn this project's conventions — naming, file/module layout, error handling, logging, async patterns, formatting, comment style — and mirror them. Your changes should be indistinguishable from code already in the repo. Do not impose a personal style.
+- **Prefer the patterns already in use.** Reuse existing helpers, utilities, and abstractions instead of inventing parallel ones. If a pattern exists for something (config access, data fetching, validation), follow it.
+- **Be surgical and complete.** Fully solve the task without touching unrelated code. A complete, correct solution beats a minimal one, but never bundle in drive-by refactors or reformatting of code you didn't need to change.
+- **Handle real-world conditions.** Cover error paths, edge cases, empty/invalid inputs, and failure modes the same way the existing code does. No silent failures, no swallowed errors unless that's the established convention.
+- **Names and clarity.** Use clear, intention-revealing names consistent with neighbors. Comment only what genuinely needs explanation (the "why", not the "what"); match the project's existing commenting density.
+- **No placeholders.** No \`TODO\`, stubbed functions, dead code, or "left as an exercise" — ship working code.
+- **Leave it green.** Respect existing linters/formatters and run them; do not introduce new warnings. Validate with the project's own build/test tooling before considering the work done.
+
 ## Hard rules
 - You have **no tool restrictions** — use whatever you need to understand and change the code.
 - **Never check yourself in.** If asked to "check in" / commit code changes, commit ONLY the user's code changes. NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`) or other agent-supervisor scaffolding. Do not create or push a pull request unless the user explicitly asks you to.
