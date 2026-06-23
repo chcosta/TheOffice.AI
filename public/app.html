@@ -5943,7 +5943,7 @@
                                           <div class="hint" style="font-size:11px" x-text="(d.org ? d.org + ' / ' : '') + (d.project ? d.project + ' / ' : '') + (d.repo || '') + (d.branch ? ' @ ' + d.branch : '')"></div>
                                         </div>
                                         <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
-                                          <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
+                                          <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
                                           <button class="board-act" type="button" data-tip="Edit dev card" @click="openDevModal(d)">✎</button>
                                           <button class="board-act danger tip-end" type="button" data-tip="Remove from board" @click="confirmRemovePanel(p)">✕</button>
                                         </div>
@@ -5971,7 +5971,7 @@
                                         <template x-if="!d.worktreePath && d.worktreeStatus !== 'creating'">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                             <span class="hint" style="font-size:11px">No worktree yet.</span>
-                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="createDevWorktree(d)" x-text="devBusy[d.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d)" x-text="devBusy[d.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
                                           </div>
                                         </template>
                                         <template x-if="d.worktreeStatus === 'creating'">
@@ -5980,7 +5980,7 @@
                                         <template x-if="d.worktreeStatus === 'error'">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                             <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (d.worktreeError || 'Worktree failed')"></span>
-                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="createDevWorktree(d)">↻ Retry</button>
+                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d)">↻ Retry</button>
                                           </div>
                                         </template>
                                         <template x-if="d.worktreePath && d.worktreeStatus !== 'creating'">
@@ -5988,12 +5988,12 @@
                                             <template x-if="devNeedsCleanup(d)">
                                               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:6px;padding:6px 8px">
                                                 <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — this worktree can be cleaned up.'"></span>
-                                                <button class="btn" type="button" style="font-size:11px;padding:2px 8px" :class="devGitBadge(d).attention ? 'danger' : 'primary'" :disabled="!!devBusy[d.id]" @click="cleanupDevWorktree(d)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
+                                                <button class="btn" type="button" style="font-size:11px;padding:2px 8px" :class="devGitBadge(d).attention ? 'danger' : 'primary'" :disabled="devBusy[d.id]==='cleanup'" @click="cleanupDevWorktree(d)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
                                               </div>
                                             </template>
                                             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                               <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(d).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(d).text" :title="devGitBadge(d).title"></span>
-                                              <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="syncDevItem(d)" :title="'Fetch and fast-forward ' + (d.branch||'branch') + ' from origin'" x-text="devBusy[d.id]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
+                                              <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='sync'" @click="syncDevItem(d)" :title="'Fetch and fast-forward ' + (d.branch||'branch') + ' from origin'" x-text="devBusy[d.id]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
                                             </div>
                                             <div class="hint" style="font-size:10px;word-break:break-all;opacity:.7" x-text="d.worktreePath"></div>
                                             <div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -6003,15 +6003,15 @@
                                             </div>
                                             <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
                                               <template x-if="!d.devAgentName">
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into the worktree so VS Code / Copilot can use it (and the CLI auto-selects it)" x-text="devBusy[d.id]==='agent' ? 'Creating agent…' : '🤖 Create dev agent'"></button>
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='agent'" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into the worktree so VS Code / Copilot can use it (and the CLI auto-selects it)" x-text="devBusy[d.id]==='agent' ? 'Creating agent…' : '🤖 Create dev agent'"></button>
                                               </template>
                                               <template x-if="d.devAgentName">
                                                 <span class="status-badge" style="font-size:0.7rem" :title="'Dev agent: ' + (d.devAgentName||'') + ' — available in VS Code / Copilot; auto-selected when opening the CLI'">🤖 Dev agent ready</span>
                                               </template>
                                               <template x-if="!d.prId">
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev card" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='pr'" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev card" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
                                               </template>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="cleanupDevWorktree(d)" title="Remove the local git worktree from disk (keeps the dev card, work item and PR links on the board)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='cleanup'" @click="cleanupDevWorktree(d)" title="Remove the local git worktree from disk (keeps the dev card, work item and PR links on the board)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
                                             </div>
                                           </div>
                                         </template>
@@ -6023,7 +6023,7 @@
                                           <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='summary'" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
                                           </div>
                                         </div>
                                         <div x-show="devBusy[d.id]==='summary'" class="hint" style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--cp-accent)">
@@ -10881,19 +10881,42 @@
         },
 
         async request(url, options = {}) {
-          const response = await fetch(url, {
-            headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-            ...options
-          });
-          const contentType = response.headers.get('content-type') || '';
-          const body = contentType.includes('application/json') ? await response.json() : await response.text();
-          if (!response.ok) {
-            const err = new Error((body && body.error) || (typeof body === 'string' ? body : 'Request failed'));
-            err.status = response.status;
-            err.body = body;
-            throw err;
+          // A hung request must never leave a caller's `await` pending forever — that strands
+          // `finally` blocks (e.g. dev-card devBusy flags), which silently disables UI. Abort
+          // after a generous ceiling so every request settles. Override via options.timeoutMs
+          // (pass 0 to disable, e.g. for genuinely long-lived streams).
+          const { timeoutMs = 300000, ...fetchOpts } = options;
+          let controller, timer;
+          if (timeoutMs && typeof AbortController !== 'undefined' && !fetchOpts.signal) {
+            controller = new AbortController();
+            fetchOpts.signal = controller.signal;
+            timer = setTimeout(() => controller.abort(), timeoutMs);
           }
-          return body;
+          try {
+            const response = await fetch(url, {
+              headers: { 'Content-Type': 'application/json', ...(fetchOpts.headers || {}) },
+              ...fetchOpts
+            });
+            const contentType = response.headers.get('content-type') || '';
+            const body = contentType.includes('application/json') ? await response.json() : await response.text();
+            if (!response.ok) {
+              const err = new Error((body && body.error) || (typeof body === 'string' ? body : 'Request failed'));
+              err.status = response.status;
+              err.body = body;
+              throw err;
+            }
+            return body;
+          } catch (e) {
+            if (e && e.name === 'AbortError') {
+              const te = new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + 's — the server may still be working in the background; refresh to see the result.');
+              te.status = 0;
+              te.timeout = true;
+              throw te;
+            }
+            throw e;
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
         },
 
         slugifyId(value, fallback = 'item') {
