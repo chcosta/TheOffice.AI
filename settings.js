@@ -35,6 +35,10 @@ const DEFAULTS = {
   exportProject: '',
   exportRepo: '',
   exportBranch: '',
+  // Default Azure DevOps target for board "Dev item" panels — pre-fills the
+  // New dev item dialog's org/project so users don't retype them every time.
+  devOrg: '',
+  devProject: '',
 };
 
 let cache = null;

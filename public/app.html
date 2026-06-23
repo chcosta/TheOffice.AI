@@ -6107,17 +6107,17 @@
                   <div style="display:flex;gap:10px">
                     <label style="flex:1">
                       <div class="field-label">Azure DevOps org</div>
-                      <input class="field-input" type="text" x-model="devModal.org" placeholder="dnceng" @change="devLoadRepos()" />
+                      <input class="field-input" type="text" x-model="devModal.org" placeholder="dnceng" @input.debounce.600ms="devLoadRepos()" @change="devLoadRepos()" />
                     </label>
                     <label style="flex:1">
                       <div class="field-label">Project</div>
-                      <input class="field-input" type="text" x-model="devModal.project" placeholder="internal" @change="devLoadRepos()" />
+                      <input class="field-input" type="text" x-model="devModal.project" placeholder="internal" @input.debounce.600ms="devLoadRepos()" @change="devLoadRepos()" />
                     </label>
                   </div>
                   <label>
                     <div class="field-label">Repository</div>
                     <div style="display:flex;gap:6px">
-                      <select class="field-input" x-model="devModal.repo" @change="devRepoChange()" style="flex:1">
+                      <select class="field-input" x-model="devModal.repo" @change="devRepoChange()" @mousedown="if(!devModal.repos.length && devModal.org.trim() && devModal.project.trim() && !devModal.loadingRepos) devLoadRepos()" style="flex:1">
                         <option value="" x-text="devModal.loadingRepos ? 'Loading…' : (devModal.repos.length ? 'Select a repo…' : 'Enter org + project, then Load')"></option>
                         <template x-for="r in devModal.repos" :key="r.name">
                           <option :value="r.name" x-text="r.name"></option>
@@ -7656,6 +7656,23 @@
                 </div>
               </div>
               <p class="hint" x-show="exportSettingsSaved" style="margin-top:12px">✅ Saved.</p>
+            </div>
+
+            <!-- Default Dev Item Repository Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🧰 Default Dev Item Org / Project</h3>
+              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>New dev item</strong> dialog with this Azure DevOps org &amp; project so you don't retype them every time. The dialog still lists the repositories itself when you open it — you can override per item.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px">
+                <div>
+                  <label class="field-label">Organization</label>
+                  <input class="field-input" type="text" x-model="devSettings.devOrg" placeholder="e.g. dnceng" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
+                </div>
+                <div>
+                  <label class="field-label">Project</label>
+                  <input class="field-input" type="text" x-model="devSettings.devProject" placeholder="e.g. internal" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
+                </div>
+              </div>
+              <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
             <!-- Cloud Sync Section -->
@@ -10414,6 +10431,9 @@
         modelSettings: { chatModel: '', executionModel: '', systemModel: '' },
         exportSettings: { exportOrg: '', exportProject: '', exportRepo: '', exportBranch: '' },
         exportSettingsSaved: false,
+        devSettings: { devOrg: '', devProject: '' },
+        devSettingsSaved: false,
+        _devSettingsLoaded: false,
         exportSettingsRepos: [],
         exportSettingsBranches: [],
         exportSettingsLoadingRepos: false,
@@ -12892,6 +12912,8 @@
                 exportRepo: s.exportRepo || '',
                 exportBranch: s.exportBranch || ''
               };
+              this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '' };
+              this._devSettingsLoaded = true;
               // Pre-populate the repo/branch pickers when a default org+project exist
               // so they're immediately editable on revisit (silent: no error toast).
               if (this.exportSettings.exportOrg.trim() && this.exportSettings.exportProject.trim()) {
@@ -12915,6 +12937,30 @@
           } catch (err) {
             this.showToast('Settings', 'Could not save export defaults: ' + err.message, 'error');
           }
+        },
+        // Persist the default Dev item org/project. Lightweight: no repo/branch
+        // pickers here — the New dev item dialog lists repos itself on open.
+        async saveDevSettings() {
+          this.devSettingsSaved = false;
+          try {
+            const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify(this.devSettings) });
+            if (next) this.devSettings = { devOrg: next.devOrg || '', devProject: next.devProject || '' };
+            this._devSettingsLoaded = true;
+            this.devSettingsSaved = true;
+            setTimeout(() => { this.devSettingsSaved = false; }, 2500);
+          } catch (err) {
+            this.showToast('Settings', 'Could not save Dev item defaults: ' + err.message, 'error');
+          }
+        },
+        // Ensure devSettings are loaded once (lazy — settings route may never have
+        // been visited). Mirrors the export modal's lazy /api/settings fetch.
+        async ensureDevSettings() {
+          if (this._devSettingsLoaded) return;
+          try {
+            const s = await this.request('/api/settings');
+            if (s) this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '' };
+          } catch {}
+          this._devSettingsLoaded = true;
         },
         // Editing org/project invalidates the picked repo list — reset the pickers
         // and persist the new org/project values.
@@ -17844,7 +17890,7 @@
           this.boards[idx] = { ...b, devItems: items };
         },
         // ----- Create / edit modal -----
-        openDevModal(d) {
+        async openDevModal(d) {
           const m = this.devModal;
           if (d) {
             m.id = d.id; m.title = d.title || ''; m.org = d.org || ''; m.project = d.project || '';
@@ -17852,9 +17898,14 @@
             m.workItemId = d.workItemId ? String(d.workItemId) : ''; m.prId = d.prId ? String(d.prId) : '';
             m.repos = d.repo ? [{ name: d.repo }] : []; m.branches = d.baseBranch ? [d.baseBranch] : [];
           } else {
-            // Default org/project from any prior dev item on this board for convenience.
+            await this.ensureDevSettings();
+            // Prefill priority: a prior dev item on this board (most specific) →
+            // the saved Dev item default → the Export default (same AzDO coords).
             const prior = (this.activeBoard() && (this.activeBoard().devItems || [])[0]) || {};
-            m.id = null; m.title = ''; m.org = prior.org || ''; m.project = prior.project || '';
+            const ds = this.devSettings || {}, es = this.exportSettings || {};
+            m.id = null; m.title = '';
+            m.org = prior.org || ds.devOrg || es.exportOrg || '';
+            m.project = prior.project || ds.devProject || es.exportProject || '';
             m.repo = ''; m.baseBranch = ''; m.branch = ''; m.workItemId = ''; m.prId = '';
             m.repos = []; m.branches = [];
           }
