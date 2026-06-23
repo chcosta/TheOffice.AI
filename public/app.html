@@ -16135,7 +16135,13 @@
           const content = sc.closest('.content');
           const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
           const bottom = window.innerHeight - padB;
-          this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - 4));
+          // The docked .board-bottombar is a sticky sibling rendered AFTER the canvas, so it
+          // occupies flow height below it. Subtract its height so the canvas + bar together fit
+          // the viewport — otherwise .content grows a second (page) scrollbar on top of the
+          // canvas/tab-column scroller.
+          const bar = (sc.parentElement && sc.parentElement.querySelector('.board-bottombar')) || null;
+          const barH = bar ? Math.ceil(bar.getBoundingClientRect().height) : 0;
+          this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - 4 - barH));
           // The unstretched grid fills the scroller; capture its content width so the grid
           // can be given an explicit pixel width (required for transform:scale zoom).
           if (sc.clientWidth) this.boardCanvasW = sc.clientWidth;
