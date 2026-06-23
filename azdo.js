@@ -30,15 +30,20 @@ const AZDO_STORE = path.join(SUPERVISOR_DATA_DIR, 'azdo-sources');
 
 let _tokenCache = { token: null, expiresAt: 0 };
 
-function getToken() {
+function getToken(forceRefresh = false) {
   const now = Date.now();
-  if (_tokenCache.token && now < _tokenCache.expiresAt - 60_000) {
+  // Cache until the token's ACTUAL expiry (minus a 2-min safety buffer) rather
+  // than a fixed window: `az` hands back a token from its own MSAL cache that may
+  // already be partway through its life, so a fixed 50-min cache can serve an
+  // expired token — and Azure DevOps answers an expired token with a 2xx HTML
+  // sign-in page (not a 401), which then breaks JSON parsing downstream.
+  if (!forceRefresh && _tokenCache.token && now < _tokenCache.expiresAt - 120_000) {
     return _tokenCache.token;
   }
-  let token;
+  let raw;
   try {
-    token = execSync(
-      `az account get-access-token --resource ${AZDO_RESOURCE} --query accessToken -o tsv`,
+    raw = execSync(
+      `az account get-access-token --resource ${AZDO_RESOURCE} -o json`,
       { encoding: 'utf-8', timeout: 30_000, shell: true }
     ).trim();
   } catch (e) {
@@ -48,10 +53,39 @@ function getToken() {
       (msg ? `Details: ${msg.split('\n')[0]}` : '')
     );
   }
+  let token = '', expiresAt = 0;
+  try {
+    const parsed = JSON.parse(raw);
+    token = (parsed.accessToken || '').trim();
+    // `expires_on` is epoch seconds (timezone-safe); `expiresOn` is a local-time
+    // string fallback for older CLI versions.
+    if (parsed.expires_on) {
+      expiresAt = Number(parsed.expires_on) * 1000;
+    } else if (parsed.expiresOn) {
+      const t = Date.parse(parsed.expiresOn);
+      if (!Number.isNaN(t)) expiresAt = t;
+    }
+  } catch {
+    // Older CLIs or unexpected output: treat the whole string as the token.
+    token = raw;
+  }
   if (!token) throw new Error('Azure CLI returned an empty Azure DevOps token. Run "az login".');
-  // Tokens last ~1h; cache for 50 minutes.
-  _tokenCache = { token, expiresAt: now + 50 * 60_000 };
+  // If we couldn't determine a real expiry, cache conservatively for 25 minutes.
+  if (!expiresAt || expiresAt < now) expiresAt = now + 25 * 60_000;
+  _tokenCache = { token, expiresAt };
   return token;
+}
+
+// True when Azure DevOps answered with its interactive sign-in HTML page instead
+// of API data — its way of signalling a rejected/expired bearer token (served
+// with a 2xx status, not a 401). `expectsJson` lets raw (file content) fetches
+// avoid false-positives on legitimately HTML/XML file bodies.
+function looksLikeSignInHtml(res, body, expectsJson) {
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  if (ct.includes('text/html')) return true;
+  if (!expectsJson) return false;
+  const head = (body || '').trimStart().slice(0, 200).toLowerCase();
+  return head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<?xml');
 }
 
 function seg(v) {
@@ -61,15 +95,27 @@ function seg(v) {
 async function api(org, projectAndRest, { raw = false } = {}) {
   const base = `https://dev.azure.com/${seg(org)}/`;
   const url = base + projectAndRest;
-  const res = await fetch(url, {
+  const expectsJson = !raw;
+
+  const doFetch = (token) => fetch(url, {
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${token}`,
       Accept: raw ? 'text/plain' : 'application/json'
     }
   });
+
+  let res = await doFetch(getToken());
+  let body = await res.text();
+
+  // A rejected/expired token comes back as a 2xx HTML sign-in page (not a 401).
+  // Force a fresh token and retry once before giving up.
+  if (looksLikeSignInHtml(res, body, expectsJson)) {
+    res = await doFetch(getToken(true));
+    body = await res.text();
+  }
+
   if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.text()).slice(0, 300); } catch {}
+    const detail = (body || '').slice(0, 300);
     if (res.status === 401 || res.status === 403) {
       throw new Error(`Azure DevOps denied access (${res.status}). Confirm you have access to this org/project/repo. ${detail}`);
     }
@@ -78,7 +124,17 @@ async function api(org, projectAndRest, { raw = false } = {}) {
     }
     throw new Error(`Azure DevOps request failed (${res.status}). ${detail}`);
   }
-  return raw ? res.text() : res.json();
+
+  if (raw) return body;
+
+  if (looksLikeSignInHtml(res, body, true)) {
+    throw new Error('Azure DevOps returned a sign-in page instead of data — the Azure CLI session likely expired. Run "az login" on the server machine.');
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error('Azure DevOps returned an unexpected non-JSON response. Run "az login" on the server machine if your session expired.');
+  }
 }
 
 // ---- Listing -------------------------------------------------------------

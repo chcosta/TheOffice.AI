@@ -2516,23 +2516,18 @@
     .board-act:disabled { opacity: .35; cursor: default; }
     .board-act.danger:hover { color: var(--cp-danger); border-color: color-mix(in srgb, var(--cp-danger) 50%, transparent); background: color-mix(in srgb, var(--cp-danger) 10%, transparent); }
     .board-act.active { color: var(--cp-accent); }
-    .board-act[data-tip]::after {
-      content: attr(data-tip);
-      position: absolute; bottom: calc(100% + 6px); left: 50%;
-      transform: translateX(-50%) translateY(3px);
+    /* Button tooltip is now a body-teleported fixed flyout (.board-tip-flyout) so it
+       escapes the panel body's overflow:auto clip box. The old ::after pseudo (clipped)
+       is intentionally removed. */
+    .board-tip-flyout {
+      position: fixed; z-index: 9000; transform: translate(-50%, -100%);
       background: var(--cp-panel-strong); color: var(--cp-text);
       border: 1px solid var(--cp-border); border-radius: 7px;
       padding: 4px 8px; font-size: 11px; font-weight: 500; line-height: 1.2;
       white-space: nowrap; letter-spacing: normal; text-transform: none;
-      box-shadow: var(--cp-shadow);
-      opacity: 0; pointer-events: none;
-      transition: opacity .12s ease, transform .12s ease;
-      z-index: 60;
+      box-shadow: var(--cp-shadow); pointer-events: none; max-width: 260px;
     }
-    .board-act[data-tip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
-    /* edge-anchored variant so tooltips on the far-right buttons don't clip */
-    .board-act[data-tip].tip-end::after { left: auto; right: 0; transform: translateX(0) translateY(3px); }
-    .board-act[data-tip].tip-end:hover::after { transform: translateX(0) translateY(0); }
+    .board-tip-flyout.tip-below { transform: translate(-50%, 0); }
     .board-pin-card.summary-muted { opacity: .62; }
     .board-pin-card.summary-muted:hover { opacity: 1; }
     .summary-muted-pill {
@@ -5340,7 +5335,12 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" :style="(boardIsTabbed() ? '' : (boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '')) + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
+                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" @mouseover="_onBoardTipOver($event)" @mouseout="_onBoardTipOut($event)" :style="(boardIsTabbed() ? '' : (boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '')) + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
+                    <!-- Button tooltip (body-teleported, fixed-positioned) so it escapes the
+                         panel body's overflow:auto clip box instead of getting cut off. -->
+                    <template x-teleport="body">
+                      <div class="board-tip-flyout" x-show="_tip.show" x-text="_tip.text" :class="{ 'tip-below': _tip.below }" :style="'top:' + _tip.top + 'px; left:' + _tip.left + 'px;'"></div>
+                    </template>
                     <!-- Tabbed view: vertical tab rail (icons + names) on the left -->
                     <template x-if="boardIsTabbed()">
                       <div style="display:contents">
@@ -5528,6 +5528,7 @@
                                           <span class="pin-meta" x-show="pinStatus(item) && pinStatus(item).relative" x-text="pinStatus(item) ? pinStatus(item).relative : ''" :title="pinStatusTitle(item)"></span>
                                           <button class="board-act" type="button" x-show="boardPinHasDetail(item)" :data-tip="boardPinIsExpanded(item) ? 'Hide details' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="board-act" :class="{ active: item.excludeFromSummary }" type="button" :data-tip="item.excludeFromSummary ? 'Include in summary &amp; insights' : 'Hide from summary &amp; insights'" @click.stop="toggleItemSummary(item)" x-text="item.excludeFromSummary ? '🙈' : '👁'"></button>
+                                          <button class="board-act" type="button" x-show="item.kind === 'agent' || item.kind === 'manager'" :data-tip="'Chat with ' + (item.label || item.refId)" @click.stop="openOrCreateChat(item.kind, item.refId)">💬</button>
                                           <button class="board-act" type="button" :data-tip="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
                                           <button class="board-act danger tip-end" type="button" data-tip="Unpin from board" @click.stop="unpinItem(item)">✕</button>
                                         </div>
@@ -6117,12 +6118,35 @@
                   <label>
                     <div class="field-label">Repository</div>
                     <div style="display:flex;gap:6px">
-                      <select class="field-input" x-model="devModal.repo" @change="devRepoChange()" @mousedown="if(!devModal.repos.length && devModal.org.trim() && devModal.project.trim() && !devModal.loadingRepos) devLoadRepos()" style="flex:1">
-                        <option value="" x-text="devModal.loadingRepos ? 'Loading…' : (devModal.repos.length ? 'Select a repo…' : 'Enter org + project, then Load')"></option>
-                        <template x-for="r in devModal.repos" :key="r.name">
-                          <option :value="r.name" x-text="r.name"></option>
-                        </template>
-                      </select>
+                      <div style="flex:1;position:relative">
+                        <input class="field-input" type="text"
+                          :placeholder="devModal.loadingRepos ? 'Loading repositories…' : (devModal.repos.length ? 'Search repositories…' : 'Enter org + project, then Load')"
+                          x-model="devModal.repoQuery"
+                          @focus="devModal.repoOpen=true; if(!devModal.repos.length && devModal.org.trim() && devModal.project.trim() && !devModal.loadingRepos) devLoadRepos()"
+                          @blur="devRepoBlur()"
+                          @input="devModal.repoOpen=true"
+                          @keydown.escape.stop="devModal.repoOpen=false; $el.blur()" />
+                        <div x-show="devModal.repoOpen" x-transition.opacity.duration.120ms
+                          style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                          <template x-if="devModal.loadingRepos">
+                            <div class="hint" style="padding:8px 12px">Loading repositories…</div>
+                          </template>
+                          <template x-if="!devModal.loadingRepos && !devModal.repos.length">
+                            <div class="hint" style="padding:8px 12px">No repositories loaded yet — click <strong>Load</strong>.</div>
+                          </template>
+                          <template x-for="r in devReposFiltered()" :key="r.name">
+                            <div @mousedown.prevent="devPickRepo(r.name)"
+                              style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                              :style="r.name===devModal.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                              @mouseenter="if(r.name!==devModal.repo) $el.style.background='var(--cp-surface-soft)'"
+                              @mouseleave="if(r.name!==devModal.repo) $el.style.background=''"
+                              x-text="r.name"></div>
+                          </template>
+                          <template x-if="!devModal.loadingRepos && devModal.repos.length && !devReposFiltered().length">
+                            <div class="hint" style="padding:8px 12px">No repositories match your search.</div>
+                          </template>
+                        </div>
+                      </div>
                       <button class="btn" type="button" :disabled="devModal.loadingRepos || !devModal.org.trim() || !devModal.project.trim()" @click="devLoadRepos()" x-text="devModal.loadingRepos ? '…' : 'Load'"></button>
                     </div>
                   </label>
@@ -7642,10 +7666,29 @@
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px;margin-top:12px" x-show="exportSettingsRepos.length">
                 <div>
                   <label class="field-label">Repository</label>
-                  <select class="field-input" x-model="exportSettings.exportRepo" @change="expSettingsRepoChange()">
-                    <option value="">Select repository…</option>
-                    <template x-for="r in exportSettingsRepos" :key="r.id || r.name"><option :value="r.name" x-text="r.name"></option></template>
-                  </select>
+                  <div x-data="repoCombo()" style="position:relative">
+                    <input class="field-input" type="text"
+                      :placeholder="exportSettingsRepos.length ? 'Search repositories…' : 'Connect first'"
+                      :value="open ? q : (exportSettings.exportRepo || '')"
+                      @focus="open=true; q=''"
+                      @input="q=$event.target.value; open=true"
+                      @blur="closeSoon()"
+                      @keydown.escape.stop="open=false; $el.blur()" />
+                    <div x-show="open" x-transition.opacity.duration.120ms
+                      style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                      <template x-for="r in comboFilterRepos(exportSettingsRepos, q)" :key="r.id || r.name">
+                        <div @mousedown.prevent="exportSettings.exportRepo=r.name; expSettingsRepoChange(); open=false"
+                          style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                          :style="r.name===exportSettings.exportRepo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                          @mouseenter="if(r.name!==exportSettings.exportRepo) $el.style.background='var(--cp-surface-soft)'"
+                          @mouseleave="if(r.name!==exportSettings.exportRepo) $el.style.background=''"
+                          x-text="r.name"></div>
+                      </template>
+                      <template x-if="!comboFilterRepos(exportSettingsRepos, q).length">
+                        <div class="hint" style="padding:8px 12px" x-text="exportSettingsRepos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
+                      </template>
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label class="field-label">Base branch</label>
@@ -7872,10 +7915,32 @@
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
                       <div class="form-row">
                         <label>Repository <span class="hint" x-show="mkt.addForm.loadingRepos">⏳ loading…</span></label>
-                        <select x-model="mkt.addForm.repo" @change="mktAddRepoChange()" :disabled="!mkt.addForm.repos.length">
-                          <option value="" x-text="mkt.addForm.repos.length ? 'Select a repository…' : 'Click “Load repositories”'"></option>
-                          <template x-for="r in mkt.addForm.repos" :key="r.id || r.name"><option :value="r.name" x-text="r.name"></option></template>
-                        </select>
+                        <div x-data="repoCombo()" style="position:relative">
+                          <input class="field-input" type="text"
+                            :placeholder="mkt.addForm.loadingRepos ? 'Loading repositories…' : (mkt.addForm.repos.length ? 'Search repositories…' : 'Click “Load repositories”')"
+                            :value="open ? q : (mkt.addForm.repo || '')"
+                            @focus="open=true; q=''"
+                            @input="q=$event.target.value; open=true"
+                            @blur="closeSoon()"
+                            @keydown.escape.stop="open=false; $el.blur()" />
+                          <div x-show="open" x-transition.opacity.duration.120ms
+                            style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                            <template x-if="mkt.addForm.loadingRepos">
+                              <div class="hint" style="padding:8px 12px">Loading repositories…</div>
+                            </template>
+                            <template x-for="r in comboFilterRepos(mkt.addForm.repos, q)" :key="r.id || r.name">
+                              <div @mousedown.prevent="mkt.addForm.repo=r.name; mktAddRepoChange(); open=false"
+                                style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                                :style="r.name===mkt.addForm.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                                @mouseenter="if(r.name!==mkt.addForm.repo) $el.style.background='var(--cp-surface-soft)'"
+                                @mouseleave="if(r.name!==mkt.addForm.repo) $el.style.background=''"
+                                x-text="r.name"></div>
+                            </template>
+                            <template x-if="!mkt.addForm.loadingRepos && !comboFilterRepos(mkt.addForm.repos, q).length">
+                              <div class="hint" style="padding:8px 12px" x-text="mkt.addForm.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
+                            </template>
+                          </div>
+                        </div>
                       </div>
                       <div class="form-row">
                         <label>Branch <span class="hint" x-show="mkt.addForm.loadingBranches">⏳ loading…</span></label>
@@ -9064,10 +9129,29 @@
           <button class="btn primary" type="button" :disabled="exp.loadingRepos || !exp.org.trim() || !exp.project.trim()" @click="expLoadRepos()" x-text="exp.loadingRepos ? 'Connecting…' : 'Connect'"></button>
         </div>
         <div class="toolbar" style="gap:8px;margin-top:8px;flex-wrap:wrap" x-show="exp.repos.length">
-          <select class="field-input" style="max-width:280px" x-model="exp.repo" @change="expRepoChange()">
-            <option value="">Select repository…</option>
-            <template x-for="r in exp.repos" :key="r.id || r.name"><option :value="r.name" x-text="r.name"></option></template>
-          </select>
+          <div x-data="repoCombo()" style="position:relative;max-width:280px;flex:1 1 220px">
+            <input class="field-input" type="text"
+              :placeholder="exp.repos.length ? 'Search repositories…' : 'Connect first'"
+              :value="open ? q : (exp.repo || '')"
+              @focus="open=true; q=''"
+              @input="q=$event.target.value; open=true"
+              @blur="closeSoon()"
+              @keydown.escape.stop="open=false; $el.blur()" />
+            <div x-show="open" x-transition.opacity.duration.120ms
+              style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+              <template x-for="r in comboFilterRepos(exp.repos, q)" :key="r.id || r.name">
+                <div @mousedown.prevent="exp.repo=r.name; expRepoChange(); open=false"
+                  style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                  :style="r.name===exp.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                  @mouseenter="if(r.name!==exp.repo) $el.style.background='var(--cp-surface-soft)'"
+                  @mouseleave="if(r.name!==exp.repo) $el.style.background=''"
+                  x-text="r.name"></div>
+              </template>
+              <template x-if="!comboFilterRepos(exp.repos, q).length">
+                <div class="hint" style="padding:8px 12px" x-text="exp.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
+              </template>
+            </div>
+          </div>
           <select class="field-input" style="max-width:200px" x-model="exp.branch" :disabled="exp.loadingBranches || !exp.branch && !exp.branches.length">
             <option value="">Base branch…</option>
             <template x-for="b in exp.branches" :key="b"><option :value="b" x-text="b"></option></template>
@@ -9982,10 +10066,29 @@
               <button class="btn primary" type="button" :disabled="azdo.loadingRepos || !azdo.org.trim() || !azdo.project.trim()" @click="loadAzdoRepos()" x-text="azdo.loadingRepos ? 'Connecting…' : 'Connect'"></button>
             </div>
             <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:10px" x-show="azdo.repos.length">
-              <select class="field-input" x-model="azdo.repo" @change="onAzdoRepoChange()">
-                <option value="">Select repository…</option>
-                <template x-for="r in azdo.repos" :key="r.id"><option :value="r.name" x-text="r.name"></option></template>
-              </select>
+              <div x-data="repoCombo()" style="position:relative">
+                <input class="field-input" type="text"
+                  :placeholder="azdo.repos.length ? 'Search repositories…' : 'Connect first'"
+                  :value="open ? q : (azdo.repo || '')"
+                  @focus="open=true; q=''"
+                  @input="q=$event.target.value; open=true"
+                  @blur="closeSoon()"
+                  @keydown.escape.stop="open=false; $el.blur()" />
+                <div x-show="open" x-transition.opacity.duration.120ms
+                  style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                  <template x-for="r in comboFilterRepos(azdo.repos, q)" :key="r.id || r.name">
+                    <div @mousedown.prevent="azdo.repo=r.name; onAzdoRepoChange(); open=false"
+                      style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                      :style="r.name===azdo.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                      @mouseenter="if(r.name!==azdo.repo) $el.style.background='var(--cp-surface-soft)'"
+                      @mouseleave="if(r.name!==azdo.repo) $el.style.background=''"
+                      x-text="r.name"></div>
+                  </template>
+                  <template x-if="!comboFilterRepos(azdo.repos, q).length">
+                    <div class="hint" style="padding:8px 12px" x-text="azdo.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
+                  </template>
+                </div>
+              </div>
               <select class="field-input" x-model="azdo.branch" :disabled="azdo.loadingBranches || !azdo.branches.length">
                 <option value="" x-text="azdo.loadingBranches ? 'Loading branches…' : 'Select branch…'"></option>
                 <template x-for="b in azdo.branches" :key="b"><option :value="b" x-text="b"></option></template>
@@ -10281,7 +10384,7 @@
         // Dev items — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
         // the create/edit modal form state.
         devBusy: {},
-        devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false },
+        devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
         // Insights — read-only AI-generated cross-board views.
         insights: [],
         activeInsightId: '',
@@ -10336,6 +10439,8 @@
         boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null },
         // Tabbed-view hover preview flyout (single, body-teleported, JS-positioned).
         _tabFlyout: { show: false, top: 0, left: 0, icon: '', name: '', type: '', body: '' },
+        // Button tooltip (single, body-teleported) so it escapes panel overflow:auto clipping.
+        _tip: { show: false, top: 0, left: 0, text: '', below: false, el: null },
         // Tabbed-view drag-to-reorder transient state.
         _tabDrag: { id: null, overId: null },
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
@@ -15429,6 +15534,28 @@
           this._tabFlyout = { show: true, top, left, icon: this.chipIcon(p), name: this._tabName(p), type: this._tabMeta(p), body: this._tabPreview(p) };
         },
         _hideTabFlyout() { if (this._tabFlyout && this._tabFlyout.show) this._tabFlyout = { ...this._tabFlyout, show: false }; },
+        // ----- Button tooltip (delegated, body-teleported, escapes overflow clip) -----
+        _onBoardTipOver(ev) {
+          const btn = ev.target && ev.target.closest ? ev.target.closest('[data-tip]') : null;
+          if (!btn || !btn.getBoundingClientRect) return;
+          if (btn === this._tip.el && this._tip.show) return;
+          const text = btn.getAttribute('data-tip');
+          if (!text) return;
+          const r = btn.getBoundingClientRect();
+          let below = false;
+          let top = r.top - 8;
+          if (top < 30) { below = true; top = r.bottom + 8; }
+          let left = r.left + r.width / 2;
+          const half = 130;
+          if (left - half < 6) left = half + 6;
+          if (left + half > window.innerWidth - 6) left = window.innerWidth - 6 - half;
+          this._tip = { show: true, top, left, text, below, el: btn };
+        },
+        _onBoardTipOut(ev) {
+          const to = ev.relatedTarget;
+          if (to && this._tip.el && this._tip.el.contains && this._tip.el.contains(to)) return;
+          if (this._tip.show) this._tip = { ...this._tip, show: false, el: null };
+        },
         // ----- Tabbed-rail drag-to-reorder -----
         _tabBaseOrder() { return this.boardTabPanels().map(p => this.panelBaseId(p)); },
         isTabDragging(p) { return !!(this._tabDrag && this._tabDrag.id && this._tabDrag.id === this.panelBaseId(p)); },
@@ -17910,6 +18037,7 @@
             m.repos = []; m.branches = [];
           }
           m.error = ''; m.busy = false; m.loadingRepos = false; m.loadingBranches = false;
+          m.repoOpen = false; m.repoQuery = m.repo || '';
           m.open = true;
           if (m.org && m.project) this.devLoadRepos();
         },
@@ -17923,13 +18051,48 @@
             const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
             m.repos = data.repos || [];
             if (!m.repos.length) { m.error = 'No repositories found (or no access).'; return; }
-            if (m.repo && m.repos.some(r => r.name === m.repo)) { await this.devLoadBranches(true); }
-            else { m.repo = ''; m.baseBranch = ''; m.branches = []; }
+            if (m.repo && m.repos.some(r => r.name === m.repo)) { m.repoQuery = m.repo; await this.devLoadBranches(true); }
+            else { m.repo = ''; m.repoQuery = ''; m.baseBranch = ''; m.branches = []; }
           } catch (e) {
             m.error = e.message || 'Could not list repositories';
           } finally {
             m.loadingRepos = false;
           }
+        },
+        devReposFiltered() {
+          const m = this.devModal;
+          const q = (m.repoQuery || '').trim().toLowerCase();
+          const list = q ? m.repos.filter(r => (r.name || '').toLowerCase().includes(q)) : m.repos;
+          return list.slice(0, 200);
+        },
+        devPickRepo(name) {
+          const m = this.devModal;
+          m.repo = name;
+          m.repoQuery = name;
+          m.repoOpen = false;
+          this.devRepoChange();
+        },
+        devRepoBlur() {
+          // Delay close so a mousedown on a list item registers first.
+          setTimeout(() => { this.devModal.repoOpen = false; }, 150);
+        },
+        // ----- Reusable searchable repo combobox (shared by the 4 AzDO repo pickers) -----
+        // Used as x-data="repoCombo()" on a nested element; holds only transient UI state
+        // (query + open) so the surface's own state object stays untouched. closeSoon()'s
+        // `this` is the nested component, so the deferred set resolves correctly (an inline
+        // setTimeout in an Alpine expression cannot).
+        repoCombo() {
+          return {
+            q: '',
+            open: false,
+            closeSoon() { setTimeout(() => { this.open = false; }, 150); },
+          };
+        },
+        comboFilterRepos(list, q) {
+          const arr = Array.isArray(list) ? list : [];
+          const needle = (q || '').trim().toLowerCase();
+          const out = needle ? arr.filter(r => (r.name || '').toLowerCase().includes(needle)) : arr;
+          return out.slice(0, 200);
         },
         async devRepoChange() {
           this.devModal.baseBranch = '';
@@ -18014,10 +18177,42 @@
             // The server flips creating→ready in the background and broadcasts
             // boards-changed; mark optimistically so the panel shows "Creating…".
             this._applyDevUpdate(d.id, { ...d, worktreeStatus: 'creating', worktreeError: null });
+            this.showToast('Dev item', '🌱 Creating worktree — cloning the repo, this can take a minute…', 'info');
+            // boards-changed SSE is throttled and lease-gated across multiple clients, so
+            // it can be delayed or missed; poll explicitly so the panel reliably advances.
+            this._pollDevWorktree(d.id);
           } catch (e) {
             this.showToast('Dev item', e.message, 'error');
           } finally {
             delete this.devBusy[d.id];
+          }
+        },
+        // Poll the board until the background worktree clone finishes (creating→ready/error).
+        // We update only the single dev item (never replace the whole board) so we don't
+        // clobber the client's local layout while a clone is in flight.
+        async _pollDevWorktree(devId) {
+          this._devWtPoll = this._devWtPoll || {};
+          if (this._devWtPoll[devId]) return; // already polling this item
+          this._devWtPoll[devId] = true;
+          const started = Date.now();
+          try {
+            while (Date.now() - started < 180000) {
+              await new Promise(r => setTimeout(r, 2000));
+              let boards;
+              try { boards = await this.request('/api/boards'); } catch { continue; }
+              const list = Array.isArray(boards) ? boards : [];
+              const board = list.find(b => (b.devItems || []).some(x => x.id === devId));
+              const dev = board && (board.devItems || []).find(x => x.id === devId);
+              if (!dev) break; // dev item was removed
+              this._applyDevUpdate(devId, dev);
+              if (dev.worktreeStatus !== 'creating') {
+                if (dev.worktreeStatus === 'ready') this.showToast('Dev item', '✅ Worktree ready.', 'success');
+                else if (dev.worktreeStatus === 'error') this.showToast('Dev item', dev.worktreeError || 'Worktree creation failed.', 'error');
+                break;
+              }
+            }
+          } finally {
+            delete this._devWtPoll[devId];
           }
         },
         async refreshDevItem(d) {
@@ -18048,11 +18243,17 @@
         async refreshDevSummary(d) {
           if (!d || this.devBusy[d.id]) return;
           this.devBusy[d.id] = 'summary';
+          this.showToast('Dev item', '🧠 Generating state summary — AI is reviewing the work item, PR and code diff…', 'info');
           try {
             const r = await this.request(this._devUrl(d, 'summary'), { method: 'POST', body: '{}' });
-            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Dev item', 'State summary updated.', 'success');
+            } else {
+              this.showToast('Dev item', 'Summary returned no result — try again.', 'error');
+            }
           } catch (e) {
-            this.showToast('Dev item', e.message, 'error');
+            this.showToast('Dev item', (e && e.message) || 'Summary failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
