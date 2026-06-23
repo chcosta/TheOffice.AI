@@ -2620,6 +2620,23 @@
     .board-tab-flyout-body { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--cp-text-muted); white-space: normal; max-height: 320px; overflow: hidden; }
     .board-tab-flyout-body.md-output > *:first-child { margin-top: 0; }
     .board-tab-flyout-body.md-output > *:last-child { margin-bottom: 0; }
+    /* Floating Board AI chat launcher (lower-right). */
+    .board-ai-fab {
+      position: fixed; right: 24px; bottom: 24px; z-index: 56;
+      width: 54px; height: 54px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; line-height: 1; cursor: pointer;
+      background: var(--cp-accent); color: var(--cp-accent-fg);
+      border: 1px solid var(--cp-accent-hover);
+      box-shadow: var(--cp-shadow);
+      transition: transform .12s ease, background .12s ease, box-shadow .12s ease;
+    }
+    .board-ai-fab:hover { background: var(--cp-accent-hover); transform: translateY(-2px); }
+    .board-ai-fab:active { transform: translateY(0); }
+    .board-ai-fab:disabled { opacity: .45; cursor: default; transform: none; }
+    /* Make hyperlinks in rendered notes, checklists, summaries visually clickable. */
+    .md-output a, .md-inline a, a.md-link { color: var(--cp-link); text-decoration: underline; text-underline-offset: 2px; }
+    .md-output a:hover, .md-inline a:hover, a.md-link:hover { color: var(--cp-accent); }
     .board-tab-brief {
       flex: 0 0 auto; background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 12px; padding: 8px 12px;
@@ -5207,6 +5224,8 @@
 
                 <template x-if="activeBoard()">
                   <div :class="{ 'board-focus': boardFocus }" @keydown.escape.window="boardFocus && !boardAssistant.open && (boardFocus = false)">
+                    <!-- Floating Board AI chat launcher — always within reach, lower-right. -->
+                    <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — chat to organize notes, checklists & dev items from this board's activity" aria-label="Open Board AI chat">💬</button>
                     <!-- Active board toolbar -->
                     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
                       <div style="display:flex;align-items:center;gap:10px;min-width:0">
@@ -5226,7 +5245,6 @@
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()" title="Add a checklist as its own panel">✅ Checklist</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev item — groups an Azure DevOps work item, PR and a git worktree with AI state tracking">🧰 Dev item</button>
-                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
                         <!-- Secondary board actions tucked behind an overflow menu so the
                              toolbar stays focused on the things you reach for constantly. -->
@@ -5730,7 +5748,7 @@
                                                 <template x-if="item.ref && boardRefStatus(item.ref)">
                                                   <span class="pin-dot" :class="boardRefStatus(item.ref).state" :title="boardRefStatusTitle(item.ref)"></span>
                                                 </template>
-                                                <span x-show="boardChecklistItemEdit[item.id] === undefined" style="flex:1;min-width:0" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
+                                                <span class="md-inline" x-show="boardChecklistItemEdit[item.id] === undefined" style="flex:1;min-width:0" :style="item.done ? 'text-decoration:line-through;opacity:0.6' : ''" x-html="inlineMarkdown(item.text)"></span>
                                                 <input x-show="boardChecklistItemEdit[item.id] !== undefined" class="field-input" type="text" style="flex:1;min-width:0;font-size:13px" x-model="boardChecklistItemEdit[item.id]" :data-ci-edit="item.id" @keydown.enter="saveChecklistItem(cl, item)" @keydown.escape="cancelEditChecklistItem(item)" />
                                                 <!-- Trailing controls pinned to the right edge of the row. -->
                                                 <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex:0 0 auto">
@@ -5878,14 +5896,14 @@
                                       <!-- AI summary of the work item / PR / diff state -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
-                                          <span style="font-weight:600;font-size:12px">🧠 State summary</span>
+                                          <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? 'Thinking…' : '↻ Refresh'"></button>
                                           </div>
                                         </div>
-                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.5;font-size:0.8rem" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
-                                        <div class="hint" x-show="!(d.summary && d.summary.text)" style="font-size:11px">No summary yet — click ↻ Refresh to have AI review the work item, PR and code diff.</div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
+                                        <div class="hint" x-show="!(d.summary && d.summary.text)" style="font-size:12px">No summary yet — click ↻ Refresh to have AI review the work item, PR and code diff.</div>
                                       </div>
                                     </div>
                                   </template>
