@@ -374,10 +374,10 @@ async function getObjectId(org, project, repo, branch, itemPath) {
 
 // Write-capable request. Mirrors api() but allows a method + JSON body and
 // surfaces AzDO's error message. Used only by the export flow.
-async function apiSend(org, projectAndRest, { method = 'GET', body } = {}) {
+async function apiSend(org, projectAndRest, { method = 'GET', body, contentType } = {}) {
   const url = `https://dev.azure.com/${seg(org)}/` + projectAndRest;
   const headers = { Authorization: `Bearer ${getToken()}`, Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined) headers['Content-Type'] = contentType || 'application/json';
   const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   const text = await res.text().catch(() => '');
   if (!res.ok) {
@@ -437,8 +437,16 @@ async function pushFiles(org, project, repo, { baseBranch, newBranch, changes, c
   }
 }
 
-// Open a pull request from newBranch into baseBranch.
-async function createPullRequest(org, project, repo, { sourceBranch, targetBranch, title, description }) {
+// Project metadata (id). Org-level read; used to build PR artifact links.
+async function getProject(org, project) {
+  const d = await apiSend(org, `_apis/projects/${seg(project)}?api-version=${API_VERSION}`);
+  return { id: d.id, name: d.name };
+}
+
+// Open a pull request from sourceBranch into targetBranch. When `workItemId` is
+// provided, best-effort links the work item to the new PR (so the PR shows on
+// the work item and vice-versa). The PR is returned regardless of link success.
+async function createPullRequest(org, project, repo, { sourceBranch, targetBranch, title, description, workItemId } = {}) {
   const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests?api-version=${API_VERSION}`, {
     method: 'POST',
     body: {
@@ -449,6 +457,17 @@ async function createPullRequest(org, project, repo, { sourceBranch, targetBranc
     }
   });
   const webUrl = `https://dev.azure.com/${seg(org)}/${seg(project)}/_git/${seg(repo)}/pullrequest/${d.pullRequestId}`;
+  if (workItemId) {
+    try {
+      const [repoMeta, proj] = await Promise.all([getRepo(org, project, repo), getProject(org, project)]);
+      const artifactUrl = `vstfs:///Git/PullRequestId/${proj.id}%2F${repoMeta.id}%2F${d.pullRequestId}`;
+      await apiSend(org, `${seg(project)}/_apis/wit/workitems/${seg(workItemId)}?api-version=${API_VERSION}`, {
+        method: 'PATCH',
+        contentType: 'application/json-patch+json',
+        body: [{ op: 'add', path: '/relations/-', value: { rel: 'ArtifactLink', url: artifactUrl, attributes: { name: 'Pull Request' } } }]
+      });
+    } catch { /* best-effort — the PR exists regardless of work-item link */ }
+  }
   return { pullRequestId: d.pullRequestId, url: webUrl };
 }
 
@@ -519,6 +538,7 @@ module.exports = {
   repoRoot,
   apiSend,
   getRepo,
+  getProject,
   getRefObjectId,
   pushFiles,
   createPullRequest,

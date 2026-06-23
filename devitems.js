@@ -193,6 +193,44 @@ function diffSummary(wt, { baseBranch = 'main', maxLines = 40 } = {}) {
   return out.join('\n').trim();
 }
 
+// Push the worktree's current branch (or a given branch) to origin, with auth.
+// Returns { ok, branch, message }.
+function pushBranch(wt, { branch } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, branch: '', message: 'No worktree to push.' };
+  let br = String(branch || '').trim();
+  if (!br) {
+    const cur = _gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], wt);
+    br = cur.ok ? cur.out.trim() : '';
+  }
+  if (!br || br === 'HEAD') return { ok: false, branch: '', message: 'Could not determine the branch to push.' };
+  const res = _gitTry(['push', '-u', 'origin', br], wt, { auth: true });
+  return {
+    ok: res.ok,
+    branch: br,
+    message: res.ok ? 'Pushed.' : (res.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Push failed.')
+  };
+}
+
+// Add a path to the worktree's git exclude (so an app-managed file never shows
+// in `git status` / gets committed). Resolves the correct exclude file even for
+// a linked worktree via `git rev-parse --git-path`. Best-effort.
+function addGitExclude(wt, relLine) {
+  if (!wt || !_isRepo(wt) || !relLine) return false;
+  let excl = '';
+  const p = _gitTry(['rev-parse', '--git-path', 'info/exclude'], wt);
+  if (p.ok && p.out) excl = p.out.trim();
+  if (excl && !path.isAbsolute(excl)) excl = path.join(wt, excl);
+  if (!excl) return false;
+  try {
+    fs.mkdirSync(path.dirname(excl), { recursive: true });
+    let cur = '';
+    try { cur = fs.readFileSync(excl, 'utf-8'); } catch {}
+    if (cur.split(/\r?\n/).includes(relLine)) return true;
+    fs.appendFileSync(excl, (cur && !cur.endsWith('\n') ? '\n' : '') + relLine + '\n');
+    return true;
+  } catch { return false; }
+}
+
 // Remove a worktree (best-effort). Leaves the managed clone in place.
 function removeWorktree(org, project, repo, devId, wt) {
   const target = wt || worktreePath(repo, devId);
@@ -213,5 +251,7 @@ module.exports = {
   worktreeStatus,
   syncWorktree,
   diffSummary,
+  pushBranch,
+  addGitExclude,
   removeWorktree
 };

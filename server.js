@@ -5794,12 +5794,15 @@ app.post('/api/fs/open', (req, res) => {
       const guardLines = copilotIsPath
         ? [`if not exist "${copilotCmd}" goto nocopilot`]
         : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
+      // Optional: pre-select a project agent (e.g. a dev item's dev agent).
+      const agentName = String((req.body && req.body.agent) || '').trim().replace(/"/g, '');
+      const agentFlag = agentName ? ` --agent "${agentName}"` : '';
       const batContent = [
         '@echo off',
         `if not exist "${dir}" goto nodir`,
         `cd /d "${dir}"`,
         ...guardLines,
-        `"${copilotCmd}" --yolo`,
+        `"${copilotCmd}"${agentFlag} --yolo`,
         'pause', 'exit /b 0',
         ':nodir', `echo ERROR: Working directory not found: ${dir}`, 'pause', 'exit /b 1',
         ':nocopilot', 'echo ERROR: copilot not found in PATH', 'echo PATH=%PATH%', 'pause', 'exit /b 1',
@@ -6645,6 +6648,157 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   try { devitems.removeWorktree(d.org, d.project, d.repo, d.id, d.worktreePath); } catch {}
   const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null });
   res.json({ ok: true, dev: updated });
+});
+
+// Build the Markdown for a dev item's `.agent.md` (frontmatter + persona). No
+// `tools:` key ⇒ the agent is unrestricted. The persona forbids the agent from
+// ever committing/pushing its own definition.
+function _buildDevAgentMd({ agentName, dev, wi }) {
+  const desc = 'Focused dev agent' + (wi ? ` for work item #${wi.id}` : '') + (dev.repo ? ` in ${dev.repo}` : '');
+  const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
+  const ctx = [];
+  if (wi) {
+    ctx.push('## The work item');
+    ctx.push(`- **#${wi.id} [${wi.type}]** ${wi.title}`);
+    ctx.push(`- State: ${wi.state}${wi.assignedTo ? ' · assigned to ' + wi.assignedTo : ''}`);
+    if (wi.url) ctx.push('- Link: ' + wi.url);
+    ctx.push('');
+  }
+  ctx.push('## Repository');
+  ctx.push('- ' + [dev.org, dev.project, dev.repo].filter(Boolean).join(' / ') + (dev.branch ? `  (branch \`${dev.branch}\`, base \`${dev.baseBranch || 'main'}\`)` : ''));
+  ctx.push('');
+  const body = `You are a focused software-development agent working in this repository worktree.${wi ? ' Your job is to solve the work item described below.' : ' Your job is to help the developer make and validate code changes in this repository.'}
+
+${ctx.join('\n')}
+## How you work
+Follow this disciplined loop and narrate which step you are on:
+1. **Understand** the system, architecture, and design relevant to the task before changing anything — read the surrounding code, tests, and docs.
+2. **Tests first** — identify or create the tests that capture the desired behavior.
+3. **Propose a solution** — describe your intended approach before implementing it.
+4. **Rubber-duck** your own proposal — argue against it, surface edge cases and risks, then refine.
+5. **Implement** the change surgically and completely.
+6. **Validate** — run the relevant build/lint/tests and confirm the behavior; iterate until green.
+
+## Hard rules
+- You have **no tool restrictions** — use whatever you need to understand and change the code.
+- **Never check yourself in.** If asked to "check in" / commit code changes, commit ONLY the user's code changes. NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`) or other agent-supervisor scaffolding. Do not create or push a pull request unless the user explicitly asks you to.
+- Keep the working tree clean of agent artifacts; if you notice a \`.github/agents/*.agent.md\` file, leave it untracked and never add it.
+`;
+  return fm + body;
+}
+
+// Create a focused dev agent for a dev item by writing a `.github/agents/<name>.agent.md`
+// into the item's worktree so VS Code / Copilot can select it. The file is kept
+// out of git so it never lands in the user's commits or PR.
+app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  if (!d.worktreePath || !fs.existsSync(d.worktreePath)) {
+    return res.status(400).json({ error: 'Create a worktree first.' });
+  }
+  // Freshest work item for the persona (best-effort).
+  let wi = d.workItem;
+  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  // Slug doubles as the frontmatter `name` (and the CLI `--agent` value), so
+  // keep it filename- and quoting-safe.
+  const slug = ('dev-' + String(d.id).replace(/[^A-Za-z0-9._-]+/g, '-')).replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'dev-agent';
+  const rel = '.github/agents/' + slug + '.agent.md';
+  try {
+    const agentsDir = path.join(d.worktreePath, '.github', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi }));
+    try { devitems.addGitExclude(d.worktreePath, rel); } catch {}
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) });
+  }
+  const updated = ctx.save({ devAgentName: slug, devAgentFile: rel, workItem: wi || d.workItem });
+  res.json({ ok: true, dev: updated, agentName: slug, agentFile: rel });
+});
+
+// Best-effort extraction of a JSON object from an LLM reply (handles code
+// fences / surrounding prose).
+function _extractJsonObject(s) {
+  if (!s) return null;
+  let t = String(s).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  try { return JSON.parse(t); } catch {}
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch {} }
+  return null;
+}
+
+// Create a pull request for a dev item: push the branch, AI-author a nicely
+// formatted title + description, open the PR, and associate it with the item
+// (and, best-effort, with the work item).
+app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  const d = ctx.dev;
+  if (d.prId) return res.status(400).json({ error: 'A pull request is already associated with this item.', dev: d });
+  if (!d.org || !d.project || !d.repo) return res.status(400).json({ error: 'Dev item is missing org/project/repo.' });
+  if (!d.worktreePath || !fs.existsSync(d.worktreePath)) return res.status(400).json({ error: 'Create a worktree first.' });
+  const base = (String(d.baseBranch || '').trim()) || 'main';
+
+  // 1) Push the work branch to origin.
+  let push;
+  try { push = devitems.pushBranch(d.worktreePath, { branch: d.branch }); }
+  catch (e) { return res.status(500).json({ error: 'Failed to push branch: ' + ((e && e.message) || e) }); }
+  if (!push.ok) return res.status(500).json({ error: 'Failed to push branch: ' + push.message });
+  const sourceBranch = push.branch || d.branch;
+  if (!sourceBranch || sourceBranch === base) {
+    return res.status(400).json({ error: 'The work branch is the same as the base branch — commit changes on a separate branch first.' });
+  }
+
+  // 2) Gather context for the AI.
+  let wi = d.workItem;
+  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  let diff = '';
+  try { diff = devitems.diffSummary(d.worktreePath, { baseBranch: base }); } catch {}
+
+  // 3) AI-generate {title, description}.
+  const ctxLines = [];
+  ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}`);
+  ctxLines.push(`Source branch: ${sourceBranch}  →  target: ${base}`);
+  if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}`);
+  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 6000)); }
+  const prompt = [
+    'You are writing a pull request for the code change below. Respond with ONLY a JSON object (no code fence, no prose) of the shape {"title": string, "description": string}.',
+    'The title is a concise one-line summary (<= 100 chars). The description is well-formatted GitHub-flavored Markdown with: a short summary paragraph, a "## Changes" bullet list of what actually changed, and a "## Testing" note.' + (wi ? ` Reference the work item (#${wi.id}) in the description.` : '') + ' Do not invent changes that are not in the diff.',
+    '',
+    ctxLines.join('\n').slice(0, 9000),
+    '',
+    'JSON:'
+  ].join('\n');
+
+  let title = '', description = '';
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const raw = (acc.trim() || (result && result.output) || '').trim();
+    const parsed = _extractJsonObject(raw);
+    if (parsed && parsed.title) { title = String(parsed.title).trim(); description = String(parsed.description || '').trim(); }
+    else if (raw) { description = raw; }
+  } catch {}
+  if (!title) title = (wi && wi.title) || ('Merge ' + sourceBranch + ' into ' + base);
+  if (wi && d.workItemId && !/#\d/.test(description)) {
+    description = (description ? description + '\n\n' : '') + 'Related work item: #' + d.workItemId;
+  }
+
+  // 4) Open the PR (links the work item best-effort).
+  let pr;
+  try {
+    pr = await azdo.createPullRequest(d.org, d.project, d.repo, {
+      sourceBranch, targetBranch: base, title, description, workItemId: d.workItemId || null
+    });
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to create PR: ' + ((e && e.message) || e) });
+  }
+
+  // 5) Persist on the dev item.
+  let prFull = null;
+  try { prFull = await azdo.getPullRequest(d.org, d.project, d.repo, pr.pullRequestId); } catch {}
+  const updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem });
+  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId });
 });
 
 // ============================================================================

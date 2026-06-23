@@ -5853,6 +5853,17 @@
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree" @click="openDevItem(d,'cli')">🤖 CLI</button>
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="openDevItem(d,'explorer')">📁 Folder</button>
                                             </div>
+                                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                                              <template x-if="!d.devAgentName">
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into the worktree so VS Code / Copilot can use it (and the CLI auto-selects it)" x-text="devBusy[d.id]==='agent' ? 'Creating agent…' : '🤖 Create dev agent'"></button>
+                                              </template>
+                                              <template x-if="d.devAgentName">
+                                                <span class="status-badge" style="font-size:0.7rem" :title="'Dev agent: ' + (d.devAgentName||'') + ' — available in VS Code / Copilot; auto-selected when opening the CLI'">🤖 Dev agent ready</span>
+                                              </template>
+                                              <template x-if="!d.prId">
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev item" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
+                                              </template>
+                                            </div>
                                           </div>
                                         </template>
                                       </div>
@@ -18240,6 +18251,49 @@
             delete this.devBusy[d.id];
           }
         },
+        // Write a focused .github/agents dev agent into the worktree (no agents.json
+        // entry — just the *.agent.md file so VS Code / Copilot can select it, and the
+        // CLI auto-selects it). The file is git-excluded so it never lands in a commit/PR.
+        async createDevAgent(d) {
+          if (!d || this.devBusy[d.id]) return;
+          if (!d.worktreePath) { this.showToast('Dev item', 'Create a worktree first.', 'error'); return; }
+          this.devBusy[d.id] = 'agent';
+          this.showToast('Dev item', '🤖 Creating a focused dev agent for this worktree…', 'info');
+          try {
+            const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: '{}' });
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Dev item', '🤖 Dev agent ready — selectable in VS Code / Copilot; the CLI will auto-select it.', 'success');
+            } else {
+              this.showToast('Dev item', 'Dev agent returned no result — try again.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Dev item', (e && e.message) || 'Create dev agent failed', 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        // Push the branch and have AI open a nicely-formatted PR linked to this dev item.
+        async createDevPr(d) {
+          if (!d || this.devBusy[d.id]) return;
+          if (!d.worktreePath) { this.showToast('Dev item', 'Create a worktree first.', 'error'); return; }
+          if (d.prId) { this.showToast('Dev item', 'A PR already exists for this dev item.', 'info'); return; }
+          this.devBusy[d.id] = 'pr';
+          this.showToast('Dev item', '🔀 Pushing branch and drafting a pull request with AI…', 'info');
+          try {
+            const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: '{}' });
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Dev item', '🔀 Pull request created and linked to this dev item.', 'success');
+            } else {
+              this.showToast('Dev item', 'PR creation returned no result — try again.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Dev item', (e && e.message) || 'Create PR failed', 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
         async refreshDevSummary(d) {
           if (!d || this.devBusy[d.id]) return;
           this.devBusy[d.id] = 'summary';
@@ -18261,7 +18315,10 @@
         async openDevItem(d, target) {
           if (!d || !d.worktreePath) { this.showToast('Dev item', 'No worktree to open — create one first.', 'error'); return; }
           try {
-            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify({ path: d.worktreePath, target }) });
+            const body = { path: d.worktreePath, target };
+            // When a dev agent has been written into the worktree, auto-select it in the CLI.
+            if (target === 'cli' && d.devAgentName) body.agent = d.devAgentName;
+            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
           } catch (e) {
             this.showToast('Open', e.message, 'error');
           }
