@@ -6668,13 +6668,18 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
   let diff = '';
   try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: 9000 }); } catch {}
+  // Recompute live git state so the summary reflects the worktree as it is right
+  // now (the cached d.git is only refreshed by an explicit refresh/sync, so on its
+  // own it would make a freshly-edited worktree still read as "clean").
+  let git = d.git;
+  try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {}
 
   const ctxLines = [];
   ctxLines.push(`Dev card: ${d.title || d.repo}`);
   ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}  Branch: ${d.branch || '(none)'}  Base: ${d.baseBranch || 'main'}`);
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
   if (pr) ctxLines.push(`PR #${pr.id} "${pr.title}" — status: ${pr.status}${pr.isDraft ? ' (draft)' : ''}, merge: ${pr.mergeStatus || 'n/a'}, ${pr.sourceBranch} → ${pr.targetBranch}`);
-  if (d.git) ctxLines.push(`Local branch: ${d.git.ahead || 0} ahead / ${d.git.behind || 0} behind origin${d.git.dirty ? ', uncommitted changes present' : ', clean working tree'}`);
+  if (git) ctxLines.push(`Local branch: ${git.ahead || 0} ahead / ${git.behind || 0} behind origin${git.dirty ? ', uncommitted changes present' : ', clean working tree'}`);
   if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 20000)); }
 
   const prompt = [
@@ -6691,7 +6696,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
     const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
     const text = (acc.trim() || (result && result.output) || '').trim();
     if (!text) throw new Error('Empty summary');
-    const updated = ctx.save({ summary: { text, generatedAt: new Date().toISOString() }, workItem: wi || d.workItem, pr: pr || d.pr });
+    const updated = ctx.save({ summary: { text, generatedAt: new Date().toISOString() }, workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
     res.json({ ok: true, dev: updated });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'Summary failed' });
