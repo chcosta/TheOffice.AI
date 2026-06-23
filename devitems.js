@@ -182,28 +182,81 @@ function syncWorktree(wt, { baseBranch = 'main' } = {}) {
   return { ok: true, message: 'Up to date with origin.', status };
 }
 
-// A compact textual summary of the code state for the AI summary prompt.
-function diffSummary(wt, { baseBranch = 'main', maxLines = 40 } = {}) {
+// Truncate a patch to a character budget on a line boundary, with a marker.
+function _capPatch(text, maxChars) {
+  const s = String(text || '');
+  if (s.length <= maxChars) return s;
+  const cut = s.slice(0, maxChars);
+  const nl = cut.lastIndexOf('\n');
+  return (nl > 0 ? cut.slice(0, nl) : cut) +
+    '\n… [diff truncated, ' + (s.length - maxChars) + ' more chars]';
+}
+
+// Pathspecs for noisy/generated files we never want to spend the diff budget on.
+const _DIFF_EXCLUDES = [
+  ':(exclude)**/package-lock.json',
+  ':(exclude)**/yarn.lock',
+  ':(exclude)**/pnpm-lock.yaml',
+  ':(exclude)**/*.min.js',
+  ':(exclude)**/*.map',
+  ':(exclude)**/dist/**',
+  ':(exclude)**/build/**'
+];
+
+// A textual summary of the code state for the AI summary prompt. Includes the
+// actual patch hunks (committed-vs-base, staged, and unstaged) so the model can
+// reason about WHAT changed, not just which files — each section bounded by a
+// character budget so the overall prompt stays manageable.
+function diffSummary(wt, { baseBranch = 'main', maxLines = 40, maxDiffChars = 9000 } = {}) {
   if (!wt || !_isRepo(wt)) return '';
   const base = 'origin/' + (baseBranch || 'main');
   const out = [];
+
+  // High-level overview: which files changed vs base + how much churn.
   const stat = _gitTry(['diff', '--stat', base + '...HEAD'], wt);
   if (stat.ok && stat.out) {
     out.push('Changed files (git diff --stat vs ' + base + '):');
     out.push(stat.out.split('\n').slice(0, maxLines).join('\n'));
   }
+
+  // Commits unique to this branch.
   const log = _gitTry(['log', '--oneline', '-15', base + '..HEAD'], wt);
   if (log.ok && log.out) {
     out.push('');
     out.push('Recent commits on this branch:');
     out.push(log.out);
   }
+
+  // The actual committed change set vs base — the primary "what changed" patch.
+  const committed = _gitTry(['diff', '--unified=3', base + '...HEAD', '--'].concat(_DIFF_EXCLUDES), wt);
+  if (committed.ok && committed.out && committed.out.trim()) {
+    out.push('');
+    out.push('Committed changes vs ' + base + ' (patch):');
+    out.push(_capPatch(committed.out, maxDiffChars));
+  }
+
+  // In-progress edits, split into staged vs unstaged so the model can tell them apart.
+  const staged = _gitTry(['diff', '--staged', '--unified=3', '--'].concat(_DIFF_EXCLUDES), wt);
+  if (staged.ok && staged.out && staged.out.trim()) {
+    out.push('');
+    out.push('Staged (not yet committed) changes (patch):');
+    out.push(_capPatch(staged.out, Math.floor(maxDiffChars / 2)));
+  }
+  const unstaged = _gitTry(['diff', '--unified=3', '--'].concat(_DIFF_EXCLUDES), wt);
+  if (unstaged.ok && unstaged.out && unstaged.out.trim()) {
+    out.push('');
+    out.push('Unstaged working changes (patch):');
+    out.push(_capPatch(unstaged.out, Math.floor(maxDiffChars / 2)));
+  }
+
+  // Porcelain status catches untracked files (and anything excluded above).
   const dirty = _gitTry(['status', '--porcelain'], wt);
   if (dirty.ok && dirty.out) {
     out.push('');
-    out.push('Uncommitted working changes:');
+    out.push('Working tree status (git status --porcelain):');
     out.push(dirty.out.split('\n').slice(0, maxLines).join('\n'));
   }
+
   return out.join('\n').trim();
 }
 

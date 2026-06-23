@@ -6667,7 +6667,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
   try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
   let diff = '';
-  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch }); } catch {}
+  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: 9000 }); } catch {}
 
   const ctxLines = [];
   ctxLines.push(`Dev card: ${d.title || d.repo}`);
@@ -6675,13 +6675,13 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
   if (pr) ctxLines.push(`PR #${pr.id} "${pr.title}" — status: ${pr.status}${pr.isDraft ? ' (draft)' : ''}, merge: ${pr.mergeStatus || 'n/a'}, ${pr.sourceBranch} → ${pr.targetBranch}`);
   if (d.git) ctxLines.push(`Local branch: ${d.git.ahead || 0} ahead / ${d.git.behind || 0} behind origin${d.git.dirty ? ', uncommitted changes present' : ', clean working tree'}`);
-  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 5000)); }
+  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 20000)); }
 
   const prompt = [
-    'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work is, where it stands, and what is left to do next.',
-    'Be concrete. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
+    'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree — including the actual diff hunks of what changed), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it stands, and what is left to do next.',
+    'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
     '',
-    ctxLines.join('\n').slice(0, 8000),
+    ctxLines.join('\n').slice(0, 26000),
     '',
     'Status briefing:'
   ].join('\n');
