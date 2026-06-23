@@ -6678,13 +6678,26 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   ctxLines.push(`Dev card: ${d.title || d.repo}`);
   ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}  Branch: ${d.branch || '(none)'}  Base: ${d.baseBranch || 'main'}`);
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
-  if (pr) ctxLines.push(`PR #${pr.id} "${pr.title}" — status: ${pr.status}${pr.isDraft ? ' (draft)' : ''}, merge: ${pr.mergeStatus || 'n/a'}, ${pr.sourceBranch} → ${pr.targetBranch}`);
-  if (git) ctxLines.push(`Local branch: ${git.ahead || 0} ahead / ${git.behind || 0} behind origin${git.dirty ? ', uncommitted changes present' : ', clean working tree'}`);
+  if (pr) {
+    // Translate the raw AzDO PR status into an unambiguous merged/open phrase.
+    // status: active = OPEN (not merged), completed = MERGED, abandoned = CLOSED.
+    // mergeStatus (succeeded/conflicts/queued) is only about *mergeability* — it
+    // must NOT be read as "the PR was merged", which the summarizer otherwise does.
+    const st = String(pr.status || '').toLowerCase();
+    const lifecycle = st === 'completed' ? 'MERGED into ' + pr.targetBranch
+      : st === 'abandoned' ? 'ABANDONED (closed without merging)'
+      : 'OPEN — NOT yet merged';
+    const mergeability = st === 'completed' ? '' :
+      (pr.mergeStatus ? `, mergeability: ${pr.mergeStatus} (whether it CAN merge cleanly, not whether it has)` : '');
+    ctxLines.push(`PR #${pr.id} "${pr.title}" — ${lifecycle}${pr.isDraft ? ' (draft)' : ''}${mergeability}, ${pr.sourceBranch} → ${pr.targetBranch}`);
+  }
+  if (git) ctxLines.push(`Local branch vs its own origin remote: ${git.ahead || 0} ahead / ${git.behind || 0} behind${git.dirty ? ', uncommitted changes present' : ', clean working tree'} (this is the feature branch's sync state, NOT a signal that it merged into the base branch)`);
   if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 20000)); }
 
   const prompt = [
     'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree — including the actual diff hunks of what changed), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it stands, and what is left to do next.',
     'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
+    'CRITICAL: Only state that the PR is merged/landed if its lifecycle is explicitly MERGED above. A PR that is OPEN has NOT been merged, regardless of mergeability or how clean/in-sync the local branch is — never infer a merge from "clean working tree", "0 ahead/0 behind", or a "succeeded" mergeability. For an open PR, the next step is review/approval and completing the merge, not closing the work item.',
     '',
     ctxLines.join('\n').slice(0, 26000),
     '',
