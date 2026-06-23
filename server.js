@@ -7138,6 +7138,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   const notes = (Array.isArray(b.notes) ? b.notes : []);
   const checklists = (Array.isArray(b.checklists) ? b.checklists : []);
   const pins = (Array.isArray(b.items) ? b.items : []);
+  const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
   // Visibility (stash) + per-panel lock state, so the assistant knows which panels are
   // hidden (still in context, just off the board) and which are locked against changes.
   const hiddenMap = (b.hidden && typeof b.hidden === 'object' && !Array.isArray(b.hidden)) ? b.hidden : {};
@@ -7199,6 +7200,20 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const items = Array.isArray(cl.items) ? cl.items : [];
       const lines = items.map(i => `    - [${i.done ? 'x' : ' '}] (${i.id}) ${clip(i.text, 200)}`);
       return `- (${cl.id})${viewFlags('cl:' + cl.id)} "${clip(cl.title, 120)}"${lines.length ? '\n' + lines.join('\n') : ''}`;
+    }).join('\n'));
+  }
+  // Dev items: work item + PR + git worktree trackers. Each is referenced back by
+  // its (devId) so the assistant can drive it (refresh/sync/summary/worktree/PR/
+  // dev-agent/cleanup) or propose new/updated ones.
+  if (devItems.length) {
+    ctx.push('## DEV ITEMS (work item + PR + git worktree trackers — reference by devId)\n' + devItems.map(d => {
+      const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
+      const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
+      const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
+      const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
+      const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
+      const sum = d.summary && d.summary.text ? '\n    summary: ' + clip(d.summary.text, 400) : '';
+      return `- (${d.id}) "${clip(d.title || d.repo || 'Dev item', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
     }).join('\n'));
   }
   if (available.length) {
@@ -7298,6 +7313,10 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
+    (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV ITEMS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev item: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
+    '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>"}  (adds a NEW Dev item tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo.)',
+    (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV ITEMS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"..."}  (updates a Dev item\'s metadata, e.g. link a work item or PR or rename it. Include ONLY the fields to change.)' : ''),
+    (devItems.length ? '- {"type":"remove_dev_item","devItemId":"<devId from DEV ITEMS>"}  (removes the Dev item from the board and cleans up its worktree — destructive, only on explicit request.)' : ''),
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
     '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "stash the finished checklist", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
     '',
@@ -7324,6 +7343,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / stash / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing and hiding/stashing are visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes", "stash the finished checklist") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
     '- VISIBILITY & LOCKS: items in BOARD CONTEXT may be tagged [hidden] (currently stashed off the board but still part of context) and/or [locked:...] where the locked aspects are vis (visibility/stash), size, and/or pos (position). A hidden item still contributes to the board and you SHOULD feel free to "show" it when relevant. But you MUST NOT change any LOCKED aspect of a panel: never hide/show a [locked:vis] panel, never move/organize/compact a [locked:pos] panel, and never resize/widen a [locked:size] panel. If a presentation request would require changing a locked aspect, skip that panel and say so briefly in "reply".',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
+    '- DEV ITEMS: each item under DEV ITEMS groups an Azure DevOps work item + PR + a local git worktree. Reference one by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item when you have a real org/project/repo (never invent them); remove_dev_item is destructive — only on explicit request.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
     // Multi-step confirmable plans.
@@ -7477,6 +7497,56 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       if (!q) return null;
       const name = pin.label || refId;
       return { type, refId, locationLabel: name, query: q, purpose: clip(a.purpose, 200), depth, label: 'Search location', preview: `Search ${name} for "${q}"` };
+    }
+    if (type === 'dev_action') {
+      // Map a friendly action name to the hyphenated dev-item action endpoint op.
+      const DEV_OPS = {
+        refresh: 'refresh', sync: 'sync',
+        'create-worktree': 'worktree', worktree: 'worktree',
+        summary: 'summary',
+        'create-dev-agent': 'dev-agent', 'dev-agent': 'dev-agent',
+        'create-pr': 'pr', pr: 'pr',
+        'cleanup-worktree': 'remove-worktree', 'remove-worktree': 'remove-worktree'
+      };
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const op = DEV_OPS[String(a.action || '').toLowerCase()];
+      if (!op) return null;
+      const LABELS = {
+        refresh: 'Refresh dev item', sync: 'Sync worktree', worktree: 'Create worktree',
+        summary: 'Update dev summary', 'dev-agent': 'Create dev agent', pr: 'Create PR',
+        'remove-worktree': 'Clean up worktree'
+      };
+      const name = clip(d.title || d.repo || 'Dev item', 100);
+      return { type, devItemId: d.id, op, label: LABELS[op] || 'Dev action', preview: (LABELS[op] || op) + ' — ' + name, destructive: op === 'remove-worktree' };
+    }
+    if (type === 'create_dev_item') {
+      const org = clip(a.org, 200), project = clip(a.project, 200), repo = clip(a.repo, 200);
+      if (!org || !project || !repo) return null; // need a real, complete target
+      const item = {
+        title: clip(a.title, 200) || repo, org, project, repo,
+        baseBranch: clip(a.baseBranch, 200) || '', branch: clip(a.branch, 200) || '',
+        workItemId: a.workItemId != null ? String(a.workItemId).trim() : '',
+        prId: a.prId != null ? String(a.prId).trim() : ''
+      };
+      return { type, devItem: item, label: 'Add dev item', preview: `${item.title} — ${org}/${project}/${repo}` };
+    }
+    if (type === 'update_dev_item') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const patch = {};
+      for (const k of ['title', 'org', 'project', 'repo', 'baseBranch', 'branch']) {
+        if (a[k] !== undefined) patch[k] = clip(a[k], 200);
+      }
+      if (a.workItemId !== undefined) patch.workItemId = a.workItemId != null ? String(a.workItemId).trim() : '';
+      if (a.prId !== undefined) patch.prId = a.prId != null ? String(a.prId).trim() : '';
+      if (!Object.keys(patch).length) return null;
+      return { type, devItemId: d.id, patch, label: 'Update dev item', preview: clip(d.title || d.repo, 80) + ': ' + Object.keys(patch).join(', ') };
+    }
+    if (type === 'remove_dev_item') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      return { type, devItemId: d.id, label: 'Remove dev item', preview: clip(d.title || d.repo || 'Dev item', 100), destructive: true };
     }
     if (type === 'pin_item' || type === 'pin_agent') {
       // pin_agent is kept as a backward-compat alias: it's just pin_item kind:agent.

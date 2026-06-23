@@ -5842,6 +5842,12 @@
                                         </template>
                                         <template x-if="d.worktreePath && d.worktreeStatus !== 'creating'">
                                           <div style="display:flex;flex-direction:column;gap:6px">
+                                            <template x-if="devNeedsCleanup(d)">
+                                              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:6px;padding:6px 8px">
+                                                <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — this worktree can be cleaned up.'"></span>
+                                                <button class="btn" type="button" style="font-size:11px;padding:2px 8px" :class="devGitBadge(d).attention ? 'danger' : 'primary'" :disabled="!!devBusy[d.id]" @click="cleanupDevWorktree(d)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
+                                              </div>
+                                            </template>
                                             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                               <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(d).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(d).text" :title="devGitBadge(d).title"></span>
                                               <button class="btn ghost" type="button" :disabled="devBusy[d.id]" @click="syncDevItem(d)" :title="'Fetch and fast-forward ' + (d.branch||'branch') + ' from origin'" x-text="devBusy[d.id]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
@@ -5863,6 +5869,7 @@
                                               <template x-if="!d.prId">
                                                 <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev item" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
                                               </template>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="cleanupDevWorktree(d)" title="Remove the local git worktree from disk (keeps the dev item, work item and PR links on the board)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
                                             </div>
                                           </div>
                                         </template>
@@ -18018,6 +18025,16 @@
           ].filter(Boolean).join(', ');
           return { text: parts.join(' '), title: title || 'modified', attention: behind > 0 || dirty };
         },
+        // True when the linked work item is in a terminal state (Done/Closed/etc.).
+        devWorkItemDone(d) {
+          const s = ((d && d.workItem && d.workItem.state) || '').toLowerCase();
+          if (!s) return false;
+          return /\b(done|closed|resolved|completed|removed)\b/.test(s);
+        },
+        // The worktree can be retired: a worktree is on disk but the work item is finished.
+        devNeedsCleanup(d) {
+          return !!(d && d.worktreePath && this.devWorkItemDone(d));
+        },
         // Replace one dev item in the active board (from an action endpoint's {dev}).
         _applyDevUpdate(devId, updated) {
           if (!updated) return;
@@ -18290,6 +18307,32 @@
             }
           } catch (e) {
             this.showToast('Dev item', (e && e.message) || 'Create PR failed', 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        // Remove the on-disk git worktree but keep the dev item (and its work
+        // item / PR links) on the board. Useful once the work item is done/closed.
+        async cleanupDevWorktree(d) {
+          if (!d || this.devBusy[d.id]) return;
+          if (!d.worktreePath) { this.showToast('Dev item', 'No worktree to clean up.', 'info'); return; }
+          const warn = (this.devGitBadge(d).attention)
+            ? '\n\n⚠ This worktree has unpushed or uncommitted changes — they will be lost.'
+            : '';
+          const ok = await this.uiConfirm({
+            title: 'Clean up worktree?',
+            message: 'Remove the local git worktree at:\n' + d.worktreePath + '\n\nThe dev item, work item and PR links stay on the board — only the on-disk worktree is removed. You can re-create it later.' + warn,
+            confirmLabel: 'Clean up worktree',
+            danger: true,
+          });
+          if (!ok) return;
+          this.devBusy[d.id] = 'cleanup';
+          try {
+            const r = await this.request(this._devUrl(d, 'remove-worktree'), { method: 'POST', body: '{}' });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.showToast('Dev item', '🧹 Worktree cleaned up.', 'success');
+          } catch (e) {
+            this.showToast('Dev item', (e && e.message) || 'Cleanup failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
@@ -18616,6 +18659,37 @@
               const idx = this.boards.findIndex(b => b.id === board.id);
               if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
               ok = (updated && updated.id) ? updated : false;
+            } else if (a.type === 'dev_action') {
+              const dev = (board.devItems || []).find(d => d.id === a.devItemId);
+              if (!dev) { this.showToast('Board assistant', 'Dev item not found', 'error'); return; }
+              const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/' + a.op, { method: 'POST', body: '{}' });
+              if (a.op === 'worktree') {
+                // create-worktree is async fire-and-forget; reflect the optimistic state.
+                this._applyDevUpdate(a.devItemId, { ...dev, worktreeStatus: 'creating', worktreeError: null });
+              } else if (r && r.dev) {
+                this._applyDevUpdate(a.devItemId, r.dev);
+              }
+              ok = true;
+            } else if (a.type === 'create_dev_item') {
+              const item = {
+                id: 'dev-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                ...a.devItem,
+                worktreePath: '', worktreeStatus: null, worktreeError: null,
+                git: null, workItem: null, pr: null, summary: null,
+                createdAt: now, updatedAt: now
+              };
+              const devItems = [...(board.devItems || []), item];
+              ok = await this._patchBoard(board, { devItems });
+            } else if (a.type === 'update_dev_item') {
+              const devItems = (board.devItems || []).map(d => d.id === a.devItemId ? { ...d, ...a.patch, updatedAt: now } : d);
+              ok = await this._patchBoard(board, { devItems });
+            } else if (a.type === 'remove_dev_item') {
+              const dev = (board.devItems || []).find(d => d.id === a.devItemId);
+              if (dev && dev.worktreePath) {
+                try { await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/remove-worktree', { method: 'POST', body: '{}' }); } catch (e) { }
+              }
+              const devItems = (board.devItems || []).filter(d => d.id !== a.devItemId);
+              ok = await this._patchBoard(board, { devItems });
             } else { return; }
             // Only mark applied when the write is confirmed persisted. This prevents the
             // assistant from claiming "✓ added" for a checklist that never saved.

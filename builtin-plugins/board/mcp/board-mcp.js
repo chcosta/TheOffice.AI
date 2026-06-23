@@ -4,8 +4,10 @@
 // A zero-dependency Model Context Protocol (MCP) stdio server that wraps the
 // TheOffice.AI board HTTP API (/api/boards...). It lets any agent that has this
 // MCP attached read and update boards: list boards, read a board's pinned
-// resources / notes / checklists, add notes & checklists, check items off, and
-// pin a resource to a board.
+// resources / notes / checklists, add notes & checklists, check items off,
+// pin a resource to a board, and fully manage Dev items (work item + PR +
+// git worktree trackers) — create/update/remove them and drive their
+// worktree / refresh / sync / summary / dev-agent / PR / cleanup actions.
 //
 // Transport: newline-delimited JSON-RPC 2.0 over stdin/stdout (the MCP stdio
 // convention). No SDK dependency — the framing is small and stable.
@@ -96,7 +98,48 @@ function detailBoard(b) {
       title: cl.title || '',
       items: (cl.items || []).map(i => ({ id: i.id, text: i.text || '', done: !!i.done, ref: i.ref || null })),
     })),
+    devItems: (b.devItems || []).map(devItemSummary),
   };
+}
+
+// ---- Dev items -----------------------------------------------------------
+// A dev item groups an Azure DevOps work item + PR + a local git worktree.
+
+function devItemSummary(d) {
+  return {
+    id: d.id,
+    title: d.title || '',
+    org: d.org || '', project: d.project || '', repo: d.repo || '',
+    baseBranch: d.baseBranch || '', branch: d.branch || '',
+    workItemId: d.workItemId || '',
+    workItemState: (d.workItem && d.workItem.state) || '',
+    prId: d.prId || '',
+    prStatus: (d.pr && d.pr.status) || '',
+    worktreeStatus: d.worktreePath ? (d.worktreeStatus || 'ready') : 'none',
+    devAgent: d.devAgentName || '',
+  };
+}
+
+function devItemDetail(d) {
+  return {
+    ...devItemSummary(d),
+    worktreePath: d.worktreePath || '',
+    worktreeError: d.worktreeError || null,
+    git: d.git || null,
+    workItem: d.workItem || null,
+    pr: d.pr || null,
+    summary: d.summary || null,
+    devAgentFile: d.devAgentFile || '',
+    createdAt: d.createdAt || null,
+    updatedAt: d.updatedAt || null,
+  };
+}
+
+async function getDevItem(boardId, devId) {
+  const b = await getBoard(boardId);
+  const d = (b.devItems || []).find(x => x.id === devId);
+  if (!d) throw new Error(`dev item "${devId}" not found on board "${boardId}"`);
+  return { board: b, dev: d };
 }
 
 // ---- Tools ---------------------------------------------------------------
@@ -328,6 +371,169 @@ const TOOLS = {
         body: txnId ? { txnId } : {},
       });
       return { ok: true, undone: r.undone };
+    },
+  },
+
+  // ---- Dev item tools ----------------------------------------------------
+
+  list_dev_items: {
+    description: 'List the Dev items on a board. A Dev item groups an Azure DevOps work item + PR + a local git worktree. Returns a compact summary (work item id/state, PR id/status, worktree status, dev agent) for each.',
+    inputSchema: {
+      type: 'object',
+      properties: { boardId: { type: 'string' } },
+      required: ['boardId'],
+      additionalProperties: false,
+    },
+    async run({ boardId }) {
+      const b = await getBoard(boardId);
+      return { devItems: (b.devItems || []).map(devItemSummary) };
+    },
+  },
+
+  get_dev_item: {
+    description: 'Read one Dev item in full: its work item, PR, git ahead/behind state, AI summary, worktree path, dev agent, and timestamps.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string', description: 'The dev item id (from list_dev_items).' },
+      },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId }) {
+      const { dev } = await getDevItem(boardId, devId);
+      return { devItem: devItemDetail(dev) };
+    },
+  },
+
+  create_dev_item: {
+    description: 'Add a new Dev item (Azure DevOps work item + PR + git worktree tracker) to a board. org, project and repo are required; baseBranch/branch/workItemId/prId are optional. Does NOT create the worktree — call dev_item_action with action "create-worktree" afterward.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        title: { type: 'string' },
+        org: { type: 'string', description: 'Azure DevOps organization.' },
+        project: { type: 'string', description: 'Azure DevOps project.' },
+        repo: { type: 'string', description: 'Repository name.' },
+        baseBranch: { type: 'string' },
+        branch: { type: 'string' },
+        workItemId: { type: 'string' },
+        prId: { type: 'string' },
+      },
+      required: ['boardId', 'org', 'project', 'repo'],
+      additionalProperties: false,
+    },
+    async run({ boardId, title, org, project, repo, baseBranch, branch, workItemId, prId }) {
+      if (!org || !project || !repo) throw new Error('org, project and repo are required');
+      const b = await getBoard(boardId);
+      const now = nowIso();
+      const item = {
+        id: rid('dev'),
+        title: String(title || repo), org: String(org), project: String(project), repo: String(repo),
+        baseBranch: String(baseBranch || ''), branch: String(branch || ''),
+        workItemId: workItemId != null ? String(workItemId).trim() : '',
+        prId: prId != null ? String(prId).trim() : '',
+        worktreePath: '', worktreeStatus: null, worktreeError: null,
+        git: null, workItem: null, pr: null, summary: null,
+        createdAt: now, updatedAt: now,
+      };
+      const devItems = [...(b.devItems || []), item];
+      await api('/api/boards/' + encodeURIComponent(boardId), { method: 'PUT', body: { devItems } });
+      return { ok: true, devId: item.id, devItem: devItemSummary(item) };
+    },
+  },
+
+  update_dev_item: {
+    description: "Update a Dev item's metadata (title, work item link, PR link, base/feature branch). Only the provided fields are changed.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        title: { type: 'string' },
+        org: { type: 'string' },
+        project: { type: 'string' },
+        repo: { type: 'string' },
+        baseBranch: { type: 'string' },
+        branch: { type: 'string' },
+        workItemId: { type: 'string' },
+        prId: { type: 'string' },
+      },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run(args) {
+      const { boardId, devId } = args;
+      const b = await getBoard(boardId);
+      if (!(b.devItems || []).some(d => d.id === devId)) throw new Error(`dev item "${devId}" not found`);
+      const patch = {};
+      for (const k of ['title', 'org', 'project', 'repo', 'baseBranch', 'branch']) {
+        if (args[k] !== undefined) patch[k] = String(args[k]);
+      }
+      if (args.workItemId !== undefined) patch.workItemId = args.workItemId != null ? String(args.workItemId).trim() : '';
+      if (args.prId !== undefined) patch.prId = args.prId != null ? String(args.prId).trim() : '';
+      if (!Object.keys(patch).length) throw new Error('no updatable fields provided');
+      const devItems = (b.devItems || []).map(d => d.id === devId ? { ...d, ...patch, updatedAt: nowIso() } : d);
+      await api('/api/boards/' + encodeURIComponent(boardId), { method: 'PUT', body: { devItems } });
+      return { ok: true, devId };
+    },
+  },
+
+  remove_dev_item: {
+    description: 'Remove a Dev item from a board. Best-effort cleans up its on-disk worktree first, then deletes the tracker. Destructive.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+      },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId }) {
+      const { dev } = await getDevItem(boardId, devId);
+      if (dev.worktreePath) {
+        try { await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(devId) + '/remove-worktree', { method: 'POST', body: {} }); } catch { /* best effort */ }
+      }
+      const b = await getBoard(boardId);
+      const devItems = (b.devItems || []).filter(d => d.id !== devId);
+      await api('/api/boards/' + encodeURIComponent(boardId), { method: 'PUT', body: { devItems } });
+      return { ok: true, removed: devId };
+    },
+  },
+
+  dev_item_action: {
+    description: 'Operate on an existing Dev item. Actions: "refresh" (re-read live work item/PR/git state), "sync" (pull worktree up to date with origin), "create-worktree" (clone + checkout the branch — async, then poll get_dev_item), "summary" (regenerate the AI state summary), "create-dev-agent" (write a focused agent file into the worktree), "create-pr" (push the branch and open an AI-authored PR), "cleanup-worktree" (remove the on-disk worktree but keep the tracker). summary/create-pr/create-dev-agent use AI and take longer.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        action: {
+          type: 'string',
+          enum: ['refresh', 'sync', 'create-worktree', 'summary', 'create-dev-agent', 'create-pr', 'cleanup-worktree'],
+        },
+      },
+      required: ['boardId', 'devId', 'action'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId, action }) {
+      const OPS = {
+        refresh: 'refresh', sync: 'sync', 'create-worktree': 'worktree',
+        summary: 'summary', 'create-dev-agent': 'dev-agent', 'create-pr': 'pr',
+        'cleanup-worktree': 'remove-worktree',
+      };
+      const op = OPS[String(action || '')];
+      if (!op) throw new Error(`unknown action "${action}"`);
+      // Validate the dev item exists up front for a clear error.
+      await getDevItem(boardId, devId);
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(devId) + '/' + op, { method: 'POST', body: {} });
+      if (op === 'worktree') {
+        return { ok: true, status: r.status || 'creating', note: 'Worktree creation is async — poll get_dev_item for worktreeStatus.' };
+      }
+      return { ok: true, devItem: r.dev ? devItemSummary(r.dev) : null, result: r.message || r.status || null };
     },
   },
 };
