@@ -408,7 +408,7 @@ const TOOLS = {
   },
 
   create_dev_item: {
-    description: 'Add a new Dev item (Azure DevOps work item + PR + git worktree tracker) to a board. org, project and repo are required; baseBranch/branch/workItemId/prId are optional. Does NOT create the worktree — call dev_item_action with action "create-worktree" afterward.',
+    description: 'Add a new Dev item (Azure DevOps work item + PR + git worktree tracker) to a board. org, project and repo are required; baseBranch/branch/workItemId/prId are optional. Set createWorktree:true to also kick off the worktree right away (async); otherwise call dev_item_action with action "create-worktree" afterward.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -421,11 +421,12 @@ const TOOLS = {
         branch: { type: 'string' },
         workItemId: { type: 'string' },
         prId: { type: 'string' },
+        createWorktree: { type: 'boolean', description: 'When true, also start creating the git worktree immediately after the item is saved.' },
       },
       required: ['boardId', 'org', 'project', 'repo'],
       additionalProperties: false,
     },
-    async run({ boardId, title, org, project, repo, baseBranch, branch, workItemId, prId }) {
+    async run({ boardId, title, org, project, repo, baseBranch, branch, workItemId, prId, createWorktree }) {
       if (!org || !project || !repo) throw new Error('org, project and repo are required');
       const b = await getBoard(boardId);
       const now = nowIso();
@@ -441,7 +442,16 @@ const TOOLS = {
       };
       const devItems = [...(b.devItems || []), item];
       await api('/api/boards/' + encodeURIComponent(boardId), { method: 'PUT', body: { devItems } });
-      return { ok: true, devId: item.id, devItem: devItemSummary(item) };
+      let worktree = 'not started';
+      if (createWorktree) {
+        try {
+          await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(item.id) + '/worktree', { method: 'POST', body: {} });
+          worktree = 'creating (async — poll get_dev_item for status)';
+        } catch (e) {
+          worktree = 'failed to start: ' + (e && e.message || e);
+        }
+      }
+      return { ok: true, devId: item.id, devItem: devItemSummary(item), worktree };
     },
   },
 

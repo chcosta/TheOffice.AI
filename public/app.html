@@ -5223,6 +5223,7 @@
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()" title="Add a checklist as its own panel">✅ Checklist</button>
+                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev item — groups an Azure DevOps work item, PR and a git worktree with AI state tracking">🧰 Dev item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — helps organize notes & checklists from this board's activity">💬 Board AI</button>
                         <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
                         <!-- Secondary board actions tucked behind an overflow menu so the
@@ -5230,8 +5231,6 @@
                         <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
                           <button class="btn ghost" type="button" @click="open = !open" :class="{ active: open }" title="More board actions" aria-haspopup="true" :aria-expanded="open">⋯ More</button>
                           <div class="org-menu" x-show="open" x-transition.opacity.duration.120ms x-cloak style="min-width:180px" @click="open = false">
-                            <button class="org-menu-item" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev item — groups an Azure DevOps work item, PR and a git worktree with AI state tracking"><span>🧰</span><span class="org-menu-label">Add Dev item</span></button>
-                            <div class="org-menu-sep"></div>
                             <button class="org-menu-item" type="button" @click="openBoardModal(activeBoard())"><span>✏</span><span class="org-menu-label">Edit</span></button>
                             <button class="org-menu-item" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)"><span>🗄</span><span class="org-menu-label">Archive</span></button>
                             <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
@@ -18680,6 +18679,16 @@
               };
               const devItems = [...(board.devItems || []), item];
               ok = await this._patchBoard(board, { devItems });
+              // If the user asked to also create the worktree, kick it off now that the
+              // item is persisted with a real id. create-worktree is async fire-and-forget.
+              if (ok && a.createWorktree) {
+                try {
+                  await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(item.id) + '/worktree', { method: 'POST', body: '{}' });
+                  this._applyDevUpdate(item.id, { ...item, worktreeStatus: 'creating', worktreeError: null });
+                } catch (e) {
+                  this.showToast('Board assistant', 'Dev item created, but worktree could not start: ' + (e && e.message || e), 'warning');
+                }
+              }
             } else if (a.type === 'update_dev_item') {
               const devItems = (board.devItems || []).map(d => d.id === a.devItemId ? { ...d, ...a.patch, updatedAt: now } : d);
               ok = await this._patchBoard(board, { devItems });
