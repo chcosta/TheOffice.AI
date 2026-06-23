@@ -2546,9 +2546,13 @@
        keeps the docked .board-bottombar flush at the bottom of the screen in normal
        mode too (otherwise a tall detail column scrolls UNDER the sticky bar). */
     .board-canvas-scroll.board-tabbed { display: flex; flex-direction: row; align-items: stretch; gap: 14px; overflow: hidden; min-height: 0; }
-    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow-y: auto; padding-right: 4px; }
+    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow: hidden; }
     .board-canvas-scroll.board-tabbed .board-tab-rail { max-height: 100%; }
-    .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; }
+    /* The briefing is NOT the scroller — it auto-expands to fit its content (flex:0 0 auto,
+       no max-height/overflow), and the board panel below it is the single scroll region.
+       This keeps "the full board" scrollable without having to scroll THROUGH the briefing. */
+    .board-canvas-scroll.board-tabbed .board-tab-brief { flex: 0 0 auto; }
+    .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
     .board-tab-rail {
       flex: 0 0 auto; width: 230px; max-height: 72vh;
       /* Vertical scroll only — overflow-x is hidden so the rail can never grow a
@@ -2728,6 +2732,46 @@
     .bb-layouts-del:hover { background: var(--cp-danger); color: #fff; }
     .bb-layouts-sep { height: 1px; background: var(--cp-border); margin: 5px 4px; }
     .bb-layouts-empty { padding: 8px 10px; color: var(--cp-text-muted); font-size: 12px; }
+    /* ----- Briefing guidance prompt switcher (opens DOWN; anchored next to ↻ Update) ----- */
+    .board-prompt-wrap { position: relative; display: inline-flex; }
+    .board-prompt-btn {
+      display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+      background: transparent; border: 1px solid var(--cp-border); border-radius: 7px;
+      cursor: pointer; color: var(--cp-text); font: inherit; font-size: 12px;
+      max-width: 180px; white-space: nowrap;
+    }
+    .board-prompt-btn:hover { background: var(--cp-accent-soft); color: var(--cp-accent); border-color: var(--cp-accent); }
+    .board-prompt-btn .bp-name { overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+    .board-prompt-pop {
+      position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+      min-width: 260px; max-width: 340px; max-height: 360px; overflow-y: auto;
+      background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 10px; box-shadow: var(--cp-shadow); padding: 6px;
+      text-align: left; font-weight: 400; cursor: default;
+    }
+    .board-prompt-row { display: flex; align-items: center; gap: 4px; }
+    .board-prompt-item {
+      display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0;
+      text-align: left; padding: 7px 10px; background: transparent; border: 0;
+      border-radius: 7px; cursor: pointer; color: var(--cp-text); font: inherit;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .board-prompt-item:hover { background: var(--cp-accent-soft); color: var(--cp-accent); }
+    .board-prompt-item.active { color: var(--cp-accent); font-weight: 600; }
+    .board-prompt-iconbtn {
+      flex: 0 0 auto; background: transparent; border: 0; border-radius: 6px;
+      cursor: pointer; color: var(--cp-text-muted); padding: 4px 7px; font-size: 12px;
+    }
+    .board-prompt-iconbtn:hover { background: var(--cp-accent-soft); color: var(--cp-accent); }
+    .board-prompt-iconbtn.del:hover { background: var(--cp-danger); color: #fff; }
+    .board-prompt-sep { height: 1px; background: var(--cp-border); margin: 5px 4px; }
+    .board-prompt-edit { padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+    .board-prompt-edit input, .board-prompt-edit textarea {
+      width: 100%; box-sizing: border-box; background: var(--cp-bg); color: var(--cp-text);
+      border: 1px solid var(--cp-border); border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 12px;
+    }
+    .board-prompt-edit textarea { resize: vertical; min-height: 64px; }
+    .board-prompt-edit-actions { display: flex; gap: 6px; justify-content: flex-end; }
     /* ----- Fullscreen board "focus" mode ----- */
     /* The active board is lifted out of the normal flow and made to fill the whole
        window, hiding the sidebar / topbar / other page chrome behind it. It's a flex
@@ -2743,15 +2787,9 @@
     }
     .board-focus > .card:first-child { flex: 0 0 auto; margin-bottom: 12px; }
     .board-focus .board-canvas-scroll { height: auto !important; flex: 1 1 auto; min-height: 0; }
-    /* Tabbed view in focus mode: the canvas is a flex row that must NOT grow the page.
-       The base .board-tabbed rule sets overflow:visible (fine in the normal page-scroll
-       view), but in the fixed focus container that makes the detail content spill BELOW
-       the bottombar where it's clipped and unreachable. Pin the row to the available
-       height and scroll the detail column internally so the tab rail stays put and the
-       bottombar stays docked. */
-    .board-focus .board-canvas-scroll.board-tabbed { overflow: hidden; min-height: 0; }
-    .board-focus .board-canvas-scroll.board-tabbed .board-tab-col { overflow-y: auto; min-height: 0; padding-right: 4px; }
-    .board-focus .board-canvas-scroll.board-tabbed .board-tab-rail { max-height: 100%; }
+    /* Tabbed view in focus mode reuses the base .board-tabbed model (canvas clips, the
+       board-grid scrolls internally, the briefing auto-expands). Focus only needs to let
+       the flex column own the height instead of the inline boardCanvasH. */
     .board-focus .board-bottombar { flex: 0 0 auto; margin-top: 0; }
     /* When Board AI is docked, reflow the focused board to the LEFT of the panel so the
        docked drawer sits beside it instead of covering the right edge (mirrors the
@@ -5442,7 +5480,36 @@
                         <div class="board-tab-brief-head" @click="toggleBoardBrief()">
                           <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
                           <span>🧭 Briefing</span>
-                          <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="margin-left:auto;padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                          <div style="margin-left:auto;display:flex;align-items:center;gap:6px" @click.stop>
+                            <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
+                              <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
+                              <div class="board-prompt-pop" x-show="boardPromptPop" x-cloak @click.stop>
+                                <div class="board-prompt-row">
+                                  <button class="board-prompt-item" :class="{active: !activeBriefingPromptId()}" type="button" @click="setActiveBriefingPrompt(null)"><span style="width:12px" x-text="!activeBriefingPromptId() ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis">Default (no guidance)</span></button>
+                                </div>
+                                <template x-for="bp in briefingPrompts()" :key="bp.id">
+                                  <div class="board-prompt-row">
+                                    <button class="board-prompt-item" :class="{active: activeBriefingPromptId()===bp.id}" type="button" @click="setActiveBriefingPrompt(bp.id)" :title="bp.text"><span style="width:12px" x-text="activeBriefingPromptId()===bp.id ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis" x-text="bp.name"></span></button>
+                                    <button class="board-prompt-iconbtn" type="button" @click.stop="openBriefingPromptEditor(bp.id)" title="Edit">✎</button>
+                                    <button class="board-prompt-iconbtn del" type="button" @click.stop="deleteBriefingPrompt(bp.id)" title="Delete">🗑</button>
+                                  </div>
+                                </template>
+                                <div class="board-prompt-sep"></div>
+                                <template x-if="_briefEdit.open">
+                                  <div class="board-prompt-edit">
+                                    <input type="text" x-model="_briefEdit.name" placeholder="Prompt name (e.g. Risks only)" />
+                                    <textarea x-model="_briefEdit.text" placeholder="Guidance for the LLM, e.g. 'Focus on blockers and failing runs; keep it to 3 sentences.'"></textarea>
+                                    <div class="board-prompt-edit-actions">
+                                      <button class="btn ghost" type="button" @click.stop="cancelBriefingPromptEditor()">Cancel</button>
+                                      <button class="btn" type="button" @click.stop="saveBriefingPrompt()">Save</button>
+                                    </div>
+                                  </div>
+                                </template>
+                                <button class="board-prompt-item" type="button" x-show="!_briefEdit.open" @click.stop="openBriefingPromptEditor(null)" style="color:var(--cp-accent)">＋ New prompt</button>
+                              </div>
+                            </div>
+                            <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                          </div>
                         </div>
                         <div class="board-tab-brief-body" x-show="boardBriefOpen()">
                           <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
@@ -5526,7 +5593,36 @@
                                   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex:0 0 auto">
                                     <div class="hint" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
                                     <div class="hint" x-show="!(activeBoard().summary)">Not generated yet</div>
-                                    <button class="btn ghost" type="button" @click="refreshBoardSummary(true)" :disabled="boardSummaryLoading" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                                    <div style="display:flex;align-items:center;gap:6px" @click.stop>
+                                      <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
+                                        <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
+                                        <div class="board-prompt-pop" x-show="boardPromptPop" x-cloak @click.stop>
+                                          <div class="board-prompt-row">
+                                            <button class="board-prompt-item" :class="{active: !activeBriefingPromptId()}" type="button" @click="setActiveBriefingPrompt(null)"><span style="width:12px" x-text="!activeBriefingPromptId() ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis">Default (no guidance)</span></button>
+                                          </div>
+                                          <template x-for="bp in briefingPrompts()" :key="bp.id">
+                                            <div class="board-prompt-row">
+                                              <button class="board-prompt-item" :class="{active: activeBriefingPromptId()===bp.id}" type="button" @click="setActiveBriefingPrompt(bp.id)" :title="bp.text"><span style="width:12px" x-text="activeBriefingPromptId()===bp.id ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis" x-text="bp.name"></span></button>
+                                              <button class="board-prompt-iconbtn" type="button" @click.stop="openBriefingPromptEditor(bp.id)" title="Edit">✎</button>
+                                              <button class="board-prompt-iconbtn del" type="button" @click.stop="deleteBriefingPrompt(bp.id)" title="Delete">🗑</button>
+                                            </div>
+                                          </template>
+                                          <div class="board-prompt-sep"></div>
+                                          <template x-if="_briefEdit.open">
+                                            <div class="board-prompt-edit">
+                                              <input type="text" x-model="_briefEdit.name" placeholder="Prompt name (e.g. Risks only)" />
+                                              <textarea x-model="_briefEdit.text" placeholder="Guidance for the LLM, e.g. 'Focus on blockers and failing runs; keep it to 3 sentences.'"></textarea>
+                                              <div class="board-prompt-edit-actions">
+                                                <button class="btn ghost" type="button" @click.stop="cancelBriefingPromptEditor()">Cancel</button>
+                                                <button class="btn" type="button" @click.stop="saveBriefingPrompt()">Save</button>
+                                              </div>
+                                            </div>
+                                          </template>
+                                          <button class="board-prompt-item" type="button" x-show="!_briefEdit.open" @click.stop="openBriefingPromptEditor(null)" style="color:var(--cp-accent)">＋ New prompt</button>
+                                        </div>
+                                      </div>
+                                      <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                                    </div>
                                   </div>
                                   <div x-show="boardSummaryLoading && !(activeBoard().summary)" class="hint">Reviewing recent activity across your pinned items…</div>
                                   <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
@@ -10431,6 +10527,8 @@
         boardManageMode: false,
         boardChecklistDraft: '',
         boardSummaryLoading: false,
+        boardPromptPop: false,
+        _briefEdit: { open: false, id: null, name: '', text: '' },
         boardCompliance: {},
         boardComplianceLoading: false,
         boardMigrating: '',
@@ -15513,6 +15611,65 @@
           // the canvas top, so re-measure the fixed canvas height to keep the bar docked.
           if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
         },
+        // ----- Briefing guidance prompts -----
+        // Per-board saved prompts that steer the "Where was I?" briefing. The active one's
+        // text is sent as `guidance` to the where-was-i endpoint. null active => default.
+        briefingPrompts() { const b = this.activeBoard(); return (b && Array.isArray(b.briefingPrompts)) ? b.briefingPrompts : []; },
+        activeBriefingPromptId() { const b = this.activeBoard(); return (b && b.activeBriefingPromptId != null) ? b.activeBriefingPromptId : null; },
+        activeBriefingPrompt() { const id = this.activeBriefingPromptId(); return id ? this.briefingPrompts().find(p => p.id === id) || null : null; },
+        activeBriefingPromptText() { const p = this.activeBriefingPrompt(); return (p && p.text) ? String(p.text).trim() : ''; },
+        activeBriefingPromptName() { const p = this.activeBriefingPrompt(); return p ? p.name : 'Default'; },
+        async setActiveBriefingPrompt(id) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const next = (id != null ? String(id) : null);
+          if (this.activeBriefingPromptId() === next) { this.boardPromptPop = false; return; }
+          const idx = this.boards.findIndex(b => b.id === board.id);
+          if (idx >= 0) this.boards[idx] = { ...this.boards[idx], activeBriefingPromptId: next };
+          this.boardPromptPop = false;
+          await this._patchBoard(board, { activeBriefingPromptId: next });
+        },
+        openBriefingPromptEditor(id) {
+          const p = id ? this.briefingPrompts().find(x => x.id === id) : null;
+          this._briefEdit = p
+            ? { open: true, id: p.id, name: p.name || '', text: p.text || '' }
+            : { open: true, id: null, name: '', text: '' };
+        },
+        cancelBriefingPromptEditor() { this._briefEdit = { open: false, id: null, name: '', text: '' }; },
+        async saveBriefingPrompt() {
+          const board = this.activeBoard();
+          if (!board) return;
+          const e = this._briefEdit;
+          const name = String(e.name || '').trim();
+          const text = String(e.text || '').trim();
+          if (!name || !text) { this.showToast('Briefing prompt', 'Name and prompt text are required.', 'error'); return; }
+          const list = this.briefingPrompts().map(p => ({ ...p }));
+          let activeId = this.activeBriefingPromptId();
+          if (e.id) {
+            const i = list.findIndex(p => p.id === e.id);
+            if (i >= 0) list[i] = { ...list[i], name, text };
+          } else {
+            const id = 'bp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            list.push({ id, name, text });
+            activeId = id; // newly created prompt becomes active
+          }
+          const idx = this.boards.findIndex(b => b.id === board.id);
+          if (idx >= 0) this.boards[idx] = { ...this.boards[idx], briefingPrompts: list, activeBriefingPromptId: activeId };
+          this._briefEdit = { open: false, id: null, name: '', text: '' };
+          this.boardPromptPop = false;
+          await this._patchBoard(board, { briefingPrompts: list, activeBriefingPromptId: activeId });
+        },
+        async deleteBriefingPrompt(id) {
+          const board = this.activeBoard();
+          if (!board || !id) return;
+          if (!(await this.uiConfirm('Delete briefing prompt', 'Delete this briefing prompt?'))) return;
+          const list = this.briefingPrompts().filter(p => p.id !== id);
+          let activeId = this.activeBriefingPromptId();
+          if (activeId === id) activeId = null;
+          const idx = this.boards.findIndex(b => b.id === board.id);
+          if (idx >= 0) this.boards[idx] = { ...this.boards[idx], briefingPrompts: list, activeBriefingPromptId: activeId };
+          await this._patchBoard(board, { briefingPrompts: list, activeBriefingPromptId: activeId });
+        },
         // Returns the briefing delta a panel contributed (for the tab "contributed"
         // highlight), or null. Matches on kind + label/refId against summary.deltas[].
         _tabContributed(p) {
@@ -18418,7 +18575,7 @@
           if (!board || this.boardSummaryLoading) return;
           this.boardSummaryLoading = true;
           try {
-            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/where-was-i', { method: 'POST', body: JSON.stringify({ force }) });
+            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/where-was-i', { method: 'POST', body: JSON.stringify({ force, guidance: this.activeBriefingPromptText() }) });
             const summary = { text: r.summary, generatedAt: r.generatedAt, items: r.items || [], deltas: r.deltas || [] };
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0) this.boards[idx] = { ...this.boards[idx], summary };

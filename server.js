@@ -5300,6 +5300,11 @@ function _normalizeBoard(b) {
     // Named saved layouts the user can restore: [{ id, name, layout:{}, canvas:{}, createdAt }].
     // Each captures a full visual snapshot (panel grid positions/sizes + zoom/font/canvas).
     savedLayouts: Array.isArray(b.savedLayouts) ? b.savedLayouts : [],
+    // User-defined briefing guidance prompts: [{ id, name, text }]. The active one (by
+    // activeBriefingPromptId) is injected into the "Where was I?" LLM prompt to steer what
+    // the briefing focuses on / includes. null active id => default (no extra guidance).
+    briefingPrompts: Array.isArray(b.briefingPrompts) ? b.briefingPrompts.filter(p => p && p.id).map(p => ({ id: String(p.id), name: String(p.name || 'Prompt'), text: String(p.text || '') })) : [],
+    activeBriefingPromptId: (b.activeBriefingPromptId != null ? String(b.activeBriefingPromptId) : null),
     lastViewedAt: b.lastViewedAt || null,
     // Last headless (AI / MCP) layout transaction, for causality-bounded undo:
     // { id, actor, at, prev:{layout,hidden}, sig } where sig is the layout
@@ -5580,7 +5585,7 @@ app.put('/api/boards/:id', (req, res) => {
   const idx = boards.findIndex(b => b.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(boards[idx]);
-  const { name, emoji, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId } = req.body || {};
+  const { name, emoji, teamId, orgId, items, notes, checklists, devItems, layout, archived, enabled, autoWidth, pinView, autoArrange, savedLayouts, starred, hidden, locks, clientId, briefingPrompts, activeBriefingPromptId } = req.body || {};
   // Writer-lease guard: only the current lease holder may persist LAYOUT. A stale /
   // background client whose clientId != holder is rejected (409) so it cannot clobber
   // the focused client's layout. Non-layout updates (notes/checklists/items/star/...)
@@ -5609,6 +5614,8 @@ app.put('/api/boards/:id', (req, res) => {
   if (pinView !== undefined) b.pinView = !!pinView;
   if (autoArrange !== undefined) b.autoArrange = !!autoArrange;
   if (Array.isArray(savedLayouts)) b.savedLayouts = savedLayouts;
+  if (Array.isArray(briefingPrompts)) b.briefingPrompts = briefingPrompts.filter(p => p && p.id).map(p => ({ id: String(p.id), name: String(p.name || 'Prompt'), text: String(p.text || '') }));
+  if (activeBriefingPromptId !== undefined) b.activeBriefingPromptId = (activeBriefingPromptId != null ? String(activeBriefingPromptId) : null);
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);
@@ -6512,9 +6519,22 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     return res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false });
   }
 
+  // User-supplied briefing guidance: an explicit per-request `guidance` (from the active
+  // briefing prompt) takes precedence; otherwise fall back to the board's active prompt.
+  let guidance = (req.body && typeof req.body.guidance === 'string') ? req.body.guidance.trim() : '';
+  if (!guidance && b.activeBriefingPromptId) {
+    const ap = (b.briefingPrompts || []).find(p => p.id === b.activeBriefingPromptId);
+    if (ap && ap.text) guidance = String(ap.text).trim();
+  }
+
   const prompt = [
     `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections, and any DEV CARDS (active development work — an Azure DevOps work item + pull request + git worktree, with a status summary). Checklist lines marked "[x]" are done and "[ ]" are still open.`,
     'Each pinned-item section is headed "### KIND: Name [source link: <route>]". The route after "source link:" is the primary source for everything in that section.',
+    ...(guidance ? [
+      '',
+      `IMPORTANT — the user has provided specific guidance for THIS briefing. Follow it closely, shaping what you focus on, include, and emphasize (while still grounding everything in the context below): ${guidance}`,
+      ''
+    ] : []),
     'Write a "Where was I?" briefing that reorients the user:',
     '- If a "SINCE LAST VIEWED" section is present, begin with one sentence highlighting what changed since the user last looked (call out any items marked ⚠ as needing attention).',
     '- 3 to 6 sentences of plain prose summarizing what is going on across these items, the current state, and what the notes/checklists indicate.',
