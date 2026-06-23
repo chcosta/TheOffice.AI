@@ -18558,7 +18558,14 @@
           }
         },
         async refreshDevSummary(d) {
-          if (!d || this.devBusy[d.id]) return;
+          console.log('[devSummary] refresh clicked', { id: d && d.id, busy: d && this.devBusy[d.id] });
+          if (!d) { console.warn('[devSummary] no dev card object — click ignored'); return; }
+          if (this.devBusy[d.id]) {
+            // A prior call left the busy flag stuck (e.g. an aborted request) — clear it so
+            // the button can never get permanently wedged, then proceed.
+            console.warn('[devSummary] busy flag was set (' + this.devBusy[d.id] + ') — clearing and retrying');
+            delete this.devBusy[d.id];
+          }
           this.devBusy[d.id] = 'summary';
           this.showToast('Dev card', '🧠 Generating state summary — AI is reviewing the work item, PR and code diff…', 'info');
           try {
