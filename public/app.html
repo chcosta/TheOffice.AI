@@ -18545,6 +18545,11 @@
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
               this.showToast('Dev card', '🔀 Pull request created and linked to this dev card.', 'success');
+              if (r.stateWarning) {
+                this.showToast('Dev card', r.stateWarning, 'warning');
+              } else if (r.dev.workItem && r.dev.workItem.state === 'In PR') {
+                this.showToast('Dev card', '📋 Work item moved to "In PR".', 'info');
+              }
             } else {
               this.showToast('Dev card', 'PR creation returned no result — try again.', 'error');
             }

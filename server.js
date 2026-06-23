@@ -6880,8 +6880,22 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   // 5) Persist on the dev card.
   let prFull = null;
   try { prFull = await azdo.getPullRequest(d.org, d.project, d.repo, pr.pullRequestId); } catch {}
+
+  // 6) Best-effort: move the linked work item into the "In PR" state. A failed
+  //    transition (invalid state for the work-item type, permissions, etc.) must
+  //    never fail the PR creation that already succeeded.
+  let stateWarning = null;
+  if (wi && d.workItemId) {
+    try {
+      const moved = await azdo.updateWorkItemState(d.org, d.project, d.workItemId, 'In PR');
+      wi = moved;
+    } catch (e) {
+      stateWarning = 'PR created, but the work item could not be moved to "In PR": ' + ((e && e.message) || e);
+    }
+  }
+
   const updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem });
-  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId });
+  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, stateWarning });
 });
 
 // ============================================================================

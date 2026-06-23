@@ -503,6 +503,27 @@ async function getWorkItem(org, project, id) {
   };
 }
 
+// Move a work item to a new state (e.g. "In PR"). Uses a JSON-Patch PATCH.
+// Returns the updated compact work-item shape. Best-effort caller should catch.
+async function updateWorkItemState(org, project, id, state) {
+  const patch = [{ op: 'add', path: '/fields/System.State', value: String(state) }];
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/wit/workitems/${seg(id)}?api-version=${API_VERSION}`,
+    { method: 'PATCH', body: patch, contentType: 'application/json-patch+json' }
+  );
+  const f = d.fields || {};
+  const assigned = f['System.AssignedTo'];
+  return {
+    id: d.id,
+    title: f['System.Title'] || '',
+    state: f['System.State'] || '',
+    type: f['System.WorkItemType'] || '',
+    assignedTo: assigned ? (assigned.displayName || assigned.uniqueName || '') : '',
+    url: workItemUrl(org, project, id)
+  };
+}
+
 // Fetch a pull request's status. Returns a compact, UI-friendly shape.
 async function getPullRequest(org, project, repo, prId) {
   const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}?api-version=${API_VERSION}`);
@@ -546,5 +567,6 @@ module.exports = {
   workItemUrl,
   pullRequestUrl,
   getWorkItem,
+  updateWorkItemState,
   getPullRequest
 };
