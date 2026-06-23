@@ -5247,6 +5247,27 @@ function _boardId(name) {
 function _genId(prefix) {
   return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+// Server-owned runtime fields on a dev item. These are set ONLY by the dedicated
+// /dev-items/* action endpoints (worktree/refresh/sync/summary/dev-agent/pr/
+// remove-worktree, via ctx.save). The generic board PUT carries the client's whole
+// devItems array, which may be STALE (a tab that missed the async worktree update,
+// or a second client) — so a wholesale replace would clobber a ready worktreePath
+// back to empty on the next unrelated edit. _mergeDevItems keeps the server
+// authoritative for these fields: existing items preserve them regardless of what
+// the client echoes; only client-editable metadata (title/org/project/repo/
+// baseBranch/branch/workItemId/prId) is taken from the incoming array. New items
+// (no matching id) keep their defaults; deleted items (dropped from the array) go away.
+const DEV_RUNTIME_FIELDS = ['worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'workItem', 'pr', 'summary', 'devAgentName', 'devAgentFile'];
+function _mergeDevItems(existing, incoming) {
+  const prev = new Map((Array.isArray(existing) ? existing : []).map(d => [d.id, d]));
+  return (Array.isArray(incoming) ? incoming : []).map(item => {
+    const old = item && item.id ? prev.get(item.id) : null;
+    if (!old) return item;
+    const merged = { ...item };
+    for (const f of DEV_RUNTIME_FIELDS) merged[f] = old[f];
+    return merged;
+  });
+}
 function _normalizeBoard(b) {
   return {
     id: b.id,
@@ -5577,7 +5598,7 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(items)) b.items = items;
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
-  if (Array.isArray(devItems)) b.devItems = devItems;
+  if (Array.isArray(devItems)) b.devItems = _mergeDevItems(b.devItems, devItems);
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   if (hidden && typeof hidden === 'object' && !Array.isArray(hidden)) b.hidden = hidden;
   if (locks && typeof locks === 'object' && !Array.isArray(locks)) b.locks = locks;

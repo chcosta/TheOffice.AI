@@ -16068,7 +16068,7 @@
               changed = true;
               continue;
             }
-            const h = p.type === 'pin' ? 4 : (p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : 7));
+            const h = p.type === 'pin' ? 4 : (p.type === 'note' ? 5 : (p.type === 'checklist' ? 6 : (p.type === 'dev' ? 10 : 7)));
             if (yL <= yR) { layout[p.id] = { x: 0, y: yL, w: half, h }; yL += h; }
             else { layout[p.id] = { x: half, y: yR, w: half, h }; yR += h; }
             changed = true;
@@ -16084,6 +16084,7 @@
           const bb = this.activeBoard();
           for (const n of ((bb && bb.notes) || [])) { ids.add('note:' + n.id); ids.add('pv:note:' + n.id); }
           for (const cl of ((bb && bb.checklists) || [])) { ids.add('cl:' + cl.id); ids.add('pv:cl:' + cl.id); }
+          for (const d of ((bb && bb.devItems) || [])) { ids.add('dev:' + d.id); ids.add('pv:dev:' + d.id); }
           for (const k of Object.keys(layout)) { if (!ids.has(k)) { delete layout[k]; changed = true; } }
           // Heal a SAVED layout that loads with overlapping panels (stale geometry from an
           // older build, a card saved taller than its neighbours expected, etc.). This runs
