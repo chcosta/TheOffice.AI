@@ -2549,13 +2549,15 @@
        keeps the docked .board-bottombar flush at the bottom of the screen in normal
        mode too (otherwise a tall detail column scrolls UNDER the sticky bar). */
     .board-canvas-scroll.board-tabbed { display: flex; flex-direction: row; align-items: stretch; gap: 14px; overflow: hidden; min-height: 0; }
-    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow: hidden; }
+    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
     .board-canvas-scroll.board-tabbed .board-tab-rail { max-height: 100%; }
-    /* The briefing is NOT the scroller — it auto-expands to fit its content (flex:0 0 auto,
-       no max-height/overflow), and the board panel below it is the single scroll region.
-       This keeps "the full board" scrollable without having to scroll THROUGH the briefing. */
+    /* The whole tab column is the single scroller: the briefing and the active tab panel
+       stack and scroll together as one page. The briefing auto-expands (flex:0 0 auto, no
+       inner scrollbar) and the grid takes its natural height (flex:0 0 auto, overflow
+       visible) so neither grows its own scrollbar — you scroll the column, not through a
+       nested region. Collapsing the briefing simply removes its body from the flow. */
     .board-canvas-scroll.board-tabbed .board-tab-brief { flex: 0 0 auto; }
-    .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
+    .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; flex: 0 0 auto; min-height: 0; overflow: visible; }
     .board-tab-rail {
       flex: 0 0 auto; width: 230px; max-height: 72vh;
       /* Vertical scroll only — overflow-x is hidden so the rail can never grow a
@@ -2659,6 +2661,9 @@
     .board-tab-brief-body { margin-top: 8px; font-size: 13px; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
     .board-canvas-scroll.board-tabbed .board-panel-body { overflow: visible; }
+    /* Out-specify the pin-view rule (.board-panel...> .board-panel-body{overflow:auto}) so the
+       active tab panel never grows its own inner scrollbar — the tab column is the only scroller. */
+    .board-canvas-scroll.board-tabbed .board-panel:not(.dragging):not(.pin-chip) .board-panel-inner > .board-panel-body { flex: 0 0 auto; min-height: 0; overflow: visible; }
     .board-view-toggle { display: inline-flex; border: 1px solid var(--cp-border); border-radius: 8px; overflow: hidden; }
     .board-view-toggle button {
       background: var(--cp-surface); border: none; padding: 5px 11px;
