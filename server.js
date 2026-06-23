@@ -5247,7 +5247,7 @@ function _boardId(name) {
 function _genId(prefix) {
   return prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
-// Server-owned runtime fields on a dev item. These are set ONLY by the dedicated
+// Server-owned runtime fields on a dev card. These are set ONLY by the dedicated
 // /dev-items/* action endpoints (worktree/refresh/sync/summary/dev-agent/pr/
 // remove-worktree, via ctx.save). The generic board PUT carries the client's whole
 // devItems array, which may be STALE (a tab that missed the async worktree update,
@@ -5277,7 +5277,7 @@ function _normalizeBoard(b) {
     items: Array.isArray(b.items) ? b.items : [],
     notes: Array.isArray(b.notes) ? b.notes : [],
     checklists: Array.isArray(b.checklists) ? b.checklists : [],
-    // Dev items: { id, title, org, project, repo, baseBranch, branch, workItemId,
+    // Dev cards: { id, title, org, project, repo, baseBranch, branch, workItemId,
     // prId, worktreePath, worktreeStatus, git, workItem, pr, summary, ... }. Group an
     // AzDo work item + PR + a git worktree; metadata persists here, heavy git/AzDo/AI
     // work runs through the dedicated /dev-items action endpoints.
@@ -5815,7 +5815,7 @@ app.post('/api/fs/open', (req, res) => {
       const guardLines = copilotIsPath
         ? [`if not exist "${copilotCmd}" goto nocopilot`]
         : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
-      // Optional: pre-select a project agent (e.g. a dev item's dev agent).
+      // Optional: pre-select a project agent (e.g. a dev card's dev agent).
       const agentName = String((req.body && req.body.agent) || '').trim().replace(/"/g, '');
       const agentFlag = agentName ? ` --agent "${agentName}"` : '';
       const batContent = [
@@ -6451,7 +6451,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
   const openChecklistItems = checklists.reduce((n, cl) => n + cl.items.filter(i => !i.done).length, 0);
 
-  // Fold in any Dev items (work item + PR + git worktree trackers). These represent
+  // Fold in any Dev cards (work item + PR + git worktree trackers). These represent
   // active development work, so they belong in the briefing — show each one's work
   // item / PR / worktree state and its AI status summary if present.
   const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
@@ -6463,9 +6463,9 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
       const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
       const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
       const sum = d.summary && d.summary.text ? '\n    summary: ' + clip(d.summary.text, 400) : '';
-      return `- "${clip(d.title || d.repo || 'Dev item', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
+      return `- "${clip(d.title || d.repo || 'Dev card', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
     });
-    contextBlocks.push('### DEV ITEMS (active development — work item + PR + git worktree)\n' + lines.join('\n'));
+    contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree)\n' + lines.join('\n'));
   }
 
   // Deterministic fallback used when the board is empty, has no usable context, or
@@ -6478,7 +6478,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   const manualLine = [
     notes.length ? `${notes.length} note${notes.length === 1 ? '' : 's'}` : '',
     checklists.length ? `${openChecklistItems} open checklist item${openChecklistItems === 1 ? '' : 's'}` : '',
-    devItems.length ? `${devItems.length} dev item${devItems.length === 1 ? '' : 's'}` : ''
+    devItems.length ? `${devItems.length} dev card${devItems.length === 1 ? '' : 's'}` : ''
   ].filter(Boolean).join(', ');
   let digest;
   if (out.length) {
@@ -6513,7 +6513,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
 
   const prompt = [
-    `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections, and any DEV ITEMS (active development work — an Azure DevOps work item + pull request + git worktree, with a status summary). Checklist lines marked "[x]" are done and "[ ]" are still open.`,
+    `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections, and any DEV CARDS (active development work — an Azure DevOps work item + pull request + git worktree, with a status summary). Checklist lines marked "[x]" are done and "[ ]" are still open.`,
     'Each pinned-item section is headed "### KIND: Name [source link: <route>]". The route after "source link:" is the primary source for everything in that section.',
     'Write a "Where was I?" briefing that reorients the user:',
     '- If a "SINCE LAST VIEWED" section is present, begin with one sentence highlighting what changed since the user last looked (call out any items marked ⚠ as needing attention).',
@@ -6541,14 +6541,14 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 });
 
 // ============================================================================
-// DEV ITEMS — group an AzDo work item + PR + a git worktree on a board. Metadata
+// DEV CARDS — group an AzDo work item + PR + a git worktree on a board. Metadata
 // lives on board.devItems[] (persisted via PUT /api/boards/:id); the heavy git /
 // AzDo / AI work runs through these dedicated action endpoints. Opening the
 // worktree in an editor/CLI reuses POST /api/fs/open (a worktree is just a
 // folder), so no new launch code is needed here.
 // ============================================================================
 
-// Locate a dev item on a board; persist a mutated copy back. Returns helpers.
+// Locate a dev card on a board; persist a mutated copy back. Returns helpers.
 function _devItemCtx(boardId, devId) {
   const boards = loadBoards();
   const idx = boards.findIndex(b => b.id === boardId);
@@ -6559,7 +6559,7 @@ function _devItemCtx(boardId, devId) {
   if (di < 0) return null;
   return {
     board, dev: items[di],
-    // Merge a partial onto the dev item, persist the whole board, broadcast.
+    // Merge a partial onto the dev card, persist the whole board, broadcast.
     save(partial) {
       const updated = { ...items[di], ...partial, updatedAt: new Date().toISOString() };
       items[di] = updated;
@@ -6573,15 +6573,15 @@ function _devItemCtx(boardId, devId) {
   };
 }
 
-// Create (or reuse) the worktree for a dev item. Runs in the background since a
+// Create (or reuse) the worktree for a dev card. Runs in the background since a
 // first-time clone can be slow; the item flips worktreeStatus creating→ready/error
 // and the SPA re-renders off the boards-changed SSE.
 app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   if (!d.org || !d.project || !d.repo) {
-    return res.status(400).json({ error: 'Dev item is missing org/project/repo.' });
+    return res.status(400).json({ error: 'Dev card is missing org/project/repo.' });
   }
   ctx.save({ worktreeStatus: 'creating', worktreeError: null });
   res.json({ ok: true, status: 'creating' });
@@ -6602,10 +6602,10 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   })();
 });
 
-// Refresh a dev item's live state: git ahead/behind/dirty + work item + PR.
+// Refresh a dev card's live state: git ahead/behind/dirty + work item + PR.
 app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   const partial = {};
   // Git status (only if a worktree exists).
@@ -6627,7 +6627,7 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
 // Sync the worktree with origin (fetch + fast-forward).
 app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   if (!d.worktreePath) return res.status(400).json({ error: 'No worktree to sync — create one first.' });
   let r;
@@ -6640,7 +6640,7 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
 // Regenerate the AI summary of where the dev work stands (work item + PR + diff).
 app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   // Pull the freshest work item + PR for the prompt (best-effort).
   let wi = d.workItem, pr = d.pr;
@@ -6650,7 +6650,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch }); } catch {}
 
   const ctxLines = [];
-  ctxLines.push(`Dev item: ${d.title || d.repo}`);
+  ctxLines.push(`Dev card: ${d.title || d.repo}`);
   ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}  Branch: ${d.branch || '(none)'}  Base: ${d.baseBranch || 'main'}`);
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
   if (pr) ctxLines.push(`PR #${pr.id} "${pr.title}" — status: ${pr.status}${pr.isDraft ? ' (draft)' : ''}, merge: ${pr.mergeStatus || 'n/a'}, ${pr.sourceBranch} → ${pr.targetBranch}`);
@@ -6678,17 +6678,17 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   }
 });
 
-// Remove a dev item's worktree (best-effort) without deleting the item record.
+// Remove a dev card's worktree (best-effort) without deleting the item record.
 app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   try { devitems.removeWorktree(d.org, d.project, d.repo, d.id, d.worktreePath); } catch {}
   const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null });
   res.json({ ok: true, dev: updated });
 });
 
-// Build the Markdown for a dev item's `.agent.md` (frontmatter + persona). No
+// Build the Markdown for a dev card's `.agent.md` (frontmatter + persona). No
 // `tools:` key ⇒ the agent is unrestricted. The persona forbids the agent from
 // ever committing/pushing its own definition.
 function _buildDevAgentMd({ agentName, dev, wi }) {
@@ -6725,12 +6725,12 @@ Follow this disciplined loop and narrate which step you are on:
   return fm + body;
 }
 
-// Create a focused dev agent for a dev item by writing a `.github/agents/<name>.agent.md`
+// Create a focused dev agent for a dev card by writing a `.github/agents/<name>.agent.md`
 // into the item's worktree so VS Code / Copilot can select it. The file is kept
 // out of git so it never lands in the user's commits or PR.
 app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   if (!d.worktreePath || !fs.existsSync(d.worktreePath)) {
     return res.status(400).json({ error: 'Create a worktree first.' });
@@ -6765,15 +6765,15 @@ function _extractJsonObject(s) {
   return null;
 }
 
-// Create a pull request for a dev item: push the branch, AI-author a nicely
+// Create a pull request for a dev card: push the branch, AI-author a nicely
 // formatted title + description, open the PR, and associate it with the item
 // (and, best-effort, with the work item).
 app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev item not found' });
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   if (d.prId) return res.status(400).json({ error: 'A pull request is already associated with this item.', dev: d });
-  if (!d.org || !d.project || !d.repo) return res.status(400).json({ error: 'Dev item is missing org/project/repo.' });
+  if (!d.org || !d.project || !d.repo) return res.status(400).json({ error: 'Dev card is missing org/project/repo.' });
   if (!d.worktreePath || !fs.existsSync(d.worktreePath)) return res.status(400).json({ error: 'Create a worktree first.' });
   const base = (String(d.baseBranch || '').trim()) || 'main';
 
@@ -6832,7 +6832,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     return res.status(500).json({ error: 'Failed to create PR: ' + ((e && e.message) || e) });
   }
 
-  // 5) Persist on the dev item.
+  // 5) Persist on the dev card.
   let prFull = null;
   try { prFull = await azdo.getPullRequest(d.org, d.project, d.repo, pr.pullRequestId); } catch {}
   const updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem });
@@ -7240,18 +7240,18 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       return `- (${cl.id})${viewFlags('cl:' + cl.id)} "${clip(cl.title, 120)}"${lines.length ? '\n' + lines.join('\n') : ''}`;
     }).join('\n'));
   }
-  // Dev items: work item + PR + git worktree trackers. Each is referenced back by
+  // Dev cards: work item + PR + git worktree trackers. Each is referenced back by
   // its (devId) so the assistant can drive it (refresh/sync/summary/worktree/PR/
   // dev-agent/cleanup) or propose new/updated ones.
   if (devItems.length) {
-    ctx.push('## DEV ITEMS (work item + PR + git worktree trackers — reference by devId)\n' + devItems.map(d => {
+    ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId)\n' + devItems.map(d => {
       const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
       const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
       const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
       const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
       const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
       const sum = d.summary && d.summary.text ? '\n    summary: ' + clip(d.summary.text, 400) : '';
-      return `- (${d.id}) "${clip(d.title || d.repo || 'Dev item', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
+      return `- (${d.id}) "${clip(d.title || d.repo || 'Dev card', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
     }).join('\n'));
   }
   if (available.length) {
@@ -7351,10 +7351,10 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
-    (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV ITEMS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev item: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
-    '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev item tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. Set createWorktree true if the user wants the worktree created right away.)',
-    (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV ITEMS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"..."}  (updates a Dev item\'s metadata, e.g. link a work item or PR or rename it. Include ONLY the fields to change.)' : ''),
-    (devItems.length ? '- {"type":"remove_dev_item","devItemId":"<devId from DEV ITEMS>"}  (removes the Dev item from the board and cleans up its worktree — destructive, only on explicit request.)' : ''),
+    (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV CARDS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev card: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
+    '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. Set createWorktree true if the user wants the worktree created right away.)',
+    (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV CARDS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"..."}  (updates a Dev card\'s metadata, e.g. link a work item or PR or rename it. Include ONLY the fields to change.)' : ''),
+    (devItems.length ? '- {"type":"remove_dev_item","devItemId":"<devId from DEV CARDS>"}  (removes the Dev card from the board and cleans up its worktree — destructive, only on explicit request.)' : ''),
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
     '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "stash the finished checklist", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
     '',
@@ -7381,7 +7381,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / stash / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing and hiding/stashing are visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes", "stash the finished checklist") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
     '- VISIBILITY & LOCKS: items in BOARD CONTEXT may be tagged [hidden] (currently stashed off the board but still part of context) and/or [locked:...] where the locked aspects are vis (visibility/stash), size, and/or pos (position). A hidden item still contributes to the board and you SHOULD feel free to "show" it when relevant. But you MUST NOT change any LOCKED aspect of a panel: never hide/show a [locked:vis] panel, never move/organize/compact a [locked:pos] panel, and never resize/widen a [locked:size] panel. If a presentation request would require changing a locked aspect, skip that panel and say so briefly in "reply".',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
-    '- DEV ITEMS: each item under DEV ITEMS groups an Azure DevOps work item + PR + a local git worktree. Reference one by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item when you have a real org/project/repo (never invent them); remove_dev_item is destructive — only on explicit request.',
+    '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree. Reference one by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item when you have a real org/project/repo (never invent them); remove_dev_item is destructive — only on explicit request.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
     // Multi-step confirmable plans.
@@ -7551,11 +7551,11 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const op = DEV_OPS[String(a.action || '').toLowerCase()];
       if (!op) return null;
       const LABELS = {
-        refresh: 'Refresh dev item', sync: 'Sync worktree', worktree: 'Create worktree',
+        refresh: 'Refresh dev card', sync: 'Sync worktree', worktree: 'Create worktree',
         summary: 'Update dev summary', 'dev-agent': 'Create dev agent', pr: 'Create PR',
         'remove-worktree': 'Clean up worktree'
       };
-      const name = clip(d.title || d.repo || 'Dev item', 100);
+      const name = clip(d.title || d.repo || 'Dev card', 100);
       return { type, devItemId: d.id, op, label: LABELS[op] || 'Dev action', preview: (LABELS[op] || op) + ' — ' + name, destructive: op === 'remove-worktree' };
     }
     if (type === 'create_dev_item') {
@@ -7568,7 +7568,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
         prId: a.prId != null ? String(a.prId).trim() : ''
       };
       const createWorktree = !!(a.createWorktree || a.withWorktree || a.worktree);
-      return { type, devItem: item, createWorktree, label: createWorktree ? 'Add dev item + worktree' : 'Add dev item', preview: `${item.title} — ${org}/${project}/${repo}` + (createWorktree ? ' (with worktree)' : '') };
+      return { type, devItem: item, createWorktree, label: createWorktree ? 'Add dev card + worktree' : 'Add dev card', preview: `${item.title} — ${org}/${project}/${repo}` + (createWorktree ? ' (with worktree)' : '') };
     }
     if (type === 'update_dev_item') {
       const d = devItems.find(x => x.id === (a.devItemId || a.devId));
@@ -7580,12 +7580,12 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       if (a.workItemId !== undefined) patch.workItemId = a.workItemId != null ? String(a.workItemId).trim() : '';
       if (a.prId !== undefined) patch.prId = a.prId != null ? String(a.prId).trim() : '';
       if (!Object.keys(patch).length) return null;
-      return { type, devItemId: d.id, patch, label: 'Update dev item', preview: clip(d.title || d.repo, 80) + ': ' + Object.keys(patch).join(', ') };
+      return { type, devItemId: d.id, patch, label: 'Update dev card', preview: clip(d.title || d.repo, 80) + ': ' + Object.keys(patch).join(', ') };
     }
     if (type === 'remove_dev_item') {
       const d = devItems.find(x => x.id === (a.devItemId || a.devId));
       if (!d) return null;
-      return { type, devItemId: d.id, label: 'Remove dev item', preview: clip(d.title || d.repo || 'Dev item', 100), destructive: true };
+      return { type, devItemId: d.id, label: 'Remove dev card', preview: clip(d.title || d.repo || 'Dev card', 100), destructive: true };
     }
     if (type === 'pin_item' || type === 'pin_agent') {
       // pin_agent is kept as a backward-compat alias: it's just pin_item kind:agent.

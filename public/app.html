@@ -5228,7 +5228,7 @@
                 <template x-if="activeBoard()">
                   <div :class="{ 'board-focus': boardFocus }" @keydown.escape.window="boardFocus && !boardAssistant.open && (boardFocus = false)">
                     <!-- Floating Board AI chat launcher — always within reach, lower-right. -->
-                    <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — chat to organize notes, checklists & dev items from this board's activity" aria-label="Open Board AI chat">💬</button>
+                    <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — chat to organize notes, checklists & dev cards from this board's activity" aria-label="Open Board AI chat">💬</button>
                     <!-- Active board toolbar -->
                     <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
                       <div style="display:flex;align-items:center;gap:10px;min-width:0">
@@ -5247,7 +5247,7 @@
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()" title="Add a checklist as its own panel">✅ Checklist</button>
-                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev item — groups an Azure DevOps work item, PR and a git worktree with AI state tracking">🧰 Dev item</button>
+                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev card — groups an Azure DevOps work item, PR and a git worktree with AI state tracking">🧰 Dev card</button>
                         <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
                         <!-- Secondary board actions tucked behind an overflow menu so the
                              toolbar stays focused on the things you reach for constantly. -->
@@ -5810,7 +5810,7 @@
                                 </div>
                               </template>
 
-                              <!-- Dev item: work item + PR + worktree tracker -->
+                              <!-- Dev card: work item + PR + worktree tracker -->
                               <template x-if="p.type === 'dev'">
                                 <div style="display:flex;flex-direction:column;gap:10px">
                                   <template x-for="d in [p.dev]" :key="d.id">
@@ -5818,12 +5818,12 @@
                                       <!-- Header: title + quick links + actions -->
                                       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                         <div style="min-width:0">
-                                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev item'"></div>
+                                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
                                           <div class="hint" style="font-size:11px" x-text="(d.org ? d.org + ' / ' : '') + (d.project ? d.project + ' / ' : '') + (d.repo || '') + (d.branch ? ' @ ' + d.branch : '')"></div>
                                         </div>
                                         <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
                                           <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
-                                          <button class="board-act" type="button" data-tip="Edit dev item" @click="openDevModal(d)">✎</button>
+                                          <button class="board-act" type="button" data-tip="Edit dev card" @click="openDevModal(d)">✎</button>
                                           <button class="board-act danger tip-end" type="button" data-tip="Remove from board" @click="confirmRemovePanel(p)">✕</button>
                                         </div>
                                       </div>
@@ -5888,9 +5888,9 @@
                                                 <span class="status-badge" style="font-size:0.7rem" :title="'Dev agent: ' + (d.devAgentName||'') + ' — available in VS Code / Copilot; auto-selected when opening the CLI'">🤖 Dev agent ready</span>
                                               </template>
                                               <template x-if="!d.prId">
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev item" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev card" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
                                               </template>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="cleanupDevWorktree(d)" title="Remove the local git worktree from disk (keeps the dev item, work item and PR links on the board)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="!!devBusy[d.id]" @click="cleanupDevWorktree(d)" title="Remove the local git worktree from disk (keeps the dev card, work item and PR links on the board)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
                                             </div>
                                           </div>
                                         </template>
@@ -6132,11 +6132,11 @@
               </div>
             </div>
 
-            <!-- Dev item create / edit modal -->
+            <!-- Dev card create / edit modal -->
             <div class="modal-backdrop modal-overlay" x-show="devModal.open" x-transition.opacity.duration.150ms @click.self="devModal.open=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:560px">
                 <div class="modal-header">
-                  <h2 class="modal-title" x-text="devModal.id ? 'Edit dev item' : 'New dev item'"></h2>
+                  <h2 class="modal-title" x-text="devModal.id ? 'Edit dev card' : 'New dev card'"></h2>
                   <button class="icon-button" type="button" @click="devModal.open=false">✕</button>
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px;max-height:74vh;overflow:auto">
@@ -7740,10 +7740,10 @@
               <p class="hint" x-show="exportSettingsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
-            <!-- Default Dev Item Repository Section -->
+            <!-- Default Dev Card Repository Section -->
             <div class="card" style="margin-bottom:20px">
-              <h3 style="margin-bottom:12px">🧰 Default Dev Item Org / Project</h3>
-              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>New dev item</strong> dialog with this Azure DevOps org &amp; project so you don't retype them every time. The dialog still lists the repositories itself when you open it — you can override per item.</p>
+              <h3 style="margin-bottom:12px">🧰 Default Dev Card Org / Project</h3>
+              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>New dev card</strong> dialog with this Azure DevOps org &amp; project so you don't retype them every time. The dialog still lists the repositories itself when you open it — you can override per item.</p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px">
                 <div>
                   <label class="field-label">Organization</label>
@@ -10420,7 +10420,7 @@
         boardChecklistItemDraft: {},
         boardChecklistItemEdit: {},
         boardRefPickFor: '',
-        // Dev items — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
+        // Dev cards — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
         // the create/edit modal form state.
         devBusy: {},
         devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
@@ -13082,8 +13082,8 @@
             this.showToast('Settings', 'Could not save export defaults: ' + err.message, 'error');
           }
         },
-        // Persist the default Dev item org/project. Lightweight: no repo/branch
-        // pickers here — the New dev item dialog lists repos itself on open.
+        // Persist the default Dev card org/project. Lightweight: no repo/branch
+        // pickers here — the New dev card dialog lists repos itself on open.
         async saveDevSettings() {
           this.devSettingsSaved = false;
           try {
@@ -13093,7 +13093,7 @@
             this.devSettingsSaved = true;
             setTimeout(() => { this.devSettingsSaved = false; }, 2500);
           } catch (err) {
-            this.showToast('Settings', 'Could not save Dev item defaults: ' + err.message, 'error');
+            this.showToast('Settings', 'Could not save Dev card defaults: ' + err.message, 'error');
           }
         },
         // Ensure devSettings are loaded once (lazy — settings route may never have
@@ -15135,7 +15135,7 @@
           // One panel per note and per checklist — no more aggregate cards.
           for (const n of ((b && b.notes) || [])) panels.push({ id: pv + 'note:' + n.id, type: 'note', note: n });
           for (const cl of ((b && b.checklists) || [])) panels.push({ id: pv + 'cl:' + cl.id, type: 'checklist', checklist: cl });
-          // One panel per dev item (work item + PR + worktree tracker).
+          // One panel per dev card (work item + PR + worktree tracker).
           for (const d of ((b && b.devItems) || [])) panels.push({ id: pv + 'dev:' + d.id, type: 'dev', dev: d });
           // Stashed items are hidden from the grid in normal use, but revealed (so they
           // can be toggled back on) while "Edit items" / manage mode is active.
@@ -15176,7 +15176,7 @@
             return '✅ ' + ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
           }
           if (p.type === 'pin') return this.boardKindIcon(p.kind) + ' ' + ((p.item && (p.item.label || p.item.refId)) || '');
-          if (p.type === 'dev') return '🧰 ' + ((p.dev && (p.dev.title || p.dev.repo)) || 'Dev item');
+          if (p.type === 'dev') return '🧰 ' + ((p.dev && (p.dev.title || p.dev.repo)) || 'Dev card');
           return '';
         },
         // Just the type icon for the panel control strip (no title text).
@@ -15194,7 +15194,7 @@
           if (p.type === 'note') return 'Note';
           if (p.type === 'checklist') return 'Checklist';
           if (p.type === 'pin') return this.boardKindLabel(p.kind);
-          if (p.type === 'dev') return 'Dev item';
+          if (p.type === 'dev') return 'Dev card';
           return '';
         },
         // Title text WITHOUT the leading icon (the icon is rendered separately as a tag).
@@ -15264,7 +15264,7 @@
             const pr = this.checklistProgress(p.checklist);
             return ((p.checklist && p.checklist.title) || 'Checklist') + ' · ' + pr.done + '/' + pr.total;
           }
-          if (p.type === 'dev') return (p.dev && (p.dev.title || p.dev.repo)) || 'Dev item';
+          if (p.type === 'dev') return (p.dev && (p.dev.title || p.dev.repo)) || 'Dev card';
           return '';
         },
         // Human-readable resource type for a collapsed chip (Agent, Task, Chat, Note, …).
@@ -15272,7 +15272,7 @@
           if (p.type === 'pin') return this.boardKindLabel(p.kind);
           if (p.type === 'note') return 'Note';
           if (p.type === 'checklist') return 'Checklist';
-          if (p.type === 'dev') return 'Dev item';
+          if (p.type === 'dev') return 'Dev card';
           return '';
         },
         // Click on a chip — ignore if the gesture was actually a drag. Expanding a chip
@@ -15528,7 +15528,7 @@
             const g = this.devGitBadge(d);
             if (g && g.text) bits.push('Git: ' + g.text);
             if (d.summary && d.summary.text) bits.push('\n' + String(d.summary.text).trim().slice(0, 220));
-            return bits.join('\n') || 'Dev item';
+            return bits.join('\n') || 'Dev card';
           }
           return this.panelTitleText(p) || '';
         },
@@ -15648,8 +15648,8 @@
           if (this.boardTabRailStyle !== 'c') {
             return panels.map(p => ({ key: 'tab-' + p.id, panel: p }));
           }
-          const groupOf = (p) => p.type === 'note' ? 'Notes' : (p.type === 'checklist' ? 'Checklists' : (p.type === 'dev' ? 'Dev items' : 'Pinned'));
-          const order = ['Pinned', 'Dev items', 'Notes', 'Checklists'];
+          const groupOf = (p) => p.type === 'note' ? 'Notes' : (p.type === 'checklist' ? 'Checklists' : (p.type === 'dev' ? 'Dev cards' : 'Pinned'));
+          const order = ['Pinned', 'Dev cards', 'Notes', 'Checklists'];
           const rows = [];
           for (const g of order) {
             const inGroup = panels.filter(p => groupOf(p) === g);
@@ -15665,7 +15665,7 @@
           if (p.type === 'pin') return 'Unpin from this board';
           if (p.type === 'note') return 'Delete this note';
           if (p.type === 'checklist') return 'Delete this checklist';
-          if (p.type === 'dev') return 'Remove this dev item';
+          if (p.type === 'dev') return 'Remove this dev card';
           return 'Remove';
         },
         // Remove a panel's underlying item, with a confirmation. Pins are unpinned
@@ -15684,8 +15684,8 @@
             const ok = await this.uiConfirm({ title: 'Delete checklist', message: 'Delete "' + name + '" from the board? This cannot be undone.', confirmLabel: 'Delete', danger: true });
             if (ok) await this.deleteChecklist(p.checklist);
           } else if (p.type === 'dev') {
-            const name = (p.dev && (p.dev.title || p.dev.repo)) || 'this dev item';
-            const ok = await this.uiConfirm({ title: 'Remove dev item', message: 'Remove "' + name + '" from the board? Its worktree folder on disk is left intact (remove it separately first if you want it deleted).', confirmLabel: 'Remove', danger: true });
+            const name = (p.dev && (p.dev.title || p.dev.repo)) || 'this dev card';
+            const ok = await this.uiConfirm({ title: 'Remove dev card', message: 'Remove "' + name + '" from the board? Its worktree folder on disk is left intact (remove it separately first if you want it deleted).', confirmLabel: 'Remove', danger: true });
             if (ok) await this.deleteDevItem(p.dev);
           }
         },
@@ -18012,8 +18012,8 @@
             return false;
           }
         },
-        // ===== Dev items =================================================
-        // A Dev item groups an Azure DevOps work item + PR + a git worktree, with
+        // ===== Dev cards =================================================
+        // A Dev card groups an Azure DevOps work item + PR + a git worktree, with
         // an AI-maintained status summary. Metadata persists through the generic
         // board PUT (_patchBoard {devItems}); heavy git/AzDo/AI work goes through
         // the dedicated /api/boards/:id/dev-items/:devId/* action endpoints.
@@ -18057,7 +18057,7 @@
         devNeedsCleanup(d) {
           return !!(d && d.worktreePath && this.devWorkItemDone(d));
         },
-        // Replace one dev item in the active board (from an action endpoint's {dev}).
+        // Replace one dev card in the active board (from an action endpoint's {dev}).
         _applyDevUpdate(devId, updated) {
           if (!updated) return;
           const idx = this.boards.findIndex(b => b.id === this.activeBoardId);
@@ -18076,8 +18076,8 @@
             m.repos = d.repo ? [{ name: d.repo }] : []; m.branches = d.baseBranch ? [d.baseBranch] : [];
           } else {
             await this.ensureDevSettings();
-            // Prefill priority: a prior dev item on this board (most specific) →
-            // the saved Dev item default → the Export default (same AzDO coords).
+            // Prefill priority: a prior dev card on this board (most specific) →
+            // the saved Dev card default → the Export default (same AzDO coords).
             const prior = (this.activeBoard() && (this.activeBoard().devItems || [])[0]) || {};
             const ds = this.devSettings || {}, es = this.exportSettings || {};
             m.id = null; m.title = '';
@@ -18199,7 +18199,7 @@
             const ok = await this._patchBoard(board, { devItems });
             if (ok) { m.open = false; this.scheduleAutoFit(); }
           } catch (e) {
-            m.error = e.message || 'Could not save dev item';
+            m.error = e.message || 'Could not save dev card';
           } finally {
             m.busy = false;
           }
@@ -18227,18 +18227,18 @@
             // The server flips creating→ready in the background and broadcasts
             // boards-changed; mark optimistically so the panel shows "Creating…".
             this._applyDevUpdate(d.id, { ...d, worktreeStatus: 'creating', worktreeError: null });
-            this.showToast('Dev item', '🌱 Creating worktree — cloning the repo, this can take a minute…', 'info');
+            this.showToast('Dev card', '🌱 Creating worktree — cloning the repo, this can take a minute…', 'info');
             // boards-changed SSE is throttled and lease-gated across multiple clients, so
             // it can be delayed or missed; poll explicitly so the panel reliably advances.
             this._pollDevWorktree(d.id);
           } catch (e) {
-            this.showToast('Dev item', e.message, 'error');
+            this.showToast('Dev card', e.message, 'error');
           } finally {
             delete this.devBusy[d.id];
           }
         },
         // Poll the board until the background worktree clone finishes (creating→ready/error).
-        // We update only the single dev item (never replace the whole board) so we don't
+        // We update only the single dev card (never replace the whole board) so we don't
         // clobber the client's local layout while a clone is in flight.
         async _pollDevWorktree(devId) {
           this._devWtPoll = this._devWtPoll || {};
@@ -18253,11 +18253,11 @@
               const list = Array.isArray(boards) ? boards : [];
               const board = list.find(b => (b.devItems || []).some(x => x.id === devId));
               const dev = board && (board.devItems || []).find(x => x.id === devId);
-              if (!dev) break; // dev item was removed
+              if (!dev) break; // dev card was removed
               this._applyDevUpdate(devId, dev);
               if (dev.worktreeStatus !== 'creating') {
-                if (dev.worktreeStatus === 'ready') this.showToast('Dev item', '✅ Worktree ready.', 'success');
-                else if (dev.worktreeStatus === 'error') this.showToast('Dev item', dev.worktreeError || 'Worktree creation failed.', 'error');
+                if (dev.worktreeStatus === 'ready') this.showToast('Dev card', '✅ Worktree ready.', 'success');
+                else if (dev.worktreeStatus === 'error') this.showToast('Dev card', dev.worktreeError || 'Worktree creation failed.', 'error');
                 break;
               }
             }
@@ -18272,7 +18272,7 @@
             const r = await this.request(this._devUrl(d, 'refresh'), { method: 'POST', body: '{}' });
             if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
           } catch (e) {
-            this.showToast('Dev item', e.message, 'error');
+            this.showToast('Dev card', e.message, 'error');
           } finally {
             delete this.devBusy[d.id];
           }
@@ -18285,7 +18285,7 @@
             if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
             if (r && r.message) this.showToast('Sync', r.message, r.ok ? 'success' : 'error');
           } catch (e) {
-            this.showToast('Dev item', e.message, 'error');
+            this.showToast('Dev card', e.message, 'error');
           } finally {
             delete this.devBusy[d.id];
           }
@@ -18295,55 +18295,55 @@
         // CLI auto-selects it). The file is git-excluded so it never lands in a commit/PR.
         async createDevAgent(d) {
           if (!d || this.devBusy[d.id]) return;
-          if (!d.worktreePath) { this.showToast('Dev item', 'Create a worktree first.', 'error'); return; }
+          if (!d.worktreePath) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
           this.devBusy[d.id] = 'agent';
-          this.showToast('Dev item', '🤖 Creating a focused dev agent for this worktree…', 'info');
+          this.showToast('Dev card', '🤖 Creating a focused dev agent for this worktree…', 'info');
           try {
             const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: '{}' });
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
-              this.showToast('Dev item', '🤖 Dev agent ready — selectable in VS Code / Copilot; the CLI will auto-select it.', 'success');
+              this.showToast('Dev card', '🤖 Dev agent ready — selectable in VS Code / Copilot; the CLI will auto-select it.', 'success');
             } else {
-              this.showToast('Dev item', 'Dev agent returned no result — try again.', 'error');
+              this.showToast('Dev card', 'Dev agent returned no result — try again.', 'error');
             }
           } catch (e) {
-            this.showToast('Dev item', (e && e.message) || 'Create dev agent failed', 'error');
+            this.showToast('Dev card', (e && e.message) || 'Create dev agent failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
         },
-        // Push the branch and have AI open a nicely-formatted PR linked to this dev item.
+        // Push the branch and have AI open a nicely-formatted PR linked to this dev card.
         async createDevPr(d) {
           if (!d || this.devBusy[d.id]) return;
-          if (!d.worktreePath) { this.showToast('Dev item', 'Create a worktree first.', 'error'); return; }
-          if (d.prId) { this.showToast('Dev item', 'A PR already exists for this dev item.', 'info'); return; }
+          if (!d.worktreePath) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
+          if (d.prId) { this.showToast('Dev card', 'A PR already exists for this dev card.', 'info'); return; }
           this.devBusy[d.id] = 'pr';
-          this.showToast('Dev item', '🔀 Pushing branch and drafting a pull request with AI…', 'info');
+          this.showToast('Dev card', '🔀 Pushing branch and drafting a pull request with AI…', 'info');
           try {
             const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: '{}' });
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
-              this.showToast('Dev item', '🔀 Pull request created and linked to this dev item.', 'success');
+              this.showToast('Dev card', '🔀 Pull request created and linked to this dev card.', 'success');
             } else {
-              this.showToast('Dev item', 'PR creation returned no result — try again.', 'error');
+              this.showToast('Dev card', 'PR creation returned no result — try again.', 'error');
             }
           } catch (e) {
-            this.showToast('Dev item', (e && e.message) || 'Create PR failed', 'error');
+            this.showToast('Dev card', (e && e.message) || 'Create PR failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
         },
-        // Remove the on-disk git worktree but keep the dev item (and its work
+        // Remove the on-disk git worktree but keep the dev card (and its work
         // item / PR links) on the board. Useful once the work item is done/closed.
         async cleanupDevWorktree(d) {
           if (!d || this.devBusy[d.id]) return;
-          if (!d.worktreePath) { this.showToast('Dev item', 'No worktree to clean up.', 'info'); return; }
+          if (!d.worktreePath) { this.showToast('Dev card', 'No worktree to clean up.', 'info'); return; }
           const warn = (this.devGitBadge(d).attention)
             ? '\n\n⚠ This worktree has unpushed or uncommitted changes — they will be lost.'
             : '';
           const ok = await this.uiConfirm({
             title: 'Clean up worktree?',
-            message: 'Remove the local git worktree at:\n' + d.worktreePath + '\n\nThe dev item, work item and PR links stay on the board — only the on-disk worktree is removed. You can re-create it later.' + warn,
+            message: 'Remove the local git worktree at:\n' + d.worktreePath + '\n\nThe dev card, work item and PR links stay on the board — only the on-disk worktree is removed. You can re-create it later.' + warn,
             confirmLabel: 'Clean up worktree',
             danger: true,
           });
@@ -18352,9 +18352,9 @@
           try {
             const r = await this.request(this._devUrl(d, 'remove-worktree'), { method: 'POST', body: '{}' });
             if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
-            this.showToast('Dev item', '🧹 Worktree cleaned up.', 'success');
+            this.showToast('Dev card', '🧹 Worktree cleaned up.', 'success');
           } catch (e) {
-            this.showToast('Dev item', (e && e.message) || 'Cleanup failed', 'error');
+            this.showToast('Dev card', (e && e.message) || 'Cleanup failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
@@ -18362,23 +18362,23 @@
         async refreshDevSummary(d) {
           if (!d || this.devBusy[d.id]) return;
           this.devBusy[d.id] = 'summary';
-          this.showToast('Dev item', '🧠 Generating state summary — AI is reviewing the work item, PR and code diff…', 'info');
+          this.showToast('Dev card', '🧠 Generating state summary — AI is reviewing the work item, PR and code diff…', 'info');
           try {
             const r = await this.request(this._devUrl(d, 'summary'), { method: 'POST', body: '{}' });
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
-              this.showToast('Dev item', 'State summary updated.', 'success');
+              this.showToast('Dev card', 'State summary updated.', 'success');
             } else {
-              this.showToast('Dev item', 'Summary returned no result — try again.', 'error');
+              this.showToast('Dev card', 'Summary returned no result — try again.', 'error');
             }
           } catch (e) {
-            this.showToast('Dev item', (e && e.message) || 'Summary failed', 'error');
+            this.showToast('Dev card', (e && e.message) || 'Summary failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
         },
         async openDevItem(d, target) {
-          if (!d || !d.worktreePath) { this.showToast('Dev item', 'No worktree to open — create one first.', 'error'); return; }
+          if (!d || !d.worktreePath) { this.showToast('Dev card', 'No worktree to open — create one first.', 'error'); return; }
           try {
             const body = { path: d.worktreePath, target };
             // When a dev agent has been written into the worktree, auto-select it in the CLI.
@@ -18683,7 +18683,7 @@
               ok = (updated && updated.id) ? updated : false;
             } else if (a.type === 'dev_action') {
               const dev = (board.devItems || []).find(d => d.id === a.devItemId);
-              if (!dev) { this.showToast('Board assistant', 'Dev item not found', 'error'); return; }
+              if (!dev) { this.showToast('Board assistant', 'Dev card not found', 'error'); return; }
               const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/' + a.op, { method: 'POST', body: '{}' });
               if (a.op === 'worktree') {
                 // create-worktree is async fire-and-forget; reflect the optimistic state.
@@ -18709,7 +18709,7 @@
                   await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(item.id) + '/worktree', { method: 'POST', body: '{}' });
                   this._applyDevUpdate(item.id, { ...item, worktreeStatus: 'creating', worktreeError: null });
                 } catch (e) {
-                  this.showToast('Board assistant', 'Dev item created, but worktree could not start: ' + (e && e.message || e), 'warning');
+                  this.showToast('Board assistant', 'Dev card created, but worktree could not start: ' + (e && e.message || e), 'warning');
                 }
               }
             } else if (a.type === 'update_dev_item') {
