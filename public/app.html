@@ -2670,13 +2670,16 @@
     .board-grid:hover .board-canvas-resize { opacity: .65; }
     .board-canvas-resize:hover { opacity: 1; border-color: var(--cp-accent); }
     /* ----- Board layout controls bottom bar ----- */
+    /* Docked flush to the bottom of the board view — a quiet anchored toolbar, not a
+       floating pill. Square top edge + a single top divider read as "part of the chrome";
+       an opaque elevated background keeps scrolling panels from bleeding through. */
     .board-bottombar {
       position: sticky; bottom: 0; z-index: 8;
       display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap;
-      margin-top: 12px; padding: 8px 14px;
-      border: 1px solid var(--cp-border); border-radius: 0.625rem;
-      background: var(--cp-panel-strong); backdrop-filter: blur(10px);
-      box-shadow: 0 -4px 14px rgba(0,0,0,0.07);
+      margin: 0; padding: 7px 12px;
+      border: 0; border-top: 1px solid var(--cp-border); border-radius: 0;
+      background: var(--cp-bg-elevated);
+      box-shadow: 0 -6px 12px -8px rgba(0,0,0,0.12);
     }
     .board-bottombar .bb-title {
       font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
@@ -2732,7 +2735,7 @@
     }
     .board-focus > .card:first-child { flex: 0 0 auto; margin-bottom: 12px; }
     .board-focus .board-canvas-scroll { height: auto !important; flex: 1 1 auto; min-height: 0; }
-    .board-focus .board-bottombar { flex: 0 0 auto; margin-top: 10px; }
+    .board-focus .board-bottombar { flex: 0 0 auto; margin-top: 0; }
     /* When Board AI is docked, reflow the focused board to the LEFT of the panel so the
        docked drawer sits beside it instead of covering the right edge (mirrors the
        body.ba-docked .app-shell padding the normal view uses). */

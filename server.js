@@ -6451,6 +6451,23 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
   const openChecklistItems = checklists.reduce((n, cl) => n + cl.items.filter(i => !i.done).length, 0);
 
+  // Fold in any Dev items (work item + PR + git worktree trackers). These represent
+  // active development work, so they belong in the briefing — show each one's work
+  // item / PR / worktree state and its AI status summary if present.
+  const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
+  if (devItems.length) {
+    const lines = devItems.map(d => {
+      const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
+      const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
+      const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
+      const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
+      const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
+      const sum = d.summary && d.summary.text ? '\n    summary: ' + clip(d.summary.text, 400) : '';
+      return `- "${clip(d.title || d.repo || 'Dev item', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
+    });
+    contextBlocks.push('### DEV ITEMS (active development — work item + PR + git worktree)\n' + lines.join('\n'));
+  }
+
   // Deterministic fallback used when the board is empty, has no usable context, or
   // the LLM call fails.
   const top = out.slice(0, 6).map(o => {
@@ -6460,13 +6477,14 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }).join('\n');
   const manualLine = [
     notes.length ? `${notes.length} note${notes.length === 1 ? '' : 's'}` : '',
-    checklists.length ? `${openChecklistItems} open checklist item${openChecklistItems === 1 ? '' : 's'}` : ''
+    checklists.length ? `${openChecklistItems} open checklist item${openChecklistItems === 1 ? '' : 's'}` : '',
+    devItems.length ? `${devItems.length} dev item${devItems.length === 1 ? '' : 's'}` : ''
   ].filter(Boolean).join(', ');
   let digest;
   if (out.length) {
     digest = `Here's where you left off across ${out.length} pinned item${out.length === 1 ? '' : 's'} on "${b.name}", most recent first:\n\n${top}`;
     if (manualLine) digest += `\n\nAlso on this board: ${manualLine}.`;
-  } else if (notes.length || checklists.length) {
+  } else if (notes.length || checklists.length || devItems.length) {
     digest = `Board "${b.name}" has no pinned operations yet, but you have ${manualLine} here.`;
   } else {
     digest = `Board "${b.name}" has no pinned items yet. Pin a CLI session, chat, task, flow, assignment, or agent to track it here.`;
@@ -6495,7 +6513,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
 
   const prompt = [
-    `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections. Checklist lines marked "[x]" are done and "[ ]" are still open.`,
+    `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections, and any DEV ITEMS (active development work — an Azure DevOps work item + pull request + git worktree, with a status summary). Checklist lines marked "[x]" are done and "[ ]" are still open.`,
     'Each pinned-item section is headed "### KIND: Name [source link: <route>]". The route after "source link:" is the primary source for everything in that section.',
     'Write a "Where was I?" briefing that reorients the user:',
     '- If a "SINCE LAST VIEWED" section is present, begin with one sentence highlighting what changed since the user last looked (call out any items marked ⚠ as needing attention).',
