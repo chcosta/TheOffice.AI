@@ -2730,11 +2730,22 @@
     .board-focus {
       position: fixed; inset: 0; z-index: 900;
       background: var(--cp-bg);
-      padding: 14px 18px;
+      /* No bottom padding: the docked bottombar provides its own edge and should sit
+         flush against the screen bottom (otherwise it reads as "floating" above a gap). */
+      padding: 14px 18px 0;
       display: flex; flex-direction: column; overflow: hidden;
     }
     .board-focus > .card:first-child { flex: 0 0 auto; margin-bottom: 12px; }
     .board-focus .board-canvas-scroll { height: auto !important; flex: 1 1 auto; min-height: 0; }
+    /* Tabbed view in focus mode: the canvas is a flex row that must NOT grow the page.
+       The base .board-tabbed rule sets overflow:visible (fine in the normal page-scroll
+       view), but in the fixed focus container that makes the detail content spill BELOW
+       the bottombar where it's clipped and unreachable. Pin the row to the available
+       height and scroll the detail column internally so the tab rail stays put and the
+       bottombar stays docked. */
+    .board-focus .board-canvas-scroll.board-tabbed { overflow: hidden; min-height: 0; }
+    .board-focus .board-canvas-scroll.board-tabbed .board-tab-col { overflow-y: auto; min-height: 0; padding-right: 4px; }
+    .board-focus .board-canvas-scroll.board-tabbed .board-tab-rail { max-height: 100%; }
     .board-focus .board-bottombar { flex: 0 0 auto; margin-top: 0; }
     /* When Board AI is docked, reflow the focused board to the LEFT of the panel so the
        docked drawer sits beside it instead of covering the right edge (mirrors the
