@@ -6022,12 +6022,16 @@
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
                                           <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
                                           <div style="display:flex;align-items:center;gap:8px">
-                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? 'Thinking…' : '↻ Refresh'"></button>
+                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
                                           </div>
                                         </div>
-                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
-                                        <div class="hint" x-show="!(d.summary && d.summary.text)" style="font-size:12px">No summary yet — click ↻ Refresh to have AI review the work item, PR and code diff.</div>
+                                        <div x-show="devBusy[d.id]==='summary'" class="hint" style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--cp-accent)">
+                                          <span class="ba-spinner"></span>
+                                          <span>AI is reviewing the work item, PR and code diff…</span>
+                                        </div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
+                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — click ↻ Refresh to have AI review the work item, PR and code diff.</div>
                                       </div>
                                     </div>
                                   </template>
