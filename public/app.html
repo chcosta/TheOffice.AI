@@ -2540,8 +2540,14 @@
     .board-canvas-scroll { overflow: auto; max-width: 100%; min-height: 300px; padding-bottom: 2px; }
     /* ----- Tabbed view ----- */
     .board-tab-col { display: contents; }
-    .board-canvas-scroll.board-tabbed { display: flex; flex-direction: row; align-items: stretch; gap: 14px; height: auto !important; overflow: visible; }
-    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 12px; }
+    /* The tabbed canvas is given an explicit pixel height (boardCanvasH, the same
+       viewport-anchored height pin view uses) so the page does NOT grow with the tab
+       content — instead the flex row clips and its children scroll internally. This
+       keeps the docked .board-bottombar flush at the bottom of the screen in normal
+       mode too (otherwise a tall detail column scrolls UNDER the sticky bar). */
+    .board-canvas-scroll.board-tabbed { display: flex; flex-direction: row; align-items: stretch; gap: 14px; overflow: hidden; min-height: 0; }
+    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow-y: auto; padding-right: 4px; }
+    .board-canvas-scroll.board-tabbed .board-tab-rail { max-height: 100%; }
     .board-canvas-scroll.board-tabbed .board-grid { position: relative; width: 100%; height: auto; transform: none !important; }
     .board-tab-rail {
       flex: 0 0 auto; width: 230px; max-height: 72vh;
@@ -5368,7 +5374,7 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" @mouseover="_onBoardTipOver($event)" @mouseout="_onBoardTipOut($event)" :style="(boardIsTabbed() ? '' : (boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '')) + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
+                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" @mouseover="_onBoardTipOver($event)" @mouseout="_onBoardTipOut($event)" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
                     <!-- Button tooltip (body-teleported, fixed-positioned) so it escapes the
                          panel body's overflow:auto clip box instead of getting cut off. -->
                     <template x-teleport="body">
@@ -15458,9 +15464,12 @@
           this._saveBoardCanvas();
           if (view === 'pin') {
             // Returning to pins: re-fit to this viewport once (geometry was untouched).
-            this.$nextTick(() => { this._syncBoardObserver && this._syncBoardObserver(); this.scheduleAutoFit && this.scheduleAutoFit(true); });
+            this.$nextTick(() => { this._syncBoardObserver && this._syncBoardObserver(); this.scheduleAutoFit && this.scheduleAutoFit(true); this._scheduleBoardCanvasH(); });
           } else {
-            this.$nextTick(() => { this._boardObserver && this._boardObserver.disconnect && this._boardObserver.disconnect(); });
+            // Tabbed view: the canvas is a fixed-height internal scroller (boardCanvasH),
+            // so re-measure its top (the briefing bar now sits above it) and disconnect the
+            // pin-view ResizeObserver.
+            this.$nextTick(() => { this._boardObserver && this._boardObserver.disconnect && this._boardObserver.disconnect(); this._scheduleBoardCanvasH(); });
           }
         },
         // All tab-able panels = every board panel except the summary ("Where was I?").
@@ -15500,6 +15509,9 @@
         toggleBoardBrief() {
           this.boardCanvas = { ...this.boardCanvas, briefOpen: !this.boardBriefOpen() };
           this._saveBoardCanvas();
+          // The briefing bar sits above the tabbed canvas; collapsing/expanding it changes
+          // the canvas top, so re-measure the fixed canvas height to keep the bar docked.
+          if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
         },
         // Returns the briefing delta a panel contributed (for the tab "contributed"
         // highlight), or null. Matches on kind + label/refId against summary.deltas[].
