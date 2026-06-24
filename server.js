@@ -6928,13 +6928,15 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   }
   // Optionally open the worktree against the linked PR's source branch instead of
   // the default dev branch. Resolve the PR branch server-side (don't trust an
-  // arbitrary client branch) and require the PR to be OPEN (active). PR-branch
-  // open only applies to the primary repo (the PR is tracked on the card).
+  // arbitrary client branch) and require the PR to be OPEN (active). PRs are now
+  // tracked per repo slot (primary at the top level, extras inside d.repos[]), so
+  // any slot with its own open PR can be opened against that PR branch.
   let branch = slot.branch;
-  if (req.body && req.body.source === 'pr' && slot.primary) {
-    let pr = d.pr;
-    if ((!pr || !pr.sourceBranch) && d.prId) {
-      try { pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch (e) { pr = null; }
+  if (req.body && req.body.source === 'pr') {
+    let pr = slot.primary ? d.pr : slot.pr;
+    const prId = slot.primary ? d.prId : slot.prId;
+    if ((!pr || !pr.sourceBranch) && prId) {
+      try { pr = await azdo.getPullRequest(slot.org, slot.project, slot.repo, prId); } catch (e) { pr = null; }
     }
     if (pr && pr.sourceBranch && String(pr.status || '').toLowerCase() === 'active') {
       branch = pr.sourceBranch;
@@ -6970,7 +6972,8 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
         if (after && after.dev && after.dev.devAgentName) {
           let wi = after.dev.workItem;
           try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi = await azdo.getWorkItem(after.dev.org, after.dev.project, after.dev.workItemId); } catch {}
-          _writeDevAgentFiles(after.dev, wi);
+          const written = _writeDevAgentFiles(after.dev, wi);
+          if (written) _persistDevAgentNames(after, written);
         }
       } catch {}
     } catch (e) {
@@ -6995,9 +6998,19 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   if (d.workItemId && d.org && d.project) {
     try { partial.workItem = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch (e) { partial.workItemError = (e && e.message) || 'work item failed'; }
   }
-  // Pull request.
+  // Pull request (primary repo — tracked at the top level).
   if (d.prId && d.org && d.project && d.repo) {
     try { partial.pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch (e) { partial.prError = (e && e.message) || 'PR failed'; }
+  }
+  // Extra repos: refresh each slot's git status + its own PR (PRs are per repo).
+  const extras = _devExtraRepos(d);
+  if (extras.length) {
+    partial.repos = await Promise.all(extras.map(async (r) => {
+      const out = { ...r };
+      if (r.worktreePath) { try { out.git = devitems.worktreeStatus(r.worktreePath, { baseBranch: r.baseBranch }); } catch {} }
+      if (r.prId && r.org && r.project && r.repo) { try { out.pr = await azdo.getPullRequest(r.org, r.project, r.repo, r.prId); } catch {} }
+      return out;
+    }));
   }
   const updated = ctx.save(partial);
   res.json({ ok: true, dev: updated });
@@ -7008,11 +7021,13 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
-  if (!d.worktreePath) return res.status(400).json({ error: 'No worktree to sync — create one first.' });
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const slot = _findRepoSlot(d, slotId);
+  if (!slot || !slot.worktreePath) return res.status(400).json({ error: 'No worktree to sync — create one first.' });
   let r;
-  try { r = devitems.syncWorktree(d.worktreePath, { baseBranch: d.baseBranch }); }
+  try { r = devitems.syncWorktree(slot.worktreePath, { baseBranch: slot.baseBranch }); }
   catch (e) { return res.status(500).json({ ok: false, error: (e && e.message) || 'Sync failed' }); }
-  const updated = ctx.save({ git: r.status || d.git });
+  const updated = _saveRepoSlot(ctx, slot.id, { git: r.status || slot.git });
   res.json({ ok: r.ok, message: r.message, dev: updated });
 });
 
@@ -7338,8 +7353,23 @@ app.post('/api/boards/:id/dev-items/:devId/links/delete', (req, res) => {
 // Build the Markdown for a dev card's `.agent.md` (frontmatter + persona). No
 // `tools:` key ⇒ the agent is unrestricted. The persona forbids the agent from
 // ever committing/pushing its own definition.
-function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath }) {
-  const desc = 'Focused dev agent' + (wi ? ` for work item #${wi.id}` : '') + (dev.repo ? ` in ${dev.repo}` : '');
+// Build a per-repo, human-readable dev-agent slug so you can tell which generated
+// agent belongs to which repo/worktree: `dev-<repo>-<workItemId>` (falls back to a
+// short dev-card id when there's no work item). Sanitized + lowercased.
+function _devAgentSlug(d, slot) {
+  const repoPart = String((slot && slot.repo) || d.repo || 'repo');
+  const idPart = d.workItemId ? String(d.workItemId) : String(d.id || '').replace(/[^A-Za-z0-9]+/g, '').slice(-6);
+  const raw = 'dev-' + repoPart + (idPart ? '-' + idPart : '');
+  return raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase() || 'dev-agent';
+}
+
+function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath, slot }) {
+  const repoOrg = (slot && slot.org) || dev.org;
+  const repoProj = (slot && slot.project) || dev.project;
+  const repoName = (slot && slot.repo) || dev.repo;
+  const repoBranch = (slot && slot.branch) || dev.branch;
+  const repoBase = (slot && slot.baseBranch) || dev.baseBranch;
+  const desc = 'Focused dev agent' + (wi ? ` for work item #${wi.id}` : '') + (repoName ? ` in ${repoName}` : '');
   const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
   const ctx = [];
   if (wi) {
@@ -7350,7 +7380,7 @@ function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath }) {
     ctx.push('');
   }
   ctx.push('## Repository');
-  ctx.push('- ' + [dev.org, dev.project, dev.repo].filter(Boolean).join(' / ') + (dev.branch ? `  (branch \`${dev.branch}\`, base \`${dev.baseBranch || 'main'}\`)` : ''));
+  ctx.push('- ' + [repoOrg, repoProj, repoName].filter(Boolean).join(' / ') + (repoBranch ? `  (branch \`${repoBranch}\`, base \`${repoBase || 'main'}\`)` : ''));
   ctx.push('');
   const ready = (slots || []).filter(s => s && s.worktreePath);
   if (ready.length > 1) {
@@ -7418,20 +7448,41 @@ You write **production-quality code**. This is non-negotiable:
 // Write the focused dev agent (with sibling-worktree awareness) into EVERY ready
 // worktree of a dev card, so whichever repo you open the agent from understands
 // the whole work item — and so adding a new worktree later refreshes the others.
-// Returns { slug, rel, slots } or null when no worktree is ready yet.
+// Each worktree gets a PER-REPO agent name (`dev-<repo>-<workItemId>`) so you can
+// tell which generated agent applies to which repo. Returns
+// { written:[{slotId, agentName, rel}], slug, rel, slots } or null when no worktree is ready.
 function _writeDevAgentFiles(d, wi) {
   const slots = _devRepoSlots(d).filter(s => s.worktreePath && fs.existsSync(s.worktreePath));
   if (!slots.length) return null;
-  const slug = ('dev-' + String(d.id).replace(/[^A-Za-z0-9._-]+/g, '-')).replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'dev-agent';
-  const rel = '.github/agents/' + slug + '.agent.md';
+  const written = [];
   for (const s of slots) {
+    const slug = _devAgentSlug(d, s);
+    const rel = '.github/agents/' + slug + '.agent.md';
     const agentsDir = path.join(s.worktreePath, '.github', 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
-    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi, slots, currentPath: s.worktreePath }));
+    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi, slots, currentPath: s.worktreePath, slot: s }));
     try { devitems.addGitExclude(s.worktreePath, rel); } catch {}
-    try { devitems.addGitExclude(s.worktreePath, 'dev-status-report.html'); } catch {}
+    written.push({ slotId: s.id, agentName: slug, rel });
   }
-  return { slug, rel, slots };
+  const primary = written.find(w => w.slotId === 'primary') || written[0];
+  return { written, slug: primary.agentName, rel: primary.rel, slots };
+}
+
+// Persist the per-slot agent names produced by _writeDevAgentFiles: the primary
+// repo's name goes to the top-level devAgentName/devAgentFile; each extra repo's
+// name goes onto its entry in d.repos[]. `extra` lets a caller fold in other fields
+// (e.g. a refreshed workItem) into the same single save. Returns the updated card.
+function _persistDevAgentNames(ctx, written, extra) {
+  if (!written || !written.written) return ctx.dev;
+  const map = {};
+  for (const w of written.written) map[w.slotId] = w;
+  const partial = Object.assign({}, extra || {});
+  if (map.primary) { partial.devAgentName = map.primary.agentName; partial.devAgentFile = map.primary.rel; }
+  partial.repos = _devExtraRepos(ctx.dev).map(r => {
+    const w = r && map[r.id];
+    return w ? { ...r, agentName: w.agentName, agentFile: w.rel } : r;
+  });
+  return ctx.save(partial);
 }
 
 // Create a focused dev agent for a dev card by writing a `.github/agents/<name>.agent.md`
@@ -7454,8 +7505,8 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
     return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) });
   }
   if (!written) return res.status(400).json({ error: 'Create a worktree first.' });
-  const updated = ctx.save({ devAgentName: written.slug, devAgentFile: written.rel, workItem: wi || d.workItem });
-  res.json({ ok: true, dev: updated, agentName: written.slug, agentFile: written.rel });
+  const updated = _persistDevAgentNames(ctx, written, { workItem: wi || d.workItem });
+  res.json({ ok: true, dev: updated, agentName: written.slug, agentFile: written.rel, agents: written.written });
 });
 
 // Best-effort extraction of a JSON object from an LLM reply (handles code
@@ -7476,30 +7527,35 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
-  if (d.prId) return res.status(400).json({ error: 'A pull request is already associated with this item.', dev: d });
-  if (!d.org || !d.project || !d.repo) return res.status(400).json({ error: 'Dev card is missing org/project/repo.' });
-  if (!d.worktreePath || !fs.existsSync(d.worktreePath)) return res.status(400).json({ error: 'Create a worktree first.' });
-  const base = (String(d.baseBranch || '').trim()) || 'main';
+  // PRs are per repo slot: the primary repo stores prId/pr at the top level; an
+  // extra repo stores them inside its d.repos[] entry. Default to the primary.
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const slot = _findRepoSlot(d, slotId);
+  if (!slot || !slot.org || !slot.project || !slot.repo) return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
+  const existingPrId = slot.primary ? d.prId : slot.prId;
+  if (existingPrId) return res.status(400).json({ error: 'A pull request is already associated with this repo.', dev: d });
+  if (!slot.worktreePath || !fs.existsSync(slot.worktreePath)) return res.status(400).json({ error: 'Create a worktree first.' });
+  const base = (String(slot.baseBranch || '').trim()) || 'main';
 
   // 1) Push the work branch to origin.
   let push;
-  try { push = devitems.pushBranch(d.worktreePath, { branch: d.branch }); }
+  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch }); }
   catch (e) { return res.status(500).json({ error: 'Failed to push branch: ' + ((e && e.message) || e) }); }
   if (!push.ok) return res.status(500).json({ error: 'Failed to push branch: ' + push.message });
-  const sourceBranch = push.branch || d.branch;
+  const sourceBranch = push.branch || slot.branch;
   if (!sourceBranch || sourceBranch === base) {
     return res.status(400).json({ error: 'The work branch is the same as the base branch — commit changes on a separate branch first.' });
   }
 
-  // 2) Gather context for the AI.
+  // 2) Gather context for the AI. The work item is shared across the whole card.
   let wi = d.workItem;
   try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
   let diff = '';
-  try { diff = devitems.diffSummary(d.worktreePath, { baseBranch: base }); } catch {}
+  try { diff = devitems.diffSummary(slot.worktreePath, { baseBranch: base }); } catch {}
 
   // 3) AI-generate {title, description}.
   const ctxLines = [];
-  ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}`);
+  ctxLines.push(`Repo: ${slot.org}/${slot.project}/${slot.repo}`);
   ctxLines.push(`Source branch: ${sourceBranch}  →  target: ${base}`);
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}`);
   if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 6000)); }
@@ -7526,10 +7582,10 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     description = (description ? description + '\n\n' : '') + 'Related work item: #' + d.workItemId;
   }
 
-  // 4) Open the PR (links the work item best-effort).
+  // 4) Open the PR on this slot's repo (links the work item best-effort).
   let pr;
   try {
-    pr = await azdo.createPullRequest(d.org, d.project, d.repo, {
+    pr = await azdo.createPullRequest(slot.org, slot.project, slot.repo, {
       sourceBranch, targetBranch: base, title, description, workItemId: d.workItemId || null
     });
   } catch (e) {
@@ -7538,13 +7594,15 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
 
   // 5) Persist on the dev card.
   let prFull = null;
-  try { prFull = await azdo.getPullRequest(d.org, d.project, d.repo, pr.pullRequestId); } catch {}
+  try { prFull = await azdo.getPullRequest(slot.org, slot.project, slot.repo, pr.pullRequestId); } catch {}
 
-  // 6) Best-effort: move the linked work item into the "In PR" state. A failed
-  //    transition (invalid state for the work-item type, permissions, etc.) must
-  //    never fail the PR creation that already succeeded.
+  // 6) Best-effort: move the linked work item into the "In PR" state — but only on
+  //    the FIRST PR across all repos (the work item is shared by the whole card, so
+  //    later per-repo PRs must not re-transition it). A failed transition (invalid
+  //    state for the work-item type, permissions, etc.) must never fail the PR.
   let stateWarning = null;
-  if (wi && d.workItemId) {
+  const hadPrAlready = _devRepoSlots(d).some(s => (s.primary ? d.prId : s.prId));
+  if (wi && d.workItemId && !hadPrAlready) {
     try {
       const moved = await azdo.updateWorkItemState(d.org, d.project, d.workItemId, 'In PR');
       wi = moved;
@@ -7553,8 +7611,20 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     }
   }
 
-  const updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem });
-  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, stateWarning });
+  // 7) Persist prId/pr onto the right slot. The primary repo writes top-level
+  //    fields; an extra repo writes into its d.repos[] entry. A first-PR work-item
+  //    transition is a card-level (top-level) change either way.
+  let updated;
+  if (slot.primary) {
+    updated = ctx.save({ prId: String(pr.pullRequestId), pr: prFull, workItem: wi || d.workItem });
+  } else {
+    const repos = _devExtraRepos(ctx.dev).map(r => (r && r.id === slot.id)
+      ? { ...r, prId: String(pr.pullRequestId), pr: prFull } : r);
+    const topSave = { repos };
+    if (wi && !hadPrAlready) topSave.workItem = wi;
+    updated = ctx.save(topSave);
+  }
+  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, repoId: slot.id, stateWarning });
 });
 
 // ============================================================================

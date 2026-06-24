@@ -6047,7 +6047,7 @@
                                         <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                       </div>
 
-                                      <!-- Work item + PR link row -->
+                                      <!-- Work item link row (the work item is shared by the whole card; PRs are per repo, shown in the Repos box below) -->
                                       <div style="display:flex;flex-wrap:wrap;gap:8px">
                                         <template x-if="d.workItemId">
                                           <a class="pill" :href="devWorkItemUrl(d)" target="_blank" rel="noopener" style="font-size:11px;text-decoration:none" :title="d.workItem ? (d.workItem.type + ': ' + d.workItem.title) : 'Open work item'">
@@ -6055,73 +6055,10 @@
                                             <span x-show="d.workItem && d.workItem.state" x-text="' · ' + (d.workItem ? d.workItem.state : '')"></span>
                                           </a>
                                         </template>
-                                        <template x-if="d.prId">
-                                          <a class="pill" :href="devPrUrl(d)" target="_blank" rel="noopener" :style="'font-size:11px;text-decoration:none;' + (d.pr && d.pr.status==='active' ? '' : '')" :title="d.pr ? d.pr.title : 'Open pull request'">
-                                            <span x-text="'🔀 !' + d.prId"></span>
-                                            <span x-show="d.pr && d.pr.status" x-text="' · ' + (d.pr ? (d.pr.isDraft ? 'draft' : d.pr.status) : '')"></span>
-                                          </a>
-                                        </template>
                                         <span class="hint" x-show="!d.workItemId && !d.prId" style="font-size:11px">No work item / PR linked — ✎ to add.</span>
                                       </div>
 
-                                      <!-- Worktree status + git badge + sync -->
-                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
-                                        <template x-if="!d.worktreePath && d.worktreeStatus !== 'creating'">
-                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                            <span class="hint" style="font-size:11px">No worktree yet.</span>
-                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                              <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d)" :title="'Open against the default branch (' + (d.branch || 'dev branch') + ')'" x-text="devBusy[d.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
-                                              <template x-if="devPrBranchAvailable(d)">
-                                                <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d,'pr')" :title="'Open against the PR branch (' + d.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
-                                              </template>
-                                            </div>
-                                          </div>
-                                        </template>
-                                        <template x-if="d.worktreeStatus === 'creating'">
-                                          <div class="hint" style="font-size:11px">🌱 Creating worktree… (clone may take a moment)</div>
-                                        </template>
-                                        <template x-if="d.worktreeStatus === 'error'">
-                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                            <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (d.worktreeError || 'Worktree failed')"></span>
-                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d)">↻ Retry</button>
-                                          </div>
-                                        </template>
-                                        <template x-if="d.worktreePath && d.worktreeStatus !== 'creating'">
-                                          <div style="display:flex;flex-direction:column;gap:6px">
-                                            <template x-if="devNeedsCleanup(d)">
-                                              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:6px;padding:6px 8px">
-                                                <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — this worktree can be cleaned up.'"></span>
-                                                <button class="btn" type="button" style="font-size:11px;padding:2px 8px" :class="devGitBadge(d).attention ? 'danger' : 'primary'" :disabled="devBusy[d.id]==='cleanup'" @click="cleanupDevWorktree(d)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
-                                              </div>
-                                            </template>
-                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                              <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(d).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(d).text" :title="devGitBadge(d).title"></span>
-                                              <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='sync'" @click="syncDevItem(d)" :title="'Fetch and fast-forward ' + (d.branch||'branch') + ' from origin'" x-text="devBusy[d.id]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
-                                            </div>
-                                            <div class="hint" style="font-size:10px;word-break:break-all;opacity:.7" x-text="d.worktreePath"></div>
-                                            <div style="display:flex;flex-wrap:wrap;gap:6px">
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code stable)" @click="openDevItem(d,'editor')">🔵 VS Code</button>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree" @click="openDevItem(d,'cli')">🤖 CLI</button>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="openDevItem(d,'explorer')">📁 Folder</button>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a VS Code window with the branch's diff vs the default branch" :disabled="devBusy[d.id]==='diff'" @click="openDevItem(d,'diff')" x-text="devBusy[d.id]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
-                                            </div>
-                                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-                                              <template x-if="!d.devAgentName">
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='agent'" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into the worktree so VS Code / Copilot can use it (and the CLI auto-selects it)" x-text="devBusy[d.id]==='agent' ? 'Creating agent…' : '🤖 Create dev agent'"></button>
-                                              </template>
-                                              <template x-if="d.devAgentName">
-                                                <span class="status-badge" style="font-size:0.7rem" :title="'Dev agent: ' + (d.devAgentName||'') + ' — available in VS Code / Copilot; auto-selected when opening the CLI'">🤖 Dev agent ready</span>
-                                              </template>
-                                              <template x-if="!d.prId">
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='pr'" @click="createDevPr(d)" title="Push the branch and have AI open a nicely-formatted pull request linked to this dev card" x-text="devBusy[d.id]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
-                                              </template>
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='cleanup'" @click="cleanupDevWorktree(d)" title="Remove the local git worktree from disk (keeps the dev card, work item and PR links on the board)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up worktree'"></button>
-                                            </div>
-                                          </div>
-                                        </template>
-                                      </div>
-
-                                      <!-- Additional repositories (one work item spanning multiple repos) -->
+                                      <!-- Repos: primary + extra worktrees (one work item spanning one or more repos) -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                           <span style="font-weight:600;font-size:13.5px">🗃 Repos</span>
@@ -6132,36 +6069,78 @@
                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevRepoDraft(d)" x-text="(devRepoDraft[d.id] && devRepoDraft[d.id].open) ? 'Cancel' : '＋ Add repo'"></button>
                                           </div>
                                         </div>
-                                        <div class="hint" style="font-size:11px" x-text="'• ' + (d.repo || '—') + ' (primary' + (d.worktreePath ? ', worktree ready' : ', no worktree') + ')'"></div>
-                                        <template x-for="r in (d.repos || [])" :key="r.id">
-                                          <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:6px">
-                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                              <span style="font-size:11.5px;font-weight:600" x-text="r.repo + '  ' + (r.branch ? '(' + r.branch + ')' : '')"></span>
-                                              <button class="board-act" type="button" data-tip="Remove this repo from the dev card (and clean up its worktree)" @click="removeDevRepo(d, r)">✕</button>
-                                            </div>
-                                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                                              <template x-if="!r.worktreePath && r.worktreeStatus !== 'creating'">
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id+'#'+r.id]==='worktree'" @click="createDevSlotWorktree(d, r)" x-text="devBusy[d.id+'#'+r.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
-                                              </template>
-                                              <template x-if="r.worktreeStatus === 'creating'">
-                                                <span class="hint" style="font-size:11px">🌱 Creating worktree…</span>
-                                              </template>
-                                              <template x-if="r.worktreeStatus === 'error'">
-                                                <span style="display:inline-flex;align-items:center;gap:6px">
-                                                  <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (r.worktreeError || 'Worktree failed')"></span>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id+'#'+r.id]==='worktree'" @click="createDevSlotWorktree(d, r)">↻ Retry</button>
-                                                </span>
-                                              </template>
-                                              <template x-if="r.worktreePath && r.worktreeStatus !== 'creating'">
-                                                <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open this repo's worktree in VS Code" @click="openDevSlot(d, r, 'editor')">🔵 VS Code</button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open this repo's worktree folder" @click="openDevSlot(d, r, 'explorer')">📁 Folder</button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id+'#'+r.id]==='cleanup'" @click="cleanupDevSlot(d, r)" x-text="devBusy[d.id+'#'+r.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean'"></button>
-                                                </span>
-                                              </template>
-                                            </div>
+
+                                        <!-- Work item done → offer to clean up worktrees (shown once at card level) -->
+                                        <template x-if="devNeedsCleanup(d)">
+                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--cp-warning);background:var(--cp-accent-soft);border-radius:6px;padding:6px 8px">
+                                            <span class="hint" style="font-size:11px;color:var(--cp-text)" x-text="'🧹 Work item is ' + ((d.workItem && d.workItem.state) || 'done') + ' — worktrees can be cleaned up.'"></span>
+                                            <button class="btn" type="button" style="font-size:11px;padding:2px 8px" :class="devGitBadge(d).attention ? 'danger' : 'primary'" :disabled="devBusy[d.id]==='cleanup'" @click="cleanupDevWorktree(d)" x-text="devBusy[d.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean up primary worktree'"></button>
                                           </div>
                                         </template>
+
+                                        <!-- One identical lifecycle block per repo slot (primary first, then extras) -->
+                                        <template x-for="s in devSlots(d)" :key="s.id">
+                                          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                              <span style="font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px">
+                                                <span x-text="s.repo + (s.branch ? '  (' + s.branch + ')' : '')"></span>
+                                                <span x-show="s.primary" class="status-badge" style="font-size:0.6rem;opacity:.75">primary</span>
+                                              </span>
+                                              <div style="display:flex;align-items:center;gap:6px">
+                                                <a x-show="s.prId" class="status-badge" :href="devPrUrl(s)" target="_blank" rel="noopener" @click.stop style="font-size:0.6rem;text-decoration:none" :title="s.pr ? s.pr.title : 'Open pull request'"><span x-text="'🔀 !' + s.prId"></span><span x-show="s.pr && s.pr.status" x-text="' · ' + (s.pr ? (s.pr.isDraft ? 'draft' : s.pr.status) : '')"></span></a>
+                                                <span x-show="s.agentName" class="status-badge" style="font-size:0.6rem" :title="'Dev agent: ' + s.agentName + ' — selectable in VS Code / Copilot; auto-selected when opening the CLI'" x-text="'🤖 ' + s.agentName"></span>
+                                                <button x-show="!s.primary" class="board-act" type="button" data-tip="Remove this repo from the dev card (and clean up its worktree)" @click="removeDevRepo(d, s)">✕</button>
+                                              </div>
+                                            </div>
+                                            <template x-if="!s.worktreePath && s.worktreeStatus !== 'creating' && s.worktreeStatus !== 'error'">
+                                              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                                <span class="hint" style="font-size:11px">No worktree yet.</span>
+                                                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s)" :title="'Open against the default branch (' + (s.branch || 'dev branch') + ')'" x-text="devBusy[slotBusyKey(d,s)]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                                  <template x-if="slotPrBranchAvailable(d,s)">
+                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s,'pr')" :title="'Open against the PR branch (' + s.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
+                                                  </template>
+                                                </div>
+                                              </div>
+                                            </template>
+                                            <template x-if="s.worktreeStatus === 'creating'">
+                                              <div class="hint" style="font-size:11px">🌱 Creating worktree… (clone may take a moment)</div>
+                                            </template>
+                                            <template x-if="s.worktreeStatus === 'error'">
+                                              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                                <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (s.worktreeError || 'Worktree failed')"></span>
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s)">↻ Retry</button>
+                                              </div>
+                                            </template>
+                                            <template x-if="s.worktreePath && s.worktreeStatus !== 'creating'">
+                                              <div style="display:flex;flex-direction:column;gap:6px">
+                                                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                                  <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(s).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(s).text" :title="devGitBadge(s).title"></span>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
+                                                </div>
+                                                <div class="hint" style="font-size:10px;word-break:break-all;opacity:.7" x-text="s.worktreePath"></div>
+                                                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code stable)" @click="slotOpen(d,s,'editor')">🔵 VS Code</button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree (auto-selects this repo's dev agent)" @click="slotOpen(d,s,'cli')">🤖 CLI</button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="slotOpen(d,s,'explorer')">📁 Folder</button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? 'Cleaning…' : '🧹 Clean'"></button>
+                                                  <button x-show="!s.prId" class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
+                                                </div>
+                                              </div>
+                                            </template>
+                                          </div>
+                                        </template>
+
+                                        <!-- Card-level actions: write per-repo dev agents into every worktree. PRs are created per repo (in each slot above). -->
+                                        <div x-show="devReadyWorktrees(d) >= 1" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px dashed var(--cp-border);padding-top:8px">
+                                          <template x-if="!d.devAgentName">
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='agent'" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into every ready worktree — each repo gets its own named agent (selectable in VS Code / Copilot; auto-selected in the CLI)" x-text="devBusy[d.id]==='agent' ? 'Creating agents…' : '🤖 Create dev agents'"></button>
+                                          </template>
+                                          <template x-if="d.devAgentName">
+                                            <span class="status-badge" style="font-size:0.7rem" title="Per-repo dev agents written — each worktree has its own named agent, selectable in VS Code / Copilot and auto-selected when opening the CLI">🤖 Dev agents ready</span>
+                                          </template>
+                                        </div>
                                         <template x-if="devRepoDraft[d.id] && devRepoDraft[d.id].open">
                                           <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:6px">
                                             <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -19103,9 +19082,9 @@
         // CLI auto-selects it). The file is git-excluded so it never lands in a commit/PR.
         async createDevAgent(d) {
           if (!d || this.devBusy[d.id]) return;
-          if (!d.worktreePath) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
+          if (this.devReadyWorktrees(d) < 1) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
           this.devBusy[d.id] = 'agent';
-          this.showToast('Dev card', '🤖 Creating a focused dev agent for this worktree…', 'info');
+          this.showToast('Dev card', '🤖 Creating focused dev agents for each worktree…', 'info');
           try {
             const r = await this.request(this._devUrl(d, 'dev-agent'), { method: 'POST', body: '{}' });
             if (r && r.dev) {
@@ -19216,6 +19195,78 @@
           }
         },
         // ----- Multi-repo (one work item spanning several repos) -----
+        // Unified repo "slots" (primary + extras) mirroring the server _devRepoSlots,
+        // so the dev card renders identical lifecycle controls per repo/worktree.
+        devSlots(d) {
+          const slots = [];
+          if (d && d.org && d.project && d.repo) {
+            slots.push({
+              id: 'primary', primary: true, org: d.org, project: d.project, repo: d.repo,
+              branch: d.branch, baseBranch: d.baseBranch,
+              worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
+              worktreeError: d.worktreeError || null, git: d.git || null,
+              agentName: d.devAgentName || '', prId: d.prId || '', pr: d.pr || null
+            });
+          }
+          for (const r of ((d && d.repos) || [])) if (r && r.id) slots.push({ ...r, primary: false, agentName: r.agentName || '', prId: r.prId || '', pr: r.pr || null });
+          return slots;
+        },
+        // The devBusy key for a slot: the card id for the primary, a composite for extras.
+        slotBusyKey(d, s) { return (s && s.primary) ? d.id : d.id + '#' + (s && s.id); },
+        // Per-slot dispatchers: route to the primary helper or the extra-repo equivalent.
+        slotCreateWorktree(d, s, source) { return (s && s.primary) ? this.createDevWorktree(d, source) : this.createDevSlotWorktree(d, s); },
+        slotOpen(d, s, target) { return (s && s.primary) ? this.openDevItem(d, target) : this.openDevSlot(d, s, target); },
+        slotSync(d, s) { return (s && s.primary) ? this.syncDevItem(d) : this.syncDevSlot(d, s); },
+        slotCleanup(d, s) { return (s && s.primary) ? this.cleanupDevWorktree(d) : this.cleanupDevSlot(d, s); },
+        slotCreatePr(d, s) { return (s && s.primary) ? this.createDevPr(d) : this.createDevSlotPr(d, s); },
+        // True when a slot has an OPEN PR whose source branch differs from its dev
+        // branch — i.e. there's a distinct PR branch to open a worktree against.
+        slotPrBranchAvailable(d, s) {
+          const pr = s && s.pr;
+          if (!pr || pr.status !== 'active' || !pr.sourceBranch) return false;
+          const norm = (b) => String(b || '').replace('refs/heads/', '');
+          return norm(pr.sourceBranch) !== norm(s.branch);
+        },
+        // Create a PR for an extra repo slot (slot-aware /pr via repoId).
+        async createDevSlotPr(d, s) {
+          if (!d || !s) return;
+          const key = d.id + '#' + s.id;
+          if (this.devBusy[key]) return;
+          if (!s.worktreePath) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
+          if (s.prId) { this.showToast('Dev card', 'A PR already exists for ' + s.repo + '.', 'info'); return; }
+          this.devBusy[key] = 'pr';
+          this.showToast('Dev card', '🔀 Pushing ' + s.repo + ' and drafting a pull request with AI…', 'info');
+          try {
+            const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: JSON.stringify({ repoId: s.id }) });
+            if (r && r.dev) {
+              this._applyDevUpdate(d.id, r.dev);
+              this.showToast('Dev card', '🔀 Pull request created for ' + s.repo + '.', 'success');
+              if (r.stateWarning) this.showToast('Dev card', r.stateWarning, 'warning');
+            } else {
+              this.showToast('Dev card', 'PR creation returned no result — try again.', 'error');
+            }
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Create PR failed', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        // Sync an extra repo's worktree (slot-aware /sync via repoId).
+        async syncDevSlot(d, s) {
+          if (!d || !s) return;
+          const key = d.id + '#' + s.id;
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'sync';
+          try {
+            const r = await this.request(this._devUrl(d, 'sync'), { method: 'POST', body: JSON.stringify({ repoId: s.id }) });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            if (r && r.message) this.showToast('Sync', r.message, r.ok ? 'success' : 'error');
+          } catch (e) {
+            this.showToast('Dev card', e.message, 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
         // Count repo slots (primary + extras) that have a ready worktree on disk.
         devReadyWorktrees(d) {
           if (!d) return 0;
@@ -19371,12 +19422,21 @@
         },
         async openDevSlot(d, r, target) {
           if (!r || !r.worktreePath) { this.showToast('Dev card', 'No worktree to open — create one first.', 'error'); return; }
+          const key = d.id + '#' + r.id;
+          if (target === 'diff') this.devBusy[key] = 'diff';
           try {
             const body = { path: r.worktreePath, target };
-            if (target === 'cli' && d && d.devAgentName) body.agent = d.devAgentName;
-            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
+            // Each worktree has its own named dev agent — auto-select it in the CLI.
+            if (target === 'cli' && r.agentName) body.agent = r.agentName;
+            const resp = await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
+            if (target === 'diff') {
+              if (resp && resp.empty) this.showToast('Diff', 'No changes vs ' + (resp.base || 'base') + ' yet.', 'info');
+              else this.showToast('Diff', 'Opened ' + (resp.files || 0) + ' file diff' + (resp.files === 1 ? '' : 's') + ' vs ' + ((resp && resp.base) || 'base') + ' in VS Code' + (resp.truncated ? ' (first ' + resp.files + ' of ' + resp.total + ')' : '') + '.', 'success');
+            }
           } catch (e) {
-            this.showToast('Open', (e && e.message) || 'Could not open', 'error');
+            this.showToast(target === 'diff' ? 'Diff' : 'Open', (e && e.message) || 'Could not open', 'error');
+          } finally {
+            if (target === 'diff') delete this.devBusy[key];
           }
         },
         async cleanupDevSlot(d, r) {
