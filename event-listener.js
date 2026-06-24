@@ -8,7 +8,7 @@ const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 
-const CONFIG_FILE = path.join(__dirname, 'events-config.json');
+const CONFIG_FILE = require('./data-paths').dataPath('events-config.json');
 
 /**
  * Event Listener — Service Bus consumer that routes external messages

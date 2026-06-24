@@ -6,8 +6,9 @@ const os = require('os');
 const crypto = require('crypto');
 const { BlobServiceClient } = require('@azure/storage-blob');
 const { DefaultAzureCredential } = require('@azure/identity');
+const { DATA_DIR, dataPath } = require('./data-paths');
 
-const SYNC_CONFIG_PATH = path.join(__dirname, 'sync-config.json');
+const SYNC_CONFIG_PATH = dataPath('sync-config.json');
 const LEADER_BLOB = '_leader.json';
 const MANIFEST_BLOB = '_manifest.json';
 const INSTANCE_PREFIX = '_instances/'; // presence registry: one blob per running instance
@@ -34,9 +35,8 @@ const MACHINES_PREFIX = 'machines/';
 
 // Synced directories (plugins, mcp-configs) are per-user runtime data, NOT repo
 // source. They live under the user profile and are still cloud-synced across
-// machines. Overridable via SUPERVISOR_DATA_DIR.
-const SUPERVISOR_DATA_DIR = process.env.SUPERVISOR_DATA_DIR
-  || path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'agent-supervisor');
+// machines. Overridable via SUPERVISOR_DATA_DIR (resolved in data-paths.js).
+const SUPERVISOR_DATA_DIR = DATA_DIR;
 const PLUGINS_DIR = path.join(SUPERVISOR_DATA_DIR, 'plugins');
 
 // Map a synced dir name to its on-disk location under the runtime data dir.
@@ -650,7 +650,7 @@ class ConfigSync {
   _captureLocalOwnedData() {
     const out = { users: null, connectedAssets: null, agentMeta: {}, collections: {} };
     try {
-      const evPath = path.join(__dirname, 'events-config.json');
+      const evPath = dataPath('events-config.json');
       if (fs.existsSync(evPath)) {
         const ev = JSON.parse(fs.readFileSync(evPath, 'utf-8'));
         if (Array.isArray(ev.users)) out.users = ev.users;
@@ -666,7 +666,7 @@ class ConfigSync {
     // anything the user just deleted is already absent and is not resurrected.
     for (const fileName of CONFIGSYNC_COLLECTION_FILES) {
       try {
-        const p = path.join(__dirname, fileName);
+        const p = dataPath(fileName);
         if (!fs.existsSync(p)) continue;
         const arr = JSON.parse(fs.readFileSync(p, 'utf-8'));
         if (Array.isArray(arr)) out.collections[fileName] = arr.filter(x => x && x.id != null);
@@ -692,7 +692,7 @@ class ConfigSync {
     if (!preserved) return;
     // events-config.json — union users + connectedAssets (local wins)
     try {
-      const evPath = path.join(__dirname, 'events-config.json');
+      const evPath = dataPath('events-config.json');
       if (fs.existsSync(evPath)) {
         const ev = JSON.parse(fs.readFileSync(evPath, 'utf-8'));
         let changed = false;
@@ -727,7 +727,7 @@ class ConfigSync {
     for (const fileName of CONFIGSYNC_COLLECTION_FILES) {
       try {
         const localArr = preserved.collections ? preserved.collections[fileName] : null;
-        const p = path.join(__dirname, fileName);
+        const p = dataPath(fileName);
         if (!fs.existsSync(p)) continue;
         const arr = JSON.parse(fs.readFileSync(p, 'utf-8'));
         if (!Array.isArray(arr)) continue;
@@ -788,7 +788,7 @@ class ConfigSync {
           const blob = this._containerClient.getBlockBlobClient(`${prefix}${fileName}`);
           const dl = await blob.download(0);
           const content = await this._streamToString(dl.readableStreamBody);
-          const destPath = path.join(__dirname, fileName);
+          const destPath = dataPath(fileName);
           fs.writeFileSync(destPath, content);
         } catch (err) {
           if (err.statusCode !== 404) console.warn(`[config-sync] Failed to pull ${fileName}:`, err.message);
@@ -831,7 +831,7 @@ class ConfigSync {
     const snapshot = {};
     // Synced JSON files (raw — no path rewriting; configs are machine-local)
     for (const fileName of SYNCED_FILES) {
-      const filePath = path.join(__dirname, fileName);
+      const filePath = dataPath(fileName);
       if (fs.existsSync(filePath)) {
         snapshot[fileName] = fs.readFileSync(filePath, 'utf-8');
       }
@@ -854,7 +854,7 @@ class ConfigSync {
    */
   _buildProfileCatalog() {
     const readJson = (f) => {
-      try { return JSON.parse(fs.readFileSync(path.join(__dirname, f), 'utf-8')); } catch { return null; }
+      try { return JSON.parse(fs.readFileSync(dataPath(f), 'utf-8')); } catch { return null; }
     };
     const agents = Array.isArray(readJson('agents.json')) ? readJson('agents.json') : [];
     const managers = Array.isArray(readJson('managers.json')) ? readJson('managers.json') : [];
@@ -905,10 +905,10 @@ class ConfigSync {
   }
 
   _backupLocal() {
-    const backupDir = path.join(__dirname, '.config-backup');
+    const backupDir = dataPath('.config-backup');
     fs.mkdirSync(backupDir, { recursive: true });
     for (const fileName of SYNCED_FILES) {
-      const src = path.join(__dirname, fileName);
+      const src = dataPath(fileName);
       if (fs.existsSync(src)) {
         fs.copyFileSync(src, path.join(backupDir, fileName));
       }

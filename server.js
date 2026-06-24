@@ -4,6 +4,7 @@ const fs = require('fs');
 const yazl = require('yazl');
 const yauzl = require('yauzl');
 const multer = require('multer');
+const { dataPath } = require('./data-paths');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
 const ManagerAgent = require('./manager');
@@ -51,18 +52,24 @@ const BUILTIN_PLUGINS_DIR = path.join(__dirname, 'builtin-plugins');
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
 const PORT = process.env.PORT || 3847;
-const DB_PATH = path.join(__dirname, 'supervisor.db');
-const AGENTS_PATH = path.join(__dirname, 'agents.json');
-const MANAGERS_PATH = path.join(__dirname, 'managers.json');
-const TASKS_PATH = path.join(__dirname, 'tasks.json');
-const TEAMS_PATH = path.join(__dirname, 'teams.json');
-const LEGACY_ORGANIZATIONS_PATH = path.join(__dirname, 'organizations.json');
-const BOARDS_PATH = path.join(__dirname, 'boards.json');
-const INSIGHTS_PATH = path.join(__dirname, 'insights.json');
+const DB_PATH = dataPath('supervisor.db');
+const AGENTS_PATH = dataPath('agents.json');
+const MANAGERS_PATH = dataPath('managers.json');
+const TASKS_PATH = dataPath('tasks.json');
+const TEAMS_PATH = dataPath('teams.json');
+const LEGACY_ORGANIZATIONS_PATH = dataPath('organizations.json');
+const BOARDS_PATH = dataPath('boards.json');
+const INSIGHTS_PATH = dataPath('insights.json');
 
 // Ensure tasks.json exists
 if (!fs.existsSync(TASKS_PATH)) {
   fs.writeFileSync(TASKS_PATH, '[]');
+}
+
+// Ensure agents.json exists (it no longer ships in the repo — it is per-user
+// runtime data under the profile dir). loadAgents()/fs.watch read it unguarded.
+if (!fs.existsSync(AGENTS_PATH)) {
+  fs.writeFileSync(AGENTS_PATH, '[]');
 }
 
 // One-time migration: "Organizations" were renamed to "Teams". Rename the data
@@ -81,7 +88,7 @@ if (!fs.existsSync(TASKS_PATH)) {
     }
     const sweepKey = (file, fn) => {
       try {
-        const p = path.join(__dirname, file);
+        const p = dataPath(file);
         if (!fs.existsSync(p)) return;
         const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
         if (!Array.isArray(data)) return;
@@ -4403,7 +4410,7 @@ app.get('/api/export', (req, res) => {
   }
 
   // events-config.json
-  const eventsConfigPath = path.join(__dirname, 'events-config.json');
+  const eventsConfigPath = dataPath('events-config.json');
   if (fs.existsSync(eventsConfigPath)) {
     zip.addFile(eventsConfigPath, 'events-config.json');
   }
@@ -4531,7 +4538,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
 
     // Import events-config.json
     if (entries['events-config.json']) {
-      const eventsPath = path.join(__dirname, 'events-config.json');
+      const eventsPath = dataPath('events-config.json');
       fs.writeFileSync(eventsPath, entries['events-config.json'].toString());
       results.imported.push('events-config.json imported');
     }
@@ -8482,7 +8489,7 @@ app.post('/api/manager-template-assistant/chat', async (req, res) => {
 // tasks and flows. Suggestions are ephemeral (generated on demand) unless the
 // user pins them; pinned ones persist in suggestions.json. Users can try-run a
 // suggestion (ephemeral, nothing saved) or "save" it into the real Tasks/Flows.
-const SUGGESTIONS_PATH = path.join(__dirname, 'suggestions.json');
+const SUGGESTIONS_PATH = dataPath('suggestions.json');
 function loadPinnedSuggestions() {
   try { return JSON.parse(fs.readFileSync(SUGGESTIONS_PATH, 'utf-8')); }
   catch { return []; }
@@ -8493,7 +8500,7 @@ function savePinnedSuggestions(list) {
 }
 // Last-generated (unpinned) suggestion set, so the Design-with-AI page can show
 // the most recent ideas on revisit/reload instead of regenerating every time.
-const LATEST_SUGGESTIONS_PATH = path.join(__dirname, 'suggestions-latest.json');
+const LATEST_SUGGESTIONS_PATH = dataPath('suggestions-latest.json');
 function loadLatestSuggestions() {
   try { return JSON.parse(fs.readFileSync(LATEST_SUGGESTIONS_PATH, 'utf-8')); }
   catch { return null; }
@@ -8815,7 +8822,7 @@ app.get('/api/execution-suggestions/run/:runId', (req, res) => {
 
 
 // ============ Chat Persistence API ============
-const CHATS_DIR = path.join(__dirname, 'chats');
+const CHATS_DIR = dataPath('chats');
 if (!fs.existsSync(CHATS_DIR)) fs.mkdirSync(CHATS_DIR, { recursive: true });
 
 app.get('/api/chats', (req, res) => {

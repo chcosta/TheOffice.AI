@@ -12,6 +12,16 @@ A guided tour of TheOffice.AI — agents, managers, an always-on AI briefing, an
 
 ▶ **[Watch the full 4½-minute narrated demo, with audio](docs/theoffice-ai-demo.mp4)** — opens an inline player right here on GitHub, no download required.
 
+## 📸 Screenshots
+
+**Board — Pin view (focus mode):** a free-form, spatial workspace. Pin sessions, chats, tasks, agents, notes, and live **dev cards**; an always-on AI **Briefing** keeps you oriented on where you left off.
+
+![Board pin view](docs/board-pin-view.webp)
+
+**Board — Tabbed view:** the same pinned items rendered as a compact tab rail with a focused detail pane, with the Briefing surfacing deltas since you last looked.
+
+![Board tabbed view](docs/board-tabbed-view.webp)
+
 ## Highlights
 
 - 🤖 **Manager Orchestration** — AI-powered managers coordinate multiple agents, analyzing output and routing work

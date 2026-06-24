@@ -20,7 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SETTINGS_PATH = path.join(__dirname, 'settings.json');
+const SETTINGS_PATH = require('./data-paths').dataPath('settings.json');
 
 const DEFAULTS = {
   chatModel: '',

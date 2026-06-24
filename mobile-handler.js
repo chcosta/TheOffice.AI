@@ -217,8 +217,9 @@ class MobileHandler extends EventEmitter {
 
   _loadTeams() {
     try {
-      let p = path.join(__dirname, 'teams.json');
-      if (!fs.existsSync(p)) p = path.join(__dirname, 'organizations.json');
+      const { dataPath } = require('./data-paths');
+      let p = dataPath('teams.json');
+      if (!fs.existsSync(p)) p = dataPath('organizations.json');
       if (!fs.existsSync(p)) return [];
       const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
       return Array.isArray(data) ? data : [];

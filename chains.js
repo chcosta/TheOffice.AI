@@ -23,7 +23,7 @@ const { parseSchedule } = require('./scheduler');
 const sdkRunner = require('./sdk-runner');
 const settings = require('./settings');
 
-const CHAINS_PATH = path.join(__dirname, 'chains.json');
+const CHAINS_PATH = require('./data-paths').dataPath('chains.json');
 
 class ChainEngine extends EventEmitter {
   constructor({ db, supervisor, loadTasks, broadcast, onPersist }) {
