@@ -6,11 +6,11 @@ An intelligent orchestration platform for GitHub Copilot CLI agents. Schedule, m
 
 ## 🎬 Demo
 
-A quick look at the desktop dashboard and the mobile companion app — every agent runs locally, on your machine, with your own credentials.
+A guided tour of TheOffice.AI — agents, managers, an always-on AI briefing, and the Board that runs your day, including live dev cards that track in-progress work. Every agent runs locally, on your machine, with your own credentials.
 
 ![Demo preview](docs/demo-preview.webp)
 
-▶ **[Watch the full 2½-minute narrated demo, with audio](docs/theoffice-ai-demo.mp4)** — opens an inline player right here on GitHub, no download required.
+▶ **[Watch the full 4½-minute narrated demo, with audio](docs/theoffice-ai-demo.mp4)** — opens an inline player right here on GitHub, no download required.
 
 ## Highlights
 
