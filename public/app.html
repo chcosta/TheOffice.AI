@@ -6019,9 +6019,14 @@
                                       <!-- Worktree status + git badge + sync -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <template x-if="!d.worktreePath && d.worktreeStatus !== 'creating'">
-                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                             <span class="hint" style="font-size:11px">No worktree yet.</span>
-                                            <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d)" x-text="devBusy[d.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                              <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d)" :title="'Open against the default branch (' + (d.branch || 'dev branch') + ')'" x-text="devBusy[d.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                              <template x-if="devPrBranchAvailable(d)">
+                                                <button class="btn ghost" type="button" :disabled="devBusy[d.id]==='worktree'" @click="createDevWorktree(d,'pr')" :title="'Open against the PR branch (' + d.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
+                                              </template>
+                                            </div>
                                           </div>
                                         </template>
                                         <template x-if="d.worktreeStatus === 'creating'">
@@ -12028,8 +12033,20 @@
             // (e.g. layout persists). Coalesce into at most one reload every ~1.2s with a
             // trailing edge, so we don't re-fetch + re-fit + re-render the whole board on
             // every event (which looks like panels resizing every second).
-            source.addEventListener('boards-changed', () => {
+            source.addEventListener('boards-changed', (event) => {
               if (this.route !== 'boards') return;
+              let payload = {};
+              try { payload = JSON.parse(event.data || '{}'); } catch {}
+              // Surgical path: a dev-card-only change (auto-summary reconciler,
+              // worktree status flip) carries devId+dev. Patch just that card in
+              // place — a full reload re-seeds the layout and visibly jumbles
+              // neighbouring panels. The ResizeObserver settles the card's height
+              // locally. If the change is for another board, nothing on the active
+              // board changed, so skip the reload entirely.
+              if (payload.devId && payload.dev) {
+                if (payload.id === this.activeBoardId) this._applyDevUpdate(payload.devId, payload.dev);
+                return;
+              }
               const now = Date.now();
               const last = this._boardsReloadAt || 0;
               const run = () => { this._boardsReloadAt = Date.now(); if (this.route === 'boards') this.loadBoards(this.activeBoardId, true); };
@@ -14530,6 +14547,7 @@
           this.closeCliSearch();
         },
         _scrollCliSearch() { try { const el = this.$refs.cliSearchBody; if (el) el.scrollTop = el.scrollHeight; } catch {} },
+        async loadBoards(selectId, silent) {
           if (!silent) this.boardsLoading = true;
           try {
             const boards = await this.request('/api/boards');
@@ -15802,13 +15820,35 @@
         setBoardZoom(v) {
           let z = parseFloat(v); if (!isFinite(z)) z = 1;
           z = Math.max(0.3, Math.min(1.5, Math.round(z * 100) / 100));
+          const prevZ = this.boardCanvas.z || 1;
           this.boardCanvas = { ...this.boardCanvas, z };
           this._saveBoardCanvas();
+          // Zoom-in is font-driven now (crisp), so the panels' rendered text size changed →
+          // re-fit heights + reflow so grown cards don't overlap (mirrors setBoardFont). Only
+          // needed when the >100% (font) portion moved; pure zoom-out is transform-only.
+          if (z > 1 || prevZ > 1) this._refitFluidReflow();
         },
         // ----- Panel text size (per-board) -----
         // A simple content-font multiplier applied to .board-panel-body via the
         // --board-fs CSS variable. Persisted with the board canvas like zoom.
         boardFont() { return this.boardCanvas.fs || 1; },
+        // Crisp zoom-in: above 100% the zoom is folded into the *font* multiplier so text
+        // re-renders at the larger size (vector-crisp) instead of magnifying a 100% bitmap
+        // via transform:scale (which is what made zoomed-in text soft). The transform then
+        // only ever scales DOWN (overview/zoom-out), where bitmap downsampling looks fine.
+        // Effective content scale = base font × the >100% portion of zoom, capped.
+        boardFontEffective() {
+          const fs = this.boardCanvas.fs || 1;
+          const z = this.boardCanvas.z || 1;
+          const eff = fs * Math.max(1, z);
+          return Math.min(2.4, Math.round(eff * 100) / 100);
+        },
+        // The transform scale actually applied to the canvas. Zoom-OUT (<1) passes through;
+        // zoom-IN (>=1) is handled by font (above) so the transform is pinned at 1 → crisp.
+        boardZoomTransform() {
+          const z = this.boardCanvas.z || 1;
+          return z < 1 ? z : 1;
+        },
         setBoardFont(v) {
           let fs = parseFloat(v); if (!isFinite(fs)) fs = 1;
           fs = Math.max(0.8, Math.min(1.6, Math.round(fs * 100) / 100));
@@ -16162,7 +16202,7 @@
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
           meas.setAttribute('x-ignore', '');
-          meas.style.setProperty('--board-fs', String(this.boardFont()));
+          meas.style.setProperty('--board-fs', String(this.boardFontEffective()));
           const clone = inner.cloneNode(true);
           clone.style.width = '100%';
           clone.style.height = 'auto';
@@ -16207,7 +16247,7 @@
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
           meas.setAttribute('x-ignore', '');
-          meas.style.setProperty('--board-fs', String(this.boardFont()));
+          meas.style.setProperty('--board-fs', String(this.boardFontEffective()));
           const clone = inner.cloneNode(true);
           clone.style.width = '100%';
           clone.style.height = 'auto';
@@ -16622,17 +16662,20 @@
           }
           return maxY * this.boardRowH + 8;
         },
-        // Canvas size + zoom. Uses transform:scale (NOT css zoom) over an EXPLICIT pixel
-        // width so content wraps identically at every zoom — making scrollHeight
-        // zoom-independent (kills the auto-fit "jitter") and giving a true zoom-out
-        // instead of a per-zoom reflow. The flow box is margin-compensated so a scaled
-        // grid reserves exactly its on-screen size: centered when zoomed out (no dead
-        // space / no h-scrollbar), overflow-scrolled when zoomed in.
+        // Canvas size + zoom. HYBRID zoom for crisp text:
+        //  • zoom-OUT (z<1): transform:scale down over an EXPLICIT pixel width so content
+        //    wraps identically at every level (scrollHeight stays zoom-independent → no
+        //    auto-fit jitter), centered so there's no dead space / h-scrollbar. Downscaled
+        //    bitmap text is visually fine for overview.
+        //  • zoom-IN (z>=1): handled by boardFontEffective() (font multiplier) instead of
+        //    transform, so text RE-RENDERS larger (vector-crisp) rather than magnifying a
+        //    100% bitmap (which looked soft). The transform is pinned at 1; panels re-fit
+        //    taller via _refitFluidReflow (triggered from setBoardZoom).
         boardGridStyle() {
           const contentH = this.boardGridHeight();
           const h = this.boardCanvas.h ? Math.max(contentH, this.boardCanvas.h) : contentH;
-          const z = this.boardCanvas.z || 1;
-          const fs = this.boardCanvas.fs || 1;
+          const z = this.boardZoomTransform();   // <=1: zoom-IN is handled by font, not transform
+          const fs = this.boardFontEffective();  // base font × the >100% portion of zoom (crisp)
           let layoutW;
           if (this.boardCanvas.w) layoutW = this.boardCanvas.w;
           else {
@@ -16931,7 +16974,7 @@
           const meas = document.createElement('div');
           meas.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
           meas.setAttribute('x-ignore', '');
-          meas.style.setProperty('--board-fs', String(this.boardFont()));
+          meas.style.setProperty('--board-fs', String(this.boardFontEffective()));
           const clone = inner.cloneNode(true);
           clone.setAttribute('x-ignore', '');
           clone.style.width = '100%';
@@ -18693,15 +18736,19 @@
         _devUrl(d, op) {
           return '/api/boards/' + encodeURIComponent(this.activeBoardId) + '/dev-items/' + encodeURIComponent(d.id) + '/' + op;
         },
-        async createDevWorktree(d) {
+        async createDevWorktree(d, source) {
           if (!d || this.devBusy[d.id]) return;
           this.devBusy[d.id] = 'worktree';
           try {
-            await this.request(this._devUrl(d, 'worktree'), { method: 'POST', body: '{}' });
+            const body = source === 'pr' ? JSON.stringify({ source: 'pr' }) : '{}';
+            await this.request(this._devUrl(d, 'worktree'), { method: 'POST', body });
             // The server flips creating→ready in the background and broadcasts
             // boards-changed; mark optimistically so the panel shows "Creating…".
             this._applyDevUpdate(d.id, { ...d, worktreeStatus: 'creating', worktreeError: null });
-            this.showToast('Dev card', '🌱 Creating worktree — cloning the repo, this can take a minute…', 'info');
+            const onPr = source === 'pr' && d.pr && d.pr.sourceBranch;
+            this.showToast('Dev card', onPr
+              ? ('🔀 Creating worktree on PR branch ' + String(d.pr.sourceBranch).replace('refs/heads/', '') + ' — this can take a minute…')
+              : '🌱 Creating worktree — cloning the repo, this can take a minute…', 'info');
             // boards-changed SSE is throttled and lease-gated across multiple clients, so
             // it can be delayed or missed; poll explicitly so the panel reliably advances.
             this._pollDevWorktree(d.id);
@@ -18710,6 +18757,15 @@
           } finally {
             delete this.devBusy[d.id];
           }
+        },
+        // True when the dev card has an OPEN PR whose source branch differs from the
+        // card's default dev branch — i.e. there's a distinct PR branch to open against.
+        devPrBranchAvailable(d) {
+          if (!d || !d.pr || d.pr.status !== 'active') return false;
+          const src = d.pr.sourceBranch;
+          if (!src) return false;
+          const norm = (b) => String(b || '').replace('refs/heads/', '');
+          return norm(src) !== norm(d.branch);
         },
         // Poll the board until the background worktree clone finishes (creating→ready/error).
         // We update only the single dev card (never replace the whole board) so we don't

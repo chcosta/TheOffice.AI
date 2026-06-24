@@ -6761,7 +6761,11 @@ function _devItemCtx(boardId, devId) {
       board.updatedAt = new Date().toISOString();
       boards[idx] = board;
       saveBoards(boards);
-      broadcastSSE('boards-changed', { id: board.id });
+      // Carry the dev id + updated card so a viewing client can surgically patch
+      // just this card (auto-summary reconciler / worktree status flip) instead of
+      // doing a full board reload, which re-seeds the layout and visibly jumbles
+      // neighbouring panels. A dev-card save never changes layout or other items.
+      broadcastSSE('boards-changed', { id: board.id, devId, dev: updated });
       return updated;
     }
   };
@@ -6777,6 +6781,21 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   if (!d.org || !d.project || !d.repo) {
     return res.status(400).json({ error: 'Dev card is missing org/project/repo.' });
   }
+  // Optionally open the worktree against the linked PR's source branch instead of
+  // the default dev branch. Resolve the PR branch server-side (don't trust an
+  // arbitrary client branch) and require the PR to be OPEN (active).
+  let branch = d.branch;
+  if (req.body && req.body.source === 'pr') {
+    let pr = d.pr;
+    if ((!pr || !pr.sourceBranch) && d.prId) {
+      try { pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch (e) { pr = null; }
+    }
+    if (pr && pr.sourceBranch && String(pr.status || '').toLowerCase() === 'active') {
+      branch = pr.sourceBranch;
+    } else {
+      return res.status(400).json({ error: 'No open PR branch to open against.' });
+    }
+  }
   ctx.save({ worktreeStatus: 'creating', worktreeError: null });
   res.json({ ok: true, status: 'creating' });
   // Fire-and-forget; persist the outcome. createWorktreeAsync runs the blocking
@@ -6785,7 +6804,7 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
     try {
       const r = await devitems.createWorktreeAsync({
         org: d.org, project: d.project, repo: d.repo,
-        baseBranch: d.baseBranch, branch: d.branch, devId: d.id
+        baseBranch: d.baseBranch, branch, devId: d.id
       });
       const fresh = _devItemCtx(req.params.id, req.params.devId);
       if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null });
