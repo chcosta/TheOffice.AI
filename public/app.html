@@ -3560,6 +3560,48 @@
               </div>
             </div>
 
+            <!-- Active dev work — live Dev cards pulled from this team's boards -->
+            <div class="home-section" x-show="homeDevCards().length">
+              <div class="home-section-label">
+                <span class="hsl-icon">🧰</span>
+                <span class="hsl-text">Active dev work</span>
+                <span class="hsl-sub" x-text="homeDevCards().length + ' dev card' + (homeDevCards().length === 1 ? '' : 's') + ' in progress'"></span>
+              </div>
+              <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
+                <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
+                  <article class="card clickable" @click="goTo('#/boards/' + dc._board.id)" :title="'Open on board: ' + dc._board.name" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                      <div style="min-width:0">
+                        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
+                        <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
+                      </div>
+                      <span class="type-badge" style="flex:0 0 auto;font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                      <template x-if="dc.workItemId">
+                        <a class="pill" :href="devWorkItemUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.workItem ? (dc.workItem.type + ': ' + dc.workItem.title) : 'Open work item'">
+                          <span x-text="'📋 #' + dc.workItemId"></span>
+                          <span x-show="dc.workItem && dc.workItem.state" x-text="' · ' + (dc.workItem ? dc.workItem.state : '')"></span>
+                        </a>
+                      </template>
+                      <template x-if="dc.prId">
+                        <a class="pill" :href="devPrUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.pr ? dc.pr.title : 'Open pull request'">
+                          <span x-text="'🔀 !' + dc.prId"></span>
+                          <span x-show="dc.pr && dc.pr.status" x-text="' · ' + (dc.pr ? (dc.pr.isDraft ? 'draft' : dc.pr.status) : '')"></span>
+                        </a>
+                      </template>
+                      <template x-if="dc.worktreePath">
+                        <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(dc).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
+                      </template>
+                      <span class="hint" x-show="!dc.workItemId && !dc.prId && !dc.worktreePath" style="font-size:11px">Just created — no work item / PR / worktree yet.</span>
+                    </div>
+                    <div class="hint" style="font-size:12px;line-height:1.5" x-show="homeDevSummary(dc)" x-text="homeDevSummary(dc)"></div>
+                    <div class="hint" style="font-size:11px;opacity:.7" x-show="!homeDevSummary(dc)">No AI summary yet — open the card to generate one.</div>
+                  </article>
+                </template>
+              </div>
+            </div>
+
             <!-- Team-scoped overview: Boards & Insights -->
             <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:18px" x-show="currentTeamId !== 'all'">
               <section class="card">
@@ -13107,6 +13149,36 @@
           return t.length > 180 ? t.slice(0, 180) + '…' : t;
         },
         homePinCount(b) { return Array.isArray(b && b.items) ? b.items.length : 0; },
+        // Active dev work surfaced on Home: every in-progress Dev card across this
+        // team's boards (a card is "active" while a worktree exists, a PR is still
+        // open, or the work item isn't done). Each card carries `_board` so we can
+        // link back to where it lives.
+        homeDevCards() {
+          const out = [];
+          for (const b of this.homeBoards()) {
+            for (const d of ((b && b.devItems) || [])) {
+              if (this.devIsActive(d)) out.push({ ...d, _board: b });
+            }
+          }
+          const ts = (d) => {
+            const t = (d.summary && d.summary.generatedAt) || d.updatedAt || d.createdAt || 0;
+            return new Date(t).getTime() || 0;
+          };
+          out.sort((a, b) => ts(b) - ts(a));
+          return out;
+        },
+        devIsActive(d) {
+          if (!d) return false;
+          if (d.worktreePath) return true;
+          const ps = ((d.pr && d.pr.status) || '').toLowerCase();
+          if (ps && !/\b(completed|merged|abandoned|closed)\b/.test(ps)) return true;
+          return !this.devWorkItemDone(d);
+        },
+        homeDevSummary(d) {
+          const t = (d && d.summary && d.summary.text) ? String(d.summary.text).replace(/\s+/g, ' ').trim() : '';
+          if (!t) return '';
+          return t.length > 200 ? t.slice(0, 200) + '…' : t;
+        },
         homeInsights() {
           const cur = this.currentTeamId;
           const list = this.insights || [];
@@ -16606,11 +16678,19 @@
               // to drag back up.)
               const inRightZone = lastX > vpR - EDGE;
               const inBottomZone = lastY > vpB - EDGE;
+              // Whether the scroller is already pinned to its far right / bottom extent.
+              // When the canvas is wider/taller than the viewport but scrolled away from the
+              // wall, that wall sits off-screen and `pushRight`/`pushBottom` can never be
+              // satisfied (the cursor is capped at the visible edge). In that state we must
+              // first SCROLL toward the wall to bring it into reach, and once we're pinned at
+              // the end, treat the edge zone itself as the grow trigger.
+              const atScrollEndRight = hScroll ? (hScroll.scrollLeft + hScroll.clientWidth >= hScroll.scrollWidth - 2) : true;
+              const atScrollEndBottom = hScroll ? (hScroll.scrollTop + hScroll.clientHeight >= hScroll.scrollHeight - 2) : true;
               // Ease the per-frame step by how deep into the edge zone the cursor is, so the
               // growth feels fluid (a slow crawl near the edge, faster the harder you push).
               // Divide by zoom so layout growth keeps a consistent on-screen speed.
               const easeStep = (into) => Math.max(2, Math.round((Math.min(EDGE, Math.max(0, into)) / EDGE) * STEP_MAX)) / z;
-              if (pushRight && inRightZone) {
+              if (inRightZone && (pushRight || atScrollEndRight)) {
                 atRight = true;
                 // Pushing past the wall hand-positions the panel, so leave auto-width mode
                 // (capturing the current window-fit width as the fixed column base).
@@ -16623,7 +16703,7 @@
                   canvasGrew = true;
                 }
               }
-              if (pushBottom && inBottomZone) {
+              if (inBottomZone && (pushBottom || atScrollEndBottom)) {
                 atBottom = true;
                 const curH = this.boardCanvas.h || (r.height / z);
                 const nh = Math.min(MAXH, Math.round(curH + easeStep(lastY - (vpB - EDGE))));
@@ -16635,6 +16715,13 @@
                 if (atRight) this._scrollAncestorsToRight(grid);
                 if (atBottom) this._scrollAncestorsToBottom(grid);
               }
+              // Cursor jammed in an edge zone while the canvas already extends past the
+              // viewport there but we're not yet scrolled to the wall: scroll toward it (and
+              // ride the panel along) so the off-screen wall becomes reachable and the next
+              // frames can grow it. Without this, a canvas wider than the viewport could only
+              // ever be nudged once and then permanently stalled.
+              if (inRightZone && !atRight && !atScrollEndRight) { this._scrollAncestorsToRight(grid); place(true, false); }
+              if (inBottomZone && !atBottom && !atScrollEndBottom) { this._scrollAncestorsToBottom(grid); place(false, true); }
             }
             raf = requestAnimationFrame(tick);
           };
