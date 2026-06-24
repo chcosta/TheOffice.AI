@@ -6121,6 +6121,92 @@
                                         </template>
                                       </div>
 
+                                      <!-- Additional repositories (one work item spanning multiple repos) -->
+                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                          <span style="font-weight:600;font-size:13.5px">🗃 Repos</span>
+                                          <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                            <template x-if="devReadyWorktrees(d) >= 2">
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='workspace'" @click="openDevWorkspace(d,'editor')" title="Open every ready worktree together as one VS Code multi-root workspace" x-text="devBusy[d.id]==='workspace' ? 'Opening…' : '🗂 Open workspace'"></button>
+                                            </template>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevRepoDraft(d)" x-text="(devRepoDraft[d.id] && devRepoDraft[d.id].open) ? 'Cancel' : '＋ Add repo'"></button>
+                                          </div>
+                                        </div>
+                                        <div class="hint" style="font-size:11px" x-text="'• ' + (d.repo || '—') + ' (primary' + (d.worktreePath ? ', worktree ready' : ', no worktree') + ')'"></div>
+                                        <template x-for="r in (d.repos || [])" :key="r.id">
+                                          <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:6px">
+                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                              <span style="font-size:11.5px;font-weight:600" x-text="r.repo + '  ' + (r.branch ? '(' + r.branch + ')' : '')"></span>
+                                              <button class="board-act" type="button" data-tip="Remove this repo from the dev card (and clean up its worktree)" @click="removeDevRepo(d, r)">✕</button>
+                                            </div>
+                                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                                              <template x-if="!r.worktreePath && r.worktreeStatus !== 'creating'">
+                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id+'#'+r.id]==='worktree'" @click="createDevSlotWorktree(d, r)" x-text="devBusy[d.id+'#'+r.id]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                              </template>
+                                              <template x-if="r.worktreeStatus === 'creating'">
+                                                <span class="hint" style="font-size:11px">🌱 Creating worktree…</span>
+                                              </template>
+                                              <template x-if="r.worktreeStatus === 'error'">
+                                                <span style="display:inline-flex;align-items:center;gap:6px">
+                                                  <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (r.worktreeError || 'Worktree failed')"></span>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id+'#'+r.id]==='worktree'" @click="createDevSlotWorktree(d, r)">↻ Retry</button>
+                                                </span>
+                                              </template>
+                                              <template x-if="r.worktreePath && r.worktreeStatus !== 'creating'">
+                                                <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open this repo's worktree in VS Code" @click="openDevSlot(d, r, 'editor')">🔵 VS Code</button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open this repo's worktree folder" @click="openDevSlot(d, r, 'explorer')">📁 Folder</button>
+                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id+'#'+r.id]==='cleanup'" @click="cleanupDevSlot(d, r)" x-text="devBusy[d.id+'#'+r.id]==='cleanup' ? 'Cleaning…' : '🧹 Clean'"></button>
+                                                </span>
+                                              </template>
+                                            </div>
+                                          </div>
+                                        </template>
+                                        <template x-if="devRepoDraft[d.id] && devRepoDraft[d.id].open">
+                                          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:6px">
+                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="org" x-model="devRepoDraft[d.id].org" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
+                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="project" x-model="devRepoDraft[d.id].project" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
+                                            </div>
+                                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                              <div x-data="repoCombo()" style="position:relative;flex:1 1 90px;min-width:80px">
+                                                <input class="input" type="text" style="font-size:11px;width:100%"
+                                                  :placeholder="devRepoDraft[d.id].loadingRepos ? 'Loading repos…' : (devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length ? 'Search repos…' : 'repo')"
+                                                  :value="open ? q : (devRepoDraft[d.id].repo || '')"
+                                                  @focus="open=true; q=''; if((!devRepoDraft[d.id].repos || !devRepoDraft[d.id].repos.length) && !devRepoDraft[d.id].loadingRepos) devDraftLoadRepos(d)"
+                                                  @input="q=$event.target.value; open=true"
+                                                  @blur="closeSoon()"
+                                                  @keydown.escape.stop="open=false; $el.blur()" />
+                                                <div x-show="open" x-transition.opacity.duration.120ms
+                                                  style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:200px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                                                  <template x-if="devRepoDraft[d.id].loadingRepos">
+                                                    <div class="hint" style="padding:6px 10px;font-size:11px">Loading repos…</div>
+                                                  </template>
+                                                  <template x-for="r in comboFilterRepos(devRepoDraft[d.id].repos, q)" :key="r.id || r.name">
+                                                    <div @mousedown.prevent="devRepoDraft[d.id].repo=r.name; devDraftRepoChange(d); open=false"
+                                                      style="padding:6px 10px;cursor:pointer;font-size:12px;border-radius:6px"
+                                                      :style="r.name===devRepoDraft[d.id].repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                                                      @mouseenter="if(r.name!==devRepoDraft[d.id].repo) $el.style.background='var(--cp-surface-soft)'"
+                                                      @mouseleave="if(r.name!==devRepoDraft[d.id].repo) $el.style.background=''"
+                                                      x-text="r.name"></div>
+                                                  </template>
+                                                  <template x-if="!devRepoDraft[d.id].loadingRepos && !comboFilterRepos(devRepoDraft[d.id].repos, q).length">
+                                                    <div class="hint" style="padding:6px 10px;font-size:11px" x-text="(devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length) ? 'No match.' : (devRepoDraft[d.id].org && devRepoDraft[d.id].project ? 'No repos found.' : 'Enter org / project.')"></div>
+                                                  </template>
+                                                </div>
+                                              </div>
+                                              <select class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" x-model="devRepoDraft[d.id].baseBranch" :disabled="!devRepoDraft[d.id].branches || !devRepoDraft[d.id].branches.length">
+                                                <option value="" x-text="devRepoDraft[d.id].loadingBranches ? 'Loading…' : ((devRepoDraft[d.id].branches && devRepoDraft[d.id].branches.length) ? 'base branch…' : 'pick repo first')"></option>
+                                                <template x-for="b in (devRepoDraft[d.id].branches || [])" :key="b"><option :value="b" x-text="b"></option></template>
+                                              </select>
+                                            </div>
+                                            <div style="display:flex;justify-content:flex-end;gap:6px">
+                                              <button class="btn primary" type="button" style="font-size:11px;padding:2px 10px" :disabled="devBusy[d.id]==='addrepo' || !devRepoDraft[d.id].repo" @click="addDevRepo(d)" x-text="devBusy[d.id]==='addrepo' ? 'Adding…' : 'Add repo'"></button>
+                                            </div>
+                                          </div>
+                                        </template>
+                                      </div>
+
                                       <!-- Status reports surfaced from the worktree -->
                                       <template x-if="d.worktreePath && d.reports && d.reports.length">
                                         <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
@@ -10787,6 +10873,7 @@
         // the create/edit modal form state.
         devBusy: {},
         devLinkDraft: {},
+        devRepoDraft: {},
         reportPreview: { open: false, title: '', url: '', mode: 'html', html: '', loading: false, error: '' },
         devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
         // Insights — read-only AI-generated cross-board views.
@@ -19128,7 +19215,208 @@
             if (target === 'diff') delete this.devBusy[d.id];
           }
         },
-        // ----- Where was I (AI briefing) -----
+        // ----- Multi-repo (one work item spanning several repos) -----
+        // Count repo slots (primary + extras) that have a ready worktree on disk.
+        devReadyWorktrees(d) {
+          if (!d) return 0;
+          let n = d.worktreePath ? 1 : 0;
+          for (const r of (d.repos || [])) if (r.worktreePath) n++;
+          return n;
+        },
+        toggleDevRepoDraft(d) {
+          if (!d) return;
+          const cur = this.devRepoDraft[d.id];
+          if (cur && cur.open) { this.devRepoDraft[d.id] = { open: false }; return; }
+          this.devRepoDraft[d.id] = { open: true, org: d.org || '', project: d.project || '', repo: '', baseBranch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false };
+          if (d.org && d.project) this.devDraftLoadRepos(d);
+        },
+        async devDraftLoadRepos(d) {
+          const draft = this.devRepoDraft[d.id];
+          if (!draft || !draft.open) return;
+          const org = (draft.org || '').trim(), project = (draft.project || '').trim();
+          draft.repos = []; draft.branches = []; draft.baseBranch = '';
+          if (!org || !project) return;
+          draft.loadingRepos = true;
+          try {
+            const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
+            // Guard against a stale response after the draft was closed/replaced.
+            if (this.devRepoDraft[d.id] !== draft) return;
+            draft.repos = data.repos || [];
+            if (draft.repo && draft.repos.some(r => r.name === draft.repo)) await this.devDraftLoadBranches(d, true);
+            else { draft.repo = ''; }
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not list repos', 'error');
+          } finally {
+            draft.loadingRepos = false;
+          }
+        },
+        async devDraftRepoChange(d) {
+          const draft = this.devRepoDraft[d.id];
+          if (!draft) return;
+          draft.baseBranch = ''; draft.branches = [];
+          await this.devDraftLoadBranches(d, false);
+        },
+        async devDraftLoadBranches(d, preserve) {
+          const draft = this.devRepoDraft[d.id];
+          if (!draft || !draft.repo) return;
+          const org = (draft.org || '').trim(), project = (draft.project || '').trim();
+          draft.loadingBranches = true;
+          try {
+            const data = await this.request('/api/azdo/branches?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project) + '&repo=' + encodeURIComponent(draft.repo));
+            if (this.devRepoDraft[d.id] !== draft) return;
+            draft.branches = data.branches || [];
+            const meta = draft.repos.find(x => x.name === draft.repo);
+            if (preserve && draft.baseBranch && draft.branches.includes(draft.baseBranch)) { /* keep */ }
+            else if (meta && meta.defaultBranch && draft.branches.includes(meta.defaultBranch)) { draft.baseBranch = meta.defaultBranch; }
+            else if (draft.branches.includes('main')) { draft.baseBranch = 'main'; }
+            else { draft.baseBranch = ''; }
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not list branches', 'error');
+          } finally {
+            draft.loadingBranches = false;
+          }
+        },
+        async addDevRepo(d) {
+          if (!d || this.devBusy[d.id]) return;
+          const draft = this.devRepoDraft[d.id] || {};
+          if (!draft.org || !draft.project || !draft.repo) { this.showToast('Dev card', 'org / project / repo are required.', 'error'); return; }
+          this.devBusy[d.id] = 'addrepo';
+          try {
+            const r = await this.request(this._devUrl(d, 'repos'), { method: 'POST', body: JSON.stringify({ org: draft.org.trim(), project: draft.project.trim(), repo: draft.repo.trim(), baseBranch: (draft.baseBranch || '').trim() }) });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.devRepoDraft[d.id] = { open: false };
+            this.showToast('Dev card', '🗃 Repo added.', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not add repo', 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        async removeDevRepo(d, r) {
+          if (!d || !r) return;
+          const warn = (r.git && (r.git.ahead || r.git.dirty))
+            ? '\n\n⚠ This repo\u2019s worktree has unpushed or uncommitted changes — they will be lost.'
+            : '';
+          const ok = await this.uiConfirm({
+            title: 'Remove repo from dev card?',
+            message: 'Remove ' + r.repo + ' from this dev card' + (r.worktreePath ? ' and clean up its worktree' : '') + '?' + warn,
+            confirmLabel: 'Remove repo',
+            danger: true,
+          });
+          if (!ok) return;
+          const key = d.id + '#' + r.id;
+          this.devBusy[key] = 'cleanup';
+          try {
+            const resp = await this.request(this._devUrl(d, 'repos/remove'), { method: 'POST', body: JSON.stringify({ repoId: r.id }) });
+            if (resp && resp.dev) this._applyDevUpdate(d.id, resp.dev);
+            this.showToast('Dev card', '🗑 Repo removed.', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not remove repo', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        async createDevSlotWorktree(d, r) {
+          if (!d || !r) return;
+          const key = d.id + '#' + r.id;
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'worktree';
+          try {
+            await this.request(this._devUrl(d, 'worktree'), { method: 'POST', body: JSON.stringify({ repoId: r.id }) });
+            this._applyDevSlotUpdate(d.id, r.id, { worktreeStatus: 'creating', worktreeError: null });
+            this.showToast('Dev card', '🌱 Creating worktree for ' + r.repo + ' — this can take a minute…', 'info');
+            this._pollDevSlot(d.id, r.id);
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Worktree failed', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        // Patch a single extra-repo slot inside a dev card's repos[] without touching layout.
+        _applyDevSlotUpdate(devId, repoId, partial) {
+          for (const b of this.boards) {
+            const dev = (b.devItems || []).find(x => x.id === devId);
+            if (!dev) continue;
+            const repos = (dev.repos || []).map(x => x.id === repoId ? { ...x, ...partial } : x);
+            this._applyDevUpdate(devId, { ...dev, repos });
+            return;
+          }
+        },
+        // Poll the board until an extra repo's worktree clone finishes (creating→ready/error).
+        async _pollDevSlot(devId, repoId) {
+          this._devSlotPoll = this._devSlotPoll || {};
+          const k = devId + '#' + repoId;
+          if (this._devSlotPoll[k]) return;
+          this._devSlotPoll[k] = true;
+          const started = Date.now();
+          try {
+            while (Date.now() - started < 180000) {
+              await new Promise(res => setTimeout(res, 2000));
+              let boards; try { boards = await this.request('/api/boards'); } catch { continue; }
+              const list = Array.isArray(boards) ? boards : [];
+              const board = list.find(b => (b.devItems || []).some(x => x.id === devId));
+              const dev = board && (board.devItems || []).find(x => x.id === devId);
+              if (!dev) break;
+              this._applyDevUpdate(devId, dev);
+              const slot = (dev.repos || []).find(x => x.id === repoId);
+              if (!slot || slot.worktreeStatus !== 'creating') {
+                if (slot && slot.worktreeStatus === 'ready') this.showToast('Dev card', '✅ Worktree ready for ' + slot.repo + '.', 'success');
+                else if (slot && slot.worktreeStatus === 'error') this.showToast('Dev card', slot.worktreeError || 'Worktree creation failed.', 'error');
+                break;
+              }
+            }
+          } finally {
+            delete this._devSlotPoll[k];
+          }
+        },
+        async openDevSlot(d, r, target) {
+          if (!r || !r.worktreePath) { this.showToast('Dev card', 'No worktree to open — create one first.', 'error'); return; }
+          try {
+            const body = { path: r.worktreePath, target };
+            if (target === 'cli' && d && d.devAgentName) body.agent = d.devAgentName;
+            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
+          } catch (e) {
+            this.showToast('Open', (e && e.message) || 'Could not open', 'error');
+          }
+        },
+        async cleanupDevSlot(d, r) {
+          if (!d || !r) return;
+          if (!r.worktreePath) { this.showToast('Dev card', 'No worktree to clean up.', 'info'); return; }
+          const warn = (r.git && (r.git.ahead || r.git.dirty))
+            ? '\n\n⚠ This worktree has unpushed or uncommitted changes — they will be lost.'
+            : '';
+          const ok = await this.uiConfirm({
+            title: 'Clean up worktree?',
+            message: 'Remove the local git worktree for ' + r.repo + ' at:\n' + r.worktreePath + '\n\nThe repo stays on the dev card — only the on-disk worktree is removed.' + warn,
+            confirmLabel: 'Clean up worktree',
+            danger: true,
+          });
+          if (!ok) return;
+          const key = d.id + '#' + r.id;
+          this.devBusy[key] = 'cleanup';
+          try {
+            const resp = await this.request(this._devUrl(d, 'remove-worktree'), { method: 'POST', body: JSON.stringify({ repoId: r.id }) });
+            if (resp && resp.dev) this._applyDevUpdate(d.id, resp.dev);
+            this.showToast('Dev card', '🧹 Worktree cleaned up.', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Cleanup failed', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        async openDevWorkspace(d, target) {
+          if (!d || this.devBusy[d.id]) return;
+          if (this.devReadyWorktrees(d) < 2) { this.showToast('Dev card', 'Need at least two ready worktrees to open a workspace.', 'info'); return; }
+          this.devBusy[d.id] = 'workspace';
+          try {
+            await this.request(this._devUrl(d, 'workspace'), { method: 'POST', body: JSON.stringify({ target: target || 'editor' }) });
+            this.showToast('Dev card', '🗂 Opening all worktrees as one workspace…', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Could not open workspace', 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
         // Generate/refresh the board's AI summary. force=true bypasses the server cache.
         async refreshBoardSummary(force = false) {
           const board = this.activeBoard();

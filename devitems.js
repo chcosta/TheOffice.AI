@@ -504,6 +504,39 @@ function createWorktreeAsync(params) {
   });
 }
 
+// Open all of a dev card's ready worktrees together. For target 'editor' we write
+// a durable multi-root .code-workspace into the dev-worktrees ROOT (so deleting any
+// one worktree never loses it) and open it; for 'cli' we launch Copilot CLI in the
+// first worktree (the dev agent there is aware of the sibling worktrees).
+function openWorkspace({ devId, title, slots, target = 'editor', agent = null }) {
+  const { spawn, spawnSync } = require('child_process');
+  const list = (slots || []).filter(s => s && s.worktreePath && fs.existsSync(s.worktreePath));
+  if (!list.length) throw new Error('No ready worktrees to open');
+
+  if (target === 'cli') {
+    const dir = list[0].worktreePath;
+    const args = ['/c', 'start', '', 'cmd', '/k', 'copilot'];
+    if (agent) { args.push('--agent', agent); }
+    spawn(process.env.ComSpec || 'cmd.exe', args, { cwd: dir, detached: true, stdio: 'ignore' }).unref();
+    return { target: 'cli', dir };
+  }
+
+  // Resolve the editor (VS Code Insiders preferred, then VS Code).
+  let editor = 'code';
+  const whichIns = spawnSync('where', ['code-insiders'], { shell: true, encoding: 'utf-8' });
+  if (whichIns.status === 0 && (whichIns.stdout || '').trim()) editor = 'code-insiders';
+
+  const wsName = _safe(title || devId) + '__' + _safe(devId) + '.code-workspace';
+  const wsFile = path.join(DEV_WORKTREES, wsName);
+  const ws = {
+    folders: list.map(s => ({ path: s.worktreePath, name: s.repo || path.basename(s.worktreePath) })),
+    settings: {}
+  };
+  fs.writeFileSync(wsFile, JSON.stringify(ws, null, 2), 'utf-8');
+  spawn(editor, [wsFile], { shell: true, detached: true, stdio: 'ignore' }).unref();
+  return { target: 'editor', editor, workspace: wsFile, folders: ws.folders.length };
+}
+
 module.exports = {
   DEV_REPOS,
   DEV_WORKTREES,
@@ -518,6 +551,7 @@ module.exports = {
   pushBranch,
   addGitExclude,
   removeWorktree,
+  openWorkspace,
   findReports,
   readReport,
   findAndCacheReports,

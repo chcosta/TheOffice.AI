@@ -5422,7 +5422,7 @@ function _genId(prefix) {
 // the client echoes; only client-editable metadata (title/org/project/repo/
 // baseBranch/branch/workItemId/prId) is taken from the incoming array. New items
 // (no matching id) keep their defaults; deleted items (dropped from the array) go away.
-const DEV_RUNTIME_FIELDS = ['worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'workItem', 'pr', 'summary', 'devAgentName', 'devAgentFile', 'reports', 'links'];
+const DEV_RUNTIME_FIELDS = ['worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'workItem', 'pr', 'summary', 'devAgentName', 'devAgentFile', 'reports', 'links', 'repos'];
 function _mergeDevItems(existing, incoming) {
   const prev = new Map((Array.isArray(existing) ? existing : []).map(d => [d.id, d]));
   return (Array.isArray(incoming) ? incoming : []).map(item => {
@@ -6876,21 +6876,62 @@ function _devItemCtx(boardId, devId) {
   };
 }
 
-// Create (or reuse) the worktree for a dev card. Runs in the background since a
-// first-time clone can be slow; the item flips worktreeStatus creating→ready/error
-// and the SPA re-renders off the boards-changed SSE.
+// ---- Multi-repo dev cards -------------------------------------------------
+// A dev card groups ONE work item across one primary repo (top-level fields) and
+// any number of EXTRA repos in d.repos[]. Every repo gets its own git worktree
+// (keyed by repo + devId, so paths never collide). These helpers present a unified
+// view of all repo "slots" and persist per-repo runtime fields (worktreePath, …).
+function _devExtraRepos(d) { return Array.isArray(d.repos) ? d.repos : []; }
+// Unified list: the primary repo (id 'primary') followed by every extra repo.
+function _devRepoSlots(d) {
+  const slots = [];
+  if (d.org && d.project && d.repo) {
+    slots.push({
+      id: 'primary', primary: true, org: d.org, project: d.project, repo: d.repo,
+      branch: d.branch, baseBranch: d.baseBranch,
+      worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
+      worktreeError: d.worktreeError || null, git: d.git || null
+    });
+  }
+  for (const r of _devExtraRepos(d)) if (r && r.id) slots.push({ ...r, primary: false });
+  return slots;
+}
+// Find a repo slot by id ('primary' or an extra's id), or by org/project/repo.
+function _findRepoSlot(d, sel) {
+  if (!sel) return null;
+  const slots = _devRepoSlots(d);
+  if (typeof sel === 'string') return slots.find(s => s.id === sel) || null;
+  const key = (x) => [x.org, x.project, x.repo].map(v => String(v || '').toLowerCase()).join('/');
+  if (sel.id) { const byId = slots.find(s => s.id === sel.id); if (byId) return byId; }
+  return slots.find(s => key(s) === key(sel)) || null;
+}
+// Persist a partial of runtime fields onto a repo slot. For the primary slot the
+// fields live at the top level; for an extra they live inside d.repos[].
+function _saveRepoSlot(ctx, slotId, partial) {
+  if (slotId === 'primary') return ctx.save(partial);
+  const repos = _devExtraRepos(ctx.dev).map(r => (r && r.id === slotId) ? { ...r, ...partial } : r);
+  return ctx.save({ repos });
+}
+
+// Create (or reuse) the worktree for a dev card repo slot. Runs in the background
+// since a first-time clone can be slow; the slot flips worktreeStatus creating→
+// ready/error and the SPA re-renders off the boards-changed SSE.
 app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
-  if (!d.org || !d.project || !d.repo) {
-    return res.status(400).json({ error: 'Dev card is missing org/project/repo.' });
+  // Which repo slot? Defaults to the primary repo; an extra repo is targeted by id.
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const slot = _findRepoSlot(d, slotId);
+  if (!slot || !slot.org || !slot.project || !slot.repo) {
+    return res.status(400).json({ error: 'Dev card repo is missing org/project/repo.' });
   }
   // Optionally open the worktree against the linked PR's source branch instead of
   // the default dev branch. Resolve the PR branch server-side (don't trust an
-  // arbitrary client branch) and require the PR to be OPEN (active).
-  let branch = d.branch;
-  if (req.body && req.body.source === 'pr') {
+  // arbitrary client branch) and require the PR to be OPEN (active). PR-branch
+  // open only applies to the primary repo (the PR is tracked on the card).
+  let branch = slot.branch;
+  if (req.body && req.body.source === 'pr' && slot.primary) {
     let pr = d.pr;
     if ((!pr || !pr.sourceBranch) && d.prId) {
       try { pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch (e) { pr = null; }
@@ -6901,22 +6942,40 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       return res.status(400).json({ error: 'No open PR branch to open against.' });
     }
   }
-  ctx.save({ worktreeStatus: 'creating', worktreeError: null });
-  res.json({ ok: true, status: 'creating' });
+  _saveRepoSlot(ctx, slot.id, { worktreeStatus: 'creating', worktreeError: null });
+  res.json({ ok: true, status: 'creating', repoId: slot.id });
   // Fire-and-forget; persist the outcome. createWorktreeAsync runs the blocking
   // clone in a worker thread so this server stays responsive during a big clone.
   (async () => {
     try {
       const r = await devitems.createWorktreeAsync({
-        org: d.org, project: d.project, repo: d.repo,
-        baseBranch: d.baseBranch, branch, devId: d.id
+        org: slot.org, project: slot.project, repo: slot.repo,
+        baseBranch: slot.baseBranch, branch, devId: d.id
       });
       const fresh = _devItemCtx(req.params.id, req.params.devId);
-      let reports = null; try { reports = devitems.findAndCacheReports(req.params.id, req.params.devId, r.worktreePath); } catch {}
-      if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null, reports: reports || [] });
+      if (!fresh) return;
+      const save = { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null };
+      // Reports are scanned on the primary worktree only (status reports live there).
+      if (slot.id === 'primary') {
+        let reports = null; try { reports = devitems.findAndCacheReports(req.params.id, req.params.devId, r.worktreePath); } catch {}
+        save.reports = reports || [];
+      }
+      _saveRepoSlot(fresh, slot.id, save);
+      // If a dev agent already exists for this card, refresh it across ALL ready
+      // worktrees so every repo (the ones that existed before AND this new one)
+      // learns about the newly-added sibling worktree. Re-read the context so the
+      // freshly-persisted worktree path is included in the slot list.
+      try {
+        const after = _devItemCtx(req.params.id, req.params.devId);
+        if (after && after.dev && after.dev.devAgentName) {
+          let wi = after.dev.workItem;
+          try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi = await azdo.getWorkItem(after.dev.org, after.dev.project, after.dev.workItemId); } catch {}
+          _writeDevAgentFiles(after.dev, wi);
+        }
+      } catch {}
     } catch (e) {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
-      if (fresh) fresh.save({ worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
+      if (fresh) _saveRepoSlot(fresh, slot.id, { worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
     }
   })();
 });
@@ -7123,14 +7182,86 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
-  try { devitems.removeWorktree(d.org, d.project, d.repo, d.id, d.worktreePath); } catch {}
-  // Keep any reports that have a durable cached copy so the card's Reports row
-  // (and previews) survive worktree deletion; drop ones that were never cached.
-  const keptReports = (Array.isArray(d.reports) ? d.reports : [])
-    .filter(r => r && r.rel && devitems.hasCachedReport(req.params.id, req.params.devId, r.rel))
-    .map(r => ({ ...r, cached: true }));
-  const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null, reports: keptReports });
+  const slot = _findRepoSlot(d, req.body && req.body.repoId ? req.body.repoId : 'primary');
+  if (!slot) return res.status(404).json({ error: 'Repo not found' });
+  try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath); } catch {}
+  if (slot.primary) {
+    // Keep any reports that have a durable cached copy so the card's Reports row
+    // (and previews) survive worktree deletion; drop ones that were never cached.
+    const keptReports = (Array.isArray(d.reports) ? d.reports : [])
+      .filter(r => r && r.rel && devitems.hasCachedReport(req.params.id, req.params.devId, r.rel))
+      .map(r => ({ ...r, cached: true }));
+    const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null, reports: keptReports });
+    return res.json({ ok: true, dev: updated });
+  }
+  const updated = _saveRepoSlot(ctx, slot.id, { worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
   res.json({ ok: true, dev: updated });
+});
+
+// Add an EXTRA repo to a dev card (the primary repo lives on the card's top-level
+// fields; additional repos accumulate in d.repos[]). Each extra repo gets its own
+// worktree via the worktree endpoint with { repoId }.
+app.post('/api/boards/:id/dev-items/:devId/repos', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const b = req.body || {};
+  const org = String(b.org || '').trim();
+  const project = String(b.project || '').trim();
+  const repo = String(b.repo || '').trim();
+  if (!org || !project || !repo) return res.status(400).json({ error: 'org, project and repo are required' });
+  const baseBranch = String(b.baseBranch || 'main').trim() || 'main';
+  const branch = String(b.branch || `dev/${d.id}`).trim() || `dev/${d.id}`;
+  // Dedupe against the primary repo and any existing extra repo.
+  const key = (x) => [x.org, x.project, x.repo].map(v => String(v || '').toLowerCase()).join('/');
+  const wanted = key({ org, project, repo });
+  if (_devRepoSlots(d).some(s => key(s) === wanted)) {
+    return res.status(409).json({ error: 'That repo is already on this dev card' });
+  }
+  const id = 'repo-' + Math.random().toString(36).slice(2, 9);
+  const repos = _devExtraRepos(d).slice();
+  repos.push({ id, org, project, repo, branch, baseBranch, worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
+  const updated = ctx.save({ repos });
+  res.json({ ok: true, dev: updated, repoId: id });
+});
+
+// Remove an EXTRA repo from a dev card (and clean up its worktree). The primary
+// repo cannot be removed this way — use the card itself for that.
+app.post('/api/boards/:id/dev-items/:devId/repos/remove', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const slot = _findRepoSlot(d, (req.body && (req.body.repoId || req.body)) || null);
+  if (!slot || slot.primary) return res.status(400).json({ error: 'Specify an extra repo to remove' });
+  try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath); } catch {}
+  const repos = _devExtraRepos(d).filter(r => r && r.id !== slot.id);
+  const updated = ctx.save({ repos });
+  res.json({ ok: true, dev: updated });
+});
+
+// Open all of a dev card's ready worktrees together as one VS Code multi-root
+// workspace (or a Copilot CLI session at the shared parent). The .code-workspace
+// file is written into the dev-worktrees ROOT so deleting any single worktree
+// never loses it.
+app.post('/api/boards/:id/dev-items/:devId/workspace', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const target = (req.body && req.body.target) || 'editor';
+  const ready = _devRepoSlots(d).filter(s => s.worktreePath && fs.existsSync(s.worktreePath));
+  if (!ready.length) return res.status(400).json({ error: 'No ready worktrees to open' });
+  try {
+    const result = await devitems.openWorkspace({
+      devId: d.id,
+      title: d.title || d.name || d.id,
+      slots: ready.map(s => ({ repo: s.repo, worktreePath: s.worktreePath })),
+      target,
+      agent: d.devAgentName || null
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: String(e && e.message || e) });
+  }
 });
 
 // Re-scan a dev card's worktree for status reports (manual trigger).
@@ -7207,7 +7338,7 @@ app.post('/api/boards/:id/dev-items/:devId/links/delete', (req, res) => {
 // Build the Markdown for a dev card's `.agent.md` (frontmatter + persona). No
 // `tools:` key ⇒ the agent is unrestricted. The persona forbids the agent from
 // ever committing/pushing its own definition.
-function _buildDevAgentMd({ agentName, dev, wi }) {
+function _buildDevAgentMd({ agentName, dev, wi, slots, currentPath }) {
   const desc = 'Focused dev agent' + (wi ? ` for work item #${wi.id}` : '') + (dev.repo ? ` in ${dev.repo}` : '');
   const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
   const ctx = [];
@@ -7221,6 +7352,16 @@ function _buildDevAgentMd({ agentName, dev, wi }) {
   ctx.push('## Repository');
   ctx.push('- ' + [dev.org, dev.project, dev.repo].filter(Boolean).join(' / ') + (dev.branch ? `  (branch \`${dev.branch}\`, base \`${dev.baseBranch || 'main'}\`)` : ''));
   ctx.push('');
+  const ready = (slots || []).filter(s => s && s.worktreePath);
+  if (ready.length > 1) {
+    ctx.push('## Worktrees for this work item');
+    ctx.push('This work item spans **multiple repositories**. Each repo has its own git worktree at the absolute path below. They are siblings on disk — you can read, search, and edit across all of them, and you should **coordinate your changes across the repos** so the work item is solved end-to-end (e.g. a change in one repo that depends on a change in another). When you open the VS Code multi-root workspace, all of these appear together.');
+    for (const s of ready) {
+      const here = currentPath && s.worktreePath === currentPath;
+      ctx.push(`- **${s.repo}** — \`${s.worktreePath}\`${here ? '  ← you are here' : ''}`);
+    }
+    ctx.push('');
+  }
   const body = `You are a focused software-development agent working in this repository worktree.${wi ? ' Your job is to solve the work item described below.' : ' Your job is to help the developer make and validate code changes in this repository.'}
 
 ${ctx.join('\n')}
@@ -7274,6 +7415,25 @@ You write **production-quality code**. This is non-negotiable:
   return fm + body;
 }
 
+// Write the focused dev agent (with sibling-worktree awareness) into EVERY ready
+// worktree of a dev card, so whichever repo you open the agent from understands
+// the whole work item — and so adding a new worktree later refreshes the others.
+// Returns { slug, rel, slots } or null when no worktree is ready yet.
+function _writeDevAgentFiles(d, wi) {
+  const slots = _devRepoSlots(d).filter(s => s.worktreePath && fs.existsSync(s.worktreePath));
+  if (!slots.length) return null;
+  const slug = ('dev-' + String(d.id).replace(/[^A-Za-z0-9._-]+/g, '-')).replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'dev-agent';
+  const rel = '.github/agents/' + slug + '.agent.md';
+  for (const s of slots) {
+    const agentsDir = path.join(s.worktreePath, '.github', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi, slots, currentPath: s.worktreePath }));
+    try { devitems.addGitExclude(s.worktreePath, rel); } catch {}
+    try { devitems.addGitExclude(s.worktreePath, 'dev-status-report.html'); } catch {}
+  }
+  return { slug, rel, slots };
+}
+
 // Create a focused dev agent for a dev card by writing a `.github/agents/<name>.agent.md`
 // into the item's worktree so VS Code / Copilot can select it. The file is kept
 // out of git so it never lands in the user's commits or PR.
@@ -7281,27 +7441,21 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
-  if (!d.worktreePath || !fs.existsSync(d.worktreePath)) {
+  if (!_devRepoSlots(d).some(s => s.worktreePath && fs.existsSync(s.worktreePath))) {
     return res.status(400).json({ error: 'Create a worktree first.' });
   }
   // Freshest work item for the persona (best-effort).
   let wi = d.workItem;
   try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
-  // Slug doubles as the frontmatter `name` (and the CLI `--agent` value), so
-  // keep it filename- and quoting-safe.
-  const slug = ('dev-' + String(d.id).replace(/[^A-Za-z0-9._-]+/g, '-')).replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'dev-agent';
-  const rel = '.github/agents/' + slug + '.agent.md';
+  let written;
   try {
-    const agentsDir = path.join(d.worktreePath, '.github', 'agents');
-    fs.mkdirSync(agentsDir, { recursive: true });
-    fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi }));
-    try { devitems.addGitExclude(d.worktreePath, rel); } catch {}
-    try { devitems.addGitExclude(d.worktreePath, 'dev-status-report.html'); } catch {}
+    written = _writeDevAgentFiles(d, wi);
   } catch (e) {
     return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) });
   }
-  const updated = ctx.save({ devAgentName: slug, devAgentFile: rel, workItem: wi || d.workItem });
-  res.json({ ok: true, dev: updated, agentName: slug, agentFile: rel });
+  if (!written) return res.status(400).json({ error: 'Create a worktree first.' });
+  const updated = ctx.save({ devAgentName: written.slug, devAgentFile: written.rel, workItem: wi || d.workItem });
+  res.json({ ok: true, dev: updated, agentName: written.slug, agentFile: written.rel });
 });
 
 // Best-effort extraction of a JSON object from an LLM reply (handles code
