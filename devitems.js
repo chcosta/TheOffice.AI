@@ -317,6 +317,177 @@ function removeWorktree(org, project, repo, devId, wt) {
 // item's "Refresh summary" appears to do nothing until the clone finishes. The
 // worker re-acquires its own AzDO token via `az`, so it is fully self-contained.
 // Resolves to { worktreePath, branch, reused, git }.
+// ---- Status reports surfaced from a worktree ---------------------------------
+// The dev agent is instructed to write an HTML status report (default
+// `dev-status-report.html`) into the worktree root when it completes major
+// changes. Surface any such reports on the Dev card. Cheap, reflow-free scan:
+// the worktree root plus a shallow `reports`/`docs`/`.reports` subfolder; match
+// HTML/Markdown files whose name reads like a report. Never throws.
+const REPORT_EXTS = new Set(['.html', '.htm', '.md', '.markdown', '.txt']);
+const REPORT_NAME_RE = /(report|status|summary|metrics|results?)/i;
+const REPORT_SUBDIRS = ['reports', 'report', 'docs', '.reports'];
+
+function _scanReportDir(absDir, relPrefix, out) {
+  let entries;
+  try { entries = fs.readdirSync(absDir, { withFileTypes: true }); } catch { return; }
+  for (const ent of entries) {
+    if (!ent.isFile()) continue;
+    const name = ent.name;
+    const ext = path.extname(name).toLowerCase();
+    if (!REPORT_EXTS.has(ext)) continue;
+    // Only surface files whose name reads like a report/status/summary, so we
+    // don't list README.md, LICENSE.txt, source HTML, etc.
+    if (!REPORT_NAME_RE.test(name)) continue;
+    const isHtml = ext === '.html' || ext === '.htm';
+    let st;
+    try { st = fs.statSync(path.join(absDir, name)); } catch { continue; }
+    // Skip absurdly large files (not a human-readable report).
+    if (st.size > 8 * 1024 * 1024) continue;
+    out.push({
+      name,
+      rel: (relPrefix ? relPrefix + '/' : '') + name,
+      mtime: st.mtimeMs,
+      size: st.size,
+      kind: isHtml ? 'html' : (ext === '.md' || ext === '.markdown' ? 'md' : 'txt')
+    });
+  }
+}
+
+function findReports(wt) {
+  const out = [];
+  try {
+    if (!wt || !fs.existsSync(wt)) return out;
+    _scanReportDir(wt, '', out);
+    for (const sub of REPORT_SUBDIRS) {
+      const abs = path.join(wt, sub);
+      try { if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) _scanReportDir(abs, sub, out); } catch {}
+    }
+  } catch {}
+  // Newest first; cap to a sane number.
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out.slice(0, 16);
+}
+
+// Safely read a report file from a worktree. Resolves `rel` against the worktree
+// root, blocks path traversal (the resolved path MUST stay inside the worktree),
+// allows only report-ish extensions, and caps the read size. Returns
+// { content, contentType, name } or throws an Error with a `.status`.
+function _readReportFrom(rootDir, rel) {
+  const err = (msg, status) => { const e = new Error(msg); e.status = status; return e; };
+  if (!rootDir || !fs.existsSync(rootDir)) throw err('Not found', 404);
+  if (!rel || typeof rel !== 'string') throw err('Missing file', 400);
+  const root = path.resolve(rootDir);
+  const abs = path.resolve(root, rel);
+  const within = abs === root || abs.startsWith(root + path.sep);
+  if (!within) throw err('Forbidden path', 403);
+  const ext = path.extname(abs).toLowerCase();
+  if (!REPORT_EXTS.has(ext)) throw err('Unsupported file type', 415);
+  let st;
+  try { st = fs.statSync(abs); } catch { throw err('Not found', 404); }
+  if (!st.isFile()) throw err('Not a file', 404);
+  if (st.size > 8 * 1024 * 1024) throw err('Report too large to preview', 413);
+  const content = fs.readFileSync(abs);
+  const isHtml = ext === '.html' || ext === '.htm';
+  const contentType = isHtml ? 'text/html; charset=utf-8'
+    : (ext === '.md' || ext === '.markdown') ? 'text/markdown; charset=utf-8'
+    : 'text/plain; charset=utf-8';
+  return { content, contentType, name: path.basename(abs) };
+}
+
+function readReport(wt, rel) { return _readReportFrom(wt, rel); }
+
+// ---------------------------------------------------------------------------
+// Report cache. Reports surfaced from a worktree live inside that worktree, so
+// they vanish the moment the user deletes the worktree. We mirror each surfaced
+// report into a durable per-card store under the supervisor data dir, keyed by
+// board + dev id, so the card's Reports/Links keep working after cleanup.
+// ---------------------------------------------------------------------------
+const REPORT_CACHE_DIR = path.join(SUPERVISOR_DATA_DIR, 'dev-report-cache');
+
+function _sanitizeId(s) { return String(s || '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120) || '_'; }
+
+function reportCacheDir(boardId, devId) {
+  return path.join(REPORT_CACHE_DIR, _sanitizeId(boardId), _sanitizeId(devId));
+}
+
+// Copy a worktree-relative file into the durable cache, mirroring `rel`. Both
+// the source (inside the worktree) and the destination (inside the cache dir)
+// are traversal-guarded. Returns true when a copy was made.
+function _cacheCopy(wt, destRoot, rel) {
+  try {
+    if (!wt || !rel) return false;
+    const rootWt = path.resolve(wt);
+    const src = path.resolve(rootWt, rel);
+    if (!(src === rootWt || src.startsWith(rootWt + path.sep))) return false;
+    if (!fs.existsSync(src) || !fs.statSync(src).isFile()) return false;
+    const rootDest = path.resolve(destRoot);
+    const dest = path.resolve(rootDest, rel);
+    if (!(dest === rootDest || dest.startsWith(rootDest + path.sep))) return false;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    return true;
+  } catch { return false; }
+}
+
+// Mirror a set of surfaced reports into the durable cache and flag each one that
+// has a cached copy (so callers can persist `cached:true` on the dev item and
+// keep serving the report after the worktree is removed). Mutates + returns the
+// same array. Best-effort: never throws.
+function cacheReports(boardId, devId, wt, reports) {
+  if (!boardId || !devId || !Array.isArray(reports) || !reports.length) return reports || [];
+  const destRoot = reportCacheDir(boardId, devId);
+  for (const r of reports) {
+    if (!r || !r.rel) continue;
+    const ok = _cacheCopy(wt, destRoot, r.rel);
+    if (ok || hasCachedReport(boardId, devId, r.rel)) r.cached = true;
+  }
+  return reports;
+}
+
+// Find reports in the worktree AND durably cache them in one shot. Use this
+// everywhere instead of bare findReports so nothing is lost on cleanup.
+function findAndCacheReports(boardId, devId, wt) {
+  const reports = findReports(wt);
+  try { cacheReports(boardId, devId, wt, reports); } catch {}
+  return reports;
+}
+
+function readReportCached(boardId, devId, rel) {
+  return _readReportFrom(reportCacheDir(boardId, devId), rel);
+}
+
+function hasCachedReport(boardId, devId, rel) {
+  try { readReportCached(boardId, devId, rel); return true; } catch { return false; }
+}
+
+// Snapshot an arbitrary local file (e.g. the target of a file:// link that lives
+// inside a worktree) into the cache under a `links/` namespace. Returns a cache
+// rel (e.g. "links/dev-status-report.html") on success, or null. Only mirrors
+// report-ish extensions within the size cap.
+function cacheLinkFile(boardId, devId, absPath) {
+  try {
+    if (!boardId || !devId || !absPath) return null;
+    const src = path.resolve(absPath);
+    if (!fs.existsSync(src) || !fs.statSync(src).isFile()) return null;
+    if (fs.statSync(src).size > 8 * 1024 * 1024) return null;
+    const ext = path.extname(src).toLowerCase();
+    if (!REPORT_EXTS.has(ext)) return null;
+    const base = _sanitizeId(path.basename(src));
+    const rel = 'links/' + base;
+    const rootDest = path.resolve(reportCacheDir(boardId, devId));
+    const dest = path.resolve(rootDest, rel);
+    if (!(dest === rootDest || dest.startsWith(rootDest + path.sep))) return null;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    return rel;
+  } catch { return null; }
+}
+
+// Remove a card's whole report cache (call when a dev card is deleted).
+function clearReportCache(boardId, devId) {
+  try { fs.rmSync(reportCacheDir(boardId, devId), { recursive: true, force: true }); } catch {}
+}
+
 function createWorktreeAsync(params) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -346,7 +517,16 @@ module.exports = {
   diffSummary,
   pushBranch,
   addGitExclude,
-  removeWorktree
+  removeWorktree,
+  findReports,
+  readReport,
+  findAndCacheReports,
+  cacheReports,
+  readReportCached,
+  hasCachedReport,
+  cacheLinkFile,
+  clearReportCache,
+  reportCacheDir
 };
 
 // Worker-thread entry: when this module is loaded inside a Worker carrying a

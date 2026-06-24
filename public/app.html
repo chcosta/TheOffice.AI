@@ -6072,6 +6072,53 @@
                                         </template>
                                       </div>
 
+                                      <!-- Status reports surfaced from the worktree -->
+                                      <template x-if="d.worktreePath && d.reports && d.reports.length">
+                                        <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                            <span style="font-weight:600;font-size:13.5px">📊 Reports</span>
+                                            <button class="board-act" type="button" data-tip="Re-scan the worktree for reports" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
+                                          </div>
+                                          <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                            <template x-for="r in d.reports" :key="r.rel">
+                                              <span class="pill" style="font-size:11px;display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px">
+                                                <a :href="devReportUrl(d,r)" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" :title="'Open ' + r.rel + ' in a new tab — ' + formatRelative(devReportTime(r))">
+                                                  <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span>
+                                                </a>
+                                                <button class="board-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
+                                              </span>
+                                            </template>
+                                          </div>
+                                        </div>
+                                      </template>
+
+                                      <!-- Manually attached links (reports, docs, URLs) -->
+                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                          <span style="font-weight:600;font-size:13.5px">🔗 Links</span>
+                                          <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)" x-text="(devLinkDraft[d.id] && devLinkDraft[d.id].open) ? 'Cancel' : '＋ Add link'"></button>
+                                        </div>
+                                        <div style="display:flex;flex-wrap:wrap;gap:6px" x-show="d.links && d.links.length">
+                                          <template x-for="l in d.links" :key="l.id || l.url">
+                                            <span class="pill" style="font-size:11px;display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px">
+                                              <a :href="devLinkHref(d,l)" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" :title="l.url"><span x-text="'🔗 ' + (l.label || l.url)"></span></a>
+                                              <button class="board-act" type="button" data-tip="Remove link" @click="removeDevLink(d,l)">✕</button>
+                                            </span>
+                                          </template>
+                                        </div>
+                                        <div class="hint" style="font-size:11px" x-show="!(d.links && d.links.length) && !(devLinkDraft[d.id] && devLinkDraft[d.id].open)">No links attached — ＋ Add link to attach a report, doc or URL.</div>
+                                        <template x-if="devLinkDraft[d.id] && devLinkDraft[d.id].open">
+                                          <div style="display:flex;flex-direction:column;gap:6px">
+                                            <input class="field-input" type="text" placeholder="Label (optional)" x-model="devLinkDraft[d.id].label" style="font-size:12px" />
+                                            <input class="field-input" type="text" placeholder="https://…  or  file://…" x-model="devLinkDraft[d.id].url" @keydown.enter.prevent="addDevLink(d)" style="font-size:12px" />
+                                            <div style="display:flex;gap:6px;justify-content:flex-end">
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)">Cancel</button>
+                                              <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='link'" @click="addDevLink(d)" x-text="devBusy[d.id]==='link' ? 'Saving…' : 'Save'"></button>
+                                            </div>
+                                          </div>
+                                        </template>
+                                      </div>
+
                                       <!-- AI summary of the work item / PR / diff state -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
@@ -6314,6 +6361,24 @@
             </div>
 
             <!-- Dev card create / edit modal -->
+            <!-- Dev card report preview (in-app iframe) -->
+            <div class="modal-backdrop modal-overlay" x-show="reportPreview.open" x-transition.opacity.duration.150ms @click.self="closeReportPreview()" x-cloak style="z-index:10000">
+              <div class="modal-card" style="max-width:min(1100px,94vw);width:94vw">
+                <div class="modal-header">
+                  <h2 class="modal-title" style="display:flex;align-items:center;gap:8px;min-width:0">
+                    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="reportPreview.title"></span>
+                  </h2>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <a class="btn ghost" :href="reportPreview.url" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none">↗ Open</a>
+                    <button class="icon-button" type="button" @click="closeReportPreview()">✕</button>
+                  </div>
+                </div>
+                <div style="padding:0;background:#fff">
+                  <iframe x-show="reportPreview.url" :src="reportPreview.url" sandbox="allow-same-origin allow-scripts allow-popups" referrerpolicy="no-referrer" style="width:100%;height:78vh;border:0;background:#fff;display:block"></iframe>
+                </div>
+              </div>
+            </div>
+
             <div class="modal-backdrop modal-overlay" x-show="devModal.open" x-transition.opacity.duration.150ms @click.self="devModal.open=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:560px">
                 <div class="modal-header">
@@ -10681,6 +10746,8 @@
         // Dev cards — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
         // the create/edit modal form state.
         devBusy: {},
+        devLinkDraft: {},
+        reportPreview: { open: false, title: '', url: '' },
         devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
         // Insights — read-only AI-generated cross-board views.
         insights: [],
@@ -18805,6 +18872,67 @@
             this.showToast('Dev card', e.message, 'error');
           } finally {
             delete this.devBusy[d.id];
+          }
+        },
+        // ---- Status reports + manual links on a dev card ----
+        devReportUrl(d, r) {
+          return this._devUrl(d, 'report') + '?file=' + encodeURIComponent(r.rel);
+        },
+        devLinkHref(d, l) {
+          // A link backed by a cached local file is served (and survives worktree
+          // deletion) through the report endpoint; everything else opens directly.
+          if (l && l.cacheRel) return this._devUrl(d, 'report') + '?file=' + encodeURIComponent(l.cacheRel);
+          return (l && l.url) || '#';
+        },
+        devReportTime(r) {
+          try { return new Date(r.mtime || Date.now()).toISOString(); } catch { return new Date().toISOString(); }
+        },
+        openReportPreview(d, r) {
+          this.reportPreview = { open: true, title: (r && r.name) || 'Report', url: this.devReportUrl(d, r) };
+        },
+        closeReportPreview() {
+          this.reportPreview = { open: false, title: '', url: '' };
+        },
+        async rescanDevReports(d) {
+          if (!d || this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'reports';
+          try {
+            const r = await this.request(this._devUrl(d, 'reports/scan'), { method: 'POST', body: '{}' });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+          } catch (e) {
+            this.showToast('Dev card', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        toggleDevLinkDraft(d) {
+          const cur = this.devLinkDraft[d.id];
+          if (cur && cur.open) { this.devLinkDraft[d.id] = { open: false, label: '', url: '' }; }
+          else { this.devLinkDraft[d.id] = { open: true, label: '', url: '' }; }
+        },
+        async addDevLink(d) {
+          const draft = this.devLinkDraft[d.id] || {};
+          const url = (draft.url || '').trim();
+          if (!url) { this.showToast('Link', 'Enter a URL.', 'error'); return; }
+          if (this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'link';
+          try {
+            const r = await this.request(this._devUrl(d, 'links'), { method: 'POST', body: JSON.stringify({ label: (draft.label || '').trim(), url }) });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.devLinkDraft[d.id] = { open: false, label: '', url: '' };
+          } catch (e) {
+            this.showToast('Link', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        async removeDevLink(d, l) {
+          if (!d || !l) return;
+          try {
+            const r = await this.request(this._devUrl(d, 'links/delete'), { method: 'POST', body: JSON.stringify({ id: l.id, url: l.url }) });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+          } catch (e) {
+            this.showToast('Link', e.message, 'error');
           }
         },
         async syncDevItem(d) {

@@ -5422,7 +5422,7 @@ function _genId(prefix) {
 // the client echoes; only client-editable metadata (title/org/project/repo/
 // baseBranch/branch/workItemId/prId) is taken from the incoming array. New items
 // (no matching id) keep their defaults; deleted items (dropped from the array) go away.
-const DEV_RUNTIME_FIELDS = ['worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'workItem', 'pr', 'summary', 'devAgentName', 'devAgentFile'];
+const DEV_RUNTIME_FIELDS = ['worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'workItem', 'pr', 'summary', 'devAgentName', 'devAgentFile', 'reports', 'links'];
 function _mergeDevItems(existing, incoming) {
   const prev = new Map((Array.isArray(existing) ? existing : []).map(d => [d.id, d]));
   return (Array.isArray(incoming) ? incoming : []).map(item => {
@@ -5768,7 +5768,16 @@ app.put('/api/boards/:id', (req, res) => {
   if (Array.isArray(items)) b.items = items;
   if (Array.isArray(notes)) b.notes = notes;
   if (Array.isArray(checklists)) b.checklists = checklists;
-  if (Array.isArray(devItems)) b.devItems = _mergeDevItems(b.devItems, devItems);
+  if (Array.isArray(devItems)) {
+    // Detect dev cards that this PUT removes, and drop their durable report cache.
+    try {
+      const keepIds = new Set(devItems.map(d => d && d.id).filter(Boolean));
+      for (const old of (Array.isArray(b.devItems) ? b.devItems : [])) {
+        if (old && old.id && !keepIds.has(old.id)) devitems.clearReportCache(b.id, old.id);
+      }
+    } catch {}
+    b.devItems = _mergeDevItems(b.devItems, devItems);
+  }
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   if (hidden && typeof hidden === 'object' && !Array.isArray(hidden)) b.hidden = hidden;
   if (locks && typeof locks === 'object' && !Array.isArray(locks)) b.locks = locks;
@@ -6807,7 +6816,8 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
         baseBranch: d.baseBranch, branch, devId: d.id
       });
       const fresh = _devItemCtx(req.params.id, req.params.devId);
-      if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null });
+      let reports = null; try { reports = devitems.findAndCacheReports(req.params.id, req.params.devId, r.worktreePath); } catch {}
+      if (fresh) fresh.save({ worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null, reports: reports || [] });
     } catch (e) {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
       if (fresh) fresh.save({ worktreeStatus: 'error', worktreeError: (e && e.message) || 'Worktree failed' });
@@ -6824,6 +6834,7 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   // Git status (only if a worktree exists).
   if (d.worktreePath) {
     try { partial.git = devitems.worktreeStatus(d.worktreePath, { baseBranch: d.baseBranch }); } catch (e) { partial.gitError = (e && e.message) || 'git failed'; }
+    try { partial.reports = devitems.findAndCacheReports(req.params.id, req.params.devId, d.worktreePath); } catch {}
   }
   // Work item.
   if (d.workItemId && d.org && d.project) {
@@ -6965,6 +6976,20 @@ async function _reconcileDevSummaries() {
           try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
           try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {}
 
+          // Surface any status reports the dev agent wrote into the worktree. Cheap
+          // fs scan; persist immediately (no LLM) when the set/mtimes change so the
+          // card's Reports row stays current within one sweep.
+          if (d.worktreePath) {
+            try {
+              const reports = devitems.findAndCacheReports(b.id, d.id, d.worktreePath);
+              const sig = (arr) => (Array.isArray(arr) ? arr : []).map(r => r.rel + ':' + Math.round(r.mtime)).join('|');
+              if (sig(reports) !== sig(d.reports)) {
+                const cR = _devItemCtx(b.id, d.id);
+                if (cR) cR.save({ reports });
+              }
+            } catch {}
+          }
+
           const fp = _devFingerprint({ wi, pr, git });
           const prevFp = (d.summary && d.summary.fingerprint) || '';
           const haveSummary = !!(d.summary && d.summary.text);
@@ -7003,7 +7028,83 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   try { devitems.removeWorktree(d.org, d.project, d.repo, d.id, d.worktreePath); } catch {}
-  const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null });
+  // Keep any reports that have a durable cached copy so the card's Reports row
+  // (and previews) survive worktree deletion; drop ones that were never cached.
+  const keptReports = (Array.isArray(d.reports) ? d.reports : [])
+    .filter(r => r && r.rel && devitems.hasCachedReport(req.params.id, req.params.devId, r.rel))
+    .map(r => ({ ...r, cached: true }));
+  const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null, reports: keptReports });
+  res.json({ ok: true, dev: updated });
+});
+
+// Re-scan a dev card's worktree for status reports (manual trigger).
+app.post('/api/boards/:id/dev-items/:devId/reports/scan', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  if (!d.worktreePath) return res.json({ ok: true, dev: ctx.dev });
+  let reports = []; try { reports = devitems.findAndCacheReports(req.params.id, req.params.devId, d.worktreePath); } catch {}
+  const updated = ctx.save({ reports });
+  res.json({ ok: true, dev: updated });
+});
+
+// Serve a single status report file for a dev card. Reads from the worktree when
+// present, and transparently falls back to the durable cache (so a report still
+// opens/previews after the worktree is deleted). Path-traversal guarded,
+// extension-allowlisted. Drives both the open-in-tab link and the preview iframe.
+app.get('/api/boards/:id/dev-items/:devId/report', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).send('Dev card not found');
+  const d = ctx.dev;
+  const file = req.query.file;
+  try {
+    let r;
+    try { r = devitems.readReport(d.worktreePath, file); }
+    catch (e1) { r = devitems.readReportCached(req.params.id, req.params.devId, file); }
+    res.setHeader('Content-Type', r.contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(r.content);
+  } catch (e) {
+    res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read report');
+  }
+});
+
+// Attach a manual link to a dev card. If the link points at a local file (a
+// file:// URL or an absolute path) that we can read, snapshot it into the durable
+// cache so it survives worktree deletion and can be served/previewed in-app.
+app.post('/api/boards/:id/dev-items/:devId/links', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const url = String((req.body && req.body.url) || '').trim();
+  let label = String((req.body && req.body.label) || '').trim();
+  if (!url) return res.status(400).json({ error: 'A URL is required.' });
+  const isAbsPath = /^([A-Za-z]:[\\/]|\\\\|\/)/.test(url);
+  if (!/^(https?:|file:|mailto:|vscode:)/i.test(url) && !isAbsPath) {
+    return res.status(400).json({ error: 'URL must start with http(s):, file:, mailto:, vscode: or be an absolute file path' });
+  }
+  if (!label) { try { label = decodeURIComponent(url.split(/[\\/]/).pop() || url); } catch { label = url; } }
+  // Resolve a local file path when possible, then cache it.
+  let absPath = null;
+  if (/^file:/i.test(url)) { try { absPath = require('url').fileURLToPath(url); } catch {} }
+  else if (isAbsPath) { absPath = url; }
+  let cacheRel = null;
+  if (absPath) { try { cacheRel = devitems.cacheLinkFile(req.params.id, req.params.devId, absPath); } catch {} }
+  const links = Array.isArray(ctx.dev.links) ? ctx.dev.links.slice() : [];
+  const entry = { id: 'lnk-' + Math.random().toString(36).slice(2, 9), label, url, addedAt: new Date().toISOString() };
+  if (cacheRel) entry.cacheRel = cacheRel;
+  links.push(entry);
+  const updated = ctx.save({ links });
+  res.json({ ok: true, dev: updated });
+});
+
+// Remove a manual link from a dev card (by id or url).
+app.post('/api/boards/:id/dev-items/:devId/links/delete', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const id = (req.body && req.body.id) || '';
+  const url = (req.body && req.body.url) || '';
+  const links = (Array.isArray(ctx.dev.links) ? ctx.dev.links : []).filter(l => !(id && l.id === id) && !(url && l.url === url));
+  const updated = ctx.save({ links });
   res.json({ ok: true, dev: updated });
 });
 
