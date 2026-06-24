@@ -1244,6 +1244,36 @@
     /* The tabbed-view briefing auto-expands to fit its content — it must not inherit the
        300px cap / inner scrollbar from the base .md-output rule (the board grid scrolls). */
     .board-tab-brief .md-output { max-height: none; overflow: visible; }
+    /* Markdown report preview: a clean document view (no card chrome, no inner
+       scroll cap — the modal pane scrolls). Forced light so it reads well on the
+       white modal body regardless of app theme. */
+    .report-md-doc {
+      max-height: none;
+      overflow: visible;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      color: #242424;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .report-md-doc h1, .report-md-doc h2, .report-md-doc h3, .report-md-doc h4 { color: #1a1a1a; margin: 1.1em 0 0.45em; line-height: 1.25; }
+    .report-md-doc h1 { font-size: 1.6rem; border-bottom: 1px solid #e5e5e5; padding-bottom: 0.3em; }
+    .report-md-doc h2 { font-size: 1.3rem; border-bottom: 1px solid #ececec; padding-bottom: 0.25em; }
+    .report-md-doc h3 { font-size: 1.1rem; }
+    .report-md-doc p, .report-md-doc li { color: #2c2c2c; }
+    .report-md-doc a { color: #0078d4; }
+    .report-md-doc code { background: #f0f0f0; color: #b11f4b; padding: 0.12em 0.4em; border-radius: 4px; font-size: 0.88em; }
+    .report-md-doc pre { background: #f6f6f6; border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px 14px; overflow: auto; }
+    .report-md-doc pre code { background: transparent; color: #242424; padding: 0; }
+    .report-md-doc table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 0.9rem; }
+    .report-md-doc th, .report-md-doc td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
+    .report-md-doc th { background: #f5f5f5; font-weight: 600; }
+    .report-md-doc tr:nth-child(even) td { background: #fafafa; }
+    .report-md-doc blockquote { border-left: 3px solid #d8d8d8; margin: 0.8em 0; padding: 0.2em 0 0.2em 1em; color: #555; }
+    .report-md-doc img { max-width: 100%; height: auto; }
+    .report-md-doc hr { border: 0; border-top: 1px solid #e5e5e5; margin: 1.2em 0; }
     .md-output pre {
       background: var(--cp-surface);
       padding: 12px;
@@ -5999,6 +6029,24 @@
                                         </div>
                                       </div>
 
+                                      <!-- AI summary of the work item / PR / diff state -->
+                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+                                          <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
+                                          <div style="display:flex;align-items:center;gap:8px">
+                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
+                                            <span class="summary-muted-pill" style="font-size:9.5px" x-show="d.summary && d.summary.auto && devBusy[d.id]!=='summary'" title="This summary updates itself automatically when the work item, PR, or worktree changes. Use ↻ Refresh to regenerate now.">⚡ Auto</span>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='summary'" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
+                                          </div>
+                                        </div>
+                                        <div x-show="devBusy[d.id]==='summary'" class="hint" style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--cp-accent)">
+                                          <span class="ba-spinner"></span>
+                                          <span>AI is reviewing the work item, PR and code diff…</span>
+                                        </div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
+                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
+                                      </div>
+
                                       <!-- Work item + PR link row -->
                                       <div style="display:flex;flex-wrap:wrap;gap:8px">
                                         <template x-if="d.workItemId">
@@ -6055,6 +6103,7 @@
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code stable)" @click="openDevItem(d,'editor')">🔵 VS Code</button>
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree" @click="openDevItem(d,'cli')">🤖 CLI</button>
                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="openDevItem(d,'explorer')">📁 Folder</button>
+                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a VS Code window with the branch's diff vs the default branch" :disabled="devBusy[d.id]==='diff'" @click="openDevItem(d,'diff')" x-text="devBusy[d.id]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
                                             </div>
                                             <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
                                               <template x-if="!d.devAgentName">
@@ -6117,24 +6166,6 @@
                                             </div>
                                           </div>
                                         </template>
-                                      </div>
-
-                                      <!-- AI summary of the work item / PR / diff state -->
-                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
-                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
-                                          <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
-                                          <div style="display:flex;align-items:center;gap:8px">
-                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
-                                            <span class="summary-muted-pill" style="font-size:9.5px" x-show="d.summary && d.summary.auto && devBusy[d.id]!=='summary'" title="This summary updates itself automatically when the work item, PR, or worktree changes. Use ↻ Refresh to regenerate now.">⚡ Auto</span>
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='summary'" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
-                                          </div>
-                                        </div>
-                                        <div x-show="devBusy[d.id]==='summary'" class="hint" style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--cp-accent)">
-                                          <span class="ba-spinner"></span>
-                                          <span>AI is reviewing the work item, PR and code diff…</span>
-                                        </div>
-                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
-                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                       </div>
                                     </div>
                                   </template>
@@ -6374,7 +6405,16 @@
                   </div>
                 </div>
                 <div style="padding:0;background:#fff">
-                  <iframe x-show="reportPreview.url" :src="reportPreview.url" sandbox="allow-same-origin allow-scripts allow-popups" referrerpolicy="no-referrer" style="width:100%;height:78vh;border:0;background:#fff;display:block"></iframe>
+                  <iframe x-show="reportPreview.url && reportPreview.mode==='html'" :src="reportPreview.mode==='html' ? reportPreview.url : ''" sandbox="allow-same-origin allow-scripts allow-popups" referrerpolicy="no-referrer" style="width:100%;height:78vh;border:0;background:#fff;display:block"></iframe>
+                  <template x-if="reportPreview.mode==='md'">
+                    <div style="height:78vh;overflow:auto;padding:20px 26px">
+                      <div x-show="reportPreview.loading" class="hint" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--cp-accent)">
+                        <span class="ba-spinner"></span><span>Loading report…</span>
+                      </div>
+                      <div x-show="reportPreview.error" class="hint" style="font-size:13px;color:var(--cp-danger)" x-text="'⚠ ' + reportPreview.error"></div>
+                      <div x-show="!reportPreview.loading && !reportPreview.error" class="report-md-doc" x-html="reportPreview.html"></div>
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -10747,7 +10787,7 @@
         // the create/edit modal form state.
         devBusy: {},
         devLinkDraft: {},
-        reportPreview: { open: false, title: '', url: '' },
+        reportPreview: { open: false, title: '', url: '', mode: 'html', html: '', loading: false, error: '' },
         devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
         // Insights — read-only AI-generated cross-board views.
         insights: [],
@@ -18888,10 +18928,33 @@
           try { return new Date(r.mtime || Date.now()).toISOString(); } catch { return new Date().toISOString(); }
         },
         openReportPreview(d, r) {
-          this.reportPreview = { open: true, title: (r && r.name) || 'Report', url: this.devReportUrl(d, r) };
+          const name = (r && r.name) || 'Report';
+          const url = this.devReportUrl(d, r);
+          const rel = (r && (r.rel || r.name)) || '';
+          const isMd = /\.(md|markdown)$/i.test(rel) || /\.(md|markdown)$/i.test(name);
+          if (!isMd) {
+            this.reportPreview = { open: true, title: name, url, mode: 'html', html: '', loading: false, error: '' };
+            return;
+          }
+          // Markdown reports are served as text/markdown — an iframe would show raw
+          // source, so fetch the content and render it to HTML in the modal instead.
+          this.reportPreview = { open: true, title: name, url, mode: 'md', html: '', loading: true, error: '' };
+          fetch(url, { headers: { Accept: 'text/markdown,text/plain,*/*' } })
+            .then(async (res) => {
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const text = await res.text();
+              if (!this.reportPreview.open || this.reportPreview.url !== url) return;
+              this.reportPreview.html = this.renderMarkdown(text);
+              this.reportPreview.loading = false;
+            })
+            .catch((e) => {
+              if (!this.reportPreview.open || this.reportPreview.url !== url) return;
+              this.reportPreview.error = (e && e.message) || 'Failed to load report';
+              this.reportPreview.loading = false;
+            });
         },
         closeReportPreview() {
-          this.reportPreview = { open: false, title: '', url: '' };
+          this.reportPreview = { open: false, title: '', url: '', mode: 'html', html: '', loading: false, error: '' };
         },
         async rescanDevReports(d) {
           if (!d || this.devBusy[d.id]) return;
@@ -19049,13 +19112,20 @@
         },
         async openDevItem(d, target) {
           if (!d || !d.worktreePath) { this.showToast('Dev card', 'No worktree to open — create one first.', 'error'); return; }
+          if (target === 'diff') this.devBusy[d.id] = 'diff';
           try {
             const body = { path: d.worktreePath, target };
             // When a dev agent has been written into the worktree, auto-select it in the CLI.
             if (target === 'cli' && d.devAgentName) body.agent = d.devAgentName;
-            await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
+            const r = await this.request('/api/fs/open', { method: 'POST', body: JSON.stringify(body) });
+            if (target === 'diff') {
+              if (r && r.empty) this.showToast('Diff', 'No changes vs ' + (r.base || 'base') + ' yet.', 'info');
+              else this.showToast('Diff', 'Opened ' + (r.files || 0) + ' file diff' + (r.files === 1 ? '' : 's') + ' vs ' + ((r && r.base) || 'base') + ' in VS Code' + (r.truncated ? ' (first ' + r.files + ' of ' + r.total + ')' : '') + '.', 'success');
+            }
           } catch (e) {
-            this.showToast('Open', e.message, 'error');
+            this.showToast(target === 'diff' ? 'Diff' : 'Open', e.message, 'error');
+          } finally {
+            if (target === 'diff') delete this.devBusy[d.id];
           }
         },
         // ----- Where was I (AI briefing) -----

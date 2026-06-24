@@ -5990,6 +5990,102 @@ app.post('/api/fs/open', (req, res) => {
       spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref();
       return res.json({ ok: true, target });
     }
+    if (target === 'diff') {
+      // Open VS Code's native side-by-side diff editor for the branch's changes. We diff
+      // against the merge-base with the repo's default branch (so it's the branch's own
+      // work, not unrelated upstream commits), include working-tree edits, and open one
+      // real diff tab per changed file (base version on the left, the live worktree file on
+      // the right) in a single reused window — a proper "review like a PR" experience.
+      const os = require('os');
+      const git = (args, opts) => spawnSync('git', args, Object.assign({ cwd: dir, maxBuffer: 96 * 1024 * 1024 }, opts || {}));
+      const gitText = (args) => { const r = git(args, { encoding: 'utf-8' }); return r.status === 0 ? (r.stdout || '') : ''; };
+      const headRef = gitText(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+      // Resolve the default branch: prefer origin/HEAD, then common fallbacks.
+      let base = '';
+      const oh = git(['symbolic-ref', '-q', 'refs/remotes/origin/HEAD'], { encoding: 'utf-8' });
+      if (oh.status === 0 && oh.stdout.trim()) base = oh.stdout.trim().replace(/^refs\/remotes\//, '');
+      if (!base) {
+        for (const cand of ['origin/main', 'origin/master', 'main', 'master']) {
+          if (git(['rev-parse', '--verify', '--quiet', cand], { encoding: 'utf-8' }).status === 0) { base = cand; break; }
+        }
+      }
+      let from = base || '';
+      if (base) { const mb = git(['merge-base', base, 'HEAD'], { encoding: 'utf-8' }); if (mb.status === 0 && mb.stdout.trim()) from = mb.stdout.trim(); }
+      if (!from) return res.status(422).json({ error: 'Could not determine a base branch to diff against.' });
+      const baseLabel = base || from.slice(0, 12);
+      // Changed files vs the base (rename/copy aware), including uncommitted working changes.
+      const ns = gitText(['diff', '--name-status', '-M', '--no-color', from]);
+      const rows = ns.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      // Also include brand-new untracked files (git diff omits them) as add-diffs.
+      const untracked = gitText(['ls-files', '--others', '--exclude-standard'])
+        .split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      for (const u of untracked) rows.push(`A\t${u}`);
+      if (!rows.length) return res.json({ ok: true, target, empty: true, base: baseLabel });
+      const CAP = 40;
+      const safe = (headRef || 'branch').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 50) || 'branch';
+      const tmpRoot = path.join(os.tmpdir(), `devdiff-${safe}-${Date.now().toString(36)}`);
+      const baseDir = path.join(tmpRoot, 'base');
+      fs.mkdirSync(baseDir, { recursive: true });
+      // Materialize a file's base-revision content into a temp file (empty if it didn't
+      // exist at the base). Mirrors the repo path so VS Code applies the right language.
+      const writeBlob = (relPosix, idx) => {
+        const safeRel = relPosix.replace(/[<>:"|?*]/g, '_');
+        const dest = path.join(baseDir, String(idx), safeRel.split('/').join(path.sep));
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        const r = git(['show', `${from}:${relPosix}`], { encoding: 'buffer' });
+        fs.writeFileSync(dest, r.status === 0 ? r.stdout : Buffer.alloc(0));
+        return dest;
+      };
+      const emptyFor = (relPosix, idx) => {
+        const safeRel = relPosix.replace(/[<>:"|?*]/g, '_');
+        const dest = path.join(tmpRoot, 'gone', String(idx), safeRel.split('/').join(path.sep));
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, '');
+        return dest;
+      };
+      const pairs = [];
+      for (const row of rows) {
+        const parts = row.split('\t');
+        const status = (parts[0] || '')[0];
+        const oldRel = parts[1];
+        const newRel = (status === 'R' || status === 'C') ? (parts[2] || parts[1]) : parts[1];
+        if (!oldRel) continue;
+        const idx = pairs.length;
+        let left, right;
+        if (status === 'A') { left = emptyFor(newRel, idx); right = path.join(dir, newRel.split('/').join(path.sep)); }
+        else if (status === 'D') { left = writeBlob(oldRel, idx); right = emptyFor(oldRel, idx); }
+        else { left = writeBlob(oldRel, idx); right = path.join(dir, newRel.split('/').join(path.sep)); }
+        pairs.push({ left, right });
+        if (pairs.length >= CAP) break;
+      }
+      if (!pairs.length) return res.json({ ok: true, target, empty: true, base: baseLabel });
+      // Resolve the editor's full launcher path (more robust than relying on PATH inside the
+      // shell). `where` can return several lines — take the first.
+      let editor = '';
+      const whichIns = spawnSync('where', ['code-insiders'], { shell: true, encoding: 'utf-8' });
+      if (whichIns.status === 0 && whichIns.stdout.trim()) editor = whichIns.stdout.split(/\r?\n/)[0].trim();
+      if (!editor) {
+        const whichCode = spawnSync('where', ['code'], { shell: true, encoding: 'utf-8' });
+        if (whichCode.status === 0 && whichCode.stdout.trim()) editor = whichCode.stdout.split(/\r?\n/)[0].trim();
+      }
+      if (!editor) editor = 'code';
+      const editorName = path.basename(editor).replace(/\.(cmd|exe|bat)$/i, '');
+      // Run the editor launcher via `cmd /c` with an args array so Node quotes each path
+      // (spaces survive). Always open a brand-new window for this diff session so it never
+      // co-mingles with other VS Code work — the first file opens the new window, and the
+      // rest attach to it via --reuse-window (staggered so they land in the new window).
+      const cmdExe = process.env.ComSpec || 'cmd.exe';
+      const launchDiff = (pr, fresh) => {
+        const winArg = fresh ? '--new-window' : '--reuse-window';
+        spawn(cmdExe, ['/c', editor, winArg, '--diff', pr.left, pr.right], { detached: true, stdio: 'ignore' }).unref();
+      };
+      launchDiff(pairs[0], true);
+      pairs.slice(1).forEach((pr, i) => {
+        // Give the new window time to come up before the first reuse, then space the rest out.
+        setTimeout(() => launchDiff(pr, false), 1100 + i * 350);
+      });
+      return res.json({ ok: true, target, editor: editorName, base: baseLabel, files: pairs.length, total: rows.length, truncated: rows.length > pairs.length });
+    }
     if (target === 'cli') {
       const copilotCmd = process.env.COPILOT_PATH || 'copilot';
       const copilotIsPath = /[\\/:]/.test(copilotCmd);
