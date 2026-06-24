@@ -6248,6 +6248,15 @@ function _resolveBoardItems(b, opts = {}) {
   // skipped entirely — they stay pinned on the board but contribute nothing to the
   // "Where was I?" briefing or the cross-board insights derived from it.
   const forSummary = !!opts.forSummary;
+  // Board AI (the assistant) passes { full: true } so it sees the COMPLETE content of
+  // every pinned item — full run output / transcripts, not the tight clips the
+  // briefing uses. This lets it find details buried deep in a pinned task's output
+  // (e.g. a work-item id partway down an epic-status table). The "Where was I?"
+  // briefing keeps the tighter budgets so it stays fast and cheap.
+  const full = !!opts.full;
+  const TURN_CLIP = full ? 8000 : 500;     // per transcript turn (user/assistant message)
+  const CTX_CLIP = full ? 40000 : 1200;    // per pinned item run output / result
+  const JOIN_CAP = full ? 120000 : 2400;   // per-item assembled transcript/context cap
   const out = [];
   const contextBlocks = [];
   const tasks = loadTasks();
@@ -6259,7 +6268,7 @@ function _resolveBoardItems(b, opts = {}) {
       if (it.kind === 'agent') {
         route = '#/agents/' + encodeURIComponent(it.refId);
         const runs = supervisor.getRunHistory(it.refId, 1) || [];
-        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].exit_code === 0 ? 'success' : (runs[0].status || 'error'); detail = clip(runs[0].output || runs[0].error || '', 240); context = clip(runs[0].output || runs[0].error || '', 1200); }
+        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].exit_code === 0 ? 'success' : (runs[0].status || 'error'); detail = clip(runs[0].output || runs[0].error || '', 240); context = clip(runs[0].output || runs[0].error || '', CTX_CLIP); }
       } else if (it.kind === 'task') {
         route = '#/tasks/' + encodeURIComponent(it.refId);
         const rawId = String(it.refId).replace(/^task-/, '');
@@ -6267,7 +6276,7 @@ function _resolveBoardItems(b, opts = {}) {
         if (t) {
           const runs = (supervisor.getRunHistory(t.agentId, 10) || []).filter(r => !r.task_id || r.task_id === t.id);
           const r0 = runs[0];
-          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.exit_code === 0 ? 'success' : (r0.status || 'error'); detail = clip(r0.output || r0.error || '', 240); context = clip(r0.output || r0.error || '', 1200); }
+          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.exit_code === 0 ? 'success' : (r0.status || 'error'); detail = clip(r0.output || r0.error || '', 240); context = clip(r0.output || r0.error || '', CTX_CLIP); }
           else { status = t.enabled === false ? 'disabled' : 'idle'; }
         }
       } else if (it.kind === 'assignment') {
@@ -6277,7 +6286,7 @@ function _resolveBoardItems(b, opts = {}) {
           const managerId = m[1], assignmentId = m[2];
           const runs = (managerAgent.getRunHistory(managerId, 20) || []).filter(r => !r.assignment_id || r.assignment_id === assignmentId);
           const r0 = runs[0];
-          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = clip(r0.result || r0.error || '', 240); context = clip(r0.result || r0.error || '', 1200); }
+          if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = clip(r0.result || r0.error || '', 240); context = clip(r0.result || r0.error || '', CTX_CLIP); }
         }
       } else if (it.kind === 'flow') {
         route = '#/chains/' + encodeURIComponent(it.refId);
@@ -6285,7 +6294,7 @@ function _resolveBoardItems(b, opts = {}) {
       } else if (it.kind === 'manager') {
         route = '#/managers/' + encodeURIComponent(it.refId);
         const runs = managerAgent.getRunHistory(it.refId, 1) || [];
-        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].status || 'idle'; detail = clip(runs[0].result || runs[0].error || '', 240); context = clip(runs[0].result || runs[0].error || '', 1200); }
+        if (runs[0]) { when = runs[0].finished_at || runs[0].started_at || when; status = runs[0].status || 'idle'; detail = clip(runs[0].result || runs[0].error || '', 240); context = clip(runs[0].result || runs[0].error || '', CTX_CLIP); }
       } else if (it.kind === 'chat') {
         route = '#/chat/' + encodeURIComponent(it.refId);
         const cf = path.join(CHATS_DIR, `${it.refId}.json`);
@@ -6296,7 +6305,7 @@ function _resolveBoardItems(b, opts = {}) {
             const msgs = c.messages || [];
             const last = msgs[msgs.length - 1];
             if (last) { status = last.role; detail = clip(last.content || '', 240); }
-            context = msgs.slice(-6).map(mm => (mm.role === 'assistant' ? 'ASSISTANT: ' : 'USER: ') + clip(mm.content || '', 500)).join('\n').slice(0, 2000);
+            context = msgs.slice(-6).map(mm => (mm.role === 'assistant' ? 'ASSISTANT: ' : 'USER: ') + clip(mm.content || '', TURN_CLIP)).join('\n').slice(0, JOIN_CAP);
           } catch {}
         }
       } else if (it.kind === 'comment') {
@@ -6328,10 +6337,10 @@ function _resolveBoardItems(b, opts = {}) {
                 // The pinned message is the point of interest — include it in full so the
                 // board assistant sees the same complete comment the board now displays;
                 // neighbouring turns stay clipped for context only.
-                const body = i === idx ? clip(mm.content || '', 6000) : clip(mm.content || '', 500);
+                const body = i === idx ? clip(mm.content || '', full ? 40000 : 6000) : clip(mm.content || '', TURN_CLIP);
                 lines.push(`${who}${mark}: ${body}`);
               }
-              context = lines.join('\n').slice(0, 6000);
+              context = lines.join('\n').slice(0, JOIN_CAP);
             }
           } catch {}
         }
@@ -6371,8 +6380,8 @@ function _resolveBoardItems(b, opts = {}) {
             try {
               const conv = readSessionConversation(dir);
               for (const t of (conv.turns || []).slice(-8)) {
-                if (t.content) tl.push('USER: ' + clip(t.content, 500));
-                if (t.assistant) tl.push('ASSISTANT: ' + clip(t.assistant, 500));
+                if (t.content) tl.push('USER: ' + clip(t.content, TURN_CLIP));
+                if (t.assistant) tl.push('ASSISTANT: ' + clip(t.assistant, TURN_CLIP));
               }
             } catch {}
             if (!tl.length && fs.existsSync(ep)) {
@@ -6383,8 +6392,8 @@ function _resolveBoardItems(b, opts = {}) {
                   if (!ln) continue;
                   let ev; try { ev = JSON.parse(ln); } catch { continue; }
                   const d = ev.data || {};
-                  if (ev.type === 'user.message' && d.content) tl.push('USER: ' + clip(d.content, 500));
-                  else if (ev.type === 'assistant.message' && d.content) tl.push('ASSISTANT: ' + clip(d.content, 500));
+                  if (ev.type === 'user.message' && d.content) tl.push('USER: ' + clip(d.content, TURN_CLIP));
+                  else if (ev.type === 'assistant.message' && d.content) tl.push('ASSISTANT: ' + clip(d.content, TURN_CLIP));
                   else if (ev.type === 'subagent.selected' && (d.agentDisplayName || d.agentName)) agentName = d.agentDisplayName || d.agentName;
                   else if (ev.type === 'session.start' && d.context && d.context.agentName && !agentName) agentName = d.context.agentName;
                   else if (ev.type === 'tool.execution_start' && d.toolName) tools.push(d.toolName);
@@ -6402,7 +6411,7 @@ function _resolveBoardItems(b, opts = {}) {
               for (let i = tl.length - 1; i >= 0; i--) { if (tl[i].startsWith('ASSISTANT: ')) { detail = clip(tl[i].slice(11), 240); break; } }
               if (!detail) detail = clip(tl[tl.length - 1], 240);
             }
-            context = tl.join('\n').slice(0, 2400);
+            context = tl.join('\n').slice(0, JOIN_CAP);
           }
         } catch {}
       }
@@ -6763,6 +6772,7 @@ Follow this disciplined loop and narrate which step you are on:
 6. **Implement** the change surgically and completely.
 7. **Validate** — run the relevant build/lint/tests and confirm the behavior; iterate until green.
 8. **Measure against the baseline** — re-capture the same metric and show the before→after delta as evidence the work succeeded.
+9. **Write a status report** — when you complete a major change, produce an HTML status report (see "Status report (HTML)").
 
 ## Measure success against a baseline
 Every change must be **provably** successful, not just plausibly. Always find a way to *measure* the outcome:
@@ -6771,6 +6781,18 @@ Every change must be **provably** successful, not just plausibly. Always find a 
 - **Compare after the change.** Re-run the *same* measurement and report the before→after delta. Make the improvement (or regression) explicit and quantified — e.g. "p95 latency 412ms → 168ms", "unhandled exceptions/hr 37 → 0", "clicks to publish 6 → 3".
 - **If a metric can't be measured directly, build the smallest harness that can** — a micro-benchmark, a counting script, a focused repro — rather than asserting success qualitatively.
 - **Surface the evidence.** Summarize the baseline, the method, and the result so the reviewer can see the change worked. A change with no measured outcome is not done.
+
+## Status report (HTML)
+Whenever you complete a **major change** (a work item, a significant fix, or a meaningful milestone), produce a **status HTML report** that makes the value of your work obvious at a glance. Write it as a self-contained file named \`dev-status-report.html\` at the root of this worktree (overwrite/refresh it as the work progresses). Requirements:
+- **Self-contained, single file.** Inline all CSS (and any JS) — no external assets or CDNs — so it opens correctly from disk. Charts/graphs must render without a network connection (draw them with inline SVG or pure-CSS bars; do not depend on external chart libraries).
+- **Cover these sections, in order:**
+  1. **The issue** — what the work item / problem was, in plain language.
+  2. **Root cause** — what was actually wrong (if applicable) and why it happened.
+  3. **Summary of changes** — the concrete changes you made (files/areas touched, approach), concise but specific.
+  4. **Measurements & metrics** — the baseline, your measurement method, and the after value, with the **before→after delta** called out.
+  5. **Visualizations** — at least one **table** of the key metrics and at least one **chart or graph** (bar/line) that visually highlights the before→after change. Use color to make improvements (or regressions) immediately readable.
+- **Make the success measurable and visible.** The report's job is to *demonstrate* the value and success of the changes you applied and measured — lead with the quantified outcome, not prose.
+- **Keep it readable.** A clean title, the work item id/link if present, a timestamp, and a calm, professional layout. Do not commit or push this report (treat it like your agent file — it stays untracked).
 
 ## Code quality bar
 You write **production-quality code**. This is non-negotiable:
@@ -6812,6 +6834,7 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
     fs.mkdirSync(agentsDir, { recursive: true });
     fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), _buildDevAgentMd({ agentName: slug, dev: d, wi }));
     try { devitems.addGitExclude(d.worktreePath, rel); } catch {}
+    try { devitems.addGitExclude(d.worktreePath, 'dev-status-report.html'); } catch {}
   } catch (e) {
     return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) });
   }
@@ -7251,7 +7274,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // ---- Board context (pins + notes + checklists, with stable ids the model can
   // reference back in its proposed actions). Reuses the same resolver as the
   // "Where was I?" briefing so the assistant sees real run output / transcripts.
-  const { contextBlocks } = _resolveBoardItems(b);
+  const { contextBlocks } = _resolveBoardItems(b, { full: true });
   const notes = (Array.isArray(b.notes) ? b.notes : []);
   const checklists = (Array.isArray(b.checklists) ? b.checklists : []);
   const pins = (Array.isArray(b.items) ? b.items : []);
@@ -7285,7 +7308,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // would otherwise eat the whole context window and the assistant would never see
   // what it can pin.
   const catalogCtx = [];
-  if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 9000));
+  if (contextBlocks.length) ctx.push('## PINNED ITEMS\n' + contextBlocks.join('\n\n').slice(0, 100000));
   if (pins.length) {
     ctx.push('## BOARD PINS (link checklist items to these by kind:refId)\n' + pins.map(p => {
       const key = p.kind + ':' + p.refId;
@@ -7405,7 +7428,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // Reserved budgets per section so a busy board's pinned transcripts can't crowd out
   // the catalog or source locations. Modern models have large context windows, so we
   // keep the main content budget generous.
-  const CTX_CONTENT_MAX = 32000, CTX_LOCATION_MAX = 1600, CTX_CATALOG_MAX = 4000;
+  const CTX_CONTENT_MAX = 120000, CTX_LOCATION_MAX = 1600, CTX_CATALOG_MAX = 4000;
   const contentStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, CTX_CONTENT_MAX);
   const catalogStr = catalogCtx.join('\n\n').slice(0, CTX_CATALOG_MAX);
   const locStr = locationStr.slice(0, CTX_LOCATION_MAX);
