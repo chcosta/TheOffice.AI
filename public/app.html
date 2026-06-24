@@ -1491,6 +1491,9 @@
     .cli-sess-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 6px; font-size: 0.76rem; color: var(--cp-text-muted); max-width: 100%; }
     .cli-sess-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
     .cli-sess-path { max-width: 100%; }
+    .origin-badge { flex: 0 0 auto; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--cp-border); white-space: nowrap; }
+    .origin-badge.origin-system { background: var(--cp-accent-soft); color: var(--cp-accent); border-color: var(--cp-accent); }
+    .origin-badge.origin-external { background: var(--cp-surface-soft); color: var(--cp-text-muted); }
     .cli-sess-actions { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
     .cli-sess-preview { margin-top: 10px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
     .cli-sess-summary { margin-top: 12px; padding: 10px 12px; background: var(--cp-accent-soft); border: 1px solid var(--cp-border); border-radius: 10px; font-size: 0.86rem; color: var(--cp-text); line-height: 1.5; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
@@ -5714,6 +5717,7 @@
                                           <button class="board-act" type="button" x-show="boardPinHasDetail(item)" :data-tip="boardPinIsExpanded(item) ? 'Hide details' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="board-act" :class="{ active: item.excludeFromSummary }" type="button" :data-tip="item.excludeFromSummary ? 'Include in summary &amp; insights' : 'Hide from summary &amp; insights'" @click.stop="toggleItemSummary(item)" x-text="item.excludeFromSummary ? '🙈' : '👁'"></button>
                                           <button class="board-act" type="button" x-show="item.kind === 'agent' || item.kind === 'manager'" :data-tip="'Chat with ' + (item.label || item.refId)" @click.stop="openOrCreateChat(item.kind, item.refId)">💬</button>
+                                          <button class="board-act" type="button" x-show="boardRefRunnable(item)" :disabled="pinStatus(item) && pinStatus(item).state === 'running'" :data-tip="(pinStatus(item) && pinStatus(item).state === 'running') ? (item.label || item.refId) + ' is running…' : 'Run ' + (item.label || item.refId) + ' here'" @click.stop="runBoardRef(item)" x-text="(pinStatus(item) && pinStatus(item).state === 'running') ? '⟳' : '▶'"></button>
                                           <button class="board-act" type="button" :data-tip="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
                                           <button class="board-act danger tip-end" type="button" data-tip="Unpin from board" @click.stop="unpinItem(item)">✕</button>
                                         </div>
@@ -8839,8 +8843,16 @@
                   </template>
                 </select>
               </label>
-              <button class="btn ghost" type="button" x-show="cliAgentFilter || cliFolderFilter || cliSessionSearch"
-                @click="cliAgentFilter=''; cliFolderFilter=''; cliSessionSearch=''; cliVisibleCount=60" title="Clear filters">✕ Clear</button>
+              <label class="cli-sess-select">
+                <span class="cli-sel-icon">🏛</span>
+                <select x-model="cliOriginFilter" @change="cliVisibleCount = 60" title="Filter by who started the session">
+                  <option value="" x-text="'All origins (' + cliSessions.length + ')'"></option>
+                  <option value="system" x-text="'TheOffice.AI (' + cliOriginCount('system') + ')'"></option>
+                  <option value="external" x-text="'External (' + cliOriginCount('external') + ')'"></option>
+                </select>
+              </label>
+              <button class="btn ghost" type="button" x-show="cliAgentFilter || cliFolderFilter || cliOriginFilter || cliSessionSearch"
+                @click="cliAgentFilter=''; cliFolderFilter=''; cliOriginFilter=''; cliSessionSearch=''; cliVisibleCount=60" title="Clear filters">✕ Clear</button>
               <div class="hint cli-sess-count" x-show="!cliSessionsLoading" x-text="filteredCliSessions().length + ' session' + (filteredCliSessions().length === 1 ? '' : 's')"></div>
             </div>
             <div class="empty-state" x-show="cliSessionsLoading">Loading sessions…</div>
@@ -8851,6 +8863,8 @@
                     <div class="cli-sess-head">
                       <div class="cli-sess-title" x-text="s.title"></div>
                       <div class="cli-sess-meta">
+                        <span class="origin-badge" :class="(s.origin === 'system') ? 'origin-system' : 'origin-external'"
+                          x-text="(s.origin === 'system') ? '🏛 TheOffice.AI' : '🌐 External'"></span>
                         <span class="type-badge" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
                         <span x-show="s.turnCount" x-text="s.turnCount + ' turn' + (s.turnCount === 1 ? '' : 's')"></span>
                         <span x-show="s.repository" x-text="'🌿 ' + s.repository + (s.branch ? (' @ ' + s.branch) : '')"></span>
@@ -10548,6 +10562,7 @@
         cliSessionSearch: '',
         cliAgentFilter: '',
         cliFolderFilter: '',
+        cliOriginFilter: '',
         cliVisibleCount: 60,
         _cliFilterCache: null,
         summarizingSessionId: null,
@@ -14308,13 +14323,21 @@
           return arr;
         },
 
+        cliOriginCount(origin) {
+          let n = 0;
+          for (const s of this.cliSessions) if ((s.origin || 'external') === origin) n++;
+          return n;
+        },
+
         filteredCliSessions() {
           const q = (this.cliSessionSearch || '').trim().toLowerCase();
           const af = this.cliAgentFilter;
           const ff = this.cliFolderFilter;
-          const sig = q + '|' + af + '|' + ff + '|' + this.cliSessions.length;
+          const of = this.cliOriginFilter;
+          const sig = q + '|' + af + '|' + ff + '|' + of + '|' + this.cliSessions.length;
           if (this._cliFilterCache && this._cliFilterCache.sig === sig) return this._cliFilterCache.result;
           let list = this.cliSessions;
+          if (of) list = list.filter(s => (s.origin || 'external') === of);
           if (af === '__none__') list = list.filter(s => !s.agentName);
           else if (af) list = list.filter(s => (s.agentName || '') === af);
           if (ff) list = list.filter(s => (s.cwd || '') === ff);

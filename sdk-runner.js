@@ -570,7 +570,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, availableTools }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
@@ -581,6 +581,10 @@ class SdkRunner {
       onPermissionRequest: (config && config.allowAll === false) ? deny : approveAll,
     };
     if (model) opts.model = model;
+    // Optional tool gate: pass availableTools:[] for a pure text-generation turn
+    // (e.g. summarization) so the model cannot wander off to inspect the
+    // filesystem and leak "let me check…" tool-planning prose into the output.
+    if (Array.isArray(availableTools)) opts.availableTools = availableTools;
     if (resume) {
       // Resuming a persisted session: the agent/tools are already wired in.
       opts.__resume = true;

@@ -3945,6 +3945,37 @@ const SPA_SUMMARY_FILE = '.spa-summary.json';
 // reuse entries whose underlying files are unchanged, so the page loads instantly.
 const _cliSessCache = new Map();
 
+// Session-origin classification. A CLI session counts as "system"-initiated when
+// it was launched by TheOffice.AI itself — either through our SDK runner (the CLI
+// writes client_name='sdk') or as an interactive CLI session whose UUID we pinned
+// (recorded as `cliSessionId` on a chat). Everything else (a raw `copilot` run in
+// a terminal, VS Code, the cloud autopilot agent, …) is "external".
+let _launchedCliCache = { ids: new Set(), at: 0 };
+function _systemLaunchedCliSessionIds() {
+  const now = Date.now();
+  if (now - _launchedCliCache.at < 10000) return _launchedCliCache.ids;
+  const ids = new Set();
+  try {
+    const dir = dataPath('chats');
+    if (fs.existsSync(dir)) {
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith('.json')) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+          if (data && data.cliSessionId) ids.add(data.cliSessionId);
+        } catch {}
+      }
+    }
+  } catch {}
+  _launchedCliCache = { ids, at: now };
+  return ids;
+}
+function _sessionOrigin(entry, launchedIds) {
+  if (entry.client === 'sdk') return 'system';
+  if (launchedIds && launchedIds.has(entry.id)) return 'system';
+  return 'external';
+}
+
 function deriveSessionTitle(meta, agentName, lastUser) {
   if (meta && meta.name && meta.name !== '(unnamed)' && String(meta.name).trim()) return String(meta.name).trim();
   const t = String(lastUser || '').replace(/\s+/g, ' ').trim();
@@ -4010,6 +4041,10 @@ app.get('/api/cli/sessions', (req, res) => {
     if (_cliSessCache.size > seen.size) {
       for (const k of _cliSessCache.keys()) if (!seen.has(k)) _cliSessCache.delete(k);
     }
+    // Tag each session with its origin (system vs external). Computed outside the
+    // per-entry cache so it always reflects the current launched-session set.
+    const launchedIds = _systemLaunchedCliSessionIds();
+    for (const e of out) e.origin = _sessionOrigin(e, launchedIds);
     out.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -6722,7 +6757,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
     const text = (acc.trim() || (result && result.output) || '').trim();
     if (!text) throw new Error('Empty summary');
     const updated = ctx.save({ summary: { text, generatedAt: new Date().toISOString() }, workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
