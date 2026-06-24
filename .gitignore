@@ -21,3 +21,28 @@ server-err.log
 settings.json
 service.out.log
 service.err.log
+
+# --- Runtime state / user data (machine-specific, not source) ---
+agents.json
+managers.json
+tasks.json
+chains.json
+events-config.json
+organizations.json
+teams.json
+boards.json
+insights.json
+suggestions.json
+suggestions-latest.json
+chats/
+
+# --- Local logs & scratch artifacts ---
+*.log
+*.err.log
+lease-test*
+temp-loc-*.bat
+temp-terminal-*.bat
+_*.mjs
+tmp_probe/
+_srv.err
+_srv.out
