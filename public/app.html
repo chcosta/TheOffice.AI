@@ -326,8 +326,9 @@
       top: 0;
       z-index: 20;
     }
-    .topbar > .org-switcher { justify-self: center; }
-    .topbar > .search-trigger { justify-self: end; }
+    .topbar > .mode-switch { justify-self: center; }
+    .topbar > .topbar-right { justify-self: end; display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .topbar-right > .search-trigger { min-width: 0; }
     /* ===== Starred-boards quick launch bar (under the topbar) ===== */
     .quick-launch {
       display: flex; align-items: center; gap: 6px;
@@ -3317,6 +3318,13 @@
       font-size: 12px;
       color: var(--cp-text-soft);
     }
+    /* Top-bar mode switch: flips the whole app between Workspace (productivity)
+       and Workforce (agentic). A compact segmented control. */
+    .mode-switch { display:inline-flex; align-items:center; gap:2px; padding:3px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:10px; flex:0 0 auto; }
+    .mode-seg { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border:none; background:transparent; color:var(--cp-text-muted); font:inherit; font-size:13px; font-weight:600; border-radius:8px; cursor:pointer; white-space:nowrap; transition:background .12s ease, color .12s ease; }
+    .mode-seg:hover { color:var(--cp-text); }
+    .mode-seg.active { background:var(--cp-surface); color:var(--cp-accent); box-shadow:0 1px 2px rgba(0,0,0,.12); }
+    @media (max-width: 760px) { .mode-seg .mode-seg-label { display:none; } .mode-seg { padding:5px 8px; } }
   </style>
 </head>
 <body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)" :class="{ 'nav-collapsed': navCollapsed }">
@@ -3329,6 +3337,17 @@
           <div>TheOffice.AI</div>
         </button>
       </div>
+      <div class="mode-switch" role="tablist" aria-label="App mode">
+        <button type="button" class="mode-seg" :class="{ active: appMode === 'workspace' }" role="tab" :aria-selected="appMode === 'workspace'"
+                @click="setAppMode('workspace')" title="Workspace — boards, insights & planning">
+          <span>📋</span><span class="mode-seg-label">Workspace</span>
+        </button>
+        <button type="button" class="mode-seg" :class="{ active: appMode === 'workforce' }" role="tab" :aria-selected="appMode === 'workforce'"
+                @click="setAppMode('workforce')" title="Workforce — managers, agents & operations">
+          <span>🤖</span><span class="mode-seg-label">Workforce</span>
+        </button>
+      </div>
+      <div class="topbar-right">
       <div class="org-switcher" @click.outside="orgMenuOpen = false">
         <button class="org-switcher-btn" type="button" @click="orgMenuOpen = !orgMenuOpen" :title="currentOrg() ? currentOrg().name : 'All teams'">
           <span class="org-emoji" x-text="currentOrg() ? currentOrg().emoji : '🏛️'"></span>
@@ -3357,6 +3376,7 @@
         <span>Search agents, managers, tasks…</span>
         <span class="kbd">⌘K</span>
       </button>
+      </div>
     </header>
 
     <!-- Starred boards quick launch: appears directly under the teams selector. -->
@@ -3497,7 +3517,8 @@
               <div class="page-title">
                 <h1 x-text="currentTeamId === 'all' ? 'Office' : (currentOrg() ? (currentOrg().emoji || '🏢') + ' ' + currentOrg().name : 'Overview')"></h1>
                 <p x-show="currentTeamId === 'all'">Team health across the office. Cards needing the most attention come first — click to step into a team.</p>
-                <p x-show="currentTeamId !== 'all'">Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
+                <p x-show="currentTeamId !== 'all' && appMode === 'workspace'">Your boards, insights, and active dev work for this team.</p>
+                <p x-show="currentTeamId !== 'all' && appMode === 'workforce'">Monitor live agent and manager orchestration, recent completions, schedules, and items that need attention.</p>
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="runningEntities().length + ' running' "></span>
@@ -3505,7 +3526,7 @@
             </div>
 
             <!-- Company / org-health overview (shown only in the company-wide "All" view) -->
-            <div x-show="currentTeamId === 'all' && companyOrgHealth().length" class="home-section">
+            <div x-show="currentTeamId === 'all' && appMode === 'workforce' && companyOrgHealth().length" class="home-section">
               <div class="home-section-label">
                 <span class="hsl-icon">🏢</span>
                 <span class="hsl-text">Teams</span>
@@ -3553,7 +3574,7 @@
               </div>
             </div>
 
-            <div class="home-section">
+            <div class="home-section" x-show="appMode === 'workforce'">
               <div class="home-section-label">
                 <span class="hsl-icon">📊</span>
                 <span class="hsl-text">At a glance</span>
@@ -3598,7 +3619,7 @@
             </div>
 
             <!-- Active dev work — live Dev cards pulled from this team's boards -->
-            <div class="home-section" x-show="homeDevCards().length">
+            <div class="home-section" x-show="appMode === 'workspace' && homeDevCards().length">
               <div class="home-section-label">
                 <span class="hsl-icon">🧰</span>
                 <span class="hsl-text">Active dev work</span>
@@ -3640,12 +3661,12 @@
             </div>
 
             <!-- Team-scoped overview: Boards & Insights -->
-            <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:18px" x-show="currentTeamId !== 'all'">
+            <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:18px" x-show="appMode === 'workspace'">
               <section class="card">
                 <div class="card-header">
                   <div>
                     <h2 class="card-title">📌 Boards</h2>
-                    <div class="card-subtitle" x-text="homeBoards().length + ' board' + (homeBoards().length === 1 ? '' : 's') + ' in this team'"></div>
+                    <div class="card-subtitle" x-text="homeBoards().length + ' board' + (homeBoards().length === 1 ? '' : 's') + (currentTeamId === 'all' ? '' : ' in this team')"></div>
                   </div>
                   <a class="btn ghost" href="#/boards">Open</a>
                 </div>
@@ -3688,7 +3709,7 @@
               </section>
             </div>
 
-            <section class="card home-section" style="margin-top:18px">
+            <section class="card home-section" style="margin-top:18px" x-show="appMode === 'workforce'">
               <div class="card-header">
                 <div>
                   <h2 class="card-title">🗓 Schedules</h2>
@@ -3763,7 +3784,7 @@
             </section>
 
             <!-- Team resources (employees + operations) -->
-            <section class="card" style="margin-top:18px" x-show="currentTeamId !== 'all'">
+            <section class="card" style="margin-top:18px" x-show="appMode === 'workforce' && currentTeamId !== 'all'">
               <div class="card-header">
                 <div>
                   <h2 class="card-title">🧩 Resources</h2>
@@ -3817,7 +3838,7 @@
               </div>
             </section>
 
-            <section class="card" style="margin-top:18px" x-show="alerts().length">
+            <section class="card" style="margin-top:18px" x-show="appMode === 'workforce' && alerts().length">
               <div class="card-header">
                 <div>
                   <h2 class="card-title">Alerts</h2>
@@ -10673,6 +10694,7 @@
         sseStatus: 'disconnected',
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
+        appMode: (() => { try { const m = localStorage.getItem('app-mode'); return (m === 'workspace' || m === 'workforce') ? m : 'workspace'; } catch { return 'workspace'; } })(),
         chatFocused: false,
         agentSearch: '',
         managerSearch: '',
@@ -11587,6 +11609,13 @@
             }
             this.app.route = route;
             this.app.routeParam = param;
+            // Keep the app mode in sync with the route so deep-links / sidebar clicks
+            // surface the correct sidebar. Shared routes (null) leave the mode as-is.
+            const rm = this.routeMode(route);
+            if (rm && rm !== this.appMode) {
+              this.appMode = rm;
+              try { localStorage.setItem('app-mode', rm); } catch {}
+            }
             await this.handleRouteChange();
           };
           window.addEventListener('hashchange', applyRoute);
@@ -12333,31 +12362,48 @@
         sidebarSections() {
           const org = this.currentOrg();
           const scopeLabel = org ? `Team · ${org.name}` : 'All teams';
-          return [
-            { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' },
-            { key: 'home', label: 'Home', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false },
-            { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
-            { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
-            { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false },
-            { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
-              { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
-              { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
-              { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
-            ]},
-            { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
-              { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
-              { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
-            ]},
+          const scope = { key: '_zone_org', caption: true, label: scopeLabel, icon: org ? (org.emoji || '🏢') : '🏛️' };
+          const home = { key: 'home', label: 'Home', title: 'Home', icon: '🏠', href: '#/home', routeGroup: 'home', items: [], collapsible: false };
+          const watercooler = { key: 'watercooler', label: 'Water cooler', title: 'Water cooler', icon: '💬', href: '#/chat', routeGroup: 'chat', items: [], collapsible: false };
+          // Shared "Office-wide" zone — appears at the bottom of both modes.
+          const globalZone = [
             { key: '_zone_company', caption: true, label: 'Office-wide', icon: '🏛️' },
             { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false },
             { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false },
-            { key: 'warehouse', label: 'Warehouse', collapsible: true, isGroup: true, href: '#/marketplace', routeGroup: 'marketplace', children: [
-              { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [] }
-            ]},
             { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
               { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
             ]}
+          ];
+          if (this.appMode === 'workforce') {
+            // Agentic experience: the AI workforce and how it runs.
+            return [
+              scope,
+              home,
+              { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
+                { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
+                { key: 'agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [] }
+              ]},
+              { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
+                { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
+                { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
+                { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
+              ]},
+              watercooler,
+              { key: 'warehouse', label: 'Warehouse', collapsible: true, isGroup: true, href: '#/marketplace', routeGroup: 'marketplace', children: [
+                { key: 'marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [] }
+              ]},
+              ...globalZone
+            ];
+          }
+          // Workspace experience: productivity — your boards & insights.
+          return [
+            scope,
+            home,
+            { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
+            { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
+            watercooler,
+            ...globalZone
           ];
         },
 
@@ -12397,6 +12443,30 @@
         goHome() {
           this.setCurrentOrg('all');
           this.goTo('#/home');
+        },
+        // ===== App mode (Workspace ⇄ Workforce) =====
+        // Workspace = productivity (boards, insights, reports). Workforce = agentic
+        // (managers, agents, tasks, flows, assignments). Returns the owning mode for a
+        // route, or null for shared/global routes (home, chat, teams, sessions,
+        // marketplace, activity, settings…) that live in both modes.
+        routeMode(route) {
+          const r = route || this.route;
+          if (['boards', 'insights'].includes(r)) return 'workspace';
+          if (['agents', 'agent-detail', 'managers', 'manager-detail', 'executions',
+               'tasks', 'task-detail', 'chains', 'chain-detail', 'assignments',
+               'assignment-detail', 'design'].includes(r)) return 'workforce';
+          return null;
+        },
+        setAppMode(mode, opts = {}) {
+          if (mode !== 'workspace' && mode !== 'workforce') return;
+          if (this.appMode !== mode) {
+            this.appMode = mode;
+            try { localStorage.setItem('app-mode', mode); } catch {}
+          }
+          // If the current route definitively belongs to the *other* mode, land on
+          // this mode's Home. Shared routes (incl. home) stay put and re-render.
+          const rm = this.routeMode(this.route);
+          if (rm && rm !== mode) this.goTo('#/home');
         },
         // Reskin the whole app to match the selected organization's theme preset.
         applyOrgTheme() {
