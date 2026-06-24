@@ -3984,69 +3984,76 @@ function deriveSessionTitle(meta, agentName, lastUser) {
   return '(untitled session)';
 }
 
+// Build the CLI-session index (id, title, agent, cwd, repo, branch, origin,
+// summary, preview, dates). Cheap thanks to a per-session mtime cache. Reused by
+// the list endpoint and the AI search assistant so both see the same shape.
+function _listCliSessions() {
+  if (!fs.existsSync(SESSION_STATE_DIR)) return [];
+  const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true }).filter(d => d.isDirectory());
+  const out = [];
+  const seen = new Set();
+  for (const d of dirs) {
+    const full = path.join(SESSION_STATE_DIR, d.name);
+    let stat; try { stat = fs.statSync(full); } catch { continue; }
+    seen.add(d.name);
+    // Cheap signature from file mtimes; skip the expensive parse if unchanged.
+    const ep = path.join(full, 'events.jsonl');
+    const sp = path.join(full, SPA_SUMMARY_FILE);
+    let epm = 0, spm = 0;
+    try { epm = fs.statSync(ep).mtimeMs; } catch {}
+    try { spm = fs.statSync(sp).mtimeMs; } catch {}
+    const sig = `${stat.mtimeMs}:${epm}:${spm}`;
+    const cached = _cliSessCache.get(d.name);
+    if (cached && cached.sig === sig) { out.push(cached.entry); continue; }
+    const meta = readSessionMeta(full);
+    if (!meta) continue; // require workspace.yaml
+    let turnCount = 0, agentName = '', lastUser = '';
+    if (epm) {
+      try {
+        for (const line of fs.readFileSync(ep, 'utf-8').split('\n')) {
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          if (ev.type === 'user.message') { turnCount++; if (ev.data && ev.data.content) lastUser = String(ev.data.content); }
+          else if (ev.type === 'subagent.selected' && ev.data && ev.data.agentDisplayName) agentName = ev.data.agentDisplayName;
+          else if (ev.type === 'session.start' && ev.data && ev.data.context && ev.data.context.agentName && !agentName) agentName = ev.data.context.agentName;
+        }
+      } catch {}
+    }
+    let summary = null, summaryAt = null;
+    if (spm) { try { const s = JSON.parse(fs.readFileSync(sp, 'utf-8')); summary = s.summary; summaryAt = s.generatedAt; } catch {} }
+    const entry = {
+      id: meta.id,
+      title: deriveSessionTitle(meta, agentName, lastUser),
+      agentName,
+      cwd: meta.cwd,
+      repository: meta.repository,
+      branch: meta.branch,
+      client: meta.client,
+      turnCount,
+      lastUserPreview: lastUser.replace(/\s+/g, ' ').trim().slice(0, 160),
+      createdAt: meta.createdAt,
+      lastModified: stat.mtime.toISOString(),
+      summary,
+      summaryAt
+    };
+    _cliSessCache.set(d.name, { sig, entry });
+    out.push(entry);
+  }
+  // Drop cache entries for sessions that no longer exist.
+  if (_cliSessCache.size > seen.size) {
+    for (const k of _cliSessCache.keys()) if (!seen.has(k)) _cliSessCache.delete(k);
+  }
+  // Tag each session with its origin (system vs external). Computed outside the
+  // per-entry cache so it always reflects the current launched-session set.
+  const launchedIds = _systemLaunchedCliSessionIds();
+  for (const e of out) e.origin = _sessionOrigin(e, launchedIds);
+  out.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+  return out;
+}
+
 app.get('/api/cli/sessions', (req, res) => {
   try {
-    if (!fs.existsSync(SESSION_STATE_DIR)) return res.json([]);
-    const dirs = fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true }).filter(d => d.isDirectory());
-    const out = [];
-    const seen = new Set();
-    for (const d of dirs) {
-      const full = path.join(SESSION_STATE_DIR, d.name);
-      let stat; try { stat = fs.statSync(full); } catch { continue; }
-      seen.add(d.name);
-      // Cheap signature from file mtimes; skip the expensive parse if unchanged.
-      const ep = path.join(full, 'events.jsonl');
-      const sp = path.join(full, SPA_SUMMARY_FILE);
-      let epm = 0, spm = 0;
-      try { epm = fs.statSync(ep).mtimeMs; } catch {}
-      try { spm = fs.statSync(sp).mtimeMs; } catch {}
-      const sig = `${stat.mtimeMs}:${epm}:${spm}`;
-      const cached = _cliSessCache.get(d.name);
-      if (cached && cached.sig === sig) { out.push(cached.entry); continue; }
-      const meta = readSessionMeta(full);
-      if (!meta) continue; // require workspace.yaml
-      let turnCount = 0, agentName = '', lastUser = '';
-      if (epm) {
-        try {
-          for (const line of fs.readFileSync(ep, 'utf-8').split('\n')) {
-            if (!line) continue;
-            const ev = JSON.parse(line);
-            if (ev.type === 'user.message') { turnCount++; if (ev.data && ev.data.content) lastUser = String(ev.data.content); }
-            else if (ev.type === 'subagent.selected' && ev.data && ev.data.agentDisplayName) agentName = ev.data.agentDisplayName;
-            else if (ev.type === 'session.start' && ev.data && ev.data.context && ev.data.context.agentName && !agentName) agentName = ev.data.context.agentName;
-          }
-        } catch {}
-      }
-      let summary = null, summaryAt = null;
-      if (spm) { try { const s = JSON.parse(fs.readFileSync(sp, 'utf-8')); summary = s.summary; summaryAt = s.generatedAt; } catch {} }
-      const entry = {
-        id: meta.id,
-        title: deriveSessionTitle(meta, agentName, lastUser),
-        agentName,
-        cwd: meta.cwd,
-        repository: meta.repository,
-        branch: meta.branch,
-        client: meta.client,
-        turnCount,
-        lastUserPreview: lastUser.replace(/\s+/g, ' ').trim().slice(0, 160),
-        createdAt: meta.createdAt,
-        lastModified: stat.mtime.toISOString(),
-        summary,
-        summaryAt
-      };
-      _cliSessCache.set(d.name, { sig, entry });
-      out.push(entry);
-    }
-    // Drop cache entries for sessions that no longer exist.
-    if (_cliSessCache.size > seen.size) {
-      for (const k of _cliSessCache.keys()) if (!seen.has(k)) _cliSessCache.delete(k);
-    }
-    // Tag each session with its origin (system vs external). Computed outside the
-    // per-entry cache so it always reflects the current launched-session set.
-    const launchedIds = _systemLaunchedCliSessionIds();
-    for (const e of out) e.origin = _sessionOrigin(e, launchedIds);
-    out.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
-    res.json(out);
+    res.json(_listCliSessions());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4116,6 +4123,122 @@ app.post('/api/cli/sessions/:id/summarize', async (req, res) => {
     try { fs.writeFileSync(sp, JSON.stringify(payload, null, 2)); } catch {}
     res.json({ summary, generatedAt: payload.generatedAt, cached: false });
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'summarize failed' }); }
+});
+
+// ── CLI session AI search assistant ────────────────────────────────────────
+// A conversational "find my session" helper. Scales to thousands of sessions by
+// first scoring every session lexically against the query (title / preview /
+// summary / repo / branch / agent / cwd), then handing only the top candidates
+// to the model to semantically rank, filter, and answer in natural language.
+// Returns { answer, matches:[{id,reason}], consideredCount, totalCount }.
+
+// Tokenize a query into meaningful lowercase terms (drop tiny stopwords).
+function _searchTokens(q) {
+  const stop = new Set(['the','a','an','to','of','in','on','for','and','or','is','it','my','me','that','this','was','with','where','which','find','session','sessions','show','about','did','i']);
+  return String(q || '').toLowerCase().split(/[^a-z0-9#._/-]+/).filter(t => t && t.length > 1 && !stop.has(t));
+}
+// Lexical score of one session against the query tokens. Weights the strongest
+// signals (title, summary) highest; recency is a light tiebreaker.
+function _scoreSession(e, tokens) {
+  if (!tokens.length) return 0;
+  const fields = [
+    [String(e.title || ''), 5],
+    [String(e.summary || ''), 4],
+    [String(e.lastUserPreview || ''), 3],
+    [String(e.repository || ''), 3],
+    [String(e.branch || ''), 2],
+    [String(e.agentName || ''), 2],
+    [String(e.cwd || ''), 1],
+    [String(e.id || ''), 2],
+  ];
+  let score = 0;
+  for (const [raw, w] of fields) {
+    const hay = raw.toLowerCase();
+    if (!hay) continue;
+    for (const t of tokens) if (hay.includes(t)) score += w;
+  }
+  return score;
+}
+
+app.post('/api/cli/sessions/search', async (req, res) => {
+  const query = String((req.body && req.body.query) || '').trim();
+  const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  if (!query) return res.status(400).json({ error: 'Empty query' });
+  let sessions;
+  try { sessions = _listCliSessions(); } catch (e) { return res.status(500).json({ error: 'list failed: ' + e.message }); }
+  const totalCount = sessions.length;
+
+  // Stage 1 — lexical pre-filter. Score and keep the strongest candidates; when
+  // the query has no usable tokens (e.g. "what did I do recently"), fall back to
+  // the most recently-modified sessions so the model still has context to reason.
+  const tokens = _searchTokens(query);
+  let ranked = sessions.map(e => ({ e, s: _scoreSession(e, tokens) }));
+  const anyHits = ranked.some(r => r.s > 0);
+  if (anyHits) ranked = ranked.filter(r => r.s > 0);
+  ranked.sort((a, b) => (b.s - a.s) || (new Date(b.e.lastModified) - new Date(a.e.lastModified)));
+  const CANDIDATE_LIMIT = 60;
+  const candidates = ranked.slice(0, CANDIDATE_LIMIT).map(r => r.e);
+
+  // Compact, model-friendly index of the candidates (numbered for easy reference).
+  const fmtDate = (d) => { try { return new Date(d).toISOString().slice(0, 10); } catch { return ''; } };
+  const indexLines = candidates.map((e, i) => {
+    const bits = [
+      `[${i + 1}] id=${e.id}`,
+      `title="${String(e.title || '').replace(/\s+/g, ' ').slice(0, 90)}"`,
+      e.agentName ? `agent="${e.agentName}"` : '',
+      e.repository ? `repo=${e.repository}` : '',
+      e.branch ? `branch=${e.branch}` : '',
+      e.origin ? `origin=${e.origin}` : '',
+      `modified=${fmtDate(e.lastModified)}`,
+      e.summary ? `summary="${String(e.summary).replace(/\s+/g, ' ').slice(0, 200)}"`
+        : (e.lastUserPreview ? `lastPrompt="${String(e.lastUserPreview).replace(/\s+/g, ' ').slice(0, 160)}"` : ''),
+    ].filter(Boolean);
+    return bits.join('  ');
+  });
+
+  const convo = history.slice(-6).map(m => `${m.role === 'assistant' ? 'ASSISTANT' : 'USER'}: ${String(m.content || '').slice(0, 500)}`).join('\n');
+  const prompt = [
+    'You are a search assistant for a developer\'s Copilot CLI session history. The user is trying to FIND specific past sessions among many. Below is an indexed list of candidate sessions (already pre-filtered for relevance). Each line has an id, title, optional agent/repo/branch/origin, last-modified date, and a summary or last prompt.',
+    'Decide which candidates genuinely match what the user is looking for. Be selective — only include real matches, ranked best-first. If nothing fits, return an empty matches list and say so.',
+    'Respond with STRICT JSON only (no markdown, no code fence) of the form: {"answer":"<one short paragraph addressed to the user, plain prose>","matches":[{"id":"<session id>","reason":"<short why-it-matches>"}]}.',
+    'Use ONLY ids that appear in the list. Keep "answer" concise and helpful; mention how many you found and, if useful, how to narrow further.',
+    '',
+    convo ? 'Recent conversation:\n' + convo + '\n' : '',
+    `User is looking for: ${query}`,
+    '',
+    `Candidate sessions (${candidates.length} of ${totalCount} total):`,
+    indexLines.join('\n').slice(0, 22000),
+    '',
+    'JSON:'
+  ].filter(Boolean).join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    let raw = (acc.trim() || (result && result.output) || '').trim();
+    // Strip an accidental code fence and isolate the JSON object.
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+    let parsed = null;
+    if (a >= 0 && b > a) { try { parsed = JSON.parse(raw.slice(a, b + 1)); } catch {} }
+    const validIds = new Set(candidates.map(e => e.id));
+    let matches = [];
+    if (parsed && Array.isArray(parsed.matches)) {
+      matches = parsed.matches
+        .filter(m => m && validIds.has(m.id))
+        .map(m => ({ id: m.id, reason: String(m.reason || '').slice(0, 300) }));
+    }
+    // Fallback: if the model returned prose but no usable matches, surface the
+    // top lexical candidates so the user still gets a useful result.
+    if (!matches.length && anyHits) {
+      matches = candidates.slice(0, 8).map(e => ({ id: e.id, reason: 'Lexical match' }));
+    }
+    const answer = (parsed && parsed.answer) ? String(parsed.answer).slice(0, 1200)
+      : (matches.length ? `Found ${matches.length} session(s) that look relevant.` : 'No sessions matched that — try different keywords (a repo, branch, agent, or what the work was about).');
+    res.json({ answer, matches, consideredCount: candidates.length, totalCount });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'search failed' });
+  }
 });
 
 // ============ Agent / Plugin Updates page ============
@@ -6708,23 +6831,8 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   res.json({ ok: r.ok, message: r.message, dev: updated });
 });
 
-// Regenerate the AI summary of where the dev work stands (work item + PR + diff).
-app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
-  const ctx = _devItemCtx(req.params.id, req.params.devId);
-  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
-  const d = ctx.dev;
-  // Pull the freshest work item + PR for the prompt (best-effort).
-  let wi = d.workItem, pr = d.pr;
-  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
-  try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
-  let diff = '';
-  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: 9000 }); } catch {}
-  // Recompute live git state so the summary reflects the worktree as it is right
-  // now (the cached d.git is only refreshed by an explicit refresh/sync, so on its
-  // own it would make a freshly-edited worktree still read as "clean").
-  let git = d.git;
-  try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {}
-
+// Build the dev-summary prompt from a card + its live work-item / PR / git state.
+function _buildDevSummaryPrompt(d, { wi, pr, git, diff } = {}) {
   const ctxLines = [];
   ctxLines.push(`Dev card: ${d.title || d.repo}`);
   ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}  Branch: ${d.branch || '(none)'}  Base: ${d.baseBranch || 'main'}`);
@@ -6745,7 +6853,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   if (git) ctxLines.push(`Local branch vs its own origin remote: ${git.ahead || 0} ahead / ${git.behind || 0} behind${git.dirty ? ', uncommitted changes present' : ', clean working tree'} (this is the feature branch's sync state, NOT a signal that it merged into the base branch)`);
   if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 20000)); }
 
-  const prompt = [
+  return [
     'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree — including the actual diff hunks of what changed), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it stands, and what is left to do next.',
     'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
     'CRITICAL: Only state that the PR is merged/landed if its lifecycle is explicitly MERGED above. A PR that is OPEN has NOT been merged, regardless of mergeability or how clean/in-sync the local branch is — never infer a merge from "clean working tree", "0 ahead/0 behind", or a "succeeded" mergeability. For an open PR, the next step is review/approval and completing the merge, not closing the work item.',
@@ -6754,18 +6862,121 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
     '',
     'Status briefing:'
   ].join('\n');
+}
 
+// A compact signature of a dev card's *observable* state. When this changes the
+// summary is considered stale and is regenerated by the background reconciler.
+// Captures only meaningful, user-visible signals so trivial churn doesn't thrash.
+function _devFingerprint({ wi, pr, git } = {}) {
+  const parts = [];
+  if (wi) parts.push('wi:' + wi.id + '|' + (wi.state || '') + '|' + (wi.title || '') + '|' + (wi.assignedTo || ''));
+  if (pr) {
+    const votes = (pr.reviewers || []).map(r => (r.name || '') + '=' + r.vote).sort().join(',');
+    parts.push('pr:' + pr.id + '|' + (pr.status || '') + '|' + (pr.isDraft ? 'd' : '') + '|' + (pr.mergeStatus || '') + '|' + (pr.title || '') + '|' + votes);
+  }
+  if (git) parts.push('git:' + (git.head || '') + '|' + (git.ahead || 0) + '|' + (git.behind || 0) + '|' + (git.dirty ? 'dirty' : 'clean'));
+  return parts.join('||');
+}
+
+// Resolve the freshest work-item / PR / git for a card (best-effort) and run the
+// AI summarizer. Tools are disabled so the model emits pure prose from the
+// in-context prompt (no file-exploration leakage). Returns { text, generatedAt,
+// wi, pr, git }. Pass pre-fetched wi/pr/git to avoid re-fetching.
+async function _generateDevSummary(d, opts = {}) {
+  let { wi, pr, git } = opts;
+  if (wi === undefined) { wi = d.workItem; try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {} }
+  if (pr === undefined) { pr = d.pr; try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {} }
+  if (git === undefined) { git = d.git; try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {} }
+  let diff = '';
+  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: 9000 }); } catch {}
+  const prompt = _buildDevSummaryPrompt(d, { wi, pr, git, diff });
+  let acc = '';
+  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+  const text = (acc.trim() || (result && result.output) || '').trim();
+  if (!text) throw new Error('Empty summary');
+  return { text, generatedAt: new Date().toISOString(), wi, pr, git };
+}
+
+// Regenerate the AI summary of where the dev work stands (work item + PR + diff).
+// Manual trigger — always regenerates; the background reconciler keeps it fresh.
+app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
   try {
-    let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
-    const text = (acc.trim() || (result && result.output) || '').trim();
-    if (!text) throw new Error('Empty summary');
-    const updated = ctx.save({ summary: { text, generatedAt: new Date().toISOString() }, workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
+    const gen = await _generateDevSummary(d, {});
+    const fingerprint = _devFingerprint({ wi: gen.wi, pr: gen.pr, git: gen.git });
+    const updated = ctx.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint, auto: false }, workItem: gen.wi || d.workItem, pr: gen.pr || d.pr, git: gen.git || d.git });
     res.json({ ok: true, dev: updated });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'Summary failed' });
   }
 });
+
+// ── Auto-summary reconciler ────────────────────────────────────────────────
+// Keep dev-card summaries "relatively up to date" without a manual click: on a
+// slow cadence, recompute each card's live work-item / PR / git state, and when
+// the observable fingerprint changes (or there's no summary yet) regenerate the
+// AI briefing. Throttled per-card so it never thrashes, and opt-out per card via
+// d.autoSummary === false. Runs regardless of whether any client is connected.
+const DEV_SUMMARY_SCAN_MS = 2 * 60 * 1000;       // how often we sweep all cards
+const DEV_SUMMARY_MIN_INTERVAL_MS = 90 * 1000;   // min gap between regenerations of one card
+const _devSummaryRunning = new Set();            // boardId/devId currently generating
+let _devSummaryScanBusy = false;
+
+async function _reconcileDevSummaries() {
+  if (_devSummaryScanBusy) return;
+  _devSummaryScanBusy = true;
+  try {
+    let boards;
+    try { boards = loadBoards(); } catch { return; }
+    for (const b of boards) {
+      if (!b || b.archived) continue;
+      const items = Array.isArray(b.devItems) ? b.devItems : [];
+      for (const d of items) {
+        if (!d || d.autoSummary === false) continue;
+        // Nothing to summarize if there's no linked work item, PR, or worktree.
+        if (!d.worktreePath && !d.workItemId && !d.prId) continue;
+        const key = b.id + '/' + d.id;
+        if (_devSummaryRunning.has(key)) continue;
+        try {
+          // Recompute live state (local git is cheap; WI/PR are best-effort network).
+          let wi = d.workItem, pr = d.pr, git = d.git;
+          try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+          try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
+          try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {}
+
+          const fp = _devFingerprint({ wi, pr, git });
+          const prevFp = (d.summary && d.summary.fingerprint) || '';
+          const haveSummary = !!(d.summary && d.summary.text);
+          const lastGen = (d.summary && d.summary.generatedAt) ? Date.parse(d.summary.generatedAt) : 0;
+          const changed = fp !== prevFp;
+          const throttleOk = (Date.now() - lastGen) > DEV_SUMMARY_MIN_INTERVAL_MS;
+
+          if ((!haveSummary || changed) && throttleOk) {
+            _devSummaryRunning.add(key);
+            try {
+              const gen = await _generateDevSummary(d, { wi, pr, git });
+              const c2 = _devItemCtx(b.id, d.id); // re-locate: board may have been re-saved meanwhile
+              if (c2) c2.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint: fp, auto: true }, workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
+            } finally { _devSummaryRunning.delete(key); }
+          } else if (changed) {
+            // State moved but we're inside the throttle window (or summary is fresh):
+            // persist the live state now so the card's badges are current; the next
+            // sweep will regenerate the prose once the throttle clears.
+            const c2 = _devItemCtx(b.id, d.id);
+            if (c2) c2.save({ workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
+          }
+        } catch {}
+      }
+    }
+  } finally {
+    _devSummaryScanBusy = false;
+  }
+}
+setInterval(() => { _reconcileDevSummaries().catch(() => {}); }, DEV_SUMMARY_SCAN_MS);
+// Kick a first sweep shortly after boot so freshly-loaded cards get summaries.
+setTimeout(() => { _reconcileDevSummaries().catch(() => {}); }, 20 * 1000);
 
 // Remove a dev card's worktree (best-effort) without deleting the item record.
 app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) => {

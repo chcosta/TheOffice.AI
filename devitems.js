@@ -145,9 +145,12 @@ function worktreeStatus(wt, { fetch = true, baseBranch = 'main' } = {}) {
     comparable = true;
   }
   const dirty = (_gitTry(['status', '--porcelain'], wt).out || '').length > 0;
+  // HEAD commit sha — lets callers detect a new commit even when ahead/behind
+  // don't move (e.g. an amend, or a commit that also pulled base in).
+  const head = _gitTry(['rev-parse', 'HEAD'], wt).out || '';
 
   return {
-    branch,
+    branch, head,
     upstream: up.ok ? up.out : '',
     tracking: compare === '@{u}' ? (up.out || '') : compare,
     ahead, behind, comparable, dirty,

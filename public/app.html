@@ -1496,6 +1496,10 @@
     .origin-badge.origin-external { background: var(--cp-surface-soft); color: var(--cp-text-muted); }
     .cli-sess-actions { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
     .cli-sess-preview { margin-top: 10px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .cli-ai-banner { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 8px 12px; background: var(--cp-accent-soft); border: 1px solid var(--cp-accent); border-radius: 10px; font-size: 0.86rem; }
+    .cli-ai-banner strong { color: var(--cp-accent); }
+    .cli-ai-reason { margin-top: 8px; font-size: 0.82rem; color: var(--cp-text-muted); font-style: italic; overflow-wrap: anywhere; }
+    .cli-ai-match-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cli-sess-summary { margin-top: 12px; padding: 10px 12px; background: var(--cp-accent-soft); border: 1px solid var(--cp-border); border-radius: 10px; font-size: 0.86rem; color: var(--cp-text); line-height: 1.5; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
     .cli-sess-summary-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px; }
     /* Updates page */
@@ -6069,6 +6073,7 @@
                                           <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
+                                            <span class="summary-muted-pill" style="font-size:9.5px" x-show="d.summary && d.summary.auto && devBusy[d.id]!=='summary'" title="This summary updates itself automatically when the work item, PR, or worktree changes. Use ↻ Refresh to regenerate now.">⚡ Auto</span>
                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='summary'" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
                                           </div>
                                         </div>
@@ -6077,7 +6082,7 @@
                                           <span>AI is reviewing the work item, PR and code diff…</span>
                                         </div>
                                         <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
-                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — click ↻ Refresh to have AI review the work item, PR and code diff.</div>
+                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                       </div>
                                     </div>
                                   </template>
@@ -8855,6 +8860,11 @@
                 @click="cliAgentFilter=''; cliFolderFilter=''; cliOriginFilter=''; cliSessionSearch=''; cliVisibleCount=60" title="Clear filters">✕ Clear</button>
               <div class="hint cli-sess-count" x-show="!cliSessionsLoading" x-text="filteredCliSessions().length + ' session' + (filteredCliSessions().length === 1 ? '' : 's')"></div>
             </div>
+            <div class="cli-ai-banner" x-show="cliSearch.matchActive">
+              <span>🔍 Showing <strong x-text="cliSearch.matchIds.length"></strong> AI match<span x-show="cliSearch.matchIds.length !== 1">es</span></span>
+              <button class="btn ghost" type="button" @click="clearCliSearchFilter()">✕ Clear AI filter</button>
+              <button class="btn ghost" type="button" @click="openCliSearch()">💬 Refine</button>
+            </div>
             <div class="empty-state" x-show="cliSessionsLoading">Loading sessions…</div>
             <div class="cli-sess-list" x-show="!cliSessionsLoading">
               <template x-for="s in pagedCliSessions()" :key="s.id">
@@ -8882,6 +8892,7 @@
                     </div>
                   </div>
                   <div class="cli-sess-preview hint" x-show="s.lastUserPreview && !s.summary" x-text="'Last prompt: ' + s.lastUserPreview"></div>
+                  <div class="cli-ai-reason" x-show="cliSearch.matchActive && cliSearchReason(s.id)" x-text="'🔍 ' + cliSearchReason(s.id)"></div>
                   <div class="cli-sess-summary" x-show="s.summary">
                     <div class="cli-sess-summary-label">Summary <span class="hint" x-show="s.summaryAt" x-text="'· ' + formatRelative(s.summaryAt)"></span></div>
                     <div x-text="s.summary"></div>
@@ -8894,6 +8905,61 @@
                 x-text="'Show more (' + (filteredCliSessions().length - cliVisibleCount) + ' remaining)'"></button>
             </div>
             <div class="empty-state" x-show="!cliSessionsLoading && !filteredCliSessions().length">No CLI sessions found.</div>
+
+            <!-- AI search assistant: floating launcher + slide-over chat. Mirrors the
+                 board AI UX. Finds/filters sessions across the whole history. -->
+            <button class="board-ai-fab" type="button" x-show="!cliSearch.open" x-transition.opacity.duration.150ms
+              @click="openCliSearch()" title="AI session finder — describe what you're looking for and it'll surface the matching sessions" aria-label="Open CLI session AI search">🔍</button>
+            <div class="board-assistant-backdrop" x-show="cliSearch.open" x-transition.opacity.duration.150ms @click.self="closeCliSearch()" x-cloak>
+              <aside class="board-assistant-drawer" x-show="cliSearch.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+                <div class="board-assistant-head">
+                  <div>
+                    <div style="font-weight:600">🔍 Find a session</div>
+                    <div class="hint" x-text="cliSessions.length + ' session' + (cliSessions.length === 1 ? '' : 's') + ' searchable'"></div>
+                  </div>
+                  <button class="icon-button" type="button" @click="closeCliSearch()" title="Close">✕</button>
+                </div>
+                <div class="board-assistant-body" x-ref="cliSearchBody">
+                  <div x-show="!cliSearch.messages.length" class="empty-state" style="padding:16px;font-size:13px">
+                    Describe the session you're after — a repo, a branch, an agent, or what the work was about.
+                    <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+                      <button class="btn ghost" type="button" style="text-align:left" @click="cliSearch.input='Autoscaler work from this week'; sendCliSearch()">“Autoscaler work from this week”</button>
+                      <button class="btn ghost" type="button" style="text-align:left" @click="cliSearch.input='sessions where I edited the board layout code'; sendCliSearch()">“sessions where I edited the board layout code”</button>
+                      <button class="btn ghost" type="button" style="text-align:left" @click="cliSearch.input='dotnet-helix-service PRs'; sendCliSearch()">“dotnet-helix-service PRs”</button>
+                    </div>
+                  </div>
+                  <template x-for="(m, mi) in cliSearch.messages" :key="mi">
+                    <div class="ba-msg" :class="m.role">
+                      <div class="ba-bubble" :class="m.role" x-text="m.content"></div>
+                      <template x-if="m.role === 'assistant' && m.matches && m.matches.length">
+                        <div class="ba-actions">
+                          <div class="hint" x-show="m.consideredCount" x-text="'Scanned ' + m.consideredCount + ' of ' + m.totalCount + ' candidates'"></div>
+                          <template x-for="mt in m.matches" :key="mt.id">
+                            <div class="ba-action" style="cursor:pointer" @click="jumpToCliSession(mt.id)" title="Show only this session">
+                              <div style="flex:1;min-width:0">
+                                <div class="cli-ai-match-title" x-text="(cliSessions.find(s => s.id === mt.id) || {}).title || mt.id"></div>
+                                <div class="ba-action-preview" x-show="mt.reason" x-text="mt.reason"></div>
+                              </div>
+                              <span class="hint">→</span>
+                            </div>
+                          </template>
+                          <button class="btn" type="button" @click="applyCliSearchMatches(m)">Show all <span x-text="m.matches.length"></span> in the list →</button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div x-show="cliSearch.busy" class="ba-msg assistant">
+                    <div class="ba-bubble assistant" style="display:flex;align-items:center;gap:8px">
+                      <span class="ba-spinner"></span><span>Searching…</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="board-assistant-input">
+                  <textarea class="field-input" rows="2" x-ref="cliSearchInput" x-model="cliSearch.input" placeholder="Describe the session…" :disabled="cliSearch.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendCliSearch(); }" style="flex:1;resize:none"></textarea>
+                  <button class="btn primary" type="button" @click="sendCliSearch()" :disabled="cliSearch.busy || !cliSearch.input.trim()">Send</button>
+                </div>
+              </aside>
+            </div>
           </section>
 
           <!-- Agent / Plugin Updates -->
@@ -10566,6 +10632,9 @@
         cliVisibleCount: 60,
         _cliFilterCache: null,
         summarizingSessionId: null,
+        // AI search assistant for CLI sessions — a lower-right chat (like the board AI)
+        // that finds/filters sessions across the whole history by natural-language query.
+        cliSearch: { open: false, busy: false, input: '', messages: [], matchIds: [], matchActive: false, reasons: {} },
         // ===== Boards (task boards) =====
         boards: [],
         boardsLoading: false,
@@ -14334,9 +14403,16 @@
           const af = this.cliAgentFilter;
           const ff = this.cliFolderFilter;
           const of = this.cliOriginFilter;
-          const sig = q + '|' + af + '|' + ff + '|' + of + '|' + this.cliSessions.length;
+          const ai = this.cliSearch.matchActive ? this.cliSearch.matchIds.join(',') : '';
+          const sig = q + '|' + af + '|' + ff + '|' + of + '|' + ai + '|' + this.cliSessions.length;
           if (this._cliFilterCache && this._cliFilterCache.sig === sig) return this._cliFilterCache.result;
           let list = this.cliSessions;
+          // AI-match filter takes precedence in ordering: restrict to matched ids and
+          // preserve the assistant's best-first ranking.
+          if (this.cliSearch.matchActive && this.cliSearch.matchIds.length) {
+            const order = new Map(this.cliSearch.matchIds.map((id, i) => [id, i]));
+            list = list.filter(s => order.has(s.id)).sort((a, b) => order.get(a.id) - order.get(b.id));
+          }
           if (of) list = list.filter(s => (s.origin || 'external') === of);
           if (af === '__none__') list = list.filter(s => !s.agentName);
           else if (af) list = list.filter(s => (s.agentName || '') === af);
@@ -14385,8 +14461,75 @@
           }
         },
 
-        // ===== Boards (task boards) =====
-        async loadBoards(selectId, silent) {
+        // ===== CLI sessions AI search assistant =====
+        openCliSearch() {
+          this.cliSearch.open = true;
+          this.$nextTick(() => { try { this.$refs.cliSearchInput && this.$refs.cliSearchInput.focus(); } catch {} });
+        },
+        closeCliSearch() { this.cliSearch.open = false; },
+        clearCliSearchFilter() {
+          this.cliSearch.matchActive = false;
+          this.cliSearch.matchIds = [];
+          this.cliSearch.reasons = {};
+          this._cliFilterCache = null;
+          this.cliVisibleCount = 60;
+        },
+        cliSearchReason(id) { return this.cliSearch.reasons[id] || ''; },
+        async sendCliSearch() {
+          const q = (this.cliSearch.input || '').trim();
+          if (!q || this.cliSearch.busy) return;
+          this.cliSearch.messages.push({ role: 'user', content: q });
+          this.cliSearch.input = '';
+          this.cliSearch.busy = true;
+          this.$nextTick(() => this._scrollCliSearch());
+          try {
+            const history = this.cliSearch.messages.slice(-8).map(m => ({ role: m.role, content: m.content }));
+            const r = await this.request('/api/cli/sessions/search', {
+              method: 'POST',
+              body: JSON.stringify({ query: q, history }),
+              timeoutMs: 120000
+            });
+            const matches = Array.isArray(r.matches) ? r.matches : [];
+            this.cliSearch.messages.push({
+              role: 'assistant',
+              content: r.answer || '',
+              matches,
+              consideredCount: r.consideredCount || 0,
+              totalCount: r.totalCount || 0
+            });
+            // Apply the matches as a live filter over the session list.
+            this.cliSearch.matchIds = matches.map(m => m.id);
+            this.cliSearch.reasons = {};
+            for (const m of matches) this.cliSearch.reasons[m.id] = m.reason || '';
+            this.cliSearch.matchActive = matches.length > 0;
+            this._cliFilterCache = null;
+            this.cliVisibleCount = 60;
+          } catch (e) {
+            this.cliSearch.messages.push({ role: 'assistant', content: 'Search failed: ' + (e.message || 'unknown error'), matches: [] });
+          } finally {
+            this.cliSearch.busy = false;
+            this.$nextTick(() => this._scrollCliSearch());
+          }
+        },
+        applyCliSearchMatches(m) {
+          // Re-apply a prior assistant turn's matches as the active filter.
+          const matches = Array.isArray(m.matches) ? m.matches : [];
+          if (!matches.length) return;
+          this.cliSearch.matchIds = matches.map(x => x.id);
+          this.cliSearch.reasons = {};
+          for (const x of matches) this.cliSearch.reasons[x.id] = x.reason || '';
+          this.cliSearch.matchActive = true;
+          this._cliFilterCache = null;
+          this.cliVisibleCount = 60;
+          this.closeCliSearch();
+        },
+        jumpToCliSession(id) {
+          this.cliSearch.matchIds = [id];
+          this.cliSearch.matchActive = true;
+          this._cliFilterCache = null;
+          this.closeCliSearch();
+        },
+        _scrollCliSearch() { try { const el = this.$refs.cliSearchBody; if (el) el.scrollTop = el.scrollHeight; } catch {} },
           if (!silent) this.boardsLoading = true;
           try {
             const boards = await this.request('/api/boards');
