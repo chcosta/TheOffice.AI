@@ -1019,6 +1019,7 @@
     .cf-check-dot.s-pending, .cf-check-dot.s-notset { background:var(--cp-warning); }
     .cf-check-gate .cf-check-name { font-weight:700; }
     .cf-check-gate-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-accent); }
+    .cf-check-opt-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-text-soft); border:1px solid var(--cp-border); border-radius:5px; padding:0 4px; }
     .cf-check-name { color:var(--cp-text); font-weight:600; }
     .cf-check-desc { color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cf-repo-manager { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-bg-elevated); padding:14px 16px; margin-bottom:18px; }
@@ -7568,11 +7569,12 @@
                         <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
                         <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
                         <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'· ' + pr.pendingChecks + ' pending'"></span>
-                        <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0">· all passing</span>
+                        <span class="cf-m-warn" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' optional failing'"></span>
+                        <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0 && !(pr.failedOptionalChecks > 0)">· all passing</span>
                       </summary>
                       <div class="cf-checks">
                         <template x-for="chk in pr.validation" :key="chk.id">
-                          <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
+                          <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy', 'cf-check-optional': chk.required === false }">
                             <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
                             <template x-if="chk.targetUrl">
                               <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
@@ -7581,6 +7583,7 @@
                               <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
                             </template>
                             <span class="cf-check-gate-tag" x-show="(chk.kind === 'build' || chk.kind === 'policy') && chk.blocking">gate</span>
+                            <span class="cf-check-opt-tag" x-show="chk.required === false">optional</span>
                             <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
                           </div>
                         </template>
@@ -16181,9 +16184,12 @@
           const rec = this.cfWt(pr);
           if (!rec) return '#';
           const rel = (r && (r.rel || r.file || r.name)) || '';
+          let theme = 'light';
+          try { theme = document.documentElement.getAttribute('data-theme') || 'light'; } catch {}
           return '/api/codeflow/pr/report?org=' + encodeURIComponent(pr.org) +
             '&project=' + encodeURIComponent(pr.project) + '&repo=' + encodeURIComponent(pr.repo) +
-            '&prId=' + encodeURIComponent(pr.id) + '&file=' + encodeURIComponent(rel);
+            '&prId=' + encodeURIComponent(pr.id) + '&file=' + encodeURIComponent(rel) +
+            '&scoutTheme=' + encodeURIComponent(theme);
         },
         codeflowUrgencyCls(u) {
           if (u >= 70) return 'cf-urg-high';

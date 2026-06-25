@@ -1351,29 +1351,56 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
       id: 'build-' + (b.buildId || i),
       state, genre: 'Build', name: b.name,
       description: desc, targetUrl: b.url || '',
-      kind: 'build', durationMs: b.durationMs, blocking: b.blocking
+      kind: 'build', durationMs: b.durationMs, blocking: b.blocking,
+      required: !!b.blocking
     };
   });
-  // Non-build blocking policy gates (required reviewers, minimum approver count,
-  // comment resolution, work-item linking, etc.) surfaced as validation entries
-  // so the merge gates — not just builds — are visible. Status-type policies are
-  // skipped because the actual status checks are already merged below.
+  // Non-build policy gates (required reviewers, minimum approver count, comment
+  // resolution, work-item linking, etc.) surfaced as validation entries so the
+  // merge gates — not just builds — are visible. BOTH blocking (Required) and
+  // non-blocking (Optional) policies are included, mirroring the AzDO "Checks"
+  // panel's Required/Optional split. Status-type policies are skipped because the
+  // actual status checks are already merged below.
   const policyStateMap = { approved: 'succeeded', rejected: 'failed',
                            running: 'pending', queued: 'pending', notapplicable: 'notSet' };
-  const policyGates = ((policy && policy.evaluations) || [])
-    .filter(e => e && e.blocking && !e.isBuild
+  // Friendlier labels for built-in policy types (which carry no displayName).
+  const policyLabel = {
+    'comment requirements': 'Comments must be resolved',
+    'work item linking': 'Work items must be linked',
+    'require a merge strategy': 'Merge strategy',
+    'proof of presence': 'Proof of presence',
+    'minimum number of reviewers': 'Minimum number of reviewers'
+  };
+  const stateRank = { failed: 3, error: 3, pending: 2, notSet: 1, succeeded: 0 };
+  const policyRaw = ((policy && policy.evaluations) || [])
+    .filter(e => e && !e.isBuild
               && (e.status || '').toLowerCase() !== 'notapplicable'
               && !/status/i.test(e.type || ''))
-    .map((e, i) => ({
-      id: 'policy-' + i,
-      state: policyStateMap[(e.status || '').toLowerCase()] || 'notSet',
-      genre: 'Policy', name: e.type || e.displayName || 'Policy gate',
-      description: e.displayName || '', targetUrl: '',
-      kind: 'policy', blocking: !!e.blocking
-    }));
+    .map(e => {
+      const name = e.displayName || policyLabel[(e.type || '').toLowerCase()] || e.type || 'Policy gate';
+      return {
+        state: policyStateMap[(e.status || '').toLowerCase()] || 'notSet',
+        genre: 'Policy', name,
+        description: (e.displayName && e.type && e.displayName !== e.type) ? e.type : '',
+        targetUrl: '', kind: 'policy', blocking: !!e.blocking, required: !!e.blocking
+      };
+    });
+  // Collapse duplicate same-named policies (e.g. several "Minimum number of
+  // reviewers" configs), keeping the worst state so a single failure shows.
+  const policyByName = new Map();
+  for (const g of policyRaw) {
+    const k = g.name + '|' + (g.required ? 'req' : 'opt');
+    const prev = policyByName.get(k);
+    if (!prev || (stateRank[g.state] || 0) > (stateRank[prev.state] || 0)) policyByName.set(k, g);
+  }
+  const policyGates = [...policyByName.values()].map((g, i) => ({ ...g, id: 'policy-' + i }));
   const validation = [...buildGates, ...policyGates, ...(statuses || [])];
 
-  const failedChecks = validation.filter(s => s.state === 'failed' || s.state === 'error').length;
+  // Only required (blocking) checks gate readiness; optional failures are
+  // surfaced but must not be counted as blocking failures.
+  const isRequired = (s) => s.required !== false;
+  const failedChecks = validation.filter(s => isRequired(s) && (s.state === 'failed' || s.state === 'error')).length;
+  const failedOptionalChecks = validation.filter(s => !isRequired(s) && (s.state === 'failed' || s.state === 'error')).length;
   const pendingChecks = validation.filter(s => s.state === 'pending' || s.state === 'notSet').length;
 
   // Ready-to-merge: prefer the authoritative policy signal; else heuristic.
@@ -1477,7 +1504,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     ageHours, ageDays,
     comments: threads || { activeComments: 0, resolvedComments: 0, totalThreads: 0 },
     validation,
-    failedChecks, pendingChecks,
+    failedChecks, pendingChecks, failedOptionalChecks,
     policy: policy || { evaluations: [], ready: null, builds: [] },
     approvalState,
     readyToMerge: !!readyToMerge,
@@ -1784,6 +1811,7 @@ Work through this disciplined review and narrate which step you are on:
 ## Review report (HTML)
 Write a **self-contained** HTML review named \`${reportName}\` at the root of this worktree (overwrite/refresh it as you learn more). Requirements:
 - **Single file, inline all CSS/JS** — no external assets or CDNs, so it opens correctly from disk. Any chart must render offline (inline SVG / pure-CSS bars).
+- **Theme-friendly.** The host re-themes the report for light/dark automatically, so use the standard skeleton class names below and DON'T hard-force a full-page background/color that fights re-theming. Use these semantic classes where they apply: the verdict banner \`<div class="verdict approve|needs-work|blocked">\`; severity spans \`sev-blocker\`/\`sev-major\`/\`sev-minor\`/\`sev-nit\`; the timestamp/byline line \`<p class="meta">\`; and plain \`<table>\`/\`<th>\`/\`<code>\`/\`<pre>\` for tabular/code content.
 - **Cover these sections, in order:**
   1. **Overview** — the PR (id + link), the author, the associated work item (id + link), and your one-paragraph verdict (approve / approve-with-suggestions / needs-work / blocked) with a short justification.
   2. **Goals** — what the PR set out to do, and whether the change appears to meet them.
@@ -1987,6 +2015,43 @@ app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
 });
 
 // Serve a cached/live review report (live worktree first, cache fallback).
+// Make a cached/agent-generated HTML report honor the SPA's light/dark theme.
+// Reports are free-form HTML the review agent writes, so we inject (idempotently):
+//   1. a theme-detection <script> right after <head> that reads ?scoutTheme=
+//      (passed by the SPA) or falls back to the OS prefers-color-scheme, and
+//   2. a dark-mode override <style> right before </head> that re-themes the
+//      review template's known skeleton (body/headings/code/tables/verdict/etc.).
+// Reports that opt into their own theming mark themselves with data-cp-themed and
+// are left untouched.
+function _themeReportHtml(html) {
+  if (Buffer.isBuffer(html)) html = html.toString('utf8');
+  if (typeof html !== 'string') return html;
+  if (!/<html[\s>]/i.test(html) || /data-cp-themed/i.test(html)) return html;
+  const detect = `<script>(function(){try{var p=new URLSearchParams(location.search).get('scoutTheme');var t=p||((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}catch(e){}})();</script>`;
+  const darkCss = `<style id="cp-report-theme">
+html[data-theme="dark"] body{background:#1f1f1f;color:#dedede;}
+html[data-theme="dark"] h1,html[data-theme="dark"] h3{color:#f0f0f0;}
+html[data-theme="dark"] h2{color:#f0f0f0;border-bottom-color:#3a3a3a;}
+html[data-theme="dark"] a{color:#7cb7ff;}
+html[data-theme="dark"] code,html[data-theme="dark"] pre{background:#2a2a2a;color:#e6e6e6;}
+html[data-theme="dark"] table,html[data-theme="dark"] th,html[data-theme="dark"] td{border-color:#3a3a3a;}
+html[data-theme="dark"] th{background:#262626;color:#e6e6e6;}
+html[data-theme="dark"] .meta{color:#9a9a9a;}
+html[data-theme="dark"] .verdict{background:#262626;}
+html[data-theme="dark"] .verdict.approve,html[data-theme="dark"] .approve{background:#0f2e22;border-left-color:#16a34a;}
+html[data-theme="dark"] .verdict.needs-work,html[data-theme="dark"] .verdict.blocked,html[data-theme="dark"] .needs-work,html[data-theme="dark"] .blocked{background:#321a1a;}
+html[data-theme="dark"] .tag-approve{background:#0f2e22;color:#8ff0c0;}
+html[data-theme="dark"] .sev-blocker{color:#f87171;}
+html[data-theme="dark"] .sev-major{color:#fbbf24;}
+html[data-theme="dark"] .sev-minor{color:#60a5fa;}
+html[data-theme="dark"] .sev-nit{color:#a0a0a0;}
+</style>`;
+  let out = html.replace(/<head([^>]*)>/i, (m) => m + detect);
+  if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, darkCss + '</head>');
+  else out = detect + darkCss + out;
+  return out;
+}
+
 app.get('/api/codeflow/pr/report', (req, res) => {
   const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
   if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).send('org, project, repo and prId are required');
@@ -2000,7 +2065,8 @@ app.get('/api/codeflow/pr/report', (req, res) => {
     catch (e1) { r = devitems.readReportCached(CODEFLOW_REPORT_BOARD, devId, file); }
     res.setHeader('Content-Type', r.contentType);
     res.setHeader('Cache-Control', 'no-store');
-    res.send(r.content);
+    const isHtml = /text\/html/i.test(r.contentType || '');
+    res.send(isHtml ? _themeReportHtml(r.content) : r.content);
   } catch (e) {
     res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read report');
   }

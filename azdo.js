@@ -698,7 +698,7 @@ async function getPrPolicyEvaluations(org, project, prId, projectId) {
   const artifactId = `vstfs:///CodeReview/CodeReviewId/${pid}/${prId}`;
   const d = await apiSend(
     org,
-    `${seg(project)}/_apis/policy/evaluations?artifactId=${encodeURIComponent(artifactId)}&api-version=${API_VERSION}`
+    `${seg(project)}/_apis/policy/evaluations?artifactId=${encodeURIComponent(artifactId)}&api-version=${API_VERSION}-preview.1`
   );
   const evals = (d.value || []).map(e => {
     const cfg = e.configuration || {};
