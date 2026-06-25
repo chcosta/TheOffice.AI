@@ -714,6 +714,8 @@ async function getPrPolicyEvaluations(org, project, prId, projectId) {
       displayName: settings.displayName || '',
       buildDefinitionId: settings.buildDefinitionId || null,
       buildId: (ctx.buildId != null ? ctx.buildId : null),
+      statusGenre: settings.statusGenre || '',
+      statusName: settings.statusName || '',
       isExpired: !!ctx.isExpired
     };
   });

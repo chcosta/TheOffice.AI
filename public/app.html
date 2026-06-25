@@ -1022,6 +1022,13 @@
     .cf-check-opt-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-text-soft); border:1px solid var(--cp-border); border-radius:5px; padding:0 4px; }
     .cf-check-name { color:var(--cp-text); font-weight:600; }
     .cf-check-desc { color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-check-group { display:flex; flex-direction:column; gap:5px; }
+    .cf-check-group + .cf-check-group { margin-top:9px; }
+    .cf-check-grouphdr { display:flex; align-items:center; gap:6px; font-size:10px; font-weight:700;
+      text-transform:uppercase; letter-spacing:0.05em; color:var(--cp-text-soft); }
+    .cf-check-grouphdr .cf-grp-count { font-weight:600; color:var(--cp-text-muted); letter-spacing:0; }
+    .cf-check-grouphdr .cf-grp-bad { color:var(--cp-danger); font-weight:700; letter-spacing:0; }
+    .cf-check-group.cf-grp-required .cf-check-name { font-weight:700; }
     .cf-repo-manager { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-bg-elevated); padding:14px 16px; margin-bottom:18px; }
     .cf-repo-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--cp-border); }
     .cf-repo-row:last-child { border-bottom:none; }
@@ -7573,18 +7580,48 @@
                         <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0 && !(pr.failedOptionalChecks > 0)">· all passing</span>
                       </summary>
                       <div class="cf-checks">
-                        <template x-for="chk in pr.validation" :key="chk.id">
-                          <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy', 'cf-check-optional': chk.required === false }">
-                            <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
-                            <template x-if="chk.targetUrl">
-                              <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
+                        <!-- Required checks (blocking policy / build gates) -->
+                        <template x-if="pr.validation.some(c => c.required !== false)">
+                          <div class="cf-check-group cf-grp-required">
+                            <div class="cf-check-grouphdr">
+                              <span>Required</span>
+                              <span class="cf-grp-count" x-text="'· ' + pr.validation.filter(c => c.required !== false).length"></span>
+                              <span class="cf-grp-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
+                            </div>
+                            <template x-for="chk in pr.validation.filter(c => c.required !== false)" :key="chk.id">
+                              <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
+                                <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
+                                <template x-if="chk.targetUrl">
+                                  <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
+                                </template>
+                                <template x-if="!chk.targetUrl">
+                                  <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
+                                </template>
+                                <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                              </div>
                             </template>
-                            <template x-if="!chk.targetUrl">
-                              <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
+                          </div>
+                        </template>
+                        <!-- Optional checks (non-blocking policy / informational status) -->
+                        <template x-if="pr.validation.some(c => c.required === false)">
+                          <div class="cf-check-group cf-grp-optional">
+                            <div class="cf-check-grouphdr">
+                              <span>Optional</span>
+                              <span class="cf-grp-count" x-text="'· ' + pr.validation.filter(c => c.required === false).length"></span>
+                              <span class="cf-grp-bad" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' failing'"></span>
+                            </div>
+                            <template x-for="chk in pr.validation.filter(c => c.required === false)" :key="chk.id">
+                              <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
+                                <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
+                                <template x-if="chk.targetUrl">
+                                  <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
+                                </template>
+                                <template x-if="!chk.targetUrl">
+                                  <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
+                                </template>
+                                <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                              </div>
                             </template>
-                            <span class="cf-check-gate-tag" x-show="(chk.kind === 'build' || chk.kind === 'policy') && chk.blocking">gate</span>
-                            <span class="cf-check-opt-tag" x-show="chk.required === false">optional</span>
-                            <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
                           </div>
                         </template>
                       </div>

@@ -1394,7 +1394,25 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     if (!prev || (stateRank[g.state] || 0) > (stateRank[prev.state] || 0)) policyByName.set(k, g);
   }
   const policyGates = [...policyByName.values()].map((g, i) => ({ ...g, id: 'policy-' + i }));
-  const validation = [...buildGates, ...policyGates, ...(statuses || [])];
+
+  // Status checks (Component Governance, code coverage, FCIB, …) are gated by
+  // separate "Status"-type policies that carry the gated check's genre/name and
+  // whether it blocks. Build a lookup so each status check can be marked
+  // Required (a blocking Status policy targets it) or Optional (everything else).
+  const statusPolicyBlocking = new Map();
+  for (const e of ((policy && policy.evaluations) || [])) {
+    if (e && /status/i.test(e.type || '') && (e.statusGenre || e.statusName)) {
+      const k = ((e.statusGenre || '') + '/' + (e.statusName || '')).toLowerCase();
+      // If any matching Status policy blocks, treat the check as Required.
+      statusPolicyBlocking.set(k, (statusPolicyBlocking.get(k) || false) || !!e.blocking);
+    }
+  }
+  const statusEntries = (statuses || []).map(s => {
+    const k = ((s.genre || '') + '/' + (s.name || '')).toLowerCase();
+    const blocking = statusPolicyBlocking.has(k) ? statusPolicyBlocking.get(k) : false;
+    return { ...s, kind: 'status', blocking, required: blocking };
+  });
+  const validation = [...buildGates, ...policyGates, ...statusEntries];
 
   // Only required (blocking) checks gate readiness; optional failures are
   // surfaced but must not be counted as blocking failures.
