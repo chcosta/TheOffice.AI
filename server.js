@@ -7057,6 +7057,7 @@ function _buildDevSummaryPrompt(d, { wi, pr, git, diff } = {}) {
     'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree — including the actual diff hunks of what changed), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it stands, and what is left to do next.',
     'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
     'CRITICAL: Only state that the PR is merged/landed if its lifecycle is explicitly MERGED above. A PR that is OPEN has NOT been merged, regardless of mergeability or how clean/in-sync the local branch is — never infer a merge from "clean working tree", "0 ahead/0 behind", or a "succeeded" mergeability. For an open PR, the next step is review/approval and completing the merge, not closing the work item.',
+    'You have NO tools and the full context you need is already provided below. Do NOT run, narrate, or fabricate commands or tool calls. Never emit XML-like tags such as <tool_calls>, <tool_call>, <command>, <stdout>, or <tool_results>. Respond with ONLY the final status-briefing prose — nothing before or after it.',
     '',
     ctxLines.join('\n').slice(0, 26000),
     '',
@@ -7078,6 +7079,34 @@ function _devFingerprint({ wi, pr, git } = {}) {
   return parts.join('||');
 }
 
+// Strip any hallucinated tool-call transcript a tool-less model may emit before
+// its real answer (e.g. <tool_calls>…</tool_calls>, <command>…</command>,
+// <stdout>…</stdout>). With no tools available the model sometimes role-plays
+// running commands as plain text, then writes the genuine summary at the end —
+// so prefer the prose that follows the final transcript block, then scrub any
+// residual tags. Returns clean prose.
+function _cleanDevSummaryText(raw) {
+  let t = String(raw || '');
+  const tagRe = /<\/?(tool_calls|tool_call|tool_name|tool_results|tool_call_result|command|stdout|stderr|input)\b[^>]*>/i;
+  if (!tagRe.test(t)) return t.trim();
+  // The genuine briefing is whatever follows the last closing transcript tag.
+  const closeRe = /<\/(tool_results|tool_calls|tool_call_result|tool_call)>/gi;
+  let lastEnd = -1, m;
+  while ((m = closeRe.exec(t)) !== null) lastEnd = m.index + m[0].length;
+  if (lastEnd >= 0) {
+    const tail = t.slice(lastEnd).trim();
+    if (tail) t = tail;
+  }
+  // Belt-and-suspenders: drop any remaining transcript blocks / lone tags.
+  t = t
+    .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, '')
+    .replace(/<tool_results>[\s\S]*?<\/tool_results>/gi, '')
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+    .replace(/<tool_call_result>[\s\S]*?<\/tool_call_result>/gi, '')
+    .replace(/<\/?(tool_calls|tool_call|tool_name|tool_results|tool_call_result|command|stdout|stderr|input)\b[^>]*>/gi, '');
+  return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // Resolve the freshest work-item / PR / git for a card (best-effort) and run the
 // AI summarizer. Tools are disabled so the model emits pure prose from the
 // in-context prompt (no file-exploration leakage). Returns { text, generatedAt,
@@ -7092,7 +7121,7 @@ async function _generateDevSummary(d, opts = {}) {
   const prompt = _buildDevSummaryPrompt(d, { wi, pr, git, diff });
   let acc = '';
   const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
-  const text = (acc.trim() || (result && result.output) || '').trim();
+  const text = _cleanDevSummaryText(acc.trim() || (result && result.output) || '');
   if (!text) throw new Error('Empty summary');
   return { text, generatedAt: new Date().toISOString(), wi, pr, git };
 }

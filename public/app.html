@@ -512,11 +512,11 @@
     .org-col.drag-over { border-color: var(--cp-accent); box-shadow: 0 0 0 2px var(--cp-accent-soft); background: var(--cp-accent-soft); }
     .org-col-head { display: flex; align-items: center; gap: 8px; }
     .org-col-emoji { font-size: 18px; line-height: 1; }
-    .org-col-name { font-weight: 700; font-size: 14px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .org-col-name { font-weight: 700; font-size: 14px; flex: 1; min-width: 0; line-height: 1.25; word-break: break-word; }
     .org-col-count { font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: var(--cp-surface-soft); border-radius: 999px; padding: 1px 8px; }
     .org-col-desc { font-size: 12px; color: var(--cp-text-muted); }
-    .org-col-theme { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); padding: 2px 8px 2px 5px; border-radius: 8px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); align-self: flex-start; }
-    .org-col-theme .theme-dot { width: 12px; height: 12px; }
+    .org-col-theme { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--cp-text-soft); padding: 1px 0; background: transparent; border: none; align-self: flex-start; }
+    .org-col-theme .theme-dot { width: 9px; height: 9px; }
     .org-col-body { display: flex; flex-direction: column; gap: 6px; min-height: 56px; }
     .org-col-empty { font-size: 12px; color: var(--cp-text-soft); text-align: center; padding: 14px 6px; border: 1px dashed var(--cp-border); border-radius: 10px; }
     .icon-button.sm { padding: 2px 6px; font-size: 12px; line-height: 1; }
@@ -528,7 +528,7 @@
     .emp-chip:active { cursor: grabbing; }
     .emp-chip:hover { border-color: var(--cp-border-strong); }
     .emp-chip-icon { font-size: 14px; }
-    .emp-chip-name { flex: 1; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .emp-chip-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; line-height: 1.25; word-break: break-word; }
     .emp-chip-type { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--cp-text-muted); }
     .emp-chip-orgs { display: inline-flex; align-items: center; gap: 3px; }
     .emp-org-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1px var(--cp-surface); }
@@ -2557,6 +2557,55 @@
     .board-act:disabled { opacity: .35; cursor: default; }
     .board-act.danger:hover { color: var(--cp-danger); border-color: color-mix(in srgb, var(--cp-danger) 50%, transparent); background: color-mix(in srgb, var(--cp-danger) 10%, transparent); }
     .board-act.active { color: var(--cp-accent); }
+    /* ===== Calm board styling (Option A) =================================
+       Quiet metadata, status rails + dots, and borderless segmented toolbars.
+       Reusable utilities (.cal-*, .status-dot, .status-inline) are global;
+       the de-pill overrides are scoped to .board-calm so the rest of the app
+       keeps its current look. Guiding principle: color = signal only, so
+       neutral chips become muted text while status modifiers stay loud. */
+    .cal-repo { display: grid; grid-template-columns: 3px 1fr; gap: 12px; align-items: start; }
+    .cal-rail { width: 3px; border-radius: 3px; align-self: stretch; min-height: 100%; background: var(--cp-border); }
+    .cal-rail.dirty { background: var(--cp-danger); }
+    .cal-rail.clean { background: var(--cp-success); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 auto; background: var(--cp-text-soft); }
+    .status-dot.dirty { background: var(--cp-danger); }
+    .status-dot.clean { background: var(--cp-success); }
+    .status-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cp-text-muted); white-space: nowrap; }
+    .status-inline.dirty { color: var(--cp-danger); font-weight: 600; }
+    .cal-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--cp-text-muted); font-size: 12px; }
+    .cal-meta .sep { opacity: .5; }
+    .cal-meta a { color: var(--cp-link); text-decoration: none; }
+    .cal-meta a:hover { text-decoration: underline; }
+    .cal-meta .mono { font-family: Consolas, "Courier New", Courier, monospace; }
+    .cal-path { font-size: 10px; color: var(--cp-text-soft); opacity: .75; word-break: break-all; }
+    .cal-toolbar { display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap; background: var(--cp-surface-soft); border-radius: 9px; padding: 2px; }
+    .cal-tbtn { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; color: var(--cp-text-muted); font: inherit; font-size: 12px; padding: 5px 9px; border-radius: 7px; cursor: pointer; transition: background .12s ease, color .12s ease; }
+    .cal-tbtn:hover { background: var(--cp-surface); color: var(--cp-text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    .cal-tbtn:disabled { opacity: .4; cursor: default; background: transparent; box-shadow: none; }
+    .cal-tbtn.primary:hover { color: var(--cp-accent); }
+    .cal-tsep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--cp-border); }
+    .cal-caption { font-weight: 600; font-size: 12px; color: var(--cp-text-muted); letter-spacing: .01em; }
+    .cal-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; font-size: 12px; min-width: 0; }
+    .cal-row:hover { background: var(--cp-surface-soft); }
+    .cal-row-link { color: var(--cp-text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+    .cal-row-link:hover { color: var(--cp-accent); }
+    .cal-row-time { color: var(--cp-text-soft); font-size: 10.5px; flex: 0 0 auto; }
+    .cal-row-act { opacity: .4; transition: opacity .12s ease; flex: 0 0 auto; }
+    .cal-row:hover .cal-row-act { opacity: 1; }
+    .cal-row-act.danger:hover { color: var(--cp-danger); }
+    .board-tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--cp-text-muted); font-size: 12.5px; cursor: pointer; transition: background .12s ease, color .12s ease; }
+    .board-tab:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .board-tab.active { background: var(--cp-accent-soft); color: var(--cp-accent); font-weight: 600; }
+    /* De-pill neutral chips & ghost buttons inside the board ecosystem. */
+    .board-calm .pill { border-color: transparent; background: var(--cp-surface-soft); color: var(--cp-text-muted); font-weight: 500; }
+    .board-calm .pill:hover { background: var(--cp-highlight); }
+    .board-calm .pill.active { border-color: transparent; background: var(--cp-accent-soft); color: var(--cp-accent); font-weight: 600; }
+    .board-calm .type-badge,
+    .board-calm .status-badge:not(.running):not(.failed):not(.error):not(.success):not(.completed):not(.warning) {
+      border-color: transparent; background: var(--cp-surface-soft); color: var(--cp-text-muted); font-weight: 500;
+    }
+    .board-calm .btn.ghost { border-color: transparent; background: transparent; }
+    .board-calm .btn.ghost:hover { background: var(--cp-highlight); border-color: transparent; }
     /* Button tooltip is now a body-teleported fixed flyout (.board-tip-flyout) so it
        escapes the panel body's overflow:auto clip box. The old ::after pseudo (clipped)
        is intentionally removed. */
@@ -3619,7 +3668,7 @@
             </div>
 
             <!-- Active dev work — live Dev cards pulled from this team's boards -->
-            <div class="home-section" x-show="appMode === 'workspace' && homeDevCards().length">
+            <div class="home-section board-calm" x-show="appMode === 'workspace' && homeDevCards().length">
               <div class="home-section-label">
                 <span class="hsl-icon">🧰</span>
                 <span class="hsl-text">Active dev work</span>
@@ -5357,7 +5406,7 @@
             </div>
           </section>
 
-          <section x-show="!loading && !errorMessage && route === 'boards'" x-transition.opacity.duration.180ms>
+          <section class="board-calm" x-show="!loading && !errorMessage && route === 'boards'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
                 <h1>📌 Boards</h1>
@@ -5379,12 +5428,12 @@
                 <!-- Board selector -->
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
                   <template x-for="b in visibleBoards()" :key="b.id">
-                    <button type="button" class="pill" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)" :style="b.archived ? 'opacity:0.6' : ''">
+                    <button type="button" class="board-tab" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)" :style="b.archived ? 'opacity:0.6' : ''">
                       <span x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
-                      <span class="hint" style="margin-left:6px;opacity:0.7" x-text="'· ' + boardOrgLabel(b)"></span>
+                      <span class="hint" style="margin-left:2px;opacity:0.7" x-text="'· ' + boardOrgLabel(b)"></span>
                     </button>
                   </template>
-                  <button type="button" class="pill ghost" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
+                  <button type="button" class="board-tab" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
                     x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
                 </div>
 
@@ -6064,7 +6113,7 @@
                                           <span class="ba-spinner"></span>
                                           <span>AI is reviewing the work item, PR and code diff…</span>
                                         </div>
-                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(d.summary ? d.summary.text : '')"></div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
                                         <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                       </div>
 
@@ -6101,25 +6150,33 @@
 
                                         <!-- One identical lifecycle block per repo slot (primary first, then extras) -->
                                         <template x-for="s in devSlots(d)" :key="s.id">
-                                          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                                          <div class="cal-repo" style="border-top:1px dashed var(--cp-border);padding-top:8px">
+                                            <div class="cal-rail" :class="s.worktreePath ? (devGitBadge(s).attention ? 'dirty' : 'clean') : ''"></div>
+                                            <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
                                             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                              <span style="font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px">
-                                                <span x-text="s.repo + (s.branch ? '  (' + s.branch + ')' : '')"></span>
-                                                <span x-show="s.primary" class="status-badge" style="font-size:0.6rem;opacity:.75">primary</span>
+                                              <span style="font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;min-width:0">
+                                                <span style="overflow:hidden;text-overflow:ellipsis" x-text="s.repo + (s.branch ? '  (' + s.branch + ')' : '')"></span>
+                                                <span x-show="s.primary" style="font-weight:500;color:var(--cp-text-muted)">· primary</span>
                                               </span>
-                                              <div style="display:flex;align-items:center;gap:6px">
-                                                <a x-show="s.prId" class="status-badge" :href="devPrUrl(s)" target="_blank" rel="noopener" @click.stop style="font-size:0.6rem;text-decoration:none" :title="s.pr ? s.pr.title : 'Open pull request'"><span x-text="'🔀 !' + s.prId"></span><span x-show="s.pr && s.pr.status" x-text="' · ' + (s.pr ? (s.pr.isDraft ? 'draft' : s.pr.status) : '')"></span></a>
-                                                <span x-show="s.agentName" class="status-badge" style="font-size:0.6rem" :title="'Dev agent: ' + s.agentName + ' — selectable in VS Code / Copilot; auto-selected when opening the CLI'" x-text="'🤖 ' + s.agentName"></span>
+                                              <div style="display:flex;align-items:center;gap:8px">
+                                                <span x-show="s.worktreePath && s.worktreeStatus !== 'creating'" class="status-inline" :class="devGitBadge(s).attention ? 'dirty' : ''" :title="devGitBadge(s).title">
+                                                  <span class="status-dot" :class="devGitBadge(s).attention ? 'dirty' : 'clean'"></span><span x-text="devGitBadge(s).text"></span>
+                                                </span>
                                                 <button x-show="!s.primary" class="board-act" type="button" data-tip="Remove this repo from the dev card (and clean up its worktree)" @click="removeDevRepo(d, s)">✕</button>
                                               </div>
+                                            </div>
+                                            <div class="cal-meta" x-show="s.prId || s.agentName">
+                                              <span x-show="s.prId">PR <a :href="devPrUrl(s)" target="_blank" rel="noopener" @click.stop :title="s.pr ? s.pr.title : 'Open pull request'" x-text="'!' + s.prId"></a><span x-show="s.pr && s.pr.status" x-text="' ' + (s.pr ? (s.pr.isDraft ? 'draft' : s.pr.status) : '')"></span></span>
+                                              <span x-show="s.prId && s.agentName" class="sep">·</span>
+                                              <span x-show="s.agentName" :title="'Dev agent: ' + s.agentName + ' — selectable in VS Code / Copilot; auto-selected when opening the CLI'">agent <span class="mono" x-text="s.agentName"></span></span>
                                             </div>
                                             <template x-if="!s.worktreePath && s.worktreeStatus !== 'creating' && s.worktreeStatus !== 'error'">
                                               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                                 <span class="hint" style="font-size:11px">No worktree yet.</span>
-                                                <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s)" :title="'Open against the default branch (' + (s.branch || 'dev branch') + ')'" x-text="devBusy[slotBusyKey(d,s)]==='worktree' ? 'Creating…' : '🌱 Create worktree'"></button>
+                                                <div class="cal-toolbar">
+                                                  <button class="cal-tbtn primary" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s)" :title="'Open against the default branch (' + (s.branch || 'dev branch') + ')'" x-text="devBusy[slotBusyKey(d,s)]==='worktree' ? '🌱 Creating…' : '🌱 Create worktree'"></button>
                                                   <template x-if="slotPrBranchAvailable(d,s)">
-                                                    <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s,'pr')" :title="'Open against the PR branch (' + s.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
+                                                    <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s,'pr')" :title="'Open against the PR branch (' + s.pr.sourceBranch.replace('refs/heads/','') + ')'" x-text="'🔀 PR branch'"></button>
                                                   </template>
                                                 </div>
                                               </div>
@@ -6130,26 +6187,25 @@
                                             <template x-if="s.worktreeStatus === 'error'">
                                               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                                 <span class="hint" style="font-size:11px;color:var(--cp-danger)" x-text="'⚠ ' + (s.worktreeError || 'Worktree failed')"></span>
-                                                <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s)">↻ Retry</button>
+                                                <div class="cal-toolbar"><button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='worktree'" @click="slotCreateWorktree(d,s)" title="Retry creating the worktree">↻ Retry</button></div>
                                               </div>
                                             </template>
                                             <template x-if="s.worktreePath && s.worktreeStatus !== 'creating'">
                                               <div style="display:flex;flex-direction:column;gap:6px">
-                                                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                                                  <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(s).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(s).text" :title="devGitBadge(s).title"></span>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? 'Syncing…' : '⟳ Sync'"></button>
-                                                </div>
-                                                <div class="hint" style="font-size:10px;word-break:break-all;opacity:.7" x-text="s.worktreePath"></div>
-                                                <div style="display:flex;flex-wrap:wrap;gap:6px">
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree in VS Code Insiders (falls back to VS Code stable)" @click="slotOpen(d,s,'editor')">🔵 VS Code</button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a Copilot CLI session in the worktree (auto-selects this repo's dev agent)" @click="slotOpen(d,s,'cli')">🤖 CLI</button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open the worktree folder in Explorer" @click="slotOpen(d,s,'explorer')">📁 Folder</button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
-                                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? 'Cleaning…' : '🧹 Clean'"></button>
-                                                  <button x-show="!s.prId" class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? 'Creating PR…' : '🔀 Create PR'"></button>
+                                                <div class="cal-path" x-text="s.worktreePath"></div>
+                                                <div class="cal-toolbar">
+                                                  <button class="cal-tbtn primary" type="button" title="Open the worktree in VS Code Insiders (falls back to VS Code stable)" @click="slotOpen(d,s,'editor')">🔵 VS Code</button>
+                                                  <button class="cal-tbtn" type="button" title="Open a Copilot CLI session in the worktree (auto-selects this repo's dev agent)" @click="slotOpen(d,s,'cli')">🤖 CLI</button>
+                                                  <button class="cal-tbtn" type="button" title="Open the worktree folder in Explorer" @click="slotOpen(d,s,'explorer')">📁</button>
+                                                  <button class="cal-tbtn" type="button" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
+                                                  <span class="cal-tsep"></span>
+                                                  <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? '⟳…' : '⟳ Sync'"></button>
+                                                  <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
                                                 </div>
                                               </div>
                                             </template>
+                                            </div>
                                           </div>
                                         </template>
 
@@ -6159,7 +6215,7 @@
                                             <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='agent'" @click="createDevAgent(d)" title="Write a focused .github/agents dev agent into every ready worktree — each repo gets its own named agent (selectable in VS Code / Copilot; auto-selected in the CLI)" x-text="devBusy[d.id]==='agent' ? 'Creating agents…' : '🤖 Create dev agents'"></button>
                                           </template>
                                           <template x-if="d.devAgentName">
-                                            <span class="status-badge" style="font-size:0.7rem" title="Per-repo dev agents written — each worktree has its own named agent, selectable in VS Code / Copilot and auto-selected when opening the CLI">🤖 Dev agents ready</span>
+                                            <span class="status-inline" title="Per-repo dev agents written — each worktree has its own named agent, selectable in VS Code / Copilot and auto-selected when opening the CLI"><span class="status-dot clean"></span>🤖 Dev agents ready</span>
                                           </template>
                                         </div>
                                         <template x-if="devRepoDraft[d.id] && devRepoDraft[d.id].open">
@@ -6209,36 +6265,35 @@
 
                                       <!-- Status reports surfaced from the worktree -->
                                       <template x-if="d.worktreePath && d.reports && d.reports.length">
-                                        <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+                                        <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                            <span style="font-weight:600;font-size:13.5px">📊 Reports</span>
+                                            <span class="cal-caption">📊 Reports</span>
                                             <button class="board-act" type="button" data-tip="Re-scan the worktree for reports" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
                                           </div>
-                                          <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                          <div style="display:flex;flex-direction:column">
                                             <template x-for="r in d.reports" :key="r.rel">
-                                              <span class="pill" style="font-size:11px;display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px">
-                                                <a :href="devReportUrl(d,r)" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" :title="'Open ' + r.rel + ' in a new tab — ' + formatRelative(devReportTime(r))">
-                                                  <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span>
-                                                </a>
-                                                <button class="board-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
-                                              </span>
+                                              <div class="cal-row">
+                                                <a class="cal-row-link" :href="devReportUrl(d,r)" target="_blank" rel="noopener" :title="'Open ' + r.rel + ' in a new tab — ' + formatRelative(devReportTime(r))" x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></a>
+                                                <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
+                                                <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
+                                              </div>
                                             </template>
                                           </div>
                                         </div>
                                       </template>
 
                                       <!-- Manually attached links (reports, docs, URLs) -->
-                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+                                      <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                          <span style="font-weight:600;font-size:13.5px">🔗 Links</span>
+                                          <span class="cal-caption">🔗 Links</span>
                                           <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)" x-text="(devLinkDraft[d.id] && devLinkDraft[d.id].open) ? 'Cancel' : '＋ Add link'"></button>
                                         </div>
-                                        <div style="display:flex;flex-wrap:wrap;gap:6px" x-show="d.links && d.links.length">
+                                        <div style="display:flex;flex-direction:column" x-show="d.links && d.links.length">
                                           <template x-for="l in d.links" :key="l.id || l.url">
-                                            <span class="pill" style="font-size:11px;display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px">
-                                              <a :href="devLinkHref(d,l)" target="_blank" rel="noopener" style="text-decoration:none;color:inherit" :title="l.url"><span x-text="'🔗 ' + (l.label || l.url)"></span></a>
-                                              <button class="board-act" type="button" data-tip="Remove link" @click="removeDevLink(d,l)">✕</button>
-                                            </span>
+                                            <div class="cal-row">
+                                              <a class="cal-row-link" :href="devLinkHref(d,l)" target="_blank" rel="noopener" :title="l.url" x-text="'🔗 ' + (l.label || l.url)"></a>
+                                              <button class="board-act cal-row-act danger" type="button" data-tip="Remove link" @click="removeDevLink(d,l)">✕</button>
+                                            </div>
                                           </template>
                                         </div>
                                         <div class="hint" style="font-size:11px" x-show="!(d.links && d.links.length) && !(devLinkDraft[d.id] && devLinkDraft[d.id].open)">No links attached — ＋ Add link to attach a report, doc or URL.</div>
@@ -6771,14 +6826,14 @@
                             <div style="font-weight:600;margin-bottom:10px" x-text="'Boards in this insight (' + activeInsight().content.boards.length + ')'"></div>
                             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
                               <template x-for="bd in activeInsight().content.boards" :key="bd.boardId">
-                                <button type="button" class="card" style="text-align:left;cursor:pointer;padding:12px" @click="insightGoToBoard(bd.boardId)">
-                                  <div style="font-weight:600;display:flex;align-items:center;gap:6px">
+                                <div class="card" style="padding:12px;display:flex;flex-direction:column;gap:6px">
+                                  <div style="font-weight:600;display:flex;align-items:center;gap:6px;cursor:pointer" @click="insightGoToBoard(bd.boardId)" title="Open board">
                                     <span x-text="bd.emoji || '📌'"></span>
                                     <span x-text="bd.name"></span>
                                   </div>
-                                  <div class="hint" x-show="bd.teamName" x-text="'Team · ' + bd.teamName" style="margin-bottom:6px"></div>
-                                  <div class="hint" style="white-space:pre-wrap;line-height:1.45" x-text="bd.whereWasI"></div>
-                                </button>
+                                  <div class="hint" x-show="bd.teamName" x-text="'Team · ' + bd.teamName"></div>
+                                  <div class="md-output" style="font-size:12.5px;line-height:1.5" x-html="renderMarkdown(bd.whereWasI || '')"></div>
+                                </div>
                               </template>
                             </div>
                           </div>
@@ -10825,7 +10880,7 @@
         cliSessionSearch: '',
         cliAgentFilter: '',
         cliFolderFilter: '',
-        cliOriginFilter: '',
+        cliOriginFilter: 'external',
         cliVisibleCount: 60,
         _cliFilterCache: null,
         summarizingSessionId: null,
@@ -20295,6 +20350,25 @@
               }).join('\n\n---\n\n')
             : 'No messages in this conversation.';
           this.openShareModal(md, 'Chat conversation — ' + (this.activeChat.name || this.activeChat.title || 'Untitled'), 'chat-full');
+        },
+
+        cleanDevSummary(raw) {
+          let t = raw == null ? '' : String(raw);
+          const tagRe = /<\/?(tool_calls|tool_call|tool_name|tool_results|tool_call_result|command|stdout|stderr|input)\b[^>]*>/i;
+          if (!tagRe.test(t)) return t;
+          // A tool-less model sometimes role-plays a tool-call transcript as plain
+          // text and writes the real briefing after it — prefer that trailing prose.
+          const closeRe = /<\/(tool_results|tool_calls|tool_call_result|tool_call)>/gi;
+          let lastEnd = -1, m;
+          while ((m = closeRe.exec(t)) !== null) lastEnd = m.index + m[0].length;
+          if (lastEnd >= 0) { const tail = t.slice(lastEnd).trim(); if (tail) t = tail; }
+          t = t
+            .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/gi, '')
+            .replace(/<tool_results>[\s\S]*?<\/tool_results>/gi, '')
+            .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+            .replace(/<tool_call_result>[\s\S]*?<\/tool_call_result>/gi, '')
+            .replace(/<\/?(tool_calls|tool_call|tool_name|tool_results|tool_call_result|command|stdout|stderr|input)\b[^>]*>/gi, '');
+          return t.replace(/\n{3,}/g, '\n\n').trim();
         },
 
         renderMarkdown(src) {
