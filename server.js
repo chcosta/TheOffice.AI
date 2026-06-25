@@ -1646,10 +1646,29 @@ app.post('/api/marketplace/design/generate', async (req, res) => {
       .map(p => mode === 'enhance' ? marketplaceDesign.normalizeEnhance(p, agentId) : marketplaceDesign.normalizeCreate(p))
       .filter(Boolean);
     if (!proposals.length) return res.status(502).json({ error: 'AI returned no usable proposals. Try again.' });
+    try { saveMktDesignLatest({ mode, hint, agentId: agentId || '', proposals, generatedAt: new Date().toISOString() }); } catch (_) {}
     res.json({ mode, proposals });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Cached Design-with-AI state for the marketplace: latest generated set + pins.
+app.get('/api/marketplace/design/cache', (req, res) => {
+  res.json({ latest: loadMktDesignLatest(), pinned: loadMktDesignPins() });
+});
+app.post('/api/marketplace/design/pin', (req, res) => {
+  const p = req.body && req.body.proposal;
+  if (!p || !p.id) return res.status(400).json({ error: 'proposal with an id is required' });
+  const list = loadMktDesignPins();
+  if (!list.some(x => x.id === p.id)) { list.unshift({ ...p, pinnedAt: new Date().toISOString() }); saveMktDesignPins(list); }
+  res.json({ ok: true, pinned: list });
+});
+app.delete('/api/marketplace/design/pin/:id', (req, res) => {
+  const id = req.params.id;
+  const next = loadMktDesignPins().filter(x => x.id !== id);
+  saveMktDesignPins(next);
+  res.json({ ok: true, pinned: next });
 });
 
 // ---- Design proposal helpers (shared by apply + test) ----
@@ -6866,16 +6885,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   // item / PR / worktree state and its AI status summary if present.
   const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
   if (devItems.length) {
-    const lines = devItems.map(d => {
-      const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
-      const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
-      const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
-      const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
-      const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
-      const sum = d.summary && d.summary.text ? '\n    summary: ' + clip(d.summary.text, 400) : '';
-      return `- "${clip(d.title || d.repo || 'Dev card', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
-    });
-    contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree)\n' + lines.join('\n'));
+    contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree; reference by devId)\n' + _devCardContextLines(devItems).join('\n'));
   }
 
   // Deterministic fallback used when the board is empty, has no usable context, or
@@ -6970,6 +6980,32 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 // worktree in an editor/CLI reuses POST /api/fs/open (a worktree is just a
 // folder), so no new launch code is needed here.
 // ============================================================================
+
+// Build the DEV CARDS context lines shared by the where-was-i briefing and the
+// board assistant. Includes the devId plus the card's LINKS, extra REPOS and
+// REPORTS so the AI can SEE and TARGET them (e.g. "replace the dev card link"
+// means the Links section, not a work-item markdown link in a checklist).
+function _devCardContextLines(devItems) {
+  const clip = (s, n) => { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  return (Array.isArray(devItems) ? devItems : []).map(d => {
+    const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
+    const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
+    const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
+    const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
+    const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
+    const head = `- (${d.id}) "${clip(d.title || d.repo || 'Dev card', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}`;
+    const extra = [];
+    const links = Array.isArray(d.links) ? d.links : [];
+    if (links.length) extra.push('    links: ' + links.map(l => `[${clip(l.label || l.url, 60)} → ${clip(l.url, 160)} (${l.id})]`).join(', '));
+    else extra.push('    links: none');
+    const repos = Array.isArray(d.repos) ? d.repos : [];
+    if (repos.length) extra.push('    extra repos: ' + repos.map(r => `[${r.org}/${r.project}/${r.repo} @ ${r.branch || '?'} (${r.id})${r.worktreeStatus ? ' ' + r.worktreeStatus : ''}]`).join(', '));
+    const reports = Array.isArray(d.reports) ? d.reports : [];
+    if (reports.length) extra.push('    reports (read-only): ' + reports.map(r => `[${clip(r.name || r.rel, 80)} (${r.rel})]`).join(', '));
+    if (d.summary && d.summary.text) extra.push('    summary: ' + clip(d.summary.text, 400));
+    return [head, ...extra].join('\n');
+  });
+}
 
 // Locate a dev card on a board; persist a mutated copy back. Returns helpers.
 function _devItemCtx(boardId, devId) {
@@ -7155,60 +7191,132 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   res.json({ ok: r.ok, message: r.message, dev: updated });
 });
 
-// Build the dev-summary prompt from a card + its live work-item / PR / git state.
-function _buildDevSummaryPrompt(d, { wi, pr, git, diff } = {}) {
+// Build the dev-summary prompt from a card + its live work-item + PER-REPO state.
+// `repos` is the unified slot list, each entry { slot, pr, git, diff } — so a card
+// that spans multiple repos (primary + d.repos[]) is summarized across ALL of them,
+// each with its own PR, reviewer votes, branch sync state, and diff hunks.
+function _buildDevSummaryPrompt(d, { wi, repos } = {}) {
+  const list = Array.isArray(repos) ? repos.filter(Boolean) : [];
+  const multi = list.length > 1;
   const ctxLines = [];
   ctxLines.push(`Dev card: ${d.title || d.repo}`);
-  ctxLines.push(`Repo: ${d.org}/${d.project}/${d.repo}  Branch: ${d.branch || '(none)'}  Base: ${d.baseBranch || 'main'}`);
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
-  if (pr) {
-    // Translate the raw AzDO PR status into an unambiguous merged/open phrase.
-    // status: active = OPEN (not merged), completed = MERGED, abandoned = CLOSED.
-    // mergeStatus (succeeded/conflicts/queued) is only about *mergeability* — it
-    // must NOT be read as "the PR was merged", which the summarizer otherwise does.
-    const st = String(pr.status || '').toLowerCase();
-    const lifecycle = st === 'completed' ? 'MERGED into ' + pr.targetBranch
-      : st === 'abandoned' ? 'ABANDONED (closed without merging)'
-      : 'OPEN — NOT yet merged';
-    const mergeability = st === 'completed' ? '' :
-      (pr.mergeStatus ? `, mergeability: ${pr.mergeStatus} (whether it CAN merge cleanly, not whether it has)` : '');
-    ctxLines.push(`PR #${pr.id} "${pr.title}" — ${lifecycle}${pr.isDraft ? ' (draft)' : ''}${mergeability}, ${pr.sourceBranch} → ${pr.targetBranch}`);
-    // Reviewer votes are a primary "true status" signal: an open PR with all
-    // required approvals is one click from merge; one waiting/rejecting required
-    // reviewer is the actual blocker. Translate AzDO's numeric vote codes.
-    if (Array.isArray(pr.reviewers) && pr.reviewers.length) {
-      const vlabel = (v) => v >= 10 ? 'approved' : v === 5 ? 'approved with suggestions' : v <= -10 ? 'REJECTED' : v <= -5 ? 'waiting for author' : 'no vote yet';
-      const rv = pr.reviewers.map(r => `${r.name || 'reviewer'}${r.isRequired ? ' (required)' : ''}: ${vlabel(r.vote)}`).join('; ');
-      ctxLines.push(`PR reviewers — ${rv}`);
+  if (multi) ctxLines.push(`This work spans ${list.length} repositories — each has its own PR / branch / diff below.`);
+  // Per-repo diff slice: keep the whole prompt bounded regardless of repo count.
+  const diffCap = multi ? 18000 : 32000;
+  list.forEach((rp, i) => {
+    const s = rp.slot || {};
+    const pr = rp.pr, git = rp.git, diff = rp.diff;
+    ctxLines.push('');
+    const head = multi
+      ? `── Repository ${i + 1} of ${list.length}${s.primary ? ' (primary)' : ''}: ${s.org}/${s.project}/${s.repo}  Branch: ${s.branch || '(none)'}  Base: ${s.baseBranch || 'main'}`
+      : `Repo: ${s.org}/${s.project}/${s.repo}  Branch: ${s.branch || '(none)'}  Base: ${s.baseBranch || 'main'}`;
+    ctxLines.push(head);
+    if (pr) {
+      // Translate the raw AzDO PR status into an unambiguous merged/open phrase.
+      // status: active = OPEN (not merged), completed = MERGED, abandoned = CLOSED.
+      // mergeStatus (succeeded/conflicts/queued) is only about *mergeability* — it
+      // must NOT be read as "the PR was merged", which the summarizer otherwise does.
+      const st = String(pr.status || '').toLowerCase();
+      const lifecycle = st === 'completed' ? 'MERGED into ' + pr.targetBranch
+        : st === 'abandoned' ? 'ABANDONED (closed without merging)'
+        : 'OPEN — NOT yet merged';
+      const mergeability = st === 'completed' ? '' :
+        (pr.mergeStatus ? `, mergeability: ${pr.mergeStatus} (whether it CAN merge cleanly, not whether it has)` : '');
+      ctxLines.push(`PR #${pr.id} "${pr.title}" — ${lifecycle}${pr.isDraft ? ' (draft)' : ''}${mergeability}, ${pr.sourceBranch} → ${pr.targetBranch}`);
+      // Reviewer votes are a primary "true status" signal: an open PR with all
+      // required approvals is one click from merge; one waiting/rejecting required
+      // reviewer is the actual blocker. Translate AzDO's numeric vote codes.
+      if (Array.isArray(pr.reviewers) && pr.reviewers.length) {
+        const vlabel = (v) => v >= 10 ? 'approved' : v === 5 ? 'approved with suggestions' : v <= -10 ? 'REJECTED' : v <= -5 ? 'waiting for author' : 'no vote yet';
+        const rv = pr.reviewers.map(r => `${r.name || 'reviewer'}${r.isRequired ? ' (required)' : ''}: ${vlabel(r.vote)}`).join('; ');
+        ctxLines.push(`PR reviewers — ${rv}`);
+      }
+    } else {
+      ctxLines.push('No pull request opened for this repo yet.');
     }
-  }
-  if (git) ctxLines.push(`Local branch vs its own origin remote: ${git.ahead || 0} ahead / ${git.behind || 0} behind${git.dirty ? ', uncommitted changes present' : ', clean working tree'} (this is the feature branch's sync state, NOT a signal that it merged into the base branch)`);
-  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 32000)); }
+    if (git) ctxLines.push(`Local branch vs its own origin remote: ${git.ahead || 0} ahead / ${git.behind || 0} behind${git.dirty ? ', uncommitted changes present' : ', clean working tree'} (this is the feature branch's sync state, NOT a signal that it merged into the base branch)`);
+    if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, diffCap)); }
+    else if (!s.worktreePath) ctxLines.push('No local worktree for this repo (no diff available).');
+  });
 
+  const spanNote = multi
+    ? 'This one piece of work spans MULTIPLE repositories; each repository section below has its own pull request (with reviewer votes) and local git worktree showing the ACTUAL diff hunks (committed vs base, plus staged/unstaged edits).'
+    : 'You are given an Azure DevOps work item, its pull request (including reviewer votes), and the local git worktree with the ACTUAL git diff hunks of what changed (committed vs base, plus staged/unstaged edits).';
   return [
-    'You are a dev-work status summarizer. You are given the COMPLETE current state of one piece of work — an Azure DevOps work item, its pull request (including reviewer votes), and the local git worktree with the ACTUAL git diff hunks of what changed (committed vs base, plus staged/unstaged edits). Reason directly over that real data. Write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it truly stands, and what is left to do next.',
+    'You are a dev-work status summarizer. You are given the COMPLETE current state of one piece of work. ' + spanNote + ' Reason directly over that real data. Write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it truly stands, and what is left to do next.',
     'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. Ground the status in the real signals: PR lifecycle, reviewer votes, mergeability, and the branch sync/dirty state. If the PR is in draft, has conflicts, is awaiting a required reviewer, or the branch is behind origin or dirty, call that out as the next action. If everything is approved and clean, say it looks ready to merge. If the diff is truncated, base your "what changed" on the hunks you can see plus the file stat. If there is nothing actionable, say so. No preamble, no headings, no surrounding quotes.',
-    'CRITICAL: Only state that the PR is merged/landed if its lifecycle is explicitly MERGED above. A PR that is OPEN has NOT been merged, regardless of mergeability or how clean/in-sync the local branch is — never infer a merge from "clean working tree", "0 ahead/0 behind", or a "succeeded" mergeability. For an open PR, the next step is review/approval and completing the merge, not closing the work item.',
+    multi
+      ? 'Because this work spans multiple repositories, synthesize ONE cohesive cross-repo status — describe what the change set does as a whole, and call out per-repo blockers where they differ (e.g. "the server PR is approved but the client PR is still in draft"). Only say the whole thing looks ready to merge when EVERY repo\'s PR is mergeable/approved and its branch is clean; if any single repo is blocked, the overall next action is that repo.'
+      : '',
+    'CRITICAL: Only state that a PR is merged/landed if its lifecycle is explicitly MERGED above. A PR that is OPEN has NOT been merged, regardless of mergeability or how clean/in-sync the local branch is — never infer a merge from "clean working tree", "0 ahead/0 behind", or a "succeeded" mergeability. For an open PR, the next step is review/approval and completing the merge, not closing the work item.',
     'You have NO tools and the full context you need is already provided below. Do NOT run, narrate, or fabricate commands or tool calls. Never emit XML-like tags such as <tool_calls>, <tool_call>, <command>, <stdout>, or <tool_results>. Respond with ONLY the final status-briefing prose — nothing before or after it.',
     '',
-    ctxLines.join('\n').slice(0, 40000),
+    ctxLines.join('\n').slice(0, 48000),
     '',
     'Status briefing:'
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 // A compact signature of a dev card's *observable* state. When this changes the
 // summary is considered stale and is regenerated by the background reconciler.
 // Captures only meaningful, user-visible signals so trivial churn doesn't thrash.
-function _devFingerprint({ wi, pr, git } = {}) {
+// Spans ALL repos: each repo's PR (incl. reviewer votes) and git sync state are
+// folded in, so a vote change on ANY repo's PR re-triggers the summary.
+function _devFingerprint({ wi, repos } = {}) {
   const parts = [];
   if (wi) parts.push('wi:' + wi.id + '|' + (wi.state || '') + '|' + (wi.title || '') + '|' + (wi.assignedTo || ''));
-  if (pr) {
-    const votes = (pr.reviewers || []).map(r => (r.name || '') + '=' + r.vote).sort().join(',');
-    parts.push('pr:' + pr.id + '|' + (pr.status || '') + '|' + (pr.isDraft ? 'd' : '') + '|' + (pr.mergeStatus || '') + '|' + (pr.title || '') + '|' + votes);
+  for (const rp of (Array.isArray(repos) ? repos : [])) {
+    if (!rp) continue;
+    const s = rp.slot || {};
+    const tag = s.id || s.repo || '?';
+    if (rp.pr) {
+      const votes = (rp.pr.reviewers || []).map(r => (r.name || '') + '=' + r.vote).sort().join(',');
+      parts.push('pr@' + tag + ':' + rp.pr.id + '|' + (rp.pr.status || '') + '|' + (rp.pr.isDraft ? 'd' : '') + '|' + (rp.pr.mergeStatus || '') + '|' + (rp.pr.title || '') + '|' + votes);
+    }
+    if (rp.git) parts.push('git@' + tag + ':' + (rp.git.head || '') + '|' + (rp.git.ahead || 0) + '|' + (rp.git.behind || 0) + '|' + (rp.git.dirty ? 'dirty' : 'clean'));
   }
-  if (git) parts.push('git:' + (git.head || '') + '|' + (git.ahead || 0) + '|' + (git.behind || 0) + '|' + (git.dirty ? 'dirty' : 'clean'));
   return parts.join('||');
+}
+
+// Gather the live work-item + PER-REPO (PR + git) state for a card across ALL repo
+// slots (primary + d.repos[]). No diffs here — this is the cheap path used for the
+// fingerprint and reused by the generator. PR is best-effort network; git is local
+// (network `git fetch` only when fresh:true). Returns { wi, repos:[{slot,pr,git}] }.
+async function _devRepoMeta(d, { fresh = false } = {}) {
+  let wi = d.workItem;
+  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  const slots = _devRepoSlots(d).filter(s => s && s.org && s.project && s.repo);
+  const repos = await Promise.all(slots.map(async (s) => {
+    let pr = s.primary ? d.pr : s.pr;
+    const prId = s.primary ? d.prId : s.prId;
+    try { if (prId && s.org && s.project && s.repo) { const p = await azdo.getPullRequest(s.org, s.project, s.repo, prId); if (p) pr = p; } } catch {}
+    let git = s.primary ? d.git : s.git;
+    try { if (s.worktreePath) { const g = devitems.worktreeStatus(s.worktreePath, { fetch: !!fresh, baseBranch: s.baseBranch }); if (g) git = g; } } catch {}
+    return { slot: s, pr: pr || null, git: git || null };
+  }));
+  return { wi: wi || null, repos };
+}
+
+// Map gathered per-repo meta back into a persistable partial: primary repo's pr/git
+// live at the top level; extra repos' pr/git live inside their d.repos[] entry. Used
+// to keep every repo slot's badges current alongside a regenerated summary.
+function _devLivePartial(d, meta) {
+  const partial = { workItem: (meta && meta.wi) || d.workItem };
+  const extraById = {};
+  for (const rp of ((meta && meta.repos) || [])) {
+    if (!rp || !rp.slot) continue;
+    if (rp.slot.primary) { partial.pr = rp.pr || d.pr; partial.git = rp.git || d.git; }
+    else extraById[rp.slot.id] = rp;
+  }
+  const extras = _devExtraRepos(d);
+  if (extras.length) {
+    partial.repos = extras.map(r => {
+      const rp = r && extraById[r.id];
+      return rp ? { ...r, pr: rp.pr || r.pr || null, git: rp.git || r.git || null } : r;
+    });
+  }
+  return partial;
 }
 
 // Strip any hallucinated tool-call transcript a tool-less model may emit before
@@ -7239,37 +7347,42 @@ function _cleanDevSummaryText(raw) {
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// Resolve the freshest work-item / PR / git for a card (best-effort) and run the
-// AI summarizer. Tools are disabled so the model emits pure prose from the
-// in-context prompt (no file-exploration leakage). Returns { text, generatedAt,
-// wi, pr, git }. Pass pre-fetched wi/pr/git to avoid re-fetching.
+// Resolve the freshest work-item + PER-REPO PR/git/diff for a card (best-effort,
+// across ALL repo slots) and run the AI summarizer. Tools are disabled so the model
+// emits pure prose from the in-context prompt (no file-exploration leakage). The
+// diff budget is split across repos that have a worktree so the prompt stays bounded
+// no matter how many repos a card spans. Returns { text, generatedAt, wi, repos, meta }.
+// Pass opts.meta (from _devRepoMeta) to avoid re-fetching PR/git.
 async function _generateDevSummary(d, opts = {}) {
-  let { wi, pr, git } = opts;
-  if (wi === undefined) { wi = d.workItem; try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {} }
-  if (pr === undefined) { pr = d.pr; try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {} }
-  // Only do a network `git fetch` (for accurate ahead/behind) on an explicit manual
-  // refresh; the background reconciler stays fetch:false so it never hammers origin.
-  if (git === undefined) { git = d.git; try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: !!opts.fresh, baseBranch: d.baseBranch }); if (s) git = s; } } catch {} }
-  let diff = '';
-  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: opts.maxDiffChars || 16000 }); } catch {}
-  const prompt = _buildDevSummaryPrompt(d, { wi, pr, git, diff });
+  const meta = opts.meta || await _devRepoMeta(d, { fresh: !!opts.fresh });
+  const total = opts.maxDiffChars || 16000;
+  const withWt = meta.repos.filter(rp => rp.slot && rp.slot.worktreePath);
+  const per = withWt.length ? Math.max(5000, Math.floor(total / withWt.length)) : total;
+  for (const rp of meta.repos) {
+    rp.diff = '';
+    try { if (rp.slot && rp.slot.worktreePath) rp.diff = devitems.diffSummary(rp.slot.worktreePath, { baseBranch: rp.slot.baseBranch, maxDiffChars: per }); } catch {}
+  }
+  const prompt = _buildDevSummaryPrompt(d, { wi: meta.wi, repos: meta.repos });
+  // Run from the primary worktree (or the first repo with one) for a sane cwd.
+  const cwdSlot = (meta.repos.find(rp => rp.slot && rp.slot.primary && rp.slot.worktreePath)
+    || meta.repos.find(rp => rp.slot && rp.slot.worktreePath) || {}).slot;
   let acc = '';
-  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: (cwdSlot && cwdSlot.worktreePath) || d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
   const text = _cleanDevSummaryText(acc.trim() || (result && result.output) || '');
   if (!text) throw new Error('Empty summary');
-  return { text, generatedAt: new Date().toISOString(), wi, pr, git };
+  return { text, generatedAt: new Date().toISOString(), wi: meta.wi, repos: meta.repos, meta };
 }
 
-// Regenerate the AI summary of where the dev work stands (work item + PR + diff).
-// Manual trigger — always regenerates; the background reconciler keeps it fresh.
+// Regenerate the AI summary of where the dev work stands (work item + every repo's
+// PR + diff). Manual trigger — always regenerates; the background reconciler keeps it fresh.
 app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   try {
     const gen = await _generateDevSummary(d, { fresh: true });
-    const fingerprint = _devFingerprint({ wi: gen.wi, pr: gen.pr, git: gen.git });
-    const updated = ctx.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint, auto: false }, workItem: gen.wi || d.workItem, pr: gen.pr || d.pr, git: gen.git || d.git });
+    const fingerprint = _devFingerprint({ wi: gen.wi, repos: gen.repos });
+    const updated = ctx.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint, auto: false }, ..._devLivePartial(d, gen.meta) });
     res.json({ ok: true, dev: updated });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'Summary failed' });
@@ -7303,11 +7416,9 @@ async function _reconcileDevSummaries() {
         const key = b.id + '/' + d.id;
         if (_devSummaryRunning.has(key)) continue;
         try {
-          // Recompute live state (local git is cheap; WI/PR are best-effort network).
-          let wi = d.workItem, pr = d.pr, git = d.git;
-          try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
-          try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {}
-          try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {}
+          // Recompute live state across ALL repos (local git is cheap; WI/PR are
+          // best-effort network). fetch:false so the reconciler never hammers origin.
+          const meta = await _devRepoMeta(d, { fresh: false });
 
           // Surface any status reports the dev agent wrote into the worktree. Cheap
           // fs scan; persist immediately (no LLM) when the set/mtimes change so the
@@ -7323,7 +7434,7 @@ async function _reconcileDevSummaries() {
             } catch {}
           }
 
-          const fp = _devFingerprint({ wi, pr, git });
+          const fp = _devFingerprint({ wi: meta.wi, repos: meta.repos });
           const prevFp = (d.summary && d.summary.fingerprint) || '';
           const haveSummary = !!(d.summary && d.summary.text);
           const lastGen = (d.summary && d.summary.generatedAt) ? Date.parse(d.summary.generatedAt) : 0;
@@ -7333,16 +7444,16 @@ async function _reconcileDevSummaries() {
           if ((!haveSummary || changed) && throttleOk) {
             _devSummaryRunning.add(key);
             try {
-              const gen = await _generateDevSummary(d, { wi, pr, git });
+              const gen = await _generateDevSummary(d, { meta });
               const c2 = _devItemCtx(b.id, d.id); // re-locate: board may have been re-saved meanwhile
-              if (c2) c2.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint: fp, auto: true }, workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
+              if (c2) c2.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint: fp, auto: true }, ..._devLivePartial(d, meta) });
             } finally { _devSummaryRunning.delete(key); }
           } else if (changed) {
             // State moved but we're inside the throttle window (or summary is fresh):
             // persist the live state now so the card's badges are current; the next
             // sweep will regenerate the prose once the throttle clears.
             const c2 = _devItemCtx(b.id, d.id);
-            if (c2) c2.save({ workItem: wi || d.workItem, pr: pr || d.pr, git: git || d.git });
+            if (c2) c2.save(_devLivePartial(d, meta));
           }
         } catch {}
       }
@@ -7510,6 +7621,22 @@ app.post('/api/boards/:id/dev-items/:devId/links/delete', (req, res) => {
   const url = (req.body && req.body.url) || '';
   const links = (Array.isArray(ctx.dev.links) ? ctx.dev.links : []).filter(l => !(id && l.id === id) && !(url && l.url === url));
   const updated = ctx.save({ links });
+  res.json({ ok: true, dev: updated });
+});
+
+// Archive (or restore) a dev card. Archiving keeps the card and ALL of its
+// durable state (summary, cached reports, links, repo history) intact for audit;
+// it just sets an `archived` flag so the card drops out of its board's grid and
+// the Home "active dev work" surface and moves to the dedicated Archive page.
+// Body: { archived: true|false }. Restoring clears the flag so the card returns
+// to its original board exactly where it left off.
+app.post('/api/boards/:id/dev-items/:devId/archive', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const archived = !(req.body && req.body.archived === false);
+  const updated = ctx.save(archived
+    ? { archived: true, archivedAt: new Date().toISOString() }
+    : { archived: false, archivedAt: null });
   res.json({ ok: true, dev: updated });
 });
 
@@ -8195,15 +8322,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // its (devId) so the assistant can drive it (refresh/sync/summary/worktree/PR/
   // dev-agent/cleanup) or propose new/updated ones.
   if (devItems.length) {
-    ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId)\n' + devItems.map(d => {
-      const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
-      const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
-      const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
-      const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
-      const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
-      const sum = d.summary && d.summary.text ? '\n    summary: ' + clip(d.summary.text, 400) : '';
-      return `- (${d.id}) "${clip(d.title || d.repo || 'Dev card', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}${sum}`;
-    }).join('\n'));
+    ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId; LINKS / extra REPOS / REPORTS shown per card)\n' + _devCardContextLines(devItems).join('\n'));
   }
   if (available.length) {
     catalogCtx.push('## AVAILABLE AGENTS (installed, NOT pinned — propose pin_item to add one)\n' + available.slice(0, 25).map(s => {
@@ -8306,6 +8425,11 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. Set createWorktree true if the user wants the worktree created right away.)',
     (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV CARDS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"..."}  (updates a Dev card\'s metadata, e.g. link a work item or PR or rename it. Include ONLY the fields to change.)' : ''),
     (devItems.length ? '- {"type":"remove_dev_item","devItemId":"<devId from DEV CARDS>"}  (removes the Dev card from the board and cleans up its worktree — destructive, only on explicit request.)' : ''),
+    (devItems.length ? '- {"type":"add_dev_link","devItemId":"<devId from DEV CARDS>","url":"<https/file/mailto/vscode URL or absolute path>","label":"<short label, optional>"}  (adds a link to the Dev card\'s LINKS section — the list of related URLs/files shown on the card, NOT a work-item or checklist link. Use when the user says "add a link to the dev card".)' : ''),
+    (devItems.length ? '- {"type":"remove_dev_link","devItemId":"<devId from DEV CARDS>","linkId":"<lnk-id from the card\'s links>","url":"<the link url, alternative to linkId>"}  (removes ONE link from the Dev card\'s LINKS section. Identify the link by its (lnk-id) or its url as shown under that card\'s "links:" in DEV CARDS — destructive.)' : ''),
+    (devItems.length ? '- {"type":"replace_dev_link","devItemId":"<devId from DEV CARDS>","linkId":"<lnk-id of the link to replace, or url>","url":"<new URL>","label":"<new label, optional>"}  (replaces an existing Dev card LINK with a new URL in one step — use this when the user asks to "replace/swap/update the link" in the card\'s Links section. Identify the old link by its (lnk-id) or url.)' : ''),
+    (devItems.length ? '- {"type":"add_dev_repo","devItemId":"<devId from DEV CARDS>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","branch":"<feature branch, optional>","baseBranch":"<base branch, optional>"}  (adds an ADDITIONAL repo to a multi-repo Dev card. org, project and repo are REQUIRED — never invent them.)' : ''),
+    (devItems.length ? '- {"type":"remove_dev_repo","devItemId":"<devId from DEV CARDS>","repoId":"<repo-id from the card\'s extra repos>"}  (removes an EXTRA repo from a multi-repo Dev card by its (repo-id) as shown under that card\'s "extra repos:" — the primary repo cannot be removed this way. Destructive.)' : ''),
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
     '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "stash the finished checklist", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
     '',
@@ -8332,7 +8456,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / stash / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing and hiding/stashing are visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes", "stash the finished checklist") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
     '- VISIBILITY & LOCKS: items in BOARD CONTEXT may be tagged [hidden] (currently stashed off the board but still part of context) and/or [locked:...] where the locked aspects are vis (visibility/stash), size, and/or pos (position). A hidden item still contributes to the board and you SHOULD feel free to "show" it when relevant. But you MUST NOT change any LOCKED aspect of a panel: never hide/show a [locked:vis] panel, never move/organize/compact a [locked:pos] panel, and never resize/widen a [locked:size] panel. If a presentation request would require changing a locked aspect, skip that panel and say so briefly in "reply".',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
-    '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree. Reference one by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item when you have a real org/project/repo (never invent them); remove_dev_item is destructive — only on explicit request.',
+    '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry its own LINKS (related URLs/files, each shown as "label → url (lnk-id)"), extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)") and read-only REPORTS. Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). For the card\'s LINKS section use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link are destructive — only on explicit request.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
     // Multi-step confirmable plans.
@@ -8537,6 +8661,63 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const d = devItems.find(x => x.id === (a.devItemId || a.devId));
       if (!d) return null;
       return { type, devItemId: d.id, label: 'Remove dev card', preview: clip(d.title || d.repo || 'Dev card', 100), destructive: true };
+    }
+    if (type === 'add_dev_link') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const url = clip(a.url, 600);
+      if (!url) return null;
+      const linkLabel = clip(a.label || a.linkLabel, 200) || '';
+      return { type, devItemId: d.id, url, linkLabel, label: 'Add dev card link', preview: (linkLabel || url) + ' → ' + clip(d.title || d.repo || 'Dev card', 60) };
+    }
+    if (type === 'remove_dev_link' || type === 'replace_dev_link') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const links = Array.isArray(d.links) ? d.links : [];
+      const lid = a.linkId || a.id;
+      const lurl = a.oldUrl || a.targetUrl || (type === 'remove_dev_link' ? a.url : undefined);
+      let target = null;
+      if (lid) target = links.find(l => l.id === lid);
+      if (!target && lurl) target = links.find(l => l.url === lurl);
+      if (!target && links.length === 1) target = links[0];
+      if (type === 'replace_dev_link') {
+        const url = clip(a.url || a.newUrl, 600);
+        if (!url) return null;
+        const linkLabel = clip(a.label || a.linkLabel, 200) || '';
+        if (!target) {
+          // Nothing to replace — degrade gracefully to a plain add.
+          return { type: 'add_dev_link', devItemId: d.id, url, linkLabel, label: 'Add dev card link', preview: (linkLabel || url) + ' → ' + clip(d.title || d.repo || 'Dev card', 60) };
+        }
+        return { type, devItemId: d.id, oldLinkId: target.id, oldUrl: target.url, url, linkLabel, label: 'Replace dev card link', preview: clip(target.label || target.url, 50) + ' → ' + (linkLabel || url), destructive: true };
+      }
+      if (!target) return null;
+      return { type, devItemId: d.id, linkId: target.id, oldUrl: target.url, label: 'Remove dev card link', preview: clip(target.label || target.url, 80), destructive: true };
+    }
+    if (type === 'add_dev_repo') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const org = clip(a.org, 200), project = clip(a.project, 200), repo = clip(a.repo, 200);
+      if (!org || !project || !repo) return null;
+      const repoSpec = { org, project, repo };
+      if (a.branch) repoSpec.branch = clip(a.branch, 200);
+      if (a.baseBranch) repoSpec.baseBranch = clip(a.baseBranch, 200);
+      return { type, devItemId: d.id, repoSpec, label: 'Add repo to dev card', preview: `${org}/${project}/${repo} → ` + clip(d.title || d.repo || 'Dev card', 60) };
+    }
+    if (type === 'remove_dev_repo') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const repos = Array.isArray(d.repos) ? d.repos : [];
+      const rid = a.repoId || a.id;
+      let target = null;
+      if (rid && rid !== 'primary') target = repos.find(r => r.id === rid);
+      if (!target && a.org && a.project && a.repo) {
+        const key = x => [x.org, x.project, x.repo].map(v => String(v || '').toLowerCase()).join('/');
+        const wanted = key(a);
+        target = repos.find(r => key(r) === wanted);
+      }
+      if (!target && repos.length === 1) target = repos[0];
+      if (!target) return null;
+      return { type, devItemId: d.id, repoId: target.id, label: 'Remove repo from dev card', preview: `${target.org}/${target.project}/${target.repo}`, destructive: true };
     }
     if (type === 'pin_item' || type === 'pin_agent') {
       // pin_agent is kept as a backward-compat alias: it's just pin_item kind:agent.
@@ -9380,6 +9561,27 @@ function loadLatestSuggestions() {
 function saveLatestSuggestions(obj) {
   try { fs.writeFileSync(LATEST_SUGGESTIONS_PATH, JSON.stringify(obj, null, 2)); }
   catch (e) { console.warn('[suggestions] could not persist latest:', e.message); }
+}
+// Marketplace "Design with AI" cache: the last-generated proposal set (so the
+// page shows ready ideas on revisit instead of an empty state) plus a separate
+// list of user-pinned proposals that survive regeneration.
+const MKT_DESIGN_LATEST_PATH = dataPath('marketplace-design-latest.json');
+const MKT_DESIGN_PINS_PATH = dataPath('marketplace-design-pins.json');
+function loadMktDesignLatest() {
+  try { return JSON.parse(fs.readFileSync(MKT_DESIGN_LATEST_PATH, 'utf-8')); }
+  catch { return null; }
+}
+function saveMktDesignLatest(obj) {
+  try { fs.writeFileSync(MKT_DESIGN_LATEST_PATH, JSON.stringify(obj, null, 2)); }
+  catch (e) { console.warn('[mkt-design] could not persist latest:', e.message); }
+}
+function loadMktDesignPins() {
+  try { const v = JSON.parse(fs.readFileSync(MKT_DESIGN_PINS_PATH, 'utf-8')); return Array.isArray(v) ? v : []; }
+  catch { return []; }
+}
+function saveMktDesignPins(list) {
+  try { fs.writeFileSync(MKT_DESIGN_PINS_PATH, JSON.stringify(list, null, 2)); }
+  catch (e) { console.warn('[mkt-design] could not persist pins:', e.message); }
 }
 // Ephemeral try-run buffers, keyed by runId.
 const suggestionRuns = new Map();

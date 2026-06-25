@@ -1,6 +1,6 @@
 ---
 name: board-tools
-description: Read and update TheOffice.AI boards (pins, notes, checklists) via the board MCP tools. Use when the user asks you to look at a board, summarize what's pinned, add notes or checklists, check items off, or pin a resource to a board.
+description: Read and update TheOffice.AI boards (pins, notes, checklists, dev cards) via the board MCP tools. Use when the user asks you to look at a board, summarize what's pinned, add notes or checklists, check items off, pin a resource, or work with dev cards (Azure DevOps work item + PR + git worktree, plus their links, extra repos, and reports).
 ---
 
 # Board Tools
@@ -25,6 +25,29 @@ TheOffice.AI boards. A board is a curated workspace that holds:
 | `add_checklist_items` | Append items to an existing checklist. |
 | `set_checklist_item` | Mark a checklist item done / not-done. |
 | `pin_to_board` | Pin a resource (by kind + refId) so it appears as a panel. |
+
+### Dev card tools
+
+A **dev card** (`type:'dev'` panel) tracks active development: an Azure DevOps
+work item + a related PR + a git worktree, plus three sub-sections — **Links**
+(quick links to docs/dashboards/files), **extra Repos** (additional repos beyond
+the primary one), and **Reports** (read-only generated artifacts).
+
+| Tool | What it does |
+| --- | --- |
+| `list_dev_items` | List the dev cards on a board (id, title, org/project/repo, work item / PR / worktree status). |
+| `get_dev_item` | Read one dev card in full, including its `linkList`, `repoList`, and `reportList`. |
+| `create_dev_item` | Add a dev card (org/project/repo required; optional work item / PR / branches / worktree). |
+| `update_dev_item` | Change a dev card's metadata (title, work item link, PR link, branches). |
+| `remove_dev_item` | Remove a dev card (best-effort cleans its worktree). Destructive. |
+| `dev_item_action` | Run an action: `refresh`, `sync`, `create-worktree`, `summary`, `create-dev-agent`, `create-pr`, `cleanup-worktree`. |
+| `list_dev_links` | List the dev card's **Links** (id, label, url). |
+| `add_dev_link` | Add a link to the Links section (`url` required; `label` optional). |
+| `remove_dev_link` | Remove a link by its `linkId` or exact `url`. Destructive. |
+| `list_dev_repos` | List the dev card's **extra repos** (id, org/project/repo, branch, worktree status). |
+| `add_dev_repo` | Attach an additional repo (org/project/repo required). |
+| `remove_dev_repo` | Remove an extra repo by `repoId` (the primary repo can't be removed). Destructive. |
+| `list_dev_reports` | List the dev card's **Reports** (read-only artifacts: name, rel, kind). |
 
 ## How to use them
 
@@ -51,3 +74,10 @@ TheOffice.AI boards. A board is a curated workspace that holds:
   `set_checklist_item(boardId, checklistId, itemId, true)`.
 - *"Pin the email-sender agent here."* →
   `pin_to_board(boardId, "agent", "email-sender", "Email Sender")`.
+- *"Replace the dashboard link on the Helix dev card."* → `get_dev_item` (or
+  `list_dev_links`) to find the link's `id` → `remove_dev_link(boardId, devId, linkId)`
+  → `add_dev_link(boardId, devId, newUrl, "Dashboard")`. Note "the link" on a dev
+  card means its **Links** section — not the work item or PR (those are
+  `update_dev_item`).
+- *"What links and repos are on this dev card?"* → `get_dev_item` and read its
+  `linkList` / `repoList` / `reportList`.

@@ -3710,14 +3710,17 @@
             </div>
 
             <!-- Active dev work — live Dev cards pulled from this team's boards -->
-            <div class="home-section board-calm" x-show="appMode === 'workspace' && (homeDevCards().length || homeDoneDevCount())">
+            <div class="home-section board-calm" x-show="appMode === 'workspace' && (homeDevCards().length || homeDoneDevCount() || archivedDevCount())">
               <div class="home-section-label">
                 <span class="hsl-icon">🧰</span>
                 <span class="hsl-text">Active dev work</span>
                 <span class="hsl-sub" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></span>
                 <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
                         x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
+                <button type="button" class="hsl-toggle" x-show="archivedDevCount()" @click="goTo('#/dev-archive')"
+                        x-text="'🗄 Archive (' + archivedDevCount() + ')'"></button>
               </div>
+              <div class="hint" style="font-size:12px;padding:4px 2px 0" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
               <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
                 <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
                   <article class="card clickable" @click="openDevCardOnBoard(dc)" :title="'Open on board: ' + dc._board.name" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
@@ -6148,8 +6151,16 @@
                                         <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
                                           <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
                                           <button class="board-act" type="button" data-tip="Edit dev card" @click="openDevModal(d)">✎</button>
+                                          <button class="board-act" type="button" data-tip="Archive this dev card — keeps its summary, reports and links for audit on the Archive page" :disabled="devBusy[d.id]==='archive'" @click="archiveDevItem(d)" x-text="devBusy[d.id]==='archive' ? '…' : '🗄'"></button>
                                           <button class="board-act danger tip-end" type="button" data-tip="Remove from board" @click="confirmRemovePanel(p)">✕</button>
                                         </div>
+                                      </div>
+
+                                      <!-- Done → suggest archiving for audit -->
+                                      <div x-show="devSuggestArchive(d)" x-transition.opacity
+                                        style="display:flex;align-items:center;gap:8px;justify-content:space-between;border:1px solid var(--cp-success);background:var(--cp-accent-soft);border-radius:8px;padding:6px 10px">
+                                        <span class="hint" style="font-size:12px;color:var(--cp-text)">✓ This work looks done. Archive it to preserve its summary, reports &amp; links for audit and clear it off the board.</span>
+                                        <button class="btn primary" type="button" style="font-size:11px;padding:3px 10px;white-space:nowrap" :disabled="devBusy[d.id]==='archive'" @click="archiveDevItem(d)" x-text="devBusy[d.id]==='archive' ? '…' : '🗄 Archive'"></button>
                                       </div>
 
                                       <!-- AI summary of the work item / PR / diff state -->
@@ -6316,12 +6327,14 @@
                                         </template>
                                       </div>
 
-                                      <!-- Status reports surfaced from the worktree -->
-                                      <template x-if="d.worktreePath && d.reports && d.reports.length">
+                                      <!-- Status reports surfaced from the worktree. Cached reports
+                                           persist after the worktree is removed (useful for audit), so
+                                           this is gated on having reports, NOT on a live worktree. -->
+                                      <template x-if="d.reports && d.reports.length">
                                         <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                            <span class="cal-caption">📊 Reports</span>
-                                            <button class="board-act" type="button" data-tip="Re-scan the worktree for reports" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
+                                            <span class="cal-caption">📊 Reports<span x-show="!d.worktreePath" class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
+                                            <button class="board-act" type="button" data-tip="Re-scan the worktree for reports" x-show="d.worktreePath" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
                                           </div>
                                           <div style="display:flex;flex-direction:column">
                                             <template x-for="r in d.reports" :key="r.rel">
@@ -6761,6 +6774,91 @@
               </div>
             </div>
 
+          </section>
+
+          <!-- ============ DEV CARD ARCHIVE (read-only audit of archived dev cards) ============ -->
+          <section x-show="!loading && !errorMessage && route === 'dev-archive'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🗄 Dev card archive</h1>
+                <p>Archived dev cards across all your boards. Read-only audit view — summaries, cached reports and links are preserved. Restore a card to return it to its board, or permanently delete it.</p>
+              </div>
+              <div class="toolbar">
+                <a class="btn ghost" href="#/home" @click.prevent="goTo('#/home')">← Home</a>
+              </div>
+            </div>
+
+            <div class="hint" style="padding:24px" x-show="!archivedDevCards().length">No archived dev cards. Archive a card from its board (🗄 button on the dev card header) to keep its history here for audit.</div>
+
+            <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(360px,1fr))" x-show="archivedDevCards().length">
+              <template x-for="dc in archivedDevCards()" :key="'arch-dev-' + dc.id">
+                <article class="card" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
+                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                    <div style="min-width:0">
+                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
+                      <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto">
+                      <span class="type-badge" style="font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
+                      <span class="hint" style="font-size:10px;white-space:nowrap" x-show="dc.archivedAt" x-text="'Archived ' + formatRelative(dc.archivedAt)"></span>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                    <template x-if="dc.workItemId">
+                      <a class="pill" :href="devWorkItemUrl(dc)" target="_blank" rel="noopener" style="font-size:11px;text-decoration:none" :title="dc.workItem ? (dc.workItem.type + ': ' + dc.workItem.title) : 'Open work item'">
+                        <span x-text="'📋 #' + dc.workItemId"></span>
+                        <span x-show="dc.workItem && dc.workItem.state" x-text="' · ' + (dc.workItem ? dc.workItem.state : '')"></span>
+                      </a>
+                    </template>
+                    <template x-if="dc.prId">
+                      <a class="pill" :href="devPrUrl(dc)" target="_blank" rel="noopener" style="font-size:11px;text-decoration:none" :title="dc.pr ? dc.pr.title : 'Open pull request'">
+                        <span x-text="'🔀 !' + dc.prId"></span>
+                        <span x-show="dc.pr && dc.pr.status" x-text="' · ' + (dc.pr ? (dc.pr.isDraft ? 'draft' : dc.pr.status) : '')"></span>
+                      </a>
+                    </template>
+                    <span class="hint" x-show="!dc.workItemId && !dc.prId" style="font-size:11px">No work item / PR linked.</span>
+                  </div>
+
+                  <div x-show="dc.summary && dc.summary.text" class="md-output" style="line-height:1.55;font-size:0.9rem;max-height:220px;overflow:auto;border-top:1px dashed var(--cp-border);padding-top:8px" x-html="renderMarkdown(cleanDevSummary(dc.summary ? dc.summary.text : ''))"></div>
+                  <div class="hint" style="font-size:11px;opacity:.7" x-show="!(dc.summary && dc.summary.text)">No AI summary was captured for this card.</div>
+
+                  <!-- Cached reports (preserved after worktree removal) -->
+                  <template x-if="dc.reports && dc.reports.length">
+                    <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                      <span class="cal-caption">📊 Reports<span class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
+                      <div style="display:flex;flex-direction:column">
+                        <template x-for="r in dc.reports" :key="r.rel">
+                          <div class="cal-row">
+                            <a class="cal-row-link" :href="devReportUrl(dc,r)" target="_blank" rel="noopener" :title="'Open ' + r.rel + ' in a new tab'" x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></a>
+                            <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
+                            <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(dc,r)">👁</button>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Manually attached links -->
+                  <template x-if="dc.links && dc.links.length">
+                    <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                      <span class="cal-caption">🔗 Links</span>
+                      <div style="display:flex;flex-direction:column">
+                        <template x-for="l in dc.links" :key="l.id || l.url">
+                          <div class="cal-row">
+                            <a class="cal-row-link" :href="devLinkHref(dc,l)" target="_blank" rel="noopener" :title="l.url" x-text="'🔗 ' + (l.label || l.url)"></a>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px dashed var(--cp-border);padding-top:8px;margin-top:auto">
+                    <button class="btn ghost danger" type="button" :disabled="devBusy[dc.id]==='archive'" @click="deleteArchivedDevItem(dc)" x-text="devBusy[dc.id]==='archive' ? '…' : '🗑 Delete'"></button>
+                    <button class="btn primary" type="button" :disabled="devBusy[dc.id]==='archive'" @click="restoreDevItem(dc)" x-text="devBusy[dc.id]==='archive' ? '…' : '↩ Restore'"></button>
+                  </div>
+                </article>
+              </template>
+            </div>
           </section>
 
           <!-- ============ INSIGHTS (read-only AI cross-board views) ============ -->
@@ -8777,18 +8875,21 @@
                 </div>
               </div>
 
-              <div class="empty-state" x-show="!mkt.design.busy && !mkt.design.proposals.length && !mkt.design.error">
+              <div class="empty-state" x-show="!mkt.design.busy && !mktDesignVisibleProposals().length && !mkt.design.error">
                 No proposals yet. Choose a mode and click <strong>Generate ideas</strong>.
               </div>
 
-              <div class="agent-grid" x-show="mkt.design.proposals.length">
-                <template x-for="p in mkt.design.proposals" :key="p.id">
-                  <article class="agent-card" style="cursor:default">
+              <div class="agent-grid" x-show="mktDesignVisibleProposals().length">
+                <template x-for="p in mktDesignVisibleProposals()" :key="p.id">
+                  <article class="agent-card" style="cursor:default" :style="mktIsPinned(p) ? 'border-color:var(--cp-accent)' : ''">
                     <div class="split-meta">
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                         <span class="type-badge" x-text="p.kind === 'create' ? '✨ new agent' : '🔧 enhance'"></span>
+                        <span class="type-badge" x-show="mktIsPinned(p)" style="background:var(--cp-accent);color:var(--cp-accent-fg)">📌 pinned</span>
                         <strong x-text="p.title"></strong>
                       </div>
+                      <button class="board-act" type="button" :data-tip="mktIsPinned(p) ? 'Unpin this idea' : 'Pin this idea so it stays after you regenerate'"
+                        @click="mktIsPinned(p) ? mktDesignUnpin(p) : mktDesignPin(p)" x-text="mktIsPinned(p) ? '📌' : '📍'"></button>
                     </div>
                     <div class="hint" style="margin-top:8px" x-text="p.rationale"></div>
                     <template x-if="p.kind === 'create' && p.agent">
@@ -10925,7 +11026,7 @@
           assignTeam: { agentId: '', agentName: '', kind: '', teamId: '' },
           tab: 'browse',
           autoPopulated: false,
-          design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], inited: false, capCatalog: [] },
+          design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], pinned: [], inited: false, cacheLoaded: false, capCatalog: [] },
           mcpTest: { id: null, busy: false, result: null },
           busy: false,
           error: '',
@@ -11801,7 +11902,7 @@
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'dev-archive'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -11864,6 +11965,10 @@
             }
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
+          } else if (this.route === 'dev-archive') {
+            // Archived dev cards are computed client-side from this.boards (every
+            // board carries its full devItems), so just ensure boards are loaded.
+            if (!this.boards || !this.boards.length) await this.loadBoards(null, true);
           } else if (this.route === 'home') {
             await this.loadSchedules();
             // Surface boards + insights on the team-scoped home overview (silent; no auto-generate).
@@ -13667,6 +13772,7 @@
           const out = [];
           for (const b of this.homeBoards()) {
             for (const d of ((b && b.devItems) || [])) {
+              if (d && d.archived) continue;
               const active = this.devIsActive(d);
               if (active || this.homeShowDoneDev) out.push({ ...d, _board: b, _done: !active });
             }
@@ -13682,13 +13788,32 @@
         // Count of in-progress dev cards (drives the section sub-label, toggle-independent).
         homeActiveDevCount() {
           let n = 0;
-          for (const b of this.homeBoards()) for (const d of ((b && b.devItems) || [])) if (this.devIsActive(d)) n++;
+          for (const b of this.homeBoards()) for (const d of ((b && b.devItems) || [])) if (!(d && d.archived) && this.devIsActive(d)) n++;
           return n;
         },
         // Count of merged/done dev cards available to reveal via the toggle.
         homeDoneDevCount() {
           let n = 0;
-          for (const b of this.homeBoards()) for (const d of ((b && b.devItems) || [])) if (!this.devIsActive(d)) n++;
+          for (const b of this.homeBoards()) for (const d of ((b && b.devItems) || [])) if (!(d && d.archived) && !this.devIsActive(d)) n++;
+          return n;
+        },
+        // Every archived dev card across ALL boards/teams (the Archive page is a
+        // global audit log, not team-scoped). Each carries `_board` so links,
+        // reports and restore/delete resolve to the owning board.
+        archivedDevCards() {
+          const out = [];
+          for (const b of (this.boards || [])) {
+            for (const d of ((b && b.devItems) || [])) {
+              if (d && d.archived) out.push({ ...d, _board: b });
+            }
+          }
+          const ts = (d) => new Date(d.archivedAt || d.updatedAt || d.createdAt || 0).getTime() || 0;
+          out.sort((a, b) => ts(b) - ts(a));
+          return out;
+        },
+        archivedDevCount() {
+          let n = 0;
+          for (const b of (this.boards || [])) for (const d of ((b && b.devItems) || [])) if (d && d.archived) n++;
           return n;
         },
         devIsActive(d) {
@@ -13697,6 +13822,14 @@
           const ps = ((d.pr && d.pr.status) || '').toLowerCase();
           if (ps && !/\b(completed|merged|abandoned|closed)\b/.test(ps)) return true;
           return !this.devWorkItemDone(d);
+        },
+        // A done dev card (work item terminal / PR merged, no live worktree) is a
+        // good candidate to archive for audit — surfaced as a gentle suggestion.
+        devSuggestArchive(d) {
+          if (!d || d.archived) return false;
+          if (d.worktreePath) return false;
+          if (Array.isArray(d.repos) && d.repos.some(r => r && r.worktreePath)) return false;
+          return !this.devIsActive(d);
         },
         homeDevSummary(d) {
           const t = (d && d.summary && d.summary.text) ? String(d.summary.text).replace(/\s+/g, ' ').trim() : '';
@@ -16103,8 +16236,9 @@
           // One panel per note and per checklist — no more aggregate cards.
           for (const n of ((b && b.notes) || [])) panels.push({ id: pv + 'note:' + n.id, type: 'note', note: n });
           for (const cl of ((b && b.checklists) || [])) panels.push({ id: pv + 'cl:' + cl.id, type: 'checklist', checklist: cl });
-          // One panel per dev card (work item + PR + worktree tracker).
-          for (const d of ((b && b.devItems) || [])) panels.push({ id: pv + 'dev:' + d.id, type: 'dev', dev: d });
+          // One panel per dev card (work item + PR + worktree tracker). Archived
+          // cards drop off the grid — they live on the Archive page instead.
+          for (const d of ((b && b.devItems) || [])) { if (d && d.archived) continue; panels.push({ id: pv + 'dev:' + d.id, type: 'dev', dev: d }); }
           // Stashed items are hidden from the grid in normal use, but revealed (so they
           // can be toggled back on) while "Edit items" / manage mode is active.
           const filtered = this.boardManageMode ? panels : panels.filter(p => !this.isPanelStashed(p));
@@ -19296,7 +19430,11 @@
         },
         // ----- Action endpoints (git / AzDo / AI) -----
         _devUrl(d, op) {
-          return '/api/boards/' + encodeURIComponent(this.activeBoardId) + '/dev-items/' + encodeURIComponent(d.id) + '/' + op;
+          // Board-panel cards rely on the active board; aggregated cards (Home /
+          // Archive) carry their owning board on `_board`, so prefer that when set
+          // so report/link/archive calls resolve even when no board is "active".
+          const bid = (d && d._board && d._board.id) || this.activeBoardId;
+          return '/api/boards/' + encodeURIComponent(bid) + '/dev-items/' + encodeURIComponent(d.id) + '/' + op;
         },
         async createDevWorktree(d, source) {
           if (!d || this.devBusy[d.id]) return;
@@ -19419,6 +19557,57 @@
             if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
           } catch (e) {
             this.showToast('Dev card', e.message, 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        // ----- Archive (audit) ------------------------------------------------
+        // Patch a dev card wherever it lives across this.boards. Unlike
+        // _applyDevUpdate (active-board only) this finds the owning board, so it
+        // works from the Archive page where no board is active. updater→card to
+        // replace, updater→null to drop. Returns true if a board changed.
+        _patchDevCardEverywhere(devId, updater) {
+          const idx = (this.boards || []).findIndex(b => (((b && b.devItems) || []).some(d => d && d.id === devId)));
+          if (idx < 0) return false;
+          const b = this.boards[idx];
+          const items = [];
+          for (const d of (b.devItems || [])) {
+            if (d && d.id === devId) { const nx = updater(d); if (nx) items.push(nx); }
+            else items.push(d);
+          }
+          this.boards[idx] = { ...b, devItems: items };
+          return true;
+        },
+        async archiveDevItem(d, archived = true) {
+          if (!d || this.devBusy[d.id]) return;
+          this.devBusy[d.id] = 'archive';
+          try {
+            const r = await this.request(this._devUrl(d, 'archive'), { method: 'POST', body: JSON.stringify({ archived: !!archived }) });
+            const dev = r && r.dev;
+            const at = archived ? new Date().toISOString() : null;
+            this._patchDevCardEverywhere(d.id, () => (dev ? Object.assign({}, dev) : Object.assign({}, d, { archived: !!archived, archivedAt: at })));
+            this.showToast('Dev card', archived ? '🗄 Archived — find it on the Archive page.' : '↩ Restored to its board.', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Archive failed', 'error');
+          } finally {
+            delete this.devBusy[d.id];
+          }
+        },
+        restoreDevItem(d) { return this.archiveDevItem(d, false); },
+        async deleteArchivedDevItem(d) {
+          if (!d || this.devBusy[d.id]) return;
+          const name = (d && (d.title || d.repo)) || 'this dev card';
+          const ok = await this.uiConfirm({ title: 'Delete archived dev card', message: 'Permanently delete "' + name + '"? Its summary, cached reports and links will be lost. This cannot be undone.', confirmLabel: 'Delete', danger: true });
+          if (!ok) return;
+          this.devBusy[d.id] = 'archive';
+          try {
+            const board = (this.boards || []).find(b => (((b && b.devItems) || []).some(x => x && x.id === d.id)));
+            if (!board) throw new Error('Card not found');
+            const devItems = (board.devItems || []).filter(x => x && x.id !== d.id);
+            const res = await this._patchBoard(board, { devItems });
+            if (res) this.showToast('Dev card', '🗑 Archived dev card permanently deleted.', 'success');
+          } catch (e) {
+            this.showToast('Dev card', (e && e.message) || 'Delete failed', 'error');
           } finally {
             delete this.devBusy[d.id];
           }
@@ -20077,6 +20266,7 @@
           if (a.type === 'search_location') return '✓ searched';
           if (a.type === 'pin_agent' || a.type === 'pin_item') return '✓ pinned';
           if (a.type === 'set_layout') return '✓ applied';
+          if (a.type === 'replace_dev_link') return '✓ replaced';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
           if (edits.includes(a.type)) return '✓ updated';
@@ -20199,6 +20389,27 @@
               }
               const devItems = (board.devItems || []).filter(d => d.id !== a.devItemId);
               ok = await this._patchBoard(board, { devItems });
+            } else if (a.type === 'add_dev_link') {
+              const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/links', { method: 'POST', body: JSON.stringify({ url: a.url, label: a.linkLabel || '' }) });
+              if (r && r.dev) this._applyDevUpdate(a.devItemId, r.dev);
+              ok = true;
+            } else if (a.type === 'remove_dev_link') {
+              const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/links/delete', { method: 'POST', body: JSON.stringify({ id: a.linkId || '', url: a.oldUrl || '' }) });
+              if (r && r.dev) this._applyDevUpdate(a.devItemId, r.dev);
+              ok = true;
+            } else if (a.type === 'replace_dev_link') {
+              await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/links/delete', { method: 'POST', body: JSON.stringify({ id: a.oldLinkId || '', url: a.oldUrl || '' }) });
+              const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/links', { method: 'POST', body: JSON.stringify({ url: a.url, label: a.linkLabel || '' }) });
+              if (r && r.dev) this._applyDevUpdate(a.devItemId, r.dev);
+              ok = true;
+            } else if (a.type === 'add_dev_repo') {
+              const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/repos', { method: 'POST', body: JSON.stringify(a.repoSpec || {}) });
+              if (r && r.dev) this._applyDevUpdate(a.devItemId, r.dev);
+              ok = true;
+            } else if (a.type === 'remove_dev_repo') {
+              const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/dev-items/' + encodeURIComponent(a.devItemId) + '/repos/remove', { method: 'POST', body: JSON.stringify({ repoId: a.repoId }) });
+              if (r && r.dev) this._applyDevUpdate(a.devItemId, r.dev);
+              ok = true;
             } else { return; }
             // Only mark applied when the write is confirmed persisted. This prevents the
             // assistant from claiming "✓ added" for a checklist that never saved.
@@ -23075,6 +23286,22 @@
               this.mkt.design.capCatalog = (r.entries || []).filter(e => e.type === 'skill' || e.type === 'mcp');
             } catch (e) { this.mkt.design.capCatalog = this.mkt.design.capCatalog || []; }
           }
+          // Restore the last-generated ideas + pinned ideas once per session so the
+          // page shows ready options on revisit instead of an empty "Generate" state.
+          if (!this.mkt.design.cacheLoaded) {
+            this.mkt.design.cacheLoaded = true;
+            try {
+              const c = await this.request('/api/marketplace/design/cache');
+              this.mkt.design.pinned = (c.pinned || []).map(p => this._mktDecorateProposal(p));
+              const latest = c.latest;
+              if (latest && Array.isArray(latest.proposals) && latest.proposals.length && !this.mkt.design.proposals.length) {
+                this.mkt.design.proposals = latest.proposals.map(p => this._mktDecorateProposal(p));
+                if (latest.mode) this.mkt.design.mode = latest.mode;
+                if (!this.mkt.design.hint && latest.hint) this.mkt.design.hint = latest.hint;
+                if (!this.mkt.design.agentId && latest.agentId) this.mkt.design.agentId = latest.agentId;
+              }
+            } catch (e) { /* cache is best-effort */ }
+          }
         },
         // Catalog skill/MCP entries the proposal hasn't already attached (deduped by type+name).
         mktDesignCapChoices(p) {
@@ -23133,6 +23360,18 @@
             ? 'Do your core job now on a realistic example, using your tools and skills.'
             : 'Perform the new capability this enhancement adds, on a realistic example, using the newly attached tools/skills.';
         },
+        // Decorate a raw proposal (from the API or the cache) with the client-side
+        // UI state the design cards need. Idempotent-ish: safe to call on cached
+        // proposals before they're shown again.
+        _mktDecorateProposal(p) {
+          return {
+            ...p,
+            _applying: false, _applied: false,
+            _name: p._name || (p.kind === 'create' ? ((p.agent && p.agent.name) || p.title || 'New agent')
+                                       : ((this.data.agents.find(a => a.id === p.agentId) || {}).name || 'Agent') + ' (enhanced)'),
+            _test: { open: false, running: false, sessionId: '', status: '', steps: [], prompt: (p._test && p._test.prompt) || this.mktDeriveTestPrompt(p), output: '', error: '' },
+          };
+        },
         async mktDesignGenerate() {
           const d = this.mkt.design;
           d.error = '';
@@ -23143,19 +23382,55 @@
             const body = { mode: d.mode, hint: d.hint };
             if (d.mode === 'enhance') body.agentId = d.agentId;
             const r = await this.request('/api/marketplace/design/generate', { method: 'POST', body: JSON.stringify(body) });
-            d.proposals = (r.proposals || []).map(p => ({
-              ...p,
-              _applying: false, _applied: false,
-              _name: p.kind === 'create' ? ((p.agent && p.agent.name) || p.title || 'New agent')
-                                         : ((this.data.agents.find(a => a.id === p.agentId) || {}).name || 'Agent') + ' (enhanced)',
-              _test: { open: false, running: false, sessionId: '', status: '', steps: [], prompt: this.mktDeriveTestPrompt(p), output: '', error: '' },
-            }));
-            if (!d.proposals.length) d.error = 'No usable proposals — try a different focus.';
+            d.proposals = (r.proposals || []).map(p => this._mktDecorateProposal(p));
+            if (!d.proposals.length && !this.mktDesignPinnedList().length) d.error = 'No usable proposals — try a different focus.';
           } catch (e) {
             d.error = e.message || 'Generation failed';
           } finally {
             d.busy = false;
           }
+        },
+        // Pinned + freshly-generated proposals, de-duped (pinned shown first). Lets
+        // one card template serve both, and keeps pins visible after regenerating.
+        mktDesignPinnedList() { return (this.mkt.design.pinned || []); },
+        mktDesignVisibleProposals() {
+          const pins = this.mkt.design.pinned || [];
+          const pinIds = new Set(pins.map(p => p && p.id));
+          const gen = (this.mkt.design.proposals || []).filter(p => p && !pinIds.has(p.id));
+          return [...pins, ...gen];
+        },
+        mktIsPinned(p) {
+          if (!p || !p.id) return false;
+          return (this.mkt.design.pinned || []).some(x => x && x.id === p.id);
+        },
+        async mktDesignPin(p) {
+          if (!p || !p.id || this.mktIsPinned(p)) return;
+          // Optimistic: keep the live (possibly edited) card object so its state
+          // (test prompt, attached caps, name) carries over.
+          this.mkt.design.pinned = [p, ...(this.mkt.design.pinned || [])];
+          try {
+            await this.request('/api/marketplace/design/pin', { method: 'POST', body: JSON.stringify({ proposal: this._mktStripUi(p) }) });
+            this.showToast('Design', '📌 Idea pinned — it will stay here after you regenerate.', 'success');
+          } catch (e) {
+            this.mkt.design.pinned = (this.mkt.design.pinned || []).filter(x => x.id !== p.id);
+            this.showToast('Design', (e && e.message) || 'Pin failed', 'error');
+          }
+        },
+        async mktDesignUnpin(p) {
+          if (!p || !p.id) return;
+          const prev = this.mkt.design.pinned || [];
+          this.mkt.design.pinned = prev.filter(x => x.id !== p.id);
+          try {
+            await this.request('/api/marketplace/design/pin/' + encodeURIComponent(p.id), { method: 'DELETE' });
+          } catch (e) {
+            this.mkt.design.pinned = prev;
+            this.showToast('Design', (e && e.message) || 'Unpin failed', 'error');
+          }
+        },
+        // Strip transient client-only fields before persisting a proposal.
+        _mktStripUi(p) {
+          const { _applying, _applied, _test, ...rest } = p || {};
+          return { ...rest, _name: p && p._name };
         },
         async mktDesignApply(p) {
           p._applying = true;

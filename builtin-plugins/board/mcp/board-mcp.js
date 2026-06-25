@@ -117,7 +117,32 @@ function devItemSummary(d) {
     prStatus: (d.pr && d.pr.status) || '',
     worktreeStatus: d.worktreePath ? (d.worktreeStatus || 'ready') : 'none',
     devAgent: d.devAgentName || '',
+    links: Array.isArray(d.links) ? d.links.length : 0,
+    extraRepos: Array.isArray(d.repos) ? d.repos.length : 0,
+    reports: Array.isArray(d.reports) ? d.reports.length : 0,
   };
+}
+
+function devItemLinks(d) {
+  return (Array.isArray(d.links) ? d.links : []).map(l => ({
+    id: l.id || '', label: l.label || '', url: l.url || '', addedAt: l.addedAt || null,
+  }));
+}
+
+function devItemRepos(d) {
+  return (Array.isArray(d.repos) ? d.repos : []).map(r => ({
+    id: r.id || '', org: r.org || '', project: r.project || '', repo: r.repo || '',
+    branch: r.branch || '', baseBranch: r.baseBranch || '',
+    worktreeStatus: r.worktreeStatus || (r.worktreePath ? 'ready' : 'none'),
+    git: r.git || null,
+  }));
+}
+
+function devItemReports(d) {
+  return (Array.isArray(d.reports) ? d.reports : []).map(r => ({
+    name: r.name || r.rel || '', rel: r.rel || '', kind: r.kind || '',
+    size: r.size || 0, mtime: r.mtime || null,
+  }));
 }
 
 function devItemDetail(d) {
@@ -130,6 +155,9 @@ function devItemDetail(d) {
     pr: d.pr || null,
     summary: d.summary || null,
     devAgentFile: d.devAgentFile || '',
+    linkList: devItemLinks(d),
+    repoList: devItemRepos(d),
+    reportList: devItemReports(d),
     createdAt: d.createdAt || null,
     updatedAt: d.updatedAt || null,
   };
@@ -544,6 +572,137 @@ const TOOLS = {
         return { ok: true, status: r.status || 'creating', note: 'Worktree creation is async — poll get_dev_item for worktreeStatus.' };
       }
       return { ok: true, devItem: r.dev ? devItemSummary(r.dev) : null, result: r.message || r.status || null };
+    },
+  },
+
+  list_dev_links: {
+    description: "List the saved Links on a Dev card (the card's Links section — quick links to docs, dashboards, files). Returns each link's id, label and url. These are NOT the work item or PR (those are dev_item metadata).",
+    inputSchema: {
+      type: 'object',
+      properties: { boardId: { type: 'string' }, devId: { type: 'string' } },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId }) {
+      const { dev } = await getDevItem(boardId, devId);
+      return { links: devItemLinks(dev) };
+    },
+  },
+
+  add_dev_link: {
+    description: "Add a link to a Dev card's Links section. url is required (http(s):, file:, mailto:, vscode:, or an absolute path); label is optional (derived from the filename when omitted).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        url: { type: 'string' },
+        label: { type: 'string' },
+      },
+      required: ['boardId', 'devId', 'url'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId, url, label }) {
+      if (!url) throw new Error('url is required');
+      await getDevItem(boardId, devId);
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(devId) + '/links', { method: 'POST', body: { url: String(url), label: String(label || '') } });
+      return { ok: true, links: r.dev ? devItemLinks(r.dev) : null };
+    },
+  },
+
+  remove_dev_link: {
+    description: "Remove a link from a Dev card's Links section. Identify the link by its id (from list_dev_links) or by its exact url. Destructive.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        linkId: { type: 'string' },
+        url: { type: 'string' },
+      },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId, linkId, url }) {
+      if (!linkId && !url) throw new Error('linkId or url is required');
+      await getDevItem(boardId, devId);
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(devId) + '/links/delete', { method: 'POST', body: { id: String(linkId || ''), url: String(url || '') } });
+      return { ok: true, links: r.dev ? devItemLinks(r.dev) : null };
+    },
+  },
+
+  list_dev_repos: {
+    description: 'List the additional (non-primary) repos attached to a Dev card. The primary repo is the dev_item org/project/repo; these are extra repos with their own worktree/branch. Returns each repo id, org/project/repo, branch and worktree status.',
+    inputSchema: {
+      type: 'object',
+      properties: { boardId: { type: 'string' }, devId: { type: 'string' } },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId }) {
+      const { dev } = await getDevItem(boardId, devId);
+      return { repos: devItemRepos(dev) };
+    },
+  },
+
+  add_dev_repo: {
+    description: 'Attach an additional repo to a Dev card (beyond the primary repo). org, project and repo are required; baseBranch/branch optional. Returns the updated repo list including the new repoId.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        org: { type: 'string' },
+        project: { type: 'string' },
+        repo: { type: 'string' },
+        baseBranch: { type: 'string' },
+        branch: { type: 'string' },
+      },
+      required: ['boardId', 'devId', 'org', 'project', 'repo'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId, org, project, repo, baseBranch, branch }) {
+      if (!org || !project || !repo) throw new Error('org, project and repo are required');
+      await getDevItem(boardId, devId);
+      const body = { org: String(org), project: String(project), repo: String(repo) };
+      if (baseBranch !== undefined) body.baseBranch = String(baseBranch);
+      if (branch !== undefined) body.branch = String(branch);
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(devId) + '/repos', { method: 'POST', body });
+      return { ok: true, repos: r.dev ? devItemRepos(r.dev) : null };
+    },
+  },
+
+  remove_dev_repo: {
+    description: 'Remove an additional repo from a Dev card by its repoId (from list_dev_repos). The primary repo cannot be removed. Best-effort cleans up its worktree. Destructive.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        boardId: { type: 'string' },
+        devId: { type: 'string' },
+        repoId: { type: 'string' },
+      },
+      required: ['boardId', 'devId', 'repoId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId, repoId }) {
+      if (!repoId) throw new Error('repoId is required');
+      await getDevItem(boardId, devId);
+      const r = await api('/api/boards/' + encodeURIComponent(boardId) + '/dev-items/' + encodeURIComponent(devId) + '/repos/remove', { method: 'POST', body: { repoId: String(repoId) } });
+      return { ok: true, repos: r.dev ? devItemRepos(r.dev) : null };
+    },
+  },
+
+  list_dev_reports: {
+    description: "List the read-only Reports captured for a Dev card (generated artifacts — HTML/markdown/text). Returns each report's name, rel path and kind. Reports are read-only from here; they're produced by the dev workflow, not added via this API.",
+    inputSchema: {
+      type: 'object',
+      properties: { boardId: { type: 'string' }, devId: { type: 'string' } },
+      required: ['boardId', 'devId'],
+      additionalProperties: false,
+    },
+    async run({ boardId, devId }) {
+      const { dev } = await getDevItem(boardId, devId);
+      return { reports: devItemReports(dev) };
     },
   },
 };
