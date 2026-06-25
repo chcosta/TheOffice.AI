@@ -7049,17 +7049,25 @@ function _buildDevSummaryPrompt(d, { wi, pr, git, diff } = {}) {
     const mergeability = st === 'completed' ? '' :
       (pr.mergeStatus ? `, mergeability: ${pr.mergeStatus} (whether it CAN merge cleanly, not whether it has)` : '');
     ctxLines.push(`PR #${pr.id} "${pr.title}" — ${lifecycle}${pr.isDraft ? ' (draft)' : ''}${mergeability}, ${pr.sourceBranch} → ${pr.targetBranch}`);
+    // Reviewer votes are a primary "true status" signal: an open PR with all
+    // required approvals is one click from merge; one waiting/rejecting required
+    // reviewer is the actual blocker. Translate AzDO's numeric vote codes.
+    if (Array.isArray(pr.reviewers) && pr.reviewers.length) {
+      const vlabel = (v) => v >= 10 ? 'approved' : v === 5 ? 'approved with suggestions' : v <= -10 ? 'REJECTED' : v <= -5 ? 'waiting for author' : 'no vote yet';
+      const rv = pr.reviewers.map(r => `${r.name || 'reviewer'}${r.isRequired ? ' (required)' : ''}: ${vlabel(r.vote)}`).join('; ');
+      ctxLines.push(`PR reviewers — ${rv}`);
+    }
   }
   if (git) ctxLines.push(`Local branch vs its own origin remote: ${git.ahead || 0} ahead / ${git.behind || 0} behind${git.dirty ? ', uncommitted changes present' : ', clean working tree'} (this is the feature branch's sync state, NOT a signal that it merged into the base branch)`);
-  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 20000)); }
+  if (diff) { ctxLines.push(''); ctxLines.push(diff.slice(0, 32000)); }
 
   return [
-    'You are a dev-work status summarizer. Given the state of one piece of work (an Azure DevOps work item, its pull request, and the local git worktree — including the actual diff hunks of what changed), write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it stands, and what is left to do next.',
-    'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. If the PR is in draft or has conflicts, or the branch is behind origin or dirty, call that out as the next action. If there is nothing actionable, say it looks ready. No preamble, no headings, no surrounding quotes.',
+    'You are a dev-work status summarizer. You are given the COMPLETE current state of one piece of work — an Azure DevOps work item, its pull request (including reviewer votes), and the local git worktree with the ACTUAL git diff hunks of what changed (committed vs base, plus staged/unstaged edits). Reason directly over that real data. Write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it truly stands, and what is left to do next.',
+    'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. Ground the status in the real signals: PR lifecycle, reviewer votes, mergeability, and the branch sync/dirty state. If the PR is in draft, has conflicts, is awaiting a required reviewer, or the branch is behind origin or dirty, call that out as the next action. If everything is approved and clean, say it looks ready to merge. If the diff is truncated, base your "what changed" on the hunks you can see plus the file stat. If there is nothing actionable, say so. No preamble, no headings, no surrounding quotes.',
     'CRITICAL: Only state that the PR is merged/landed if its lifecycle is explicitly MERGED above. A PR that is OPEN has NOT been merged, regardless of mergeability or how clean/in-sync the local branch is — never infer a merge from "clean working tree", "0 ahead/0 behind", or a "succeeded" mergeability. For an open PR, the next step is review/approval and completing the merge, not closing the work item.',
     'You have NO tools and the full context you need is already provided below. Do NOT run, narrate, or fabricate commands or tool calls. Never emit XML-like tags such as <tool_calls>, <tool_call>, <command>, <stdout>, or <tool_results>. Respond with ONLY the final status-briefing prose — nothing before or after it.',
     '',
-    ctxLines.join('\n').slice(0, 26000),
+    ctxLines.join('\n').slice(0, 40000),
     '',
     'Status briefing:'
   ].join('\n');
@@ -7115,9 +7123,11 @@ async function _generateDevSummary(d, opts = {}) {
   let { wi, pr, git } = opts;
   if (wi === undefined) { wi = d.workItem; try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {} }
   if (pr === undefined) { pr = d.pr; try { if (d.prId && d.org && d.project && d.repo) pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch {} }
-  if (git === undefined) { git = d.git; try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: false, baseBranch: d.baseBranch }); if (s) git = s; } } catch {} }
+  // Only do a network `git fetch` (for accurate ahead/behind) on an explicit manual
+  // refresh; the background reconciler stays fetch:false so it never hammers origin.
+  if (git === undefined) { git = d.git; try { if (d.worktreePath) { const s = devitems.worktreeStatus(d.worktreePath, { fetch: !!opts.fresh, baseBranch: d.baseBranch }); if (s) git = s; } } catch {} }
   let diff = '';
-  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: 9000 }); } catch {}
+  try { if (d.worktreePath) diff = devitems.diffSummary(d.worktreePath, { baseBranch: d.baseBranch, maxDiffChars: opts.maxDiffChars || 16000 }); } catch {}
   const prompt = _buildDevSummaryPrompt(d, { wi, pr, git, diff });
   let acc = '';
   const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
@@ -7133,7 +7143,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   try {
-    const gen = await _generateDevSummary(d, {});
+    const gen = await _generateDevSummary(d, { fresh: true });
     const fingerprint = _devFingerprint({ wi: gen.wi, pr: gen.pr, git: gen.git });
     const updated = ctx.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint, auto: false }, workItem: gen.wi || d.workItem, pr: gen.pr || d.pr, git: gen.git || d.git });
     res.json({ ok: true, dev: updated });

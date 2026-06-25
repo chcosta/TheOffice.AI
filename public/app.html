@@ -470,6 +470,8 @@
       text-transform: uppercase; color: var(--cp-text-muted);
     }
     .home-section-label .hsl-sub { font-size: 12px; color: var(--cp-text-soft); font-weight: 500; }
+    .home-section-label .hsl-toggle { margin-left: auto; align-self: center; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+    .home-section-label .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     .home-section { margin-bottom: 22px; }
     .orgh-card {
       background: var(--cp-surface); border: 1px solid var(--cp-border); border-left-width: 4px;
@@ -1245,6 +1247,8 @@
     /* The tabbed-view briefing auto-expands to fit its content — it must not inherit the
        300px cap / inner scrollbar from the base .md-output rule (the board grid scrolls). */
     .board-tab-brief .md-output { max-height: none; overflow: visible; }
+    /* "Boards in this insight" cards: let each board's briefing fit its content — no inner scrollbar. */
+    .insight-board-md { max-height: none; overflow: visible; }
     /* Markdown report preview: a clean document view (no card chrome, no inner
        scroll cap — the modal pane scrolls). Forced light so it reads well on the
        white modal body regardless of app theme. */
@@ -2275,6 +2279,7 @@
     }
     /* ---- Boards: free-form draggable / resizable panels ---- */
     .board-grid { user-select: none; }
+    .board-panel.panel-focus-flash .board-panel-inner { box-shadow: 0 0 0 2px var(--cp-accent), var(--cp-shadow); transition: box-shadow .2s ease; }
     .board-panel { box-sizing: border-box; transition: top .08s ease, left .08s ease, width .08s ease, height .08s ease; }
     .board-panel.dragging { transition: none; z-index: 30; }
     .board-panel.dragging .board-panel-inner { box-shadow: var(--cp-shadow); border-color: var(--cp-accent); }
@@ -3668,21 +3673,26 @@
             </div>
 
             <!-- Active dev work — live Dev cards pulled from this team's boards -->
-            <div class="home-section board-calm" x-show="appMode === 'workspace' && homeDevCards().length">
+            <div class="home-section board-calm" x-show="appMode === 'workspace' && (homeDevCards().length || homeDoneDevCount())">
               <div class="home-section-label">
                 <span class="hsl-icon">🧰</span>
                 <span class="hsl-text">Active dev work</span>
-                <span class="hsl-sub" x-text="homeDevCards().length + ' dev card' + (homeDevCards().length === 1 ? '' : 's') + ' in progress'"></span>
+                <span class="hsl-sub" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></span>
+                <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
+                        x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
               </div>
               <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
                 <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
-                  <article class="card clickable" @click="goTo('#/boards/' + dc._board.id)" :title="'Open on board: ' + dc._board.name" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
+                  <article class="card clickable" @click="openDevCardOnBoard(dc)" :title="'Open on board: ' + dc._board.name" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
                     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                       <div style="min-width:0">
                         <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
                         <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
                       </div>
-                      <span class="type-badge" style="flex:0 0 auto;font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
+                      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto">
+                        <span class="type-badge" style="font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
+                        <span class="type-badge" x-show="dc._done" style="font-size:0.62rem;white-space:nowrap;background:var(--cp-success);color:#fff">✓ Done</span>
+                      </div>
                     </div>
                     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
                       <template x-if="dc.workItemId">
@@ -6832,7 +6842,7 @@
                                     <span x-text="bd.name"></span>
                                   </div>
                                   <div class="hint" x-show="bd.teamName" x-text="'Team · ' + bd.teamName"></div>
-                                  <div class="md-output" style="font-size:12.5px;line-height:1.5" x-html="renderMarkdown(bd.whereWasI || '')"></div>
+                                  <div class="md-output insight-board-md" style="font-size:12.5px;line-height:1.5" x-html="renderMarkdown(bd.whereWasI || '')"></div>
                                 </div>
                               </template>
                             </div>
@@ -10858,6 +10868,7 @@
         selectedTaskId: null,
         taskHistoryCache: {},
         pendingFocus: null,
+        homeShowDoneDev: false,
         selectedChainId: null,
         chainDraft: null,
         schedModal: { open: false, title: 'Schedule', mode: 'off', intervalN: 15, intervalUnit: 'm', days: [1, 2, 3, 4, 5], times: ['09:00'], cron: '', _apply: null },
@@ -11767,7 +11778,11 @@
           if (this.pendingFocus && this.pendingFocus.route === this.route) {
             const pf = this.pendingFocus;
             this.pendingFocus = null;
-            this.$nextTick(() => this.applyScheduleFocus(pf));
+            if (pf.route === 'boards' && pf.devId) {
+              this.$nextTick(() => this.applyBoardDevFocus(pf));
+            } else {
+              this.$nextTick(() => this.applyScheduleFocus(pf));
+            }
           }
         },
 
@@ -13556,15 +13571,29 @@
           const out = [];
           for (const b of this.homeBoards()) {
             for (const d of ((b && b.devItems) || [])) {
-              if (this.devIsActive(d)) out.push({ ...d, _board: b });
+              const active = this.devIsActive(d);
+              if (active || this.homeShowDoneDev) out.push({ ...d, _board: b, _done: !active });
             }
           }
           const ts = (d) => {
             const t = (d.summary && d.summary.generatedAt) || d.updatedAt || d.createdAt || 0;
             return new Date(t).getTime() || 0;
           };
-          out.sort((a, b) => ts(b) - ts(a));
+          // Active cards first, then done; newest within each group.
+          out.sort((a, b) => (a._done ? 1 : 0) - (b._done ? 1 : 0) || ts(b) - ts(a));
           return out;
+        },
+        // Count of in-progress dev cards (drives the section sub-label, toggle-independent).
+        homeActiveDevCount() {
+          let n = 0;
+          for (const b of this.homeBoards()) for (const d of ((b && b.devItems) || [])) if (this.devIsActive(d)) n++;
+          return n;
+        },
+        // Count of merged/done dev cards available to reveal via the toggle.
+        homeDoneDevCount() {
+          let n = 0;
+          for (const b of this.homeBoards()) for (const d of ((b && b.devItems) || [])) if (!this.devIsActive(d)) n++;
+          return n;
         },
         devIsActive(d) {
           if (!d) return false;
@@ -14943,6 +14972,43 @@
           this.activeBoardId = boardId;
           try { localStorage.setItem('active-board-id', boardId); } catch {}
           window.location.hash = '#/boards/' + encodeURIComponent(boardId);
+        },
+        // Open a specific dev card on its board (from the home "Active dev work" cards).
+        // Carries a pendingFocus so the board, once loaded, selects that card's tab
+        // (or scrolls to its panel in pin view) instead of restoring the last-viewed tab.
+        openDevCardOnBoard(dc) {
+          if (!dc || !dc._board) return;
+          const b = dc._board;
+          // Make sure the board's team is in scope so it's selectable.
+          if (b.teamId && this.currentTeamId !== 'all' && this.currentTeamId !== b.teamId) this.setCurrentOrg('all');
+          this.pendingFocus = { route: 'boards', boardId: b.id, devId: dc.id };
+          this.activeBoardId = b.id;
+          try { localStorage.setItem('active-board-id', b.id); } catch {}
+          if (window.location.hash === '#/boards/' + encodeURIComponent(b.id)) {
+            // Already on this board — apply the focus directly (no hashchange fires).
+            const pf = this.pendingFocus; this.pendingFocus = null;
+            this.$nextTick(() => this.applyBoardDevFocus(pf));
+          } else {
+            window.location.hash = '#/boards/' + encodeURIComponent(b.id);
+          }
+        },
+        // Focus a dev card after its board loads: select its tab in tabbed view,
+        // or scroll its panel into view (with a brief flash) in pin view.
+        applyBoardDevFocus(pf) {
+          if (!pf || !pf.devId) return;
+          const base = 'dev:' + pf.devId;
+          if (this.boardIsTabbed()) {
+            const panel = this.boardTabPanels().find(p => this.panelBaseId(p) === base);
+            if (panel) this.selectBoardTab(panel);
+            return;
+          }
+          const el = document.querySelector('[data-pid="' + base + '"]') ||
+                     document.querySelector('[data-pid$=":' + base + '"]');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('panel-focus-flash');
+            setTimeout(() => el.classList.remove('panel-focus-flash'), 1600);
+          }
         },
         insightCalloutIcon(type) {
           return ({ due: '📅', outage: '🚨', failure: '⚠️', activity: '⚡', note: '📝' })[type] || '•';
