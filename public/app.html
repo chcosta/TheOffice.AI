@@ -959,6 +959,8 @@
       background:var(--cp-surface-soft); color:var(--cp-text-muted);
     }
     .cf-view-tab.on .cf-tab-count { background:var(--cp-accent); color:var(--cp-accent-fg); }
+    .cf-view-tab .cf-tab-count.attn { background:var(--cp-danger); color:#fff; }
+    .cf-view-tab.on .cf-tab-count.attn { background:var(--cp-danger); color:#fff; }
     .cf-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
     .cf-select { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
     .cf-pr-list { display:flex; flex-direction:column; gap:12px; }
@@ -7466,12 +7468,16 @@
               <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'mine' }" role="tab"
                       :aria-selected="codeflow.view === 'mine'" @click="setCodeflowView('mine')">
                 <span>📤 My PRs</span>
-                <span class="cf-tab-count" x-show="codeflowAttention.mine > 0" x-text="codeflowAttention.mine"></span>
+                <span class="cf-tab-count" :class="{ attn: codeflowAttention.mine > 0 }" x-show="codeflowAttention.mineActive > 0"
+                      :title="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' of ' + codeflowAttention.mineActive + ' pull requests need your attention') : (codeflowAttention.mineActive + ' open pull requests')"
+                      x-text="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' / ' + codeflowAttention.mineActive) : codeflowAttention.mineActive"></span>
               </button>
               <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'reviews' }" role="tab"
                       :aria-selected="codeflow.view === 'reviews'" @click="setCodeflowView('reviews')">
                 <span>👀 Reviews needed from me</span>
-                <span class="cf-tab-count" x-show="codeflowAttention.reviews > 0" x-text="codeflowAttention.reviews"></span>
+                <span class="cf-tab-count" :class="{ attn: codeflowAttention.reviews > 0 }" x-show="codeflowAttention.reviewsActive > 0"
+                      :title="codeflowAttention.reviews > 0 ? (codeflowAttention.reviews + ' of ' + codeflowAttention.reviewsActive + ' pull requests need your review') : (codeflowAttention.reviewsActive + ' pull requests')"
+                      x-text="codeflowAttention.reviews > 0 ? (codeflowAttention.reviews + ' / ' + codeflowAttention.reviewsActive) : codeflowAttention.reviewsActive"></span>
               </button>
             </div>
 
@@ -7685,8 +7691,10 @@
                         </div>
                         <div class="cf-wt-ready-util">
                           <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                  title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
                                   x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
-                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove</button>
+                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
+                                  title="Delete this PR's review worktree and its cached report">Remove worktree</button>
                         </div>
                       </div>
                     </template>
@@ -7739,8 +7747,10 @@
                         </div>
                         <div class="cf-wt-ready-util">
                           <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                  title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
                                   x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
-                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove</button>
+                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
+                                  title="Delete this PR's review worktree and its cached report">Remove worktree</button>
                         </div>
                       </div>
                     </template>
@@ -11717,7 +11727,7 @@
           wtBusy: {},            // prKey -> action string while busy
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })()
         },
-        codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0 },
+        codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0 },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
@@ -16009,7 +16019,8 @@
               mine: a.mine || 0,
               reviews: a.reviews || 0,
               total: a.total || 0,
-              mineActive: a.mineActive || 0
+              mineActive: a.mineActive || 0,
+              reviewsActive: a.reviewsActive || 0
             };
           } catch (e) {
             if (!silent) console.warn('codeflow attention', e.message);

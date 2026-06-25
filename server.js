@@ -1642,6 +1642,7 @@ app.get('/api/codeflow/attention', async (req, res) => {
       else { data = await _gatherCodeflow(view); _codeflowCache.set(view, { at: Date.now(), data }); }
       out[view] = data.attentionCount || 0;
       if (view === 'mine') out.mineActive = (data.pullRequests || []).length;
+      if (view === 'reviews') out.reviewsActive = (data.pullRequests || []).length;
     }
     out.total = out.mine + out.reviews;
     res.json(out);
