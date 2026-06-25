@@ -7659,12 +7659,12 @@
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
                         <div class="cf-wt-ready-main">
-                          <span class="cf-wt-label"
-                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
                           <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
                                   title="Run the AI reviewer in this worktree and (re)generate the report">
                             <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
                           </button>
+                          <span class="cf-wt-label"
+                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
                           <span class="cf-wt-open">
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
@@ -7713,12 +7713,12 @@
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
                         <div class="cf-wt-ready-main">
-                          <span class="cf-wt-label"
-                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
                           <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
                                   title="Run the AI reviewer in this worktree and (re)generate the report">
                             <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
                           </button>
+                          <span class="cf-wt-label"
+                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
                           <span class="cf-wt-open">
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
