@@ -2545,7 +2545,7 @@ function computeAgentDependents(agentId) {
   const flows = [];
   try {
     for (const c of chainEngine.list()) {
-      const viaStep = (c.steps || []).some(s => taskIds.has(s.taskId));
+      const viaStep = (c.steps || []).some(s => taskIds.has(s.taskId) || s.agentId === agentId);
       const viaCond = (c.edges || []).some(e => e.condition && e.condition.type === 'ai' && e.condition.agentId === agentId);
       if (viaStep || viaCond) flows.push({ id: c.id, name: c.name || c.id });
     }
@@ -5531,7 +5531,7 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
     const allTasks = loadTasks();
     for (const c of chainEngine.list()) {
       if (opTeam(c) !== teamId || c.enabled === false) continue;
-      const viaStep = (c.steps || []).some(s => allTasks.some(t => t.agentId === employeeId && (t.id === s.taskId || ('task-' + t.id) === s.taskId)));
+      const viaStep = (c.steps || []).some(s => s.agentId === employeeId || allTasks.some(t => t.agentId === employeeId && (t.id === s.taskId || ('task-' + t.id) === s.taskId)));
       const viaCond = (c.edges || []).some(e => e.condition && e.condition.type === 'ai' && e.condition.agentId === employeeId);
       if (viaStep || viaCond) {
         try { chainEngine.update(c.id, { enabled: false }); result.flows.push({ id: c.id, name: c.name || c.id }); } catch {}
@@ -6409,7 +6409,7 @@ function _opComponentEmployees(item) {
     if (c) {
       const tasks = loadTasks();
       const set = new Set();
-      for (const s of (c.steps || [])) { const t = tasks.find(t => t.id === s.taskId || ('task-' + t.id) === s.taskId); if (t && t.agentId) set.add(t.agentId); }
+      for (const s of (c.steps || [])) { if (s.agentId) { set.add(s.agentId); continue; } const t = tasks.find(t => t.id === s.taskId || ('task-' + t.id) === s.taskId); if (t && t.agentId) set.add(t.agentId); }
       for (const e of (c.edges || [])) { if (e.condition && e.condition.type === 'ai' && e.condition.agentId) set.add(e.condition.agentId); }
       for (const id of set) out.push({ employeeId: id, role: 'agent' });
     }

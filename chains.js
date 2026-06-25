@@ -106,6 +106,20 @@ class ChainEngine extends EventEmitter {
   }
 
   _normalize(chain) {
+    // Drop reference-less steps (no task and no agent) so half-merged / synced
+    // residue can't surface as misleading "unassigned" ghost nodes, then prune
+    // any edges left dangling by that removal.
+    const steps = (chain.steps || [])
+      .map(s => ({
+        id: s.id || 'step-' + Math.random().toString(36).slice(2, 8),
+        taskId: s.taskId || null,
+        agentId: s.agentId || null,
+        prompt: s.prompt || '',
+        x: Number.isFinite(s.x) ? s.x : (Number(s.x) || 0),
+        y: Number.isFinite(s.y) ? s.y : (Number(s.y) || 0)
+      }))
+      .filter(s => s.taskId || s.agentId);
+    const validIds = new Set(steps.map(s => s.id));
     return {
       id: chain.id,
       name: chain.name || 'Untitled chain',
@@ -113,16 +127,14 @@ class ChainEngine extends EventEmitter {
       teamId: (chain.teamId !== undefined ? chain.teamId : (chain.orgId || null)),
       schedule: chain.schedule || 'never',
       enabled: chain.enabled !== false,
-      steps: (chain.steps || []).map(s => ({
-        id: s.id || 'step-' + Math.random().toString(36).slice(2, 8),
-        taskId: s.taskId || null,
-        prompt: s.prompt || ''
-      })),
-      edges: (chain.edges || []).map(e => ({
-        from: e.from,
-        to: e.to,
-        condition: this._normalizeCondition(e.condition)
-      })),
+      steps,
+      edges: (chain.edges || [])
+        .filter(e => validIds.has(e.from) && validIds.has(e.to))
+        .map(e => ({
+          from: e.from,
+          to: e.to,
+          condition: this._normalizeCondition(e.condition)
+        })),
       updatedAt: new Date().toISOString()
     };
   }
@@ -200,17 +212,34 @@ class ChainEngine extends EventEmitter {
     return runId;
   }
 
+  // Resolves a step to a runnable task descriptor. A step may either reference a
+  // saved task (taskId) or carry an inline agent + prompt (agentId). Returns null
+  // when neither resolves to a usable agent.
+  _resolveStepTask(step) {
+    if (step.taskId) {
+      const t = this.loadTasks().find(t => t.id === step.taskId);
+      return t || null;
+    }
+    if (step.agentId) {
+      const e = this.supervisor.agents.get(step.agentId);
+      const name = (e && e.config && e.config.name) ? e.config.name : step.agentId;
+      return { id: step.id, name, agentId: step.agentId, prompt: step.prompt || '' };
+    }
+    return null;
+  }
+
   _runStep(chain, run, step, inputContext) {
     if (run._started.has(step.id)) return;     // diamond join guard
     run._started.add(step.id);
     run._active++;
 
-    const tasks = this.loadTasks();
-    const task = tasks.find(t => t.id === step.taskId);
+    const task = this._resolveStepTask(step);
     const node = run.nodes[step.id];
     if (!task) {
       node.status = 'failed';
-      node.reason = `Task "${step.taskId}" not found`;
+      node.reason = step.taskId
+        ? `Task "${step.taskId}" not found`
+        : (step.agentId ? `Agent "${step.agentId}" not found` : 'Step has no agent or task');
       this._stepFinished(chain, run, step, { code: -1, output: '' });
       return;
     }
@@ -251,7 +280,7 @@ class ChainEngine extends EventEmitter {
   }
 
   async _stepFinished(chain, run, step, res) {
-    const task = this.loadTasks().find(t => t.id === step.taskId) || { id: step.taskId, name: step.taskId };
+    const task = this._resolveStepTask(step) || { id: step.taskId || step.agentId, name: step.taskId || step.agentId };
     const payload = { id: task.id, name: task.name, output: res.output || '', exitCode: res.code };
     const outContext = { trigger: payload, task: payload };
 

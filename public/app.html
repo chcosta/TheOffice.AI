@@ -922,6 +922,114 @@
     .tiny-badge.mcp-st-ok { border-color: var(--cp-success); color: var(--cp-success); background: color-mix(in srgb, var(--cp-success) 12%, transparent); }
     .tiny-badge.mcp-st-warn { border-color: var(--cp-warning); color: var(--cp-warning); background: color-mix(in srgb, var(--cp-warning) 14%, transparent); }
     .tiny-badge.mcp-st-err { border-color: var(--cp-danger); color: var(--cp-danger); background: color-mix(in srgb, var(--cp-danger) 12%, transparent); }
+    .type-badge.type-badge-manager { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .type-badge.type-badge-agent { border-color: var(--cp-link); color: var(--cp-link); background: color-mix(in srgb, var(--cp-link) 10%, transparent); }
+
+    /* ===== Flow canvas builder ===== */
+    .flow-canvas-shell { display:flex; height:480px; border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; background:var(--cp-bg-elevated); }
+    .flow-palette { width:230px; flex:0 0 230px; border-right:1px solid var(--cp-border); background:var(--cp-bg-elevated); display:flex; flex-direction:column; min-height:0; }
+    .flow-palette .fp-tabs { display:flex; gap:4px; padding:10px 10px 6px; }
+    .flow-palette .fp-tab { flex:1; font:inherit; font-size:12px; font-weight:600; padding:7px 4px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer; }
+    .flow-palette .fp-tab.on { border-color:var(--cp-accent); color:var(--cp-accent); background:var(--cp-accent-soft); }
+    .flow-palette .fp-search { margin:0 10px 8px; width:calc(100% - 20px); font:inherit; font-size:13px; padding:7px 9px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
+    .flow-palette .fp-list { flex:1; overflow:auto; padding:0 10px 14px; display:flex; flex-direction:column; gap:7px; min-height:0; }
+    .flow-palette .fp-item { display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:11px; border:1px solid var(--cp-border); background:var(--cp-surface); cursor:grab; transition:border-color .12s, box-shadow .12s; }
+    .flow-palette .fp-item:hover { border-color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft); }
+    .flow-palette .fp-item:active { cursor:grabbing; }
+    .flow-palette .fp-ic { font-size:17px; line-height:1; }
+    .flow-palette .fp-meta { display:flex; flex-direction:column; min-width:0; }
+    .flow-palette .fp-name { font-size:13px; font-weight:600; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .flow-palette .fp-sub { font-size:11px; color:var(--cp-text-muted); }
+    .flow-palette .fp-empty { font-size:12px; color:var(--cp-text-muted); padding:10px 4px; }
+    .flow-canvas-wrap { flex:1; position:relative; overflow:hidden; background:radial-gradient(circle at 1px 1px, color-mix(in srgb,var(--cp-border-strong) 55%,transparent) 1px, transparent 0) 0 0/22px 22px, var(--cp-bg); min-width:0; touch-action:none; cursor:grab; }
+    .flow-canvas-wrap.panning { cursor:grabbing; }
+    .flow-hint { position:absolute; left:12px; bottom:12px; z-index:19; display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-panel-strong); backdrop-filter:blur(8px); font-size:11px; color:var(--cp-text-muted); pointer-events:none; box-shadow:0 4px 14px rgba(0,0,0,.12); }
+    .flow-hint b { color:var(--cp-text); font-weight:700; }
+    .flow-canvas { position:absolute; top:0; left:0; width:1px; height:1px; transform-origin:0 0; }
+    svg.flow-wires { position:absolute; top:0; left:0; width:1px; height:1px; pointer-events:none; overflow:visible; transform-origin:0 0; }
+    /* Zoom / pan controls */
+    .flow-zoom { position:absolute; right:12px; bottom:12px; z-index:20; display:flex; align-items:center; gap:2px; padding:3px; border-radius:11px; border:1px solid var(--cp-border); background:var(--cp-panel-strong); backdrop-filter:blur(8px); box-shadow:0 4px 14px rgba(0,0,0,.16); }
+    .flow-zoom button { width:30px; height:28px; font:inherit; font-size:15px; font-weight:700; line-height:1; border:none; background:transparent; color:var(--cp-text-muted); border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    .flow-zoom button:hover { background:var(--cp-surface-soft); color:var(--cp-accent); }
+    .flow-zoom button.fz-fit { width:auto; padding:0 10px; font-size:12px; }
+    .flow-zoom .fz-pct { min-width:46px; text-align:center; font-size:12px; font-weight:700; color:var(--cp-text); font-variant-numeric:tabular-nums; cursor:pointer; }
+    .flow-zoom .fz-sep { width:1px; height:18px; background:var(--cp-border); margin:0 2px; }
+    .flow-node { position:absolute; width:210px; border-radius:14px; border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 6px 18px rgba(0,0,0,.10); user-select:none; }
+    .flow-node.start { border-color:var(--cp-success); }
+    .flow-node.drop-target .fn-port.in { border-color:var(--cp-success); background:color-mix(in srgb,var(--cp-success) 25%,transparent); }
+    .flow-node .fn-head { display:flex; align-items:center; gap:8px; padding:9px 10px 6px; cursor:grab; }
+    .flow-node .fn-head:active { cursor:grabbing; }
+    .flow-node .fn-ic { font-size:17px; }
+    .flow-node .fn-title { font-size:13px; font-weight:700; line-height:1.15; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .flow-node .fn-start { font-size:9px; font-weight:800; letter-spacing:.06em; color:var(--cp-success); border:1px solid var(--cp-success); border-radius:6px; padding:1px 5px; }
+    .flow-node .fn-del { opacity:0; cursor:pointer; border:none; background:transparent; color:var(--cp-text-muted); font-size:14px; line-height:1; padding:0 2px; }
+    .flow-node:hover .fn-del { opacity:1; }
+    .flow-node .fn-own { font-size:11px; color:var(--cp-text-muted); padding:0 10px 6px; }
+    .flow-node .fn-prompt { width:calc(100% - 16px); margin:0 8px 9px; font:inherit; font-size:12px; padding:6px 8px; border-radius:8px; border:1px solid var(--cp-border); background:var(--cp-surface-soft); color:var(--cp-text); resize:none; overflow:hidden; min-height:38px; box-sizing:border-box; line-height:1.4; }
+    .flow-node .fn-port { position:absolute; top:24px; width:15px; height:15px; border-radius:50%; background:var(--cp-surface); border:2.5px solid var(--cp-border-strong); cursor:crosshair; transition:border-color .12s, background .12s; }
+    .flow-node .fn-port:hover { border-color:var(--cp-accent); background:var(--cp-accent-soft); }
+    .flow-node .fn-port.out { right:-9px; }
+    .flow-node .fn-port.in { left:-9px; }
+    .flow-wires .fw-hit { stroke:transparent; stroke-width:18px; fill:none; pointer-events:stroke; cursor:pointer; }
+    .flow-wires .fw-line { fill:none; stroke:var(--cp-border-strong); stroke-width:2.5px; }
+    .flow-wires .fw-line.sel { stroke:var(--cp-accent); }
+    .flow-wires .fw-lbl { font-size:11px; font-weight:700; }
+    .flow-wires .fw-lbl-bg { fill:var(--cp-bg-elevated); stroke:var(--cp-border); }
+    .flow-canvas .fw-lbl-html { position:absolute; transform:translate(-50%,-50%); z-index:6; font:inherit; font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text); cursor:pointer; white-space:nowrap; box-shadow:0 1px 3px rgba(0,0,0,.16); transition:border-color .12s, color .12s, box-shadow .12s; }
+    .flow-canvas .fw-lbl-html:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
+    .flow-canvas .fw-lbl-html.sel { border-color:var(--cp-accent); color:var(--cp-accent); box-shadow:0 0 0 3px var(--cp-accent-soft); }
+    .flow-canvas .fw-lbl-html.ai { color:var(--cp-accent); border-color:color-mix(in srgb,var(--cp-accent) 40%,transparent); }
+    .flow-empty-hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; text-align:center; color:var(--cp-text-muted); pointer-events:none; padding:0 30px; }
+    .flow-empty-hint > div:first-child { font-size:26px; }
+    .flow-empty-hint .fch-sub { font-size:11.5px; max-width:360px; }
+    .fw-pop { position:absolute; z-index:40; width:300px; background:var(--cp-panel-strong); backdrop-filter:blur(8px); border:1px solid var(--cp-border-strong); border-radius:14px; box-shadow:var(--cp-shadow); padding:14px; }
+    .fw-pop h4 { margin:0 0 4px; font-size:13px; }
+    .fw-pop .fw-hint { font-size:11.5px; color:var(--cp-text-muted); margin-bottom:10px; }
+    .fw-pop label { display:block; font-size:11px; font-weight:700; color:var(--cp-text-muted); margin:8px 0 4px; text-transform:uppercase; letter-spacing:.03em; }
+    .fw-pop select, .fw-pop input { width:100%; font:inherit; font-size:13px; padding:7px 9px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
+    .fw-pop .fw-seg { display:flex; gap:3px; padding:3px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:10px; margin-bottom:4px; }
+    .fw-pop .fw-seg button { flex:1; font:inherit; font-size:12px; font-weight:600; padding:6px 4px; border:none; background:transparent; color:var(--cp-text-muted); border-radius:7px; cursor:pointer; }
+    .fw-pop .fw-seg button.on { background:var(--cp-surface); color:var(--cp-accent); box-shadow:0 1px 2px rgba(0,0,0,.12); }
+    .fw-pop .fw-row { display:flex; gap:8px; margin-top:12px; }
+    .fw-pop .fw-row .btn { flex:1; text-align:center; }
+
+    /* Larger flow builder modal */
+    .modal-card.flow-modal { width:min(1480px,96vw); max-width:none; max-height:94vh; }
+    .flow-modal .flow-canvas-shell { height:calc(94vh - 446px); min-height:480px; }
+
+    /* Flow hover detail card */
+    .flow-tip { position:fixed; z-index:80; width:280px; background:var(--cp-panel-strong); backdrop-filter:blur(8px); border:1px solid var(--cp-border-strong); border-radius:14px; box-shadow:var(--cp-shadow); padding:13px 14px; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity .1s, transform .1s; }
+    .flow-tip.on { opacity:1; transform:translateY(0); }
+    .flow-tip .ft-head { display:flex; align-items:center; gap:9px; margin-bottom:3px; }
+    .flow-tip .ft-ic { font-size:19px; line-height:1; }
+    .flow-tip .ft-name { font-size:14px; font-weight:700; line-height:1.2; }
+    .flow-tip .ft-kind { font-size:11px; font-weight:700; color:var(--cp-accent); text-transform:uppercase; letter-spacing:.04em; }
+    .flow-tip .ft-row { display:flex; gap:6px; font-size:12px; margin-top:6px; }
+    .flow-tip .ft-row .ft-k { color:var(--cp-text-muted); font-weight:600; flex:0 0 58px; }
+    .flow-tip .ft-row .ft-v { color:var(--cp-text); flex:1; min-width:0; word-break:break-word; }
+    .flow-tip .ft-desc { font-size:12px; color:var(--cp-text-soft); line-height:1.45; margin-top:8px; max-height:120px; overflow:hidden; }
+    .flow-tip .ft-prompt { font-size:11.5px; font-family:Consolas,"Courier New",monospace; color:var(--cp-text-soft); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:8px; padding:7px 8px; margin-top:8px; line-height:1.4; max-height:120px; overflow:hidden; white-space:pre-wrap; }
+
+    /* Sleek mini-flow (list/detail card) */
+    .mini-flow { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
+    .mini-flow .mf-node { display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:11px; border:1px solid var(--cp-border); background:var(--cp-surface); box-shadow:0 1px 2px rgba(0,0,0,.10); max-width:240px; }
+    .mini-flow .mf-node.start { border-color:var(--cp-success); }
+    .mini-flow .mf-node.ok { border-color:var(--cp-success); background:color-mix(in srgb,var(--cp-success) 12%,var(--cp-surface)); }
+    .mini-flow .mf-node.fail { border-color:var(--cp-danger); background:color-mix(in srgb,var(--cp-danger) 12%,var(--cp-surface)); }
+    .mini-flow .mf-node.run { border-color:var(--cp-warning); background:color-mix(in srgb,var(--cp-warning) 14%,var(--cp-surface)); }
+    .mini-flow .mf-ic { font-size:15px; line-height:1; }
+    .mini-flow .mf-name { font-size:13px; font-weight:600; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .mini-flow .mf-start { font-size:9px; font-weight:800; letter-spacing:.05em; color:var(--cp-success); border:1px solid var(--cp-success); border-radius:5px; padding:0 4px; }
+    .mini-flow .mf-conn { display:inline-flex; align-items:center; gap:5px; color:var(--cp-text-muted); }
+    .mini-flow .mf-conn svg { display:block; }
+    .mini-flow .mf-lbl { font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:999px; border:1px solid var(--cp-border); background:var(--cp-bg-elevated); color:var(--cp-text-muted); white-space:nowrap; }
+    .mini-flow .mf-lbl.ai { color:var(--cp-accent); border-color:color-mix(in srgb,var(--cp-accent) 40%,transparent); }
+    .mini-flow.mf-tree { align-items:center; }
+    .mini-flow .mf-seg { display:inline-flex; align-items:center; gap:4px; }
+    .mini-flow .mf-fork { display:inline-flex; align-items:center; gap:7px; }
+    .mini-flow .mf-branches { display:inline-flex; flex-direction:column; gap:8px; padding-left:11px; border-left:2px solid var(--cp-border); }
+    .mini-flow .mf-brow { display:inline-flex; align-items:center; gap:4px; }
+    .mini-flow .mf-ref { display:inline-flex; align-items:center; gap:5px; padding:6px 11px; border-radius:11px; border:1px dashed var(--cp-border-strong); background:var(--cp-bg-elevated); color:var(--cp-text-muted); font-size:12px; font-weight:600; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .model-badge {
       display: inline-flex;
       align-items: center;
@@ -3415,6 +3523,8 @@
     .mode-seg { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border:none; background:transparent; color:var(--cp-text-muted); font:inherit; font-size:13px; font-weight:600; border-radius:8px; cursor:pointer; white-space:nowrap; transition:background .12s ease, color .12s ease; }
     .mode-seg:hover { color:var(--cp-text); }
     .mode-seg.active { background:var(--cp-surface); color:var(--cp-accent); box-shadow:0 1px 2px rgba(0,0,0,.12); }
+    .seg-count { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:color-mix(in srgb, var(--cp-text-muted) 18%, transparent); color:var(--cp-text-muted); font-size:11px; font-weight:700; line-height:1; }
+    .mode-seg.active .seg-count { background:var(--cp-accent-soft); color:var(--cp-accent); }
     @media (max-width: 760px) { .mode-seg .mode-seg-label { display:none; } .mode-seg { padding:5px 8px; } }
   </style>
 </head>
@@ -5032,7 +5142,7 @@
                   <strong>📋 Assignments <span class="exec-jump-count" x-text="executionCounts().assignments"></span></strong>
                   <span class="ops-actions">
                     <a href="#" @click.prevent="openAssignmentModal()" class="hint">＋ New</a>
-                    <a href="#" @click.prevent="goTo('#/assignments')" class="hint">All →</a>
+                    <a href="#" @click.prevent="goTo('#/tasks')" class="hint">All →</a>
                   </span>
                 </div>
                 <div class="hint" style="margin-bottom:8px;font-size:0.72rem">Manager-run prompts across an org on a schedule.</div>
@@ -7117,7 +7227,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Tasks</h1>
-                <p>Create, edit, run, and monitor agent tasks: status, schedule, next/last run, and history.</p>
+                <p>Create, edit, run, and monitor tasks for agents and managers: a saved prompt + schedule, with status, next/last run, and history.</p>
               </div>
               <div class="toolbar">
                 <button class="btn" type="button" @click="goTo('#/design')">✨ Design with AI</button>
@@ -7126,6 +7236,17 @@
             </div>
             <div class="search-row">
               <input class="field-input" type="search" placeholder="Filter by task, owner, or schedule…" x-model="taskSearch" />
+              <div class="mode-switch" role="tablist" aria-label="Filter by kind">
+                <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'all' }" role="tab" :aria-selected="taskKindFilter === 'all'" @click="taskKindFilter = 'all'">
+                  <span class="mode-seg-label">All</span><span class="seg-count" x-text="taskKindCounts().all"></span>
+                </button>
+                <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'agent' }" role="tab" :aria-selected="taskKindFilter === 'agent'" @click="taskKindFilter = 'agent'" title="Agent tasks">
+                  <span>🤖</span><span class="mode-seg-label">Agents</span><span class="seg-count" x-text="taskKindCounts().agent"></span>
+                </button>
+                <button type="button" class="mode-seg" :class="{ active: taskKindFilter === 'manager' }" role="tab" :aria-selected="taskKindFilter === 'manager'" @click="taskKindFilter = 'manager'" title="Manager assignments">
+                  <span>👔</span><span class="mode-seg-label">Managers</span><span class="seg-count" x-text="taskKindCounts().manager"></span>
+                </button>
+              </div>
               <div class="hint" x-text="filteredTasks().length + ' shown'"></div>
             </div>
             <div class="assignment-list">
@@ -7136,7 +7257,7 @@
                       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                         <span class="row-chevron">›</span>
                         <strong x-text="task.name"></strong>
-                        <span class="type-badge" x-text="task.typeLabel"></span>
+                        <span class="type-badge" :class="task.type === 'assignment' ? 'type-badge-manager' : 'type-badge-agent'" x-text="task.type === 'assignment' ? '👔 Manager' : '🤖 Agent'"></span>
                         <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
                       </div>
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
@@ -7144,7 +7265,7 @@
                     <div class="toolbar">
                       <button class="btn" type="button" @click.stop="openQuickPin(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
                       <button class="btn" type="button" @click.stop="quickStarOp(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.type === 'assignment' ? '📋' : '⚙️', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
-                      <button class="btn" type="button" @click="openTaskModal(task)">✏️ Edit</button>
+                      <button class="btn" type="button" @click="editOpFromDetail(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
                     </div>
                   </div>
@@ -7355,77 +7476,17 @@
             <div class="empty-state" x-show="!data.chains.length">No flows yet. Create one to orchestrate tasks conditionally.</div>
           </section>
 
-          <section x-show="!loading && !errorMessage && route === 'assignments'" x-transition.opacity.duration.180ms>
-            <div class="page-header">
-              <div class="page-title">
-                <h1>Assignments</h1>
-                <p>Manager assignments — orchestrated prompts that chain multiple agents together.</p>
-              </div>
-              <div class="toolbar">
-                <button class="btn primary" type="button" @click="openAssignmentModal()">＋ New Assignment</button>
-              </div>
-            </div>
-
-            <div class="search-row">
-              <input class="field-input" type="search" placeholder="Filter by assignment name, manager, or prompt…" x-model="assignmentSearch" />
-              <div class="hint" x-text="filteredAssignments().length + ' shown'"></div>
-            </div>
-            <div class="assignment-list">
-              <template x-for="task in filteredAssignments()" :key="task.taskKey">
-                <article class="task-card" :id="'sched-focus-' + task.taskKey">
-                  <div class="assignment-top">
-                    <div style="cursor:pointer;flex:1;min-width:0" @click="goTo('#/assignments/' + encodeURIComponent(task.taskKey))">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="row-chevron">›</span>
-                        <strong x-text="task.name"></strong>
-                        <span class="type-badge">Assignment</span>
-                        <span class="status-badge" :class="statusClass(task.status)" x-text="statusLabel(task.status)"></span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
-                    </div>
-                    <div class="toolbar">
-                      <button class="btn" type="button" @click.stop="openQuickPin('assignment', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
-                      <button class="btn" type="button" @click.stop="quickStarOp('assignment', task.taskKey, task.name, '📋', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
-                      <button class="btn" type="button" @click="openAssignmentModal(task)">✏️ Edit</button>
-                      <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
-                    </div>
-                  </div>
-                  <!-- Summary row: next run + last result -->
-                  <div class="task-meta-row" style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;cursor:pointer" @click="goTo('#/assignments/' + encodeURIComponent(task.taskKey))">
-                    <div class="task-meta-item">
-                      <span class="meta-label">Next run</span>
-                      <span x-text="task.nextRun ? formatCountdown(task.nextRun) : 'Not scheduled'"></span>
-                    </div>
-                    <div class="task-meta-item">
-                      <span class="meta-label">Last run</span>
-                      <span x-text="task.lastRun ? formatRelative(task.lastRun.finished_at || task.lastRun.started_at) : 'Never'"></span>
-                    </div>
-                    <div class="task-meta-item" x-show="task.lastRun">
-                      <span class="meta-label">Result</span>
-                      <span class="status-badge" style="font-size:0.72rem" :class="statusClass(task.lastRun?.status || 'idle')" x-text="statusLabel(task.lastRun?.status || 'idle')"></span>
-                    </div>
-                    <div class="task-meta-item" x-show="task.lastRun">
-                      <span class="meta-label">Duration</span>
-                      <span x-text="task.lastRun ? formatDuration(durationBetween(task.lastRun.started_at, task.lastRun.finished_at)) : '—'"></span>
-                    </div>
-                  </div>
-                </article>
-              </template>
-            </div>
-            <div class="empty-state" x-show="!filteredAssignments().length">No assignments matched your filter. Click <strong>＋ New Assignment</strong> to create one.</div>
-          </section>
-
           <!-- ===== Task / Assignment detail page ===== -->
           <section x-show="!loading && !errorMessage && (route === 'task-detail' || route === 'assignment-detail')" x-transition.opacity.duration.180ms>
             <template x-if="!opDetail()">
-              <div class="empty-state" style="margin-top:24px">This operation no longer exists. <a href="#" @click.prevent="goTo(route === 'assignment-detail' ? '#/assignments' : '#/tasks')" style="color:var(--cp-link)">Back to list</a></div>
+              <div class="empty-state" style="margin-top:24px">This operation no longer exists. <a href="#" @click.prevent="goTo('#/tasks')" style="color:var(--cp-link)">Back to list</a></div>
             </template>
             <template x-if="opDetail()">
               <div>
                 <div class="page-header">
                   <div class="page-title">
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                      <button class="btn ghost" type="button" @click="goTo(opDetail().type === 'assignment' ? '#/assignments' : '#/tasks')">‹ Back</button>
+                      <button class="btn ghost" type="button" @click="goTo('#/tasks')">‹ Back</button>
                       <h1 style="margin:0" x-text="opDetail().name"></h1>
                       <span class="type-badge" x-text="opDetail().typeLabel"></span>
                       <span class="status-badge" :class="statusClass(opDetail().status)" x-text="statusLabel(opDetail().status)"></span>
@@ -10202,8 +10263,8 @@
       </div>
       <div class="modal-body">
         <div class="filter-pills" x-show="!newTaskForm.editingId">
-          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'agent' }" @click="newTaskForm.kind = 'agent'">Task</button>
-          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'assignment' }" @click="newTaskForm.kind = 'assignment'">Assignment</button>
+          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'agent' }" @click="newTaskForm.kind = 'agent'">🤖 Agent</button>
+          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'assignment' }" @click="newTaskForm.kind = 'assignment'">👔 Manager</button>
         </div>
         <div class="config-grid">
           <template x-if="newTaskForm.kind === 'agent'">
@@ -10278,7 +10339,7 @@
   </div>
 
   <div class="modal-backdrop" x-show="chainModalOpen" x-transition.opacity.duration.150ms @click.self="closeChainModal()" x-cloak>
-    <section class="modal-card" style="max-width:860px" x-show="chainDraft">
+    <section class="modal-card flow-modal" x-show="chainDraft">
       <template x-if="chainDraft">
         <div style="display:contents">
           <div class="modal-header">
@@ -10328,102 +10389,59 @@
               </div>
               <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
 
-              <!-- Tasks -->
+              <!-- Canvas builder -->
               <div>
-                <div class="field-label"><span>Tasks</span><span class="hint">Each task runs in the flow. Tasks with no inbound arrow start the flow.</span></div>
-                <div class="hint" style="margin:-2px 0 8px;line-height:1.5">
-                  In a prompt you can inject the previous task's result with variables:
-                  <code>{{ trigger.output }}</code> (previous task's output),
-                  <code>{{ trigger.name }}</code>, <code>{{ trigger.exitCode }}</code>.
-                  <span style="opacity:.8">These only resolve for tasks that have an inbound arrow; the first task runs its prompt as-is.</span>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:10px">
-                  <template x-for="(step, si) in chainDraft.steps" :key="step.id">
-                    <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="hint" :title="step.id" x-text="'Task ' + (si + 1)"></span>
-                        <select class="field-input" style="flex:1;min-width:200px" x-model="step.taskId" x-init="$nextTick(() => { $el.value = step.taskId })">
-                          <option value="">— pick a task —</option>
-                          <template x-for="t in data.tasks" :key="'cs-' + step.id + '-' + t.id">
-                            <option :value="t.id" x-text="t.name"></option>
-                          </template>
-                        </select>
-                        <button class="icon-button" type="button" title="Remove task" @click="removeChainStep(si)">✕</button>
-                      </div>
-                      <textarea class="field-input" rows="2" style="margin-top:8px" placeholder="Optional prompt override. Use {{ trigger.output }} to inject the previous task's output." x-model="step.prompt"></textarea>
+                <div class="field-label"><span>Flow canvas</span><span class="hint">Drag agents or saved tasks onto the canvas, then drag from a node's right port to another node to connect them. Click a link to set its condition.</span></div>
+                <div class="flow-canvas-shell">
+                  <div class="flow-palette">
+                    <div class="fp-tabs">
+                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'agents' }" @click="flowPaletteTab = 'agents'">🤖 Agents</button>
+                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'tasks' }" @click="flowPaletteTab = 'tasks'">📋 Tasks</button>
                     </div>
-                  </template>
-                </div>
-                <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainStep()">＋ Add task</button>
-              </div>
-
-              <!-- Edges -->
-              <div>
-                <div class="field-label"><span>Flow</span><span class="hint">When the source task finishes and the condition passes, the target task runs.</span></div>
-                <div style="display:flex;flex-direction:column;gap:10px">
-                  <template x-for="(edge, ei) in chainDraft.edges" :key="'ce-' + ei">
-                    <div class="trigger-rule" style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;background:var(--cp-surface-soft)">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <select class="field-input" style="flex:1;min-width:140px" x-model="edge.from" x-init="$nextTick(() => { $el.value = edge.from })">
-                          <template x-for="s in chainDraft.steps" :key="'ef-' + ei + '-' + s.id">
-                            <option :value="s.id" x-text="chainStepLabel(s)"></option>
+                    <input class="fp-search" type="text" placeholder="Search…" x-model="flowPaletteFilter" />
+                    <div class="fp-list">
+                      <template x-if="flowPaletteTab === 'agents'">
+                        <div>
+                          <template x-for="a in flowPaletteAgents()" :key="'fpa-' + a.id">
+                            <div class="fp-item" draggable="true" @dragstart="flowDragStart($event, 'agent', a.id)" @mouseenter="flowTipShow($event, 'agent', a.id)" @mousemove="flowTipMove($event)" @mouseleave="flowTipHide()">
+                              <span class="fp-ic" x-text="a.plugin ? '🧩' : '🤖'"></span>
+                              <span class="fp-meta"><span class="fp-name" x-text="a.name"></span><span class="fp-sub" x-text="a.group || (a.plugin ? 'Plugin' : 'Agent')"></span></span>
+                            </div>
                           </template>
-                        </select>
-                        <span class="hint">→</span>
-                        <select class="field-input" style="flex:1;min-width:140px" x-model="edge.to" x-init="$nextTick(() => { $el.value = edge.to })">
-                          <template x-for="s in chainDraft.steps" :key="'et-' + ei + '-' + s.id">
-                            <option :value="s.id" x-text="chainStepLabel(s)"></option>
+                          <div class="fp-empty" x-show="!flowPaletteAgents().length">No agents.</div>
+                        </div>
+                      </template>
+                      <template x-if="flowPaletteTab === 'tasks'">
+                        <div>
+                          <template x-for="t in flowPaletteTasks()" :key="'fpt-' + t.id">
+                            <div class="fp-item" draggable="true" @dragstart="flowDragStart($event, 'task', t.id)" @mouseenter="flowTipShow($event, 'task', t.id)" @mousemove="flowTipMove($event)" @mouseleave="flowTipHide()">
+                              <span class="fp-ic">📋</span>
+                              <span class="fp-meta"><span class="fp-name" x-text="t.name"></span><span class="fp-sub" x-text="'Saved task'"></span></span>
+                            </div>
                           </template>
-                        </select>
-                        <button class="icon-button" type="button" title="Remove edge" @click="removeChainEdge(ei)">✕</button>
-                      </div>
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
-                        <span class="hint">when</span>
-                        <select class="field-input" style="width:auto" x-model="edge.condition.type">
-                          <option value="status">status</option>
-                          <option value="expression">output expression</option>
-                          <option value="ai">AI judgment</option>
-                        </select>
-                        <!-- status -->
-                        <template x-if="edge.condition.type === 'status'">
-                          <select class="field-input" style="width:auto" x-model="edge.condition.status">
-                            <option value="onSuccess">succeeds</option>
-                            <option value="onFailure">fails</option>
-                            <option value="onComplete">completes (either)</option>
-                          </select>
-                        </template>
-                        <!-- expression -->
-                        <template x-if="edge.condition.type === 'expression'">
-                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1">
-                            <span class="hint">output</span>
-                            <select class="field-input" style="width:auto" x-model="edge.condition.op">
-                              <option value="contains">contains</option>
-                              <option value="notContains">does not contain</option>
-                              <option value="equals">equals</option>
-                              <option value="regex">matches regex</option>
-                              <option value="gt">number &gt;</option>
-                              <option value="lt">number &lt;</option>
-                            </select>
-                            <input class="field-input" style="flex:1;min-width:120px" type="text" placeholder="value" x-model="edge.condition.value" />
-                          </div>
-                        </template>
-                        <!-- ai -->
-                        <template x-if="edge.condition.type === 'ai'">
-                          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">
-                            <input class="field-input" type="text" placeholder="Predicate, e.g. 'Azure reports an unhealthy or degraded service'" x-model="edge.condition.predicate" />
-                            <select class="field-input" x-model="edge.condition.agentId" x-init="$nextTick(() => { $el.value = edge.condition.agentId || '' })">
-                              <option value="">Built-in evaluator</option>
-                              <template x-for="a in data.agents" :key="'ai-' + ei + '-' + a.id">
-                                <option :value="a.id" x-text="'Custom: ' + a.name"></option>
-                              </template>
-                            </select>
-                          </div>
-                        </template>
-                      </div>
+                          <div class="fp-empty" x-show="!flowPaletteTasks().length">No saved tasks.</div>
+                        </div>
+                      </template>
                     </div>
-                  </template>
+                  </div>
+                  <div id="flow-canvas-wrap" class="flow-canvas-wrap" @dragover.prevent @drop="flowCanvasDrop($event)">
+                    <svg id="flow-wires" class="flow-wires"></svg>
+                    <div id="flow-canvas" class="flow-canvas"></div>
+                    <div id="flow-empty" class="flow-empty-hint">
+                      <div>🪄</div>
+                      <div>Drag an <b>agent</b> or <b>task</b> here to start your flow.</div>
+                      <div class="fch-sub">Connect nodes by dragging from the right port. Inline agent nodes take a prompt; <code>{{ trigger.output }}</code> injects the upstream node's output.</div>
+                    </div>
+                    <div class="flow-zoom" @pointerdown.stop>
+                      <button type="button" title="Zoom out" @click="flowZoom(-1)">–</button>
+                      <span class="fz-pct" title="Reset to 100%" @click="flowZoomReset()" x-text="Math.round(flowZoomLevel * 100) + '%'"></span>
+                      <button type="button" title="Zoom in" @click="flowZoom(1)">+</button>
+                      <span class="fz-sep"></span>
+                      <button type="button" class="fz-fit" title="Fit flow to view" @click="flowFit()">Fit</button>
+                    </div>
+                    <div class="flow-hint"><span>🖐</span><span><b>Drag</b> empty space to pan · <b>Scroll</b> to zoom</span></div>
+                  </div>
                 </div>
-                <button class="btn ghost" type="button" style="margin-top:8px" @click="addChainEdge()">＋ Add flow rule</button>
               </div>
             </div>
           </div>
@@ -11001,6 +11019,7 @@
         managerSort: 'recent',
         managerView: 'grid',
         taskSearch: '',
+        taskKindFilter: 'all',
         assignmentSearch: '',
         newAssignmentOpen: false,
         newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
@@ -11233,6 +11252,10 @@
         newTaskOpen: false,
         chainModalOpen: false,
         chainSearch: '',
+        flowPaletteFilter: '',
+        flowPaletteTab: 'agents',
+        flowZoomLevel: 1,
+        _flowCanvas: null,
         chatPickerOpen: false,
         orgPickerOpen: false,
         agentDiscoveryOpen: false,
@@ -11907,6 +11930,7 @@
         },
 
         async handleRouteChange(opts = {}) {
+          if (this.route === 'assignments') { this.goTo('#/tasks'); return; }
           if (this.route === 'agent-detail' && this.app.routeParam) {
             await this.loadAgentDetail(this.app.routeParam);
           } else if (this.route === 'manager-detail' && this.app.routeParam) {
@@ -12657,8 +12681,7 @@
               ]},
               { key: 'execution', label: 'Operations', collapsible: true, isGroup: true, href: '#/executions', routeGroup: 'executions', children: [
                 { key: 'tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [] },
-                { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] },
-                { key: 'assignments', title: 'Assignments', icon: '📋', href: '#/assignments', routeGroup: 'assignments', items: [] }
+                { key: 'chains', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [] }
               ]},
               watercooler,
               { key: 'warehouse', label: 'Warehouse', collapsible: true, isGroup: true, href: '#/marketplace', routeGroup: 'marketplace', children: [
@@ -12686,9 +12709,8 @@
           if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail';
           if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
-          if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail';
+          if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail';
           if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail';
-          if (group === 'assignments') return this.route === 'assignments' || this.route === 'assignment-detail';
           if (group === 'events') return this.route === 'events';
           return this.route === group;
         },
@@ -12763,6 +12785,7 @@
         flowReferencedAgentIds(chain) {
           const ids = new Set();
           for (const step of (chain.steps || [])) {
+            if (step.agentId) { ids.add(step.agentId); continue; }
             const task = (this.data.tasks || []).find(t => ('task-' + t.id) === step.taskId || t.id === step.taskId);
             if (task && task.agentId) ids.add(task.agentId);
           }
@@ -13518,7 +13541,7 @@
         },
         async deleteOpFromDetail(t) {
           if (!t) return;
-          const back = t.type === 'assignment' ? '#/assignments' : '#/tasks';
+          const back = '#/tasks';
           if (t.type === 'assignment') await this.deleteAssignmentById(t.managerId, t.assignmentId, t.name);
           else await this.deleteTaskById(t.id, t.name);
           if (!this.opDetail()) this.goTo(back);
@@ -13646,9 +13669,20 @@
         },
         filteredTasks() {
           const query = this.taskSearch.trim().toLowerCase();
-          const tasks = this.allTasks().filter(t => t.type === 'agent' && this.opInCurrentOrg(t.teamId));
+          // Unified Tasks list: both agent-backed tasks and manager assignments.
+          // The card badge surfaces which kind (Agent vs Manager) each one is.
+          let tasks = this.allTasks().filter(t => this.opInCurrentOrg(t.teamId));
+          if (this.taskKindFilter === 'agent') tasks = tasks.filter(t => t.type !== 'assignment');
+          else if (this.taskKindFilter === 'manager') tasks = tasks.filter(t => t.type === 'assignment');
           if (!query) return tasks;
           return tasks.filter((task) => [task.name, task.ownerName, task.scheduleSummary, task.prompt].filter(Boolean).join(' ').toLowerCase().includes(query));
+        },
+
+        // Counts per kind for the Tasks page filter (org-scoped, ignores text query).
+        taskKindCounts() {
+          const tasks = this.allTasks().filter(t => this.opInCurrentOrg(t.teamId));
+          const manager = tasks.filter(t => t.type === 'assignment').length;
+          return { all: tasks.length, agent: tasks.length - manager, manager };
         },
 
         filteredAssignments() {
@@ -13868,7 +13902,7 @@
         },
         homeOpRoute(op) {
           if (op.kind === 'flow') return '#/chains/' + encodeURIComponent(op.chainId);
-          if (op.kind === 'assignment') return '#/assignments';
+          if (op.kind === 'assignment') return '#/tasks';
           return '#/tasks';
         },
 
@@ -22139,11 +22173,24 @@
           return 'Schedule: ' + s;
         },
 
+        // Human label for a flow step, resolving either a saved task or an inline agent.
+        flowStepName(step) {
+          if (!step) return 'unassigned';
+          if (step.taskId) {
+            const t = (this.data.tasks || []).find(x => x.id === step.taskId);
+            if (t) return t.name || step.taskId;
+            return step.taskId;
+          }
+          if (step.agentId) {
+            const a = (this.data.agents || []).find(x => x.id === step.agentId);
+            return a ? (a.name || a.id) : step.agentId;
+          }
+          return 'unassigned';
+        },
         chainStepLabel(step) {
           const steps = (this.chainDraft && this.chainDraft.steps) || [];
           const idx = steps.findIndex(s => s.id === step.id);
-          const t = (this.data.tasks || []).find(x => x.id === step.taskId);
-          const name = t ? t.name : (step.taskId || 'unassigned');
+          const name = this.flowStepName(step);
           return (idx >= 0 ? ('Task ' + (idx + 1) + ' · ') : '') + name;
         },
 
@@ -22169,15 +22216,19 @@
             this.chainDraft._new = false;
           } else {
             const id = 'chain-' + Date.now().toString(36);
-            const s1 = 'step-' + Math.random().toString(36).slice(2, 7);
-            const s2 = 'step-' + Math.random().toString(36).slice(2, 7);
             this.chainDraft = {
               id, name: 'New flow', description: '', teamId: (this.currentTeamId !== 'all' ? this.currentTeamId : ''), schedule: 'never', enabled: true,
-              steps: [ { id: s1, taskId: '', prompt: '' }, { id: s2, taskId: '', prompt: '' } ],
-              edges: [ { from: s1, to: s2, condition: { type: 'status', status: 'onSuccess' } } ],
+              steps: [],
+              edges: [],
               _new: true
             };
           }
+          // Self-heal: drop any reference-less ghost steps (no task and no agent)
+          // and prune edges left dangling, so the canvas never surfaces "unassigned".
+          const keep = (this.chainDraft.steps || []).filter(s => s.taskId || s.agentId);
+          const validIds = new Set(keep.map(s => s.id));
+          this.chainDraft.steps = keep;
+          this.chainDraft.edges = (this.chainDraft.edges || []).filter(e => validIds.has(e.from) && validIds.has(e.to));
           // Ensure each edge has a condition object with all fields the UI binds to.
           (this.chainDraft.edges || []).forEach(e => {
             e.condition = e.condition || { type: 'status', status: 'onSuccess' };
@@ -22188,9 +22239,434 @@
             if (e.condition.agentId === undefined) e.condition.agentId = '';
           });
           this.chainModalOpen = true;
+          this.flowPaletteFilter = '';
+          this.$nextTick(() => this.mountFlowCanvas());
         },
 
-        closeChainModal() { this.chainModalOpen = false; this.chainDraft = null; },
+        closeChainModal() { this.unmountFlowCanvas(); this.chainModalOpen = false; this.chainDraft = null; },
+
+        // ===================== Flow canvas (drag-and-drop builder) =====================
+        _esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+        _flowTeamName(id) {
+          if (!id) return '';
+          const o = (this.data.teams || []).find(x => x.id === id);
+          return o ? ((o.emoji ? o.emoji + ' ' : '') + (o.name || id)) : '';
+        },
+        _flowEntityDetail(kind, id) {
+          if (kind === 'agent') {
+            const a = (this.data.agents || []).find(x => x.id === id);
+            if (!a) return null;
+            const cfg = a.config || {};
+            const plugin = !!cfg.pluginDir;
+            const rows = [];
+            if (cfg.group) rows.push(['Group', cfg.group]);
+            if (cfg.cwd) rows.push(['Folder', cfg.cwd]);
+            if (a.teamId) { const tn = this._flowTeamName(a.teamId); if (tn) rows.push(['Team', tn]); }
+            return { icon: plugin ? '🧩' : '🤖', name: a.name || a.id, kind: plugin ? 'Plugin' : 'Copilot Agent', rows, desc: cfg.description || '', prompt: '' };
+          }
+          const t = (this.data.tasks || []).find(x => x.id === id);
+          if (!t) return null;
+          const a = (this.data.agents || []).find(x => x.id === t.agentId);
+          const rows = [];
+          rows.push(['Runs', a ? (a.name || a.id) : (t.agentId || '—')]);
+          rows.push(['Schedule', t.schedule ? this.describeScheduleHuman(t.schedule) : 'Manual only']);
+          if (t.teamId) { const tn = this._flowTeamName(t.teamId); if (tn) rows.push(['Team', tn]); }
+          return { icon: '📋', name: t.name || t.id, kind: 'Saved Task', rows, desc: '', prompt: (t.prompt || '').trim() };
+        },
+        _flowTipEnsure() {
+          if (this._flowTipEl && document.body.contains(this._flowTipEl)) return this._flowTipEl;
+          const el = document.createElement('div');
+          el.className = 'flow-tip';
+          document.body.appendChild(el);
+          this._flowTipEl = el;
+          return el;
+        },
+        flowTipShow(ev, kind, id) {
+          const d = this._flowEntityDetail(kind, id);
+          if (!d) return;
+          const el = this._flowTipEnsure();
+          const rows = d.rows.map(r => '<div class="ft-row"><span class="ft-k">' + this._esc(r[0]) + '</span><span class="ft-v">' + this._esc(r[1]) + '</span></div>').join('');
+          el.innerHTML =
+            '<div class="ft-head"><span class="ft-ic">' + d.icon + '</span><div><div class="ft-name">' + this._esc(d.name) + '</div><div class="ft-kind">' + this._esc(d.kind) + '</div></div></div>' +
+            rows +
+            (d.desc ? '<div class="ft-desc">' + this._esc(d.desc) + '</div>' : '') +
+            (d.prompt ? '<div class="ft-prompt">' + this._esc(d.prompt.length > 320 ? d.prompt.slice(0, 320) + '…' : d.prompt) + '</div>' : '');
+          el.classList.add('on');
+          this.flowTipMove(ev);
+        },
+        flowTipMove(ev) {
+          const el = this._flowTipEl; if (!el || !el.classList.contains('on')) return;
+          const pad = 14, w = el.offsetWidth || 280, h = el.offsetHeight || 120;
+          let x = ev.clientX + 18, y = ev.clientY + 12;
+          if (x + w + pad > window.innerWidth) x = ev.clientX - w - 18;
+          if (y + h + pad > window.innerHeight) y = window.innerHeight - h - pad;
+          if (x < pad) x = pad; if (y < pad) y = pad;
+          el.style.left = x + 'px'; el.style.top = y + 'px';
+        },
+        flowTipHide() { const el = this._flowTipEl; if (el) el.classList.remove('on'); },
+        flowPaletteAgents() {
+          const q = (this.flowPaletteFilter || '').toLowerCase();
+          return (this.data.agents || [])
+            .filter(a => !q || (a.name || a.id).toLowerCase().includes(q))
+            .map(a => ({ id: a.id, name: a.name || a.id, group: (a.config && a.config.group) || '', plugin: !!(a.config && a.config.pluginDir) }));
+        },
+        flowPaletteTasks() {
+          const q = (this.flowPaletteFilter || '').toLowerCase();
+          return (this.data.tasks || []).filter(t => !q || (t.name || t.id).toLowerCase().includes(q));
+        },
+        _flowStepOwner(step) {
+          if (step.taskId) {
+            const t = (this.data.tasks || []).find(x => x.id === step.taskId);
+            if (t && t.agentId) { const a = (this.data.agents || []).find(x => x.id === t.agentId); return a ? (a.name || a.id) : 'Task'; }
+            return 'Task';
+          }
+          if (step.agentId) {
+            const a = (this.data.agents || []).find(x => x.id === step.agentId);
+            return (a && a.config && a.config.group) ? a.config.group : 'Agent';
+          }
+          return '';
+        },
+        flowDragStart(ev, kind, id) {
+          try { ev.dataTransfer.setData('text/plain', JSON.stringify({ kind, id })); ev.dataTransfer.effectAllowed = 'copy'; } catch {}
+        },
+        flowCanvasDrop(ev) {
+          ev.preventDefault();
+          const ctl = this._flowCanvas; if (!ctl || !this.chainDraft) return;
+          let payload; try { payload = JSON.parse(ev.dataTransfer.getData('text/plain')); } catch { return; }
+          if (!payload || !payload.kind) return;
+          const p = this._flowPt(ev);
+          this._addFlowStep(payload.kind, payload.id, p.x - 105, p.y - 26);
+        },
+        _addFlowStep(kind, refId, x, y) {
+          if (!refId || (kind !== 'task' && kind !== 'agent')) {
+            this.showToast('Could not add node', 'Drag a specific agent or task from the palette onto the canvas.', 'error');
+            return;
+          }
+          const exists = kind === 'task'
+            ? (this.data.tasks || []).some(t => t.id === refId)
+            : (this.data.agents || []).some(a => a.id === refId);
+          if (!exists) {
+            this.showToast('Could not add node', 'That ' + kind + ' is no longer available — try refreshing.', 'error');
+            return;
+          }
+          const step = {
+            id: 'step-' + Math.random().toString(36).slice(2, 8),
+            taskId: kind === 'task' ? refId : null,
+            agentId: kind === 'agent' ? refId : null,
+            prompt: '', x: Math.max(8, x), y: Math.max(8, y)
+          };
+          this.chainDraft.steps.push(step);
+          this.renderFlowNodes(); this.drawFlowWires();
+        },
+        _removeFlowStep(id) {
+          const d = this.chainDraft; if (!d) return;
+          d.steps = d.steps.filter(s => s.id !== id);
+          d.edges = d.edges.filter(e => e.from !== id && e.to !== id);
+          this.flowTipHide();
+          this._closeFlowPop();
+          this.renderFlowNodes(); this.drawFlowWires();
+        },
+        mountFlowCanvas() {
+          const wrap = document.getElementById('flow-canvas-wrap');
+          const canvas = document.getElementById('flow-canvas');
+          const wires = document.getElementById('flow-wires');
+          if (!wrap || !canvas || !wires || !this.chainDraft) return;
+          const self = this;
+          const ctl = { wrap, canvas, wires, pop: null, selEdge: null, zoom: 1, panX: 0, panY: 0 };
+          this._flowCanvas = ctl;
+          this._flowAutoLayout();
+          ctl._onResize = () => self.drawFlowWires();
+          window.addEventListener('resize', ctl._onResize);
+          // Pan by dragging empty canvas (or middle-mouse anywhere); close any open condition popover.
+          ctl._onDown = (e) => {
+            const bgHit = (e.target === wrap || e.target === canvas || e.target === wires);
+            const midBtn = (e.button === 1);
+            if (!bgHit && !midBtn) return;
+            if (midBtn) e.preventDefault();
+            self._closeFlowPop();
+            const sx = e.clientX, sy = e.clientY, px = ctl.panX, py = ctl.panY;
+            let moved = false;
+            wrap.classList.add('panning');
+            const mv = (ev) => { moved = true; ctl.panX = px + (ev.clientX - sx); ctl.panY = py + (ev.clientY - sy); self._applyFlowTransform(); };
+            const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); wrap.classList.remove('panning'); };
+            document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+          };
+          wrap.addEventListener('pointerdown', ctl._onDown);
+          // Wheel to zoom toward the cursor (or pan with shift / horizontal wheel).
+          ctl._onWheel = (e) => {
+            e.preventDefault();
+            const r = wrap.getBoundingClientRect();
+            if (e.ctrlKey || e.metaKey || !e.shiftKey) {
+              self._flowZoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
+            } else {
+              ctl.panX -= e.deltaX || 0; ctl.panY -= e.deltaY || 0; self._applyFlowTransform();
+            }
+          };
+          wrap.addEventListener('wheel', ctl._onWheel, { passive: false });
+          this.renderFlowNodes();
+          this._applyFlowTransform();
+          this.drawFlowWires();
+          // Fit the whole flow into view once the modal has been laid out.
+          let fitTries = 0;
+          const tryFit = () => {
+            if (self._flowCanvas !== ctl) return;
+            const r = wrap.getBoundingClientRect();
+            if ((r.width < 40 || r.height < 40) && fitTries++ < 20) { setTimeout(tryFit, 40); return; }
+            self.flowFit();
+          };
+          requestAnimationFrame(tryFit);
+        },
+        unmountFlowCanvas() {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          try { window.removeEventListener('resize', ctl._onResize); } catch {}
+          try { ctl.wrap.removeEventListener('pointerdown', ctl._onDown); } catch {}
+          try { ctl.wrap.removeEventListener('wheel', ctl._onWheel); } catch {}
+          this._closeFlowPop();
+          this.flowTipHide();
+          this._flowCanvas = null;
+        },
+        _flowAutoLayout() {
+          const d = this.chainDraft; if (!d) return;
+          const steps = d.steps || [], edges = d.edges || [];
+          const need = steps.filter(s => !(s.x > 0 || s.y > 0));
+          if (!need.length) return;
+          const incoming = {}; edges.forEach(e => { incoming[e.to] = (incoming[e.to] || 0) + 1; });
+          const adj = {}; steps.forEach(s => adj[s.id] = []);
+          edges.forEach(e => { if (adj[e.from]) adj[e.from].push(e.to); });
+          const depth = {}; const q = steps.filter(s => !incoming[s.id]).map(s => s.id);
+          q.forEach(id => depth[id] = 0);
+          if (!q.length && steps.length) { depth[steps[0].id] = 0; q.push(steps[0].id); }
+          while (q.length) {
+            const id = q.shift();
+            (adj[id] || []).forEach(to => { const nd = (depth[id] || 0) + 1; if (depth[to] === undefined || nd > depth[to]) { depth[to] = nd; q.push(to); } });
+          }
+          const colCount = {};
+          steps.forEach(s => { if (s.x > 0 || s.y > 0) return; if (depth[s.id] === undefined) depth[s.id] = 0;
+            const col = depth[s.id]; const row = (colCount[col] || 0); colCount[col] = row + 1;
+            s.x = 40 + col * 340; s.y = 30 + row * 170; });
+        },
+        renderFlowNodes() {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          const self = this, d = this.chainDraft, canvas = ctl.canvas;
+          const empty = document.getElementById('flow-empty');
+          if (empty) empty.style.display = (d.steps && d.steps.length) ? 'none' : 'flex';
+          canvas.querySelectorAll('.flow-node').forEach(x => x.remove());
+          (d.steps || []).forEach(step => {
+            const isStart = !(d.edges || []).some(e => e.to === step.id);
+            const inline = !step.taskId && step.agentId;
+            const el = document.createElement('div');
+            el.className = 'flow-node' + (isStart ? ' start' : '');
+            el.style.left = (step.x || 0) + 'px'; el.style.top = (step.y || 0) + 'px';
+            el.dataset.id = step.id;
+            const name = self.flowStepName(step), owner = self._flowStepOwner(step);
+            el.innerHTML =
+              '<div class="fn-head">' +
+                '<span class="fn-ic">' + (inline ? '🤖' : '📋') + '</span>' +
+                '<span class="fn-title" title="' + self._esc(name) + '">' + self._esc(name) + '</span>' +
+                (isStart ? '<span class="fn-start">START</span>' : '') +
+                '<button class="fn-del" title="Remove node">✕</button>' +
+              '</div>' +
+              (owner ? '<div class="fn-own">' + self._esc(owner) + '</div>' : '') +
+              '<textarea class="fn-prompt" rows="2" placeholder="' + (inline ? 'Prompt… {{ trigger.output }} injects upstream output' : 'Optional prompt override…') + '"></textarea>' +
+              '<div class="fn-port in" title="input"></div>' +
+              '<div class="fn-port out" title="drag to connect"></div>';
+            canvas.appendChild(el);
+            const ta = el.querySelector('.fn-prompt'); ta.value = step.prompt || '';
+            const autosize = () => { ta.style.height = 'auto'; ta.style.height = Math.max(38, ta.scrollHeight) + 'px'; };
+            ta.addEventListener('input', () => { step.prompt = ta.value; autosize(); });
+            ta.addEventListener('pointerdown', e => e.stopPropagation());
+            requestAnimationFrame(autosize);
+            el.querySelector('.fn-del').addEventListener('click', e => { e.stopPropagation(); self._removeFlowStep(step.id); });
+            el.querySelector('.fn-head').addEventListener('pointerdown', e => self._startNodeDrag(e, step, el));
+            el.querySelector('.fn-port.out').addEventListener('pointerdown', e => self._startWire(e, step));
+            const tipKind = (!step.taskId && step.agentId) ? 'agent' : 'task';
+            const tipId = step.taskId || step.agentId;
+            if (tipId) {
+              const head = el.querySelector('.fn-head');
+              head.addEventListener('mouseenter', e => self.flowTipShow(e, tipKind, tipId));
+              head.addEventListener('mousemove', e => self.flowTipMove(e));
+              head.addEventListener('mouseleave', () => self.flowTipHide());
+            }
+          });
+        },
+        _startNodeDrag(ev, step, el) {
+          if (ev.target.classList.contains('fn-del')) return;
+          ev.preventDefault();
+          const self = this;
+          const p0 = this._flowPt(ev);
+          const ox = p0.x - (Number(step.x) || 0), oy = p0.y - (Number(step.y) || 0);
+          function mv(e) { const p = self._flowPt(e); step.x = Math.max(0, p.x - ox); step.y = Math.max(0, p.y - oy); el.style.left = step.x + 'px'; el.style.top = step.y + 'px'; self.drawFlowWires(); }
+          function up() { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); }
+          document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+        },
+        _flowPortCenter(id, side) {
+          const s = (this.chainDraft && this.chainDraft.steps || []).find(x => x.id === id);
+          if (!s) return { x: 0, y: 0 };
+          const W = 210, PORT_Y = (Number(s.y) || 0) + 31.5;
+          return { x: (Number(s.x) || 0) + (side === 'out' ? W : 0), y: PORT_Y };
+        },
+        // Convert a pointer event to canvas-world coordinates (undo pan + zoom).
+        _flowPt(e) {
+          const ctl = this._flowCanvas, r = ctl.wrap.getBoundingClientRect();
+          const z = ctl.zoom || 1;
+          return { x: (e.clientX - r.left - (ctl.panX || 0)) / z, y: (e.clientY - r.top - (ctl.panY || 0)) / z };
+        },
+        _applyFlowTransform() {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          const tf = 'translate(' + (ctl.panX || 0) + 'px,' + (ctl.panY || 0) + 'px) scale(' + (ctl.zoom || 1) + ')';
+          ctl.canvas.style.transform = tf;
+          ctl.wires.style.transform = tf;
+          this.flowZoomLevel = ctl.zoom || 1;
+        },
+        _flowZoomAt(factor, cx, cy) {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          const z0 = ctl.zoom || 1;
+          const z = Math.min(2.5, Math.max(0.2, z0 * factor));
+          if (z === z0) return;
+          const wx = (cx - (ctl.panX || 0)) / z0, wy = (cy - (ctl.panY || 0)) / z0;
+          ctl.zoom = z; ctl.panX = cx - wx * z; ctl.panY = cy - wy * z;
+          this._applyFlowTransform(); this._closeFlowPop();
+        },
+        flowZoom(dir) {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          const r = ctl.wrap.getBoundingClientRect();
+          this._flowZoomAt(dir > 0 ? 1.2 : 1 / 1.2, r.width / 2, r.height / 2);
+        },
+        flowZoomReset() {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          const r = ctl.wrap.getBoundingClientRect();
+          this._flowZoomAt(1 / (ctl.zoom || 1), r.width / 2, r.height / 2);
+        },
+        flowFit() {
+          const ctl = this._flowCanvas, d = this.chainDraft; if (!ctl || !d) return;
+          const steps = (d.steps || []);
+          const r = ctl.wrap.getBoundingClientRect();
+          if (!steps.length) { ctl.zoom = 1; ctl.panX = 0; ctl.panY = 0; this._applyFlowTransform(); return; }
+          const W = 210, H = 120, pad = 48;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          steps.forEach(s => {
+            const x = Number(s.x) || 0, y = Number(s.y) || 0;
+            minX = Math.min(minX, x); minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + W); maxY = Math.max(maxY, y + H);
+          });
+          const cw = (maxX - minX) + pad * 2, ch = (maxY - minY) + pad * 2;
+          const z = Math.min(2.5, Math.max(0.2, Math.min(r.width / cw, r.height / ch, 1)));
+          ctl.zoom = z;
+          ctl.panX = (r.width - (maxX - minX) * z) / 2 - minX * z;
+          ctl.panY = (r.height - (maxY - minY) * z) / 2 - minY * z;
+          this._applyFlowTransform(); this._closeFlowPop();
+        },
+        _flowBez(x1, y1, x2, y2) { const dx = Math.max(40, Math.abs(x2 - x1) / 2); return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`; },
+        _startWire(ev, from) {
+          ev.preventDefault(); ev.stopPropagation();
+          const self = this, ctl = this._flowCanvas, r = ctl.wrap.getBoundingClientRect();
+          const a = this._flowPortCenter(from.id, 'out');
+          const tmp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          tmp.setAttribute('class', 'fw-line'); tmp.style.strokeDasharray = '6 5'; ctl.wires.appendChild(tmp);
+          function mv(e) {
+            const p = self._flowPt(e); tmp.setAttribute('d', self._flowBez(a.x, a.y, p.x, p.y));
+            ctl.canvas.querySelectorAll('.flow-node').forEach(nd => nd.classList.remove('drop-target'));
+            const tgt = e.target.closest && e.target.closest('.flow-node'); if (tgt && tgt.dataset.id !== from.id) tgt.classList.add('drop-target');
+          }
+          function up(e) {
+            document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); tmp.remove();
+            ctl.canvas.querySelectorAll('.flow-node').forEach(nd => nd.classList.remove('drop-target'));
+            const tgt = e.target.closest && e.target.closest('.flow-node');
+            if (tgt && tgt.dataset.id !== from.id) {
+              const to = tgt.dataset.id;
+              if (!self.chainDraft.edges.some(x => x.from === from.id && x.to === to)) {
+                self.chainDraft.edges.push({ from: from.id, to, condition: { type: 'status', status: 'onSuccess', op: 'contains', value: '', predicate: '', agentId: '' } });
+                self.renderFlowNodes(); self.drawFlowWires();
+              }
+            }
+          }
+          document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+        },
+        _flowCondLabel(c) {
+          c = c || {};
+          if (c.type === 'expression') return (c.op || 'contains') + ' "' + (c.value || '…') + '"';
+          if (c.type === 'ai') return '🧠 AI';
+          return c.status === 'onFailure' ? 'fails' : c.status === 'onComplete' ? 'completes' : 'succeeds';
+        },
+        drawFlowWires() {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          const self = this, d = this.chainDraft, wires = ctl.wires, canvas = ctl.canvas;
+          const NS = 'http://www.w3.org/2000/svg';
+          wires.innerHTML = '';
+          canvas.querySelectorAll('.fw-lbl-html').forEach(x => x.remove());
+          (d.edges || []).forEach(e => {
+            const a = self._flowPortCenter(e.from, 'out'), b = self._flowPortCenter(e.to, 'in');
+            const path = self._flowBez(a.x, a.y, b.x, b.y);
+            const hit = document.createElementNS(NS, 'path');
+            hit.setAttribute('d', path); hit.setAttribute('class', 'fw-hit'); hit.addEventListener('click', ev => self._openFlowCond(e, ev)); wires.appendChild(hit);
+            const ln = document.createElementNS(NS, 'path');
+            ln.setAttribute('d', path); ln.setAttribute('class', 'fw-line' + (ctl.selEdge === e ? ' sel' : '')); wires.appendChild(ln);
+            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            const lbl = document.createElement('button');
+            lbl.type = 'button';
+            lbl.className = 'fw-lbl-html' + (ctl.selEdge === e ? ' sel' : '') + (((e.condition || {}).type === 'ai') ? ' ai' : '');
+            lbl.style.left = mx + 'px'; lbl.style.top = my + 'px';
+            lbl.textContent = self._flowCondLabel(e.condition);
+            lbl.title = 'Click to edit the condition for this link';
+            lbl.addEventListener('pointerdown', ev => ev.stopPropagation());
+            lbl.addEventListener('click', ev => { ev.stopPropagation(); self._openFlowCond(e, ev); });
+            canvas.appendChild(lbl);
+          });
+        },
+        _closeFlowPop() {
+          const ctl = this._flowCanvas; if (!ctl) return;
+          if (ctl.pop) { ctl.pop.remove(); ctl.pop = null; }
+          ctl.selEdge = null; this.drawFlowWires();
+        },
+        _openFlowCond(edge, ev) {
+          ev.stopPropagation();
+          const self = this, ctl = this._flowCanvas; this._closeFlowPop();
+          ctl.selEdge = edge; this.drawFlowWires();
+          const r = ctl.wrap.getBoundingClientRect();
+          const pop = document.createElement('div'); pop.className = 'fw-pop';
+          pop.style.left = Math.max(8, Math.min(ev.clientX - r.left, r.width - 312)) + 'px';
+          pop.style.top = Math.max(8, Math.min(ev.clientY - r.top, r.height - 250)) + 'px';
+          const c = edge.condition = edge.condition || { type: 'status', status: 'onSuccess' };
+          pop.innerHTML =
+            '<h4>When does the next node run?</h4>' +
+            '<div class="fw-hint">Source finishes → if this passes, the target runs.</div>' +
+            '<div class="fw-seg" data-seg>' +
+              '<button data-t="status" class="' + (c.type === 'status' || !c.type ? 'on' : '') + '">Status</button>' +
+              '<button data-t="expression" class="' + (c.type === 'expression' ? 'on' : '') + '">Output</button>' +
+              '<button data-t="ai" class="' + (c.type === 'ai' ? 'on' : '') + '">AI</button>' +
+            '</div><div data-body></div>' +
+            '<div class="fw-row"><button class="btn" data-del>Delete link</button><button class="btn primary" data-ok>Done</button></div>';
+          ctl.wrap.appendChild(pop); ctl.pop = pop;
+          const bodyEl = pop.querySelector('[data-body]');
+          function body() {
+            if (c.type === 'expression') {
+              bodyEl.innerHTML = '<label>Upstream output…</label><select data-op><option value="contains">contains</option><option value="notContains">does not contain</option><option value="equals">equals</option><option value="regex">matches regex</option><option value="gt">number &gt;</option><option value="lt">number &lt;</option></select><label>Value</label><input data-val placeholder="e.g. unhealthy" />';
+              bodyEl.querySelector('[data-op]').value = c.op || 'contains';
+              bodyEl.querySelector('[data-val]').value = c.value || '';
+              bodyEl.querySelector('[data-op]').onchange = e => { c.op = e.target.value; self.drawFlowWires(); };
+              bodyEl.querySelector('[data-val]').oninput = e => { c.value = e.target.value; self.drawFlowWires(); };
+            } else if (c.type === 'ai') {
+              bodyEl.innerHTML = '<label>AI judges that…</label><input data-pred placeholder="Azure reports an unhealthy or degraded service" /><label>Judge agent</label><select data-aid><option value="">Built-in evaluator</option>' +
+                (self.data.agents || []).map(a => '<option value="' + self._esc(a.id) + '">' + self._esc(a.name || a.id) + '</option>').join('') + '</select>';
+              bodyEl.querySelector('[data-pred]').value = c.predicate || '';
+              bodyEl.querySelector('[data-aid]').value = c.agentId || '';
+              bodyEl.querySelector('[data-pred]').oninput = e => { c.predicate = e.target.value; self.drawFlowWires(); };
+              bodyEl.querySelector('[data-aid]').onchange = e => { c.agentId = e.target.value; };
+            } else {
+              bodyEl.innerHTML = '<label>Source node</label><select data-st><option value="onSuccess">succeeds ✓</option><option value="onFailure">fails ✕</option><option value="onComplete">completes (either)</option></select>';
+              bodyEl.querySelector('[data-st]').value = c.status || 'onSuccess';
+              bodyEl.querySelector('[data-st]').onchange = e => { c.status = e.target.value; self.drawFlowWires(); };
+            }
+          }
+          body();
+          pop.querySelectorAll('[data-seg] button').forEach(btn => btn.onclick = () => {
+            c.type = btn.dataset.t;
+            pop.querySelectorAll('[data-seg] button').forEach(x => x.classList.toggle('on', x.dataset.t === c.type));
+            body(); self.drawFlowWires();
+          });
+          pop.querySelector('[data-del]').onclick = () => { self.chainDraft.edges = self.chainDraft.edges.filter(x => x !== edge); self._closeFlowPop(); self.renderFlowNodes(); self.drawFlowWires(); };
+          pop.querySelector('[data-ok]').onclick = () => self._closeFlowPop();
+        },
 
         addChainStep() {
           if (!this.chainDraft) return;
@@ -22210,6 +22686,10 @@
 
         _cleanChainPayload(draft) {
           const validOrgs = new Set(this.chainOrgOptions(draft).map(o => o.id));
+          // Drop reference-less steps (no task and no agent): they are unrunnable
+          // and only show up as misleading "unassigned" ghost nodes.
+          const steps = (draft.steps || []).filter(s => s.taskId || s.agentId);
+          const validIds = new Set(steps.map(s => s.id));
           return {
             id: draft.id,
             name: draft.name,
@@ -22217,8 +22697,8 @@
             teamId: (draft.teamId && validOrgs.has(draft.teamId)) ? draft.teamId : null,
             schedule: draft.schedule,
             enabled: draft.enabled !== false,
-            steps: draft.steps.map(s => ({ id: s.id, taskId: s.taskId || null, prompt: s.prompt || '' })),
-            edges: draft.edges.map(e => {
+            steps: steps.map(s => ({ id: s.id, taskId: s.taskId || null, agentId: s.agentId || null, prompt: s.prompt || '', x: Number(s.x) || 0, y: Number(s.y) || 0 })),
+            edges: (draft.edges || []).filter(e => validIds.has(e.from) && validIds.has(e.to)).map(e => {
               const c = e.condition || {};
               let condition;
               if (c.type === 'expression') condition = { type: 'expression', op: c.op || 'contains', value: c.value || '' };
@@ -22306,28 +22786,48 @@
         renderChainDiagram(chain, containerId) {
           const ids = containerId ? [containerId] : ['chain-diagram-' + chain.id, 'chain-diagram-detail-' + chain.id];
           const els = ids.map(id => document.getElementById(id)).filter(Boolean);
-          if (!els.length || typeof mermaid === 'undefined') return;
+          if (!els.length) return;
+          const self = this, steps = chain.steps || [], edges = chain.edges || [];
+          if (!steps.length) { els.forEach(el => el.innerHTML = '<span class="hint">No tasks in this flow yet.</span>'); return; }
           const run = this.chainRunState[chain.id];
-          const safe = (s) => (s || '').replace(/"/g, "'");
-          const lines = ['graph LR'];
-          (chain.steps || []).forEach(s => {
-            const t = (this.data.tasks || []).find(x => x.id === s.taskId);
-            const label = safe(t ? t.name : (s.taskId || 'unassigned'));
-            lines.push(`  ${s.id}["${label}"]`);
-            const st = run && run.nodes && run.nodes[s.id] && run.nodes[s.id].status;
-            if (st === 'succeeded') lines.push(`  style ${s.id} fill:#16a34a22,stroke:#16a34a`);
-            else if (st === 'failed') lines.push(`  style ${s.id} fill:#dc262622,stroke:#dc2626`);
-            else if (st === 'running') lines.push(`  style ${s.id} fill:#f59e0b22,stroke:#f59e0b`);
-          });
-          (chain.edges || []).forEach(e => {
-            const c = e.condition || {};
-            let lbl = c.type === 'expression' ? (c.op + ' ' + (c.value || '')) : c.type === 'ai' ? 'AI' : (c.status || 'onSuccess');
-            lines.push(`  ${e.from} -->|${safe(lbl)}| ${e.to}`);
-          });
-          const src = lines.join('\n');
-          try {
-            mermaid.render('mmd-' + chain.id + '-' + Date.now().toString(36), src).then(({ svg }) => { els.forEach(el => el.innerHTML = svg); }).catch(() => { els.forEach(el => el.innerHTML = ''); });
-          } catch { els.forEach(el => el.innerHTML = ''); }
+          const stepById = {}; steps.forEach(s => stepById[s.id] = s);
+          const incoming = {}; edges.forEach(e => incoming[e.to] = (incoming[e.to] || 0) + 1);
+          const outFrom = {}; steps.forEach(s => outFrom[s.id] = []); edges.forEach(e => { if (outFrom[e.from]) outFrom[e.from].push(e); });
+          const statusCls = id => { const st = run && run.nodes && run.nodes[id] && run.nodes[id].status; return st === 'succeeded' ? ' ok' : st === 'failed' ? ' fail' : st === 'running' ? ' run' : ''; };
+          const nodeChip = (s) => {
+            const inline = !s.taskId && s.agentId, isStart = !incoming[s.id], nm = self.flowStepName(s);
+            return '<span class="mf-node' + (isStart ? ' start' : '') + statusCls(s.id) + '" title="' + self._esc(nm) + '">' +
+              '<span class="mf-ic">' + (inline ? '🤖' : '📋') + '</span>' +
+              '<span class="mf-name">' + self._esc(nm) + '</span>' +
+              (isStart ? '<span class="mf-start">START</span>' : '') + '</span>';
+          };
+          const refChip = (s) => '<span class="mf-ref" title="↪ ' + self._esc(self.flowStepName(s)) + '">↪ ' + self._esc(self.flowStepName(s)) + '</span>';
+          const connLabel = (c) => {
+            c = c || {};
+            if (c.type === 'expression') return { txt: (c.op || 'contains') + ' "' + (c.value || '…') + '"', ai: false };
+            if (c.type === 'ai') return { txt: '🧠 AI', ai: true };
+            return { txt: c.status === 'onFailure' ? 'on failure' : c.status === 'onComplete' ? 'on complete' : 'on success', ai: false };
+          };
+          const arrow = '<svg width="26" height="12" viewBox="0 0 26 12"><path d="M0 6 H20" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M16 2 L22 6 L16 10" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>';
+          const conn = (e) => { const l = connLabel(e && e.condition); return '<span class="mf-conn">' + arrow + (l.txt ? '<span class="mf-lbl' + (l.ai ? ' ai' : '') + '">' + self._esc(l.txt) + '</span>' : '') + '</span>'; };
+          const rendered = new Set();
+          const renderNode = (id, path) => {
+            const s = stepById[id]; if (!s) return '';
+            if (path.has(id) || rendered.has(id)) return refChip(s);
+            rendered.add(id);
+            const chip = nodeChip(s), outs = outFrom[id] || [];
+            if (!outs.length) return chip;
+            const np = new Set(path); np.add(id);
+            if (outs.length === 1) return '<span class="mf-seg">' + chip + conn(outs[0]) + renderNode(outs[0].to, np) + '</span>';
+            const branches = outs.map(e => '<span class="mf-brow">' + conn(e) + renderNode(e.to, np) + '</span>').join('');
+            return '<span class="mf-fork">' + chip + '<span class="mf-branches">' + branches + '</span></span>';
+          };
+          const roots = steps.filter(s => !incoming[s.id]);
+          const startList = roots.length ? roots : [steps[0]];
+          let html = '';
+          startList.forEach(r => { html += '<div class="mini-flow mf-tree">' + renderNode(r.id, new Set()) + '</div>'; });
+          steps.forEach(s => { if (!rendered.has(s.id)) { rendered.add(s.id); html += '<div class="mini-flow mf-tree">' + renderNode(s.id, new Set()) + '</div>'; } });
+          els.forEach(el => el.innerHTML = html);
         },
 
         async openOrgPicker() {
@@ -22379,7 +22879,6 @@
 
         itemModalTitle() {
           const editing = !!this.newTaskForm.editingId;
-          if (this.newTaskForm.kind === 'assignment') return editing ? 'Edit Assignment' : 'New Assignment';
           return editing ? 'Edit Task' : 'New Task';
         },
 
