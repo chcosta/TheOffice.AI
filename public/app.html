@@ -1018,8 +1018,6 @@
     .cf-check-dot.s-failed, .cf-check-dot.s-error { background:var(--cp-danger); }
     .cf-check-dot.s-pending, .cf-check-dot.s-notset { background:var(--cp-warning); }
     .cf-check-gate .cf-check-name { font-weight:700; }
-    .cf-check-gate-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-accent); }
-    .cf-check-opt-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-text-soft); border:1px solid var(--cp-border); border-radius:5px; padding:0 4px; }
     .cf-check-name { color:var(--cp-text); font-weight:600; }
     .cf-check-desc { color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cf-check-group { display:flex; flex-direction:column; gap:5px; }
@@ -1038,9 +1036,16 @@
     .cf-wt-btn:hover:not(:disabled) { border-color:var(--cp-accent); color:var(--cp-accent); }
     .cf-wt-btn:disabled { opacity:0.6; cursor:default; }
     .cf-wt-status { color:var(--cp-text-muted); }
-    .cf-wt-row, .cf-wt-ready { display:flex; flex-wrap:wrap; align-items:center; gap:10px; row-gap:6px; }
+    .cf-wt-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; row-gap:6px; }
+    .cf-wt-ready { display:flex; align-items:flex-start; justify-content:space-between; gap:10px 16px; flex-wrap:wrap; }
+    .cf-wt-ready-main { display:flex; flex-wrap:wrap; align-items:center; gap:7px 13px; row-gap:7px; min-width:0; }
+    .cf-wt-ready-util { display:flex; align-items:center; gap:14px; flex:0 0 auto; }
     .cf-wt-label { font-weight:600; color:var(--cp-text); }
-    .cf-wt-agent { color:var(--cp-text-muted); font-family:Consolas,"Courier New",monospace; font-size:11.5px; }
+    .cf-wt-review { font-size:12px; padding:4px 12px; }
+    .cf-wt-review:not(:disabled) { border-color:var(--cp-accent); color:var(--cp-accent); }
+    .cf-wt-open { display:inline-flex; align-items:center; gap:9px; }
+    .cf-wt-open-k { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--cp-text-soft); }
+    .cf-wt-open .cf-wt-link + .cf-wt-link::before { content:'·'; color:var(--cp-border-strong); margin-right:9px; }
     .cf-wt-err { color:var(--cp-danger); }
     .cf-wt-link { font:inherit; font-size:12.5px; padding:0; border:none; background:none; color:var(--cp-link); cursor:pointer; text-decoration:none; }
     .cf-wt-link:hover:not(:disabled) { text-decoration:underline; }
@@ -7520,13 +7525,10 @@
                         <a class="cf-m-id" :href="pr.url" target="_blank" rel="noopener" x-text="'#' + pr.id"></a>
                         <span class="cf-m-muted" x-show="pr.isDraft">Draft</span>
                         <span class="cf-m-muted" x-text="codeflowAgeLabel(pr)"></span>
-                        <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
-                        <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'⛔ ' + pr.failedChecks + ' failing'"></span>
-                        <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'◷ ' + pr.pendingChecks + ' pending'"></span>
-                        <span class="cf-m-muted" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
-                        <span class="cf-m-muted" x-show="pr.comments && pr.comments.resolvedComments > 0" x-text="'✓ ' + pr.comments.resolvedComments + ' resolved'"></span>
-                        <span class="cf-m-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
                         <span class="cf-m-muted" x-show="codeflow.view === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
+                        <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
+                        <span class="cf-m-muted" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
+                        <span class="cf-m-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
                       </div>
                     </div>
                     <div x-show="pr.attention" style="flex:0 0 auto">
@@ -7656,24 +7658,31 @@
                     </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
-                        <span class="cf-wt-label">🔍 Review worktree</span>
-                        <button class="cf-wt-link cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
-                                title="Run the AI reviewer in this worktree and (re)generate the report">
-                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review with AI' : '🤖 Review with AI')"></span>
-                        </button>
-                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
-                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
-                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
-                        <span class="cf-wt-agent" x-show="cfWt(pr).reviewAgentName" x-text="'agent: ' + cfWt(pr).reviewAgentName"></span>
-                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
-                          <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                             x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
-                        </template>
-                        <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
-                              x-text="cfWt(pr).reviewError"></span>
-                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
-                                x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
-                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove</button>
+                        <div class="cf-wt-ready-main">
+                          <span class="cf-wt-label"
+                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
+                          <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
+                                  title="Run the AI reviewer in this worktree and (re)generate the report">
+                            <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
+                          </button>
+                          <span class="cf-wt-open">
+                            <span class="cf-wt-open-k">Open</span>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                          </span>
+                          <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
+                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                          </template>
+                          <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
+                                x-text="cfWt(pr).reviewError"></span>
+                        </div>
+                        <div class="cf-wt-ready-util">
+                          <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                  x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
+                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove</button>
+                        </div>
                       </div>
                     </template>
                   </div>
@@ -7703,24 +7712,31 @@
                     </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
-                        <span class="cf-wt-label">🔍 Review worktree</span>
-                        <button class="cf-wt-link cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
-                                title="Run the AI reviewer in this worktree and (re)generate the report">
-                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review with AI' : '🤖 Review with AI')"></span>
-                        </button>
-                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
-                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
-                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
-                        <span class="cf-wt-agent" x-show="cfWt(pr).reviewAgentName" x-text="'agent: ' + cfWt(pr).reviewAgentName"></span>
-                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
-                          <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                             x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
-                        </template>
-                        <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
-                              x-text="cfWt(pr).reviewError"></span>
-                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
-                                x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
-                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove worktree</button>
+                        <div class="cf-wt-ready-main">
+                          <span class="cf-wt-label"
+                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
+                          <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
+                                  title="Run the AI reviewer in this worktree and (re)generate the report">
+                            <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
+                          </button>
+                          <span class="cf-wt-open">
+                            <span class="cf-wt-open-k">Open</span>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                          </span>
+                          <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
+                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                          </template>
+                          <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
+                                x-text="cfWt(pr).reviewError"></span>
+                        </div>
+                        <div class="cf-wt-ready-util">
+                          <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                  x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
+                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove</button>
+                        </div>
                       </div>
                     </template>
                   </div>
