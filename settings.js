@@ -39,6 +39,10 @@ const DEFAULTS = {
   // New dev item dialog's org/project so users don't retype them every time.
   devOrg: '',
   devProject: '',
+  // Filesystem root under which dev-card AND code-flow review worktrees are
+  // created. Empty = a short auto-chosen default (e.g. C:\a) to maximize Windows
+  // MAX_PATH headroom. Set to any short directory to relocate all new worktrees.
+  worktreeRoot: '',
 };
 
 let cache = null;

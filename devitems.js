@@ -26,6 +26,29 @@ try {
 const DEV_REPOS = path.join(SUPERVISOR_DATA_DIR, 'dev-repos');
 const DEV_WORKTREES = path.join(SUPERVISOR_DATA_DIR, 'dev-worktrees');
 
+// Where new worktrees are created. Prefers the user's configured `worktreeRoot`
+// setting; otherwise a SHORT auto path (e.g. C:\a) to maximize Windows MAX_PATH
+// (260) headroom for deep repos/obj paths. Existing worktree records store
+// absolute paths, so only NEW worktrees follow a changed root. Never throws.
+function _shortDefaultRoot() {
+  try {
+    if (process.platform === 'win32') {
+      const root = path.parse(SUPERVISOR_DATA_DIR).root || 'C:\\';
+      return path.join(root, 'a');
+    }
+  } catch {}
+  return DEV_WORKTREES;
+}
+
+function worktreeRoot() {
+  try {
+    const s = require('./settings').getSettings();
+    const r = s && typeof s.worktreeRoot === 'string' ? s.worktreeRoot.trim() : '';
+    if (r) return r;
+  } catch {}
+  return _shortDefaultRoot();
+}
+
 function _safe(s) {
   return String(s || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
 }
@@ -35,7 +58,7 @@ function clonePath(org, project, repo) {
 }
 
 function worktreePath(repo, devId) {
-  return path.join(DEV_WORKTREES, _safe(repo) + '__' + _safe(devId));
+  return path.join(worktreeRoot(), _safe(repo) + '__' + _safe(devId));
 }
 
 function _authArgs() {

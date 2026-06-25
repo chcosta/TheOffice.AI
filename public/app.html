@@ -18,8 +18,11 @@
         if (ot) document.documentElement.setAttribute("data-org-theme", ot);
       } catch {}
       try {
+        // A selected team's theme wins over the global appearance palette, so
+        // skip applying the saved appearance while an org-theme is active.
+        const hasOrgTheme = !!document.documentElement.getAttribute("data-org-theme");
         const ap = localStorage.getItem("current-appearance");
-        if (ap) document.documentElement.setAttribute("data-appearance", ap);
+        if (ap && !hasOrgTheme) document.documentElement.setAttribute("data-appearance", ap);
         const ic = localStorage.getItem("current-iconset");
         if (ic && ic !== "emoji") document.documentElement.setAttribute("data-iconset", ic);
       } catch {}
@@ -376,7 +379,12 @@
     // appearance (palette) runtime
     function applyAppearance(id, persist){
       const el = document.documentElement;
-      if (id) el.setAttribute('data-appearance', id); else el.removeAttribute('data-appearance');
+      // A selected team's theme wins over the global palette: persist the choice
+      // but don't visually apply it while an org-theme is active (it applies when
+      // the user returns to "All teams").
+      const hasOrgTheme = !!el.getAttribute('data-org-theme');
+      if (id && !hasOrgTheme) el.setAttribute('data-appearance', id);
+      else if (!id) el.removeAttribute('data-appearance');
       if (persist){ try { if (id) localStorage.setItem('current-appearance', id); else localStorage.removeItem('current-appearance'); } catch {} }
     }
 
@@ -416,9 +424,9 @@
       --cp-warning: #f59e0b;
       --cp-link: #0078d4;
       --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
-      --cp-overlay: rgba(255, 255, 255, 0.8);
-      --cp-panel: rgba(255, 255, 255, 0.86);
-      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-overlay: color-mix(in srgb, var(--cp-surface) 80%, transparent);
+      --cp-panel: color-mix(in srgb, var(--cp-surface) 86%, transparent);
+      --cp-panel-strong: color-mix(in srgb, var(--cp-surface) 96%, transparent);
       --cp-sheen: rgba(255, 255, 255, 0.55);
       --cp-highlight: rgba(177, 31, 75, 0.12);
       --sidebar-width: 240px;
@@ -451,9 +459,9 @@
       --cp-warning: #fbbf24;
       --cp-link: #4da6ff;
       --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
-      --cp-overlay: rgba(41, 41, 41, 0.88);
-      --cp-panel: rgba(41, 41, 41, 0.72);
-      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-overlay: color-mix(in srgb, var(--cp-surface) 88%, transparent);
+      --cp-panel: color-mix(in srgb, var(--cp-surface) 72%, transparent);
+      --cp-panel-strong: color-mix(in srgb, var(--cp-surface) 96%, transparent);
       --cp-sheen: rgba(255, 255, 255, 0.04);
       --cp-highlight: rgba(253, 142, 161, 0.12);
     }
@@ -632,7 +640,10 @@
     }
 
 
-    /* ===== user appearance palettes (override org theme by source order) ===== */
+    /* ===== user appearance palettes =====
+       Global palette applied via data-appearance on <html>. When a team is
+       selected its org-theme wins: JS suppresses data-appearance while an
+       org-theme is active (see applyOrgTheme / applyAppearance). ===== */
     html[data-theme="light"][data-appearance="slate"] {
       --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
       --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
@@ -9546,6 +9557,11 @@
                   <input class="field-input" type="text" x-model="devSettings.devProject" placeholder="e.g. internal" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
                 </div>
               </div>
+              <div style="margin-top:16px;max-width:560px">
+                <label class="field-label">Worktree location</label>
+                <input class="field-input" type="text" x-model="devSettings.worktreeRoot" placeholder="Auto (short path, e.g. C:\a)" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
+                <p class="hint" style="margin-top:6px">Root folder where new dev-card &amp; PR-review worktrees are created. Leave blank for a short auto path that avoids Windows MAX_PATH (260-char) errors on deep repos. Existing worktrees keep their current location.</p>
+              </div>
               <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
@@ -12510,7 +12526,7 @@
         modelSettings: { chatModel: '', executionModel: '', systemModel: '' },
         exportSettings: { exportOrg: '', exportProject: '', exportRepo: '', exportBranch: '' },
         exportSettingsSaved: false,
-        devSettings: { devOrg: '', devProject: '' },
+        devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
         exportSettingsRepos: [],
@@ -13982,6 +13998,18 @@
           if (theme) el.setAttribute('data-org-theme', theme);
           else el.removeAttribute('data-org-theme');
           try { if (theme) localStorage.setItem('current-org-theme', theme); else localStorage.removeItem('current-org-theme'); } catch {}
+          // A selected team's theme must win over the global appearance palette
+          // (org-theme and appearance CSS have equal specificity). Suppress the
+          // appearance attribute while a team theme is active, and restore the
+          // user's saved global palette when reverting to "All teams"/no theme.
+          if (theme) {
+            el.removeAttribute('data-appearance');
+          } else {
+            let ap = '';
+            try { ap = localStorage.getItem('current-appearance') || ''; } catch {}
+            if (ap) el.setAttribute('data-appearance', ap);
+            else el.removeAttribute('data-appearance');
+          }
         },
         // Resolve an organization's theme preset (id, name, bg, accent) for previews.
         orgThemePreset(org) {
@@ -15182,7 +15210,7 @@
                 exportRepo: s.exportRepo || '',
                 exportBranch: s.exportBranch || ''
               };
-              this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '' };
+              this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '', worktreeRoot: s.worktreeRoot || '' };
               this._devSettingsLoaded = true;
               // Pre-populate the repo/branch pickers when a default org+project exist
               // so they're immediately editable on revisit (silent: no error toast).
@@ -15214,7 +15242,7 @@
           this.devSettingsSaved = false;
           try {
             const next = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify(this.devSettings) });
-            if (next) this.devSettings = { devOrg: next.devOrg || '', devProject: next.devProject || '' };
+            if (next) this.devSettings = { devOrg: next.devOrg || '', devProject: next.devProject || '', worktreeRoot: next.worktreeRoot || '' };
             this._devSettingsLoaded = true;
             this.devSettingsSaved = true;
             setTimeout(() => { this.devSettingsSaved = false; }, 2500);
@@ -15228,7 +15256,7 @@
           if (this._devSettingsLoaded) return;
           try {
             const s = await this.request('/api/settings');
-            if (s) this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '' };
+            if (s) this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '', worktreeRoot: s.worktreeRoot || '' };
           } catch {}
           this._devSettingsLoaded = true;
         },
@@ -16748,6 +16776,10 @@
             const rec = map[k];
             if (!rec || rec.prId == null) return;
             if (present.has(k)) return;
+            // An active PR is never an orphan — it's just not in the current view
+            // (e.g. a review-PR worktree while looking at "My PRs"). Only worktrees
+            // whose PR is actually closed/abandoned belong in the closed section.
+            if (String(rec.prStatus || '').toLowerCase() === 'active') return;
             if (this.codeflow.filterRepo && this.codeflowRepoLabel(this.codeflow.filterRepo) &&
                 String(rec.repo || '').toLowerCase() !== String(this.codeflowRepoLabel(this.codeflow.filterRepo)).toLowerCase()) return;
             out.push({

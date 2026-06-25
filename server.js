@@ -1900,9 +1900,35 @@ function _writeCfReviewAgentFile(rec, pr, workItems) {
 }
 
 // All review-worktree records (for frontend hydration). Returns an array.
-app.get('/api/codeflow/pr/worktrees', (req, res) => {
+// Opportunistically refreshes each record's prStatus from AzDO (throttled) so a
+// PR that has since closed/merged correctly drops out of the "open" buckets and
+// an active review PR is never mislabeled as closed. Best-effort; never throws.
+const CF_PRSTATUS_TTL_MS = 45000;
+app.get('/api/codeflow/pr/worktrees', async (req, res) => {
   const map = loadCodeflowWorktrees();
-  res.json({ worktrees: Object.keys(map).map(k => ({ key: k, ...map[k] })) });
+  const now = Date.now();
+  const stale = Object.keys(map).filter(k => {
+    const r = map[k];
+    return r && r.org && r.project && r.repo && r.prId != null &&
+      (!r.prStatusCheckedAt || (now - r.prStatusCheckedAt) > CF_PRSTATUS_TTL_MS);
+  });
+  await Promise.allSettled(stale.map(async k => {
+    const r = map[k];
+    try {
+      const pr = await azdo.getPullRequest(r.org, r.project, r.repo, r.prId);
+      const save = { prStatusCheckedAt: now };
+      if (pr && pr.status) {
+        save.prStatus = String(pr.status).toLowerCase();
+        if (pr.title) save.prTitle = pr.title;
+        if (pr.url) save.prUrl = pr.url;
+      }
+      _saveCfWt(k, save);
+    } catch {
+      try { _saveCfWt(k, { prStatusCheckedAt: now }); } catch {}
+    }
+  }));
+  const fresh = loadCodeflowWorktrees();
+  res.json({ worktrees: Object.keys(fresh).map(k => ({ key: k, ...fresh[k] })) });
 });
 
 // Read the machine-readable review findings the AI reviewer writes alongside the
