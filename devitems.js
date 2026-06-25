@@ -297,6 +297,120 @@ function pushBranch(wt, { branch } = {}) {
   };
 }
 
+// Ensure the worktree has a committer identity so `git commit` won't fail on a
+// machine with no global user.name/user.email. Sets a repo-local identity only
+// when one is missing. Best-effort.
+function _ensureGitIdentity(wt) {
+  const name = _gitTry(['config', 'user.name'], wt);
+  if (!name.ok || !name.out) _gitTry(['config', 'user.name', 'TheOffice.AI'], wt);
+  const email = _gitTry(['config', 'user.email'], wt);
+  if (!email.ok || !email.out) _gitTry(['config', 'user.email', 'noreply@theoffice.ai'], wt);
+}
+
+// Stage every change in the worktree and commit it. Used to make sure a user's
+// uncommitted local edits are captured before a push / PR. Returns
+// { ok, committed, files, message }. committed=false (ok:true) when nothing was
+// staged (clean tree) — that is not an error.
+function commitAll(wt, { message } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, committed: false, files: 0, message: 'No worktree to commit.' };
+  const before = (_gitTry(['status', '--porcelain'], wt).out || '');
+  const files = before ? before.split(/\r?\n/).filter(Boolean).length : 0;
+  if (!files) return { ok: true, committed: false, files: 0, message: 'Nothing to commit.' };
+  _ensureGitIdentity(wt);
+  const add = _gitTry(['add', '-A'], wt);
+  if (!add.ok) return { ok: false, committed: false, files, message: add.err.slice(0, 300) || 'git add failed.' };
+  const msg = String(message || '').trim() || 'Commit local changes';
+  const res = _gitTry(['commit', '-m', msg], wt);
+  if (!res.ok) return { ok: false, committed: false, files, message: res.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Commit failed.' };
+  return { ok: true, committed: true, files, message: 'Committed ' + files + ' change' + (files === 1 ? '' : 's') + '.' };
+}
+
+// Drift of a worktree vs a specific remote PR/source branch (origin/<branch>).
+// Unlike worktreeStatus (which compares to @{u} or origin/base), this always
+// compares the local HEAD to the PR's own source branch on origin — the right
+// signal for "does my local checkout match the PR branch?". Optionally fetches.
+// Returns { sourceBranch, localHead, remoteHead, ahead, behind, dirty, comparable, inSync, lastChecked } or null.
+function prDrift(wt, sourceBranch, { fetch = true } = {}) {
+  if (!wt || !_isRepo(wt)) return null;
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  const localHead = _gitTry(['rev-parse', 'HEAD'], wt).out || '';
+  const remoteRef = src ? 'origin/' + src : '';
+  const remoteHead = src ? (_gitTry(['rev-parse', '--verify', '--quiet', remoteRef], wt).out || '') : '';
+  let ahead = 0, behind = 0, comparable = false;
+  if (src && remoteHead) {
+    const counts = _gitTry(['rev-list', '--left-right', '--count', remoteRef + '...HEAD'], wt);
+    if (counts.ok) {
+      const m = counts.out.split(/\s+/);
+      behind = parseInt(m[0], 10) || 0;
+      ahead = parseInt(m[1], 10) || 0;
+      comparable = true;
+    }
+  }
+  const dirty = (_gitTry(['status', '--porcelain'], wt).out || '').length > 0;
+  const inSync = comparable && ahead === 0 && behind === 0 && !dirty;
+  return {
+    sourceBranch: src, localHead, remoteHead,
+    ahead, behind, dirty, comparable, inSync,
+    lastChecked: new Date().toISOString()
+  };
+}
+
+// Push the worktree's current HEAD up to the PR's source branch on origin. Works
+// even when the worktree is on a detached HEAD (review worktrees) by pushing
+// `HEAD:refs/heads/<sourceBranch>`. Commits any uncommitted changes first so the
+// user's full local state lands on the PR. Returns { ok, committed, files, message, drift }.
+function pushPrBranch(wt, { sourceBranch, message } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to push.' };
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!src) return { ok: false, message: 'No PR source branch to push to.' };
+  let committed = false, files = 0;
+  const c = commitAll(wt, { message: message || ('Update ' + src) });
+  if (!c.ok) return { ok: false, message: c.message };
+  committed = c.committed; files = c.files;
+  const res = _gitTry(['push', 'origin', 'HEAD:refs/heads/' + src], wt, { auth: true });
+  if (!res.ok) {
+    const nonff = /non-fast-forward|fetch first|rejected/i.test(res.err);
+    return {
+      ok: false, committed, files,
+      message: nonff
+        ? 'Push rejected — the PR branch has moved on the server. Sync your worktree first, then push.'
+        : (res.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Push failed.')
+    };
+  }
+  const drift = prDrift(wt, src, { fetch: true });
+  return {
+    ok: true, committed, files, drift,
+    message: (committed ? ('Committed ' + files + ' change' + (files === 1 ? '' : 's') + ' and pushed.') : 'Pushed.')
+  };
+}
+
+// Bring the worktree in line with the PR's source branch tip on origin by a hard
+// reset. Intended for read-only review worktrees (no local work to preserve).
+// Refuses when the local checkout has its own unpushed commits or uncommitted
+// edits unless force=true, so a user's work is never silently discarded.
+// Returns { ok, message, drift }.
+function syncToPrBranch(wt, { sourceBranch, force = false } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to sync.' };
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!src) return { ok: false, message: 'No PR source branch to sync to.' };
+  const pre = prDrift(wt, src, { fetch: true });
+  if (!pre || !pre.remoteHead) return { ok: false, message: 'The PR source branch was not found on origin.', drift: pre };
+  if (!force && (pre.ahead > 0 || pre.dirty)) {
+    return {
+      ok: false, needsForce: true, drift: pre,
+      message: 'Your local worktree has ' + (pre.ahead > 0 ? pre.ahead + ' unpushed commit' + (pre.ahead === 1 ? '' : 's') : '') +
+        (pre.ahead > 0 && pre.dirty ? ' and ' : '') + (pre.dirty ? 'uncommitted changes' : '') +
+        '. Syncing will discard them. Push first, or confirm to overwrite.'
+    };
+  }
+  if (pre.inSync) return { ok: true, message: 'Already up to date with the PR branch.', drift: pre };
+  const res = _gitTry(['reset', '--hard', 'origin/' + src], wt);
+  if (!res.ok) return { ok: false, message: res.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Sync failed.', drift: pre };
+  const drift = prDrift(wt, src, { fetch: false });
+  return { ok: true, message: 'Synced to the PR branch.', drift };
+}
+
 // Add a path to the worktree's git exclude (so an app-managed file never shows
 // in `git status` / gets committed). Resolves the correct exclude file even for
 // a linked worktree via `git rev-parse --git-path`. Best-effort.
@@ -563,6 +677,10 @@ module.exports = {
   createWorktreeAsync,
   worktreeStatus,
   syncWorktree,
+  commitAll,
+  prDrift,
+  pushPrBranch,
+  syncToPrBranch,
   diffSummary,
   pushBranch,
   addGitExclude,

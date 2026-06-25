@@ -655,6 +655,30 @@ async function getPrThreads(org, project, repo, prId) {
   return { activeComments: active, resolvedComments: resolved, totalThreads: total };
 }
 
+// Post a comment thread to a PR. When filePath + rightLine are given the thread
+// is anchored to that file/line in the PR diff (right/new side); otherwise it is
+// a general discussion comment. Returns the created thread. Caller should catch.
+async function createPrThread(org, project, repo, prId, { content, filePath, rightLine, status = 'active' } = {}) {
+  const body = {
+    comments: [{ parentCommentId: 0, content: String(content || ''), commentType: 1 }],
+    status
+  };
+  if (filePath) {
+    const p = '/' + String(filePath).replace(/^\/+/, '');
+    const line = parseInt(rightLine, 10);
+    body.threadContext = { filePath: p };
+    if (line > 0) {
+      body.threadContext.rightFileStart = { line, offset: 1 };
+      body.threadContext.rightFileEnd = { line, offset: 1 };
+    }
+  }
+  return apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}/threads?api-version=${API_VERSION}`,
+    { method: 'POST', body }
+  );
+}
+
 // CI / validation statuses posted to a PR (build policies, custom checks).
 // These ARE the "PR runs / CI runs" surfaced in the Validation section.
 async function getPrStatuses(org, project, repo, prId) {
@@ -861,6 +885,7 @@ module.exports = {
   getPrChangedFiles,
   listPullRequests,
   getPrThreads,
+  createPrThread,
   getPrStatuses,
   getPrPolicyEvaluations,
   getBuild,

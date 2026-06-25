@@ -1794,16 +1794,16 @@ function _cfReviewAgentSlug(o) {
 
 // The review agent persona. Read-only by design: it analyzes and reports, it
 // does NOT change the PR's code or push anything.
-function _buildReviewAgentMd({ agentName, pr, workItems, worktreePath, reportName }) {
+function _buildReviewAgentMd({ agentName, pr, workItems, worktreePath, reportName, commentsName }) {
   const desc = 'Read-only PR review agent for ' + (pr.repo || 'repo') + ' #' + pr.id;
   const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
-  return fm + _reviewPersonaBody({ pr, workItems, reportName });
+  return fm + _reviewPersonaBody({ pr, workItems, reportName, commentsName });
 }
 
 // The reviewer persona body (everything after the agent-file frontmatter). Shared
 // by the .agent.md the user opens in VS Code/CLI AND the headless "Review with AI"
 // run, so both follow the exact same disciplined review + report contract.
-function _reviewPersonaBody({ pr, workItems, reportName }) {
+function _reviewPersonaBody({ pr, workItems, reportName, commentsName = CODEFLOW_COMMENTS_NAME }) {
   const ctx = [];
   ctx.push('## The pull request under review');
   ctx.push(`- **#${pr.id}** ${pr.title || ''}`);
@@ -1863,10 +1863,19 @@ Write a **self-contained** HTML review named \`${reportName}\` at the root of th
   7. **Concerns & risks** — blocking or ambiguous items a human must weigh in on.
 - **Lead with the verdict.** Make the bottom line obvious at the top; keep the layout calm, professional, timestamped, with the PR id/link.
 
-## Hard rules
-- You are **read-only with respect to the PR**: do **not** edit the PR's source files, do **not** commit, and do **not** push. Your output is the analysis and the HTML report.
-- **Never check yourself in.** NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`) or your generated review report (\`${reportName}\`). They stay untracked.
-- If you notice a \`.github/agents/*.agent.md\` file or the report file in \`git status\`, leave them untracked and never add them.
+## Machine-readable findings (JSON)
+In addition to the HTML report, write a **second** file named \`${commentsName}\` at the root of this worktree — a machine-readable list of your concrete **code quality findings** so they can be posted to the PR as review comments. Requirements:
+- **Valid JSON only**, exactly this shape:
+  \`\`\`json
+  {"summary": "<one-line overall verdict>", "comments": [{"file": "relative/path/from/repo/root.ext", "line": 123, "severity": "blocker|major|minor|nit", "title": "<short title>", "body": "<the finding>", "suggestion": "<concrete suggested fix, optional>"}]}
+  \`\`\`
+- One entry per concrete finding from your **Code quality findings** table. \`file\` is the repo-relative path (forward slashes) and \`line\` is the line number in the **new/right** version of that file. If a finding is not tied to a specific line, omit \`line\` (or set it to null) — it will be posted as a general PR comment.
+- Keep \`body\` self-contained and actionable; include the suggested fix in \`suggestion\` when you have one.
+- Only include real, defensible findings — do not pad. An empty \`comments\` array is fine if the PR is clean.
+
+
+- **Never check yourself in.** NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`), your generated review report (\`${reportName}\`), or the machine-readable findings (\`${commentsName}\`). They stay untracked.
+- If you notice a \`.github/agents/*.agent.md\` file, the report file, or \`${commentsName}\` in \`git status\`, leave them untracked and never add them.
 `;
   return body;
 }
@@ -1874,6 +1883,7 @@ Write a **self-contained** HTML review named \`${reportName}\` at the root of th
 // Write the review agent into the worktree and git-exclude both the agent file
 // AND the report it will generate, so neither can land in the PR branch.
 const CODEFLOW_REPORT_NAME = 'pr-review-report.html';
+const CODEFLOW_COMMENTS_NAME = 'pr-review-comments.json';
 function _writeCfReviewAgentFile(rec, pr, workItems) {
   const wt = rec.worktreePath;
   if (!wt || !fs.existsSync(wt)) return null;
@@ -1882,9 +1892,10 @@ function _writeCfReviewAgentFile(rec, pr, workItems) {
   const agentsDir = path.join(wt, '.github', 'agents');
   fs.mkdirSync(agentsDir, { recursive: true });
   fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'),
-    _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME }));
+    _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME }));
   try { devitems.addGitExclude(wt, rel); } catch {}
   try { devitems.addGitExclude(wt, CODEFLOW_REPORT_NAME); } catch {}
+  try { devitems.addGitExclude(wt, CODEFLOW_COMMENTS_NAME); } catch {}
   return { reviewAgentName: slug, reviewAgentFile: rel };
 }
 
@@ -1894,8 +1905,24 @@ app.get('/api/codeflow/pr/worktrees', (req, res) => {
   res.json({ worktrees: Object.keys(map).map(k => ({ key: k, ...map[k] })) });
 });
 
+// Read the machine-readable review findings the AI reviewer writes alongside the
+// HTML report. Returns { summary, comments[] } or null. Never throws.
+function _readCfReviewComments(wtPath) {
+  try {
+    if (!wtPath) return null;
+    const f = path.join(wtPath, CODEFLOW_COMMENTS_NAME);
+    if (!fs.existsSync(f)) return null;
+    const parsed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const comments = Array.isArray(parsed && parsed.comments) ? parsed.comments : [];
+    return { summary: (parsed && parsed.summary) || '', comments };
+  } catch { return null; }
+}
+
 // One record (status poll). Re-scans + caches reports if the worktree is ready,
-// so a review report written by the agent after opening gets picked up.
+// so a review report written by the agent after opening gets picked up. Also
+// surfaces PR-branch drift (local worktree vs origin/<sourceBranch>) and the
+// count of AI review findings ready to post. Pass ?refresh=1 to fetch from origin
+// for an up-to-date drift comparison (the 2s poll otherwise stays local-only).
 app.get('/api/codeflow/pr/worktree', (req, res) => {
   const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
   if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
@@ -1905,7 +1932,16 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   if (rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath)) {
     try {
       const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
-      rec = _saveCfWt(key, { reports: reports || [] });
+      const save = { reports: reports || [] };
+      if (rec.sourceBranch) {
+        try {
+          const drift = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: req.query.refresh === '1' });
+          if (drift) save.drift = drift;
+        } catch {}
+      }
+      const rc = _readCfReviewComments(rec.worktreePath);
+      save.reviewComments = rc ? rc.comments.length : 0;
+      rec = _saveCfWt(key, save);
     } catch {}
   }
   res.json({ worktree: { key, ...rec } });
@@ -2007,7 +2043,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       // 3. Run the reviewer in the worktree. Prefer the resolved review agent;
       //    fall back to a plain prompt run (same persona body) if it can't resolve.
       const slug = (agent && agent.reviewAgentName) || rec.reviewAgentName || _cfReviewAgentSlug({ ...o, id: pr.id });
-      const kickoff = 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` at the ROOT of this worktree (overwrite it if it exists). When the report file is written and saved, reply with the single word DONE.';
+      const kickoff = 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When both files are written and saved, reply with the single word DONE.';
       const model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined;
       const sid = require('crypto').randomUUID();
       let acc = '';
@@ -2055,7 +2091,85 @@ app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
   res.json({ ok: true });
 });
 
-// Serve a cached/live review report (live worktree first, cache fallback).
+// Sync the review worktree to the latest origin/<sourceBranch> (fetch + hard
+// reset). Refuses to discard local commits/changes unless force=true.
+app.post('/api/codeflow/pr/worktree/sync', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to sync.' });
+  if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
+  try {
+    const r = devitems.syncToPrBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, force: !!b.force });
+    if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Sync refused.', needsForce: !!(r && r.needsForce), drift: r && r.drift });
+    const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
+    res.json({ ok: true, message: r.message, drift: r.drift || null, worktree: { key, ...updated } });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Sync failed' });
+  }
+});
+
+// Push the local worktree's commits to the PR's source branch (commits any dirty
+// changes first). Used for "my PRs" where the user worked locally in the review
+// worktree and wants to update the PR branch.
+app.post('/api/codeflow/pr/push', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to push from.' });
+  if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
+  try {
+    const r = devitems.pushPrBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, message: b.message });
+    if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Push failed.', drift: r && r.drift });
+    const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
+    res.json({ ok: true, committed: r.files || 0, message: r.message, drift: r.drift || null, worktree: { key, ...updated } });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Push failed' });
+  }
+});
+
+// Post the AI reviewer's findings (pr-review-comments.json) to the PR as review
+// comment threads — one per finding, anchored to file/line when known.
+app.post('/api/codeflow/pr/comments/post', async (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
+  const rc = _readCfReviewComments(rec.worktreePath);
+  if (!rc || !rc.comments.length) return res.status(400).json({ error: 'No review findings to post. Run "Review with AI" first.' });
+  const sevTag = (s) => {
+    const v = String(s || '').toLowerCase();
+    return v === 'blocker' ? '🚫 Blocker' : v === 'major' ? '⚠️ Major' : v === 'minor' ? '🔹 Minor' : v === 'nit' ? '💬 Nit' : '💬 Comment';
+  };
+  const results = [];
+  for (const c of rc.comments) {
+    try {
+      const parts = ['**' + sevTag(c.severity) + (c.title ? ' — ' + c.title : '') + '**', ''];
+      if (c.body) parts.push(c.body);
+      if (c.suggestion) parts.push('', '**Suggested fix:** ' + c.suggestion);
+      parts.push('', '_Posted from AI code review._');
+      const file = c.file ? (String(c.file).startsWith('/') ? String(c.file) : '/' + String(c.file)) : null;
+      const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null;
+      await azdo.createPrThread(o.org, o.project, o.repo, o.prId, {
+        content: parts.join('\n'),
+        filePath: file && line ? file : null,
+        rightLine: file && line ? line : null,
+        status: 'active'
+      });
+      results.push({ ok: true, title: c.title || '', anchored: !!(file && line) });
+    } catch (e) {
+      results.push({ ok: false, title: c.title || '', error: (e && e.message) || 'failed' });
+    }
+  }
+  const posted = results.filter(r => r.ok).length;
+  res.json({ ok: posted > 0, posted, total: rc.comments.length, results });
+});
 // Make a cached/agent-generated HTML report honor the SPA's light/dark theme.
 // Reports are free-form HTML the review agent writes, so we inject (idempotently):
 //   1. a theme-detection <script> right after <head> that reads ?scoutTheme=
@@ -8129,7 +8243,37 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   res.json({ ok: r.ok, message: r.message, dev: updated });
 });
 
-// Build the dev-summary prompt from a card + its live work-item + PER-REPO state.
+// Push local worktree changes up to origin for a dev card's repo slot. Commits any
+// uncommitted changes first so the user's full local state lands on the remote
+// branch, then refreshes the slot's git status. This is the dev-card counterpart
+// to the PR-create push: it lets a user keep an existing PR's branch up to date.
+app.post('/api/boards/:id/dev-items/:devId/push', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const slot = _findRepoSlot(d, slotId);
+  if (!slot || !slot.worktreePath || !fs.existsSync(slot.worktreePath)) {
+    return res.status(400).json({ error: 'No worktree to push — create one first.' });
+  }
+  let committed = 0;
+  try {
+    const c = devitems.commitAll(slot.worktreePath, { message: 'Update ' + (slot.branch || 'branch') });
+    if (!c.ok) return res.status(500).json({ ok: false, error: 'Failed to commit local changes: ' + c.message });
+    if (c.committed) committed = c.files;
+  } catch (e) { return res.status(500).json({ ok: false, error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
+  let push;
+  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch }); }
+  catch (e) { return res.status(500).json({ ok: false, error: 'Failed to push: ' + ((e && e.message) || e) }); }
+  if (!push.ok) return res.status(500).json({ ok: false, error: 'Failed to push: ' + push.message });
+  let git = slot.git;
+  try { git = devitems.worktreeStatus(slot.worktreePath, { fetch: true, baseBranch: slot.baseBranch }); } catch {}
+  const updated = _saveRepoSlot(ctx, slot.id, { git });
+  const message = committed
+    ? ('Committed ' + committed + ' change' + (committed === 1 ? '' : 's') + ' and pushed to ' + (push.branch || slot.branch) + '.')
+    : ('Pushed to ' + (push.branch || slot.branch) + '.');
+  res.json({ ok: true, message, committed, dev: updated });
+});
 // `repos` is the unified slot list, each entry { slot, pr, git, diff } — so a card
 // that spans multiple repos (primary + d.repos[]) is summarized across ALL of them,
 // each with its own PR, reviewer votes, branch sync state, and diff hunks.
@@ -8765,7 +8909,14 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   if (!slot.worktreePath || !fs.existsSync(slot.worktreePath)) return res.status(400).json({ error: 'Create a worktree first.' });
   const base = (String(slot.baseBranch || '').trim()) || 'main';
 
-  // 1) Push the work branch to origin.
+  // 1) Commit any uncommitted local changes, then push the work branch to origin
+  //    — the user expects ALL their local work to land on the PR.
+  let committedCount = 0;
+  try {
+    const c = devitems.commitAll(slot.worktreePath, { message: 'Changes for ' + (slot.branch || 'PR') });
+    if (!c.ok) return res.status(500).json({ error: 'Failed to commit local changes: ' + c.message });
+    if (c.committed) committedCount = c.files;
+  } catch (e) { return res.status(500).json({ error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
   let push;
   try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch }); }
   catch (e) { return res.status(500).json({ error: 'Failed to push branch: ' + ((e && e.message) || e) }); }
@@ -8852,7 +9003,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     if (wi && !hadPrAlready) topSave.workItem = wi;
     updated = ctx.save(topSave);
   }
-  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, repoId: slot.id, stateWarning });
+  res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, repoId: slot.id, committed: committedCount, stateWarning });
 });
 
 // ============================================================================

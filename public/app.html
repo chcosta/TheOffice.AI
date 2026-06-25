@@ -1592,6 +1592,11 @@
     .cf-wt-link:disabled { opacity:0.6; cursor:default; }
     .cf-wt-report { font-weight:600; }
     .cf-wt-danger { color:var(--cp-danger); }
+    .cf-wt-drift { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--cp-warning); font-weight:600; }
+    .cf-wt-insync { font-size:12px; color:var(--cp-success); font-weight:600; }
+    .cf-wt-sync, .cf-wt-push { font-size:12px; padding:4px 12px; }
+    .cf-wt-approve { font-size:12px; padding:4px 12px; border-color:var(--cp-success); color:var(--cp-success); }
+    .cf-wt-approve:not(:disabled):hover { background:rgba(22,163,74,0.08); }
     .cf-orphans { margin-top:22px; padding-top:14px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:12px; }
     .cf-orphans-head { display:flex; flex-direction:column; gap:2px; }
     .cf-orphans-title { font-weight:600; font-size:13.5px; color:var(--cp-text); }
@@ -8245,6 +8250,27 @@
                                 x-text="cfWt(pr).reviewError"></span>
                         </div>
                         <div class="cf-wt-ready-util">
+                          <!-- Drift vs the PR branch: local checkout out of sync with origin/<sourceBranch> -->
+                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
+                            <span class="cf-wt-drift" :title="cfDriftTip(pr)">
+                              <span x-text="cfDriftLabel(pr)"></span>
+                              <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfSync(pr)"
+                                      title="Reset this local worktree to match the PR branch (origin)"
+                                      x-text="cfBusy(pr) === 'sync' ? 'Syncing…' : '↺ Sync'"></button>
+                            </span>
+                          </template>
+                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
+                            <span class="cf-wt-insync" title="Local worktree matches the PR branch">✓ In sync</span>
+                          </template>
+                          <!-- Mine view: push local commits up to the PR branch -->
+                          <button x-show="codeflow.view === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
+                                  title="Commit any local changes and push to the PR branch"
+                                  x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
+                          <!-- Reviews view: post the AI review findings as PR comments -->
+                          <button x-show="codeflow.view === 'reviews' && (cfWt(pr).reviewComments || 0) > 0"
+                                  class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfPostComments(pr)"
+                                  :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
+                                  x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
                           <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
                                   title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
                                   x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
@@ -16930,6 +16956,119 @@
             this.showToast('Cancel', e.message, 'error');
           } finally {
             delete this.codeflow.worktrees[key];
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // ----- Drift / sync / push / review-comment helpers (Code Flow worktrees) -----
+        cfDriftLabel(pr) {
+          const d = (this.cfWt(pr) || {}).drift;
+          if (!d || !d.comparable) return '';
+          const parts = [];
+          if (d.ahead) parts.push('↑' + d.ahead);
+          if (d.behind) parts.push('↓' + d.behind);
+          if (d.dirty) parts.push('● uncommitted');
+          return '⚠ Out of sync' + (parts.length ? ' (' + parts.join(' ') + ')' : '');
+        },
+        cfDriftTip(pr) {
+          const d = (this.cfWt(pr) || {}).drift;
+          if (!d) return '';
+          const bits = ['Local worktree vs PR branch ' + (d.sourceBranch || '')];
+          if (d.ahead) bits.push(d.ahead + ' local commit(s) not on the PR branch');
+          if (d.behind) bits.push(d.behind + ' commit(s) on the PR branch not in your worktree');
+          if (d.dirty) bits.push('Uncommitted local changes');
+          return bits.join(' • ');
+        },
+        async _cfReloadWt(key, pr) {
+          // Force a fresh drift read (?refresh=1) and update the record.
+          try {
+            const q = '?org=' + encodeURIComponent(pr.org) + '&project=' + encodeURIComponent(pr.project) +
+              '&repo=' + encodeURIComponent(pr.repo) + '&prId=' + encodeURIComponent(pr.id) + '&refresh=1';
+            const resp = await this.request('/api/codeflow/pr/worktree' + q);
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+          } catch { /* non-fatal */ }
+        },
+        async cfSync(pr) {
+          const key = this.cfPrKey(pr);
+          const d = (this.cfWt(pr) || {}).drift || {};
+          // When the local worktree is ahead or dirty, syncing discards local work — confirm + force.
+          let force = false;
+          if (d.ahead || d.dirty) {
+            const ok = await this.uiConfirm('Sync worktree',
+              'Your local worktree has ' + (d.ahead ? d.ahead + ' local commit(s) ' : '') +
+              (d.dirty ? (d.ahead ? 'and ' : '') + 'uncommitted changes ' : '') +
+              'that will be discarded to match the PR branch. Continue?');
+            if (!ok) return;
+            force = true;
+          }
+          this.codeflow.wtBusy[key] = 'sync';
+          try {
+            const resp = await this.request('/api/codeflow/pr/worktree/sync', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, force })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Sync', (resp && resp.message) || 'Worktree synced to PR branch.', 'success');
+          } catch (e) {
+            // 409 needsForce → offer to force.
+            if (e && e.status === 409) {
+              const ok = await this.uiConfirm('Sync worktree',
+                'Sync was refused because local changes would be lost. Discard them and force-sync to the PR branch?');
+              if (ok) {
+                try {
+                  const resp = await this.request('/api/codeflow/pr/worktree/sync', {
+                    method: 'POST',
+                    body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, force: true })
+                  });
+                  if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+                  this.showToast('Sync', (resp && resp.message) || 'Worktree force-synced.', 'success');
+                  return;
+                } catch (e2) { this.showToast('Sync', e2.message, 'error'); return; }
+              }
+              return;
+            }
+            this.showToast('Sync', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        async cfPush(pr) {
+          const key = this.cfPrKey(pr);
+          this.codeflow.wtBusy[key] = 'push';
+          try {
+            const resp = await this.request('/api/codeflow/pr/push', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Push', (resp && resp.message) || 'Pushed to PR branch.', 'success');
+          } catch (e) {
+            this.showToast('Push', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        async cfPostComments(pr) {
+          const key = this.cfPrKey(pr);
+          const n = (this.cfWt(pr) || {}).reviewComments || 0;
+          const ok = await this.uiConfirm('Add review comments to PR',
+            'Post ' + n + ' AI review finding' + (n === 1 ? '' : 's') + ' as comment' + (n === 1 ? '' : 's') +
+            ' on PR !' + pr.id + '? Anchored findings attach to their file/line; the rest post as general comments.');
+          if (!ok) return;
+          this.codeflow.wtBusy[key] = 'comments';
+          try {
+            const resp = await this.request('/api/codeflow/pr/comments/post', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id }),
+              timeoutMs: 0
+            });
+            const posted = (resp && resp.posted) || 0;
+            const total = (resp && resp.total) || 0;
+            this.showToast('Add review comments',
+              'Posted ' + posted + ' of ' + total + ' comment' + (total === 1 ? '' : 's') + ' to PR !' + pr.id + '.',
+              posted ? 'success' : 'error');
+          } catch (e) {
+            this.showToast('Add review comments', e.message, 'error');
+          } finally {
             delete this.codeflow.wtBusy[key];
           }
         },
