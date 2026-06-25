@@ -925,6 +925,77 @@
     .type-badge.type-badge-manager { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
     .type-badge.type-badge-agent { border-color: var(--cp-link); color: var(--cp-link); background: color-mix(in srgb, var(--cp-link) 10%, transparent); }
 
+    /* ===== Code Flow ===== */
+    .nav-attn-badge {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:18px; height:18px; padding:0 5px; border-radius:999px;
+      background:var(--cp-accent); color:var(--cp-accent-fg);
+      font-size:11px; font-weight:700; line-height:1; flex:0 0 auto;
+    }
+    .cf-attn-banner {
+      display:flex; align-items:center; gap:12px; padding:12px 16px; margin-bottom:18px;
+      border-radius:12px; border:1px solid var(--cp-accent);
+      background:var(--cp-accent-soft); color:var(--cp-text);
+    }
+    .cf-attn-banner .cf-attn-icon { font-size:20px; }
+    .cf-views { display:flex; gap:6px; margin-bottom:16px; }
+    .cf-view-tab {
+      display:inline-flex; align-items:center; gap:8px; font:inherit; font-size:13px; font-weight:600;
+      padding:8px 14px; border-radius:10px; border:1px solid var(--cp-border);
+      background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer;
+    }
+    .cf-view-tab.on { border-color:var(--cp-accent); color:var(--cp-accent); background:var(--cp-accent-soft); }
+    .cf-view-tab .cf-tab-count {
+      display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px;
+      padding:0 5px; border-radius:999px; font-size:11px; font-weight:700;
+      background:var(--cp-surface-soft); color:var(--cp-text-muted);
+    }
+    .cf-view-tab.on .cf-tab-count { background:var(--cp-accent); color:var(--cp-accent-fg); }
+    .cf-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+    .cf-select { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
+    .cf-pr-list { display:flex; flex-direction:column; gap:12px; }
+    .cf-pr-card {
+      border:1px solid var(--cp-border); border-radius:14px; background:var(--cp-surface);
+      padding:14px 16px; box-shadow:0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+    }
+    .cf-pr-card.cf-attn { border-color:var(--cp-accent); }
+    .cf-pr-top { display:flex; align-items:flex-start; gap:12px; }
+    .cf-pr-title { font-size:15px; font-weight:650; line-height:1.35; color:var(--cp-text); text-decoration:none; }
+    .cf-pr-title:hover { color:var(--cp-accent); }
+    .cf-pr-meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
+    .cf-pill {
+      display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
+      font-size:11.5px; font-weight:600; border:1px solid var(--cp-border);
+      background:var(--cp-surface-soft); color:var(--cp-text-muted); white-space:nowrap;
+    }
+    .cf-pill.cf-repo { border-color:var(--cp-link); color:var(--cp-link); background:color-mix(in srgb, var(--cp-link) 9%, transparent); }
+    .cf-pill.cf-ok { border-color:var(--cp-success); color:var(--cp-success); background:color-mix(in srgb, var(--cp-success) 12%, transparent); }
+    .cf-pill.cf-bad { border-color:var(--cp-danger); color:var(--cp-danger); background:color-mix(in srgb, var(--cp-danger) 12%, transparent); }
+    .cf-pill.cf-warn { border-color:var(--cp-warning); color:var(--cp-warning); background:color-mix(in srgb, var(--cp-warning) 14%, transparent); }
+    .cf-pill.cf-accent { border-color:var(--cp-accent); color:var(--cp-accent); background:var(--cp-accent-soft); }
+    .cf-pill.cf-draft { font-style:italic; }
+    .cf-attn-reason {
+      display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px;
+      font-size:11.5px; font-weight:700; border:1px solid var(--cp-accent);
+      background:var(--cp-accent); color:var(--cp-accent-fg);
+    }
+    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:10px; }
+    .cf-validation-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--cp-text-soft); margin-bottom:7px; }
+    .cf-checks { display:flex; flex-direction:column; gap:5px; }
+    .cf-check { display:flex; align-items:center; gap:8px; font-size:12.5px; }
+    .cf-check a { color:var(--cp-link); text-decoration:none; }
+    .cf-check a:hover { text-decoration:underline; }
+    .cf-check-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; background:var(--cp-text-soft); }
+    .cf-check-dot.s-succeeded { background:var(--cp-success); }
+    .cf-check-dot.s-failed, .cf-check-dot.s-error { background:var(--cp-danger); }
+    .cf-check-dot.s-pending, .cf-check-dot.s-notset { background:var(--cp-warning); }
+    .cf-check-name { color:var(--cp-text); font-weight:600; }
+    .cf-check-desc { color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-repo-manager { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-bg-elevated); padding:14px 16px; margin-bottom:18px; }
+    .cf-repo-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--cp-border); }
+    .cf-repo-row:last-child { border-bottom:none; }
+    .cf-repo-input { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
+
     /* ===== Flow canvas builder ===== */
     .flow-canvas-shell { display:flex; height:480px; border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; background:var(--cp-bg-elevated); }
     .flow-palette { width:230px; flex:0 0 230px; border-right:1px solid var(--cp-border); background:var(--cp-bg-elevated); display:flex; flex-direction:column; min-height:0; }
@@ -3672,7 +3743,10 @@
                      :class="{ active: isRouteGroup(section.routeGroup) }"
                      :href="section.href">
                     <span x-text="section.icon"></span>
-                    <span x-text="section.title"></span>
+                    <span x-text="section.title" style="flex:1"></span>
+                    <template x-if="section.badge">
+                      <span class="nav-attn-badge" x-text="section.badge"></span>
+                    </template>
                   </a>
                   <template x-for="item in section.items" :key="item.id">
                     <a class="sub-link"
@@ -7220,6 +7294,167 @@
                   <button class="btn ghost" type="button" @click="insightSuggestOpen=false">Close</button>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
+          <section x-show="!loading && !errorMessage && route === 'codeflow'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🔀 Code Flow</h1>
+                <p>Monitor your Azure DevOps pull requests across watched repos — build &amp; approval status, comment activity, validation runs, and what needs your attention. Read-only.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn ghost" type="button" @click="codeflowManageOpen = !codeflowManageOpen"
+                        x-text="codeflowManageOpen ? 'Hide repos' : ('⚙ Manage repos (' + codeflow.repos.length + ')')"></button>
+                <button class="btn" type="button" :disabled="codeflow.loading" @click="refreshCodeFlow()"
+                        x-text="codeflow.loading ? '…' : '↻ Refresh'"></button>
+              </div>
+            </div>
+
+            <!-- Attention banner -->
+            <div x-show="codeflow.attentionCount > 0" class="cf-attn-banner">
+              <span class="cf-attn-icon">⚠️</span>
+              <div style="flex:1">
+                <strong x-text="codeflow.attentionCount + (codeflow.attentionCount === 1 ? ' pull request needs' : ' pull requests need') + ' your attention'"></strong>
+                <div class="hint" x-text="codeflow.view === 'reviews' ? 'Reviews are waiting on you.' : 'Changes requested, failing checks, or ready to merge.'"></div>
+              </div>
+            </div>
+
+            <!-- Repo manager -->
+            <div x-show="codeflowManageOpen" class="cf-repo-manager" x-transition.opacity.duration.150ms>
+              <div class="cf-validation-title" style="margin-bottom:10px">Watched repositories</div>
+              <template x-if="!codeflow.repos.length">
+                <div class="hint" style="padding:6px 0 12px">No repos monitored yet. Add an Azure DevOps org / project / repo below.</div>
+              </template>
+              <template x-for="r in codeflow.repos" :key="r.id">
+                <div class="cf-repo-row">
+                  <span class="cf-pill cf-repo" x-text="r.repo"></span>
+                  <span class="hint" style="flex:1" x-text="r.org + ' / ' + r.project"></span>
+                  <button class="btn ghost danger" type="button" :disabled="codeflowReposBusy[r.id]"
+                          @click="removeCodeflowRepo(r)" x-text="codeflowReposBusy[r.id] ? '…' : '🗑 Remove'"></button>
+                </div>
+              </template>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:14px">
+                <div style="flex:1;min-width:130px">
+                  <label class="field-label">Org</label>
+                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.org" placeholder="e.g. dnceng" @keydown.enter="addCodeflowRepo()">
+                </div>
+                <div style="flex:1;min-width:130px">
+                  <label class="field-label">Project</label>
+                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.project" placeholder="e.g. internal" @keydown.enter="addCodeflowRepo()">
+                </div>
+                <div style="flex:1;min-width:130px">
+                  <label class="field-label">Repository</label>
+                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.repo" placeholder="e.g. dotnet-helix-service" @keydown.enter="addCodeflowRepo()">
+                </div>
+                <button class="btn primary" type="button" :disabled="codeflowRepoForm.busy"
+                        @click="addCodeflowRepo()" x-text="codeflowRepoForm.busy ? 'Adding…' : '＋ Add'"></button>
+              </div>
+              <div x-show="codeflowRepoForm.error" class="hint" style="color:var(--cp-danger);margin-top:8px" x-text="codeflowRepoForm.error"></div>
+            </div>
+
+            <!-- View tabs -->
+            <div class="cf-views" role="tablist">
+              <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'mine' }" role="tab"
+                      :aria-selected="codeflow.view === 'mine'" @click="setCodeflowView('mine')">
+                <span>📤 My PRs</span>
+                <span class="cf-tab-count" x-show="codeflowAttention.mine > 0" x-text="codeflowAttention.mine"></span>
+              </button>
+              <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'reviews' }" role="tab"
+                      :aria-selected="codeflow.view === 'reviews'" @click="setCodeflowView('reviews')">
+                <span>👀 Reviews needed from me</span>
+                <span class="cf-tab-count" x-show="codeflowAttention.reviews > 0" x-text="codeflowAttention.reviews"></span>
+              </button>
+            </div>
+
+            <!-- Toolbar: filter + sort -->
+            <div class="cf-toolbar" x-show="codeflow.repos.length">
+              <label class="hint" style="display:flex;align-items:center;gap:6px">Repo
+                <select class="cf-select" x-model="codeflow.filterRepo">
+                  <option value="">All repos</option>
+                  <template x-for="r in codeflow.repos" :key="r.id">
+                    <option :value="r.id" x-text="r.repo"></option>
+                  </template>
+                </select>
+              </label>
+              <label class="hint" style="display:flex;align-items:center;gap:6px">Sort
+                <select class="cf-select" x-model="codeflow.sort">
+                  <option value="attention">Attention first</option>
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="age">Longest open</option>
+                </select>
+              </label>
+              <span class="hint" style="margin-left:auto" x-text="codeflowFetchedLabel()"></span>
+            </div>
+
+            <!-- Errors -->
+            <template x-if="codeflow.errors.length">
+              <div class="hint" style="color:var(--cp-warning);margin-bottom:12px">
+                <template x-for="er in codeflow.errors" :key="er.repo + er.error">
+                  <div x-text="'⚠ ' + (er.repo ? (er.repo + ': ') : '') + er.error"></div>
+                </template>
+              </div>
+            </template>
+
+            <!-- Loading / empty -->
+            <div x-show="codeflow.loading && !codeflow.pullRequests.length" class="hint" style="padding:24px">Loading pull requests…</div>
+            <div x-show="!codeflow.loading && !codeflow.repos.length" class="empty-state">
+              No repos monitored yet. Click <strong>Manage repos</strong> above to add an Azure DevOps repository.
+            </div>
+            <div x-show="!codeflow.loading && codeflow.repos.length && !filteredCodeflowPrs().length" class="empty-state">
+              <span x-text="codeflow.view === 'reviews' ? 'No pull requests are waiting on your review. 🎉' : 'You have no open pull requests in the watched repos.'"></span>
+            </div>
+
+            <!-- PR list -->
+            <div class="cf-pr-list">
+              <template x-for="pr in filteredCodeflowPrs()" :key="pr.org + '/' + pr.repo + '/' + pr.id">
+                <article class="cf-pr-card" :class="{ 'cf-attn': pr.attention }">
+                  <div class="cf-pr-top">
+                    <div style="flex:1;min-width:0">
+                      <a class="cf-pr-title" :href="pr.url" target="_blank" rel="noopener" x-text="pr.title"></a>
+                      <div class="cf-pr-meta">
+                        <span class="cf-pill cf-repo" x-text="pr.repo"></span>
+                        <span class="cf-pill" x-text="'#' + pr.id"></span>
+                        <span class="cf-pill cf-draft" x-show="pr.isDraft">Draft</span>
+                        <span class="cf-pill" x-text="codeflowAgeLabel(pr)"></span>
+                        <span class="cf-pill" :class="codeflowApprovalPill(pr).cls" x-text="codeflowApprovalPill(pr).label"></span>
+                        <span class="cf-pill cf-bad" x-show="pr.failedChecks > 0" x-text="'⛔ ' + pr.failedChecks + ' failing'"></span>
+                        <span class="cf-pill cf-warn" x-show="pr.pendingChecks > 0" x-text="'◷ ' + pr.pendingChecks + ' pending'"></span>
+                        <span class="cf-pill" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
+                        <span class="cf-pill" x-show="pr.comments && pr.comments.resolvedComments > 0" x-text="'✓ ' + pr.comments.resolvedComments + ' resolved'"></span>
+                        <span class="cf-pill cf-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
+                        <span class="cf-pill" x-show="codeflow.view === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
+                      </div>
+                    </div>
+                    <div x-show="pr.attention" style="flex:0 0 auto">
+                      <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
+                    </div>
+                  </div>
+
+                  <!-- Validation section: CI / PR runs / checks -->
+                  <template x-if="pr.validation && pr.validation.length">
+                    <div class="cf-validation">
+                      <div class="cf-validation-title">Validation</div>
+                      <div class="cf-checks">
+                        <template x-for="chk in pr.validation" :key="chk.id">
+                          <div class="cf-check">
+                            <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
+                            <template x-if="chk.targetUrl">
+                              <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
+                            </template>
+                            <template x-if="!chk.targetUrl">
+                              <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
+                            </template>
+                            <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </article>
+              </template>
             </div>
           </section>
 
@@ -11172,6 +11407,22 @@
         insightSuggestions: [],
         insightSuggestHint: '',
         insightSuggestError: '',
+        // Code Flow — Azure DevOps PR monitoring across watched repos.
+        codeflow: {
+          view: 'mine',          // 'mine' | 'reviews'
+          loading: false,
+          repos: [],             // watched repo entries {id,org,project,repo}
+          pullRequests: [],
+          errors: [],
+          attentionCount: 0,
+          fetchedAt: null,
+          filterRepo: '',        // repoId filter ('' = all)
+          sort: 'attention'      // 'attention' | 'newest' | 'oldest' | 'age'
+        },
+        codeflowAttention: { mine: 0, reviews: 0, total: 0 },
+        codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '' },
+        codeflowReposBusy: {},   // repoId -> true while removing
+        codeflowManageOpen: false,
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
@@ -11415,6 +11666,10 @@
           this.loadModels();
           this.connectEvents();
           setInterval(() => { this.now = Date.now(); }, 1000);
+          // Code Flow attention badge — best-effort + lazy so it never blocks startup,
+          // then refreshed periodically to keep the menu badge live.
+          setTimeout(() => this.loadCodeflowAttention(true), 4000);
+          this._codeflowAttnTimer = setInterval(() => this.loadCodeflowAttention(true), 180000);
           // Keep the board canvas sized so it's the only scroller (no double scrollbars).
           window.addEventListener('resize', () => { if (this.route === 'boards') this._recalcBoardCanvasH(); });
           // Multi-client single-writer: when this tab becomes the visible client again, re-fit ONCE
@@ -11925,7 +12180,7 @@
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'dev-archive'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -11989,6 +12244,8 @@
             }
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
+          } else if (this.route === 'codeflow') {
+            await this.loadCodeFlow();
           } else if (this.route === 'dev-archive') {
             // Archived dev cards are computed client-side from this.boards (every
             // board carries its full devItems), so just ensure boards are loaded.
@@ -12696,6 +12953,7 @@
             home,
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
+            { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.total || 0 },
             watercooler,
             ...globalZone
           ];
@@ -12744,7 +13002,7 @@
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights'].includes(r)) return 'workspace';
+          if (['boards', 'insights', 'codeflow'].includes(r)) return 'workspace';
           if (['agents', 'agent-detail', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'chains', 'chain-detail', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
@@ -15267,7 +15525,154 @@
             this.$nextTick(() => this.updateBoardSwitchOverflow());
           }
         },
-        // ---- Insights (read-only AI cross-board views) -------------------------
+        // ---- Code Flow (Azure DevOps PR monitoring) ----------------------------
+        async loadCodeFlow(silent) {
+          if (!silent) this.codeflow.loading = true;
+          try {
+            // Load watched repos and PRs for the current view together.
+            const [reposResp, prResp] = await Promise.all([
+              this.request('/api/codeflow/repos').catch(() => ({ repos: [] })),
+              this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(this.codeflow.view))
+            ]);
+            this.codeflow.repos = Array.isArray(reposResp.repos) ? reposResp.repos : [];
+            this.codeflow.pullRequests = Array.isArray(prResp.pullRequests) ? prResp.pullRequests : [];
+            this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
+            this.codeflow.attentionCount = prResp.attentionCount || 0;
+            this.codeflow.fetchedAt = prResp.fetchedAt || null;
+            // Drop the repo filter if it points at a now-removed repo.
+            if (this.codeflow.filterRepo && !this.codeflow.repos.some(r => r.id === this.codeflow.filterRepo)) {
+              this.codeflow.filterRepo = '';
+            }
+          } catch (e) {
+            if (!silent) this.showToast('Code Flow', e.message, 'error');
+            this.codeflow.errors = [{ repo: '', error: e.message }];
+          } finally {
+            this.codeflow.loading = false;
+          }
+        },
+        async refreshCodeFlow() {
+          this.codeflow.loading = true;
+          try {
+            const prResp = await this.request(
+              '/api/codeflow/pullrequests?view=' + encodeURIComponent(this.codeflow.view) + '&refresh=1');
+            this.codeflow.pullRequests = Array.isArray(prResp.pullRequests) ? prResp.pullRequests : [];
+            this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
+            this.codeflow.attentionCount = prResp.attentionCount || 0;
+            this.codeflow.fetchedAt = prResp.fetchedAt || null;
+            this.loadCodeflowAttention(true);
+          } catch (e) {
+            this.showToast('Code Flow', e.message, 'error');
+          } finally {
+            this.codeflow.loading = false;
+          }
+        },
+        setCodeflowView(view) {
+          if (view !== 'mine' && view !== 'reviews') return;
+          if (this.codeflow.view === view) return;
+          this.codeflow.view = view;
+          this.loadCodeFlow();
+        },
+        async addCodeflowRepo() {
+          const f = this.codeflowRepoForm;
+          const org = (f.org || '').trim(), project = (f.project || '').trim(), repo = (f.repo || '').trim();
+          if (!org || !project || !repo) { f.error = 'Org, project and repo are all required.'; return; }
+          f.busy = true; f.error = '';
+          try {
+            await this.request('/api/codeflow/repos', { method: 'POST', body: JSON.stringify({ org, project, repo }) });
+            f.org = ''; f.project = ''; f.repo = '';
+            this.showToast('Code Flow', 'Now monitoring ' + repo, 'success');
+            await this.loadCodeFlow();
+            this.loadCodeflowAttention(true);
+          } catch (e) {
+            f.error = e.message || 'Could not add repo.';
+          } finally {
+            f.busy = false;
+          }
+        },
+        async removeCodeflowRepo(repoEntry) {
+          if (!repoEntry || !repoEntry.id) return;
+          this.codeflowReposBusy[repoEntry.id] = true;
+          try {
+            await this.request('/api/codeflow/repos/' + encodeURIComponent(repoEntry.id), { method: 'DELETE' });
+            await this.loadCodeFlow();
+            this.loadCodeflowAttention(true);
+          } catch (e) {
+            this.showToast('Code Flow', e.message, 'error');
+          } finally {
+            delete this.codeflowReposBusy[repoEntry.id];
+          }
+        },
+        async loadCodeflowAttention(silent) {
+          try {
+            const a = await this.request('/api/codeflow/attention');
+            this.codeflowAttention = {
+              mine: a.mine || 0,
+              reviews: a.reviews || 0,
+              total: a.total || 0
+            };
+          } catch (e) {
+            if (!silent) console.warn('codeflow attention', e.message);
+          }
+        },
+        filteredCodeflowPrs() {
+          let list = (this.codeflow.pullRequests || []).slice();
+          if (this.codeflow.filterRepo) {
+            list = list.filter(p => p.repoId === this.codeflow.filterRepo);
+          }
+          const s = this.codeflow.sort;
+          if (s === 'newest') {
+            list.sort((a, b) => new Date(b.creationDate || 0) - new Date(a.creationDate || 0));
+          } else if (s === 'oldest') {
+            list.sort((a, b) => new Date(a.creationDate || 0) - new Date(b.creationDate || 0));
+          } else if (s === 'age') {
+            list.sort((a, b) => (b.ageHours || 0) - (a.ageHours || 0));
+          } else {
+            // 'attention' — attention first, then newest (server default order).
+            list.sort((a, b) => {
+              if (!!a.attention !== !!b.attention) return a.attention ? -1 : 1;
+              return new Date(b.creationDate || 0) - new Date(a.creationDate || 0);
+            });
+          }
+          return list;
+        },
+        codeflowRepoLabel(repoId) {
+          const r = (this.codeflow.repos || []).find(x => x.id === repoId);
+          return r ? (r.repo) : '';
+        },
+        codeflowAgeLabel(pr) {
+          const h = pr.ageHours || 0;
+          if (h < 1) return '<1h old';
+          if (h < 24) return h + 'h old';
+          const d = Math.floor(h / 24);
+          return d + 'd old';
+        },
+        codeflowApprovalPill(pr) {
+          const map = {
+            'approved': { cls: 'cf-ok', label: '✓ Approved' },
+            'partially-approved': { cls: 'cf-warn', label: '◐ Partial approval' },
+            'rejected': { cls: 'cf-bad', label: '✗ Changes requested' },
+            'waiting-for-author': { cls: 'cf-warn', label: '⏳ Waiting for author' },
+            'pending': { cls: '', label: '◌ Review pending' },
+            'no-reviews': { cls: '', label: 'No reviewers' }
+          };
+          return map[pr.approvalState] || map['no-reviews'];
+        },
+        codeflowAttentionLabel(reason) {
+          const map = {
+            'awaiting-your-review': '👀 Awaiting your review',
+            'updated-since-your-review': '🔄 Updated since your review',
+            'changes-requested': '✗ Changes requested',
+            'failing-checks': '⛔ Failing checks',
+            'ready-to-merge': '✅ Ready to merge',
+            'reviewer-waiting': '⏳ Reviewer waiting'
+          };
+          return map[reason] || '⚠ Needs attention';
+        },
+        codeflowFetchedLabel() {
+          if (!this.codeflow.fetchedAt) return '';
+          try { return 'Updated ' + this.formatRelative(this.codeflow.fetchedAt); } catch { return ''; }
+        },
+        // ---- Insights
         async loadInsights(selectId, silent) {
           if (!silent) this.insightsLoading = true;
           try {

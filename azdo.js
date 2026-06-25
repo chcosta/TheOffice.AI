@@ -545,9 +545,163 @@ async function getPullRequest(org, project, repo, prId) {
   };
 }
 
+// ---- Code Flow: PR monitoring -------------------------------------------
+
+// Identity of the Azure CLI account, scoped to an org. Used to answer
+// "my PRs" / "reviews needed from me". connectionData needs no api-version.
+async function getCurrentUser(org) {
+  const d = await api(org, `_apis/connectionData`);
+  const u = d.authenticatedUser || {};
+  const email =
+    (u.properties && u.properties.Account && u.properties.Account.$value) ||
+    u.subjectDescriptor || '';
+  return {
+    id: u.id || '',
+    name: u.providerDisplayName || u.customDisplayName || '',
+    email: email || '',
+    descriptor: u.descriptor || ''
+  };
+}
+
+// Map an Azure DevOps reviewer vote to a friendly label.
+function voteLabel(vote) {
+  switch (Number(vote)) {
+    case 10: return 'approved';
+    case 5: return 'approved-with-suggestions';
+    case -5: return 'waiting-for-author';
+    case -10: return 'rejected';
+    default: return 'no-vote';
+  }
+}
+
+function _compactPr(d, org, project, repo) {
+  const strip = (r) => (r || '').replace(/^refs\/heads\//, '');
+  const repoName = (d.repository && d.repository.name) || repo || '';
+  return {
+    id: d.pullRequestId,
+    title: d.title || '',
+    status: d.status || '',
+    isDraft: !!d.isDraft,
+    mergeStatus: d.mergeStatus || '',
+    sourceBranch: strip(d.sourceRefName),
+    targetBranch: strip(d.targetRefName),
+    creationDate: d.creationDate || '',
+    createdBy: {
+      id: (d.createdBy && d.createdBy.id) || '',
+      name: (d.createdBy && (d.createdBy.displayName || d.createdBy.uniqueName)) || ''
+    },
+    reviewers: (d.reviewers || []).map(rv => ({
+      id: rv.id || '',
+      name: rv.displayName || rv.uniqueName || '',
+      vote: rv.vote,
+      voteLabel: voteLabel(rv.vote),
+      isRequired: !!rv.isRequired
+    })),
+    org, project,
+    repo: repoName,
+    url: pullRequestUrl(org, project, repoName, d.pullRequestId)
+  };
+}
+
+// List pull requests in a repo. Filter by creatorId / reviewerId / status.
+// status: active (default) | completed | abandoned | all.
+async function listPullRequests(org, project, repo, { creatorId, reviewerId, status = 'active', top = 50 } = {}) {
+  const qs = [`searchCriteria.status=${encodeURIComponent(status)}`, `$top=${Number(top) || 50}`];
+  if (creatorId) qs.push(`searchCriteria.creatorId=${encodeURIComponent(creatorId)}`);
+  if (reviewerId) qs.push(`searchCriteria.reviewerId=${encodeURIComponent(reviewerId)}`);
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests?${qs.join('&')}&api-version=${API_VERSION}`
+  );
+  return (d.value || []).map(pr => _compactPr(pr, org, project, repo));
+}
+
+// Comment threads on a PR. Returns active/resolved counts (user threads only)
+// plus a light list of resolvable threads for context.
+async function getPrThreads(org, project, repo, prId) {
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}/threads?api-version=${API_VERSION}`
+  );
+  let active = 0, resolved = 0, total = 0;
+  for (const t of (d.value || [])) {
+    const comments = (t.comments || []).filter(c => !c.isDeleted && (c.commentType || 'text') === 'text');
+    if (!comments.length) continue; // skip pure system/status threads
+    total++;
+    const st = (t.status || '').toLowerCase();
+    if (st === 'fixed' || st === 'closed' || st === 'wontfix' || st === 'bydesign') resolved++;
+    else active++; // active, pending, or unset
+  }
+  return { activeComments: active, resolvedComments: resolved, totalThreads: total };
+}
+
+// CI / validation statuses posted to a PR (build policies, custom checks).
+// These ARE the "PR runs / CI runs" surfaced in the Validation section.
+async function getPrStatuses(org, project, repo, prId) {
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}/statuses?api-version=${API_VERSION}`
+  );
+  // The statuses feed appends a new entry each time a check re-posts; keep only
+  // the most recent per (genre/name) context.
+  const byCtx = new Map();
+  for (const s of (d.value || [])) {
+    const ctx = s.context || {};
+    const key = `${ctx.genre || ''}/${ctx.name || ''}`;
+    const prev = byCtx.get(key);
+    if (!prev || new Date(s.creationDate || 0) > new Date(prev.creationDate || 0)) {
+      byCtx.set(key, s);
+    }
+  }
+  return [...byCtx.values()].map(s => {
+    const ctx = s.context || {};
+    return {
+      id: s.id,
+      state: (s.state || '').toLowerCase(), // succeeded|failed|pending|error|notApplicable|notSet
+      genre: ctx.genre || '',
+      name: ctx.name || '',
+      description: s.description || '',
+      targetUrl: s.targetUrl || '',
+      creationDate: s.creationDate || ''
+    };
+  }).sort((a, b) => `${a.genre}${a.name}`.localeCompare(`${b.genre}${b.name}`));
+}
+
+// Branch (merge) policy evaluations for a PR — the authoritative "is it ready
+// to merge" signal. Needs the project GUID. Best-effort: callers should catch.
+async function getPrPolicyEvaluations(org, project, prId, projectId) {
+  let pid = projectId;
+  if (!pid) {
+    try { pid = (await getProject(org, project)).id; } catch { pid = null; }
+  }
+  if (!pid) return { evaluations: [], ready: null };
+  const artifactId = `vstfs:///CodeReview/CodeReviewId/${pid}/${prId}`;
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/policy/evaluations?artifactId=${encodeURIComponent(artifactId)}&api-version=${API_VERSION}`
+  );
+  const evals = (d.value || []).map(e => {
+    const cfg = e.configuration || {};
+    return {
+      status: (e.status || '').toLowerCase(), // approved|queued|running|rejected|notApplicable
+      blocking: !!cfg.isBlocking,
+      type: (cfg.type && (cfg.type.displayName || cfg.type.id)) || ''
+    };
+  });
+  const blocking = evals.filter(e => e.blocking && e.status !== 'notapplicable');
+  const ready = blocking.length ? blocking.every(e => e.status === 'approved') : null;
+  return { evaluations: evals, ready };
+}
+
 module.exports = {
   AZDO_STORE,
   getToken,
+  getCurrentUser,
+  voteLabel,
+  listPullRequests,
+  getPrThreads,
+  getPrStatuses,
+  getPrPolicyEvaluations,
   listRepos,
   listBranches,
   discover,

@@ -60,6 +60,7 @@ const TEAMS_PATH = dataPath('teams.json');
 const LEGACY_ORGANIZATIONS_PATH = dataPath('organizations.json');
 const BOARDS_PATH = dataPath('boards.json');
 const INSIGHTS_PATH = dataPath('insights.json');
+const CODEFLOW_PATH = dataPath('codeflow-repos.json');
 
 // Ensure tasks.json exists
 if (!fs.existsSync(TASKS_PATH)) {
@@ -149,6 +150,20 @@ function loadInsights() {
 
 function saveInsights(insights) {
   fs.writeFileSync(INSIGHTS_PATH, JSON.stringify(insights || [], null, 2));
+}
+
+// Code Flow: the list of Azure DevOps repos the user has chosen to monitor.
+// Each entry: { id, org, project, repo, repoId?, addedAt }.
+function loadCodeflowRepos() {
+  try {
+    if (!fs.existsSync(CODEFLOW_PATH)) return [];
+    const v = JSON.parse(fs.readFileSync(CODEFLOW_PATH, 'utf-8'));
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+
+function saveCodeflowRepos(repos) {
+  fs.writeFileSync(CODEFLOW_PATH, JSON.stringify(repos || [], null, 2));
 }
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
@@ -1173,6 +1188,213 @@ app.post('/api/azdo/install', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: `Azure DevOps install failed: ${e.message}` });
   }
+});
+
+// ============ Code Flow API Routes ============
+// Monitors Azure DevOps pull requests across a user-curated set of repos.
+// Auth is secretless via the locally signed-in Azure CLI (see azdo.js). The
+// core surfaces "My PRs" + "Reviews needed from me" with live state (build /
+// approval / comments / ready-to-merge + a Validation section); AI enrichment
+// (urgency, summaries, suggested reviewers) is a deferred fast-follow.
+
+// --- Watched repos (storage mirrors azdo-sources) ---
+
+app.get('/api/codeflow/repos', (req, res) => {
+  try { res.json({ repos: loadCodeflowRepos() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/codeflow/repos', (req, res) => {
+  const org = (req.body && req.body.org || '').trim();
+  const project = (req.body && req.body.project || '').trim();
+  const repo = (req.body && req.body.repo || '').trim();
+  if (!org || !project || !repo) return res.status(400).json({ error: 'org, project and repo are required' });
+  try {
+    const repos = loadCodeflowRepos();
+    const dup = repos.find(r =>
+      r.org.toLowerCase() === org.toLowerCase() &&
+      r.project.toLowerCase() === project.toLowerCase() &&
+      r.repo.toLowerCase() === repo.toLowerCase());
+    if (dup) return res.status(409).json({ error: 'That repo is already monitored', repo: dup });
+    const entry = {
+      id: 'cfr-' + require('crypto').randomBytes(5).toString('hex'),
+      org, project, repo,
+      addedAt: new Date().toISOString()
+    };
+    repos.push(entry);
+    saveCodeflowRepos(repos);
+    _codeflowCache.clear();
+    res.json({ ok: true, repo: entry });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/codeflow/repos/:id', (req, res) => {
+  try {
+    const repos = loadCodeflowRepos();
+    const next = repos.filter(r => r.id !== req.params.id);
+    if (next.length === repos.length) return res.status(404).json({ error: 'Repo not found' });
+    saveCodeflowRepos(next);
+    _codeflowCache.clear();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// The signed-in Azure CLI identity (per org). Needed to scope my-PRs / reviews.
+app.get('/api/codeflow/me', async (req, res) => {
+  try {
+    let org = (req.query.org || '').trim();
+    if (!org) {
+      const repos = loadCodeflowRepos();
+      org = repos[0] && repos[0].org;
+    }
+    if (!org) return res.status(400).json({ error: 'No org available — add a repo first or pass ?org=' });
+    res.json({ org, user: await azdo.getCurrentUser(org) });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// --- PR aggregation ---
+
+const _codeflowCache = new Map(); // view -> { at, data }
+const CODEFLOW_TTL_MS = 120000;
+
+// Enrich a compact PR with threads / statuses / policy evals + derived state.
+async function _enrichCodeflowPr(pr, viewerId) {
+  const safe = (p) => p.catch(() => null);
+  const [threads, statuses, policy] = await Promise.all([
+    safe(azdo.getPrThreads(pr.org, pr.project, pr.repo, pr.id)),
+    safe(azdo.getPrStatuses(pr.org, pr.project, pr.repo, pr.id)),
+    safe(azdo.getPrPolicyEvaluations(pr.org, pr.project, pr.id))
+  ]);
+  const ageMs = pr.creationDate ? (Date.now() - new Date(pr.creationDate).getTime()) : 0;
+  const ageHours = Math.max(0, Math.round(ageMs / 3600000));
+  const ageDays = Math.floor(ageHours / 24);
+
+  const required = (pr.reviewers || []).filter(r => r.isRequired);
+  const anyRejected = (pr.reviewers || []).some(r => r.vote === -10);
+  const anyWaiting = (pr.reviewers || []).some(r => r.vote === -5);
+  const reqApproved = required.length ? required.every(r => r.vote >= 5) : null;
+  let approvalState = 'no-reviews';
+  if (anyRejected) approvalState = 'rejected';
+  else if (anyWaiting) approvalState = 'waiting-for-author';
+  else if (reqApproved === true) approvalState = 'approved';
+  else if ((pr.reviewers || []).some(r => r.vote >= 5)) approvalState = 'partially-approved';
+  else if ((pr.reviewers || []).length) approvalState = 'pending';
+
+  const failedChecks = (statuses || []).filter(s => s.state === 'failed' || s.state === 'error').length;
+  const pendingChecks = (statuses || []).filter(s => s.state === 'pending' || s.state === 'notSet').length;
+
+  // Ready-to-merge: prefer the authoritative policy signal; else heuristic.
+  let readyToMerge;
+  if (policy && policy.ready !== null && policy.ready !== undefined) {
+    readyToMerge = policy.ready;
+  } else {
+    readyToMerge = !pr.isDraft &&
+      pr.mergeStatus === 'succeeded' &&
+      (reqApproved === true || (reqApproved === null && approvalState === 'approved')) &&
+      failedChecks === 0;
+  }
+
+  // My own vote (for the reviews view).
+  const myReviewer = viewerId ? (pr.reviewers || []).find(r => r.id === viewerId) : null;
+  const myVote = myReviewer ? myReviewer.voteLabel : null;
+
+  return {
+    ...pr,
+    ageHours, ageDays,
+    comments: threads || { activeComments: 0, resolvedComments: 0, totalThreads: 0 },
+    validation: statuses || [],
+    failedChecks, pendingChecks,
+    policy: policy || { evaluations: [], ready: null },
+    approvalState,
+    readyToMerge: !!readyToMerge,
+    myVote
+  };
+}
+
+// Flag a PR as needing attention (drives the banner + menu badge).
+function _codeflowAttention(pr, view) {
+  if (view === 'reviews') {
+    // Awaiting my review (I haven't voted) or I asked for changes and it moved on.
+    if (!pr.myVote || pr.myVote === 'no-vote') return { attention: true, reason: 'awaiting-your-review' };
+    if (pr.myVote === 'waiting-for-author' && pr.approvalState !== 'waiting-for-author')
+      return { attention: true, reason: 'updated-since-your-review' };
+    return { attention: false, reason: '' };
+  }
+  // mine
+  if (pr.approvalState === 'rejected') return { attention: true, reason: 'changes-requested' };
+  if (pr.failedChecks > 0) return { attention: true, reason: 'failing-checks' };
+  if (pr.readyToMerge) return { attention: true, reason: 'ready-to-merge' };
+  if (pr.approvalState === 'waiting-for-author') return { attention: true, reason: 'reviewer-waiting' };
+  return { attention: false, reason: '' };
+}
+
+async function _gatherCodeflow(view) {
+  const repos = loadCodeflowRepos();
+  if (!repos.length) return { view, repos: [], pullRequests: [], attentionCount: 0, errors: [] };
+
+  // Resolve identity once per distinct org.
+  const orgs = [...new Set(repos.map(r => r.org))];
+  const userByOrg = {};
+  await Promise.all(orgs.map(async (org) => {
+    try { userByOrg[org] = await azdo.getCurrentUser(org); }
+    catch { userByOrg[org] = null; }
+  }));
+
+  const errors = [];
+  const perRepo = await Promise.all(repos.map(async (r) => {
+    const me = userByOrg[r.org];
+    if (!me || !me.id) { errors.push({ repo: r.repo, error: 'identity unavailable' }); return []; }
+    try {
+      const filter = view === 'reviews' ? { reviewerId: me.id } : { creatorId: me.id };
+      const prs = await azdo.listPullRequests(r.org, r.project, r.repo, filter);
+      const enriched = await Promise.all(prs.map(async (pr) => {
+        const e = await _enrichCodeflowPr(pr, me.id);
+        const a = _codeflowAttention(e, view);
+        return { ...e, attention: a.attention, attentionReason: a.reason, repoId: r.id };
+      }));
+      return enriched;
+    } catch (e) {
+      errors.push({ repo: r.repo, error: e.message });
+      return [];
+    }
+  }));
+
+  const pullRequests = perRepo.flat().sort((a, b) => {
+    if (a.attention !== b.attention) return a.attention ? -1 : 1;
+    return new Date(b.creationDate || 0) - new Date(a.creationDate || 0);
+  });
+  const attentionCount = pullRequests.filter(p => p.attention).length;
+  return { view, repos, pullRequests, attentionCount, errors };
+}
+
+app.get('/api/codeflow/pullrequests', async (req, res) => {
+  const view = req.query.view === 'reviews' ? 'reviews' : 'mine';
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  try {
+    const cached = _codeflowCache.get(view);
+    if (!refresh && cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) {
+      return res.json({ ...cached.data, cached: true, fetchedAt: new Date(cached.at).toISOString() });
+    }
+    const data = await _gatherCodeflow(view);
+    _codeflowCache.set(view, { at: Date.now(), data });
+    res.json({ ...data, cached: false, fetchedAt: new Date().toISOString() });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// Lightweight attention counts for the menu badge (both views).
+app.get('/api/codeflow/attention', async (req, res) => {
+  try {
+    const out = { mine: 0, reviews: 0 };
+    for (const view of ['mine', 'reviews']) {
+      const cached = _codeflowCache.get(view);
+      let data;
+      if (cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) data = cached.data;
+      else { data = await _gatherCodeflow(view); _codeflowCache.set(view, { at: Date.now(), data }); }
+      out[view] = data.attentionCount || 0;
+    }
+    out.total = out.mine + out.reviews;
+    res.json(out);
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 // ============ Marketplace API Routes ============
