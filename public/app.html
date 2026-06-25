@@ -9557,10 +9557,17 @@
                   <input class="field-input" type="text" x-model="devSettings.devProject" placeholder="e.g. internal" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
                 </div>
               </div>
-              <div style="margin-top:16px;max-width:560px">
-                <label class="field-label">Worktree location</label>
+              <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
+            </div>
+
+            <!-- Worktree Location Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">📁 Worktree Location</h3>
+              <p class="hint" style="margin-bottom:14px">Root folder where <strong>all</strong> new worktrees are created — both <strong>dev-card</strong> worktrees and <strong>PR-review</strong> worktrees. A short root avoids Windows MAX_PATH (260-char) errors on deeply-nested repos.</p>
+              <div style="max-width:560px">
+                <label class="field-label">Worktree root</label>
                 <input class="field-input" type="text" x-model="devSettings.worktreeRoot" placeholder="Auto (short path, e.g. C:\a)" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
-                <p class="hint" style="margin-top:6px">Root folder where new dev-card &amp; PR-review worktrees are created. Leave blank for a short auto path that avoids Windows MAX_PATH (260-char) errors on deep repos. Existing worktrees keep their current location.</p>
+                <p class="hint" style="margin-top:6px">Leave blank for a short auto path. Existing worktrees keep their current location — only newly-created ones use this root.</p>
               </div>
               <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
