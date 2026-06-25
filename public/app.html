@@ -932,6 +932,14 @@
       background:var(--cp-accent); color:var(--cp-accent-fg);
       font-size:11px; font-weight:700; line-height:1; flex:0 0 auto;
     }
+    .nav-badges { display:inline-flex; align-items:center; gap:4px; flex:0 0 auto; }
+    .nav-count-badge {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:18px; height:18px; padding:0 5px; border-radius:999px;
+      background:var(--cp-surface-soft); color:var(--cp-text-muted);
+      border:1px solid var(--cp-border);
+      font-size:11px; font-weight:700; line-height:1; flex:0 0 auto;
+    }
     .cf-attn-banner {
       display:flex; align-items:center; gap:12px; padding:12px 16px; margin-bottom:18px;
       border-radius:12px; border:1px solid var(--cp-accent);
@@ -3744,8 +3752,15 @@
                      :href="section.href">
                     <span x-text="section.icon"></span>
                     <span x-text="section.title" style="flex:1"></span>
-                    <template x-if="section.badge">
-                      <span class="nav-attn-badge" x-text="section.badge"></span>
+                    <template x-if="section.badge || section.attnBadge">
+                      <span class="nav-badges">
+                        <template x-if="section.badge">
+                          <span class="nav-count-badge" x-text="section.badge" :title="section.badgeTitle"></span>
+                        </template>
+                        <template x-if="section.attnBadge">
+                          <span class="nav-attn-badge" x-text="section.attnBadge" :title="section.attnTitle"></span>
+                        </template>
+                      </span>
                     </template>
                   </a>
                   <template x-for="item in section.items" :key="item.id">
@@ -11419,7 +11434,7 @@
           filterRepo: '',        // repoId filter ('' = all)
           sort: 'attention'      // 'attention' | 'newest' | 'oldest' | 'age'
         },
-        codeflowAttention: { mine: 0, reviews: 0, total: 0 },
+        codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0 },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '' },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
@@ -12953,7 +12968,7 @@
             home,
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
-            { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.total || 0 },
+            { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.total || 0, attnTitle: 'Pull requests needing your attention' },
             watercooler,
             ...globalZone
           ];
@@ -15608,7 +15623,8 @@
             this.codeflowAttention = {
               mine: a.mine || 0,
               reviews: a.reviews || 0,
-              total: a.total || 0
+              total: a.total || 0,
+              mineActive: a.mineActive || 0
             };
           } catch (e) {
             if (!silent) console.warn('codeflow attention', e.message);

@@ -1384,13 +1384,14 @@ app.get('/api/codeflow/pullrequests', async (req, res) => {
 // Lightweight attention counts for the menu badge (both views).
 app.get('/api/codeflow/attention', async (req, res) => {
   try {
-    const out = { mine: 0, reviews: 0 };
+    const out = { mine: 0, reviews: 0, mineActive: 0 };
     for (const view of ['mine', 'reviews']) {
       const cached = _codeflowCache.get(view);
       let data;
       if (cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) data = cached.data;
       else { data = await _gatherCodeflow(view); _codeflowCache.set(view, { at: Date.now(), data }); }
       out[view] = data.attentionCount || 0;
+      if (view === 'mine') out.mineActive = (data.pullRequests || []).length;
     }
     out.total = out.mine + out.reviews;
     res.json(out);
