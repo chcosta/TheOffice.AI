@@ -1025,6 +1025,26 @@
     .cf-repo-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--cp-border); }
     .cf-repo-row:last-child { border-bottom:none; }
     .cf-repo-input { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
+    .cf-wt { margin-top:10px; border-top:1px dashed var(--cp-border); padding-top:8px; font-size:12.5px; }
+    .cf-wt-btn { font:inherit; font-size:12.5px; font-weight:600; padding:5px 11px; border-radius:8px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); cursor:pointer; }
+    .cf-wt-btn:hover:not(:disabled) { border-color:var(--cp-accent); color:var(--cp-accent); }
+    .cf-wt-btn:disabled { opacity:0.6; cursor:default; }
+    .cf-wt-status { color:var(--cp-text-muted); }
+    .cf-wt-row, .cf-wt-ready { display:flex; flex-wrap:wrap; align-items:center; gap:10px; row-gap:6px; }
+    .cf-wt-label { font-weight:600; color:var(--cp-text); }
+    .cf-wt-agent { color:var(--cp-text-muted); font-family:Consolas,"Courier New",monospace; font-size:11.5px; }
+    .cf-wt-err { color:var(--cp-danger); }
+    .cf-wt-link { font:inherit; font-size:12.5px; padding:0; border:none; background:none; color:var(--cp-link); cursor:pointer; text-decoration:none; }
+    .cf-wt-link:hover:not(:disabled) { text-decoration:underline; }
+    .cf-wt-link:disabled { opacity:0.6; cursor:default; }
+    .cf-wt-report { font-weight:600; }
+    .cf-wt-danger { color:var(--cp-danger); }
+    .cf-orphans { margin-top:22px; padding-top:14px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:12px; }
+    .cf-orphans-head { display:flex; flex-direction:column; gap:2px; }
+    .cf-orphans-title { font-weight:600; font-size:13.5px; color:var(--cp-text); }
+    .cf-orphans-sub { font-size:12px; color:var(--cp-text-muted); }
+    .cf-orphan-card { opacity:0.92; }
+    .cf-pill-status { text-transform:capitalize; background:var(--cp-surface-soft); color:var(--cp-text-muted); border:1px solid var(--cp-border); }
 
     /* ===== Flow canvas builder ===== */
     .flow-canvas-shell { display:flex; height:480px; border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; background:var(--cp-bg-elevated); }
@@ -7552,7 +7572,7 @@
                       </summary>
                       <div class="cf-checks">
                         <template x-for="chk in pr.validation" :key="chk.id">
-                          <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' }">
+                          <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
                             <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
                             <template x-if="chk.targetUrl">
                               <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
@@ -7560,13 +7580,110 @@
                             <template x-if="!chk.targetUrl">
                               <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
                             </template>
-                            <span class="cf-check-gate-tag" x-show="chk.kind === 'build' && chk.blocking">gate</span>
+                            <span class="cf-check-gate-tag" x-show="(chk.kind === 'build' || chk.kind === 'policy') && chk.blocking">gate</span>
                             <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
                           </div>
                         </template>
                       </div>
                     </details>
                   </template>
+
+                  <!-- Review worktree: create a worktree against the PR branch + a read-only review agent -->
+                  <div class="cf-wt">
+                    <template x-if="!cfWt(pr)">
+                      <span class="cf-wt-row">
+                        <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="reviewWithAi(pr)"
+                                title="Create a worktree for this PR (if needed) and run the AI reviewer to generate a report">
+                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : '🤖 Review with AI'"></span>
+                        </button>
+                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                                title="Just create a git worktree on this PR's branch with a read-only AI review agent (no auto-run)">
+                          <span x-text="cfBusy(pr) === 'create' ? 'Creating…' : '🔍 Create review worktree'"></span>
+                        </button>
+                      </span>
+                    </template>
+                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
+                      <span class="cf-wt-status" x-text="cfReviewing(pr) ? '✦ Preparing worktree for review…' : 'Creating review worktree…'"></span>
+                    </template>
+                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
+                      <span class="cf-wt-row">
+                        <span class="cf-wt-err" x-text="cfWt(pr).error || 'Worktree failed'"></span>
+                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                                x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
+                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cancelCfWorktree(pr)"
+                                x-text="cfBusy(pr) === 'cancel' ? 'Cancelling…' : 'Cancel'"></button>
+                      </span>
+                    </template>
+                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
+                      <div class="cf-wt-ready">
+                        <span class="cf-wt-label">🔍 Review worktree</span>
+                        <button class="cf-wt-link cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
+                                title="Run the AI reviewer in this worktree and (re)generate the report">
+                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review with AI' : '🤖 Review with AI')"></span>
+                        </button>
+                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
+                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                        <span class="cf-wt-agent" x-show="cfWt(pr).reviewAgentName" x-text="'agent: ' + cfWt(pr).reviewAgentName"></span>
+                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.file">
+                          <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                             x-text="'📌 ' + (r.title || r.file)"></a>
+                        </template>
+                        <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
+                              x-text="cfWt(pr).reviewError"></span>
+                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
+                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove</button>
+                      </div>
+                    </template>
+                  </div>
+                </article>
+              </template>
+            </div>
+
+            <!-- Orphan review worktrees: PRs that closed but whose worktree the user kept -->
+            <div class="cf-orphans" x-show="orphanCfWorktrees().length">
+              <div class="cf-orphans-head">
+                <span class="cf-orphans-title">Closed PRs with review worktrees</span>
+                <span class="cf-orphans-sub">These pull requests are no longer open, but their review worktree is kept until you remove it.</span>
+              </div>
+              <template x-for="pr in orphanCfWorktrees()" :key="cfPrKey(pr)">
+                <article class="cf-pr-card cf-orphan-card">
+                  <div class="cf-pr-head">
+                    <a class="cf-pr-title" :href="pr.url" target="_blank" rel="noopener" x-text="pr.title"></a>
+                    <span class="cf-pill cf-pill-status" x-text="(pr.status || 'closed')"></span>
+                  </div>
+                  <div class="cf-pr-meta">
+                    <span class="cf-pr-repo" x-text="pr.repo"></span>
+                    <span class="cf-pr-id" x-text="'!' + pr.id"></span>
+                  </div>
+                  <div class="cf-wt">
+                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
+                      <span class="cf-wt-status" x-text="cfReviewing(pr) ? '✦ Preparing worktree for review…' : 'Creating review worktree…'"></span>
+                    </template>
+                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
+                      <div class="cf-wt-ready">
+                        <span class="cf-wt-label">🔍 Review worktree</span>
+                        <button class="cf-wt-link cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
+                                title="Run the AI reviewer in this worktree and (re)generate the report">
+                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review with AI' : '🤖 Review with AI')"></span>
+                        </button>
+                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
+                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                        <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                        <span class="cf-wt-agent" x-show="cfWt(pr).reviewAgentName" x-text="'agent: ' + cfWt(pr).reviewAgentName"></span>
+                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.file">
+                          <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                             x-text="'📌 ' + (r.title || r.file)"></a>
+                        </template>
+                        <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
+                              x-text="cfWt(pr).reviewError"></span>
+                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
+                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)">Remove worktree</button>
+                      </div>
+                    </template>
+                  </div>
                 </article>
               </template>
             </div>
@@ -11534,7 +11651,9 @@
           sort: 'attention',     // 'attention' | 'newest' | 'oldest' | 'age' | 'urgency'
           ai: {},                // prId -> { summary, urgency, urgencyReason }
           aiBusy: false,
-          aiGeneratedAt: null
+          aiGeneratedAt: null,
+          worktrees: {},         // prKey -> review-worktree record
+          wtBusy: {}             // prKey -> action string while busy
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0 },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
@@ -15663,8 +15782,8 @@
             }
             // Auto-generate AI summaries in the background (server only pays for new/changed PRs).
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
+            this.loadCfWorktrees();
           } catch (e) {
-            if (!silent) this.showToast('Code Flow', e.message, 'error');
             this.codeflow.errors = [{ repo: '', error: e.message }];
           } finally {
             this.codeflow.loading = false;
@@ -15863,12 +15982,207 @@
           }
           return list;
         },
+        // Worktree records whose PR is no longer in the current list (e.g. the PR
+        // was closed/completed). We keep these viewable until the user explicitly
+        // removes the worktree. Returns synthetic pr-shaped objects for the cards.
+        orphanCfWorktrees() {
+          const present = new Set((this.codeflow.pullRequests || []).map(p => this.cfPrKey(p)));
+          const out = [];
+          const map = this.codeflow.worktrees || {};
+          Object.keys(map).forEach(k => {
+            const rec = map[k];
+            if (!rec || rec.prId == null) return;
+            if (present.has(k)) return;
+            if (this.codeflow.filterRepo && this.codeflowRepoLabel(this.codeflow.filterRepo) &&
+                String(rec.repo || '').toLowerCase() !== String(this.codeflowRepoLabel(this.codeflow.filterRepo)).toLowerCase()) return;
+            out.push({
+              org: rec.org, project: rec.project, repo: rec.repo, id: rec.prId,
+              title: rec.prTitle || ('PR #' + rec.prId), url: rec.prUrl || '',
+              status: rec.prStatus || 'completed', _orphan: true
+            });
+          });
+          return out.sort((a, b) => (b.id || 0) - (a.id || 0));
+        },
         codeflowRepoLabel(repoId) {
           const r = (this.codeflow.repos || []).find(x => x.id === repoId);
           return r ? (r.repo) : '';
         },
         codeflowAi(pr) {
           return (this.codeflow.ai || {})[pr.id] || null;
+        },
+        // ---- Code Flow review worktrees ----
+        cfPrKey(pr) {
+          return [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
+        },
+        cfWt(pr) {
+          return (this.codeflow.worktrees || {})[this.cfPrKey(pr)] || null;
+        },
+        cfBusy(pr) {
+          return (this.codeflow.wtBusy || {})[this.cfPrKey(pr)] || '';
+        },
+        async loadCfWorktrees() {
+          try {
+            const resp = await this.request('/api/codeflow/pr/worktrees');
+            const map = {};
+            (Array.isArray(resp.worktrees) ? resp.worktrees : []).forEach(rec => {
+              if (rec && rec.org && rec.project && rec.repo && rec.prId != null) {
+                map[[rec.org, rec.project, rec.repo, rec.prId].join('|').toLowerCase()] = rec;
+              }
+            });
+            this.codeflow.worktrees = map;
+          } catch { /* non-fatal */ }
+        },
+        async createCfWorktree(pr) {
+          const key = this.cfPrKey(pr);
+          this.codeflow.wtBusy[key] = 'create';
+          try {
+            await this.request('/api/codeflow/pr/worktree', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id })
+            });
+            // Optimistic creating record so the card shows progress immediately.
+            this.codeflow.worktrees[key] = Object.assign({}, this.codeflow.worktrees[key], {
+              org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, worktreeStatus: 'creating'
+            });
+            this._pollCfWorktree(key);
+          } catch (e) {
+            this.showToast('Review worktree', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // True while an AI review is running (server-side reviewStatus or local busy flag).
+        cfReviewing(pr) {
+          const rec = this.cfWt(pr);
+          return this.cfBusy(pr) === 'review' || !!(rec && rec.reviewStatus === 'reviewing');
+        },
+        // One-click: create the worktree if needed, then run the review agent to
+        // produce the report. Surfaces the report on this card when it's ready.
+        async reviewWithAi(pr) {
+          const key = this.cfPrKey(pr);
+          this.codeflow.wtBusy[key] = 'review';
+          try {
+            await this.request('/api/codeflow/pr/review', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id }),
+              timeoutMs: 0
+            });
+            // Optimistic reviewing record so the card shows progress immediately.
+            this.codeflow.worktrees[key] = Object.assign({
+              org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id
+            }, this.codeflow.worktrees[key], { reviewStatus: 'reviewing', reviewError: null });
+            this._pollCfReview(key);
+          } catch (e) {
+            this.showToast('Review with AI', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // Poll the worktree record until the review finishes (can take minutes).
+        async _pollCfReview(key) {
+          const rec0 = this.codeflow.worktrees[key];
+          if (!rec0) return;
+          const q = '?org=' + encodeURIComponent(rec0.org) + '&project=' + encodeURIComponent(rec0.project) +
+            '&repo=' + encodeURIComponent(rec0.repo) + '&prId=' + encodeURIComponent(rec0.prId);
+          for (let i = 0; i < 300; i++) {
+            await new Promise(r => setTimeout(r, 3000));
+            let resp;
+            try { resp = await this.request('/api/codeflow/pr/worktree' + q); }
+            catch { continue; }
+            if (resp && resp.worktree) {
+              this.codeflow.worktrees[key] = resp.worktree;
+              const st = resp.worktree.reviewStatus;
+              if (st === 'done') { this.showToast('Review with AI', 'Review complete — report ready.', 'success'); return; }
+              if (st === 'error') { this.showToast('Review with AI', resp.worktree.reviewError || 'Review failed', 'error'); return; }
+            }
+          }
+        },
+        async _pollCfWorktree(key) {
+          const rec0 = this.codeflow.worktrees[key];
+          if (!rec0) return;
+          const q = '?org=' + encodeURIComponent(rec0.org) + '&project=' + encodeURIComponent(rec0.project) +
+            '&repo=' + encodeURIComponent(rec0.repo) + '&prId=' + encodeURIComponent(rec0.prId);
+          for (let i = 0; i < 90; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            let resp;
+            try { resp = await this.request('/api/codeflow/pr/worktree' + q); }
+            catch { continue; }
+            if (resp && resp.worktree) {
+              this.codeflow.worktrees[key] = resp.worktree;
+              if (resp.worktree.worktreeStatus === 'ready' || resp.worktree.worktreeStatus === 'error') return;
+            }
+          }
+        },
+        async openCfWorktree(pr, target) {
+          const rec = this.cfWt(pr);
+          if (!rec || !rec.worktreePath) return;
+          try {
+            await this.request('/api/fs/open', {
+              method: 'POST',
+              body: JSON.stringify({ path: rec.worktreePath, target, agent: rec.reviewAgentName || undefined })
+            });
+          } catch (e) {
+            this.showToast('Open', e.message, 'error');
+          }
+        },
+        async refreshCfReview(pr) {
+          const key = this.cfPrKey(pr);
+          const rec = this.cfWt(pr);
+          if (!rec) return;
+          this.codeflow.wtBusy[key] = 'refresh';
+          try {
+            const q = '?org=' + encodeURIComponent(rec.org) + '&project=' + encodeURIComponent(rec.project) +
+              '&repo=' + encodeURIComponent(rec.repo) + '&prId=' + encodeURIComponent(rec.prId);
+            const resp = await this.request('/api/codeflow/pr/worktree' + q);
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+          } catch (e) {
+            this.showToast('Re-scan', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        async removeCfWorktree(pr) {
+          const key = this.cfPrKey(pr);
+          const ok = await this.uiConfirm('Remove review worktree',
+            'Remove the review worktree and its cached report for this PR?');
+          if (!ok) return;
+          const rec = this.cfWt(pr);
+          this.codeflow.wtBusy[key] = 'remove';
+          try {
+            await this.request('/api/codeflow/pr/worktree/remove', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id })
+            });
+            delete this.codeflow.worktrees[key];
+          } catch (e) {
+            this.showToast('Remove', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // Dismiss a failed/in-flight worktree attempt: clears the server record and
+        // any partial worktree without the heavier "remove" confirmation prompt.
+        async cancelCfWorktree(pr) {
+          const key = this.cfPrKey(pr);
+          this.codeflow.wtBusy[key] = 'cancel';
+          try {
+            await this.request('/api/codeflow/pr/worktree/remove', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id })
+            });
+          } catch (e) {
+            this.showToast('Cancel', e.message, 'error');
+          } finally {
+            delete this.codeflow.worktrees[key];
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        cfReportUrl(pr, r) {
+          const rec = this.cfWt(pr);
+          if (!rec) return '#';
+          return '/api/codeflow/pr/report?org=' + encodeURIComponent(pr.org) +
+            '&project=' + encodeURIComponent(pr.project) + '&repo=' + encodeURIComponent(pr.repo) +
+            '&prId=' + encodeURIComponent(pr.id) + '&file=' + encodeURIComponent(r.file);
         },
         codeflowUrgencyCls(u) {
           if (u >= 70) return 'cf-urg-high';

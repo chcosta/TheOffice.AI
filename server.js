@@ -61,6 +61,7 @@ const LEGACY_ORGANIZATIONS_PATH = dataPath('organizations.json');
 const BOARDS_PATH = dataPath('boards.json');
 const INSIGHTS_PATH = dataPath('insights.json');
 const CODEFLOW_PATH = dataPath('codeflow-repos.json');
+const CODEFLOW_WT_PATH = dataPath('codeflow-worktrees.json');
 
 // Ensure tasks.json exists
 if (!fs.existsSync(TASKS_PATH)) {
@@ -164,6 +165,41 @@ function loadCodeflowRepos() {
 
 function saveCodeflowRepos(repos) {
   fs.writeFileSync(CODEFLOW_PATH, JSON.stringify(repos || [], null, 2));
+}
+
+// Code Flow: per-PR review worktree records. A map keyed by
+// prKey = `${org}|${project}|${repo}|${prId}` (lowercased). Each value:
+// { org, project, repo, prId, prTitle, worktreePath, branch, baseBranch,
+//   reviewAgentName, reviewAgentFile, reports[], worktreeStatus, error, ... }.
+// Lives under the profile DATA_DIR — never inside the repo, never committed.
+function _cfWtKey(o) {
+  return `${o.org}|${o.project}|${o.repo}|${o.prId}`.toLowerCase();
+}
+function loadCodeflowWorktrees() {
+  try {
+    if (!fs.existsSync(CODEFLOW_WT_PATH)) return {};
+    const v = JSON.parse(fs.readFileSync(CODEFLOW_WT_PATH, 'utf-8'));
+    return (v && typeof v === 'object') ? v : {};
+  } catch { return {}; }
+}
+function saveCodeflowWorktrees(map) {
+  fs.writeFileSync(CODEFLOW_WT_PATH, JSON.stringify(map || {}, null, 2));
+}
+function _getCfWt(key) {
+  const map = loadCodeflowWorktrees();
+  return map[key] || null;
+}
+// Merge a partial update into a record (read-modify-write so concurrent
+// background work doesn't clobber the whole map).
+function _saveCfWt(key, partial) {
+  const map = loadCodeflowWorktrees();
+  map[key] = Object.assign({}, map[key] || {}, partial, { updatedAt: new Date().toISOString() });
+  saveCodeflowWorktrees(map);
+  return map[key];
+}
+function _deleteCfWt(key) {
+  const map = loadCodeflowWorktrees();
+  if (map[key]) { delete map[key]; saveCodeflowWorktrees(map); }
 }
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
@@ -1318,7 +1354,24 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
       kind: 'build', durationMs: b.durationMs, blocking: b.blocking
     };
   });
-  const validation = [...buildGates, ...(statuses || [])];
+  // Non-build blocking policy gates (required reviewers, minimum approver count,
+  // comment resolution, work-item linking, etc.) surfaced as validation entries
+  // so the merge gates — not just builds — are visible. Status-type policies are
+  // skipped because the actual status checks are already merged below.
+  const policyStateMap = { approved: 'succeeded', rejected: 'failed',
+                           running: 'pending', queued: 'pending', notapplicable: 'notSet' };
+  const policyGates = ((policy && policy.evaluations) || [])
+    .filter(e => e && e.blocking && !e.isBuild
+              && (e.status || '').toLowerCase() !== 'notapplicable'
+              && !/status/i.test(e.type || ''))
+    .map((e, i) => ({
+      id: 'policy-' + i,
+      state: policyStateMap[(e.status || '').toLowerCase()] || 'notSet',
+      genre: 'Policy', name: e.type || e.displayName || 'Policy gate',
+      description: e.displayName || '', targetUrl: '',
+      kind: 'policy', blocking: !!e.blocking
+    }));
+  const validation = [...buildGates, ...policyGates, ...(statuses || [])];
 
   const failedChecks = validation.filter(s => s.state === 'failed' || s.state === 'error').length;
   const pendingChecks = validation.filter(s => s.state === 'pending' || s.state === 'notSet').length;
@@ -1647,6 +1700,310 @@ app.post('/api/codeflow/ai', async (req, res) => {
       cached: toGenerate.length === 0
     });
   } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+
+// --- Code Flow: per-PR "review worktree" experience. ---------------------
+// Mirrors the Dev Card worktree flow but for a pull request: create a git
+// worktree against the PR's source branch, scaffold a read-only REVIEW agent
+// into it (understand the PR + work item + system, analyze the diff, judge
+// quality, suggest validations/changes, flag concerns, write an HTML review
+// report), and surface the cached report on the Code Flow card. The worktree,
+// agent file, and report all live under the profile DATA_DIR and the agent +
+// report are git-excluded inside the worktree, so nothing is ever committed.
+const CODEFLOW_REPORT_BOARD = 'codeflow-pr'; // namespace for the report cache
+
+// Stable, filesystem-safe id for the report cache + worktree devId.
+function _cfWtDevId(o) {
+  return ('cfpr-' + [o.org, o.project, o.repo, o.prId].join('-'))
+    .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).toLowerCase();
+}
+function _cfReviewAgentSlug(o) {
+  const pid = o.prId != null ? o.prId : o.id;
+  return ('review-' + (o.repo || 'repo') + '-pr' + pid)
+    .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase() || 'pr-review-agent';
+}
+
+// The review agent persona. Read-only by design: it analyzes and reports, it
+// does NOT change the PR's code or push anything.
+function _buildReviewAgentMd({ agentName, pr, workItems, worktreePath, reportName }) {
+  const desc = 'Read-only PR review agent for ' + (pr.repo || 'repo') + ' #' + pr.id;
+  const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
+  return fm + _reviewPersonaBody({ pr, workItems, reportName });
+}
+
+// The reviewer persona body (everything after the agent-file frontmatter). Shared
+// by the .agent.md the user opens in VS Code/CLI AND the headless "Review with AI"
+// run, so both follow the exact same disciplined review + report contract.
+function _reviewPersonaBody({ pr, workItems, reportName }) {
+  const ctx = [];
+  ctx.push('## The pull request under review');
+  ctx.push(`- **#${pr.id}** ${pr.title || ''}`);
+  ctx.push('- ' + [pr.org, pr.project, pr.repo].filter(Boolean).join(' / ') +
+    `  (source \`${pr.sourceBranch || ''}\` → target \`${pr.targetBranch || 'main'}\`)`);
+  if (pr.status) ctx.push('- Status: ' + pr.status + (pr.isDraft ? ' (draft)' : ''));
+  if (pr.createdBy && pr.createdBy.name) ctx.push('- Author: ' + pr.createdBy.name);
+  if (pr.url) ctx.push('- Link: ' + pr.url);
+  if (pr.description) ctx.push('- Description: ' + String(pr.description).slice(0, 600).replace(/\s+/g, ' '));
+  ctx.push('');
+  if (workItems && workItems.length) {
+    ctx.push('## Associated work item(s)');
+    for (const wi of workItems) {
+      ctx.push(`- **#${wi.id} [${wi.type}]** ${wi.title} — ${wi.state}${wi.assignedTo ? ' · ' + wi.assignedTo : ''}`);
+      if (wi.url) ctx.push('  - ' + wi.url);
+    }
+    ctx.push('');
+  } else {
+    ctx.push('## Associated work item');
+    ctx.push('- No linked work item was detected automatically. **Look for one yourself** — check the PR description, commit messages, and branch name for a work-item id (e.g. `AB#12345`) and reason about the original intent before reviewing.');
+    ctx.push('');
+  }
+  ctx.push('## This worktree');
+  ctx.push('- This worktree is checked out to the PR\'s source branch `' + (pr.sourceBranch || '') +
+    '`, so the changes are already present. Diff against the target branch to see exactly what this PR proposes:');
+  ctx.push('  ```');
+  ctx.push('  git fetch origin ' + (pr.targetBranch || 'main'));
+  ctx.push('  git diff origin/' + (pr.targetBranch || 'main') + '...HEAD');
+  ctx.push('  ```');
+  ctx.push('');
+  const body = `You are a meticulous, senior **code reviewer**. You are reviewing the pull request described below. You **analyze and report only** — you do not change the PR's code, commit, or push.
+
+${ctx.join('\n')}
+## Your review, in order
+Work through this disciplined review and narrate which step you are on:
+1. **Understand the goals.** Read the PR title/description and any linked work item to understand *what this change is trying to achieve* and the acceptance criteria. State the goals in your own words.
+2. **Understand the associated work item.** If a work item is linked (or you find one), open it and capture the requirements/intent. If none exists, say so and infer intent from the PR + commits.
+3. **Understand the system.** Before judging the diff, study the surrounding code, architecture, and existing patterns this change touches — so your review is grounded in how this codebase actually works.
+4. **Analyze the changes.** Walk the full diff (use the \`git diff\` against the target branch shown above). Summarize what changed, file by file where it matters, and how the pieces fit together.
+5. **Assess code quality.** Judge correctness, edge cases, error handling, security, performance, readability, naming, test coverage, and consistency with the codebase's conventions. Call out concrete issues with file/line references and severity.
+6. **Suggest validations.** Recommend concrete validations that would *increase confidence* in this PR — specific tests to add or run, CI/build gates, manual repro steps, measurements/benchmarks, or data to capture. Be specific (what to test and why).
+7. **Suggest additional changes.** Propose changes that would make the PR better meet its goals / the work item — missing cases, follow-ups, refactors, docs, or hardening — distinguishing must-fix from nice-to-have.
+8. **Highlight concerns & risks.** Surface anything risky, ambiguous, or blocking: regressions, breaking changes, scope creep, unhandled failure modes, or things a human reviewer must decide.
+9. **Write the review report (HTML).** Produce the report described below.
+
+## Review report (HTML)
+Write a **self-contained** HTML review named \`${reportName}\` at the root of this worktree (overwrite/refresh it as you learn more). Requirements:
+- **Single file, inline all CSS/JS** — no external assets or CDNs, so it opens correctly from disk. Any chart must render offline (inline SVG / pure-CSS bars).
+- **Cover these sections, in order:**
+  1. **Overview** — the PR (id + link), the author, the associated work item (id + link), and your one-paragraph verdict (approve / approve-with-suggestions / needs-work / blocked) with a short justification.
+  2. **Goals** — what the PR set out to do, and whether the change appears to meet them.
+  3. **Summary of changes** — what changed across the diff, concise but specific (files/areas, approach).
+  4. **Code quality findings** — a **table** of findings with columns: *file/area · severity (blocker/major/minor/nit) · issue · suggested fix*. Color severities for fast scanning.
+  5. **Suggested validations** — concrete tests/gates/measurements to raise confidence.
+  6. **Suggested additional changes** — improvements to better meet the PR/work-item goals (must-fix vs nice-to-have).
+  7. **Concerns & risks** — blocking or ambiguous items a human must weigh in on.
+- **Lead with the verdict.** Make the bottom line obvious at the top; keep the layout calm, professional, timestamped, with the PR id/link.
+
+## Hard rules
+- You are **read-only with respect to the PR**: do **not** edit the PR's source files, do **not** commit, and do **not** push. Your output is the analysis and the HTML report.
+- **Never check yourself in.** NEVER stage, commit, push, or otherwise include your own agent definition (any file under \`.github/agents/\`) or your generated review report (\`${reportName}\`). They stay untracked.
+- If you notice a \`.github/agents/*.agent.md\` file or the report file in \`git status\`, leave them untracked and never add them.
+`;
+  return body;
+}
+
+// Write the review agent into the worktree and git-exclude both the agent file
+// AND the report it will generate, so neither can land in the PR branch.
+const CODEFLOW_REPORT_NAME = 'pr-review-report.html';
+function _writeCfReviewAgentFile(rec, pr, workItems) {
+  const wt = rec.worktreePath;
+  if (!wt || !fs.existsSync(wt)) return null;
+  const slug = _cfReviewAgentSlug(pr);
+  const rel = '.github/agents/' + slug + '.agent.md';
+  const agentsDir = path.join(wt, '.github', 'agents');
+  fs.mkdirSync(agentsDir, { recursive: true });
+  fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'),
+    _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME }));
+  try { devitems.addGitExclude(wt, rel); } catch {}
+  try { devitems.addGitExclude(wt, CODEFLOW_REPORT_NAME); } catch {}
+  return { reviewAgentName: slug, reviewAgentFile: rel };
+}
+
+// All review-worktree records (for frontend hydration). Returns an array.
+app.get('/api/codeflow/pr/worktrees', (req, res) => {
+  const map = loadCodeflowWorktrees();
+  res.json({ worktrees: Object.keys(map).map(k => ({ key: k, ...map[k] })) });
+});
+
+// One record (status poll). Re-scans + caches reports if the worktree is ready,
+// so a review report written by the agent after opening gets picked up.
+app.get('/api/codeflow/pr/worktree', (req, res) => {
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  let rec = _getCfWt(key);
+  if (!rec) return res.json({ worktree: null });
+  if (rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath)) {
+    try {
+      const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
+      rec = _saveCfWt(key, { reports: reports || [] });
+    } catch {}
+  }
+  res.json({ worktree: { key, ...rec } });
+});
+
+// Create (or re-attach) a review worktree for a PR. Fire-and-forget like the
+// dev-card worktree route; the blocking clone runs in a worker thread.
+app.post('/api/codeflow/pr/worktree', async (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  // Resolve the PR fresh (don't trust client branch); require it to be OPEN.
+  let pr;
+  try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
+  catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
+  if (!pr || !pr.sourceBranch) return res.status(400).json({ error: 'PR has no source branch to review.' });
+  if (String(pr.status || '').toLowerCase() !== 'active') return res.status(400).json({ error: 'PR is not open (active).' });
+  const key = _cfWtKey(o);
+  const devId = _cfWtDevId(o);
+  _saveCfWt(key, {
+    org: o.org, project: o.project, repo: o.repo, prId: pr.id,
+    prTitle: pr.title || '', prUrl: pr.url || '',
+    sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
+    prStatus: String(pr.status || '').toLowerCase(),
+    worktreeStatus: 'creating', error: null
+  });
+  res.json({ ok: true, status: 'creating', key });
+  (async () => {
+    try {
+      const r = await devitems.createWorktreeAsync({
+        org: o.org, project: o.project, repo: o.repo,
+        baseBranch: pr.targetBranch, branch: pr.sourceBranch, devId, detach: true
+      });
+      let rec = _saveCfWt(key, {
+        worktreePath: r.worktreePath, branch: r.branch,
+        worktreeStatus: 'ready', error: null, git: r.git || null
+      });
+      // Gather linked work items (best-effort) so the agent file is grounded.
+      let workItems = [];
+      try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+      const agent = _writeCfReviewAgentFile(rec, { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy }, workItems);
+      const save = {};
+      if (agent) Object.assign(save, agent);
+      try { save.reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, r.worktreePath); } catch {}
+      _saveCfWt(key, save);
+    } catch (e) {
+      _saveCfWt(key, { worktreeStatus: 'error', error: (e && e.message) || 'Worktree failed' });
+    }
+  })();
+});
+
+// "Review with AI": ensure a worktree exists for the PR (create detached if
+// missing — allowed even for closed PRs), write the review agent, then run the
+// reviewer headlessly in the worktree to produce pr-review-report.html and cache
+// it so it surfaces on the Code Flow PR card. Fire-and-forget; the client polls
+// the worktree record's reviewStatus.
+app.post('/api/codeflow/pr/review', async (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  let pr;
+  try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
+  catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
+  if (!pr || !pr.sourceBranch) return res.status(400).json({ error: 'PR has no source branch to review.' });
+  const key = _cfWtKey(o);
+  const devId = _cfWtDevId(o);
+  let rec = _getCfWt(key);
+  const haveWt = !!(rec && rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath));
+  rec = _saveCfWt(key, {
+    org: o.org, project: o.project, repo: o.repo, prId: pr.id,
+    prTitle: pr.title || (rec && rec.prTitle) || '', prUrl: pr.url || (rec && rec.prUrl) || '',
+    sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
+    prStatus: String(pr.status || '').toLowerCase(),
+    reviewStatus: 'reviewing', reviewError: null, reviewStartedAt: new Date().toISOString(),
+    ...(haveWt ? {} : { worktreeStatus: 'creating', error: null })
+  });
+  res.json({ ok: true, status: 'reviewing', key });
+  (async () => {
+    try {
+      // 1. Ensure the worktree (create detached if we don't already have one).
+      if (!haveWt) {
+        const r = await devitems.createWorktreeAsync({
+          org: o.org, project: o.project, repo: o.repo,
+          baseBranch: pr.targetBranch, branch: pr.sourceBranch, devId, detach: true
+        });
+        rec = _saveCfWt(key, {
+          worktreePath: r.worktreePath, branch: r.branch,
+          worktreeStatus: 'ready', error: null, git: r.git || null
+        });
+      }
+      const wtPath = rec.worktreePath;
+      if (!wtPath || !fs.existsSync(wtPath)) throw new Error('Worktree is not available.');
+      // 2. Write/refresh the review agent file (grounded with linked work items).
+      let workItems = [];
+      try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+      const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
+      const agent = _writeCfReviewAgentFile(rec, prCtx, workItems);
+      if (agent) rec = _saveCfWt(key, agent);
+      // 3. Run the reviewer in the worktree. Prefer the resolved review agent;
+      //    fall back to a plain prompt run (same persona body) if it can't resolve.
+      const slug = (agent && agent.reviewAgentName) || rec.reviewAgentName || _cfReviewAgentSlug({ ...o, id: pr.id });
+      const kickoff = 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` at the ROOT of this worktree (overwrite it if it exists). When the report file is written and saved, reply with the single word DONE.';
+      const model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined;
+      const sid = require('crypto').randomUUID();
+      let acc = '';
+      let run = await sdkRunner.runAgent({
+        config: { cwd: wtPath, agent: slug, allowAll: true },
+        prompt: kickoff, sessionId: sid, model, onChunk: (c) => { acc += c; }
+      });
+      if (!run || run.fallback) {
+        // Agent didn't resolve — run the persona body directly with full tools.
+        const body = _reviewPersonaBody({ pr: prCtx, workItems, reportName: CODEFLOW_REPORT_NAME });
+        acc = '';
+        run = await sdkRunner.runPrompt({
+          prompt: body + '\n\n---\n\n' + kickoff,
+          cwd: wtPath, sessionId: require('crypto').randomUUID(), model,
+          onChunk: (c) => { acc += c; }
+        });
+      }
+      // 4. Cache whatever report was produced and resolve the review status.
+      let reports = [];
+      try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
+      const ok = reports.length > 0;
+      _saveCfWt(key, {
+        reports,
+        reviewStatus: ok ? 'done' : 'error',
+        reviewError: ok ? null : 'The review finished but no report file was produced.',
+        reviewFinishedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      _saveCfWt(key, { reviewStatus: 'error', reviewError: (e && e.message) || 'Review failed', worktreeStatus: (_getCfWt(key) || {}).worktreeStatus === 'creating' ? 'error' : undefined });
+    }
+  })();
+});
+
+// Remove a review worktree + its cached reports + the record.
+app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  const devId = _cfWtDevId(o);
+  try { if (rec) devitems.removeWorktree(o.org, o.project, o.repo, devId, rec.worktreePath); } catch {}
+  try { devitems.clearReportCache(CODEFLOW_REPORT_BOARD, devId); } catch {}
+  _deleteCfWt(key);
+  res.json({ ok: true });
+});
+
+// Serve a cached/live review report (live worktree first, cache fallback).
+app.get('/api/codeflow/pr/report', (req, res) => {
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).send('org, project, repo and prId are required');
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  const devId = _cfWtDevId(o);
+  const file = req.query.file;
+  try {
+    let r;
+    try { r = devitems.readReport(rec && rec.worktreePath, file); }
+    catch (e1) { r = devitems.readReportCached(CODEFLOW_REPORT_BOARD, devId, file); }
+    res.setHeader('Content-Type', r.contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(r.content);
+  } catch (e) {
+    res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read report');
+  }
 });
 
 

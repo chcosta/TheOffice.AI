@@ -545,6 +545,25 @@ async function getPullRequest(org, project, repo, prId) {
   };
 }
 
+// Linked work items for a pull request. Returns the (best-effort, fully-resolved)
+// compact work items referenced by the PR, so a review agent can ground itself in
+// the original intent. Never throws — returns [] on any failure.
+async function getPrWorkItems(org, project, repo, prId) {
+  let refs = [];
+  try {
+    const d = await apiSend(
+      org,
+      `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullRequests/${seg(prId)}/workitems?api-version=${API_VERSION}`
+    );
+    refs = (d.value || []).map(r => r.id).filter(Boolean);
+  } catch { return []; }
+  const out = [];
+  for (const id of refs.slice(0, 8)) {
+    try { out.push(await getWorkItem(org, project, id)); } catch { /* skip */ }
+  }
+  return out;
+}
+
 // ---- Code Flow: PR monitoring -------------------------------------------
 
 // Identity of the Azure CLI account, scoped to an org. Used to answer
@@ -862,6 +881,7 @@ module.exports = {
   workItemUrl,
   pullRequestUrl,
   getWorkItem,
+  getPrWorkItems,
   updateWorkItemState,
   getPullRequest
 };

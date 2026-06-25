@@ -45,7 +45,10 @@ function _authArgs() {
 
 // Run a git command, throwing on failure with a clean message.
 function _git(args, cwd, { auth = false, timeout = 240_000 } = {}) {
-  const full = (auth ? _authArgs() : []).concat(args);
+  // core.longpaths=true makes git use the \\?\ prefix so deep repo paths
+  // (e.g. dotnet-helix-machines) don't exceed the Windows MAX_PATH (260) limit
+  // during clone + worktree checkout.
+  const full = ['-c', 'core.longpaths=true'].concat(auth ? _authArgs() : []).concat(args);
   try {
     return execFileSync('git', full, {
       cwd: cwd || undefined,
@@ -88,7 +91,7 @@ function ensureClone(org, project, repo) {
 }
 
 // Create (or reuse) a worktree for a Dev item. Returns { worktreePath, branch, reused }.
-function createWorktree({ org, project, repo, baseBranch, branch, devId }) {
+function createWorktree({ org, project, repo, baseBranch, branch, devId, detach }) {
   const clone = ensureClone(org, project, repo);
   const base = (baseBranch || '').trim() || 'main';
   const br = (branch || '').trim() || ('dev/' + _safe(devId));
@@ -103,6 +106,19 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId }) {
   // out from under git) so re-adding a branch whose old worktree is gone won't fail with
   // "already checked out" / "missing but locked".
   _gitTry(['worktree', 'prune'], clone);
+
+  // Detached/read-only review checkout: snapshot the branch tip without occupying the
+  // branch name, so it never collides with another worktree (e.g. a dev card) that has
+  // the same branch checked out. Used for PR review worktrees.
+  if (detach) {
+    const ref = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + br], clone).ok
+      ? 'origin/' + br
+      : (_gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok
+        ? br
+        : (_gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + base], clone).ok ? 'origin/' + base : base));
+    _git(['worktree', 'add', '--detach', wt, ref], clone);
+    return { worktreePath: wt, branch: br, reused: false, detached: true };
+  }
 
   // Does the branch already exist locally in the managed clone? This happens when a
   // worktree was created before and later removed (remove-worktree deletes the worktree
