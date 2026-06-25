@@ -580,6 +580,7 @@ function _compactPr(d, org, project, repo) {
   return {
     id: d.pullRequestId,
     title: d.title || '',
+    description: (d.description || '').slice(0, 1200),
     status: d.status || '',
     isDraft: !!d.isDraft,
     mergeStatus: d.mergeStatus || '',

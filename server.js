@@ -1256,6 +1256,8 @@ app.get('/api/codeflow/me', async (req, res) => {
 
 const _codeflowCache = new Map(); // view -> { at, data }
 const CODEFLOW_TTL_MS = 120000;
+const _codeflowAiCache = new Map(); // view -> { at, sig, insights }
+const CODEFLOW_AI_TTL_MS = 600000; // 10 min
 
 // Enrich a compact PR with threads / statuses / policy evals + derived state.
 async function _enrichCodeflowPr(pr, viewerId) {
@@ -1398,7 +1400,104 @@ app.get('/api/codeflow/attention', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// ============ Marketplace API Routes ============
+// --- Code Flow AI insights: per-PR summaries + urgency scores. ---
+// One runChat over the whole view's PR list (cheaper than per-PR). Cached by
+// view + PR-id signature; mirrors the "Design with AI" fenced-JSON pattern.
+function _codeflowAiPrompt(view, prs) {
+  const compact = prs.map(p => ({
+    id: p.id,
+    title: p.title,
+    repo: p.repo,
+    isDraft: !!p.isDraft,
+    ageDays: p.ageDays,
+    approvalState: p.approvalState || '',
+    failedChecks: p.failedChecks || 0,
+    pendingChecks: p.pendingChecks || 0,
+    activeComments: (p.comments && p.comments.activeComments) || 0,
+    resolvedComments: (p.comments && p.comments.resolvedComments) || 0,
+    readyToMerge: !!p.readyToMerge,
+    attentionReason: p.attentionReason || '',
+    myVote: p.myVote || null,
+    createdBy: (p.createdBy && p.createdBy.name) || '',
+    description: (p.description || '').slice(0, 600)
+  }));
+  const role = view === 'reviews'
+    ? "You are triaging pull requests that need THIS engineer's review."
+    : 'You are triaging pull requests that THIS engineer authored.';
+  const urgencyGuide = view === 'reviews'
+    ? 'Higher urgency for: PRs awaiting your review, teammates blocked waiting on you, long-open PRs, and PRs whose checks are failing.'
+    : 'Higher urgency for: ready-to-merge, failing checks, changes requested, reviewers waiting, and long-open PRs. Drafts are usually low urgency.';
+  return [
+    role,
+    'For EACH pull request, write a concise one-sentence plain-text summary (<= 160 chars) of what the PR does and its current state, and assign an urgency score from 0-100 (higher = more time-sensitive) with a very short reason (<= 80 chars).',
+    urgencyGuide,
+    'Return ONLY a single fenced ```json code block containing a JSON array of objects, one per PR, shaped exactly: {"id": <number>, "summary": <string>, "urgency": <integer 0-100>, "urgencyReason": <string>}. No prose outside the code block.',
+    'Pull requests:',
+    '```json',
+    JSON.stringify(compact),
+    '```'
+  ].join('\n');
+}
+function _parseCodeflowAi(text) {
+  if (!text) return null;
+  let body = text;
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) body = fence[1];
+  else {
+    const s = text.indexOf('['), e = text.lastIndexOf(']');
+    if (s >= 0 && e > s) body = text.slice(s, e + 1);
+  }
+  try { const arr = JSON.parse(body); return Array.isArray(arr) ? arr : null; }
+  catch { return null; }
+}
+app.post('/api/codeflow/ai', async (req, res) => {
+  const view = (req.body && req.body.view) === 'reviews' ? 'reviews' : 'mine';
+  const refresh = !!(req.body && req.body.refresh);
+  try {
+    // Use cached view data if fresh, else gather it.
+    let cached = _codeflowCache.get(view), data;
+    if (cached && (Date.now() - cached.at) < CODEFLOW_TTL_MS) data = cached.data;
+    else { data = await _gatherCodeflow(view); _codeflowCache.set(view, { at: Date.now(), data }); }
+    const prs = data.pullRequests || [];
+    if (!prs.length) return res.json({ view, insights: [], generatedAt: new Date().toISOString() });
+
+    const sig = prs.map(p => p.id).join(',');
+    const ai = _codeflowAiCache.get(view);
+    if (!refresh && ai && ai.sig === sig && (Date.now() - ai.at) < CODEFLOW_AI_TTL_MS) {
+      return res.json({ view, insights: ai.insights, generatedAt: new Date(ai.at).toISOString(), cached: true });
+    }
+
+    const prompt = _codeflowAiPrompt(view, prs);
+    let arr = null, text = '';
+    for (let attempt = 0; attempt < 2 && !arr; attempt++) {
+      let acc = '';
+      const result = await sdkRunner.runChat({
+        config: null, prompt, sessionId: require('crypto').randomUUID(),
+        resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }
+      });
+      text = acc.trim() ? acc : (result.output || '');
+      arr = _parseCodeflowAi(text);
+    }
+    if (!arr) return res.status(502).json({ error: 'Could not parse AI insights. Please try again.' });
+
+    const byId = new Map(arr.map(x => [String(x.id), x]));
+    const insights = prs.map(p => {
+      const m = byId.get(String(p.id)) || {};
+      let urg = parseInt(m.urgency, 10);
+      if (!Number.isFinite(urg)) urg = 0;
+      return {
+        id: p.id,
+        summary: String(m.summary || '').slice(0, 240),
+        urgency: Math.max(0, Math.min(100, urg)),
+        urgencyReason: String(m.urgencyReason || '').slice(0, 120)
+      };
+    });
+    _codeflowAiCache.set(view, { at: Date.now(), sig, insights });
+    res.json({ view, insights, generatedAt: new Date().toISOString(), cached: false });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+
 // Sources (local folders / AzDO repos) are scanned greedily for agents,
 // plugins, skills and MCP servers; the catalog merges scanned entries with an
 // implicit "installed" view. Capabilities can be added to any agent (reusing

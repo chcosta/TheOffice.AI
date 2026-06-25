@@ -988,6 +988,20 @@
       background:var(--cp-accent); color:var(--cp-accent-fg);
     }
     .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:10px; }
+    .cf-ai {
+      display:flex; align-items:flex-start; gap:8px; margin-top:10px; padding:8px 10px;
+      border-radius:10px; background:var(--cp-accent-soft); border:1px solid var(--cp-border);
+      font-size:12.5px; line-height:1.45;
+    }
+    .cf-ai-badge { flex:0 0 auto; font-weight:800; font-size:10.5px; letter-spacing:0.03em; color:var(--cp-accent); padding-top:1px; }
+    .cf-ai-urg {
+      flex:0 0 auto; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700;
+      border:1px solid var(--cp-border); cursor:default; white-space:nowrap;
+    }
+    .cf-ai-urg.cf-urg-high { background:var(--cp-danger); color:#fff; border-color:var(--cp-danger); }
+    .cf-ai-urg.cf-urg-med { background:var(--cp-warning); color:#1a1a1a; border-color:var(--cp-warning); }
+    .cf-ai-urg.cf-urg-low { background:var(--cp-surface-soft); color:var(--cp-text-muted); }
+    .cf-ai-summary { color:var(--cp-text); min-width:0; }
     .cf-validation-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--cp-text-soft); margin-bottom:7px; }
     .cf-checks { display:flex; flex-direction:column; gap:5px; }
     .cf-check { display:flex; align-items:center; gap:8px; font-size:12.5px; }
@@ -7322,6 +7336,9 @@
               <div class="toolbar">
                 <button class="btn ghost" type="button" @click="codeflowManageOpen = !codeflowManageOpen"
                         x-text="codeflowManageOpen ? 'Hide repos' : ('⚙ Manage repos (' + codeflow.repos.length + ')')"></button>
+                <button class="btn ghost" type="button" :disabled="codeflow.aiBusy || !codeflow.pullRequests.length"
+                        @click="loadCodeflowAi(false)"
+                        x-text="codeflow.aiBusy ? '✨ Analyzing…' : '✨ AI insights'"></button>
                 <button class="btn" type="button" :disabled="codeflow.loading" @click="refreshCodeFlow()"
                         x-text="codeflow.loading ? '…' : '↻ Refresh'"></button>
               </div>
@@ -7353,15 +7370,46 @@
               <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:14px">
                 <div style="flex:1;min-width:130px">
                   <label class="field-label">Org</label>
-                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.org" placeholder="e.g. dnceng" @keydown.enter="addCodeflowRepo()">
+                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.org"
+                         placeholder="e.g. dnceng"
+                         @input.debounce.500ms="codeflowLoadRepos()" @change="codeflowLoadRepos()">
                 </div>
                 <div style="flex:1;min-width:130px">
                   <label class="field-label">Project</label>
-                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.project" placeholder="e.g. internal" @keydown.enter="addCodeflowRepo()">
+                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.project"
+                         placeholder="e.g. internal"
+                         @input.debounce.500ms="codeflowLoadRepos()" @change="codeflowLoadRepos()">
                 </div>
-                <div style="flex:1;min-width:130px">
+                <div style="flex:1.4;min-width:160px;position:relative">
                   <label class="field-label">Repository</label>
-                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.repo" placeholder="e.g. dotnet-helix-service" @keydown.enter="addCodeflowRepo()">
+                  <input class="cf-repo-input" style="width:100%" type="text"
+                         :placeholder="codeflowRepoForm.loadingRepos ? 'Loading repositories…' : (codeflowRepoForm.repos.length ? 'Search repositories…' : 'Enter org + project first')"
+                         x-model="codeflowRepoForm.repoQuery"
+                         @focus="codeflowRepoForm.repoOpen=true; if(!codeflowRepoForm.repos.length && codeflowRepoForm.org.trim() && codeflowRepoForm.project.trim() && !codeflowRepoForm.loadingRepos) codeflowLoadRepos()"
+                         @blur="codeflowRepoBlur()"
+                         @input="codeflowRepoForm.repoOpen=true; codeflowRepoForm.repo=''"
+                         @keydown.enter.prevent="addCodeflowRepo()"
+                         @keydown.escape.stop="codeflowRepoForm.repoOpen=false; $el.blur()">
+                  <div x-show="codeflowRepoForm.repoOpen" x-transition.opacity.duration.120ms
+                       style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                    <template x-if="codeflowRepoForm.loadingRepos">
+                      <div class="hint" style="padding:8px 12px">Loading repositories…</div>
+                    </template>
+                    <template x-if="!codeflowRepoForm.loadingRepos && !codeflowRepoForm.repos.length">
+                      <div class="hint" style="padding:8px 12px">Enter an org + project to list repositories.</div>
+                    </template>
+                    <template x-for="r in codeflowReposFiltered()" :key="r.name">
+                      <div @mousedown.prevent="codeflowPickRepo(r.name)"
+                           style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                           :style="r.name===codeflowRepoForm.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                           @mouseenter="if(r.name!==codeflowRepoForm.repo) $el.style.background='var(--cp-surface-soft)'"
+                           @mouseleave="if(r.name!==codeflowRepoForm.repo) $el.style.background=''"
+                           x-text="r.name"></div>
+                    </template>
+                    <template x-if="!codeflowRepoForm.loadingRepos && codeflowRepoForm.repos.length && !codeflowReposFiltered().length">
+                      <div class="hint" style="padding:8px 12px">No repositories match your search.</div>
+                    </template>
+                  </div>
                 </div>
                 <button class="btn primary" type="button" :disabled="codeflowRepoForm.busy"
                         @click="addCodeflowRepo()" x-text="codeflowRepoForm.busy ? 'Adding…' : '＋ Add'"></button>
@@ -7396,6 +7444,7 @@
               <label class="hint" style="display:flex;align-items:center;gap:6px">Sort
                 <select class="cf-select" x-model="codeflow.sort">
                   <option value="attention">Attention first</option>
+                  <option value="urgency">AI urgency</option>
                   <option value="newest">Newest</option>
                   <option value="oldest">Oldest</option>
                   <option value="age">Longest open</option>
@@ -7447,6 +7496,17 @@
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
                     </div>
                   </div>
+
+                  <!-- AI insight: summary + urgency -->
+                  <template x-if="codeflowAi(pr)">
+                    <div class="cf-ai">
+                      <span class="cf-ai-badge">✨ AI</span>
+                      <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
+                            :title="codeflowAi(pr).urgencyReason"
+                            x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
+                      <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
+                    </div>
+                  </template>
 
                   <!-- Validation section: CI / PR runs / checks -->
                   <template x-if="pr.validation && pr.validation.length">
@@ -11432,10 +11492,13 @@
           attentionCount: 0,
           fetchedAt: null,
           filterRepo: '',        // repoId filter ('' = all)
-          sort: 'attention'      // 'attention' | 'newest' | 'oldest' | 'age'
+          sort: 'attention',     // 'attention' | 'newest' | 'oldest' | 'age' | 'urgency'
+          ai: {},                // prId -> { summary, urgency, urgencyReason }
+          aiBusy: false,
+          aiGeneratedAt: null
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0 },
-        codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '' },
+        codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
@@ -12261,6 +12324,7 @@
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'codeflow') {
             await this.loadCodeFlow();
+            this.codeflowPrefillRepoDefaults();
           } else if (this.route === 'dev-archive') {
             // Archived dev cards are computed client-side from this.boards (every
             // board carries its full devItems), so just ensure boards are loaded.
@@ -15574,6 +15638,8 @@
             this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
             this.codeflow.attentionCount = prResp.attentionCount || 0;
             this.codeflow.fetchedAt = prResp.fetchedAt || null;
+            this.codeflow.ai = {};
+            this.codeflow.aiGeneratedAt = null;
             this.loadCodeflowAttention(true);
           } catch (e) {
             this.showToast('Code Flow', e.message, 'error');
@@ -15581,20 +15647,58 @@
             this.codeflow.loading = false;
           }
         },
+        async loadCodeflowAi(refresh) {
+          if (this.codeflow.aiBusy) return;
+          if (!this.codeflow.pullRequests.length) {
+            this.showToast('Code Flow', 'No pull requests to analyze.', 'info');
+            return;
+          }
+          this.codeflow.aiBusy = true;
+          try {
+            const r = await this.request('/api/codeflow/ai', {
+              method: 'POST',
+              body: JSON.stringify({ view: this.codeflow.view, refresh: !!refresh }),
+              timeoutMs: 180000
+            });
+            const map = {};
+            for (const ins of (r.insights || [])) map[ins.id] = ins;
+            this.codeflow.ai = map;
+            this.codeflow.aiGeneratedAt = r.generatedAt || null;
+            if (!(r.insights || []).length) this.showToast('Code Flow', 'No AI insights returned.', 'info');
+          } catch (e) {
+            this.showToast('Code Flow AI', e.message, 'error');
+          } finally {
+            this.codeflow.aiBusy = false;
+          }
+        },
         setCodeflowView(view) {
           if (view !== 'mine' && view !== 'reviews') return;
           if (this.codeflow.view === view) return;
           this.codeflow.view = view;
+          this.codeflow.ai = {};
+          this.codeflow.aiGeneratedAt = null;
+          if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
         },
         async addCodeflowRepo() {
           const f = this.codeflowRepoForm;
-          const org = (f.org || '').trim(), project = (f.project || '').trim(), repo = (f.repo || '').trim();
+          const org = (f.org || '').trim(), project = (f.project || '').trim();
+          // Resolve the repo: prefer an explicit pick, else an exact (case-insensitive)
+          // match against the loaded list, else fall back to the typed text (so it still
+          // works when listing failed / no access to enumerate repos).
+          let repo = (f.repo || '').trim();
+          const typed = (f.repoQuery || '').trim();
+          if (!repo && typed) {
+            const hit = (f.repos || []).find(r => (r.name || '').toLowerCase() === typed.toLowerCase());
+            repo = hit ? hit.name : typed;
+          }
           if (!org || !project || !repo) { f.error = 'Org, project and repo are all required.'; return; }
           f.busy = true; f.error = '';
           try {
             await this.request('/api/codeflow/repos', { method: 'POST', body: JSON.stringify({ org, project, repo }) });
-            f.org = ''; f.project = ''; f.repo = '';
+            // Keep org/project so adding several repos from the same project is quick;
+            // just clear the repo selection.
+            f.repo = ''; f.repoQuery = ''; f.repoOpen = false;
             this.showToast('Code Flow', 'Now monitoring ' + repo, 'success');
             await this.loadCodeFlow();
             this.loadCodeflowAttention(true);
@@ -15603,6 +15707,63 @@
           } finally {
             f.busy = false;
           }
+        },
+        // Pre-fill the add-repo form's org/project from the saved Settings defaults
+        // (Dev Card org/project preferred, falling back to the AzDO export target) so
+        // users don't retype them. Only fills empty fields and runs once per page load;
+        // auto-loads the repo dropdown when both are present.
+        async codeflowPrefillRepoDefaults() {
+          const f = this.codeflowRepoForm;
+          if (f.prefilled) return;
+          f.prefilled = true;
+          try {
+            const s = await this.request('/api/settings');
+            if (s) {
+              const org = (s.devOrg || s.exportOrg || '').trim();
+              const project = (s.devProject || s.exportProject || '').trim();
+              if (org && !f.org.trim()) f.org = org;
+              if (project && !f.project.trim()) f.project = project;
+            }
+          } catch {}
+          if (f.org.trim() && f.project.trim() && !f.repos.length) this.codeflowLoadRepos();
+        },
+        async codeflowLoadRepos() {
+          const f = this.codeflowRepoForm;
+          const org = (f.org || '').trim(), project = (f.project || '').trim();
+          f.repos = []; f.repo = '';
+          if (!org || !project) return;
+          f.loadingRepos = true;
+          try {
+            const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
+            f.repos = Array.isArray(data.repos) ? data.repos : [];
+          } catch (e) {
+            // Non-fatal: user can still type a repo name by hand.
+            f.repos = [];
+          } finally {
+            f.loadingRepos = false;
+          }
+        },
+        codeflowReposFiltered() {
+          const f = this.codeflowRepoForm;
+          const q = (f.repoQuery || '').trim().toLowerCase();
+          // Exclude repos already being watched for this exact org/project.
+          const org = (f.org || '').trim().toLowerCase(), project = (f.project || '').trim().toLowerCase();
+          const watched = new Set((this.codeflow.repos || [])
+            .filter(r => (r.org || '').toLowerCase() === org && (r.project || '').toLowerCase() === project)
+            .map(r => (r.repo || '').toLowerCase()));
+          let list = (f.repos || []).filter(r => !watched.has((r.name || '').toLowerCase()));
+          if (q) list = list.filter(r => (r.name || '').toLowerCase().includes(q));
+          return list.slice(0, 200);
+        },
+        codeflowPickRepo(name) {
+          const f = this.codeflowRepoForm;
+          f.repo = name;
+          f.repoQuery = name;
+          f.repoOpen = false;
+        },
+        codeflowRepoBlur() {
+          // Delay close so a mousedown on a list item registers first.
+          setTimeout(() => { this.codeflowRepoForm.repoOpen = false; }, 150);
         },
         async removeCodeflowRepo(repoEntry) {
           if (!repoEntry || !repoEntry.id) return;
@@ -15642,6 +15803,14 @@
             list.sort((a, b) => new Date(a.creationDate || 0) - new Date(b.creationDate || 0));
           } else if (s === 'age') {
             list.sort((a, b) => (b.ageHours || 0) - (a.ageHours || 0));
+          } else if (s === 'urgency') {
+            const ai = this.codeflow.ai || {};
+            const u = (p) => { const i = ai[p.id]; return i && typeof i.urgency === 'number' ? i.urgency : -1; };
+            list.sort((a, b) => {
+              const d = u(b) - u(a);
+              if (d !== 0) return d;
+              return new Date(b.creationDate || 0) - new Date(a.creationDate || 0);
+            });
           } else {
             // 'attention' — attention first, then newest (server default order).
             list.sort((a, b) => {
@@ -15654,6 +15823,14 @@
         codeflowRepoLabel(repoId) {
           const r = (this.codeflow.repos || []).find(x => x.id === repoId);
           return r ? (r.repo) : '';
+        },
+        codeflowAi(pr) {
+          return (this.codeflow.ai || {})[pr.id] || null;
+        },
+        codeflowUrgencyCls(u) {
+          if (u >= 70) return 'cf-urg-high';
+          if (u >= 40) return 'cf-urg-med';
+          return 'cf-urg-low';
         },
         codeflowAgeLabel(pr) {
           const h = pr.ageHours || 0;
