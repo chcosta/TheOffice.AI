@@ -970,40 +970,46 @@
     .cf-pr-top { display:flex; align-items:flex-start; gap:12px; }
     .cf-pr-title { font-size:15px; font-weight:650; line-height:1.35; color:var(--cp-text); text-decoration:none; }
     .cf-pr-title:hover { color:var(--cp-accent); }
-    .cf-pr-meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
-    .cf-pill {
-      display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
-      font-size:11.5px; font-weight:600; border:1px solid var(--cp-border);
-      background:var(--cp-surface-soft); color:var(--cp-text-muted); white-space:nowrap;
-    }
-    .cf-pill.cf-repo { border-color:var(--cp-link); color:var(--cp-link); background:color-mix(in srgb, var(--cp-link) 9%, transparent); }
-    .cf-pill.cf-ok { border-color:var(--cp-success); color:var(--cp-success); background:color-mix(in srgb, var(--cp-success) 12%, transparent); }
-    .cf-pill.cf-bad { border-color:var(--cp-danger); color:var(--cp-danger); background:color-mix(in srgb, var(--cp-danger) 12%, transparent); }
-    .cf-pill.cf-warn { border-color:var(--cp-warning); color:var(--cp-warning); background:color-mix(in srgb, var(--cp-warning) 14%, transparent); }
-    .cf-pill.cf-accent { border-color:var(--cp-accent); color:var(--cp-accent); background:var(--cp-accent-soft); }
-    .cf-pill.cf-draft { font-style:italic; }
+    .cf-meta-line { display:flex; flex-wrap:wrap; align-items:center; row-gap:3px; margin-top:7px; font-size:12.5px; }
+    .cf-meta-line > * { white-space:nowrap; }
+    .cf-meta-line > *:not(.cf-m-repo)::before { content:"·"; margin:0 7px; color:var(--cp-text-soft); }
+    .cf-m-repo { color:var(--cp-link); font-weight:600; }
+    .cf-m-id { color:var(--cp-text-muted); font-weight:600; text-decoration:none; }
+    .cf-m-id:hover { text-decoration:underline; }
+    .cf-m-muted { color:var(--cp-text-muted); }
+    .cf-m-ok { color:var(--cp-success); font-weight:600; }
+    .cf-m-bad { color:var(--cp-danger); font-weight:700; }
+    .cf-m-warn { color:var(--cp-warning); font-weight:600; }
     .cf-attn-reason {
-      display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px;
+      display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:8px;
       font-size:11.5px; font-weight:700; border:1px solid var(--cp-accent);
       background:var(--cp-accent); color:var(--cp-accent-fg);
     }
-    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:10px; }
     .cf-ai {
-      display:flex; align-items:flex-start; gap:8px; margin-top:10px; padding:8px 10px;
-      border-radius:10px; background:var(--cp-accent-soft); border:1px solid var(--cp-border);
-      font-size:12.5px; line-height:1.45;
+      display:flex; align-items:flex-start; gap:8px; margin-top:10px; padding:5px 0 5px 11px;
+      border-left:2px solid var(--cp-accent); font-size:12.5px; line-height:1.45;
     }
-    .cf-ai-badge { flex:0 0 auto; font-weight:800; font-size:10.5px; letter-spacing:0.03em; color:var(--cp-accent); padding-top:1px; }
-    .cf-ai-urg {
-      flex:0 0 auto; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700;
-      border:1px solid var(--cp-border); cursor:default; white-space:nowrap;
-    }
-    .cf-ai-urg.cf-urg-high { background:var(--cp-danger); color:#fff; border-color:var(--cp-danger); }
-    .cf-ai-urg.cf-urg-med { background:var(--cp-warning); color:#1a1a1a; border-color:var(--cp-warning); }
-    .cf-ai-urg.cf-urg-low { background:var(--cp-surface-soft); color:var(--cp-text-muted); }
+    .cf-ai-badge { flex:0 0 auto; font-size:12px; color:var(--cp-accent); padding-top:1px; }
+    .cf-ai-urg { flex:0 0 auto; font-size:11px; font-weight:700; white-space:nowrap; cursor:default; }
+    .cf-ai-urg.cf-urg-high { color:var(--cp-danger); }
+    .cf-ai-urg.cf-urg-med { color:var(--cp-warning); }
+    .cf-ai-urg.cf-urg-low { color:var(--cp-text-muted); }
     .cf-ai-summary { color:var(--cp-text); min-width:0; }
-    .cf-validation-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--cp-text-soft); margin-bottom:7px; }
-    .cf-checks { display:flex; flex-direction:column; gap:5px; }
+    .cf-people { display:flex; flex-wrap:wrap; align-items:center; row-gap:4px; margin-top:8px; font-size:12.5px; color:var(--cp-text); }
+    .cf-people-seg:not(:first-child)::before { content:"·"; margin:0 8px; color:var(--cp-text-soft); }
+    .cf-people-k { font-weight:600; color:var(--cp-text-soft); }
+    .cf-people-k::after { content:":"; }
+    .cf-people-v { color:var(--cp-text); }
+    .cf-devcard { color:var(--cp-link); text-decoration:none; cursor:pointer; }
+    .cf-devcard:hover { text-decoration:underline; }
+    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:8px; }
+    .cf-validation-summary { display:flex; align-items:center; gap:7px; cursor:pointer; list-style:none; }
+    .cf-validation-summary::-webkit-details-marker { display:none; }
+    .cf-validation-summary::before { content:"▸"; color:var(--cp-text-soft); font-size:10px; }
+    details[open] > .cf-validation-summary::before { content:"▾"; }
+    .cf-validation-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--cp-text-soft); }
+    .cf-validation-count { font-size:12px; color:var(--cp-text-muted); font-weight:600; }
+    .cf-checks { display:flex; flex-direction:column; gap:5px; margin-top:8px; }
     .cf-check { display:flex; align-items:center; gap:8px; font-size:12.5px; }
     .cf-check a { color:var(--cp-link); text-decoration:none; }
     .cf-check a:hover { text-decoration:underline; }
@@ -1011,6 +1017,8 @@
     .cf-check-dot.s-succeeded { background:var(--cp-success); }
     .cf-check-dot.s-failed, .cf-check-dot.s-error { background:var(--cp-danger); }
     .cf-check-dot.s-pending, .cf-check-dot.s-notset { background:var(--cp-warning); }
+    .cf-check-gate .cf-check-name { font-weight:700; }
+    .cf-check-gate-tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-accent); }
     .cf-check-name { color:var(--cp-text); font-weight:600; }
     .cf-check-desc { color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cf-repo-manager { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-bg-elevated); padding:14px 16px; margin-bottom:18px; }
@@ -7337,8 +7345,9 @@
                 <button class="btn ghost" type="button" @click="codeflowManageOpen = !codeflowManageOpen"
                         x-text="codeflowManageOpen ? 'Hide repos' : ('⚙ Manage repos (' + codeflow.repos.length + ')')"></button>
                 <button class="btn ghost" type="button" :disabled="codeflow.aiBusy || !codeflow.pullRequests.length"
-                        @click="loadCodeflowAi(false)"
-                        x-text="codeflow.aiBusy ? '✨ Analyzing…' : '✨ AI insights'"></button>
+                        @click="loadCodeflowAi(true)"
+                        x-text="codeflow.aiBusy ? '✨ Analyzing…' : '↻ Re-analyze'"
+                        title="Re-run AI analysis for all PRs (summaries update automatically when a PR changes)"></button>
                 <button class="btn" type="button" :disabled="codeflow.loading" @click="refreshCodeFlow()"
                         x-text="codeflow.loading ? '…' : '↻ Refresh'"></button>
               </div>
@@ -7478,18 +7487,18 @@
                   <div class="cf-pr-top">
                     <div style="flex:1;min-width:0">
                       <a class="cf-pr-title" :href="pr.url" target="_blank" rel="noopener" x-text="pr.title"></a>
-                      <div class="cf-pr-meta">
-                        <span class="cf-pill cf-repo" x-text="pr.repo"></span>
-                        <span class="cf-pill" x-text="'#' + pr.id"></span>
-                        <span class="cf-pill cf-draft" x-show="pr.isDraft">Draft</span>
-                        <span class="cf-pill" x-text="codeflowAgeLabel(pr)"></span>
-                        <span class="cf-pill" :class="codeflowApprovalPill(pr).cls" x-text="codeflowApprovalPill(pr).label"></span>
-                        <span class="cf-pill cf-bad" x-show="pr.failedChecks > 0" x-text="'⛔ ' + pr.failedChecks + ' failing'"></span>
-                        <span class="cf-pill cf-warn" x-show="pr.pendingChecks > 0" x-text="'◷ ' + pr.pendingChecks + ' pending'"></span>
-                        <span class="cf-pill" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
-                        <span class="cf-pill" x-show="pr.comments && pr.comments.resolvedComments > 0" x-text="'✓ ' + pr.comments.resolvedComments + ' resolved'"></span>
-                        <span class="cf-pill cf-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
-                        <span class="cf-pill" x-show="codeflow.view === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
+                      <div class="cf-meta-line">
+                        <span class="cf-m-repo" x-text="pr.repo"></span>
+                        <a class="cf-m-id" :href="pr.url" target="_blank" rel="noopener" x-text="'#' + pr.id"></a>
+                        <span class="cf-m-muted" x-show="pr.isDraft">Draft</span>
+                        <span class="cf-m-muted" x-text="codeflowAgeLabel(pr)"></span>
+                        <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
+                        <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'⛔ ' + pr.failedChecks + ' failing'"></span>
+                        <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'◷ ' + pr.pendingChecks + ' pending'"></span>
+                        <span class="cf-m-muted" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
+                        <span class="cf-m-muted" x-show="pr.comments && pr.comments.resolvedComments > 0" x-text="'✓ ' + pr.comments.resolvedComments + ' resolved'"></span>
+                        <span class="cf-m-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
+                        <span class="cf-m-muted" x-show="codeflow.view === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
                       </div>
                     </div>
                     <div x-show="pr.attention" style="flex:0 0 auto">
@@ -7500,7 +7509,7 @@
                   <!-- AI insight: summary + urgency -->
                   <template x-if="codeflowAi(pr)">
                     <div class="cf-ai">
-                      <span class="cf-ai-badge">✨ AI</span>
+                      <span class="cf-ai-badge">✨</span>
                       <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
                             :title="codeflowAi(pr).urgencyReason"
                             x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
@@ -7508,13 +7517,42 @@
                     </div>
                   </template>
 
-                  <!-- Validation section: CI / PR runs / checks -->
+                  <!-- Reviewers, area expert, dev-card link (calm inline text) -->
+                  <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
+                    <div class="cf-people">
+                      <template x-if="pr.areaExpert">
+                        <span class="cf-people-seg" :title="'Most active in ' + pr.repo + ' (last 60 days): ' + pr.areaExpert.commits + ' commits'">
+                          <span class="cf-people-k">Area expert</span> <span class="cf-people-v" x-text="pr.areaExpert.name"></span>
+                        </span>
+                      </template>
+                      <template x-if="pr.suggestedReviewers && pr.suggestedReviewers.length">
+                        <span class="cf-people-seg">
+                          <span class="cf-people-k">Suggested reviewers</span>
+                          <span class="cf-people-v" x-text="pr.suggestedReviewers.map(r => r.name).join(', ')"></span>
+                        </span>
+                      </template>
+                      <template x-if="pr.devCard">
+                        <a class="cf-people-seg cf-devcard" href="#" @click.prevent="goTo('#/boards/' + pr.devCard.boardId)"
+                           :title="'Open dev card on board: ' + pr.devCard.boardName">
+                          🧰 <span x-text="pr.devCard.title || 'Dev card'"></span>
+                        </a>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Validation: collapsed, with a count + status summary -->
                   <template x-if="pr.validation && pr.validation.length">
-                    <div class="cf-validation">
-                      <div class="cf-validation-title">Validation</div>
+                    <details class="cf-validation" :open="pr.failedChecks > 0">
+                      <summary class="cf-validation-summary">
+                        <span class="cf-validation-title">Validation</span>
+                        <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
+                        <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
+                        <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'· ' + pr.pendingChecks + ' pending'"></span>
+                        <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0">· all passing</span>
+                      </summary>
                       <div class="cf-checks">
                         <template x-for="chk in pr.validation" :key="chk.id">
-                          <div class="cf-check">
+                          <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' }">
                             <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
                             <template x-if="chk.targetUrl">
                               <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
@@ -7522,11 +7560,12 @@
                             <template x-if="!chk.targetUrl">
                               <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
                             </template>
+                            <span class="cf-check-gate-tag" x-show="chk.kind === 'build' && chk.blocking">gate</span>
                             <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
                           </div>
                         </template>
                       </div>
-                    </div>
+                    </details>
                   </template>
                 </article>
               </template>
@@ -15622,6 +15661,8 @@
             if (this.codeflow.filterRepo && !this.codeflow.repos.some(r => r.id === this.codeflow.filterRepo)) {
               this.codeflow.filterRepo = '';
             }
+            // Auto-generate AI summaries in the background (server only pays for new/changed PRs).
+            if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
           } catch (e) {
             if (!silent) this.showToast('Code Flow', e.message, 'error');
             this.codeflow.errors = [{ repo: '', error: e.message }];
@@ -15641,16 +15682,18 @@
             this.codeflow.ai = {};
             this.codeflow.aiGeneratedAt = null;
             this.loadCodeflowAttention(true);
+            // Re-generate AI summaries for any PRs that changed since last analysis.
+            if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
           } catch (e) {
             this.showToast('Code Flow', e.message, 'error');
           } finally {
             this.codeflow.loading = false;
           }
         },
-        async loadCodeflowAi(refresh) {
+        async loadCodeflowAi(refresh, silent) {
           if (this.codeflow.aiBusy) return;
           if (!this.codeflow.pullRequests.length) {
-            this.showToast('Code Flow', 'No pull requests to analyze.', 'info');
+            if (!silent) this.showToast('Code Flow', 'No pull requests to analyze.', 'info');
             return;
           }
           this.codeflow.aiBusy = true;
@@ -15664,9 +15707,9 @@
             for (const ins of (r.insights || [])) map[ins.id] = ins;
             this.codeflow.ai = map;
             this.codeflow.aiGeneratedAt = r.generatedAt || null;
-            if (!(r.insights || []).length) this.showToast('Code Flow', 'No AI insights returned.', 'info');
+            if (!silent && !(r.insights || []).length) this.showToast('Code Flow', 'No AI insights returned.', 'info');
           } catch (e) {
-            this.showToast('Code Flow AI', e.message, 'error');
+            if (!silent) this.showToast('Code Flow AI', e.message, 'error');
           } finally {
             this.codeflow.aiBusy = false;
           }
@@ -15841,12 +15884,12 @@
         },
         codeflowApprovalPill(pr) {
           const map = {
-            'approved': { cls: 'cf-ok', label: '✓ Approved' },
-            'partially-approved': { cls: 'cf-warn', label: '◐ Partial approval' },
-            'rejected': { cls: 'cf-bad', label: '✗ Changes requested' },
-            'waiting-for-author': { cls: 'cf-warn', label: '⏳ Waiting for author' },
-            'pending': { cls: '', label: '◌ Review pending' },
-            'no-reviews': { cls: '', label: 'No reviewers' }
+            'approved': { cls: 'cf-ok', tone: 'ok', label: '✓ Approved' },
+            'partially-approved': { cls: 'cf-warn', tone: 'warn', label: '◐ Partial approval' },
+            'rejected': { cls: 'cf-bad', tone: 'bad', label: '✗ Changes requested' },
+            'waiting-for-author': { cls: 'cf-warn', tone: 'warn', label: '⏳ Waiting for author' },
+            'pending': { cls: '', tone: 'muted', label: '◌ Review pending' },
+            'no-reviews': { cls: '', tone: 'muted', label: 'No reviewers' }
           };
           return map[pr.approvalState] || map['no-reviews'];
         },

@@ -1256,11 +1256,28 @@ app.get('/api/codeflow/me', async (req, res) => {
 
 const _codeflowCache = new Map(); // view -> { at, data }
 const CODEFLOW_TTL_MS = 120000;
-const _codeflowAiCache = new Map(); // view -> { at, sig, insights }
+const _codeflowAiCache = new Map(); // view -> Map(prId -> { sig, at, insight })
 const CODEFLOW_AI_TTL_MS = 600000; // 10 min
 
 // Enrich a compact PR with threads / statuses / policy evals + derived state.
-async function _enrichCodeflowPr(pr, viewerId) {
+// Index every board dev card by (org|project|repo|prId) so a Code Flow PR can
+// link to its existing dev card if one is tracking the same pull request.
+function _buildDevCardIndex() {
+  const idx = new Map();
+  try {
+    for (const b of loadBoards()) {
+      for (const d of (b.devItems || [])) {
+        const prId = d.prId != null ? String(d.prId).trim() : '';
+        if (!prId || !d.org || !d.project || !d.repo) continue;
+        const key = `${d.org}|${d.project}|${d.repo}|${prId}`.toLowerCase();
+        idx.set(key, { boardId: b.id, boardName: b.name || '', devId: d.id, title: d.title || '' });
+      }
+    }
+  } catch { /* boards unavailable — no dev-card links, never fatal */ }
+  return idx;
+}
+
+async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   const safe = (p) => p.catch(() => null);
   const [threads, statuses, policy] = await Promise.all([
     safe(azdo.getPrThreads(pr.org, pr.project, pr.repo, pr.id)),
@@ -1282,8 +1299,29 @@ async function _enrichCodeflowPr(pr, viewerId) {
   else if ((pr.reviewers || []).some(r => r.vote >= 5)) approvalState = 'partially-approved';
   else if ((pr.reviewers || []).length) approvalState = 'pending';
 
-  const failedChecks = (statuses || []).filter(s => s.state === 'failed' || s.state === 'error').length;
-  const pendingChecks = (statuses || []).filter(s => s.state === 'pending' || s.state === 'notSet').length;
+  // Major PR build gates (Build-type policy evaluations) rendered as validation
+  // entries alongside the lighter status checks, so the gating builds are visible.
+  const buildGates = ((policy && policy.builds) || []).map((b, i) => {
+    const map = { approved: 'succeeded', rejected: 'failed', running: 'pending',
+                  queued: 'pending', canceled: 'error', partiallysucceeded: 'failed' };
+    const state = map[(b.state || '').toLowerCase()] || 'notSet';
+    let desc = '';
+    if (b.durationMs != null) {
+      const mins = Math.floor(b.durationMs / 60000), secs = Math.round((b.durationMs % 60000) / 1000);
+      desc = (b.state === 'running' ? 'Running · ' : '') + (mins ? `${mins}m ${secs}s` : `${secs}s`);
+    } else if (b.state) { desc = b.state; }
+    if (b.isExpired) desc = (desc ? desc + ' · ' : '') + 'expired';
+    return {
+      id: 'build-' + (b.buildId || i),
+      state, genre: 'Build', name: b.name,
+      description: desc, targetUrl: b.url || '',
+      kind: 'build', durationMs: b.durationMs, blocking: b.blocking
+    };
+  });
+  const validation = [...buildGates, ...(statuses || [])];
+
+  const failedChecks = validation.filter(s => s.state === 'failed' || s.state === 'error').length;
+  const pendingChecks = validation.filter(s => s.state === 'pending' || s.state === 'notSet').length;
 
   // Ready-to-merge: prefer the authoritative policy signal; else heuristic.
   let readyToMerge;
@@ -1300,16 +1338,101 @@ async function _enrichCodeflowPr(pr, viewerId) {
   const myReviewer = viewerId ? (pr.reviewers || []).find(r => r.id === viewerId) : null;
   const myVote = myReviewer ? myReviewer.voteLabel : null;
 
+  // --- Reviewer / area-expert intelligence (best-effort, deterministic) ---
+  const creatorName = ((pr.createdBy && pr.createdBy.name) || '').trim().toLowerCase();
+  const viewerName = (opts.viewerName || '').trim().toLowerCase();
+  const viewerEmail = (opts.viewerEmail || '').trim().toLowerCase();
+  const existingReviewerNames = new Set((pr.reviewers || []).map(r => (r.name || '').trim().toLowerCase()).filter(Boolean));
+  const contribs = opts.repoContributors || [];
+  const isViewer = (name, email) => {
+    const n = (name || '').trim().toLowerCase();
+    const e = (email || '').trim().toLowerCase();
+    return (viewerEmail && e === viewerEmail) || (n && n === viewerName);
+  };
+
+  // Area expert: top repo contributor over the window who isn't the PR author or viewer.
+  let areaExpert = null;
+  for (const c of contribs) {
+    const n = (c.name || '').trim().toLowerCase();
+    if (n && n !== creatorName && !isViewer(c.name, c.email)) { areaExpert = { name: c.name, commits: c.count }; break; }
+  }
+
+  // Suggested reviewers: who else recently touched this PR's changed files.
+  let suggestedReviewers = [];
+  try {
+    const files = await azdo.getPrChangedFiles(pr.org, pr.project, pr.repo, pr.id, 60);
+    const pick = files.slice(0, 4);
+    const perFile = await Promise.all(pick.map(p =>
+      azdo.getFileContributors(pr.org, pr.project, pr.repo, p, 60, 30).catch(() => [])));
+    const tally = new Map();
+    for (const list of perFile) for (const a of list) {
+      const n = (a.name || '').trim();
+      if (!n) continue;
+      const key = n.toLowerCase();
+      const cur = tally.get(key) || { name: n, count: 0, email: a.email };
+      cur.count += a.count;
+      if (!cur.email && a.email) cur.email = a.email;
+      tally.set(key, cur);
+    }
+    const expertName = areaExpert ? areaExpert.name.toLowerCase() : null;
+    const exclude = (a) => {
+      const n = (a.name || '').trim().toLowerCase();
+      return !n || n === creatorName || n === expertName || existingReviewerNames.has(n) || isViewer(a.name, a.email);
+    };
+    suggestedReviewers = [...tally.values()]
+      .filter(a => !exclude(a))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3)
+      .map(a => ({ name: a.name, commits: a.count }));
+    // Fallback to top repo contributors when no per-file signal is available.
+    if (!suggestedReviewers.length && contribs.length) {
+      const seen = new Set();
+      for (const c of contribs) {
+        const n = (c.name || '').trim();
+        const lk = n.toLowerCase();
+        if (exclude(c) || seen.has(lk)) continue;
+        seen.add(lk);
+        suggestedReviewers.push({ name: n, commits: c.count });
+        if (suggestedReviewers.length >= 3) break;
+      }
+    }
+  } catch { /* reviewer enrichment is best-effort, never fatal */ }
+
+  // Link to an existing board dev card tracking this same PR, if any.
+  let devCard = null;
+  if (opts.devCardIndex) {
+    devCard = opts.devCardIndex.get(`${pr.org}|${pr.project}|${pr.repo}|${pr.id}`.toLowerCase()) || null;
+  }
+
+  // Volatile state signature — drives AI re-analysis only when something a human
+  // would care about actually changed (cheap, deterministic, order-independent).
+  const cdt = comments => comments ? `${comments.activeComments}/${comments.resolvedComments}/${comments.totalThreads}` : '0/0/0';
+  const revSig = (pr.reviewers || [])
+    .map(r => `${(r.name || r.id || '')}:${r.vote}`)
+    .sort().join(',');
+  const valSig = validation.map(v => `${v.genre}/${v.name}=${v.state}`).sort().join(',');
+  const signature = [
+    pr.lastMergeSourceCommit && pr.lastMergeSourceCommit.commitId || '',
+    approvalState, cdt(threads),
+    pr.isDraft ? 'draft' : 'open',
+    readyToMerge ? 'ready' : '',
+    revSig, valSig
+  ].join('|');
+
   return {
     ...pr,
     ageHours, ageDays,
     comments: threads || { activeComments: 0, resolvedComments: 0, totalThreads: 0 },
-    validation: statuses || [],
+    validation,
     failedChecks, pendingChecks,
-    policy: policy || { evaluations: [], ready: null },
+    policy: policy || { evaluations: [], ready: null, builds: [] },
     approvalState,
     readyToMerge: !!readyToMerge,
-    myVote
+    myVote,
+    areaExpert,
+    suggestedReviewers,
+    devCard,
+    signature
   };
 }
 
@@ -1343,14 +1466,19 @@ async function _gatherCodeflow(view) {
   }));
 
   const errors = [];
+  const devCardIndex = _buildDevCardIndex();
   const perRepo = await Promise.all(repos.map(async (r) => {
     const me = userByOrg[r.org];
     if (!me || !me.id) { errors.push({ repo: r.repo, error: 'identity unavailable' }); return []; }
     try {
       const filter = view === 'reviews' ? { reviewerId: me.id } : { creatorId: me.id };
-      const prs = await azdo.listPullRequests(r.org, r.project, r.repo, filter);
+      const [prs, repoContributors] = await Promise.all([
+        azdo.listPullRequests(r.org, r.project, r.repo, filter),
+        azdo.getRepoContributors(r.org, r.project, r.repo).catch(() => [])
+      ]);
+      const opts = { repoContributors, devCardIndex, viewerName: me.name, viewerEmail: me.email };
       const enriched = await Promise.all(prs.map(async (pr) => {
-        const e = await _enrichCodeflowPr(pr, me.id);
+        const e = await _enrichCodeflowPr(pr, me.id, opts);
         const a = _codeflowAttention(e, view);
         return { ...e, attention: a.attention, attentionReason: a.reason, repoId: r.id };
       }));
@@ -1461,39 +1589,63 @@ app.post('/api/codeflow/ai', async (req, res) => {
     const prs = data.pullRequests || [];
     if (!prs.length) return res.json({ view, insights: [], generatedAt: new Date().toISOString() });
 
-    const sig = prs.map(p => p.id).join(',');
-    const ai = _codeflowAiCache.get(view);
-    if (!refresh && ai && ai.sig === sig && (Date.now() - ai.at) < CODEFLOW_AI_TTL_MS) {
-      return res.json({ view, insights: ai.insights, generatedAt: new Date(ai.at).toISOString(), cached: true });
-    }
-
-    const prompt = _codeflowAiPrompt(view, prs);
-    let arr = null, text = '';
-    for (let attempt = 0; attempt < 2 && !arr; attempt++) {
-      let acc = '';
-      const result = await sdkRunner.runChat({
-        config: null, prompt, sessionId: require('crypto').randomUUID(),
-        resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }
-      });
-      text = acc.trim() ? acc : (result.output || '');
-      arr = _parseCodeflowAi(text);
-    }
-    if (!arr) return res.status(502).json({ error: 'Could not parse AI insights. Please try again.' });
-
-    const byId = new Map(arr.map(x => [String(x.id), x]));
-    const insights = prs.map(p => {
-      const m = byId.get(String(p.id)) || {};
-      let urg = parseInt(m.urgency, 10);
-      if (!Number.isFinite(urg)) urg = 0;
-      return {
-        id: p.id,
-        summary: String(m.summary || '').slice(0, 240),
-        urgency: Math.max(0, Math.min(100, urg)),
-        urgencyReason: String(m.urgencyReason || '').slice(0, 120)
-      };
+    // Per-PR cache keyed by id, validated against the volatile signature. We only
+    // pay the model for PRs that are new or whose state actually changed.
+    let store = _codeflowAiCache.get(view);
+    if (!store) { store = new Map(); _codeflowAiCache.set(view, store); }
+    const toGenerate = prs.filter(p => {
+      if (refresh) return true;
+      const hit = store.get(String(p.id));
+      return !hit || hit.sig !== (p.signature || '');
     });
-    _codeflowAiCache.set(view, { at: Date.now(), sig, insights });
-    res.json({ view, insights, generatedAt: new Date().toISOString(), cached: false });
+
+    if (toGenerate.length) {
+      const prompt = _codeflowAiPrompt(view, toGenerate);
+      let arr = null, text = '';
+      for (let attempt = 0; attempt < 2 && !arr; attempt++) {
+        let acc = '';
+        const result = await sdkRunner.runChat({
+          config: null, prompt, sessionId: require('crypto').randomUUID(),
+          resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }
+        });
+        text = acc.trim() ? acc : (result.output || '');
+        arr = _parseCodeflowAi(text);
+      }
+      if (!arr) {
+        // If nothing was cached at all, this is a hard failure; otherwise fall
+        // back to returning whatever we already have.
+        if (![...store.keys()].length) return res.status(502).json({ error: 'Could not parse AI insights. Please try again.' });
+      } else {
+        const byId = new Map(arr.map(x => [String(x.id), x]));
+        for (const p of toGenerate) {
+          const m = byId.get(String(p.id)) || {};
+          let urg = parseInt(m.urgency, 10);
+          if (!Number.isFinite(urg)) urg = 0;
+          store.set(String(p.id), {
+            sig: p.signature || '',
+            at: Date.now(),
+            insight: {
+              id: p.id,
+              summary: String(m.summary || '').slice(0, 240),
+              urgency: Math.max(0, Math.min(100, urg)),
+              urgencyReason: String(m.urgencyReason || '').slice(0, 120)
+            }
+          });
+        }
+      }
+    }
+
+    // Drop cache entries for PRs no longer in the view.
+    const live = new Set(prs.map(p => String(p.id)));
+    for (const k of [...store.keys()]) if (!live.has(k)) store.delete(k);
+
+    const insights = prs.map(p => (store.get(String(p.id)) || {}).insight).filter(Boolean);
+    res.json({
+      view, insights,
+      generatedAt: new Date().toISOString(),
+      generated: toGenerate.length,
+      cached: toGenerate.length === 0
+    });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 

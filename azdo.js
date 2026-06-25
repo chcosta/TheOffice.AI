@@ -675,7 +675,7 @@ async function getPrPolicyEvaluations(org, project, prId, projectId) {
   if (!pid) {
     try { pid = (await getProject(org, project)).id; } catch { pid = null; }
   }
-  if (!pid) return { evaluations: [], ready: null };
+  if (!pid) return { evaluations: [], ready: null, builds: [] };
   const artifactId = `vstfs:///CodeReview/CodeReviewId/${pid}/${prId}`;
   const d = await apiSend(
     org,
@@ -683,15 +683,151 @@ async function getPrPolicyEvaluations(org, project, prId, projectId) {
   );
   const evals = (d.value || []).map(e => {
     const cfg = e.configuration || {};
+    const settings = cfg.settings || {};
+    const ctx = e.context || {};
+    const typeName = (cfg.type && (cfg.type.displayName || cfg.type.id)) || '';
+    const isBuild = /build/i.test(typeName);
     return {
       status: (e.status || '').toLowerCase(), // approved|queued|running|rejected|notApplicable
       blocking: !!cfg.isBlocking,
-      type: (cfg.type && (cfg.type.displayName || cfg.type.id)) || ''
+      type: typeName,
+      isBuild,
+      displayName: settings.displayName || '',
+      buildDefinitionId: settings.buildDefinitionId || null,
+      buildId: (ctx.buildId != null ? ctx.buildId : null),
+      isExpired: !!ctx.isExpired
     };
   });
   const blocking = evals.filter(e => e.blocking && e.status !== 'notapplicable');
   const ready = blocking.length ? blocking.every(e => e.status === 'approved') : null;
-  return { evaluations: evals, ready };
+
+  // The "major PR builds" — Build-type policy gates. Best-effort enrich each
+  // with the build's name + timing so Code Flow can surface them as validation.
+  const buildEvals = evals.filter(e => e.isBuild && e.status !== 'notapplicable');
+  const builds = await Promise.all(buildEvals.map(async (e) => {
+    let b = null;
+    if (e.buildId) { try { b = await getBuild(org, project, e.buildId); } catch { b = null; } }
+    // Map the gate to a status-check-like state for unified rendering.
+    let state = e.status; // approved|queued|running|rejected
+    if (b) {
+      if (b.status === 'inProgress' || b.status === 'notStarted') state = 'running';
+      else if (b.result === 'succeeded') state = 'approved';
+      else if (b.result === 'failed') state = 'rejected';
+      else if (b.result === 'canceled' || b.result === 'partiallySucceeded') state = b.result;
+    }
+    return {
+      kind: 'build',
+      name: (b && b.definitionName) || e.displayName || 'Build validation',
+      state,                       // approved|rejected|running|queued|canceled|partiallySucceeded
+      blocking: e.blocking,
+      buildId: e.buildId,
+      buildNumber: b && b.buildNumber,
+      result: b && b.result,
+      durationMs: b && b.durationMs != null ? b.durationMs : null,
+      startTime: b && b.startTime,
+      finishTime: b && b.finishTime,
+      isExpired: e.isExpired,
+      url: (b && b.url) || (e.buildId
+        ? `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_build/results?buildId=${e.buildId}`
+        : '')
+    };
+  }));
+  return { evaluations: evals, ready, builds };
+}
+
+// Fetch a build's status, result, timing and definition name. Best-effort.
+async function getBuild(org, project, buildId) {
+  const b = await apiSend(
+    org,
+    `${seg(project)}/_apis/build/builds/${seg(buildId)}?api-version=${API_VERSION}`
+  );
+  const start = b.startTime ? new Date(b.startTime).getTime() : null;
+  const finish = b.finishTime ? new Date(b.finishTime).getTime() : null;
+  const durationMs = (start && finish) ? Math.max(0, finish - start)
+    : (start ? Math.max(0, Date.now() - start) : null);
+  return {
+    id: b.id,
+    buildNumber: b.buildNumber || '',
+    status: b.status || '',       // notStarted|inProgress|completed|cancelling|postponed
+    result: b.result || '',       // succeeded|failed|canceled|partiallySucceeded
+    definitionName: (b.definition && b.definition.name) || '',
+    startTime: b.startTime || '',
+    finishTime: b.finishTime || '',
+    durationMs,
+    url: (b._links && b._links.web && b._links.web.href) || ''
+  };
+}
+
+// ---- Reviewer / area-expert intelligence (deterministic, no AI) -----------
+// Tally git commit authors over a recent window, optionally scoped to a single
+// file path. Returns [{ name, email, count }] sorted by count desc. Best-effort:
+// callers should .catch() — a missing repo/permission must never break Code Flow.
+async function _commitAuthors(org, project, repo, { days = 60, top = 300, itemPath } = {}) {
+  const fromDate = new Date(Date.now() - days * 86400000).toISOString();
+  const qs = [
+    `searchCriteria.fromDate=${encodeURIComponent(fromDate)}`,
+    `searchCriteria.$top=${Number(top) || 300}`,
+    `api-version=${API_VERSION}`
+  ];
+  if (itemPath) {
+    qs.push(`searchCriteria.itemPath=${encodeURIComponent(itemPath)}`);
+    qs.push('searchCriteria.itemVersion.versionType=branch');
+  }
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/commits?${qs.join('&')}`
+  );
+  const tally = new Map(); // key -> { name, email, count }
+  for (const c of (d.value || [])) {
+    const a = c.author || {};
+    const email = (a.email || '').trim().toLowerCase();
+    const name = (a.name || '').trim();
+    if (!name && !email) continue;
+    const key = email || name.toLowerCase();
+    const cur = tally.get(key) || { name, email, count: 0 };
+    if (!cur.name && name) cur.name = name;
+    cur.count++;
+    tally.set(key, cur);
+  }
+  return [...tally.values()].sort((a, b) => b.count - a.count);
+}
+
+// Most active authors in a repo over the window (area-expert + reviewer fallback).
+async function getRepoContributors(org, project, repo, days = 60, top = 300) {
+  return _commitAuthors(org, project, repo, { days, top });
+}
+
+// Authors who recently touched a specific file (suggested-reviewer signal).
+async function getFileContributors(org, project, repo, path, days = 60, top = 30) {
+  if (!path) return [];
+  return _commitAuthors(org, project, repo, { days, top, itemPath: path });
+}
+
+// Changed file paths for a PR (latest iteration). Returns up to `limit` edited/added
+// file paths (folders + pure deletes excluded). Best-effort: callers should .catch().
+async function getPrChangedFiles(org, project, repo, prId, limit = 100) {
+  const its = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullRequests/${seg(prId)}/iterations?api-version=${API_VERSION}`
+  );
+  const iters = its.value || [];
+  if (!iters.length) return [];
+  const latest = iters.reduce((m, it) => (it.id > m ? it.id : m), iters[0].id || 1);
+  const ch = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullRequests/${seg(prId)}/iterations/${seg(latest)}/changes?api-version=${API_VERSION}`
+  );
+  const out = [];
+  for (const e of (ch.changeEntries || [])) {
+    const item = e.item || {};
+    if (item.isFolder) continue;
+    const ct = (e.changeType || '').toLowerCase();
+    if (ct === 'delete' || ct === 'sourcerename, delete') continue;
+    const p = item.path || '';
+    if (p) out.push(p);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 module.exports = {
@@ -699,10 +835,14 @@ module.exports = {
   getToken,
   getCurrentUser,
   voteLabel,
+  getRepoContributors,
+  getFileContributors,
+  getPrChangedFiles,
   listPullRequests,
   getPrThreads,
   getPrStatuses,
   getPrPolicyEvaluations,
+  getBuild,
   listRepos,
   listBranches,
   discover,
