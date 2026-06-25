@@ -17,7 +17,380 @@
         const ot = localStorage.getItem("current-org-theme");
         if (ot) document.documentElement.setAttribute("data-org-theme", ot);
       } catch {}
+      try {
+        const ap = localStorage.getItem("current-appearance");
+        if (ap) document.documentElement.setAttribute("data-appearance", ap);
+        const ic = localStorage.getItem("current-iconset");
+        if (ic && ic !== "emoji") document.documentElement.setAttribute("data-iconset", ic);
+      } catch {}
     })();
+  </script>
+  <script>
+  /* ===== themed icon engine + appearance runtime ===== */
+  (function(){
+    const PATHS = (function(){ const I = {
+  agent:'<rect class="acc" x="5" y="8" width="14" height="11" rx="3"/><line x1="12" y1="3.2" x2="12" y2="5.6"/><circle class="dot" cx="12" cy="3" r="1.2"/><circle class="dot" cx="9.6" cy="13" r="1.1"/><circle class="dot" cx="14.4" cy="13" r="1.1"/><line x1="9.5" y1="16.5" x2="14.5" y2="16.5"/>',
+  manager:'<circle cx="12" cy="7.8" r="3"/><path d="M5.5 19c0-3.4 2.9-5.2 6.5-5.2s6.5 1.8 6.5 5.2"/><path class="acc" d="M10.4 14l1.6 2 1.6-2"/>',
+  org:'<rect x="5" y="4" width="14" height="16" rx="1.5"/><circle class="dot" cx="9" cy="8" r=".9"/><circle class="dot" cx="15" cy="8" r=".9"/><circle class="dot" cx="9" cy="12" r=".9"/><circle class="dot" cx="15" cy="12" r=".9"/><line x1="11" y1="20" x2="11" y2="16.5"/><line x1="13" y1="20" x2="13" y2="16.5"/>',
+  home:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10.5V19h12v-8.5"/><rect class="acc" x="10" y="14" width="4" height="5"/>',
+  plugin:'<path d="M10 4.2a1.8 1.8 0 0 1 3.6 0v1.3h2.4a.8.8 0 0 1 .8.8V10h1.2a1.8 1.8 0 0 1 0 3.6H16.8v3.8a.8.8 0 0 1-.8.8h-2.4v-1.3a1.8 1.8 0 0 0-3.6 0v1.3H7.6a.8.8 0 0 1-.8-.8V14H5.6a1.8 1.8 0 0 1 0-3.6H6.8V6.3a.8.8 0 0 1 .8-.8H10z"/>',
+  skill:'<path d="M14.6 6.4a3.4 3.4 0 0 1-4.4 4.4l-5 5 1.5 1.5 5-5a3.4 3.4 0 0 0 4.4-4.4l-1.8 1.8-1.5-1.5z"/>',
+  mcp:'<path d="M9 4v3.5M15 4v3.5"/><path d="M7 7.5h10v3a5 5 0 0 1-10 0z"/><line x1="12" y1="15.5" x2="12" y2="20"/>',
+  sparkle:'<path class="acc" d="M11.5 4 13 8.4 17.5 10 13 11.6 11.5 16 10 11.6 5.5 10 10 8.4z"/><path class="dot acc" d="M17 14.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/>',
+  tasks:'<rect x="6" y="5" width="12" height="15" rx="2"/><rect x="9" y="3.5" width="6" height="3" rx="1"/><line class="acc" x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="17" x2="13" y2="17"/>',
+  folder:'<path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H10l2 2h6.5A1.5 1.5 0 0 1 20 9.5V17.5A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"/>',
+  archive:'<rect x="4" y="6" width="16" height="4" rx="1"/><path d="M5 10v7.5A1.5 1.5 0 0 0 6.5 19h11A1.5 1.5 0 0 0 19 17.5V10"/><line class="acc" x1="10" y1="13.5" x2="14" y2="13.5"/>',
+  chart:'<line x1="5" y1="19.5" x2="20" y2="19.5"/><rect class="acc" x="7" y="12" width="3" height="5.5"/><rect x="11.5" y="9" width="3" height="8.5"/><rect class="acc" x="16" y="6.5" width="3" height="11"/>',
+  model:'<path d="M9.5 5.5A3 3 0 0 0 6 8.4 3 3 0 0 0 5 14a3 3 0 0 0 4.5 2.6z"/><path d="M14.5 5.5A3 3 0 0 1 18 8.4 3 3 0 0 1 19 14a3 3 0 0 1-4.5 2.6z"/><line class="acc" x1="12" y1="5.2" x2="12" y2="18.5"/>',
+  pr:'<circle cx="7" cy="6.5" r="2"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/><line x1="7" y1="8.5" x2="7" y2="15.5"/><path d="M17 15.5v-3.5a3 3 0 0 0-3-3h-2.5"/><path class="acc" d="M13 7l-1.8 2 1.8 2"/>',
+  branch:'<circle cx="7" cy="6.5" r="2"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="8" r="2"/><line x1="7" y1="8.5" x2="7" y2="15.5"/><path class="acc" d="M7 13a6 6 0 0 0 6-4"/>',
+  link:'<path d="M10 14a3.4 3.4 0 0 0 4.8 0l2.4-2.4a3.4 3.4 0 0 0-4.8-4.8L11 8"/><path class="acc" d="M14 10a3.4 3.4 0 0 0-4.8 0L6.8 12.4a3.4 3.4 0 0 0 4.8 4.8L13 16"/>',
+  bolt:'<path class="acc" d="M13 3 5 13h5l-1 8 8-10h-5z"/>',
+  search:'<circle cx="11" cy="11" r="6"/><line class="acc" x1="15.5" y1="15.5" x2="20" y2="20"/>',
+  insights:'<path class="acc" d="M4 14.5 13 11l1 3-9 3.5z"/><path d="M13 11l4.5-1.6 1 3-4.5 1.6"/><line x1="8.5" y1="16.5" x2="7.5" y2="20"/><line x1="11" y1="15.7" x2="12.5" y2="20"/>',
+  share:'<path d="M12 15V4.5"/><path class="acc" d="M8 8l4-4 4 4"/><path d="M5.5 13v4.5A1.5 1.5 0 0 0 7 19h10a1.5 1.5 0 0 0 1.5-1.5V13"/>',
+  chat:'<path d="M5 6.5A1.5 1.5 0 0 1 6.5 5h11A1.5 1.5 0 0 1 19 6.5v7A1.5 1.5 0 0 1 17.5 15H10l-4 3v-3H6.5A1.5 1.5 0 0 1 5 13.5z"/><line class="acc" x1="9" y1="10" x2="15" y2="10"/>',
+  edit:'<path class="acc" d="M5 19l1-4L16 5l3 3L9 18z"/><line x1="14" y1="7" x2="17" y2="10"/>',
+  trash:'<path d="M6 7h12"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7"/><path d="M7 7l1 12.5A1.5 1.5 0 0 0 9.5 21h5a1.5 1.5 0 0 0 1.5-1.5L17 7"/><line class="acc" x1="10.5" y1="10.5" x2="10.8" y2="17"/><line class="acc" x1="13.5" y1="10.5" x2="13.2" y2="17"/>',
+  refresh:'<path d="M19 12a7 7 0 1 1-2-4.9"/><path class="acc" d="M19 4.5V9h-4.5"/>',
+  settings:'<circle cx="12" cy="12" r="3.1"/><path d="M12 3.6v2.2M12 18.2v2.2M3.6 12h2.2M18.2 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6"/>',
+  lock:'<rect x="6" y="10" width="12" height="9" rx="2"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"/><circle class="dot acc" cx="12" cy="14.3" r="1.1"/>',
+  key:'<circle cx="8" cy="12" r="3.4"/><path class="acc" d="M11.4 12H20l-2 2m2-2-2-2"/><line x1="16" y1="12.2" x2="16" y2="15"/>',
+  success:'<circle class="acc" cx="12" cy="12" r="8"/><path d="M8.4 12.4l2.6 2.6 4.6-5"/>',
+  error:'<circle cx="12" cy="12" r="8"/><line class="acc" x1="9" y1="9" x2="15" y2="15"/><line class="acc" x1="15" y1="9" x2="9" y2="15"/>',
+  warning:'<path d="M12 4.2 20.5 19H3.5z"/><line class="acc" x1="12" y1="10" x2="12" y2="13.8"/><circle class="dot acc" cx="12" cy="16.4" r="1"/>',
+  mobile:'<rect x="7" y="3" width="10" height="18" rx="2.5"/><line class="acc" x1="10.5" y1="18" x2="13.5" y2="18"/>',
+  live:'<circle class="dot acc" cx="12" cy="12" r="2"/><path d="M8.6 8.6a5 5 0 0 0 0 6.8M15.4 8.6a5 5 0 0 1 0 6.8"/><path d="M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12"/>',
+  status:'<circle class="dot" cx="12" cy="12" r="5"/>',
+  bell:'<path d="M7 16.5V11a5 5 0 0 1 10 0v5.5l1.4 2H5.6z"/><path class="acc" d="M10.4 19a1.6 1.6 0 0 0 3.2 0"/>',
+  pin:'<path d="M9 4h6l-1 6 3 3H7l3-3z"/><line class="acc" x1="12" y1="16" x2="12" y2="20"/>',
+  star:'<path class="acc" d="M12 4l2.3 4.7 5.2.8-3.75 3.6.9 5.1L12 16.8 7.4 18.3l.9-5.1L4.5 9.5l5.2-.8z"/>',
+  tag:'<path d="M4 11V5.5A1.5 1.5 0 0 1 5.5 4H11l8 8-6.5 6.5z"/><circle class="dot acc" cx="8" cy="8" r="1.2"/>',
+  user:'<circle cx="12" cy="8" r="3.1"/><path d="M5.5 19c0-3.4 2.9-5.2 6.5-5.2s6.5 1.8 6.5 5.2"/>',
+  save:'<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H16l3 3v11A1.5 1.5 0 0 1 17.5 19.5h-11A1.5 1.5 0 0 1 5 18z"/><rect x="8" y="4" width="6" height="4"/><rect class="acc" x="8" y="13" width="8" height="6.5"/>',
+  calendar:'<rect x="5" y="6" width="14" height="14" rx="2"/><line x1="5" y1="10" x2="19" y2="10"/><line x1="9" y1="4" x2="9" y2="7"/><line x1="15" y1="4" x2="15" y2="7"/><circle class="dot acc" cx="12" cy="14.5" r="1.2"/>',
+  package:'<path d="M12 3 4 7v10l8 4 8-4V7z"/><path class="acc" d="M4 7l8 4 8-4M12 11v10"/>',
+  email:'<rect x="4" y="6" width="16" height="12" rx="2"/><path class="acc" d="M5 8l7 5 7-5"/>',
+  global:'<circle cx="12" cy="12" r="8"/><path class="acc" d="M4 12h16"/><path d="M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/>',
+  machines:'<rect x="4" y="5" width="16" height="11" rx="1.5"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/><line class="acc" x1="7" y1="8.5" x2="13" y2="8.5"/>',
+  session:'<rect x="4" y="5" width="16" height="14" rx="2"/><path class="acc" d="M8 10l2 2-2 2"/><line class="acc" x1="13" y1="14" x2="16" y2="14"/>',
+  report:'<path d="M7 4h7l4 4v11.5A.5.5 0 0 1 17.5 20H7a.5.5 0 0 1-.5-.5V4.5A.5.5 0 0 1 7 4z"/><path d="M14 4v4h4"/><line class="acc" x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="16" x2="13" y2="16"/>',
+  raw:'<path d="M6 5h9a2 2 0 0 1 2 2v9a2 2 0 0 0 2 2H8a2 2 0 0 1-2-2z"/><line class="acc" x1="9" y1="9" x2="14" y2="9"/><line x1="9" y1="12" x2="14" y2="12"/>',
+  clean:'<path d="M14 4l-7 7 3 3 7-7z"/><path class="acc" d="M7 11l-3 6 6-3"/>',
+  view:'<path d="M4 12s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle class="acc" cx="12" cy="12" r="2.6"/>',
+  stash:'<path d="M4 12s3-6 8-6c1.5 0 2.8.4 4 1M20 12s-1.3 2.6-4 4.3M14 14a2.6 2.6 0 0 1-4-3.6"/><line class="acc" x1="5" y1="5" x2="19" y2="19"/>',
+  briefing:'<circle cx="12" cy="12" r="8"/><path class="acc" d="M15.2 8.8 13 14l-5 1 2-5z"/>',
+  assistant:'<path d="M5 19l9-9"/><path class="acc" d="M16 3.5l1.1 2.4 2.4 1.1-2.4 1.1L16 11.5l-1.1-2.4L12.5 8l2.4-1.1z"/>',
+  cost:'<circle cx="12" cy="12" r="8"/><path class="acc" d="M14.6 9.4a3 3 0 0 0-2.6-1.3c-1.6 0-2.6 1-2.6 2 0 2.5 5.6 1.4 5.6 4 0 1.1-1.1 2.1-2.8 2.1a3.2 3.2 0 0 1-2.8-1.4"/><line x1="12" y1="6.3" x2="12" y2="17.7"/>',
+  theme:'<path d="M12 4a8 8 0 1 0 0 16c1.4 0 1.6-1.8.6-2.5-1-.7-.4-2 .9-2H17a3 3 0 0 0 3-3 8 8 0 0 0-8-8.5z"/><circle class="dot" cx="8.5" cy="11" r="1"/><circle class="dot" cx="12" cy="8.5" r="1"/><circle class="dot acc" cx="15.3" cy="11" r="1"/>',
+  servicebus:'<rect x="4" y="9" width="4" height="6" rx="1"/><rect x="16" y="9" width="4" height="6" rx="1"/><line class="acc" x1="8" y1="12" x2="16" y2="12"/><circle class="dot" cx="12" cy="12" r="1.5"/>',
+  azdo:'<path class="acc" d="M12 4 20 12 12 20 4 12z"/><path d="M9.5 12h5M12 9.5v5"/>',
+  celebrate:'<path class="acc" d="M5 19l4-11 7 7z"/><path d="M14 4.5a2 2 0 0 1 2 2M17 8a2 2 0 0 1 2 2"/><circle class="dot acc" cx="18" cy="5" r=".9"/><circle class="dot" cx="13" cy="9" r=".9"/>',
+  target:'<circle cx="12" cy="12" r="7"/><circle class="acc" cx="12" cy="12" r="3.4"/><circle class="dot acc" cx="12" cy="12" r="1.2"/>',
+  suggestion:'<path d="M9 15a5 5 0 1 1 6 0c-.6.4-1 1-1 1.7H10c0-.7-.4-1.3-1-1.7z"/><line class="acc" x1="10" y1="19" x2="14" y2="19"/><line class="acc" x1="10.5" y1="21" x2="13.5" y2="21"/>',
+  outage:'<path d="M12 4.2 20.5 19H3.5z"/><path class="acc" d="M12.5 9l-1.3 4h2l-1.7 4"/>',
+  new:'<path d="M12 4l2 4.5 4.8.5-3.6 3.2 1 4.8L12 14.8 7.8 17l1-4.8L5.2 9l4.8-.5z"/><line class="acc" x1="12" y1="9" x2="12" y2="13"/><line class="acc" x1="10" y1="11" x2="14" y2="11"/>',
+  image:'<rect x="4" y="5" width="16" height="14" rx="2"/><circle class="dot acc" cx="9" cy="10" r="1.4"/><path d="M5 17l4.5-4.5L13 16l2.5-2.5L19 17"/>',
+  /* ---- monochrome glyph roles ---- */
+  close:'<line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/>',
+  check:'<path d="M5 12.5l4.2 4.2L19 7"/>',
+  'arrow-right':'<line x1="4" y1="12" x2="18.5" y2="12"/><path class="acc" d="M13 6.5l6 5.5-6 5.5"/>',
+  'arrow-left':'<line x1="20" y1="12" x2="5.5" y2="12"/><path class="acc" d="M11 6.5 5 12l6 5.5"/>',
+  'caret-down':'<path d="M6 9.5l6 6 6-6"/>',
+  'caret-right':'<path d="M9.5 6l6 6-6 6"/>',
+  menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>',
+  undo:'<path d="M5 8.5h9a5 5 0 1 1 0 10h-2.5"/><path class="acc" d="M8 5.5 5 8.5l3 3"/>',
+  external:'<path class="acc" d="M14 5h5v5"/><line x1="19" y1="5" x2="11" y2="13"/><path d="M17 14v4.5A1.5 1.5 0 0 1 15.5 20h-9A1.5 1.5 0 0 1 5 18.5v-9A1.5 1.5 0 0 1 6.5 8H11"/>',
+  'fit-width':'<line x1="4" y1="12" x2="20" y2="12"/><path class="acc" d="M7 9l-3 3 3 3M17 9l3 3-3 3"/>',
+  'fit-height':'<line x1="12" y1="4" x2="12" y2="20"/><path class="acc" d="M9 7l3-3 3 3M9 17l3 3 3-3"/>',
+  'fit-screen':'<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5A1.5 1.5 0 0 1 18.5 20H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>',
+  font:'<path d="M5 18l4-11 4 11M6.3 14h5.4"/><path class="acc" d="M15 18l2.5-7 2.5 7M16 16h3"/>',
+  add:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  more:'<circle class="dot" cx="5.5" cy="12" r="1.5"/><circle class="dot" cx="12" cy="12" r="1.5"/><circle class="dot" cx="18.5" cy="12" r="1.5"/>',
+  moon:'<path class="acc" d="M15.5 4.2a8 8 0 1 0 4.3 11.6A7 7 0 0 1 15.5 4.2z"/>',
+  sun:'<circle class="acc" cx="12" cy="12" r="3.6"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M6 6l1.7 1.7M16.3 16.3 18 18M18 6l-1.7 1.7M7.7 16.3 6 18"/>'
+}; return I; })();
+    const RAW = {
+    "🤖": "agent",
+    "🧑‍💼": "manager",
+    "👔": "manager",
+    "🏢": "org",
+    "🏛️": "org",
+    "🏛": "org",
+    "🏠": "home",
+    "🧩": "plugin",
+    "🛠️": "skill",
+    "🛠": "skill",
+    "🔧": "skill",
+    "🔌": "mcp",
+    "✨": "sparkle",
+    "✦": "sparkle",
+    "📋": "tasks",
+    "📁": "folder",
+    "📂": "folder",
+    "🗄️": "archive",
+    "🗄": "archive",
+    "🗃️": "archive",
+    "🗃": "archive",
+    "📊": "chart",
+    "📈": "chart",
+    "📉": "chart",
+    "🧠": "model",
+    "🔀": "pr",
+    "🌿": "branch",
+    "🌱": "branch",
+    "🔗": "link",
+    "⚡": "bolt",
+    "🔍": "search",
+    "🔎": "search",
+    "🔭": "insights",
+    "🛰️": "insights",
+    "🛰": "insights",
+    "📤": "share",
+    "📥": "share",
+    "💬": "chat",
+    "🗨️": "chat",
+    "🗨": "chat",
+    "📝": "edit",
+    "✏️": "edit",
+    "✏": "edit",
+    "✎": "edit",
+    "🗑️": "trash",
+    "🗑": "trash",
+    "🔄": "refresh",
+    "⚙️": "settings",
+    "⚙": "settings",
+    "🔒": "lock",
+    "🔓": "lock",
+    "🔑": "key",
+    "✅": "success|s-ok",
+    "❌": "error|s-err",
+    "⛔": "error|s-err",
+    "⚠️": "warning|s-warn",
+    "⚠": "warning|s-warn",
+    "📱": "mobile",
+    "📡": "live",
+    "🟢": "status|s-ok",
+    "🟡": "status|s-warn",
+    "🔴": "status|s-err",
+    "⚪": "status|s-muted",
+    "🟠": "status|s-warn",
+    "🔔": "bell",
+    "📌": "pin",
+    "📍": "pin",
+    "⭐": "star",
+    "🌟": "star",
+    "🏷️": "tag",
+    "🏷": "tag",
+    "👤": "user",
+    "👥": "user",
+    "🧑": "user",
+    "💾": "save",
+    "🗓️": "calendar",
+    "🗓": "calendar",
+    "📅": "calendar",
+    "📦": "package",
+    "📧": "email",
+    "✉️": "email",
+    "✉": "email",
+    "🌐": "global",
+    "🖥️": "machines",
+    "🖥": "machines",
+    "💻": "session",
+    "📄": "report",
+    "📃": "report",
+    "📜": "raw",
+    "🧹": "clean",
+    "👁️": "view",
+    "👁": "view",
+    "🙈": "stash",
+    "🧭": "briefing",
+    "🪄": "assistant",
+    "💵": "cost",
+    "💲": "cost",
+    "🪙": "cost",
+    "💰": "cost",
+    "🎨": "theme",
+    "🚌": "servicebus",
+    "🔷": "azdo",
+    "🎉": "celebrate",
+    "🎊": "celebrate",
+    "🎯": "target",
+    "💡": "suggestion",
+    "🚨": "outage",
+    "🆕": "new",
+    "🖼️": "image",
+    "🖼": "image",
+    "🌙": "moon",
+    "☀️": "sun",
+    "☀": "sun",
+    "✕": "close",
+    "✖": "close",
+    "✖️": "close",
+    "✓": "check|s-ok",
+    "✔": "check|s-ok",
+    "✔️": "check|s-ok",
+    "→": "arrow-right",
+    "➜": "arrow-right",
+    "▶": "arrow-right",
+    "▶️": "arrow-right",
+    "➡️": "arrow-right",
+    "➡": "arrow-right",
+    "←": "arrow-left",
+    "◀": "arrow-left",
+    "◀️": "arrow-left",
+    "⬅️": "arrow-left",
+    "⬅": "arrow-left",
+    "▾": "caret-down",
+    "▼": "caret-down",
+    "▸": "caret-right",
+    "►": "caret-right",
+    "☰": "menu",
+    "↩": "undo",
+    "↩️": "undo",
+    "↺": "undo",
+    "⟲": "undo",
+    "↗": "external",
+    "↗️": "external",
+    "⤴": "external",
+    "⤴️": "external",
+    "⧉": "external",
+    "↔": "fit-width",
+    "↔️": "fit-width",
+    "↕": "fit-height",
+    "↕️": "fit-height",
+    "⤢": "fit-screen",
+    "🔤": "font",
+    "➕": "add",
+    "⋯": "more",
+    "⋮": "more"
+    };
+    // emoji -> {role, cls}
+    const EMAP = Object.create(null);
+    for (const k in RAW) { const v = RAW[k].split('|'); EMAP[k] = { role: v[0], cls: v[1] || '' }; }
+    const EMOJIS = Object.keys(EMAP).sort((a,b)=> b.length - a.length);
+    function esc(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+    const RE = new RegExp(EMOJIS.map(esc).join('|'), 'g');
+
+    const SETS = ['emoji','modern','industrial','nature','futuristic','calm'];
+    let current = 'emoji';
+    try { const s = localStorage.getItem('current-iconset'); if (s && SETS.indexOf(s) >= 0) current = s; } catch {}
+
+    // exclusion: never touch content / code / editable surfaces
+    const BAD_TOKENS = /^(md-output|markdown|message|messages|msg|transcript|raw|raw-stream|live-output|live-output-pre|live-stream|live-stream-pre|mono|terminal|xterm|agent-output|run-output|code|codeblock|board-tab-brief-body|insight-board-md|cp-ic)/;
+    function isExcluded(node){
+      let el = node.nodeType === 3 ? node.parentNode : node;
+      while (el && el.nodeType === 1) {
+        const tag = el.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'PRE' || tag === 'CODE' || tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SVG' || tag === 'svg') return true;
+        if (el.isContentEditable) return true;
+        if (el.hasAttribute && el.hasAttribute('data-cp-noicon')) return true;
+        const cn = el.getAttribute && el.getAttribute('class');
+        if (cn) { for (const t of cn.split(/\s+/)) { if (BAD_TOKENS.test(t)) return true; } }
+        el = el.parentNode;
+      }
+      return false;
+    }
+
+    function makeIcon(emoji){
+      const info = EMAP[emoji]; const span = document.createElement('span');
+      span.className = 'cp-ic' + (info.cls ? ' ' + info.cls : '');
+      span.setAttribute('data-cp-emoji', emoji);
+      span.setAttribute('aria-hidden','true');
+      const p = PATHS[info.role];
+      span.innerHTML = p ? '<svg viewBox="0 0 24 24">' + p + '</svg>' : emoji;
+      return span;
+    }
+
+    function iconizeNode(node){
+      const t = node.nodeValue; if (!t) return;
+      RE.lastIndex = 0; if (!RE.test(t)) return;
+      RE.lastIndex = 0;
+      const frag = document.createDocumentFragment(); let last = 0, m;
+      while ((m = RE.exec(t))){
+        if (m.index > last) frag.appendChild(document.createTextNode(t.slice(last, m.index)));
+        frag.appendChild(makeIcon(m[0]));
+        last = m.index + m[0].length;
+      }
+      if (last < t.length) frag.appendChild(document.createTextNode(t.slice(last)));
+      if (node.parentNode) node.parentNode.replaceChild(frag, node);
+    }
+
+    function sweep(root){
+      if (!root || current === 'emoji') return;
+      if (root.nodeType === 3){ if (!isExcluded(root)) iconizeNode(root); return; }
+      if (root.nodeType !== 1) return;
+      if (isExcluded(root)) return;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(n){ return (n.nodeValue && RE.test(n.nodeValue) && !isExcluded(n)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; }
+      });
+      const found = []; let n; RE.lastIndex = 0;
+      while ((n = walker.nextNode())) found.push(n);
+      for (const tn of found) iconizeNode(tn);
+    }
+
+    // restore emoji spans back to plain text (switch-back path)
+    function restoreAll(){
+      const spans = document.querySelectorAll('span.cp-ic[data-cp-emoji]');
+      spans.forEach(s => { s.parentNode && s.parentNode.replaceChild(document.createTextNode(s.getAttribute('data-cp-emoji')), s); });
+    }
+
+    let observer = null, busy = false, pending = new Set(), scheduled = false;
+    function flush(){
+      scheduled = false; if (current === 'emoji') { pending.clear(); return; }
+      busy = true;
+      const nodes = Array.from(pending); pending.clear();
+      for (const nd of nodes){ if (nd && nd.isConnected) sweep(nd); }
+      busy = false;
+    }
+    function schedule(){ if (scheduled) return; scheduled = true; setTimeout(flush, 60); }
+    function onMutations(muts){
+      if (busy || current === 'emoji') return;
+      for (const mu of muts){
+        if (mu.type === 'characterData'){ if (mu.target) pending.add(mu.target); }
+        else { mu.addedNodes && mu.addedNodes.forEach(nd => { if (nd.nodeType === 1 || nd.nodeType === 3) pending.add(nd); }); }
+      }
+      if (pending.size) schedule();
+    }
+    function connect(){
+      if (observer || !document.body) return;
+      observer = new MutationObserver(onMutations);
+      observer.observe(document.body, { childList:true, characterData:true, subtree:true });
+    }
+    function disconnect(){ if (observer){ observer.disconnect(); observer = null; } pending.clear(); }
+
+    function apply(set, persist){
+      if (SETS.indexOf(set) < 0) set = 'emoji';
+      const prev = current; current = set;
+      if (persist){ try { localStorage.setItem('current-iconset', set); } catch {} }
+      const el = document.documentElement;
+      if (set === 'emoji'){ el.removeAttribute('data-iconset'); disconnect(); restoreAll(); }
+      else {
+        el.setAttribute('data-iconset', set);
+        if (prev === 'emoji') { /* fresh */ } else { restoreAll(); }
+        const run = () => { busy = true; sweep(document.body); busy = false; connect(); };
+        if (document.body) run(); else document.addEventListener('DOMContentLoaded', run, { once:true });
+      }
+    }
+
+    // appearance (palette) runtime
+    function applyAppearance(id, persist){
+      const el = document.documentElement;
+      if (id) el.setAttribute('data-appearance', id); else el.removeAttribute('data-appearance');
+      if (persist){ try { if (id) localStorage.setItem('current-appearance', id); else localStorage.removeItem('current-appearance'); } catch {} }
+    }
+
+    window.cpIcons = { apply, sweep, restoreAll, sets: SETS, get current(){ return current; } };
+    window.cpSetIconSet = (s)=> apply(s, true);
+    window.cpSetAppearance = (id)=> applyAppearance(id, true);
+
+    // boot: appearance attribute already maybe set inline; ensure + initial icon sweep
+    try { const ap = localStorage.getItem('current-appearance'); if (ap) document.documentElement.setAttribute('data-appearance', ap); } catch {}
+    if (current !== 'emoji'){
+      const boot = () => apply(current, false);
+      if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot, { once:true });
+    }
+  })();
   </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -257,6 +630,160 @@
       --cp-accent: #c9c9c9; --cp-accent-hover: #dcdcdc; --cp-accent-soft: rgba(201,201,201,0.16); --cp-accent-fg: #141414;
       --cp-link: #b0b0b0; --cp-highlight: rgba(201,201,201,0.14);
     }
+
+
+    /* ===== user appearance palettes (override org theme by source order) ===== */
+    html[data-theme="light"][data-appearance="slate"] {
+      --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+      --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+      --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+      --cp-accent:#2563eb; --cp-accent-hover:#2157cf; --cp-accent-soft:rgba(37,99,235,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#2563eb; --cp-highlight:rgba(37,99,235,0.12);
+    }
+    html[data-theme="dark"][data-appearance="slate"] {
+      --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+      --cp-border:#343b47; --cp-border-strong:#4b5563;
+      --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+      --cp-accent:#60a5fa; --cp-accent-hover:#76b2fb; --cp-accent-soft:rgba(96,165,250,0.16); --cp-accent-fg:#0c1322;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#60a5fa; --cp-highlight:rgba(96,165,250,0.14);
+    }
+    html[data-theme="light"][data-appearance="emerald"] {
+      --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+      --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+      --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+      --cp-accent:#059669; --cp-accent-hover:#04845c; --cp-accent-soft:rgba(5,150,105,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#059669; --cp-highlight:rgba(5,150,105,0.12);
+    }
+    html[data-theme="dark"][data-appearance="emerald"] {
+      --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+      --cp-border:#343b47; --cp-border-strong:#4b5563;
+      --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+      --cp-accent:#34d399; --cp-accent-hover:#50d9a7; --cp-accent-soft:rgba(52,211,153,0.16); --cp-accent-fg:#06281d;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#34d399; --cp-highlight:rgba(52,211,153,0.14);
+    }
+    html[data-theme="light"][data-appearance="indigo"] {
+      --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+      --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+      --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+      --cp-accent:#4f46e5; --cp-accent-hover:#463eca; --cp-accent-soft:rgba(79,70,229,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#4f46e5; --cp-highlight:rgba(79,70,229,0.12);
+    }
+    html[data-theme="dark"][data-appearance="indigo"] {
+      --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+      --cp-border:#343b47; --cp-border-strong:#4b5563;
+      --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+      --cp-accent:#818cf8; --cp-accent-hover:#939cf9; --cp-accent-soft:rgba(129,140,248,0.16); --cp-accent-fg:#10122b;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#818cf8; --cp-highlight:rgba(129,140,248,0.14);
+    }
+    html[data-theme="light"][data-appearance="teal"] {
+      --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+      --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+      --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+      --cp-accent:#0d9488; --cp-accent-hover:#0b8278; --cp-accent-soft:rgba(13,148,136,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#0d9488; --cp-highlight:rgba(13,148,136,0.12);
+    }
+    html[data-theme="dark"][data-appearance="teal"] {
+      --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+      --cp-border:#343b47; --cp-border-strong:#4b5563;
+      --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+      --cp-accent:#2dd4bf; --cp-accent-hover:#4adac8; --cp-accent-soft:rgba(45,212,191,0.16); --cp-accent-fg:#05221f;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#2dd4bf; --cp-highlight:rgba(45,212,191,0.14);
+    }
+    html[data-theme="light"][data-appearance="amber"] {
+      --cp-bg:#f7f5f1; --cp-bg-elevated:#fcfbf8; --cp-surface:#ffffff; --cp-surface-soft:#f0ece4;
+      --cp-border:#e3ded5; --cp-border-strong:#b3aa9b;
+      --cp-text:#241f18; --cp-text-muted:#655d50; --cp-text-soft:#7a7163;
+      --cp-accent:#d97706; --cp-accent-hover:#bf6905; --cp-accent-soft:rgba(217,119,6,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#d97706; --cp-highlight:rgba(217,119,6,0.12);
+    }
+    html[data-theme="dark"][data-appearance="amber"] {
+      --cp-bg:#211e1a; --cp-bg-elevated:#272320; --cp-surface:#2d2926; --cp-surface-soft:#332e2a;
+      --cp-border:#403a34; --cp-border-strong:#564f47;
+      --cp-text:#ece7df; --cp-text-muted:#a89f92; --cp-text-soft:#bcb4a7;
+      --cp-accent:#fbbf24; --cp-accent-hover:#fcc843; --cp-accent-soft:rgba(251,191,36,0.16); --cp-accent-fg:#241804;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#fbbf24; --cp-highlight:rgba(251,191,36,0.14);
+    }
+    html[data-theme="light"][data-appearance="graphite"] {
+      --cp-bg:#f4f5f7; --cp-bg-elevated:#fafbfc; --cp-surface:#ffffff; --cp-surface-soft:#eef0f3;
+      --cp-border:#dee1e6; --cp-border-strong:#a8aeb8;
+      --cp-text:#1b1f27; --cp-text-muted:#59616d; --cp-text-soft:#6e7682;
+      --cp-accent:#1f2937; --cp-accent-hover:#1b2430; --cp-accent-soft:rgba(31,41,55,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#1f2937; --cp-highlight:rgba(31,41,55,0.12);
+    }
+    html[data-theme="dark"][data-appearance="graphite"] {
+      --cp-bg:#161922; --cp-bg-elevated:#1b1f29; --cp-surface:#21262f; --cp-surface-soft:#272d37;
+      --cp-border:#343b47; --cp-border-strong:#4b5563;
+      --cp-text:#e4e7ec; --cp-text-muted:#98a1ad; --cp-text-soft:#b4bcc6;
+      --cp-accent:#e5e7eb; --cp-accent-hover:#e9eaee; --cp-accent-soft:rgba(229,231,235,0.16); --cp-accent-fg:#111827;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#e5e7eb; --cp-highlight:rgba(229,231,235,0.14);
+    }
+    html[data-theme="light"][data-appearance="rose"] {
+      --cp-bg:#f7f5f1; --cp-bg-elevated:#fcfbf8; --cp-surface:#ffffff; --cp-surface-soft:#f0ece4;
+      --cp-border:#e3ded5; --cp-border-strong:#b3aa9b;
+      --cp-text:#241f18; --cp-text-muted:#655d50; --cp-text-soft:#7a7163;
+      --cp-accent:#b11f4b; --cp-accent-hover:#9c1b42; --cp-accent-soft:rgba(177,31,75,0.1); --cp-accent-fg:#ffffff;
+      --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#d97706;
+      --cp-link:#b11f4b; --cp-highlight:rgba(177,31,75,0.12);
+    }
+    html[data-theme="dark"][data-appearance="rose"] {
+      --cp-bg:#211e1a; --cp-bg-elevated:#272320; --cp-surface:#2d2926; --cp-surface-soft:#332e2a;
+      --cp-border:#403a34; --cp-border-strong:#564f47;
+      --cp-text:#ece7df; --cp-text-muted:#a89f92; --cp-text-soft:#bcb4a7;
+      --cp-accent:#fd8ea1; --cp-accent-hover:#fd9eae; --cp-accent-soft:rgba(253,142,161,0.16); --cp-accent-fg:#1a0d12;
+      --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24;
+      --cp-link:#fd8ea1; --cp-highlight:rgba(253,142,161,0.14);
+    }
+
+    /* ===== themed icon engine ===== */
+    .cp-ic { display:inline-flex; align-items:center; justify-content:center; width:1.15em; height:1.15em; vertical-align:-0.18em; line-height:0; flex:0 0 auto; }
+    .cp-ic svg { width:1em; height:1em; display:block; overflow:visible; }
+    .cp-ic svg * { fill:none; stroke:currentColor; stroke-width:1.7; vector-effect:non-scaling-stroke; }
+    .cp-ic svg .dot { fill:currentColor; stroke:none; }
+    .cp-ic.s-ok { color:var(--cp-success); }
+    .cp-ic.s-warn { color:var(--cp-warning); }
+    .cp-ic.s-err { color:var(--cp-danger); }
+    .cp-ic.s-muted { color:var(--cp-text-soft); }
+    /* line-style skins keyed on the active icon set */
+    html[data-iconset="modern"] .cp-ic svg * { stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    html[data-iconset="modern"] .cp-ic svg .acc { stroke:var(--cp-accent); }
+    html[data-iconset="modern"] .cp-ic svg .acc.dot { fill:var(--cp-accent); }
+    html[data-iconset="industrial"] .cp-ic svg * { stroke-width:2.3; stroke-linecap:butt; stroke-linejoin:miter; }
+    html[data-iconset="industrial"] .cp-ic svg .acc { stroke:currentColor; }
+    html[data-iconset="industrial"] .cp-ic svg .acc.dot { fill:currentColor; }
+    html[data-iconset="nature"] .cp-ic svg * { stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+    html[data-iconset="nature"] .cp-ic svg .acc { stroke:var(--cp-success); }
+    html[data-iconset="nature"] .cp-ic svg .acc.dot { fill:var(--cp-success); }
+    html[data-iconset="futuristic"] .cp-ic svg * { stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
+    html[data-iconset="futuristic"] .cp-ic svg .acc { stroke:var(--cp-accent); opacity:.9; }
+    html[data-iconset="futuristic"] .cp-ic svg .acc.dot { fill:var(--cp-accent); }
+    html[data-iconset="calm"] .cp-ic svg * { stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
+    html[data-iconset="calm"] .cp-ic { color:var(--cp-text-muted); }
+    html[data-iconset="calm"] .cp-ic.s-ok { color:var(--cp-success); }
+    html[data-iconset="calm"] .cp-ic.s-warn { color:var(--cp-warning); }
+    html[data-iconset="calm"] .cp-ic.s-err { color:var(--cp-danger); }
+    html[data-iconset="calm"] .cp-ic svg .acc { stroke:var(--cp-accent); }
+
+    .appearance-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+    .appearance-swatch { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); cursor:pointer; text-align:left; transition:border-color .12s, box-shadow .12s; }
+    .appearance-swatch:hover { border-color:var(--cp-border-strong); }
+    .appearance-swatch.active { border-color:var(--cp-accent); box-shadow:0 0 0 1px var(--cp-accent); }
+    .appearance-chip { position:relative; width:38px; height:38px; border-radius:8px; border:1px solid var(--cp-border); flex:0 0 auto; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+    .appearance-chip-follow { background:var(--cp-surface-soft); color:var(--cp-text-muted); font-size:12px; font-weight:600; }
+    .appearance-dot { position:absolute; width:14px; height:14px; border-radius:50%; left:7px; top:11px; box-shadow:0 0 0 2px rgba(0,0,0,0.04); }
+    .appearance-dot-2 { left:17px; top:16px; width:11px; height:11px; opacity:.85; }
+    .appearance-name { font-size:13px; color:var(--cp-text); font-weight:500; }
 
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
@@ -8839,6 +9366,38 @@
               </div>
             </div>
 
+            <!-- Color Palette Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🎨 Color palette</h3>
+              <p class="hint" style="margin-bottom:14px">Recolor the whole dashboard. "Follow organization" uses the current org's theme (the default).</p>
+              <div class="appearance-grid">
+                <button type="button" class="appearance-swatch" :class="{ active: appearancePref === '' }" @click="setAppearance('')">
+                  <span class="appearance-chip appearance-chip-follow"><span>Aa</span></span>
+                  <span class="appearance-name">Follow organization</span>
+                </button>
+                <template x-for="p in appearancePalettes" :key="p.id">
+                  <button type="button" class="appearance-swatch" :class="{ active: appearancePref === p.id }" @click="setAppearance(p.id)">
+                    <span class="appearance-chip" :style="'background:'+p.bg+';border-color:'+p.border">
+                      <span class="appearance-dot" :style="'background:'+p.accent"></span>
+                      <span class="appearance-dot appearance-dot-2" :style="'background:'+p.text"></span>
+                    </span>
+                    <span class="appearance-name" x-text="p.name"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- Icon Set Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">✨ Icon set</h3>
+              <p class="hint" style="margin-bottom:14px">Replace the system menu &amp; panel emoji with a line-icon style. "Emoji (classic)" keeps the original emoji. Your message, chat and code content is never changed.</p>
+              <div class="filter-pills">
+                <template x-for="s in iconSets" :key="s.id">
+                  <button class="pill" type="button" :class="{ active: iconSetPref === s.id }" @click="setIconSet(s.id)" x-text="s.name"></button>
+                </template>
+              </div>
+            </div>
+
             <!-- Chat Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">💬 Chat</h3>
@@ -11531,6 +12090,25 @@
         loading: false,
         errorMessage: '',
         themePref: 'system',
+        appearancePref: (() => { try { return localStorage.getItem('current-appearance') || ''; } catch { return ''; } })(),
+        iconSetPref: (() => { try { return localStorage.getItem('current-iconset') || 'emoji'; } catch { return 'emoji'; } })(),
+        appearancePalettes: [
+          { id: 'slate', name: 'Slate Blue', bg: '#f6f8fb', border: '#dbe2ea', accent: '#2563eb', text: '#1f2937' },
+          { id: 'emerald', name: 'Emerald', bg: '#f5faf7', border: '#d7e7df', accent: '#059669', text: '#1f2937' },
+          { id: 'indigo', name: 'Indigo', bg: '#f7f7fc', border: '#dedef0', accent: '#4f46e5', text: '#1f2937' },
+          { id: 'teal', name: 'Teal', bg: '#f3faf9', border: '#d3e8e6', accent: '#0d9488', text: '#1f2937' },
+          { id: 'amber', name: 'Amber', bg: '#faf7f0', border: '#e9e0cd', accent: '#d97706', text: '#26211a' },
+          { id: 'graphite', name: 'Graphite', bg: '#f6f7f8', border: '#dcdfe2', accent: '#1f2937', text: '#111827' },
+          { id: 'rose', name: 'Rose', bg: '#faf4f1', border: '#e6d8d3', accent: '#b11f4b', text: '#242424' }
+        ],
+        iconSets: [
+          { id: 'emoji', name: '😀 Emoji (classic)' },
+          { id: 'modern', name: '◇ Modern' },
+          { id: 'industrial', name: '▢ Industrial' },
+          { id: 'nature', name: '❧ Nature' },
+          { id: 'futuristic', name: '◈ Futuristic' },
+          { id: 'calm', name: '○ Calm' }
+        ],
         sseStatus: 'disconnected',
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
@@ -12059,6 +12637,15 @@
           this.themePref = pref;
           try { localStorage.setItem('cp-theme', pref); } catch {}
           this.applyTheme();
+        },
+
+        setAppearance(id) {
+          this.appearancePref = id || '';
+          try { if (window.cpSetAppearance) window.cpSetAppearance(this.appearancePref); } catch {}
+        },
+        setIconSet(id) {
+          this.iconSetPref = id || 'emoji';
+          try { if (window.cpSetIconSet) window.cpSetIconSet(this.iconSetPref); } catch {}
         },
 
         async _continueAgentChat(chatId, agentId) {
