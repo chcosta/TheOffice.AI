@@ -964,6 +964,13 @@
     .cf-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
     .cf-select { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
     .cf-pr-list { display:flex; flex-direction:column; gap:12px; }
+    .cf-pr-list.grouped { gap:22px; }
+    .cf-group { display:flex; flex-direction:column; gap:12px; }
+    .cf-group-head { display:flex; align-items:center; gap:8px; padding:0 2px; }
+    .cf-group-title { font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--cp-text-muted); }
+    .cf-group-count { font-size:11px; font-weight:600; color:var(--cp-text-soft); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:999px; padding:1px 8px; }
+    .cf-group-head::after { content:""; flex:1; height:1px; background:var(--cp-border); }
+    .cf-group-items { display:flex; flex-direction:column; gap:12px; }
     .cf-pr-card {
       border:1px solid var(--cp-border); border-radius:14px; background:var(--cp-surface);
       padding:14px 16px; box-shadow:0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
@@ -7500,6 +7507,15 @@
                   <option value="age">Longest open</option>
                 </select>
               </label>
+              <label class="hint" style="display:flex;align-items:center;gap:6px">Group
+                <select class="cf-select" x-model="codeflow.groupBy" @change="try{localStorage.setItem('cfGroupBy', codeflow.groupBy)}catch(e){}">
+                  <option value="none">None</option>
+                  <option value="repo">Repo</option>
+                  <option value="state">State</option>
+                  <option value="urgency">AI urgency</option>
+                  <option value="approval">Approval</option>
+                </select>
+              </label>
               <span class="hint" style="margin-left:auto" x-text="codeflowFetchedLabel()"></span>
             </div>
 
@@ -7522,8 +7538,15 @@
             </div>
 
             <!-- PR list -->
-            <div class="cf-pr-list">
-              <template x-for="pr in filteredCodeflowPrs()" :key="pr.org + '/' + pr.repo + '/' + pr.id">
+            <div class="cf-pr-list" :class="{ grouped: codeflow.groupBy !== 'none' }">
+              <template x-for="grp in groupedCodeflowPrs()" :key="grp.key">
+                <div class="cf-group">
+                  <div class="cf-group-head" x-show="grp.label">
+                    <span class="cf-group-title" x-text="grp.label"></span>
+                    <span class="cf-group-count" x-text="grp.items.length"></span>
+                  </div>
+                  <div class="cf-group-items">
+                    <template x-for="pr in grp.items" :key="pr.org + '/' + pr.repo + '/' + pr.id">
                 <article class="cf-pr-card" :class="{ 'cf-attn': pr.attention }">
                   <div class="cf-pr-top">
                     <div style="flex:1;min-width:0">
@@ -7700,6 +7723,9 @@
                     </template>
                   </div>
                 </article>
+                    </template>
+                  </div>
+                </div>
               </template>
             </div>
 
@@ -11720,6 +11746,7 @@
           fetchedAt: null,
           filterRepo: '',        // repoId filter ('' = all)
           sort: 'attention',     // 'attention' | 'newest' | 'oldest' | 'age' | 'urgency'
+          groupBy: (localStorage.getItem('cfGroupBy') || 'none'),  // 'none' | 'repo' | 'state' | 'urgency' | 'approval'
           ai: {},                // prId -> { summary, urgency, urgencyReason }
           aiBusy: false,
           aiGeneratedAt: null,
@@ -16055,7 +16082,43 @@
           }
           return list;
         },
-        // Worktree records whose PR is no longer in the current list (e.g. the PR
+        groupedCodeflowPrs() {
+          const list = this.filteredCodeflowPrs();
+          const g = this.codeflow.groupBy;
+          if (!g || g === 'none') return [{ key: '__all', label: '', items: list }];
+          const groups = new Map();
+          const add = (key, label, order, pr) => {
+            if (!groups.has(key)) groups.set(key, { key, label, order, items: [] });
+            groups.get(key).items.push(pr);
+          };
+          for (const pr of list) {
+            if (g === 'repo') {
+              const r = pr.repo || 'Unknown repo';
+              add(r, r, 0, pr);
+            } else if (g === 'urgency') {
+              const ai = this.codeflowAi(pr);
+              const u = ai && typeof ai.urgency === 'number' ? ai.urgency : null;
+              if (u === null) add('u-none', 'No AI urgency', 4, pr);
+              else if (u >= 8) add('u-high', 'High urgency · 8–10', 0, pr);
+              else if (u >= 5) add('u-med', 'Medium urgency · 5–7', 1, pr);
+              else add('u-low', 'Low urgency · 1–4', 2, pr);
+            } else if (g === 'state') {
+              if (pr.readyToMerge) add('s-ready', 'Ready to merge', 0, pr);
+              else if (pr.attention) add('s-attn', 'Needs attention', 1, pr);
+              else if (pr.isDraft) add('s-draft', 'Draft', 3, pr);
+              else add('s-open', 'Open', 2, pr);
+            } else if (g === 'approval') {
+              const pill = this.codeflowApprovalPill(pr);
+              const lbl = (pill && pill.label) ? pill.label : 'No vote';
+              add('a-' + lbl, lbl, 0, pr);
+            } else {
+              add('__all', '', 0, pr);
+            }
+          }
+          const arr = Array.from(groups.values());
+          arr.sort((a, b) => (a.order - b.order) || a.label.localeCompare(b.label));
+          return arr;
+        },
         // was closed/completed). We keep these viewable until the user explicitly
         // removes the worktree. Returns synthetic pr-shaped objects for the cards.
         orphanCfWorktrees() {
