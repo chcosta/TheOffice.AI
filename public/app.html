@@ -7625,9 +7625,9 @@
                         <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
                         <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
                         <span class="cf-wt-agent" x-show="cfWt(pr).reviewAgentName" x-text="'agent: ' + cfWt(pr).reviewAgentName"></span>
-                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.file">
+                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                           <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                             x-text="'📌 ' + (r.title || r.file)"></a>
+                             x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
                         </template>
                         <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                               x-text="cfWt(pr).reviewError"></span>
@@ -7672,9 +7672,9 @@
                         <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
                         <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
                         <span class="cf-wt-agent" x-show="cfWt(pr).reviewAgentName" x-text="'agent: ' + cfWt(pr).reviewAgentName"></span>
-                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.file">
+                        <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                           <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                             x-text="'📌 ' + (r.title || r.file)"></a>
+                             x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
                         </template>
                         <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                               x-text="cfWt(pr).reviewError"></span>
@@ -16180,9 +16180,10 @@
         cfReportUrl(pr, r) {
           const rec = this.cfWt(pr);
           if (!rec) return '#';
+          const rel = (r && (r.rel || r.file || r.name)) || '';
           return '/api/codeflow/pr/report?org=' + encodeURIComponent(pr.org) +
             '&project=' + encodeURIComponent(pr.project) + '&repo=' + encodeURIComponent(pr.repo) +
-            '&prId=' + encodeURIComponent(pr.id) + '&file=' + encodeURIComponent(r.file);
+            '&prId=' + encodeURIComponent(pr.id) + '&file=' + encodeURIComponent(rel);
         },
         codeflowUrgencyCls(u) {
           if (u >= 70) return 'cf-urg-high';
