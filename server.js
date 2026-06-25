@@ -3945,6 +3945,37 @@ const SPA_SUMMARY_FILE = '.spa-summary.json';
 // reuse entries whose underlying files are unchanged, so the page loads instantly.
 const _cliSessCache = new Map();
 
+// Persistent cache of CLI-session topic-cluster results. Generating a grouping is a
+// slow LLM call, so we key each result by a hash of the included sessions plus each
+// one's content signature. A grouping is then reused verbatim until one of its
+// sessions changes (its signature shifts) or the set itself changes — at which point
+// the key no longer matches and we re-index. Bounded to the few most-recent keys and
+// persisted to disk so groupings survive restarts and load instantly the next time.
+const SPA_CLUSTER_CACHE_FILE = path.join(SESSION_STATE_DIR, '.spa-cluster-cache.json');
+let _clusterCache = null;
+function _loadClusterCache() {
+  if (_clusterCache) return _clusterCache;
+  try { _clusterCache = JSON.parse(fs.readFileSync(SPA_CLUSTER_CACHE_FILE, 'utf-8')); } catch { _clusterCache = { entries: [] }; }
+  if (!_clusterCache || !Array.isArray(_clusterCache.entries)) _clusterCache = { entries: [] };
+  return _clusterCache;
+}
+function _clusterCacheGet(key) {
+  return _loadClusterCache().entries.find(e => e.key === key) || null;
+}
+function _clusterCachePut(key, payload) {
+  const c = _loadClusterCache();
+  c.entries = c.entries.filter(e => e.key !== key);
+  c.entries.unshift({ key, ...payload });
+  if (c.entries.length > 8) c.entries = c.entries.slice(0, 8);
+  try { fs.writeFileSync(SPA_CLUSTER_CACHE_FILE, JSON.stringify(c)); } catch {}
+}
+// Order-independent content key for a set of sessions: each session's id paired with
+// its content signature, sorted so reordering the same set never invalidates.
+function _clusterKey(picked) {
+  const parts = picked.map(e => `${e.id}:${e.contentSig || ''}`).sort();
+  return require('crypto').createHash('sha1').update(parts.join('|')).digest('hex');
+}
+
 // Session-origin classification. A CLI session counts as "system"-initiated when
 // it was launched by TheOffice.AI itself — either through our SDK runner (the CLI
 // writes client_name='sdk') or as an interactive CLI session whose UUID we pinned
@@ -4034,7 +4065,8 @@ function _listCliSessions() {
       createdAt: meta.createdAt,
       lastModified: stat.mtime.toISOString(),
       summary,
-      summaryAt
+      summaryAt,
+      contentSig: sig
     };
     _cliSessCache.set(d.name, { sig, entry });
     out.push(entry);
@@ -4238,6 +4270,98 @@ app.post('/api/cli/sessions/search', async (req, res) => {
     res.json({ answer, matches, consideredCount: candidates.length, totalCount });
   } catch (e) {
     res.status(500).json({ error: (e && e.message) || 'search failed' });
+  }
+});
+
+// ── CLI session topic clustering ───────────────────────────────────────────
+// Given a set of session ids (the client sends its currently-filtered list,
+// capped to the most recent ~150), ask the model to organize them into a small
+// number of labeled topic clusters so the user can navigate by theme instead of
+// scrolling a flat list. Uses each session's summary when present, else its
+// title + last prompt (same signal the search endpoint uses).
+// Returns { groups:[{emoji,label,blurb,sessionIds[]}], consideredCount, totalCount }.
+app.post('/api/cli/sessions/cluster', async (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String) : [];
+  let all;
+  try { all = _listCliSessions(); } catch (e) { return res.status(500).json({ error: 'list failed: ' + e.message }); }
+  const byId = new Map(all.map(e => [e.id, e]));
+  // Preserve the client's order (already filtered + recency-sorted) and cap.
+  const LIMIT = 150;
+  let picked = (ids.length ? ids.map(id => byId.get(id)).filter(Boolean) : all)
+    .slice(0, LIMIT);
+  if (picked.length < 2) return res.status(400).json({ error: 'Need at least 2 sessions to group' });
+
+  // Fast path: a grouping for this exact set + content was computed before and none
+  // of the sessions have changed since. Return it instantly unless the client forces
+  // a fresh re-index (the ↻ Re-group button).
+  const force = !!(req.body && req.body.force);
+  const cacheKey = _clusterKey(picked);
+  if (!force) {
+    const hit = _clusterCacheGet(cacheKey);
+    if (hit) return res.json({ groups: hit.groups, consideredCount: hit.consideredCount, totalCount: all.length, generatedAt: hit.generatedAt, cached: true });
+  }
+
+  const fmtDate = (d) => { try { return new Date(d).toISOString().slice(0, 10); } catch { return ''; } };
+  const indexLines = picked.map((e, i) => {
+    const bits = [
+      `[${i + 1}] id=${e.id}`,
+      `title="${String(e.title || '').replace(/\s+/g, ' ').slice(0, 90)}"`,
+      e.agentName ? `agent="${e.agentName}"` : '',
+      e.repository ? `repo=${e.repository}` : '',
+      `modified=${fmtDate(e.lastModified)}`,
+      e.summary ? `summary="${String(e.summary).replace(/\s+/g, ' ').slice(0, 220)}"`
+        : (e.lastUserPreview ? `lastPrompt="${String(e.lastUserPreview).replace(/\s+/g, ' ').slice(0, 160)}"` : ''),
+    ].filter(Boolean);
+    return bits.join('  ');
+  });
+
+  const prompt = [
+    'You are organizing a developer\'s Copilot CLI session history into a small set of intuitive TOPIC GROUPS so they can navigate by theme. Below is a numbered list of sessions; each line has an id, title, optional agent/repo, last-modified date, and a summary or last prompt.',
+    'Cluster these sessions into roughly 4-10 coherent groups by what the work was ABOUT (feature area, subsystem, bug-fix theme, exploration, etc.) — not merely by repo or agent. Every session id must be placed in exactly one group. Order groups by how many sessions they contain (largest first), and order session ids within a group most-recent first when possible. Prefer specific, human labels (e.g. "Board UI & layout", "Scheduling / triggers", "RBAC & permissions") over generic ones; use a catch-all like "Miscellaneous / one-offs" only for genuine leftovers.',
+    'Respond with STRICT JSON only (no markdown, no code fence) of the form: {"groups":[{"emoji":"<one emoji>","label":"<short topic label>","blurb":"<one short sentence describing the group>","sessionIds":["<id>", ...]}]}.',
+    'Use ONLY ids that appear in the list, and include every id exactly once.',
+    '',
+    `Sessions (${picked.length}):`,
+    indexLines.join('\n').slice(0, 24000),
+    '',
+    'JSON:'
+  ].join('\n');
+
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    let raw = (acc.trim() || (result && result.output) || '').trim();
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+    let parsed = null;
+    if (a >= 0 && b > a) { try { parsed = JSON.parse(raw.slice(a, b + 1)); } catch {} }
+    const validIds = new Set(picked.map(e => e.id));
+    const seen = new Set();
+    let groups = [];
+    if (parsed && Array.isArray(parsed.groups)) {
+      groups = parsed.groups.map(g => {
+        const sessionIds = (Array.isArray(g && g.sessionIds) ? g.sessionIds : [])
+          .filter(id => validIds.has(id) && !seen.has(id));
+        sessionIds.forEach(id => seen.add(id));
+        return {
+          emoji: String((g && g.emoji) || '🗂').slice(0, 4),
+          label: String((g && g.label) || 'Group').slice(0, 80),
+          blurb: String((g && g.blurb) || '').slice(0, 200),
+          sessionIds,
+        };
+      }).filter(g => g.sessionIds.length);
+    }
+    // Any ids the model dropped go into a trailing catch-all so nothing disappears.
+    const leftover = picked.map(e => e.id).filter(id => !seen.has(id));
+    if (leftover.length) {
+      groups.push({ emoji: '🗂', label: 'Other sessions', blurb: 'Not assigned to a topic group.', sessionIds: leftover });
+    }
+    if (!groups.length) return res.status(500).json({ error: 'Could not cluster sessions' });
+    const generatedAt = new Date().toISOString();
+    _clusterCachePut(cacheKey, { groups, consideredCount: picked.length, totalCount: all.length, generatedAt });
+    res.json({ groups, consideredCount: picked.length, totalCount: all.length, generatedAt, cached: false });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'cluster failed' });
   }
 });
 

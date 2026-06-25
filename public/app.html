@@ -1518,6 +1518,30 @@
     .cli-sess-select select { border: none; background: transparent; color: var(--cp-text); font-size: 0.85rem; max-width: 280px; padding: 6px 4px; cursor: pointer; outline: none; }
     .cli-sess-count { margin-left: auto; white-space: nowrap; }
     .cli-sess-more { display: flex; justify-content: center; margin-top: 16px; }
+    /* CLI topic grouping */
+    .cli-view-toggle { display: inline-flex; border: 1px solid var(--cp-border); border-radius: 0.625rem; overflow: hidden; margin-right: 8px; }
+    .cli-view-toggle button { border: none; background: var(--cp-surface); color: var(--cp-text-muted); font-size: 0.8rem; font-weight: 600; padding: 6px 12px; cursor: pointer; }
+    .cli-view-toggle button + button { border-left: 1px solid var(--cp-border); }
+    .cli-view-toggle button.active { background: var(--cp-accent); color: var(--cp-accent-fg); }
+    .cli-group-status { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; min-height: 30px; }
+    .cli-group-status .linkish { background: none; border: none; color: var(--cp-link); cursor: pointer; font: inherit; padding: 0; }
+    .cli-group-err { color: var(--cp-danger); }
+    .cli-group { margin-bottom: 18px; }
+    .cli-group-head { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; border-bottom: 1px solid var(--cp-border); margin-bottom: 10px; user-select: none; }
+    .cli-group-head:hover { background: var(--cp-surface-soft); border-radius: 8px 8px 0 0; }
+    .cli-group-caret { width: 14px; color: var(--cp-text-muted); flex: 0 0 auto; }
+    .cli-group-emoji { flex: 0 0 auto; }
+    .cli-group-label { font-weight: 700; font-size: 0.95rem; color: var(--cp-text); }
+    .cli-group-count { flex: 0 0 auto; min-width: 20px; text-align: center; font-size: 0.72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--cp-accent-soft); color: var(--cp-accent); }
+    .cli-group-blurb { font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cli-group-body { display: flex; flex-direction: column; gap: 12px; }
+    /* Topic index — calm inline text links (no pills). */
+    .cli-group-index { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 16px; margin: 0 0 16px; }
+    .cli-index-label { font-size: 0.82rem; color: var(--cp-text-soft); opacity: 0.75; margin-right: 2px; }
+    .cli-index-link { display: inline-flex; align-items: baseline; gap: 5px; padding: 0; border: 0; background: none; font: inherit; font-size: 0.82rem; color: var(--cp-text-muted); cursor: pointer; transition: color .12s; }
+    .cli-index-link:hover { color: var(--cp-text); }
+    .cli-index-link.is-open { color: var(--cp-accent); font-weight: 600; }
+    .cli-index-count { font-size: 0.72rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
     .upd-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--cp-warning); color: #1a1a1a; font-size: 0.7rem; font-weight: 700; }
     .cli-sess-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 14px 16px; max-width: 100%; overflow: hidden; box-sizing: border-box; }
     .cli-sess-top { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
@@ -2601,6 +2625,19 @@
     .board-tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--cp-text-muted); font-size: 12.5px; cursor: pointer; transition: background .12s ease, color .12s ease; }
     .board-tab:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
     .board-tab.active { background: var(--cp-accent-soft); color: var(--cp-accent); font-weight: 600; }
+    /* Horizontal board switcher — calm chips on a single scrollable rail. */
+    .board-switch { display: flex; align-items: center; gap: 6px; margin-bottom: 18px; }
+    .board-switch-track { display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scroll-behavior: smooth; flex: 1 1 auto; min-width: 0; -ms-overflow-style: none; scrollbar-width: none; }
+    .board-switch-track::-webkit-scrollbar { display: none; height: 0; }
+    .board-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--cp-text-muted); font-size: 12.5px; white-space: nowrap; cursor: pointer; transition: background .12s ease, color .12s ease, border-color .12s ease; }
+    .board-chip:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .board-chip.active { background: var(--cp-accent-soft); color: var(--cp-accent); font-weight: 600; }
+    .board-chip.archived { opacity: 0.6; }
+    .board-chip-org { font-size: 11px; opacity: 0.65; }
+    .board-switch-arrow { flex: 0 0 auto; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--cp-border); border-radius: 8px; background: var(--cp-surface); color: var(--cp-text-muted); font-size: 16px; line-height: 1; cursor: pointer; transition: background .12s ease, color .12s ease; }
+    .board-switch-arrow:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .board-switch-archived { flex: 0 0 auto; padding: 5px 11px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--cp-text-muted); font-size: 12.5px; cursor: pointer; }
+    .board-switch-archived:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
     /* De-pill neutral chips & ghost buttons inside the board ecosystem. */
     .board-calm .pill { border-color: transparent; background: var(--cp-surface-soft); color: var(--cp-text-muted); font-weight: 500; }
     .board-calm .pill:hover { background: var(--cp-highlight); }
@@ -3393,12 +3430,12 @@
       </div>
       <div class="mode-switch" role="tablist" aria-label="App mode">
         <button type="button" class="mode-seg" :class="{ active: appMode === 'workspace' }" role="tab" :aria-selected="appMode === 'workspace'"
-                @click="setAppMode('workspace')" title="Workspace — boards, insights & planning">
-          <span>📋</span><span class="mode-seg-label">Workspace</span>
+                @click="setAppMode('workspace')" title="Productivity — boards, insights & planning">
+          <span>📋</span><span class="mode-seg-label">Productivity</span>
         </button>
         <button type="button" class="mode-seg" :class="{ active: appMode === 'workforce' }" role="tab" :aria-selected="appMode === 'workforce'"
-                @click="setAppMode('workforce')" title="Workforce — managers, agents & operations">
-          <span>🤖</span><span class="mode-seg-label">Workforce</span>
+                @click="setAppMode('workforce')" title="Management — managers, agents & operations">
+          <span>🤖</span><span class="mode-seg-label">Management</span>
         </button>
       </div>
       <div class="topbar-right">
@@ -5435,15 +5472,21 @@
 
             <template x-if="!boardsLoading && visibleBoards().length">
               <div>
-                <!-- Board selector -->
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
-                  <template x-for="b in visibleBoards()" :key="b.id">
-                    <button type="button" class="board-tab" :class="{ active: activeBoardId === b.id }" @click="selectBoard(b.id)" :style="b.archived ? 'opacity:0.6' : ''">
-                      <span x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
-                      <span class="hint" style="margin-left:2px;opacity:0.7" x-text="'· ' + boardOrgLabel(b)"></span>
-                    </button>
-                  </template>
-                  <button type="button" class="board-tab" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
+                <!-- Board selector — a single horizontal strip that scrolls (with looping
+                     ‹ › arrows when it overflows) instead of a tall stack of full-width tabs. -->
+                <div class="board-switch" :class="{ 'has-overflow': boardSwitchOverflow }"
+                  x-init="$nextTick(() => updateBoardSwitchOverflow())" @resize.window.debounce.150ms="updateBoardSwitchOverflow()">
+                  <button type="button" class="board-switch-arrow" x-show="boardSwitchOverflow" @click="scrollBoardSwitch(-1)" title="Previous boards" aria-label="Scroll boards left">‹</button>
+                  <div class="board-switch-track" id="boardSwitchTrack" @scroll.debounce.100ms="updateBoardSwitchOverflow()">
+                    <template x-for="b in visibleBoards()" :key="b.id">
+                      <button type="button" class="board-chip" :class="{ active: activeBoardId === b.id, archived: b.archived }" @click="selectBoard(b.id)">
+                        <span x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
+                        <span class="board-chip-org" x-text="boardOrgLabel(b)"></span>
+                      </button>
+                    </template>
+                  </div>
+                  <button type="button" class="board-switch-arrow" x-show="boardSwitchOverflow" @click="scrollBoardSwitch(1)" title="More boards" aria-label="Scroll boards right">›</button>
+                  <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
                     x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
                 </div>
 
@@ -9082,6 +9125,10 @@
                 <p>Every known Copilot CLI session. Resume any session in a terminal, or generate a brief AI summary.</p>
               </div>
               <div class="toolbar">
+                <div class="cli-view-toggle" role="tablist" title="Switch between a flat list and AI topic groups">
+                  <button type="button" :class="{ active: cliViewMode === 'list' }" @click="setCliViewMode('list')">☰ List</button>
+                  <button type="button" :class="{ active: cliViewMode === 'grouped' }" @click="setCliViewMode('grouped')">🗂 Grouped</button>
+                </div>
                 <span class="hint" x-show="cliSessionsRefreshing" style="margin-right:8px">↻ Refreshing…</span>
                 <button class="btn" type="button" @click="loadCliSessions(true)" :disabled="cliSessionsRefreshing">↻ Refresh</button>
               </div>
@@ -9127,41 +9174,82 @@
               <button class="btn ghost" type="button" @click="openCliSearch()">💬 Refine</button>
             </div>
             <div class="empty-state" x-show="cliSessionsLoading">Loading sessions…</div>
-            <div class="cli-sess-list" x-show="!cliSessionsLoading">
-              <template x-for="s in pagedCliSessions()" :key="s.id">
-                <article class="cli-sess-card">
-                  <div class="cli-sess-top">
-                    <div class="cli-sess-head">
-                      <div class="cli-sess-title" x-text="s.title"></div>
-                      <div class="cli-sess-meta">
-                        <span class="origin-badge" :class="(s.origin === 'system') ? 'origin-system' : 'origin-external'"
-                          x-text="(s.origin === 'system') ? '🏛 TheOffice.AI' : '🌐 External'"></span>
-                        <span class="type-badge" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
-                        <span x-show="s.turnCount" x-text="s.turnCount + ' turn' + (s.turnCount === 1 ? '' : 's')"></span>
-                        <span x-show="s.repository" x-text="'🌿 ' + s.repository + (s.branch ? (' @ ' + s.branch) : '')"></span>
-                        <span x-show="s.cwd" class="cli-sess-path" x-text="'📁 ' + s.cwd"></span>
-                        <span x-text="'🕑 ' + formatRelative(s.lastModified)"></span>
-                      </div>
-                    </div>
-                    <div class="cli-sess-actions">
-                      <button class="btn primary" type="button" @click="resumeCliSession(s)" title="Open a terminal and resume this session">▶ Resume</button>
-                      <button class="btn" type="button"
-                        :disabled="summarizingSessionId === s.id"
-                        @click="summarizeCliSession(s, !!s.summary)"
-                        x-text="summarizingSessionId === s.id ? '⏳ Summarizing…' : (s.summary ? '🔄 Re-summarize' : '✨ Summarize')"></button>
-                      <button class="btn" type="button" @click="openQuickPin('session', s.id, s.title, s.agentName || s.cwd)" title="Pin to board">📌</button>
-                    </div>
-                  </div>
-                  <div class="cli-sess-preview hint" x-show="s.lastUserPreview && !s.summary" x-text="'Last prompt: ' + s.lastUserPreview"></div>
-                  <div class="cli-ai-reason" x-show="cliSearch.matchActive && cliSearchReason(s.id)" x-text="'🔍 ' + cliSearchReason(s.id)"></div>
-                  <div class="cli-sess-summary" x-show="s.summary">
-                    <div class="cli-sess-summary-label">Summary <span class="hint" x-show="s.summaryAt" x-text="'· ' + formatRelative(s.summaryAt)"></span></div>
-                    <div x-text="s.summary"></div>
-                  </div>
-                </article>
+            <!-- Grouping status bar (only in Grouped mode) -->
+            <div class="cli-group-status" x-show="!cliSessionsLoading && cliViewMode === 'grouped'">
+              <template x-if="cliClustering"><span class="hint">🧠 Grouping sessions by topic…</span></template>
+              <template x-if="!cliClustering && cliClusterError"><span class="hint cli-group-err" x-text="'⚠ ' + cliClusterError"></span></template>
+              <template x-if="!cliClustering && !cliClusterError && cliClusters.length">
+                <span class="hint">🗂 <strong x-text="cliRenderGroups().length"></strong> topic group<span x-show="cliRenderGroups().length !== 1">s</span>
+                  <span x-show="cliClustersAt" x-text="'· grouped ' + formatRelative(cliClustersAt)"></span>
+                  · <button type="button" class="linkish" @click="expandAllCliGroups()">Expand all</button>
+                  · <button type="button" class="linkish" @click="collapseAllCliGroups()">Collapse all</button>
+                  · <button type="button" class="linkish" @click="loadCliClusters(true)">↻ Re-group</button></span>
+              </template>
+              <template x-if="!cliClustering && !cliClusterError && !cliClusters.length">
+                <button class="btn" type="button" @click="loadCliClusters(true)">🧠 Group these sessions by topic</button>
               </template>
             </div>
-            <div class="cli-sess-more" x-show="!cliSessionsLoading && filteredCliSessions().length > cliVisibleCount">
+            <!-- Top-of-page topic index: quick-jump links (grouped mode only) -->
+            <div class="cli-group-index" x-show="!cliSessionsLoading && cliViewMode === 'grouped' && !cliClustering && cliClusters.length">
+              <span class="cli-index-label">Jump to</span>
+              <template x-for="grp in cliRenderGroups().filter(g => !g._flat)" :key="'idx:' + grp.key">
+                <button type="button" class="cli-index-link" :class="{ 'is-open': !grp.collapsed }" @click="jumpToCliGroup(grp.key)">
+                  <span x-text="grp.emoji"></span>
+                  <span x-text="grp.label"></span>
+                  <span class="cli-index-count" x-text="grp.sessions.length"></span>
+                </button>
+              </template>
+            </div>
+            <div class="cli-sess-list" x-show="!cliSessionsLoading">
+              <template x-for="grp in cliRenderGroups()" :key="grp.key">
+                <div class="cli-group" :id="grp._flat ? '' : cliGroupDomId(grp.key)">
+                  <div class="cli-group-head" x-show="!grp._flat" @click="toggleCliGroup(grp.key)">
+                    <span class="cli-group-caret" x-text="grp.collapsed ? '▸' : '▾'"></span>
+                    <span class="cli-group-emoji" x-text="grp.emoji"></span>
+                    <span class="cli-group-label" x-text="grp.label"></span>
+                    <span class="cli-group-count" x-text="grp.sessions.length"></span>
+                    <span class="cli-group-blurb hint" x-show="grp.blurb" x-text="grp.blurb"></span>
+                  </div>
+                  <template x-if="grp._flat || !grp.collapsed">
+                  <div class="cli-group-body">
+                    <template x-for="s in grp.sessions" :key="s.id">
+                      <article class="cli-sess-card">
+                        <div class="cli-sess-top">
+                          <div class="cli-sess-head">
+                            <div class="cli-sess-title" x-text="s.title"></div>
+                            <div class="cli-sess-meta">
+                              <span class="origin-badge" :class="(s.origin === 'system') ? 'origin-system' : 'origin-external'"
+                                x-text="(s.origin === 'system') ? '🏛 TheOffice.AI' : '🌐 External'"></span>
+                              <span class="type-badge" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
+                              <span x-show="s.turnCount" x-text="s.turnCount + ' turn' + (s.turnCount === 1 ? '' : 's')"></span>
+                              <span x-show="s.repository" x-text="'🌿 ' + s.repository + (s.branch ? (' @ ' + s.branch) : '')"></span>
+                              <span x-show="s.cwd" class="cli-sess-path" x-text="'📁 ' + s.cwd"></span>
+                              <span x-text="'🕑 ' + formatRelative(s.lastModified)"></span>
+                            </div>
+                          </div>
+                          <div class="cli-sess-actions">
+                            <button class="btn primary" type="button" @click="resumeCliSession(s)" title="Open a terminal and resume this session">▶ Resume</button>
+                            <button class="btn" type="button"
+                              :disabled="summarizingSessionId === s.id"
+                              @click="summarizeCliSession(s, !!s.summary)"
+                              x-text="summarizingSessionId === s.id ? '⏳ Summarizing…' : (s.summary ? '🔄 Re-summarize' : '✨ Summarize')"></button>
+                            <button class="btn" type="button" @click="openQuickPin('session', s.id, s.title, s.agentName || s.cwd)" title="Pin to board">📌</button>
+                          </div>
+                        </div>
+                        <div class="cli-sess-preview hint" x-show="s.lastUserPreview && !s.summary" x-text="'Last prompt: ' + s.lastUserPreview"></div>
+                        <div class="cli-ai-reason" x-show="cliSearch.matchActive && cliSearchReason(s.id)" x-text="'🔍 ' + cliSearchReason(s.id)"></div>
+                        <div class="cli-sess-summary" x-show="s.summary">
+                          <div class="cli-sess-summary-label">Summary <span class="hint" x-show="s.summaryAt" x-text="'· ' + formatRelative(s.summaryAt)"></span></div>
+                          <div x-text="s.summary"></div>
+                        </div>
+                      </article>
+                    </template>
+                  </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+            <div class="cli-sess-more" x-show="!cliSessionsLoading && cliViewMode === 'list' && filteredCliSessions().length > cliVisibleCount">
               <button class="btn" type="button" @click="cliVisibleCount += 60"
                 x-text="'Show more (' + (filteredCliSessions().length - cliVisibleCount) + ' remaining)'"></button>
             </div>
@@ -10893,6 +10981,13 @@
         cliFolderFilter: '',
         cliOriginFilter: 'external',
         cliVisibleCount: 60,
+        cliViewMode: (() => { try { return localStorage.getItem('cliViewMode') === 'grouped' ? 'grouped' : 'list'; } catch { return 'list'; } })(),
+        cliClusters: (() => { try { const c = JSON.parse(localStorage.getItem('cliClustersCache') || 'null'); return (c && Array.isArray(c.groups)) ? c.groups : []; } catch { return []; } })(),
+        cliClustersAt: (() => { try { const c = JSON.parse(localStorage.getItem('cliClustersCache') || 'null'); return (c && c.at) || null; } catch { return null; } })(),
+        cliClustering: false,
+        cliClusterError: '',
+        cliGroupCollapsed: {},
+        cliGroupExpanded: {},
         _cliFilterCache: null,
         summarizingSessionId: null,
         // AI search assistant for CLI sessions — a lower-right chat (like the board AI)
@@ -10902,6 +10997,7 @@
         boards: [],
         boardsLoading: false,
         boardsShowArchived: false,
+        boardSwitchOverflow: false,
         activeBoardId: (() => { try { return localStorage.getItem('active-board-id') || ''; } catch { return ''; } })(),
         boardModalOpen: false,
         boardForm: { id: '', name: '', emoji: '📌', teamId: '' },
@@ -14774,6 +14870,88 @@
           return this.filteredCliSessions().slice(0, this.cliVisibleCount);
         },
 
+        // List ↔ Grouped view switch. Lazily kicks off clustering the first time
+        // the user enters Grouped view and nothing is cached yet.
+        setCliViewMode(mode) {
+          this.cliViewMode = (mode === 'grouped') ? 'grouped' : 'list';
+          try { localStorage.setItem('cliViewMode', this.cliViewMode); } catch {}
+          if (this.cliViewMode === 'grouped' && !this.cliClusters.length && !this.cliClustering) {
+            this.loadCliClusters(false);
+          }
+        },
+        toggleCliGroup(key) { this.cliGroupExpanded[key] = !this.cliGroupExpanded[key]; },
+
+        // Build the render structure for the session list. In list mode this is a
+        // single flat pseudo-group (paged). In grouped mode it maps the AI topic
+        // clusters to the *currently-filtered* sessions, so the agent/folder/origin/
+        // search filters still apply, and appends an "Ungrouped" bucket for any
+        // filtered sessions the last grouping didn't cover.
+        cliRenderGroups() {
+          if (this.cliViewMode !== 'grouped') {
+            return [{ key: '__flat__', _flat: true, sessions: this.pagedCliSessions() }];
+          }
+          const filtered = this.filteredCliSessions();
+          const allow = new Set(filtered.map(s => s.id));
+          const byId = new Map(this.cliSessions.map(s => [s.id, s]));
+          const out = [];
+          const placed = new Set();
+          (this.cliClusters || []).forEach((g, gi) => {
+            const sessions = (g.sessionIds || [])
+              .filter(id => allow.has(id) && !placed.has(id))
+              .map(id => byId.get(id))
+              .filter(Boolean);
+            if (!sessions.length) return;
+            sessions.forEach(s => placed.add(s.id));
+            const key = 'g:' + gi + ':' + (g.label || '');
+            // Groups default to collapsed for fast browsing; a group is open only when
+            // explicitly expanded (chip click / caret / Expand all).
+            out.push({ key, _flat: false, emoji: g.emoji || '🗂', label: g.label || 'Group', blurb: g.blurb || '', sessions, collapsed: !this.cliGroupExpanded[key] });
+          });
+          const stray = filtered.filter(s => !placed.has(s.id));
+          if (stray.length && out.length) {
+            out.push({ key: '__stray__', _flat: false, emoji: '🗂', label: 'Ungrouped', blurb: 'Sessions outside the most recent 150 that topic grouping covers (plus any created since the last grouping). Re-group to refresh, or use search to find a specific one.', sessions: stray, collapsed: !this.cliGroupExpanded['__stray__'] });
+          }
+          return out;
+        },
+        // DOM-safe anchor id for a group so the top index can scroll to it.
+        cliGroupDomId(key) { return 'cligrp-' + String(key).replace(/[^a-z0-9]+/gi, '-'); },
+        // Expand a group and scroll it into view (used by the top-of-page index chips).
+        jumpToCliGroup(key) {
+          this.cliGroupExpanded[key] = true;
+          this.$nextTick(() => {
+            const el = document.getElementById(this.cliGroupDomId(key));
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        },
+        expandAllCliGroups() { for (const g of this.cliRenderGroups()) if (!g._flat) this.cliGroupExpanded[g.key] = true; },
+        collapseAllCliGroups() { this.cliGroupExpanded = {}; },
+
+        // Ask the server to cluster the currently-filtered sessions (most recent ~150)
+        // into labeled topic groups. The server caches results by content signature so
+        // repeat loads of an unchanged set return instantly; pass force=true (↻ Re-group)
+        // to bypass both the server cache and the local cache. Result is also mirrored
+        // to localStorage for an instant first paint on the next visit.
+        async loadCliClusters(force = false) {
+          if (this.cliClustering) return;
+          if (this.cliClusters.length && !force) return;
+          const ids = this.filteredCliSessions().slice(0, 150).map(s => s.id);
+          if (ids.length < 2) { this.cliClusterError = 'Need at least 2 sessions to group.'; return; }
+          this.cliClustering = true;
+          this.cliClusterError = '';
+          try {
+            const r = await this.request('/api/cli/sessions/cluster', { method: 'POST', body: JSON.stringify({ ids, force: !!force }) });
+            this.cliClusters = (r && r.groups) || [];
+            this.cliClustersAt = (r && r.generatedAt) || new Date().toISOString();
+            this.cliGroupExpanded = {}; // fresh groups start collapsed
+            try { localStorage.setItem('cliClustersCache', JSON.stringify({ at: this.cliClustersAt, groups: this.cliClusters })); } catch {}
+          } catch (e) {
+            this.cliClusterError = (e && e.message) || 'Grouping failed';
+            this.showToast('Grouping failed', this.cliClusterError, 'error');
+          } finally {
+            this.cliClustering = false;
+          }
+        },
+
         async resumeCliSession(session) {
           try {
             await this.request(`/api/sessions/${encodeURIComponent(session.id)}/terminal`, {
@@ -14919,6 +15097,7 @@
             if (!silent) this.showToast('Boards', e.message, 'error');
           } finally {
             this.boardsLoading = false;
+            this.$nextTick(() => this.updateBoardSwitchOverflow());
           }
         },
         // ---- Insights (read-only AI cross-board views) -------------------------
@@ -15118,6 +15297,25 @@
             if (cur === 'all') return true;
             return !b.teamId || b.teamId === cur;
           }).length;
+        },
+        // ---- Horizontal board switcher ----
+        // Show the ‹ › arrows only when the strip can't fit all boards at once.
+        updateBoardSwitchOverflow() {
+          const el = document.getElementById('boardSwitchTrack');
+          this.boardSwitchOverflow = !!el && el.scrollWidth > el.clientWidth + 4;
+        },
+        // Scroll the strip ~70% of its width; wrap end→start (and start→end) so it
+        // reads as an endlessly loopable rail rather than dead-ending at the edges.
+        scrollBoardSwitch(dir) {
+          const el = document.getElementById('boardSwitchTrack');
+          if (!el) return;
+          const step = Math.max(120, Math.round(el.clientWidth * 0.7));
+          const maxLeft = el.scrollWidth - el.clientWidth;
+          if (dir > 0) {
+            el.scrollTo({ left: (el.scrollLeft >= maxLeft - 4) ? 0 : Math.min(maxLeft, el.scrollLeft + step), behavior: 'smooth' });
+          } else {
+            el.scrollTo({ left: (el.scrollLeft <= 4) ? maxLeft : Math.max(0, el.scrollLeft - step), behavior: 'smooth' });
+          }
         },
         // ---- Starred boards / quick launch ----
         starredBoards() {
