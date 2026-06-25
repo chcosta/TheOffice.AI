@@ -1417,9 +1417,21 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   // Only required (blocking) checks gate readiness; optional failures are
   // surfaced but must not be counted as blocking failures.
   const isRequired = (s) => s.required !== false;
-  const failedChecks = validation.filter(s => isRequired(s) && (s.state === 'failed' || s.state === 'error')).length;
+  // "Proof of presence" is a merge-time human attestation gate — it is rejected
+  // (failed) by AzDO until the actual merge, so it should NOT be counted as a
+  // standard failing check. When it's the only required gate outstanding the PR
+  // is effectively ready to merge, pending that one human action.
+  const isProofOfPresence = (s) => /proof\s*of\s*presence/i.test(s.name || '');
+  for (const s of validation) { if (isRequired(s) && isProofOfPresence(s)) s.mergeGate = true; }
+  const failedChecks = validation.filter(s => isRequired(s) && !isProofOfPresence(s) && (s.state === 'failed' || s.state === 'error')).length;
   const failedOptionalChecks = validation.filter(s => !isRequired(s) && (s.state === 'failed' || s.state === 'error')).length;
-  const pendingChecks = validation.filter(s => s.state === 'pending' || s.state === 'notSet').length;
+  const pendingChecks = validation.filter(s => !isProofOfPresence(s) && (s.state === 'pending' || s.state === 'notSet')).length;
+  // Proof of presence is still outstanding (not succeeded) — surfaced as a
+  // soft "pending merge gate" rather than a hard failure.
+  const proofOfPresencePending = validation.some(s => isRequired(s) && isProofOfPresence(s) && s.state !== 'succeeded');
+  // It's the ONLY thing left when no real required check fails and nothing else
+  // required is pending.
+  const proofOfPresenceOnly = proofOfPresencePending && failedChecks === 0 && pendingChecks === 0;
 
   // Ready-to-merge: prefer the authoritative policy signal; else heuristic.
   let readyToMerge;
@@ -1430,6 +1442,15 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
       pr.mergeStatus === 'succeeded' &&
       (reqApproved === true || (reqApproved === null && approvalState === 'approved')) &&
       failedChecks === 0;
+  }
+  // If the authoritative signal says "not ready" purely because proof of presence
+  // is outstanding (no real failing/pending required checks), treat it as ready —
+  // proof of presence is a merge-time human action, not a blocker we surface as a
+  // failure. The card notes the remaining gate.
+  if (!readyToMerge && proofOfPresenceOnly && !pr.isDraft &&
+      pr.mergeStatus === 'succeeded' &&
+      (reqApproved === true || (reqApproved === null && approvalState === 'approved'))) {
+    readyToMerge = true;
   }
 
   // My own vote (for the reviews view).
@@ -1523,6 +1544,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     comments: threads || { activeComments: 0, resolvedComments: 0, totalThreads: 0 },
     validation,
     failedChecks, pendingChecks, failedOptionalChecks,
+    proofOfPresencePending, proofOfPresenceOnly,
     policy: policy || { evaluations: [], ready: null, builds: [] },
     approvalState,
     readyToMerge: !!readyToMerge,

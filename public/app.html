@@ -1017,6 +1017,8 @@
     .cf-check-dot.s-succeeded { background:var(--cp-success); }
     .cf-check-dot.s-failed, .cf-check-dot.s-error { background:var(--cp-danger); }
     .cf-check-dot.s-pending, .cf-check-dot.s-notset { background:var(--cp-warning); }
+    .cf-check-dot.s-mergegate { background:var(--cp-link); }
+    .cf-check-mergenote { color:var(--cp-link); font-size:11px; opacity:.85; }
     .cf-check-gate .cf-check-name { font-weight:700; }
     .cf-check-name { color:var(--cp-text); font-weight:600; }
     .cf-check-desc { color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -7529,6 +7531,7 @@
                         <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
                         <span class="cf-m-muted" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
                         <span class="cf-m-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
+                        <span class="cf-m-muted" x-show="pr.proofOfPresencePending" title="Proof of presence is a merge-time human attestation, satisfied at merge — not a blocking failure">· pending proof of presence</span>
                       </div>
                     </div>
                     <div x-show="pr.attention" style="flex:0 0 auto">
@@ -7572,7 +7575,7 @@
 
                   <!-- Validation: collapsed, with a count + status summary -->
                   <template x-if="pr.validation && pr.validation.length">
-                    <details class="cf-validation" :open="pr.failedChecks > 0">
+                    <details class="cf-validation" :open="cfValIsOpen(pr)" @toggle="cfValToggle(pr, $event.target.open)">
                       <summary class="cf-validation-summary">
                         <span class="cf-validation-title">Validation</span>
                         <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
@@ -7592,7 +7595,7 @@
                             </div>
                             <template x-for="chk in pr.validation.filter(c => c.required !== false)" :key="chk.id">
                               <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
-                                <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
+                                <span class="cf-check-dot" :class="chk.mergeGate ? 's-mergegate' : ('s-' + (chk.state || 'notset'))"></span>
                                 <template x-if="chk.targetUrl">
                                   <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
                                 </template>
@@ -7600,6 +7603,7 @@
                                   <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
                                 </template>
                                 <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                                <span class="cf-check-mergenote" x-show="chk.mergeGate" title="Proof of presence is satisfied by a human at merge time — not a blocking failure">merge-time gate</span>
                               </div>
                             </template>
                           </div>
@@ -7614,7 +7618,7 @@
                             </div>
                             <template x-for="chk in pr.validation.filter(c => c.required === false)" :key="chk.id">
                               <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
-                                <span class="cf-check-dot" :class="'s-' + (chk.state || 'notset')"></span>
+                                <span class="cf-check-dot" :class="chk.mergeGate ? 's-mergegate' : ('s-' + (chk.state || 'notset'))"></span>
                                 <template x-if="chk.targetUrl">
                                   <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
                                 </template>
@@ -7622,6 +7626,7 @@
                                   <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
                                 </template>
                                 <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                                <span class="cf-check-mergenote" x-show="chk.mergeGate" title="Proof of presence is satisfied by a human at merge time — not a blocking failure">merge-time gate</span>
                               </div>
                             </template>
                           </div>
@@ -11709,7 +11714,8 @@
           aiBusy: false,
           aiGeneratedAt: null,
           worktrees: {},         // prKey -> review-worktree record
-          wtBusy: {}             // prKey -> action string while busy
+          wtBusy: {},            // prKey -> action string while busy
+          valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })()
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0 },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
@@ -16075,6 +16081,17 @@
         },
         cfBusy(pr) {
           return (this.codeflow.wtBusy || {})[this.cfPrKey(pr)] || '';
+        },
+        // Validation <details> open-state persists per PR across refreshes so a
+        // user's collapse/expand choice sticks (default collapsed).
+        cfValIsOpen(pr) {
+          return !!(this.codeflow.valOpen || {})[this.cfPrKey(pr)];
+        },
+        cfValToggle(pr, open) {
+          const key = this.cfPrKey(pr);
+          if (open) this.codeflow.valOpen[key] = true;
+          else delete this.codeflow.valOpen[key];
+          try { localStorage.setItem('cfValOpen', JSON.stringify(this.codeflow.valOpen)); } catch { /* ignore */ }
         },
         async loadCfWorktrees() {
           try {
