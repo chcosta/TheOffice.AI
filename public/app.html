@@ -966,7 +966,9 @@
     .cf-pr-list { display:flex; flex-direction:column; gap:12px; }
     .cf-pr-list.grouped { gap:22px; }
     .cf-group { display:flex; flex-direction:column; gap:12px; }
-    .cf-group-head { display:flex; align-items:center; gap:8px; padding:0 2px; }
+    .cf-group-head { display:flex; align-items:center; gap:8px; padding:0 2px; cursor:pointer; user-select:none; }
+    .cf-group-head:hover .cf-group-title { color:var(--cp-text); }
+    .cf-group-caret { font-size:9px; color:var(--cp-text-soft); width:10px; text-align:center; transition:transform .12s ease; }
     .cf-group-title { font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--cp-text-muted); }
     .cf-group-count { font-size:11px; font-weight:600; color:var(--cp-text-soft); background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:999px; padding:1px 8px; }
     .cf-group-head::after { content:""; flex:1; height:1px; background:var(--cp-border); }
@@ -7541,11 +7543,14 @@
             <div class="cf-pr-list" :class="{ grouped: codeflow.groupBy !== 'none' }">
               <template x-for="grp in groupedCodeflowPrs()" :key="grp.key">
                 <div class="cf-group">
-                  <div class="cf-group-head" x-show="grp.label">
+                  <div class="cf-group-head" x-show="grp.label" @click="cfGrpToggle(grp)"
+                       role="button" tabindex="0" :aria-expanded="cfGrpIsOpen(grp)"
+                       @keydown.enter.prevent="cfGrpToggle(grp)" @keydown.space.prevent="cfGrpToggle(grp)">
+                    <span class="cf-group-caret" x-text="cfGrpIsOpen(grp) ? '▾' : '▸'"></span>
                     <span class="cf-group-title" x-text="grp.label"></span>
                     <span class="cf-group-count" x-text="grp.items.length"></span>
                   </div>
-                  <div class="cf-group-items">
+                  <div class="cf-group-items" x-show="!grp.label || cfGrpIsOpen(grp)">
                     <template x-for="pr in grp.items" :key="pr.org + '/' + pr.repo + '/' + pr.id">
                 <article class="cf-pr-card" :class="{ 'cf-attn': pr.attention }">
                   <div class="cf-pr-top">
@@ -11752,7 +11757,8 @@
           aiGeneratedAt: null,
           worktrees: {},         // prKey -> review-worktree record
           wtBusy: {},            // prKey -> action string while busy
-          valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })()
+          valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
+          grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })()
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0 },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
@@ -16099,9 +16105,9 @@
               const ai = this.codeflowAi(pr);
               const u = ai && typeof ai.urgency === 'number' ? ai.urgency : null;
               if (u === null) add('u-none', 'No AI urgency', 4, pr);
-              else if (u >= 8) add('u-high', 'High urgency · 8–10', 0, pr);
-              else if (u >= 5) add('u-med', 'Medium urgency · 5–7', 1, pr);
-              else add('u-low', 'Low urgency · 1–4', 2, pr);
+              else if (u >= 70) add('u-high', 'High urgency · 70–100', 0, pr);
+              else if (u >= 40) add('u-med', 'Medium urgency · 40–69', 1, pr);
+              else add('u-low', 'Low urgency · 0–39', 2, pr);
             } else if (g === 'state') {
               if (pr.readyToMerge) add('s-ready', 'Ready to merge', 0, pr);
               else if (pr.attention) add('s-attn', 'Needs attention', 1, pr);
@@ -16166,6 +16172,19 @@
           if (open) this.codeflow.valOpen[key] = true;
           else delete this.codeflow.valOpen[key];
           try { localStorage.setItem('cfValOpen', JSON.stringify(this.codeflow.valOpen)); } catch { /* ignore */ }
+        },
+        cfGrpKey(grp) {
+          return (this.codeflow.groupBy || 'none') + ':' + (grp && grp.key != null ? grp.key : '');
+        },
+        cfGrpIsOpen(grp) {
+          // Default expanded; only collapsed when explicitly toggled off.
+          return !(this.codeflow.grpCollapsed || {})[this.cfGrpKey(grp)];
+        },
+        cfGrpToggle(grp) {
+          const key = this.cfGrpKey(grp);
+          if (this.codeflow.grpCollapsed[key]) delete this.codeflow.grpCollapsed[key];
+          else this.codeflow.grpCollapsed[key] = true;
+          try { localStorage.setItem('cfGrpCollapsed', JSON.stringify(this.codeflow.grpCollapsed)); } catch { /* ignore */ }
         },
         async loadCfWorktrees() {
           try {
