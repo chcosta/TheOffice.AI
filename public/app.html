@@ -7510,7 +7510,7 @@
                 </select>
               </label>
               <label class="hint" style="display:flex;align-items:center;gap:6px">Group
-                <select class="cf-select" x-model="codeflow.groupBy" @change="try{localStorage.setItem('cfGroupBy', codeflow.groupBy)}catch(e){}">
+                <select class="cf-select" x-model="codeflow.groupBy" @change="cfPersistGroupBy()">
                   <option value="none">None</option>
                   <option value="repo">Repo</option>
                   <option value="state">State</option>
@@ -16175,6 +16175,9 @@
         },
         cfGrpKey(grp) {
           return (this.codeflow.groupBy || 'none') + ':' + (grp && grp.key != null ? grp.key : '');
+        },
+        cfPersistGroupBy() {
+          try { localStorage.setItem('cfGroupBy', this.codeflow.groupBy); } catch { /* ignore */ }
         },
         cfGrpIsOpen(grp) {
           // Default expanded; only collapsed when explicitly toggled off.
