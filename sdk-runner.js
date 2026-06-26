@@ -202,8 +202,19 @@ class SdkRunner {
       const mcpPath = path.join(dir, '.mcp.json');
       if (fs.existsSync(mcpPath)) {
         const servers = (JSON.parse(fs.readFileSync(mcpPath, 'utf8')) || {}).mcpServers || {};
-        if (Object.keys(servers).length) {
+        const names = Object.keys(servers);
+        if (names.length) {
           opts.mcpServers = Object.assign({}, opts.mcpServers || {}, servers);
+          // Registering the MCP server is not enough: a project agent's `tools:`
+          // frontmatter is an authoritative allowlist (null/undefined = all tools)
+          // — when present it restricts the agent to ONLY the listed tools. A
+          // marketplace-attached MCP server registers here but its tools aren't in
+          // that list, so the agent is forbidden from calling them ("MCP tools not
+          // accessible in this session"). The CLI matches MCP tools by their
+          // namespaced `<server>/<tool>` name and honours a `<server>/*` wildcard,
+          // so grant all tools from each attached server. Only widens when a
+          // restrictive allowlist exists; a null allowlist already permits all.
+          this._widenAgentTools(opts, names.map(n => n + '/*'));
         }
       }
     } catch (e) {
@@ -225,9 +236,34 @@ class SdkRunner {
           }, null, 2));
         }
         opts.pluginDirectories = (opts.pluginDirectories || []).concat([dir]);
+        // Same allowlist trap as MCP: an agent restricted by a `tools:` frontmatter
+        // can't activate an attached skill without the built-in `skill` tool. Grant
+        // it so marketplace-attached skills are usable. No-op on a null allowlist.
+        this._widenAgentTools(opts, ['skill']);
       }
     } catch (e) {
       console.error('[sdk-runner] overlay skills merge failed:', e.message);
+    }
+  }
+
+  /**
+   * Add tool-allowlist entries to the resolved custom agent so newly-attached
+   * capabilities (marketplace MCP servers / skills) become callable. The SDK
+   * treats a project agent's `tools` array as an authoritative allowlist; null
+   * or undefined means "all tools". This is a no-op unless `opts.customAgents[0]`
+   * exists AND carries a restrictive (array) allowlist — when the allowlist is
+   * null everything is already permitted. Dedupes case-insensitively.
+   */
+  _widenAgentTools(opts, additions) {
+    const agent = opts && opts.customAgents && opts.customAgents[0];
+    if (!agent || !Array.isArray(agent.tools) || !additions || !additions.length) return;
+    const have = new Set(agent.tools.map(t => String(t).toLowerCase()));
+    for (const add of additions) {
+      const key = String(add).toLowerCase();
+      if (add && !have.has(key)) {
+        agent.tools.push(add);
+        have.add(key);
+      }
     }
   }
 
