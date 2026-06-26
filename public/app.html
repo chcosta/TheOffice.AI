@@ -6936,11 +6936,116 @@
                                             <div>
                                               <template x-for="pr in [boardPrFor(item)]" :key="pr.id">
                                                 <div>
-                                                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+                                                  <!-- Header: title + meta line — full parity with the Code Flow PR card. -->
+                                                  <a class="cf-pr-title" :href="pr.url || '#'" target="_blank" rel="noopener" x-text="pr.title || item.label || 'Pull request'"></a>
+                                                  <div class="cf-meta-line">
+                                                    <span class="cf-m-repo" x-text="(item.meta && item.meta.repo) || pr.repo || ''"></span>
+                                                    <a class="cf-m-id" :href="pr.url || '#'" target="_blank" rel="noopener" x-text="pr.id != null && pr.id !== '' ? '#' + pr.id : ''"></a>
+                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && pr.isDraft">Draft</span>
+                                                    <span class="cf-m-muted" x-show="boardPrFull(item)" x-text="codeflowAgeLabel(pr)"></span>
+                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && (item.meta && item.meta.view) === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + (pr.createdBy && pr.createdBy.name)"></span>
+                                                    <span x-show="boardPrFull(item)" :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
+                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + (pr.comments && pr.comments.activeComments) + ' active'"></span>
+                                                    <span class="cf-m-ok" x-show="boardPrFull(item) && pr.readyToMerge">✅ Ready to merge</span>
+                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && pr.proofOfPresencePending" title="Proof of presence is a merge-time human attestation, satisfied at merge — not a blocking failure">· pending proof of presence</span>
+                                                    <span class="cf-attn-reason" x-show="boardPrFull(item) && pr.attention" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
+                                                  </div>
+                                                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
                                                     <a class="btn ghost" style="font-size:0.72rem" :href="pr.url || '#'" target="_blank" rel="noopener" x-show="pr.url" title="Open this pull request in Azure DevOps">⇄ Open PR</a>
                                                     <button class="btn ghost" style="font-size:0.72rem" type="button" title="Jump to this PR on the Code Flow page" @click.stop="boardJump(item)">🔀 Code Flow</button>
-                                                    <span class="hint" x-text="(item.meta && item.meta.repo ? item.meta.repo : '') + (pr.id != null ? ' #' + pr.id : '')"></span>
+                                                    <span class="hint" x-show="codeflow.boardPrsLoading && !boardPrFull(item)">Loading live PR…</span>
                                                   </div>
+                                                  <!-- AI insight: summary + urgency (parity with Code Flow). -->
+                                                  <template x-if="codeflowAi(pr)">
+                                                    <div class="cf-ai">
+                                                      <span class="cf-ai-badge">✨</span>
+                                                      <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
+                                                            :title="codeflowAi(pr).urgencyReason"
+                                                            x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
+                                                      <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
+                                                    </div>
+                                                  </template>
+                                                  <!-- Reviewers, area expert, dev-card link. -->
+                                                  <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
+                                                    <div class="cf-people">
+                                                      <template x-if="pr.areaExpert">
+                                                        <span class="cf-people-seg" :title="'Most active in ' + (pr.repo || '') + ' (last 60 days): ' + pr.areaExpert.commits + ' commits'">
+                                                          <span class="cf-people-k">Area expert</span> <span class="cf-people-v" x-text="pr.areaExpert.name"></span>
+                                                        </span>
+                                                      </template>
+                                                      <template x-if="pr.suggestedReviewers && pr.suggestedReviewers.length">
+                                                        <span class="cf-people-seg">
+                                                          <span class="cf-people-k">Suggested reviewers</span>
+                                                          <span class="cf-people-v" x-text="pr.suggestedReviewers.map(r => r.name).join(', ')"></span>
+                                                        </span>
+                                                      </template>
+                                                      <template x-if="pr.devCard">
+                                                        <a class="cf-people-seg cf-devcard" href="#" @click.prevent.stop="goTo('#/boards/' + pr.devCard.boardId)"
+                                                           :title="'Open dev card on board: ' + pr.devCard.boardName">
+                                                          🧰 <span x-text="pr.devCard.title || 'Dev card'"></span>
+                                                        </a>
+                                                      </template>
+                                                    </div>
+                                                  </template>
+                                                  <!-- Validation: collapsed, with a count + status summary. -->
+                                                  <template x-if="pr.validation && pr.validation.length">
+                                                    <details class="cf-validation" :open="cfValIsOpen(pr)" @toggle="cfValToggle(pr, $event.target.open)">
+                                                      <summary class="cf-validation-summary">
+                                                        <span class="cf-validation-title">Validation</span>
+                                                        <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
+                                                        <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
+                                                        <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'· ' + pr.pendingChecks + ' pending'"></span>
+                                                        <span class="cf-m-warn" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' optional failing'"></span>
+                                                        <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0 && !(pr.failedOptionalChecks > 0)">· all passing</span>
+                                                      </summary>
+                                                      <div class="cf-checks">
+                                                        <template x-if="pr.validation.some(c => c.required !== false)">
+                                                          <div class="cf-check-group cf-grp-required">
+                                                            <div class="cf-check-grouphdr">
+                                                              <span>Required</span>
+                                                              <span class="cf-grp-count" x-text="'· ' + pr.validation.filter(c => c.required !== false).length"></span>
+                                                              <span class="cf-grp-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
+                                                            </div>
+                                                            <template x-for="chk in pr.validation.filter(c => c.required !== false)" :key="chk.id">
+                                                              <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
+                                                                <span class="cf-check-dot" :class="chk.mergeGate ? 's-mergegate' : ('s-' + (chk.state || 'notset'))"></span>
+                                                                <template x-if="chk.targetUrl">
+                                                                  <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
+                                                                </template>
+                                                                <template x-if="!chk.targetUrl">
+                                                                  <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
+                                                                </template>
+                                                                <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                                                                <span class="cf-check-mergenote" x-show="chk.mergeGate" title="Proof of presence is satisfied by a human at merge time — not a blocking failure">merge-time gate</span>
+                                                              </div>
+                                                            </template>
+                                                          </div>
+                                                        </template>
+                                                        <template x-if="pr.validation.some(c => c.required === false)">
+                                                          <div class="cf-check-group cf-grp-optional">
+                                                            <div class="cf-check-grouphdr">
+                                                              <span>Optional</span>
+                                                              <span class="cf-grp-count" x-text="'· ' + pr.validation.filter(c => c.required === false).length"></span>
+                                                              <span class="cf-grp-bad" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' failing'"></span>
+                                                            </div>
+                                                            <template x-for="chk in pr.validation.filter(c => c.required === false)" :key="chk.id">
+                                                              <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
+                                                                <span class="cf-check-dot" :class="chk.mergeGate ? 's-mergegate' : ('s-' + (chk.state || 'notset'))"></span>
+                                                                <template x-if="chk.targetUrl">
+                                                                  <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
+                                                                </template>
+                                                                <template x-if="!chk.targetUrl">
+                                                                  <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
+                                                                </template>
+                                                                <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
+                                                                <span class="cf-check-mergenote" x-show="chk.mergeGate" title="Proof of presence is satisfied by a human at merge time — not a blocking failure">merge-time gate</span>
+                                                              </div>
+                                                            </template>
+                                                          </div>
+                                                        </template>
+                                                      </div>
+                                                    </details>
+                                                  </template>
                                                   <!-- Review worktree actions — identical to the Code Flow PR card. -->
                                                   <div class="cf-wt">
                                                     <template x-if="!cfWt(pr)">
@@ -12681,6 +12786,9 @@
           aiGeneratedAt: null,
           worktrees: {},         // prKey -> review-worktree record
           wtBusy: {},            // prKey -> action string while busy
+          boardPrs: {},          // cfPrKey -> full PR object for board-pinned PRs (parity with the Code Flow card)
+          boardPrsLoading: false,
+          boardPrsLoadedFor: '',  // boardId the boardPrs map was last loaded for (one fetch per board view)
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
           grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })()
         },
@@ -17301,14 +17409,64 @@
         },
         // Reconstruct a Code Flow-shaped `pr` object from a board PR pin's meta so all
         // the cf* action functions (which key off pr.org/project/repo/id + cfPrKey) work
-        // unchanged on a pinned PR. meta stores prId; cf* needs `id`.
+        // unchanged on a pinned PR. meta stores prId; cf* needs `id`. When the full live
+        // PR has been loaded (loadBoardPrs), return THAT instead — so the pinned panel
+        // renders with full Code Flow parity (header, AI insight, reviewers, validation).
         boardPrFor(item) {
           const m = (item && item.meta) || {};
+          const key = [m.org, m.project, m.repo, (m.prId != null ? m.prId : '')].join('|').toLowerCase();
+          const full = (this.codeflow.boardPrs || {})[key];
+          if (full) return full;
           return {
             org: m.org, project: m.project, repo: m.repo,
             id: m.prId != null ? m.prId : '',
             url: m.url || '', title: m.title || item.label || '',
           };
+        },
+        // Has the full live PR (not just the meta snapshot) loaded for this pin yet?
+        // Gates the rich header fields so the thin fallback shows only title/repo/id.
+        boardPrFull(item) {
+          const m = (item && item.meta) || {};
+          const key = [m.org, m.project, m.repo, (m.prId != null ? m.prId : '')].join('|').toLowerCase();
+          return !!(this.codeflow.boardPrs || {})[key];
+        },
+        // Fetch the full PR objects (+ AI insights) for every PR pinned to the active
+        // board so the pinned panels match the Code Flow card exactly. Reuses the same
+        // cached list endpoints (no extra AzDo cost when warm); indexes by cfPrKey.
+        async loadBoardPrs(force) {
+          const board = this.activeBoard();
+          if (!board) return;
+          const prPins = (board.items || []).filter(i => i.kind === 'pr' && i.meta);
+          if (!prPins.length) { this.codeflow.boardPrs = {}; this.codeflow.boardPrsLoadedFor = board.id; return; }
+          if (!force && this.codeflow.boardPrsLoadedFor === board.id) return;
+          if (this.codeflow.boardPrsLoading) return;
+          this.codeflow.boardPrsLoading = true;
+          try {
+            const views = [...new Set(prPins.map(p => (p.meta.view === 'reviews' ? 'reviews' : 'mine')))];
+            const wantKeys = new Set(prPins.map(p => [p.meta.org, p.meta.project, p.meta.repo, p.meta.prId].join('|').toLowerCase()));
+            const map = {};
+            for (const view of views) {
+              let resp;
+              try { resp = await this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view)); }
+              catch { resp = null; }
+              for (const pr of ((resp && resp.pullRequests) || [])) {
+                const k = this.cfPrKey(pr);
+                if (wantKeys.has(k)) map[k] = pr;
+              }
+            }
+            this.codeflow.boardPrs = map;
+            this.codeflow.boardPrsLoadedFor = board.id;
+            // Pull AI insights for the referenced views and merge into codeflow.ai (keyed
+            // by pr.id, the same key codeflowAi() reads) so the pinned cards show urgency.
+            for (const view of views) {
+              try {
+                const r = await this.request('/api/codeflow/ai', { method: 'POST', body: JSON.stringify({ view, refresh: false }), timeoutMs: 180000 });
+                for (const ins of (r.insights || [])) this.codeflow.ai[ins.id] = ins;
+              } catch { /* AI is best-effort */ }
+            }
+          } finally {
+            this.codeflow.boardPrsLoading = false;
+          }
         },
         cfBusy(pr) {
           return (this.codeflow.wtBusy || {})[this.cfPrKey(pr)] || '';
@@ -18247,7 +18405,7 @@
             const updated = (resp && resp.board) || resp;
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
-            if (cand.kind === 'pr') this.loadCfWorktrees();
+            if (cand.kind === 'pr') { this.loadCfWorktrees(); this.loadBoardPrs(true); }
           } catch (e) {
             this.showToast('Pin', e.message, 'error');
           }
@@ -18551,6 +18709,7 @@
             if (this.boardChatCache[this._commentChatId(item.refId)] === undefined) this.boardPinLoadDetail(item);
           } else if (item.kind === 'pr') {
             if (!this._cfWtLoadedForBoard) { this._cfWtLoadedForBoard = true; this.loadCfWorktrees(); }
+            this.loadBoardPrs();
           }
         },
         // Lazy-load the latest run/message for a pin, reusing the same data paths the
@@ -23022,7 +23181,7 @@
               const updated = (resp && resp.board) || resp;
               const idx = this.boards.findIndex(b => b.id === board.id);
               if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
-              if (a.kind === 'pr') { try { await this.loadCfWorktrees(); } catch (e) { } }
+              if (a.kind === 'pr') { try { await this.loadCfWorktrees(); await this.loadBoardPrs(true); } catch (e) { } }
               ok = (updated && updated.id) ? updated : false;
             } else if (a.type === 'pr_action') {
               // Run a Code Flow PR action on a pinned PR (confirmed). Reconstruct a
