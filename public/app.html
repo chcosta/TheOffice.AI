@@ -13695,6 +13695,10 @@
               this.appMode = rm;
               try { localStorage.setItem('app-mode', rm); } catch {}
             }
+            // Remember the last mode-owned page so switching back to a mode
+            // (e.g. Management → Productivity) returns to where you were rather
+            // than Home. Shared routes (rm === null) don't overwrite either side.
+            if (rm) { this._lastModeHash = this._lastModeHash || {}; this._lastModeHash[rm] = window.location.hash; }
             // Start the incoming animation once Alpine has rendered the new section.
             if (animate) this.$nextTick(() => this.playNavIn());
             await this.handleRouteChange();
@@ -14609,10 +14613,17 @@
             this.appMode = mode;
             try { localStorage.setItem('app-mode', mode); } catch {}
           }
-          // If the current route definitively belongs to the *other* mode, land on
-          // this mode's Home. Shared routes (incl. home) stay put and re-render.
+          // Land on the last page we were on in *this* mode when leaving a page
+          // that isn't already part of it. If we have no remembered page yet, only
+          // bounce to Home when we're currently on the *other* mode's page (a shared
+          // route like settings/home stays put). This makes Management → Productivity
+          // return to the original Productivity page instead of Home.
           const rm = this.routeMode(this.route);
-          if (rm && rm !== mode) this.goTo('#/home');
+          if (rm !== mode) {
+            const saved = (this._lastModeHash || {})[mode];
+            if (saved) this.goTo(saved);
+            else if (rm) this.goTo('#/home');
+          }
         },
         // Reskin the whole app to match the selected organization's theme preset.
         applyOrgTheme() {
