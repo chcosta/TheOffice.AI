@@ -346,7 +346,16 @@
       for (const nd of nodes){ if (nd && nd.isConnected) sweep(nd); }
       busy = false;
     }
-    function schedule(){ if (scheduled) return; scheduled = true; setTimeout(flush, 60); }
+    function schedule(){
+      if (scheduled) return; scheduled = true;
+      // Flush on a microtask, NOT setTimeout: MutationObserver callbacks and
+      // microtasks both run before the browser paints, so the raw-emoji →
+      // SVG-icon swap completes invisibly. A timer (even 0ms) defers the swap
+      // to a later task that runs AFTER paint, which shows a one-frame flash of
+      // the previous unicode emoji on every Alpine reactive re-render.
+      if (typeof queueMicrotask === 'function') queueMicrotask(flush);
+      else Promise.resolve().then(flush);
+    }
     function onMutations(muts){
       if (busy || current === 'emoji') return;
       for (const mu of muts){
