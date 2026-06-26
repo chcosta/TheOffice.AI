@@ -3604,8 +3604,14 @@
     .board-tab:hover .board-tab-remove { opacity: .8; }
     .board-tab-remove:hover { background: var(--cp-danger); color: #fff; opacity: 1; }
     /* Section headers (rail style C — grouped by type). */
-    .board-tab-section { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--cp-text-soft); padding: 8px 8px 2px; }
+    .board-tab-section { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--cp-text-soft); padding: 8px 8px 2px; display: flex; align-items: center; gap: 5px; cursor: grab; position: relative; border-radius: 6px; }
     .board-tab-section:first-child { padding-top: 2px; }
+    .board-tab-section:hover { color: var(--cp-text-muted); }
+    .board-tab-section:active { cursor: grabbing; }
+    .board-tab-section-grip { opacity: 0; transition: opacity .12s ease; font-size: 11px; line-height: 1; color: var(--cp-text-soft); cursor: grab; }
+    .board-tab-section:hover .board-tab-section-grip { opacity: .8; }
+    .board-tab-section.group-dragging { opacity: .4; }
+    .board-tab-section.group-drag-over::after { content: ""; position: absolute; left: 6px; right: 6px; top: 0; height: 2px; border-radius: 2px; background: var(--cp-accent); }
     /* ----- Rail style B · Elevated cards ----- */
     .board-tab-rail.rail-b { gap: 8px; background: transparent; border-color: transparent; padding: 4px; }
     .board-tab-rail.rail-b .board-tab { padding: 9px 10px; border: 1px solid var(--cp-border); background: var(--cp-surface); border-radius: 12px; box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14); }
@@ -6558,7 +6564,16 @@
                         <template x-for="row in boardTabRailRows()" :key="row.key">
                           <div style="display:contents">
                             <template x-if="row.header">
-                              <div class="board-tab-section" x-text="row.header"></div>
+                              <div class="board-tab-section" draggable="true"
+                                   :class="{ 'group-dragging': isGroupDragging(row.group), 'group-drag-over': isGroupDragOver(row.group) }"
+                                   @dragstart="onGroupDragStart(row.group, $event)"
+                                   @dragover="onGroupDragOver(row.group, $event)"
+                                   @drop="onGroupDrop(row.group, $event)"
+                                   @dragend="onGroupDragEnd()"
+                                   title="Drag to reorder this group">
+                                <span class="board-tab-section-grip" aria-hidden="true">⠿</span>
+                                <span class="board-tab-section-label" x-text="row.header"></span>
+                              </div>
                             </template>
                             <template x-if="row.panel">
                               <button type="button" class="board-tab"
@@ -12834,13 +12849,15 @@
         boardRowH: 36,
         boardGap: 14,
         // Per-board resizable canvas (px). null = fit to window width / auto height.
-        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null },
+        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null, groupOrder: null },
         // Tabbed-view hover preview flyout (single, body-teleported, JS-positioned).
         _tabFlyout: { show: false, top: 0, left: 0, icon: '', name: '', type: '', body: '' },
         // Button tooltip (single, body-teleported) so it escapes panel overflow:auto clipping.
         _tip: { show: false, top: 0, left: 0, text: '', below: false, el: null },
         // Tabbed-view drag-to-reorder transient state.
         _tabDrag: { id: null, overId: null },
+        // Grouped-rail section drag-to-reorder transient state (style 'c' only).
+        _groupDrag: { label: null, overLabel: null },
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
@@ -19466,26 +19483,104 @@
           this.boardTabRailStyle = s;
           try { localStorage.setItem('board-tab-rail-style', s); } catch {}
         },
+        // Section label / icon for a tabbed-rail panel. Shared by the rail row builder
+        // and the group drag handlers so grouping stays consistent.
+        _railGroupOf(p) {
+          if (!p) return 'Pinned';
+          if (p.type === 'note') return 'Notes';
+          if (p.type === 'checklist') return 'Checklists';
+          if (p.type === 'dev') return 'Dev cards';
+          return this.boardKindLabel(p.kind) || 'Pinned';
+        },
+        _railGroupIcon(p) {
+          if (!p) return '📌';
+          if (p.type === 'note') return '📝';
+          if (p.type === 'checklist') return '✅';
+          if (p.type === 'dev') return '🧰';
+          return this.boardKindIcon(p.kind);
+        },
+        // Ordered, de-duplicated list of rail sections ({label, icon}) for the active
+        // board. Honors the user's saved drag order (boardCanvas.groupOrder) first, then
+        // falls back to a deterministic default order (pin kinds by priority, then the
+        // board-native buckets). New groups not yet in the saved order land by default rank.
+        _railGroups() {
+          const panels = this.boardTabPanels();
+          const pinKindOrder = ['pr', 'assignment', 'manager', 'agent', 'session', 'chat', 'flow', 'task', 'comment', 'location'];
+          const pinRank = {};
+          pinKindOrder.forEach((k, i) => { pinRank[this.boardKindLabel(k)] = i; });
+          const nativeRank = { 'Dev cards': 100, 'Notes': 101, 'Checklists': 102 };
+          const rankOf = (g) => (g in nativeRank) ? nativeRank[g] : (g in pinRank ? pinRank[g] : 50);
+          const saved = (this.boardCanvas && Array.isArray(this.boardCanvas.groupOrder)) ? this.boardCanvas.groupOrder : [];
+          const savedRank = new Map(saved.map((g, i) => [g, i]));
+          const groups = [];
+          const seen = new Set();
+          for (const p of panels) {
+            const g = this._railGroupOf(p);
+            if (!seen.has(g)) { seen.add(g); groups.push({ label: g, icon: this._railGroupIcon(p) }); }
+          }
+          groups.sort((a, b) => {
+            const sa = savedRank.has(a.label) ? savedRank.get(a.label) : Infinity;
+            const sb = savedRank.has(b.label) ? savedRank.get(b.label) : Infinity;
+            if (sa !== sb) return sa - sb;
+            return (rankOf(a.label) - rankOf(b.label)) || a.label.localeCompare(b.label);
+          });
+          return groups;
+        },
         // Rows for the tab rail. Styles a/b = a flat list of tab rows; style c = the
-        // same tabs bucketed by kind under section headers (Pinned / Notes / Checklists),
-        // emitting interleaved {key, header} and {key, panel} rows. Within-group order
-        // still follows the user's tabOrder (boardTabPanels is already sorted).
+        // same tabs bucketed under section headers, emitting interleaved {key, header,
+        // group} and {key, panel} rows. Pinned items are broken out by their kind (Pull
+        // Request, Assignment, CLI Session, Agent, …) rather than lumped under one
+        // "Pinned" header; board-native panels keep their own buckets (Dev cards /
+        // Notes / Checklists). Group order is user-draggable; within-group order follows
+        // the user's tabOrder (boardTabPanels is already sorted).
         boardTabRailRows() {
           const panels = this.boardTabPanels();
           if (this.boardTabRailStyle !== 'c') {
             return panels.map(p => ({ key: 'tab-' + p.id, panel: p }));
           }
-          const groupOf = (p) => p.type === 'note' ? 'Notes' : (p.type === 'checklist' ? 'Checklists' : (p.type === 'dev' ? 'Dev cards' : 'Pinned'));
-          const order = ['Pinned', 'Dev cards', 'Notes', 'Checklists'];
+          const groups = this._railGroups();
           const rows = [];
-          for (const g of order) {
-            const inGroup = panels.filter(p => groupOf(p) === g);
+          for (const grp of groups) {
+            const inGroup = panels.filter(p => this._railGroupOf(p) === grp.label);
             if (!inGroup.length) continue;
-            rows.push({ key: 'h-' + g, header: g });
+            rows.push({ key: 'h-' + grp.label, header: grp.icon + ' ' + grp.label, group: grp.label });
             for (const p of inGroup) rows.push({ key: 'tab-' + p.id, panel: p });
           }
           return rows;
         },
+        // ----- Grouped-rail section drag-to-reorder (style 'c') -----
+        isGroupDragging(label) { return !!(this._groupDrag && this._groupDrag.label && this._groupDrag.label === label); },
+        isGroupDragOver(label) {
+          return !!(this._groupDrag && this._groupDrag.overLabel === label && this._groupDrag.label && this._groupDrag.label !== label);
+        },
+        onGroupDragStart(label, ev) {
+          if (this._hideTabFlyout) this._hideTabFlyout();
+          this._groupDrag = { label, overLabel: null };
+          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', 'group:' + label); } catch {}
+        },
+        onGroupDragOver(label, ev) {
+          if (!this._groupDrag || !this._groupDrag.label) return;
+          ev.preventDefault();
+          try { ev.dataTransfer.dropEffect = 'move'; } catch {}
+          if (this._groupDrag.overLabel !== label) this._groupDrag = { ...this._groupDrag, overLabel: label };
+        },
+        onGroupDrop(label, ev) {
+          if (ev) ev.preventDefault();
+          const dragLabel = this._groupDrag && this._groupDrag.label;
+          const targetLabel = label;
+          this._groupDrag = { label: null, overLabel: null };
+          if (!dragLabel || dragLabel === targetLabel) return;
+          const order = this._railGroups().map(g => g.label);   // current visible order
+          const from = order.indexOf(dragLabel);
+          if (from === -1) return;
+          order.splice(from, 1);
+          const insertAt = order.indexOf(targetLabel);          // place dragged group just BEFORE its target
+          if (insertAt === -1) order.push(dragLabel);
+          else order.splice(insertAt, 0, dragLabel);
+          this.boardCanvas = { ...this.boardCanvas, groupOrder: order };
+          this._saveBoardCanvas();
+        },
+        onGroupDragEnd() { this._groupDrag = { label: null, overLabel: null }; },
         // Tooltip/label for the per-tab and per-panel remove control.
         panelRemoveLabel(p) {
           if (!p) return 'Remove';
@@ -20038,17 +20133,17 @@
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
           const c = boardId && map[boardId];
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: (c.view === 'tabbed' ? 'tabbed' : 'pin'), tab: c.tab || null, briefOpen: (c.briefOpen !== false), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null };
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: (c.view === 'tabbed' ? 'tabbed' : 'pin'), tab: c.tab || null, briefOpen: (c.briefOpen !== false), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null), groupOrder: (Array.isArray(c.groupOrder) ? c.groupOrder : null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null, groupOrder: null };
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null) };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null) };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null) };
+          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null) };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
