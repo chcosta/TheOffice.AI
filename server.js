@@ -566,6 +566,24 @@ supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, ste
 });
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
+
+// Forward manager orchestration progress to SSE clients, keyed by managerId, so
+// the assignment / manager live panel (liveOutput[managerId]) streams the
+// manager's thinking and each sub-agent's output in real time instead of being
+// stuck on "Waiting for output…". The client rebuilds a transcript from these.
+managerAgent.on('manager-running', ({ managerId, runId }) => {
+  broadcastSSE('manager-run', { id: managerId, runId, phase: 'running' });
+});
+managerAgent.on('manager-step', ({ managerId, runId, step, live }) => {
+  broadcastSSE('manager-run-step', { id: managerId, runId, live: !!live, step });
+});
+managerAgent.on('manager-completed', ({ managerId, runId, result }) => {
+  broadcastSSE('manager-run-done', { id: managerId, runId, code: 0, result: (typeof result === 'string' ? result : '').slice(-12000) });
+});
+managerAgent.on('manager-error', ({ managerId, runId, error }) => {
+  broadcastSSE('manager-run-done', { id: managerId, runId, code: 1, error: (((error && error.message) || String(error || 'error'))).slice(-2000) });
+});
+
 const eventListener = new EventListener(supervisor, managerAgent, db);
 
 // Mobile command handler — processes structured JSON messages from phone app
@@ -10410,7 +10428,7 @@ app.post('/api/managers/:id/stop', (req, res) => {
 // Run an assignment (async — returns immediately with runId)
 app.post('/api/managers/:id/assignments/:assignmentId/run', (req, res) => {
   try {
-    const result = managerAgent.runAssignment(req.params.id, req.params.assignmentId);
+    const result = managerAgent.runAssignment(req.params.id, req.params.assignmentId, { liveStream: true });
     broadcastSSE('run-started', { id: req.params.id, assignmentId: req.params.assignmentId, type: 'assignment', timestamp: new Date().toISOString() });
     res.json({ ok: true, ...result });
   } catch (e) {

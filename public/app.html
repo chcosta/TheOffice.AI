@@ -14401,7 +14401,58 @@
               }
               this.scheduleRefresh();
             });
-            // Chain run lifecycle → live diagram + node states
+            // ----- Manager / assignment orchestration: live transcript -----
+            // Managers don't stream via agent-output (that's keyed by sub-agent id).
+            // We rebuild a readable transcript into liveOutput[managerId] from the
+            // manager's own step events so the assignment/manager live panel updates
+            // in real time. Steps are keyed by iteration+action so live partial
+            // updates replace (not duplicate) their line.
+            source.addEventListener('manager-run', (event) => {
+              const { id } = JSON.parse(event.data || '{}');
+              if (!id) return;
+              const prev = this.liveOutput[id] || {};
+              this.liveOutput = { ...this.liveOutput, [id]: {
+                text: prev.text || '',
+                startedAt: prev.startedAt || new Date().toISOString(),
+                active: true,
+                trigger: prev.trigger || { kind: 'assignment', label: 'Assignment', route: '#/managers/' + encodeURIComponent(id) },
+                _mgrOrder: prev._mgrOrder || [],
+                _mgrSteps: prev._mgrSteps || {}
+              } };
+            });
+            source.addEventListener('manager-run-step', (event) => {
+              const { id, step } = JSON.parse(event.data || '{}');
+              if (!id || !step) return;
+              const lo = this.liveOutput[id] || {
+                text: '', startedAt: new Date().toISOString(), active: true,
+                trigger: { kind: 'assignment', label: 'Assignment', route: '#/managers/' + encodeURIComponent(id) },
+                _mgrOrder: [], _mgrSteps: {}
+              };
+              if (!lo._mgrOrder) { lo._mgrOrder = []; lo._mgrSteps = {}; }
+              lo.active = true;
+              const key = (step.iteration ?? '?') + ':' + (step.action || 'step');
+              if (!(key in lo._mgrSteps)) lo._mgrOrder.push(key);
+              lo._mgrSteps[key] = step;
+              lo.text = lo._mgrOrder.map(k => this._mgrStepLine(lo._mgrSteps[k])).join('\n\n');
+              this.liveOutput = { ...this.liveOutput, [id]: lo };
+            });
+            source.addEventListener('manager-run-done', (event) => {
+              const { id, code, result, error } = JSON.parse(event.data || '{}');
+              if (!id) return;
+              const lo = this.liveOutput[id];
+              if (lo) {
+                lo.active = false;
+                lo.code = code;
+                lo.finishedAt = new Date().toISOString();
+                lo.finalOutput = code === 0 ? (result || lo.text || 'No output captured.') : (error || 'Run failed.');
+                lo.steps = (lo._mgrOrder || []).map(k => this._mgrStepToReason(lo._mgrSteps[k]));
+                this.liveOutput = { ...this.liveOutput, [id]: lo };
+              }
+              // Refresh this manager's assignment run history so detail "Recent Runs"
+              // and board pin status (dot + Run button) reflect the finished run.
+              (this.allTasks() || []).filter(t => t.managerId === id).forEach(t => this.loadTaskHistory(t));
+              this.scheduleRefresh();
+            });
             const chainOf = (runId) => (this._chainRunIndex && this._chainRunIndex[runId]) || null;
             source.addEventListener('chain-run-started', (event) => {
               const run = JSON.parse(event.data || '{}');
@@ -15335,6 +15386,40 @@
         dismissOpLive() {
           const k = this.opDetailKey();
           if (k && this.liveOutput[k]) { delete this.liveOutput[k]; this.liveOutput = { ...this.liveOutput }; }
+        },
+        // Render a single manager orchestration step as a readable transcript line
+        // for the live panel (<pre> text). Live partials (thinking / sub-agent
+        // stdout) are shown inline under their header.
+        _mgrStepLine(step) {
+          if (!step) return '';
+          const it = step.iteration ? '[' + step.iteration + '] ' : '';
+          const body = (step.partial || step.reasoning || '').trim();
+          switch (step.action) {
+            case 'thinking': return it + '🧠 Thinking…' + (body ? '\n' + body : '');
+            case 'run_agent': return it + '⚙️ Running ' + (step.agentId || 'agent') + '…' + (body ? '\n' + body : '');
+            case 'agent_result': return it + '✓ ' + (step.agentId || 'agent') + ' finished (exit ' + (step.exitCode ?? '?') + ')';
+            case 'complete': return it + '✅ Complete';
+            case 'team_rejected': return it + '⛔ ' + (step.agentId || 'agent') + ' is not in this manager’s team';
+            case 'request_agent': return it + '➕ Requested agent ' + (step.agentId || '');
+            case 'error': return it + '✕ Error: ' + (step.message || '');
+            default: return it + (step.action || 'step');
+          }
+        },
+        // Map a manager step to the {type,label,text} shape the live panel's
+        // "Reasoning & steps" disclosure renders after the run finishes.
+        _mgrStepToReason(step) {
+          if (!step) return { type: '', label: 'step', text: '' };
+          const it = step.iteration ? '[' + step.iteration + '] ' : '';
+          switch (step.action) {
+            case 'thinking': return { type: 'reasoning', label: it + '🧠 Manager reasoning', text: step.reasoning || step.partial || '' };
+            case 'run_agent': return { type: 'tool', label: it + '⚙️ Run ' + (step.agentId || 'agent'), text: step.prompt || '' };
+            case 'agent_result': return { type: 'tool', label: it + '✓ ' + (step.agentId || 'agent') + ' (exit ' + (step.exitCode ?? '?') + ')', text: step.output || '' };
+            case 'complete': return { type: 'result', label: it + '✅ Complete', text: step.result || '' };
+            case 'team_rejected': return { type: 'error', label: it + '⛔ ' + (step.agentId || 'agent') + ' rejected', text: '' };
+            case 'request_agent': return { type: 'tool', label: it + '➕ Requested ' + (step.agentId || ''), text: step.reason || '' };
+            case 'error': return { type: 'error', label: it + '✕ Error', text: step.message || '' };
+            default: return { type: '', label: it + (step.action || 'step'), text: '' };
+          }
         },
         detailChain() {
           return (this.data.chains || []).find(c => c.id === this.app.routeParam) || null;
@@ -18655,7 +18740,14 @@
           } else if (k === 'task' || k === 'assignment') {
             const t = this.allTasks().find(x => x.taskKey === id);
             if (!t) return null;
-            status = t.status; lastRun = t.lastRun;
+            // Prefer THIS task/assignment's own latest run (history is server-filtered
+            // by assignment_id / task) over the owner's overall status. Otherwise an
+            // unrelated run by the same manager/agent would mislabel this pin as
+            // "running" and disable its Run button (the reported regression). Fall
+            // back to the owner status only when no per-item history is cached.
+            const own = (this.taskHistoryCache[id] || [])[0] || null;
+            if (own) { status = own.status; lastRun = own; }
+            else { status = t.status; lastRun = t.lastRun; }
           } else if (k === 'flow') {
             const live = this.chainRunState && this.chainRunState[id];
             const c = (this.data.chains || []).find(x => x.id === id);
@@ -18822,10 +18914,12 @@
               const t = this.allTasks().find(x => x.taskKey === ref.refId);
               if (!t) { this.showToast('Run', 'Task no longer exists', 'error'); return; }
               this.runTask(t);
+              this._refreshPinHistorySoon(t);
             } else if (ref.kind === 'assignment') {
               const t = this.allTasks().find(x => x.taskKey === ref.refId);
               if (!t) { this.showToast('Run', 'Assignment no longer exists', 'error'); return; }
               await this.runAssignment(t.managerId, t.assignmentId);
+              this._refreshPinHistorySoon(t);
             } else if (ref.kind === 'flow') {
               const c = (this.data.chains || []).find(x => x.id === ref.refId);
               if (!c) { this.showToast('Run', 'Flow no longer exists', 'error'); return; }
@@ -18838,6 +18932,17 @@
         openBoardRef(ref) {
           if (!ref || !ref.kind || !ref.refId) return;
           this.boardJump({ kind: ref.kind, refId: ref.refId });
+        },
+        // After starting a pinned task/assignment, reload its OWN run history a few
+        // times so the pin's status dot + Run button reflect the new 'running' state
+        // (and re-enable once it finishes). pinStatus reads taskHistoryCache[taskKey].
+        _refreshPinHistorySoon(t) {
+          if (!t || !t.taskKey) return;
+          const key = t.taskKey;
+          [600, 2500, 6000].forEach(ms => setTimeout(() => {
+            const task = this.allTasks().find(x => x.taskKey === key);
+            if (task) this.loadTaskHistory(task);
+          }, ms));
         },
         // Link a board pin (encoded "kind::refId") to a checklist item; persists
         // through the normal board PUT, same write path as every other edit.
