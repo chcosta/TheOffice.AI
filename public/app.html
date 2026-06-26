@@ -3697,6 +3697,35 @@
       background: var(--cp-bg-elevated);
       box-shadow: 0 -6px 12px -8px rgba(0,0,0,0.12);
     }
+    /* AI Layout veil status card — fixed above the docked bottombar, input on the
+       canvas is disabled via pointer-events:none while the designer runs. */
+    .board-ai-veil {
+      position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%);
+      z-index: 60; display: flex; align-items: center; gap: 14px;
+      padding: 11px 16px; border-radius: 12px;
+      background: var(--cp-panel-strong); border: 1px solid var(--cp-border);
+      box-shadow: var(--cp-shadow);
+    }
+    .board-ai-veil .bav-spin {
+      width: 16px; height: 16px; flex: 0 0 auto;
+      border: 2px solid var(--cp-border-strong); border-top-color: var(--cp-accent);
+      border-radius: 50%; animation: bav-spin 0.8s linear infinite;
+    }
+    @keyframes bav-spin { to { transform: rotate(360deg); } }
+    .board-ai-veil .bav-text { font-size: 13px; color: var(--cp-text); white-space: nowrap; }
+    .board-ai-veil .bav-cancel {
+      font-size: 12px; padding: 4px 12px; border-radius: 8px; cursor: pointer;
+      background: transparent; color: var(--cp-text-muted);
+      border: 1px solid var(--cp-border-strong);
+    }
+    .board-ai-veil .bav-cancel:hover { color: var(--cp-text); border-color: var(--cp-accent); }
+    /* The board view is a viewport-anchored, self-scrolling region (canvas height is
+       computed to fill the screen) whose docked bottombar is sticky bottom:0. The
+       global .content padding:24px adds a bottom inset that the sticky bar pins ABOVE,
+       leaving it floating ~24px over the screen edge. Drop the content's bottom inset on
+       the boards route so the bar locks flush to the bottom. _recalcBoardCanvasH reads
+       paddingBottom live, so the canvas height self-corrects with no JS change. */
+    .content:has(.board-calm) { padding-bottom: 0; }
     .board-bottombar .bb-title {
       font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
       color: var(--cp-text-soft); flex: 0 0 auto;
@@ -6506,7 +6535,14 @@
                     <div x-show="!(activeBoard().items||[]).length" class="hint" style="margin-bottom:12px">Nothing pinned yet — click <strong>📌 Pin item</strong> to add sessions, tasks, agents and more. Drag panel headers to rearrange, drag the bottom-right corner to resize.</div>
 
                     <!-- Free-form panel board: drag headers to move, corner to resize -->
-                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" @mouseover="_onBoardTipOver($event)" @mouseout="_onBoardTipOut($event)" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none' : '')">
+                    <div class="board-canvas-scroll" :class="{ 'board-tabbed': boardIsTabbed() }" x-init="$nextTick(() => _scheduleBoardCanvasH())" @mouseover="_onBoardTipOver($event)" @mouseout="_onBoardTipOut($event)" :style="(boardCanvasH ? 'height:' + boardCanvasH + 'px;' : '') + (boardInert(activeBoard()) ? 'opacity:0.4;filter:grayscale(0.7);pointer-events:none;' : '') + (boardAiLayoutBusy ? 'opacity:0.6;filter:grayscale(0.25);pointer-events:none;' : '')">
+                    <!-- AI Layout veil: canvas input is disabled while the designer runs;
+                         shows the current step + a Cancel that stops after the current step. -->
+                    <div class="board-ai-veil" x-show="boardAiLayoutBusy" x-cloak x-transition>
+                      <span class="bav-spin"></span>
+                      <span class="bav-text">✨ AI Layout — <span x-text="boardAiLayoutStatus || 'working…'"></span></span>
+                      <button class="bav-cancel" type="button" @click="cancelAiLayout()">Cancel</button>
+                    </div>
                     <!-- Button tooltip (body-teleported, fixed-positioned) so it escapes the
                          panel body's overflow:auto clip box instead of getting cut off. -->
                     <template x-teleport="body">
@@ -12602,6 +12638,8 @@
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
         boardAiLayoutBusy: false, // true while the AI Layout designer is running
+        boardAiLayoutStatus: '', // status line shown on the canvas veil while designing
+        _aiLayoutAbort: null, // AbortController for the running AI Layout pass
         // Single-level undo for the last headless layout pass (AI Layout / Ask board
         // set_layout). Snapshots the pre-mutation layout/hidden/font/zoom plus the
         // post-settle signature; undo reverts ONLY if the board still matches that
@@ -19420,7 +19458,11 @@
           // canvas/tab-column scroller.
           const bar = (sc.parentElement && sc.parentElement.querySelector('.board-bottombar')) || null;
           const barH = bar ? Math.ceil(bar.getBoundingClientRect().height) : 0;
-          this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - 4 - barH));
+          // Fill the canvas to exactly meet the bar (no fudge gap) so the docked bottombar
+          // locks flush to the screen bottom on short boards too. A board taller than the
+          // canvas scrolls INSIDE the canvas (sc is the sole scroller), so this never makes
+          // .content itself overflow — the bar stays pinned either way.
+          this.boardCanvasH = Math.max(220, Math.floor(bottom - sTop - barH));
           // The unstretched grid fills the scroller; capture its content width so the grid
           // can be given an explicit pixel width (required for transform:scale zoom).
           if (sc.clientWidth) this.boardCanvasW = sc.clientWidth;
@@ -21137,12 +21179,21 @@
           this._aiLayoutUndo = null;
           this.showToast('Board', '↩ Reverted the AI layout', 'success');
         },
-        async aiLayoutBoard() {
-          if (this.route !== 'boards' || this.boardAiLayoutBusy) return;
-          const board = this.activeBoard();
-          if (!board) { this.showToast('Board', 'Open a board first', 'error'); return; }
-          const panels = this.boardPanels();
-          if (!panels.length) { this.showToast('Board', 'Nothing on this board yet', 'info'); return; }
+        // A panel is "dynamic" when its content updates on its own (live status, async
+        // briefing, streaming run output) so it may grow or shrink — the AI should leave
+        // it open with a little head-room rather than packing it to a tight frame.
+        _panelIsDynamic(p) {
+          if (!p) return false;
+          if (p.type === 'summary' || p.type === 'dev') return true;
+          if (p.type === 'pin') {
+            const k = String(p.kind || '').toLowerCase();
+            return ['session', 'chat', 'flow', 'assignment', 'agent', 'manager', 'task'].includes(k);
+          }
+          return false;
+        },
+        // Build the design-pass digest: every panel with its type/title, visible body
+        // text, current state, locks, and whether it receives live updates.
+        _aiBuildDigest() {
           const grid = document.querySelector('.board-grid');
           const bodyText = (id) => {
             if (!grid) return '';
@@ -21151,53 +21202,84 @@
             const body = el && el.querySelector('.board-panel-body');
             return body ? String(body.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 600) : '';
           };
-          const digest = panels.map(p => ({
+          return this.boardPanels().map(p => ({
             id: p.id,
             type: p.type,
             title: (this.panelTypeLabel(p) ? this.panelTypeLabel(p) + ': ' : '') + this.panelTitleText(p),
             text: bodyText(p.id),
+            dynamic: this._panelIsDynamic(p),
             collapsed: this.isPanelCollapsed(p.id),
             hidden: this.isPanelStashed(p),
             visLocked: this.isVisLocked(p),
             sizeLocked: this.isSizeLocked(p),
             posLocked: this.isPosLocked(p),
           }));
-          this.boardAiLayoutBusy = true;
-          this.showToast('Board', '✨ Designing a layout…', 'info');
-          try {
-            const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/ai-layout', {
-              method: 'POST', body: JSON.stringify({ panels: digest }),
-            });
-            if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-            this.applyAiLayout(r);
-          } catch (e) {
-            this.showToast('Board', 'AI layout failed — ' + (e.message || 'try again'), 'error');
-          } finally {
-            this.boardAiLayoutBusy = false;
-          }
         },
-        // Apply an AI layout plan: set per-panel collapse + optional width, then the
-        // board-wide zoom and font, persist, and re-flow (organize) so the result has
-        // no overlaps and heights fit the new expanded/collapsed state.
-        applyAiLayout(plan) {
+        // Snapshot the geometry the design pass ACTUALLY produced (each panel's grid box
+        // plus measured empty space below its content) so the review pass can critique
+        // and refine its own output.
+        _aiProducedGeometry() {
+          const grid = document.querySelector('.board-grid');
+          const elFor = {};
+          if (grid) grid.querySelectorAll('.board-panel').forEach(el => { const id = el.getAttribute('data-pid'); if (id) elFor[id] = el; });
+          const panels = this.boardPanels().map(p => {
+            const g = (this.boardLayout || {})[p.id] || {};
+            const chip = !!g.chip;
+            const collapsed = this.isPanelCollapsed(p.id);
+            const hidden = this.isPanelStashed(p);
+            const h = Math.round(g.h || 0);
+            let deadRows = 0;
+            if (!chip && !collapsed && !hidden && elFor[p.id]) {
+              const fit = this._fitRowsFromEl(elFor[p.id], p.id, { fresh: true });
+              if (fit != null) deadRows = Math.max(0, h - fit);
+            }
+            return {
+              id: p.id, type: p.type,
+              title: (this.panelTypeLabel(p) ? this.panelTypeLabel(p) + ': ' : '') + this.panelTitleText(p),
+              dynamic: this._panelIsDynamic(p), collapsed, chip, hidden,
+              sizeLocked: this.isSizeLocked(p), posLocked: this.isPosLocked(p),
+              x: Math.round(g.x || 0), y: Math.round(g.y || 0), w: Math.round(g.w || 0), h, deadRows,
+            };
+          });
+          return { panels, board: { cols: this.boardCols } };
+        },
+        // Apply ONE plan (design or review) to the live layout: per-panel pin-ify (chip),
+        // collapse, width, explicit height (mh rows), and stash, plus board zoom + font.
+        // Pure application — no organize/snapshot/toast (the orchestrator owns those).
+        // Returns true if any panel ends up as a chip (so the caller packs the pin view).
+        _aiApplyPlan(plan) {
           const cols = this.boardCols;
           const half = Math.max(2, Math.floor(cols / 2));
           this.ensureBoardLayout();
-          const undo = this._snapshotForUndo();
-          undo.label = 'AI Layout';
           const layout = { ...this.boardLayout };
-          let kept = 0, collapsed = 0;
+          const panels = this.boardPanels();
           const hideMap = { ...(this.activeBoard() || {}).hidden || {} };
           let hideChanged = false;
           for (const d of (plan.panels || [])) {
             const cur = layout[d.id]; if (!cur) continue;
-            const next = { ...cur, collapsed: !!d.collapsed };
-            // Width changes touch size (half) and position (full sets x=0) — skip when locked.
-            if (d.width === 'full' && !this._lockFor(d.id, 'size') && !this._lockFor(d.id, 'pos')) { next.w = cols; if (next.x !== 0) next.x = 0; }
-            else if (d.width === 'half' && cur.w >= cols && !this._lockFor(d.id, 'size')) { next.w = half; }
+            const p = panels.find(x => x.id === d.id);
+            const next = { ...cur };
+            // Pin-ify → shrink to a chip (only chip-eligible panels); pinify:false un-chips.
+            if (typeof d.pinify === 'boolean') {
+              if (d.pinify && p && this.isChipPanel(p)) next.chip = true;
+              else if (!d.pinify) delete next.chip;
+            }
+            if (next.chip) {
+              delete next.mh; // chips size themselves; drop any pinned manual height
+            } else {
+              if (typeof d.collapsed === 'boolean') next.collapsed = !!d.collapsed;
+              // Width — full touches size + position; half only size. Respect locks.
+              if (d.width === 'full' && !this._lockFor(d.id, 'size') && !this._lockFor(d.id, 'pos')) { next.w = cols; next.x = 0; }
+              else if (d.width === 'half' && !this._lockFor(d.id, 'size')) { next.w = half; if (next.x + half > cols) next.x = Math.max(0, cols - half); }
+              // Explicit height (rows) for an OPEN panel — reserves room (e.g. for a live
+              // panel that will grow). Stored as mh so organize/settle preserve it.
+              if (!next.collapsed && !this._lockFor(d.id, 'size')) {
+                const hRows = parseInt(d.height, 10);
+                if (isFinite(hRows) && hRows >= 2 && hRows <= 60) { next.mh = hRows; next.h = hRows; }
+              }
+            }
             layout[d.id] = next;
-            if (d.collapsed) collapsed++; else kept++;
-            // Visibility change (stash/unstash) — only when vis is not locked and not the summary.
+            // Stash / restore (not vis-locked, not the summary).
             if (typeof d.hidden === 'boolean' && !this._lockFor(d.id, 'vis')) {
               const base = String(d.id).replace(/^pv:/, '');
               if (base !== 'wherewasi') {
@@ -21215,16 +21297,84 @@
           if (typeof plan.fontScale === 'number') this.setBoardFont(plan.fontScale);
           if (typeof plan.zoom === 'number') this.setBoardZoom(plan.zoom);
           this.persistLayout();
-          // Re-flow once the new collapse/width state has rendered (organize fits heights
-          // to content and packs columns so nothing is hidden). Silent so our own
-          // reasoning toast is the one the user sees.
-          this.$nextTick(() => {
-            this.organizeBoard(true, true);
-            undo.afterSig = this._layoutSig();
-            this._aiLayoutUndo = undo;
-            const msg = plan.reasoning || ((kept) + ' kept open, ' + collapsed + ' collapsed · zoom ' + Math.round((plan.zoom || 1) * 100) + '%');
-            this.showToast('Board', '✨ ' + msg, 'success');
+          return Object.values(layout).some(g => g && g.chip);
+        },
+        // Re-pack after applying a plan and resolve once the DOM has settled enough to
+        // re-measure. Chips need the pin-view packer (strip + 50/50 block); otherwise the
+        // balanced organize gives a tight two-column pack.
+        _aiRepack(anyChip) {
+          return new Promise(resolve => {
+            if (anyChip) this.packPinView(true);
+            else this.organizeBoard(true, true);
+            setTimeout(() => this.$nextTick(() => resolve()), 280);
           });
+        },
+        // Arm undo + show the closing toast once a pass has settled.
+        _finishAiLayout(undo, msg, refined) {
+          undo.afterSig = this._layoutSig();
+          this._aiLayoutUndo = undo;
+          const m = msg || 'Layout updated';
+          this.showToast('Board', '✨ ' + m + (refined ? ' · refined' : ''), 'success');
+        },
+        cancelAiLayout() {
+          if (this._aiLayoutAbort) { try { this._aiLayoutAbort.abort(); } catch {} }
+          this.boardAiLayoutStatus = 'Finishing the current step…';
+        },
+        // Agentic AI Layout: (1) DESIGN — the model decides what is most interesting, how
+        // to highlight it, and a full per-panel plan (collapse / pin-ify / width / height)
+        // + zoom + font; we apply it and pack. (2) REVIEW — the model sees the geometry it
+        // actually produced (boxes + empty space) and makes targeted fixes, or signals OK.
+        // The canvas is veiled (no input) while it runs; Cancel stops after the current
+        // step, leaving the board as-is with undo armed.
+        async aiLayoutBoard() {
+          if (this.route !== 'boards' || this.boardAiLayoutBusy) return;
+          const board = this.activeBoard();
+          if (!board) { this.showToast('Board', 'Open a board first', 'error'); return; }
+          const panels = this.boardPanels();
+          if (!panels.length) { this.showToast('Board', 'Nothing on this board yet', 'info'); return; }
+          if (this._ensureBoardLease) this._ensureBoardLease();
+          const abort = new AbortController();
+          this._aiLayoutAbort = abort;
+          this.boardAiLayoutBusy = true;
+          this.boardAiLayoutStatus = 'Reading the board…';
+          this.ensureBoardLayout();
+          const undo = this._snapshotForUndo();
+          undo.label = 'AI Layout';
+          const url = '/api/boards/' + encodeURIComponent(board.id) + '/ai-layout';
+          let applied = false;
+          const cancelled = () => abort.signal.aborted;
+          try {
+            // ---- DESIGN ----
+            this.boardAiLayoutStatus = 'Designing — choosing what to highlight…';
+            const design = await this.request(url, { method: 'POST', body: JSON.stringify({ phase: 'design', panels: this._aiBuildDigest() }) });
+            if (cancelled()) return;
+            if (!design || !design.ok) throw new Error((design && design.error) || 'design failed');
+            this.boardAiLayoutStatus = 'Arranging panels…';
+            const chip1 = this._aiApplyPlan(design);
+            applied = true;
+            await this._aiRepack(chip1);
+            if (cancelled()) { this._finishAiLayout(undo, design.focus || design.reasoning, false); return; }
+            // ---- REVIEW (sees its own produced geometry) ----
+            this.boardAiLayoutStatus = 'Reviewing the result…';
+            const geo = this._aiProducedGeometry();
+            const review = await this.request(url, { method: 'POST', body: JSON.stringify({ phase: 'review', focus: design.focus, panels: geo.panels, board: geo.board }) });
+            if (cancelled()) { this._finishAiLayout(undo, design.focus || design.reasoning, false); return; }
+            if (review && review.ok && review.adjusted && (review.panels || []).length) {
+              this.boardAiLayoutStatus = 'Refining the layout…';
+              const chip2 = this._aiApplyPlan(review);
+              await this._aiRepack(chip2);
+              this._finishAiLayout(undo, review.reasoning || design.focus || design.reasoning, true);
+            } else {
+              this._finishAiLayout(undo, design.focus || design.reasoning, false);
+            }
+          } catch (e) {
+            if (!cancelled()) this.showToast('Board', 'AI layout failed — ' + (e.message || 'try again'), 'error');
+            if (applied) this._finishAiLayout(undo, 'Partial layout applied', false);
+          } finally {
+            this.boardAiLayoutBusy = false;
+            this.boardAiLayoutStatus = '';
+            this._aiLayoutAbort = null;
+          }
         },
         // Apply a board-assistant set_layout action: a presentation-only directive
         // (focus / collapse / expand / zoom / font / organize / compact / aiDesign).

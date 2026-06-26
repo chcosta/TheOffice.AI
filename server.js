@@ -9980,71 +9980,32 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
   }
 });
 
-// AI Layout — the model reviews a digest of the board's panels (supplied by the
-// client, which knows the live rendered content) and returns a PRESENTATION plan:
-// which panels are interesting (keep expanded / make prominent) vs. low-signal
-// (collapse), plus a good canvas zoom and content font size. It proposes presentation
-// only — it never edits board content. The client applies the plan and re-organizes.
+// AI Layout — an agentic, two-phase board designer. The client supplies a digest of
+// the live panels (it knows the rendered content) and the model returns a PRESENTATION
+// plan only (it never edits board content):
+//   phase "design"  — given each panel's type/title/content + which panels receive
+//                      live/dynamic updates, decide what is most interesting, how to
+//                      highlight it, and a full layout: per-panel collapse / pin-ify /
+//                      width / explicit height (rows), plus board zoom + font.
+//   phase "review"  — given the geometry the design pass actually PRODUCED (each
+//                      panel's grid box + measured dead space), make targeted
+//                      adjustments to fix awkward sizing, distracting gaps, or panels
+//                      that should expand/collapse — or report that it looks good.
+// The client applies each plan and re-organizes, then loops design -> review so the
+// model can see and refine its own output.
 app.post('/api/boards/:id/ai-layout', async (req, res) => {
   const raw = loadBoards().find(b => b.id === req.params.id);
   if (!raw) return res.status(404).json({ error: 'Board not found' });
   const b = _normalizeBoard(raw);
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const phase = (req.body && req.body.phase === 'review') ? 'review' : 'design';
   const inPanels = Array.isArray(req.body && req.body.panels) ? req.body.panels : [];
   if (!inPanels.length) return res.status(400).json({ error: 'No panels' });
-  // Keep only well-formed entries; cap count + per-field size we feed the model.
-  const panels = inPanels.filter(p => p && p.id).slice(0, 60).map(p => ({
-    id: String(p.id),
-    type: clip(p.type, 24),
-    title: clip(p.title, 120),
-    text: clip(p.text, 600),
-    collapsed: !!p.collapsed,
-    hidden: !!p.hidden,
-    visLocked: !!p.visLocked,
-    sizeLocked: !!p.sizeLocked,
-    posLocked: !!p.posLocked,
-  }));
-  if (!panels.length) return res.status(400).json({ error: 'No valid panels' });
-  const digest = panels.map((p, i) => {
-    const flags = [];
-    if (p.hidden) flags.push('hidden');
-    if (p.visLocked) flags.push('vis-locked');
-    if (p.sizeLocked) flags.push('size-locked');
-    if (p.posLocked) flags.push('pos-locked');
-    return `${i + 1}. id=${JSON.stringify(p.id)} type=${p.type || 'item'} title="${p.title}"` +
-      (flags.length ? ` [${flags.join(', ')}]` : '') +
-      `\n   content: ${p.text || '(empty)'}`;
-  }).join('\n');
+  const clampNum = (v, lo, hi, dflt) => { let n = parseFloat(v); if (!isFinite(n)) n = dflt; return Math.max(lo, Math.min(hi, Math.round(n * 100) / 100)); };
+  const num = (v, dflt) => { const n = parseFloat(v); return isFinite(n) ? n : dflt; };
 
-  const sys = [
-    `You are a layout designer for a work board named "${b.name}". You are given every panel currently on the board with its type, title, and a snippet of its live content. Decide how to PRESENT the board so the most useful, active, or attention-worthy panels are immediately visible and low-signal ones get out of the way. You change presentation only — you never edit, add, or delete board content.`,
-    '',
-    'For EACH panel decide:',
-    '- importance: "high" (key / attention-worthy — keep expanded and prominent), "normal" (relevant — keep expanded), or "low" (stale, empty, finished, or background — collapse it).',
-    '- collapsed: true to collapse the panel to a small header chip, false to keep it open. Collapse low-importance and empty/finished panels; keep high and normal panels open.',
-    '- width: optional "full" (span the whole board width — for a substantive briefing, a long note, or any wide-content panel) or "half" (a narrower column width). Choose each panel\'s width by its content: wide or long content → "full", short content → "half". There is NO preferred column count — size and place panels by their content and importance, not to fill two columns.',
-    '- DESIGN GOAL: produce a compact view with minimal wasted space — collapse low-signal panels aggressively so the open ones pack tightly, size each open panel to its own content, and pick a zoom that fills the viewport without large empty gaps.',
-    '- hidden: optional true/false to STASH a panel off the board (it stays in the data but is removed from view) or restore it. Stash genuinely finished/empty/duplicate panels that add clutter; restore a hidden panel only if it is now relevant. Omit this field to leave a panel\'s current visibility unchanged.',
-    '',
-    'LOCKS — some panels are tagged in the list below: a [hidden] panel is currently stashed; a [vis-locked] panel\'s visibility is locked; a [size-locked] panel\'s size is locked; a [pos-locked] panel\'s position is locked. You MUST respect locks: for a [vis-locked] panel never change "hidden"; for a [size-locked] panel never set width (leave width off); a [pos-locked] panel must keep its place (it will not be moved regardless). You may still set importance/collapsed on locked panels.',
-    '',
-    'Also choose, for the WHOLE board:',
-    '- zoom: a number from 0.6 to 1.0 — how far to zoom the canvas so the expanded panels fit comfortably without wasted space. Many open/important panels → zoom out a little (toward 0.7); only a few → 1.0.',
-    '- fontScale: a number from 0.85 to 1.2 — content text size. Use ~1.0 normally; nudge up when there is little content, down when the board is dense.',
-    '',
-    'Heuristics for what is interesting: panels with fresh status, errors/failures, action items, unchecked work, recent agent output, or a substantive briefing are HIGH. Empty notes, fully-completed checklists, idle/placeholder pins, and duplicates are LOW. A briefing-style panel ("Where was I?") that has real content is usually HIGH and a good "full"-width candidate.',
-    '',
-    'Respond with a SINGLE JSON object and nothing else — no code fences, no prose outside the JSON:',
-    '{"zoom":<num>,"fontScale":<num>,"reasoning":"<one short sentence on the focus you chose>","panels":[{"id":"<exact id>","importance":"high|normal|low","collapsed":<bool>,"width":"full|half","hidden":<bool optional>}]}',
-    'Include EVERY panel id exactly as given below. Never invent ids.',
-    '',
-    '# BOARD PANELS',
-    digest,
-    '',
-    'JSON:',
-  ].join('\n');
-
-  try {
+  // Shared: run the model on a prompt and parse the single JSON object it returns.
+  const runJson = async (sys) => {
     let acc = '';
     const result = await sdkRunner.runChat({ config: null, prompt: sys, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
     const rawText = (acc.trim() || (result && result.output) || '').trim();
@@ -10054,18 +10015,167 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
       const s = t.indexOf('{'), e = t.lastIndexOf('}');
       if (s >= 0 && e > s) parsed = JSON.parse(t.slice(s, e + 1));
     } catch {}
+    return parsed;
+  };
+
+  try {
+    if (phase === 'review') {
+      // ---- REVIEW PASS: the model sees the geometry its design actually produced ----
+      const panels = inPanels.filter(p => p && p.id).slice(0, 60).map(p => ({
+        id: String(p.id),
+        type: clip(p.type, 24),
+        title: clip(p.title, 120),
+        dynamic: !!p.dynamic,
+        collapsed: !!p.collapsed,
+        chip: !!p.chip,
+        hidden: !!p.hidden,
+        sizeLocked: !!p.sizeLocked,
+        posLocked: !!p.posLocked,
+        x: Math.round(num(p.x, 0)), y: Math.round(num(p.y, 0)),
+        w: Math.round(num(p.w, 0)), h: Math.round(num(p.h, 0)),
+        deadRows: Math.max(0, Math.round(num(p.deadRows, 0))),
+      }));
+      const known = new Set(panels.map(p => p.id));
+      const board = (req.body && req.body.board) || {};
+      const cols = Math.round(num(board.cols, 12));
+      const focus = clip((req.body && req.body.focus) || '', 240);
+      const digest = panels.map((p, i) => {
+        const state = p.chip ? 'pinned-chip' : (p.collapsed ? 'collapsed' : (p.hidden ? 'stashed' : 'open'));
+        const flags = [];
+        if (p.dynamic) flags.push('LIVE-updates');
+        if (p.sizeLocked) flags.push('size-locked');
+        if (p.posLocked) flags.push('pos-locked');
+        return `${i + 1}. id=${JSON.stringify(p.id)} type=${p.type || 'item'} "${p.title}" — ${state}` +
+          (flags.length ? ` [${flags.join(', ')}]` : '') +
+          `\n   box: col ${p.x}..${p.x + p.w} of ${cols}, rows ${p.y}..${p.y + p.h} (h=${p.h})` +
+          (p.deadRows > 1 ? `, EMPTY space below content ≈ ${p.deadRows} rows` : '');
+      }).join('\n');
+
+      const sys = [
+        `You are reviewing a layout you just designed for the work board "${b.name}". Below is the geometry your design ACTUALLY produced after the board packed it: each panel's current state (open / collapsed / pinned-chip / stashed) and its grid box (columns and rows it occupies on a ${cols}-column grid), including any wasted EMPTY space below a panel's content.`,
+        focus ? `\nThe focus you chose was: "${focus}".` : '',
+        '',
+        'Critically review this result and decide whether anything should change to make it cleaner and more useful:',
+        '- A panel with lots of EMPTY space below its content is wasteful — give it an explicit smaller "height" (in rows, just above its content) or collapse/pin-ify it if it is low-signal.',
+        '- An open panel that turns out to be low-signal or redundant in context → collapse or pin-ify it so the important panels stand out.',
+        '- A key panel that ended up cramped → give it more width ("full") or a taller explicit "height".',
+        '- A panel tagged [LIVE-updates] receives streaming/async content and may grow or shrink — give it a little explicit head-room "height" so a live update will not shove its neighbours, but never a huge empty frame.',
+        '- Respect locks: never resize a [size-locked] panel (no width/height); a [pos-locked] panel keeps its place.',
+        '',
+        'Make ONLY the targeted changes that genuinely improve the result — if the layout already looks good, return an empty "panels" array and adjusted=false.',
+        '',
+        'Respond with a SINGLE JSON object and nothing else — no code fences, no prose outside it:',
+        '{"adjusted":<bool>,"reasoning":"<one short sentence>","zoom":<num optional>,"fontScale":<num optional>,"panels":[{"id":"<exact id>","collapsed":<bool optional>,"pinify":<bool optional>,"width":"full|half" optional,"height":<rows int optional>,"hidden":<bool optional>}]}',
+        'Only include panels you are changing. Never invent ids.',
+        '',
+        '# PRODUCED LAYOUT',
+        digest,
+        '',
+        'JSON:',
+      ].filter(Boolean).join('\n');
+
+      const parsed = await runJson(sys);
+      if (!parsed || typeof parsed !== 'object') return res.status(502).json({ ok: false, error: 'Could not parse a review plan' });
+      const sizeLockedIds = new Set(panels.filter(p => p.sizeLocked).map(p => p.id));
+      const outPanels = (Array.isArray(parsed.panels) ? parsed.panels : [])
+        .filter(p => p && known.has(String(p.id)))
+        .map(p => {
+          const o = { id: String(p.id) };
+          if (typeof p.collapsed === 'boolean') o.collapsed = p.collapsed;
+          if (typeof p.pinify === 'boolean') o.pinify = p.pinify;
+          if (typeof p.hidden === 'boolean') o.hidden = p.hidden;
+          if (!sizeLockedIds.has(String(p.id))) {
+            if (p.width === 'full' || p.width === 'half') o.width = p.width;
+            const hRows = parseInt(p.height, 10);
+            if (isFinite(hRows) && hRows >= 2 && hRows <= 60) o.height = hRows;
+          }
+          return o;
+        })
+        .filter(o => Object.keys(o).length > 1);
+      const out = { ok: true, adjusted: !!parsed.adjusted && outPanels.length > 0, reasoning: clip(parsed.reasoning, 240), panels: outPanels };
+      if (parsed.zoom != null) out.zoom = clampNum(parsed.zoom, 0.5, 1.2, 0.9);
+      if (parsed.fontScale != null) out.fontScale = clampNum(parsed.fontScale, 0.8, 1.3, 1.0);
+      return res.json(out);
+    }
+
+    // ---- DESIGN PASS ----
+    const panels = inPanels.filter(p => p && p.id).slice(0, 60).map(p => ({
+      id: String(p.id),
+      type: clip(p.type, 24),
+      title: clip(p.title, 120),
+      text: clip(p.text, 600),
+      dynamic: !!p.dynamic,
+      collapsed: !!p.collapsed,
+      hidden: !!p.hidden,
+      visLocked: !!p.visLocked,
+      sizeLocked: !!p.sizeLocked,
+      posLocked: !!p.posLocked,
+    }));
+    if (!panels.length) return res.status(400).json({ error: 'No valid panels' });
+    const digest = panels.map((p, i) => {
+      const flags = [];
+      if (p.dynamic) flags.push('LIVE-updates');
+      if (p.hidden) flags.push('hidden');
+      if (p.visLocked) flags.push('vis-locked');
+      if (p.sizeLocked) flags.push('size-locked');
+      if (p.posLocked) flags.push('pos-locked');
+      return `${i + 1}. id=${JSON.stringify(p.id)} type=${p.type || 'item'} title="${p.title}"` +
+        (flags.length ? ` [${flags.join(', ')}]` : '') +
+        `\n   content: ${p.text || '(empty)'}`;
+    }).join('\n');
+
+    const sys = [
+      `You are a layout designer for a work board named "${b.name}". You are given every panel currently on the board with its type, title, a snippet of its live content, and whether it receives LIVE-updates (streaming / async content). Design how to PRESENT the board. You change presentation only — you never edit, add, or delete board content.`,
+      '',
+      'Work in this order:',
+      '1. INTERESTING FIRST — decide which 1–4 panels carry the most useful, active, or attention-worthy information right now (fresh status, errors/failures, action items, unchecked work, recent agent output, a substantive briefing). These are your highlights.',
+      '2. HIGHLIGHT THEM — keep your highlights open and prominent: give them more width ("full") and/or a comfortable explicit height, and a zoom that makes them easy to read.',
+      '3. CALM THE REST — collapse low-signal panels to a header, or PIN-IFY genuinely background/finished ones to a tiny icon chip, so the highlights stand out. Stash true clutter (empty/duplicate/finished) out of view.',
+      '4. TIDY — avoid awkward sizing and distracting empty space: size each open panel to its own content (no big empty frames), and prefer a compact view with minimal wasted space.',
+      '',
+      'For EACH panel decide:',
+      '- importance: "high" (a highlight — keep open and prominent), "normal" (relevant — keep open), or "low" (stale / empty / finished / background — collapse or pin-ify).',
+      '- collapsed: true to collapse to a small header, false to keep open.',
+      '- pinify: optional true to shrink the panel to a tiny draggable icon CHIP (even smaller than collapsed) — use for genuinely background or finished items you want present but out of the way. A pinned chip is not "open"; do not also set width/height on it.',
+      '- width: optional "full" (span the whole board width — for a briefing, a long note, or wide content) or "half" (a narrower column). Size by content; there is NO required column count.',
+      '- height: optional explicit panel height in GRID ROWS (each row ≈ 36px) for an OPEN panel when you want to reserve space — e.g. a [LIVE-updates] panel that will grow/shrink should get a little head-room so an update will not shove its neighbours. Omit to let the panel fit its own content. Never reserve a large empty frame.',
+      '- hidden: optional true/false to STASH a panel off the board or restore it. Omit to leave its visibility unchanged.',
+      '',
+      'LIVE-updates panels: these stream or refresh on their own (sessions, chats, dev cards, running agents/managers, the briefing). Keep an important live panel OPEN and give it modest explicit head-room "height"; do not pin-ify a live panel you are actively highlighting.',
+      '',
+      'LOCKS — respect every tag: [vis-locked] never change "hidden"; [size-locked] never set width or height; [pos-locked] keeps its place. You may still set importance/collapsed/pinify on locked panels.',
+      '',
+      'Also choose, for the WHOLE board:',
+      '- zoom: 0.6–1.0 — how far to zoom the canvas so the open panels fit without big empty gaps. Many open → toward 0.7; only a few → 1.0.',
+      '- fontScale: 0.85–1.2 — content text size. ~1.0 normally; up when sparse, down when dense.',
+      '',
+      'Respond with a SINGLE JSON object and nothing else — no code fences, no prose outside it:',
+      '{"zoom":<num>,"fontScale":<num>,"focus":"<the most interesting info you chose to highlight>","reasoning":"<one short sentence on the design>","panels":[{"id":"<exact id>","importance":"high|normal|low","collapsed":<bool>,"pinify":<bool optional>,"width":"full|half" optional,"height":<rows int optional>,"hidden":<bool optional>}]}',
+      'Include EVERY panel id exactly as given below. Never invent ids.',
+      '',
+      '# BOARD PANELS',
+      digest,
+      '',
+      'JSON:',
+    ].join('\n');
+
+    const parsed = await runJson(sys);
     if (!parsed || typeof parsed !== 'object') return res.status(502).json({ ok: false, error: 'Could not parse a layout plan' });
     const known = new Set(panels.map(p => p.id));
     const visLockedIds = new Set(panels.filter(p => p.visLocked).map(p => p.id));
-    const clampNum = (v, lo, hi, dflt) => { let n = parseFloat(v); if (!isFinite(n)) n = dflt; return Math.max(lo, Math.min(hi, Math.round(n * 100) / 100)); };
+    const sizeLockedIds = new Set(panels.filter(p => p.sizeLocked).map(p => p.id));
     const outPanels = (Array.isArray(parsed.panels) ? parsed.panels : [])
       .filter(p => p && known.has(String(p.id)))
       .map(p => {
         const importance = ['high', 'normal', 'low'].includes(p.importance) ? p.importance : 'normal';
+        const pinify = p.pinify === true;
         const collapsed = typeof p.collapsed === 'boolean' ? p.collapsed : (importance === 'low');
-        const width = (p.width === 'full' || p.width === 'half') ? p.width : null;
-        const o = { id: String(p.id), importance, collapsed, width };
-        // Only surface a visibility change for panels whose vis is NOT locked.
+        const o = { id: String(p.id), importance, collapsed, pinify };
+        if (!sizeLockedIds.has(String(p.id))) {
+          if (p.width === 'full' || p.width === 'half') o.width = p.width;
+          const hRows = parseInt(p.height, 10);
+          if (isFinite(hRows) && hRows >= 2 && hRows <= 60) o.height = hRows;
+        }
         if (typeof p.hidden === 'boolean' && !visLockedIds.has(String(p.id))) o.hidden = p.hidden;
         return o;
       });
@@ -10073,6 +10183,7 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
       ok: true,
       zoom: clampNum(parsed.zoom, 0.5, 1.2, 0.9),
       fontScale: clampNum(parsed.fontScale, 0.8, 1.3, 1.0),
+      focus: clip(parsed.focus, 240),
       reasoning: clip(parsed.reasoning, 240),
       panels: outPanels,
     });
