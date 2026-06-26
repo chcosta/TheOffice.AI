@@ -6931,6 +6931,96 @@
                                               <div class="hint" style="font-size:11px;opacity:0.8">💬 Ask Board AI about this folder — it can search the contents to answer.</div>
                                             </div>
                                           </template>
+                                          <!-- Pull Request: full Code Flow worktree/review actions on the pinned PR. -->
+                                          <template x-if="item.kind === 'pr'">
+                                            <div>
+                                              <template x-for="pr in [boardPrFor(item)]" :key="pr.id">
+                                                <div>
+                                                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+                                                    <a class="btn ghost" style="font-size:0.72rem" :href="pr.url || '#'" target="_blank" rel="noopener" x-show="pr.url" title="Open this pull request in Azure DevOps">⇄ Open PR</a>
+                                                    <button class="btn ghost" style="font-size:0.72rem" type="button" title="Jump to this PR on the Code Flow page" @click.stop="boardJump(item)">🔀 Code Flow</button>
+                                                    <span class="hint" x-text="(item.meta && item.meta.repo ? item.meta.repo : '') + (pr.id != null ? ' #' + pr.id : '')"></span>
+                                                  </div>
+                                                  <!-- Review worktree actions — identical to the Code Flow PR card. -->
+                                                  <div class="cf-wt">
+                                                    <template x-if="!cfWt(pr)">
+                                                      <span class="cf-wt-row">
+                                                        <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click.stop="reviewWithAi(pr)"
+                                                                title="Create a worktree for this PR (if needed) and run the AI reviewer to generate a report">
+                                                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : '🤖 Review with AI'"></span>
+                                                        </button>
+                                                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="createCfWorktree(pr)"
+                                                                title="Just create a git worktree on this PR's branch with a read-only AI review agent (no auto-run)">
+                                                          <span x-text="cfBusy(pr) === 'create' ? 'Creating…' : '🔍 Create review worktree'"></span>
+                                                        </button>
+                                                      </span>
+                                                    </template>
+                                                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
+                                                      <span class="cf-wt-status" x-text="cfReviewing(pr) ? '✦ Preparing worktree for review…' : 'Creating review worktree…'"></span>
+                                                    </template>
+                                                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
+                                                      <span class="cf-wt-row">
+                                                        <span class="cf-wt-err" x-text="cfWt(pr).error || 'Worktree failed'"></span>
+                                                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="createCfWorktree(pr)"
+                                                                x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
+                                                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="cancelCfWorktree(pr)"
+                                                                x-text="cfBusy(pr) === 'cancel' ? 'Cancelling…' : 'Cancel'"></button>
+                                                      </span>
+                                                    </template>
+                                                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
+                                                      <div class="cf-wt-ready">
+                                                        <div class="cf-wt-ready-main">
+                                                          <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click.stop="reviewWithAi(pr)"
+                                                                  title="Run the AI reviewer in this worktree and (re)generate the report">
+                                                            <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
+                                                          </button>
+                                                          <span class="cf-wt-label"
+                                                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
+                                                          <span class="cf-wt-open">
+                                                            <span class="cf-wt-open-k">Open</span>
+                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'editor')">VS Code</button>
+                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'cli')">CLI</button>
+                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'diff')">Diff</button>
+                                                          </span>
+                                                          <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
+                                                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                                                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                                                          </template>
+                                                          <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
+                                                                x-text="cfWt(pr).reviewError"></span>
+                                                        </div>
+                                                        <div class="cf-wt-ready-util">
+                                                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
+                                                            <span class="cf-wt-drift" :title="cfDriftTip(pr)">
+                                                              <span x-text="cfDriftLabel(pr)"></span>
+                                                              <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfSync(pr)"
+                                                                      title="Reset this local worktree to match the PR branch (origin)"
+                                                                      x-text="cfBusy(pr) === 'sync' ? 'Syncing…' : '↺ Sync'"></button>
+                                                            </span>
+                                                          </template>
+                                                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
+                                                            <span class="cf-wt-insync" title="Local worktree matches the PR branch">✓ In sync</span>
+                                                          </template>
+                                                          <button x-show="(item.meta && item.meta.view) === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfPush(pr)"
+                                                                  title="Commit any local changes and push to the PR branch"
+                                                                  x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
+                                                          <button x-show="(item.meta && item.meta.view) === 'reviews' && (cfWt(pr).reviewComments || 0) > 0"
+                                                                  class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click.stop="cfPostComments(pr)"
+                                                                  :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
+                                                                  x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
+                                                          <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="refreshCfReview(pr)"
+                                                                  title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
+                                                                  x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
+                                                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="removeCfWorktree(pr)"
+                                                                  title="Delete this PR's review worktree and its cached report">Remove worktree</button>
+                                                        </div>
+                                                      </div>
+                                                    </template>
+                                                  </div>
+                                                </div>
+                                              </template>
+                                            </div>
+                                          </template>
                                         </div>
                                       </template>
                                     </div>
@@ -7699,13 +7789,14 @@
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <template x-for="k in ['session','chat','task','assignment','flow','agent','manager','location']" :key="k">
-                      <button type="button" class="pill" :class="{ active: boardPinKind === k }" @click="boardPinKind = k" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
+                    <template x-for="k in ['session','chat','task','assignment','flow','agent','manager','location','pr']" :key="k">
+                      <button type="button" class="pill" :class="{ active: boardPinKind === k }" @click="setPinKind(k)" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
                     </template>
                   </div>
                   <input class="field-input" type="text" x-show="boardPinKind !== 'location'" x-model="boardPinSearch" placeholder="Search…" />
+                  <div x-show="boardPinKind === 'pr' && _boardPrLoading" class="hint" style="padding:8px 2px">Loading pull requests…</div>
                   <div x-show="boardPinKind !== 'location'" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
-                    <div x-show="!pinCandidates().length" class="hint" style="padding:12px">No matching items in this team.</div>
+                    <div x-show="!pinCandidates().length && !(boardPinKind==='pr' && _boardPrLoading)" class="hint" style="padding:12px" x-text="boardPinKind === 'pr' ? 'No watched pull requests found. Add repos on the Code Flow page.' : 'No matching items in this team.'"></div>
                     <template x-for="cand in pinCandidates()" :key="cand.kind + ':' + cand.refId">
                       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px">
                         <div style="min-width:0">
@@ -8277,6 +8368,11 @@
                     </div>
                     <div x-show="pr.attention" style="flex:0 0 auto">
                       <span class="cf-attn-reason" x-text="codeflowAttentionLabel(pr.attentionReason)"></span>
+                    </div>
+                    <div style="flex:0 0 auto">
+                      <button class="btn ghost" type="button" style="font-size:0.72rem"
+                              title="Pin this pull request to a board (with full review/worktree actions)"
+                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title })">📌 Pin to board</button>
                     </div>
                   </div>
 
@@ -12512,6 +12608,9 @@
         boardPinOpen: false,
         boardPinKind: 'task',
         boardPinSearch: '',
+        boardPrCandidates: [],
+        _boardPrLoaded: false,
+        _boardPrLoading: false,
         boardLocPath: '',
         boardLocPreview: null,
         boardLocBusy: false,
@@ -12649,7 +12748,7 @@
         _layoutTimer: null,
         _autoFitTimer: null,
         // Entity-centric "Pin to board" picker (works from anywhere)
-        quickPin: { open: false, kind: '', refId: '', label: '', sublabel: '' },
+        quickPin: { open: false, kind: '', refId: '', label: '', sublabel: '', meta: null },
         updatesList: [],
         updatesLoading: false,
         backups: { loading: false, agents: [], caps: [], counts: {} },
@@ -17200,6 +17299,17 @@
         cfWt(pr) {
           return (this.codeflow.worktrees || {})[this.cfPrKey(pr)] || null;
         },
+        // Reconstruct a Code Flow-shaped `pr` object from a board PR pin's meta so all
+        // the cf* action functions (which key off pr.org/project/repo/id + cfPrKey) work
+        // unchanged on a pinned PR. meta stores prId; cf* needs `id`.
+        boardPrFor(item) {
+          const m = (item && item.meta) || {};
+          return {
+            org: m.org, project: m.project, repo: m.repo,
+            id: m.prId != null ? m.prId : '',
+            url: m.url || '', title: m.title || item.label || '',
+          };
+        },
         cfBusy(pr) {
           return (this.codeflow.wtBusy || {})[this.cfPrKey(pr)] || '';
         },
@@ -18041,10 +18151,10 @@
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request' })[kind] || kind;
         },
         boardKindIcon(kind) {
-          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂' })[kind] || '📌';
+          return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄' })[kind] || '📌';
         },
         openPinPicker() {
           if (!this.activeBoard()) { this.showToast('Board', 'Select or create a board first', 'error'); return; }
@@ -18052,6 +18162,43 @@
           this.boardPinSearch = '';
           this.boardPinOpen = true;
           if (!this.cliSessions.length) this.loadCliSessions();
+        },
+        // Switch the pin picker's active kind. For PRs the candidates come from a live
+        // AzDo fetch (both mine+reviews) rather than a static catalog, so lazy-load them
+        // into boardPrCandidates the first time the PR pill is selected.
+        setPinKind(k) {
+          this.boardPinKind = k;
+          if (k === 'pr' && !this._boardPrLoaded) this.loadBoardPrCandidates();
+        },
+        async loadBoardPrCandidates(force) {
+          if (this._boardPrLoading) return;
+          this._boardPrLoading = true;
+          if (force) this._boardPrLoaded = false;
+          try {
+            const out = [];
+            const seen = new Set();
+            for (const view of ['mine', 'reviews']) {
+              let resp = null;
+              try { resp = await this.request('/api/codeflow/pullrequests?view=' + view + (force ? '&refresh=1' : '')); } catch { resp = null; }
+              const prs = (resp && (resp.pullRequests || resp.prs)) || [];
+              for (const pr of prs) {
+                if (!pr || !pr.org || !pr.project || !pr.repo || pr.id == null) continue;
+                const refId = [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
+                if (seen.has(refId)) continue;
+                seen.add(refId);
+                out.push({
+                  kind: 'pr', refId,
+                  label: pr.title || (pr.repo + ' #' + pr.id),
+                  sublabel: pr.repo + ' #' + pr.id + ' · ' + view,
+                  meta: { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '' },
+                });
+              }
+            }
+            this.boardPrCandidates = out;
+            this._boardPrLoaded = true;
+          } finally {
+            this._boardPrLoading = false;
+          }
         },
         // Candidate entities to pin for the current kind, org-filtered + searched.
         pinCandidates() {
@@ -18078,6 +18225,8 @@
             out = (this.data.chats || []).map(c => ({ kind: 'chat', refId: c.id, label: c.title || 'Chat', sublabel: c.targetName || c.target || '' }));
           } else if (this.boardPinKind === 'session') {
             out = (this.cliSessions || []).map(s => ({ kind: 'session', refId: s.id, label: s.label || s.summary || s.id, sublabel: s.agentName || s.cwd || '' }));
+          } else if (this.boardPinKind === 'pr') {
+            out = (this.boardPrCandidates || []).map(p => ({ ...p }));
           }
           if (q) out = out.filter(o => (o.label || '').toLowerCase().includes(q) || (o.sublabel || '').toLowerCase().includes(q));
           // Mark already-pinned
@@ -18089,13 +18238,16 @@
           const board = this.activeBoard();
           if (!board) return;
           try {
+            const body = { kind: cand.kind, refId: cand.refId, label: cand.label, sublabel: cand.sublabel };
+            if (cand.meta) body.meta = cand.meta;
             const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
               method: 'POST',
-              body: JSON.stringify({ kind: cand.kind, refId: cand.refId, label: cand.label, sublabel: cand.sublabel })
+              body: JSON.stringify(body)
             });
             const updated = (resp && resp.board) || resp;
             const idx = this.boards.findIndex(b => b.id === board.id);
             if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+            if (cand.kind === 'pr') this.loadCfWorktrees();
           } catch (e) {
             this.showToast('Pin', e.message, 'error');
           }
@@ -18262,6 +18414,7 @@
             case 'chat': return '#/chat/' + encodeURIComponent(item.refId);
             case 'comment': return '#/chat/' + encodeURIComponent(this._commentChatId(item.refId));
             case 'session': return '#/sessions';
+            case 'pr': return '#/codeflow/' + encodeURIComponent(item.refId);
             default: return null;
           }
         },
@@ -18290,13 +18443,21 @@
           if (item.kind === 'session') { this.resumeCliSession({ id: item.refId, cwd: item.cwd }); return; }
           // Source locations have no route — toggle their detail (open buttons + search).
           if (item.kind === 'location') { this.toggleBoardPinDetail(item); return; }
+          // PRs deep-link to Code Flow focused on the PR; stash a fallback AzDo URL so a
+          // closed/filtered PR opens directly instead of stranding on an empty page.
+          if (item.kind === 'pr') {
+            const url = item.meta && item.meta.url;
+            if (url) this.codeflow.focusFallbackUrl = url;
+            this.goTo('#/codeflow/' + encodeURIComponent(item.refId));
+            return;
+          }
           const r = item.route || this.boardItemRoute(item);
           if (r) this.goTo(r);
         },
         boardItemsByKind() {
           const board = this.activeBoard();
           const items = (board && board.items) || [];
-          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location'];
+          const order = ['session', 'chat', 'comment', 'task', 'assignment', 'flow', 'agent', 'manager', 'location', 'pr'];
           const groups = {};
           for (const it of items) { (groups[it.kind] = groups[it.kind] || []).push(it); }
           return order.filter(k => groups[k]).map(k => ({ kind: k, items: groups[k] }));
@@ -18357,7 +18518,7 @@
         // Which pin kinds can show their last run/output (with steps & reasoning) or,
         // for chats, their most recent message right on the board card.
         boardPinHasDetail(item) {
-          return !!item && ['task', 'assignment', 'flow', 'chat', 'comment', 'location'].includes(item.kind);
+          return !!item && ['task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr'].includes(item.kind);
         },
         // Expanded by default; collapsed only if the user collapsed this pin before.
         boardPinIsExpanded(item) {
@@ -18388,6 +18549,8 @@
             if (this.boardChatCache[item.refId] === undefined) this.boardPinLoadDetail(item);
           } else if (item.kind === 'comment') {
             if (this.boardChatCache[this._commentChatId(item.refId)] === undefined) this.boardPinLoadDetail(item);
+          } else if (item.kind === 'pr') {
+            if (!this._cfWtLoadedForBoard) { this._cfWtLoadedForBoard = true; this.loadCfWorktrees(); }
           }
         },
         // Lazy-load the latest run/message for a pin, reusing the same data paths the
@@ -22763,6 +22926,7 @@
         actionConfirmLabel(a) {
           if (!a) return 'Apply';
           if (a.type === 'pin_agent' || a.type === 'pin_item') return 'Pin';
+          if (a.type === 'pr_action') return a.op === 'remove' ? '🗑 Remove' : 'Run';
           if (a.type === 'set_layout') return '✨ Apply';
           if (a.destructive) return '🗑 Delete';
           return 'Apply';
@@ -22773,6 +22937,7 @@
           if (a.type === 'query_agent') return '✓ ran';
           if (a.type === 'search_location') return '✓ searched';
           if (a.type === 'pin_agent' || a.type === 'pin_item') return '✓ pinned';
+          if (a.type === 'pr_action') return '✓ done';
           if (a.type === 'set_layout') return '✓ applied';
           if (a.type === 'replace_dev_link') return '✓ replaced';
           if (a.destructive) return '✓ removed';
@@ -22848,14 +23013,36 @@
             } else if (a.type === 'pin_agent' || a.type === 'pin_item') {
               // Pin an employee or operation to the board via the items endpoint
               // (same path as quick-pin), then fold the updated board back in.
+              const pinBody = { kind: a.kind || 'agent', refId: a.refId, label: a.pinLabel, sublabel: a.pinSublabel };
+              if (a.pinMeta) pinBody.meta = a.pinMeta;
               const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
                 method: 'POST',
-                body: JSON.stringify({ kind: a.kind || 'agent', refId: a.refId, label: a.pinLabel, sublabel: a.pinSublabel })
+                body: JSON.stringify(pinBody)
               });
               const updated = (resp && resp.board) || resp;
               const idx = this.boards.findIndex(b => b.id === board.id);
               if (idx >= 0 && updated && updated.id) this.boards[idx] = updated;
+              if (a.kind === 'pr') { try { await this.loadCfWorktrees(); } catch (e) { } }
               ok = (updated && updated.id) ? updated : false;
+            } else if (a.type === 'pr_action') {
+              // Run a Code Flow PR action on a pinned PR (confirmed). Reconstruct a
+              // pr object from the action identity fields and dispatch to the cf* fn.
+              const pr = {
+                org: a.org, project: a.project, repo: a.repo,
+                id: a.prId != null ? a.prId : '',
+                url: a.url || '', title: a.prTitle || a.pinLabel || '',
+              };
+              const opMap = {
+                review: 'reviewWithAi', worktree: 'createCfWorktree', sync: 'cfSync',
+                push: 'cfPush', postComments: 'cfPostComments', refresh: 'refreshCfReview',
+                open: 'openCfWorktree', remove: 'removeCfWorktree',
+              };
+              const fn = opMap[a.op];
+              if (!fn || typeof this[fn] !== 'function') { this.showToast('Board assistant', 'Unknown PR action: ' + a.op, 'error'); return; }
+              try { await this.loadCfWorktrees(); } catch (e) { }
+              if (a.op === 'open') { await this[fn](pr, a.target || 'editor'); }
+              else { await this[fn](pr); }
+              ok = true;
             } else if (a.type === 'dev_action') {
               const dev = (board.devItems || []).find(d => d.id === a.devItemId);
               if (!dev) { this.showToast('Board assistant', 'Dev card not found', 'error'); return; }
@@ -22992,9 +23179,9 @@
           }
         },
         // ----- Entity-centric quick pin (from agent/manager/task/flow/chat/session) -----
-        async openQuickPin(kind, refId, label, sublabel) {
+        async openQuickPin(kind, refId, label, sublabel, meta) {
           if (!refId) return;
-          this.quickPin = { open: true, kind, refId, label: label || refId, sublabel: sublabel || '' };
+          this.quickPin = { open: true, kind, refId, label: label || refId, sublabel: sublabel || '', meta: meta || null };
           if (!this.boards.length) { await this.loadBoards(); }
         },
         quickPinBoardHas(board) {
@@ -23003,9 +23190,11 @@
         async quickPinTo(board) {
           if (this.quickPinBoardHas(board)) { this.boardJumpToBoard(board); return; }
           try {
+            const body = { kind: this.quickPin.kind, refId: this.quickPin.refId, label: this.quickPin.label, sublabel: this.quickPin.sublabel };
+            if (this.quickPin.meta) body.meta = this.quickPin.meta;
             const resp = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/items', {
               method: 'POST',
-              body: JSON.stringify({ kind: this.quickPin.kind, refId: this.quickPin.refId, label: this.quickPin.label, sublabel: this.quickPin.sublabel })
+              body: JSON.stringify(body)
             });
             const updated = (resp && resp.board) || resp;
             const idx = this.boards.findIndex(b => b.id === board.id);

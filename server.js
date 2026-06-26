@@ -201,6 +201,25 @@ function _deleteCfWt(key) {
   const map = loadCodeflowWorktrees();
   if (map[key]) { delete map[key]; saveCodeflowWorktrees(map); }
 }
+// Summarize a PR worktree record into a short, human/LLM-readable status bits array
+// (worktree state, branch drift, review state, ready-to-post comments, report count).
+// Shared by the Board AI PR context and the "Where was I?" briefing so both describe
+// a pinned PR's local state identically. Reads the freshest drift when present, else
+// falls back to the git snapshot captured at worktree creation.
+function _cfWtBits(wt) {
+  const bits = [];
+  if (!wt) { bits.push('no worktree'); return bits; }
+  bits.push('worktree:' + (wt.worktreeStatus || 'unknown'));
+  const g = wt.drift || wt.git || null;
+  if (g && (g.ahead != null || g.behind != null || g.dirty != null)) {
+    bits.push(`git:ahead ${g.ahead || 0}/behind ${g.behind || 0}${g.dirty ? '/dirty' : (g.inSync ? '/in-sync' : '')}`);
+  }
+  if (wt.reviewStatus) bits.push('review:' + wt.reviewStatus);
+  else if (Array.isArray(wt.reports) && wt.reports.length) bits.push('review:report-ready');
+  if (wt.reviewComments) bits.push(wt.reviewComments + ' comment' + (wt.reviewComments === 1 ? '' : 's') + ' to post');
+  if (wt.prStatus) bits.push('pr:' + wt.prStatus);
+  return bits;
+}
 
 // Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
 if (!process.env.COPILOT_PATH) {
@@ -6625,7 +6644,7 @@ function disableOperationsForEmployeeInTeam(employeeId, teamId) {
 // references to CLI sessions, chats, tasks, flows, assignments, and agents, plus
 // freeform notes and checklists. Boards are team-scoped (teamId) or global (teamId
 // null). Stored wholesale in boards.json.
-const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'assignment', 'agent', 'manager', 'location'];
+const BOARD_KINDS = ['session', 'chat', 'comment', 'task', 'flow', 'assignment', 'agent', 'manager', 'location', 'pr'];
 
 function _boardId(name) {
   return 'board-' + String(name || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) + '-' + Date.now().toString(36).slice(-4);
@@ -7030,7 +7049,7 @@ app.delete('/api/boards/:id', (req, res) => {
 
 // Pin an item to a board
 app.post('/api/boards/:id/items', (req, res) => {
-  const { kind, refId, label, sublabel } = req.body || {};
+  const { kind, refId, label, sublabel, meta } = req.body || {};
   if (!kind || !BOARD_KINDS.includes(kind)) return res.status(400).json({ error: 'Invalid kind' });
   if (!refId) return res.status(400).json({ error: 'Missing refId' });
   const boards = loadBoards();
@@ -7040,7 +7059,18 @@ app.post('/api/boards/:id/items', (req, res) => {
   if (b.items.some(it => it.kind === kind && it.refId === refId)) {
     return res.json({ ok: true, board: b, alreadyPinned: true });
   }
-  b.items.unshift({ id: _genId('pin'), kind, refId, label: label || refId, sublabel: sublabel || '', addedAt: new Date().toISOString() });
+  const item = { id: _genId('pin'), kind, refId, label: label || refId, sublabel: sublabel || '', addedAt: new Date().toISOString() };
+  // PR pins carry an identity snapshot (exact-case org/project/repo + prId/url/view/title)
+  // so the board can drive Code Flow PR actions (worktree/review/sync/push/comments)
+  // without a live AzDo lookup. Stored as-is and preserved by _normalizeBoard.
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const m = {};
+    for (const k of ['org', 'project', 'repo', 'prId', 'url', 'view', 'title']) {
+      if (meta[k] != null) m[k] = String(meta[k]);
+    }
+    if (Object.keys(m).length) item.meta = m;
+  }
+  b.items.unshift(item);
   b.updatedAt = new Date().toISOString();
   boards[idx] = b;
   saveBoards(boards);
@@ -7847,6 +7877,26 @@ function _resolveBoardItems(b, opts = {}) {
             context = `Pinned folder no longer exists: ${dir}`;
           }
         } catch {}
+      } else if (it.kind === 'pr') {
+        // A pinned pull request. Its meta carries the identity snapshot
+        // (org/project/repo/prId + url/view/title); the local worktree store (no AzDo
+        // network) supplies live worktree/drift/review state. Route deep-links to the
+        // PR's Code Flow card (the pin refId IS the codeflow key).
+        const m = it.meta || {};
+        route = '#/codeflow/' + encodeURIComponent(it.refId);
+        let wt = null;
+        try { wt = _getCfWt(_cfWtKey({ org: m.org, project: m.project, repo: m.repo, prId: m.prId })); } catch {}
+        const bits = _cfWtBits(wt);
+        if (wt && wt.updatedAt) when = wt.updatedAt;
+        status = wt ? (wt.reviewStatus || wt.worktreeStatus || 'pr') : 'pr';
+        const head = `${m.repo || ''} #${m.prId || '?'} [${m.view || 'mine'}]`;
+        detail = clip(head + ' — ' + bits.join(', '), 240);
+        const lines = [head, 'state: ' + bits.join(', ')];
+        if (m.title) lines.unshift('title: ' + clip(m.title, 200));
+        if (m.url) lines.push('url: ' + m.url);
+        if (wt && wt.worktreePath) lines.push('worktree: ' + wt.worktreePath);
+        if (wt && wt.reviewError) lines.push('review error: ' + clip(wt.reviewError, 200));
+        context = clip(lines.join('\n'), CTX_CLIP);
       } else if (it.kind === 'session') {
         route = '#/sessions';
         try {
@@ -9457,6 +9507,46 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   if (devItems.length) {
     ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId; LINKS / extra REPOS / REPORTS shown per card)\n' + _devCardContextLines(devItems).join('\n'));
   }
+  // Pinned PULL REQUESTS: each carries an identity snapshot (org/project/repo/prId)
+  // in item.meta and may have a local worktree. List them with live worktree/drift
+  // state (from the local worktree store, no AzDo network) so the assistant can drive
+  // PR actions (pr_action) against the right pin.
+  const prPins = pins.filter(p => p.kind === 'pr' && p.meta);
+  if (prPins.length) {
+    let wtMap = {};
+    try { wtMap = loadCodeflowWorktrees() || {}; } catch { wtMap = {}; }
+    ctx.push('## PINNED PULL REQUESTS (reference by prRefId; drive with pr_action)\n' + prPins.map(p => {
+      const m = p.meta || {};
+      const wt = wtMap[_cfWtKey({ org: m.org, project: m.project, repo: m.repo, prId: m.prId })];
+      const bits = _cfWtBits(wt);
+      return `- (pr:${p.refId}) "${clip(p.label || m.title || p.refId, 120)}" — ${clip(m.repo || '', 60)} #${m.prId || '?'} [${m.view || 'mine'}] (${bits.join(', ')})`;
+    }).join('\n'));
+  }
+  // AVAILABLE PULL REQUESTS catalog — built ONLY from the codeflow cache (no forced
+  // AzDo fetch; expensive). Lets the assistant propose pin_item kind:pr for a PR the
+  // user is already watching. prCatalogByKey resolves a proposed pin to its identity.
+  const prCatalogByKey = new Map(); // pr refId -> { refId, label, sublabel, meta }
+  try {
+    for (const view of ['mine', 'reviews']) {
+      const cached = _codeflowCache.get(view);
+      if (!cached || !cached.data || !Array.isArray(cached.data.pullRequests)) continue;
+      for (const pr of cached.data.pullRequests) {
+        if (!pr || !pr.org || !pr.project || !pr.repo || pr.id == null) continue;
+        const refId = [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
+        if (pinByKey.has('pr:' + refId) || prCatalogByKey.has(refId)) continue;
+        prCatalogByKey.set(refId, {
+          refId,
+          label: clip(pr.title || (pr.repo + ' #' + pr.id), 120),
+          sublabel: clip(pr.repo + ' #' + pr.id, 80),
+          meta: { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '' },
+        });
+      }
+    }
+  } catch {}
+  if (prCatalogByKey.size) {
+    catalogCtx.push('## AVAILABLE PULL REQUESTS (watched, NOT pinned — propose pin_item kind:pr to add)\n' +
+      [...prCatalogByKey.values()].slice(0, 25).map(v => `- (pr:${v.refId}) "${v.label}"${v.sublabel ? ' — ' + v.sublabel : ''}`).join('\n'));
+  }
   if (available.length) {
     catalogCtx.push('## AVAILABLE AGENTS (installed, NOT pinned — propose pin_item to add one)\n' + available.slice(0, 25).map(s => {
       const id = agentId(s); const c = s.config || {};
@@ -9553,7 +9643,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"edit_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>","text":"<new item text>"}  (rewrites one item)',
     '- {"type":"delete_checklist_item","checklistId":"<existing checklist id>","itemId":"<existing item id>"}  (removes one item)',
     (canQuery ? '- {"type":"query_agent","agentRefId":"<refId of a PINNED agent>","prompt":"<what to ask it>","purpose":"<why>"}  (runs that pinned agent so you can use its fresh output — propose this when you need live data only a pinned agent can produce, e.g. "make a checklist from my Autoscaler epic")' : ''),
-    '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment>","refId":"<kind:refId from AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES>"}  (adds an existing employee or operation to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, or a manager that owns the org). Employees: agent, manager. Operations: task, flow, assignment.',
+    '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment|pr>","refId":"<kind:refId from AVAILABLE AGENTS, AVAILABLE OPERATIONS & EMPLOYEES, or AVAILABLE PULL REQUESTS>"}  (adds an existing employee, operation, or pull request to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, a manager that owns the org, or a PR the user wants to track/work on. Employees: agent, manager. Operations: task, flow, assignment. Pull requests: pr.)',
+    (prPins.length ? '- {"type":"pr_action","prRefId":"<refId from PINNED PULL REQUESTS>","action":"<review|create-worktree|sync|push|post-comments|refresh|open-worktree|remove-worktree>"}  (drive a pinned PR: create-worktree clones+checks out the PR branch; review runs the AI code review on the worktree; sync pulls the worktree up to date with the PR branch; push pushes local commits (your PRs); post-comments posts the AI review comments (PRs you review); refresh re-reads the worktree/review state; open-worktree opens it in the editor; remove-worktree deletes the on-disk worktree. push/post-comments touch the remote — propose only on explicit request.)' : ''),
     (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV CARDS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev card: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
     '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. Set createWorktree true if the user wants the worktree created right away.)',
     (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV CARDS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"..."}  (updates a Dev card\'s metadata, e.g. link a work item or PR or rename it. Include ONLY the fields to change.)' : ''),
@@ -9852,6 +9943,38 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       if (!target) return null;
       return { type, devItemId: d.id, repoId: target.id, label: 'Remove repo from dev card', preview: `${target.org}/${target.project}/${target.repo}`, destructive: true };
     }
+    if (type === 'pr_action') {
+      // Drive a pinned PR via the Code Flow worktree/review action endpoints. Maps a
+      // friendly action name to the op the client routes to the matching cf* function.
+      const PR_OPS = {
+        review: 'review',
+        'create-worktree': 'worktree', worktree: 'worktree', 'create-wt': 'worktree',
+        sync: 'sync', push: 'push',
+        'post-comments': 'postComments', 'postcomments': 'postComments', comments: 'postComments',
+        refresh: 'refresh',
+        'open-worktree': 'open', open: 'open',
+        'remove-worktree': 'remove', remove: 'remove', cleanup: 'remove',
+      };
+      let refId = a.prRefId || a.refId || a.id || '';
+      if (typeof refId === 'string' && refId.indexOf('pr:') === 0) refId = refId.slice(3);
+      const pin = prPins.find(p => p.refId === refId);
+      if (!pin) return null; // only PRs pinned to THIS board may be driven
+      const op = PR_OPS[String(a.action || a.op || '').toLowerCase()];
+      if (!op) return null;
+      const m = pin.meta || {};
+      const LABELS = {
+        review: 'Review with AI', worktree: 'Create worktree', sync: 'Sync worktree',
+        push: 'Push commits', postComments: 'Post review comments', refresh: 'Refresh PR state',
+        open: 'Open worktree', remove: 'Clean up worktree',
+      };
+      const name = clip(pin.label || m.title || (m.repo + ' #' + m.prId), 100);
+      const destructive = (op === 'push' || op === 'postComments' || op === 'remove');
+      return {
+        type, prRefId: refId, op,
+        org: m.org, project: m.project, repo: m.repo, prId: m.prId, view: m.view || 'mine',
+        label: LABELS[op] || 'PR action', preview: (LABELS[op] || op) + ' — ' + name, destructive,
+      };
+    }
     if (type === 'pin_item' || type === 'pin_agent') {
       // pin_agent is kept as a backward-compat alias: it's just pin_item kind:agent.
       // refId may arrive as a bare id or as a "kind:refId" handle (strip the kind).
@@ -9871,6 +9994,12 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
         const name = clip(c.name || refId, 120);
         const sub = clip(c.group || (Array.isArray(c.skills) ? c.skills.slice(0, 3).join(', ') : '') || 'Agent', 80);
         return { type: 'pin_item', kind, refId, pinLabel: name, pinSublabel: sub, label: 'Pin employee', preview: `Pin ${name} (agent) to this board` };
+      }
+      // Pull requests resolve from the codeflow cache catalog; carry the identity meta
+      // so the pin can drive PR actions without a live AzDo lookup.
+      if (kind === 'pr') {
+        const hit = prCatalogByKey.get(refId); if (!hit) return null;
+        return { type: 'pin_item', kind, refId, pinLabel: hit.label, pinSublabel: hit.sublabel, pinMeta: hit.meta, label: 'Pin pull request', preview: `Pin ${hit.label} (PR) to this board` };
       }
       const hit = catalogByKey.get(kind + ':' + refId);
       if (!hit) return null;
