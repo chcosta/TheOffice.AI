@@ -1419,6 +1419,66 @@
       align-content: start;
       gap: 20px;
     }
+    /* ===== page navigation transitions =====
+       Animate .content-inner on each route change. Driven by the "Page
+       transitions" setting (setNavTransition -> playNavTransition): it sets
+       data-nav-fx and (re)toggles .nav-animate to restart the chosen keyframes.
+       Guarded by reduced-motion both here and in JS so it never fights a11y. */
+    @media (prefers-reduced-motion: no-preference) {
+      .content-inner.nav-animate {
+        animation-duration: var(--nav-fx-duration, .42s);
+        animation-timing-function: cubic-bezier(.22, .61, .36, 1);
+        animation-fill-mode: both;
+        will-change: transform, opacity, clip-path;
+      }
+      .content-inner.nav-animate[data-nav-fx="fade"]        { animation-name: navFade; }
+      .content-inner.nav-animate[data-nav-fx="slide-right"] { animation-name: navSlideRight; }
+      .content-inner.nav-animate[data-nav-fx="slide-left"]  { animation-name: navSlideLeft; }
+      .content-inner.nav-animate[data-nav-fx="slide-up"]    { animation-name: navSlideUp; }
+      .content-inner.nav-animate[data-nav-fx="slide-down"]  { animation-name: navSlideDown; }
+      .content-inner.nav-animate[data-nav-fx="zoom"]        { animation-name: navZoom; }
+      .content-inner.nav-animate[data-nav-fx="flip"]        { animation-name: navFlip; transform-origin: left center; }
+      .content-inner.nav-animate[data-nav-fx="wipe"]        { animation-name: navWipe; animation-timing-function: ease-out; }
+      /* Leaving page: the outgoing content animates away before the incoming
+         page animates in, so navigation reads as one continuous motion rather
+         than a static load followed by a slide. Runs a touch quicker than the
+         enter so the pair stays snappy. */
+      .content-inner.nav-leaving {
+        animation-timing-function: cubic-bezier(.4, 0, .7, .2);
+        animation-fill-mode: both;
+        will-change: transform, opacity, clip-path;
+      }
+      .content-inner.nav-leaving[data-nav-fx-out="fade"]      { animation-name: navFadeOut; }
+      .content-inner.nav-leaving[data-nav-fx-out="exit-left"] { animation-name: navExitLeft; }
+      .content-inner.nav-leaving[data-nav-fx-out="exit-right"]{ animation-name: navExitRight; }
+      .content-inner.nav-leaving[data-nav-fx-out="exit-up"]   { animation-name: navExitUp; }
+      .content-inner.nav-leaving[data-nav-fx-out="exit-down"] { animation-name: navExitDown; }
+      .content-inner.nav-leaving[data-nav-fx-out="zoom-out"]  { animation-name: navZoomOut; }
+      .content-inner.nav-leaving[data-nav-fx-out="flip-out"]  { animation-name: navFlipOut; transform-origin: right center; }
+      .content-inner.nav-leaving[data-nav-fx-out="wipe-out"]  { animation-name: navWipeOut; animation-timing-function: ease-in; }
+      /* Clip the scroll container while a slide/flip plays so the small offset
+         can't flash a horizontal scrollbar. */
+      .content:has(> .content-inner.nav-animate),
+      .content:has(> .content-inner.nav-leaving) { overflow-x: hidden; }
+    }
+    @keyframes navFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes navSlideRight { from { opacity: 0; transform: translate3d(34px, 0, 0); } to { opacity: 1; transform: none; } }
+    @keyframes navSlideLeft  { from { opacity: 0; transform: translate3d(-34px, 0, 0); } to { opacity: 1; transform: none; } }
+    @keyframes navSlideUp    { from { opacity: 0; transform: translate3d(0, 34px, 0); } to { opacity: 1; transform: none; } }
+    @keyframes navSlideDown  { from { opacity: 0; transform: translate3d(0, -34px, 0); } to { opacity: 1; transform: none; } }
+    @keyframes navZoom { from { opacity: 0; transform: scale(.965); } to { opacity: 1; transform: none; } }
+    @keyframes navFlip { from { opacity: 0; transform: perspective(1400px) rotateY(7deg) translate3d(26px, 0, 0); } to { opacity: 1; transform: none; } }
+    @keyframes navWipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+    /* Exit keyframes — paired so the old page leaves toward the side the new
+       page enters from (e.g. enter-from-right pairs with exit-to-left). */
+    @keyframes navFadeOut  { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes navExitLeft  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(-34px, 0, 0); } }
+    @keyframes navExitRight { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(34px, 0, 0); } }
+    @keyframes navExitUp    { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(0, -34px, 0); } }
+    @keyframes navExitDown  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(0, 34px, 0); } }
+    @keyframes navZoomOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(1.03); } }
+    @keyframes navFlipOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: perspective(1400px) rotateY(-7deg) translate3d(-26px, 0, 0); } }
+    @keyframes navWipeOut { from { clip-path: inset(0 0 0 0); } to { clip-path: inset(0 0 0 100%); } }
     .page-header {
       display: flex;
       align-items: center;
@@ -9503,6 +9563,24 @@
               </div>
             </div>
 
+            <!-- Page Transitions Section -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🎬 Page transitions</h3>
+              <p class="hint" style="margin-bottom:14px">Animate the content area when you move between pages. <strong>Fly-in</strong> sends the page in from a random side each time; <strong>Wipe</strong> reveals it left-to-right. Honors your system's reduced-motion setting.</p>
+              <div class="filter-pills">
+                <template x-for="t in navTransitions" :key="t.id">
+                  <button class="pill" type="button" :class="{ active: navTransition === t.id }" @click="setNavTransition(t.id)" x-text="t.name"></button>
+                </template>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px; margin-top:16px" :style="navTransition === 'none' ? 'opacity:.45; pointer-events:none' : ''">
+                <span class="hint" style="min-width:46px">Speed</span>
+                <span class="hint" style="font-size:11px">Fast</span>
+                <input type="range" min="150" max="1200" step="30" :value="navTransitionMs" @input="setNavTransitionMs($event.target.value)" style="flex:1; max-width:280px; cursor:pointer" title="Transition speed">
+                <span class="hint" style="font-size:11px">Slow</span>
+                <span class="hint" style="min-width:54px; text-align:right; font-variant-numeric:tabular-nums" x-text="(navTransitionMs/1000).toFixed(2) + 's'"></span>
+              </div>
+            </div>
+
             <!-- Chat Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">💬 Chat</h3>
@@ -12209,6 +12287,17 @@
         themePref: 'system',
         appearancePref: (() => { try { return localStorage.getItem('current-appearance') || ''; } catch { return ''; } })(),
         iconSetPref: (() => { try { return localStorage.getItem('current-iconset') || 'emoji'; } catch { return 'emoji'; } })(),
+        navTransition: (() => { try { return localStorage.getItem('cp-nav-transition') || 'fade'; } catch { return 'fade'; } })(),
+        navTransitionMs: (() => { try { const v = parseInt(localStorage.getItem('cp-nav-transition-ms'), 10); return (Number.isFinite(v) && v >= 150 && v <= 1200) ? v : 420; } catch { return 420; } })(),
+        navTransitions: [
+          { id: 'none', name: 'None' },
+          { id: 'fade', name: 'Fade' },
+          { id: 'slide', name: 'Slide' },
+          { id: 'fly', name: 'Fly-in (random sides)' },
+          { id: 'wipe', name: 'Wipe' },
+          { id: 'zoom', name: 'Zoom' },
+          { id: 'flip', name: 'Flip' },
+        ],
         appearancePalettes: [
           { id: 'slate', name: 'Slate Blue', bg: '#f6f8fb', border: '#dbe2ea', accent: '#2563eb', text: '#1f2937' },
           { id: 'emerald', name: 'Emerald', bg: '#f5faf7', border: '#d7e7df', accent: '#059669', text: '#1f2937' },
@@ -12692,6 +12781,7 @@
         async init() {
           this.initTheme();
           this.applyZoom();
+          this.applyNavDuration();
           try {
             this.chatVerbose = localStorage.getItem('chatVerbose') !== '0';
             this.chatLive = localStorage.getItem('chatLive') !== '0';
@@ -12768,6 +12858,129 @@
         setIconSet(id) {
           this.iconSetPref = id || 'emoji';
           try { if (window.cpSetIconSet) window.cpSetIconSet(this.iconSetPref); } catch {}
+        },
+        setNavTransition(id) {
+          this.navTransition = id || 'fade';
+          try { localStorage.setItem('cp-nav-transition', this.navTransition); } catch {}
+          // Preview the full out->in motion in place so the choice is felt.
+          this.$nextTick(() => this.previewNav());
+        },
+        // Push the chosen duration to CSS as a custom property the keyframes read.
+        applyNavDuration() {
+          try {
+            const ms = Math.min(1200, Math.max(150, this.navTransitionMs || 420));
+            document.documentElement.style.setProperty('--nav-fx-duration', ms + 'ms');
+          } catch {}
+        },
+        setNavTransitionMs(v) {
+          let ms = parseInt(v, 10);
+          if (!Number.isFinite(ms)) ms = 420;
+          ms = Math.min(1200, Math.max(150, ms));
+          this.navTransitionMs = ms;
+          try { localStorage.setItem('cp-nav-transition-ms', String(ms)); } catch {}
+          this.applyNavDuration();
+          // Preview at the new speed (unless transitions are off).
+          if (this.navTransition && this.navTransition !== 'none') {
+            this.$nextTick(() => this.previewNav());
+          }
+        },
+        _navContentEl() {
+          const root = (this.$root && this.$root.querySelector) ? this.$root : document;
+          return root.querySelector('.content-inner');
+        },
+        _navReducedMotion() {
+          return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        },
+        // Resolve the chosen style to a coordinated { in, out } effect pair so the
+        // outgoing page leaves toward the side the incoming page enters from
+        // (a carousel feel). "fly" picks a random side each nav; the leave mirrors
+        // whatever enter side was chosen so OUT and IN always agree.
+        _resolveNavFx(style) {
+          const slides = {
+            'slide-right': { in: 'slide-right', out: 'exit-left' },
+            'slide-left':  { in: 'slide-left',  out: 'exit-right' },
+            'slide-up':    { in: 'slide-up',    out: 'exit-up' },
+            'slide-down':  { in: 'slide-down',  out: 'exit-down' },
+          };
+          if (style === 'fade') return { in: 'fade', out: 'fade' };
+          if (style === 'zoom') return { in: 'zoom', out: 'zoom-out' };
+          if (style === 'flip') return { in: 'flip', out: 'flip-out' };
+          if (style === 'wipe') return { in: 'wipe', out: 'wipe-out' };
+          if (style === 'slide') return slides['slide-right'];
+          if (style === 'fly') {
+            const keys = Object.keys(slides);
+            return slides[keys[Math.floor(Math.random() * keys.length)]];
+          }
+          return { in: 'fade', out: 'fade' };
+        },
+        // Phase 1 — animate the CURRENT (outgoing) page away. Resolves after the
+        // out-animation so the caller can swap the route mid-flight. The leaving
+        // classes are intentionally LEFT in place (fill-mode holds the invisible
+        // end state) until playNavIn swaps them for the enter, so there's never a
+        // frame where the old page snaps back to fully visible.
+        playNavOut(pair) {
+          return new Promise((resolve) => {
+            try {
+              const el = this._navContentEl();
+              if (!el) return resolve();
+              const ms = Math.min(1200, Math.max(150, this.navTransitionMs || 420));
+              const outMs = Math.round(ms * 0.6);
+              if (this._navOutTimer) clearTimeout(this._navOutTimer);
+              el.classList.remove('nav-animate');
+              el.setAttribute('data-nav-fx-out', pair.out);
+              el.style.animationDuration = outMs + 'ms'; // out runs quicker than in
+              void el.offsetWidth; // restart the animation
+              el.classList.add('nav-leaving');
+              this._navOutTimer = setTimeout(resolve, outMs);
+            } catch { resolve(); }
+          });
+        },
+        // Phase 2 — animate the NEW (incoming) page in. Clears the leaving state and
+        // starts the enter animation in ONE synchronous block (no paint in between)
+        // so the swap is seamless. Restores the CSS-var duration for the enter.
+        playNavIn() {
+          try {
+            const el = this._navContentEl();
+            if (!el) return;
+            const style = this.navTransition || 'fade';
+            if (style === 'none' || this._navReducedMotion()) {
+              el.classList.remove('nav-animate', 'nav-leaving');
+              el.style.animationDuration = '';
+              el.removeAttribute('data-nav-fx-out');
+              return;
+            }
+            const inFx = (this._navPair && this._navPair.in) || this._resolveNavFx(style).in;
+            el.setAttribute('data-nav-fx', inFx);
+            el.style.animationDuration = ''; // back to the --nav-fx-duration var for the enter
+            // Swap leaving -> entering atomically: no paint happens mid-task, so the
+            // first painted frame is the enter keyframe (invisible), never a flash.
+            el.classList.remove('nav-leaving');
+            el.removeAttribute('data-nav-fx-out');
+            el.classList.remove('nav-animate');
+            void el.offsetWidth;
+            el.classList.add('nav-animate');
+            if (this._navFxTimer) clearTimeout(this._navFxTimer);
+            const ms = Math.min(1200, Math.max(150, this.navTransitionMs || 420));
+            this._navFxTimer = setTimeout(() => { try { el.classList.remove('nav-animate'); } catch {} }, ms + 250);
+          } catch {}
+        },
+        // Settings preview — run the full out->in motion on the current content so
+        // the user feels the chosen style/speed without navigating.
+        async previewNav() {
+          try {
+            const el = this._navContentEl();
+            const style = this.navTransition || 'fade';
+            if (!el) return;
+            if (style === 'none' || this._navReducedMotion()) {
+              el.classList.remove('nav-animate', 'nav-leaving');
+              el.style.animationDuration = '';
+              el.removeAttribute('data-nav-fx-out');
+              return;
+            }
+            this._navPair = this._resolveNavFx(style);
+            await this.playNavOut(this._navPair);
+            this.playNavIn();
+          } catch {}
         },
 
         async _continueAgentChat(chatId, agentId) {
@@ -13198,8 +13411,21 @@
               this.chatFocused = false;
               document.body.classList.remove('chat-focused-lock');
             }
+            // Two-phase page transition: animate the OUTGOING page away first (so the
+            // click gets immediate motion), THEN swap the route and animate the
+            // incoming page in. Skipped on the initial paint, when no route actually
+            // changed, when transitions are off, or under reduced-motion.
+            const changed = (route !== this.app.route) || (param !== this.app.routeParam);
+            const animate = this._navBooted && changed
+              && this.navTransition && this.navTransition !== 'none'
+              && !this._navReducedMotion();
+            if (animate) {
+              this._navPair = this._resolveNavFx(this.navTransition);
+              await this.playNavOut(this._navPair);
+            }
             this.app.route = route;
             this.app.routeParam = param;
+            this._navBooted = true;
             // Keep the app mode in sync with the route so deep-links / sidebar clicks
             // surface the correct sidebar. Shared routes (null) leave the mode as-is.
             const rm = this.routeMode(route);
@@ -13207,6 +13433,8 @@
               this.appMode = rm;
               try { localStorage.setItem('app-mode', rm); } catch {}
             }
+            // Start the incoming animation once Alpine has rendered the new section.
+            if (animate) this.$nextTick(() => this.playNavIn());
             await this.handleRouteChange();
           };
           window.addEventListener('hashchange', applyRoute);
@@ -20184,7 +20412,11 @@
         _resolveOverlaps(layout, anchorId) {
           const overlaps = (a, b) =>
             a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-          const ids = Object.keys(layout).filter(id => layout[id]);
+          // Chips pack in their own pixel strip (fractional x/y/w/h) and are allowed to sit
+          // over the row grid by design — they must NOT participate in grid overlap resolution
+          // either as movers or as obstacles. Including them let a real panel slide to a chip's
+          // fractional bottom (chip.y + 1.2269…), drifting the card off the grid after settle.
+          const ids = Object.keys(layout).filter(id => layout[id] && !layout[id].chip);
           // Place the anchor first (fixed), then the rest in reading order; each card that
           // collides with an already-placed one slides straight down past it.
           const order = ids.slice().sort((x, y) => {
@@ -20261,6 +20493,12 @@
               }
             }
           }
+          // Never propagate a fractional row count. An older pixel-packed layout can leave a
+          // panel at a non-integer height (e.g. 7.21 rows); the "converged -> keep cur.h" branch
+          // above would then preserve that fraction forever, so the card never sits on the grid
+          // (arbitrary spacing) and visibly drifts after Organize (jitter). Snap up to the next
+          // whole row. The -1e-6 keeps an already-integer count from ceil-ing to +1 on float noise.
+          rows = Math.max(2, Math.ceil(rows - 1e-6));
           this._fitCache[id] = { sig, rows };
           return rows;
         },
@@ -20650,6 +20888,7 @@
           for (const pid of Object.keys(out)) {
             if (pid === anchorId) continue;
             const p = out[pid]; if (!p) continue;
+            if (p.chip) continue;                      // chips pack in pixels — never grid-reflowed
             if (this._isFixed(pid)) continue;          // fixed — never moved by reflow
             if (this._lockFor(pid, 'pos')) continue;   // pinned in place by the user
             if (p.y < oldBottom) continue;             // beside / above the anchor — not below it
@@ -20782,6 +21021,8 @@
               obstacles.push({ left: fw || cur.x < half, right: fw || cur.x >= half, top: cur.y || 0, bottom: (cur.y || 0) + lh });
             }
             // Push a candidate y down until [y, y+h] clears every obstacle in the given column(s).
+            // Returns a whole-row y so a flowing panel that jumps past a fractional-height fixed
+            // obstacle still lands on the grid.
             const avoid = (y, h, left, right) => {
               for (let pass = 0; pass < obstacles.length + 1; pass++) {
                 let moved = false;
@@ -20790,7 +21031,7 @@
                 }
                 if (!moved) break;
               }
-              return y;
+              return Math.max(0, Math.ceil(y - 1e-6));
             };
             let yL = 0, yR = 0, changed = false;
             for (const id of order) {
@@ -20812,7 +21053,11 @@
               // content-fit, except a collapsed panel always uses its collapsed fit.
               const h = sizeLk ? cur.h : this._constrainPanelHeight(id, cur, fit[id]);
               const fullWidth = (cur.x <= 0 && cur.w >= cols) || (cur.x < half && cur.x + cur.w > half);
-              let nx = cur.x, nw = sizeLk ? cur.w : cur.w, ny;
+              // Snap width to whole columns so a stale fractional/off-grid width (e.g. w=1.08,
+              // or a pin parked at x=19.9 off the canvas) can't leave a card hanging in empty
+              // space — the spacing the user sees should always be intentional, grid-aligned.
+              let nw = sizeLk ? cur.w : Math.max(1, Math.min(cols, Math.round(cur.w || half)));
+              let nx = cur.x, ny;
               if (fullWidth) { ny = avoid(Math.max(yL, yR), h, true, true); yL = yR = ny + h; nx = sizeLk ? cur.x : 0; nw = sizeLk ? cur.w : cols; }
               // Balanced mode (used by AI Layout): drop each half-width panel into the
               // SHORTER column so the two columns stay even — kills the lopsided,
@@ -20822,8 +21067,12 @@
                 else { nx = half; ny = avoid(yR, h, false, true); yR = ny + h; }
                 if (!sizeLk) nw = half;
               }
-              else if (cur.x < half) { ny = avoid(yL, h, true, false); yL = ny + h; }
-              else { ny = avoid(yR, h, false, true); yR = ny + h; }
+              // Tidy two-column pack: snap each flowing half-width panel hard to the left (x=0)
+              // or right (x=half) column. Keeping the raw cur.x here is what let off-grid x
+              // values survive Organize and read as arbitrary spacing.
+              else if (cur.x < half) { nx = sizeLk ? cur.x : 0; ny = avoid(yL, h, true, false); yL = ny + h; }
+              else { nx = sizeLk ? cur.x : half; ny = avoid(yR, h, false, true); yR = ny + h; }
+              if (!sizeLk) nx = Math.max(0, Math.min(cols - nw, Math.round(nx)));
               if (cur.x !== nx || cur.y !== ny || cur.w !== nw || cur.h !== h) {
                 layout[id] = { ...cur, x: nx, y: ny, w: nw, h }; changed = true;
               }
@@ -20970,7 +21219,7 @@
           // to content and packs columns so nothing is hidden). Silent so our own
           // reasoning toast is the one the user sees.
           this.$nextTick(() => {
-            this.organizeBoard(true);
+            this.organizeBoard(true, true);
             undo.afterSig = this._layoutSig();
             this._aiLayoutUndo = undo;
             const msg = plan.reasoning || ((kept) + ' kept open, ' + collapsed + ' collapsed · zoom ' + Math.round((plan.zoom || 1) * 100) + '%');
