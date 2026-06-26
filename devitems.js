@@ -183,7 +183,11 @@ function worktreeStatus(wt, { fetch = true, baseBranch = 'main' } = {}) {
     ahead = parseInt(m[1], 10) || 0;
     comparable = true;
   }
-  const dirty = (_gitTry(['status', '--porcelain'], wt).out || '').length > 0;
+  // Exclude agent-generated status reports (IMPLEMENTATION_SUMMARY.md, etc.) from
+  // the dirty signal — they're surfaced on the card but intentionally never
+  // committed, so they must not light up the worktree as "dirty".
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain'], wt).out || '');
+  const dirty = cls.dirty;
   // HEAD commit sha — lets callers detect a new commit even when ahead/behind
   // don't move (e.g. an amend, or a commit that also pulled base in).
   const head = _gitTry(['rev-parse', 'HEAD'], wt).out || '';
@@ -193,6 +197,45 @@ function worktreeStatus(wt, { fetch = true, baseBranch = 'main' } = {}) {
     upstream: up.ok ? up.out : '',
     tracking: compare === '@{u}' ? (up.out || '') : compare,
     ahead, behind, comparable, dirty,
+    ignoredReports: cls.ignored,
+    lastChecked: new Date().toISOString()
+  };
+}
+
+// Detailed commit-level view of a worktree branch vs its tracked remote — the
+// branch's own origin/<branch> when an upstream exists, else origin/<baseBranch>.
+// Lets the UI show exactly which commits are local-only (unpushed), which exist
+// on the remote but are missing locally (behind), and a recent-history list with
+// each commit tagged pushed/local. For a branch with an open PR the upstream IS
+// the PR's source branch, so this doubles as "local worktree vs PR branch".
+// Never throws; returns null when the path is not a repo.
+function branchCommits(wt, { baseBranch = 'main', limit = 40, fetch = false } = {}) {
+  if (!wt || !_isRepo(wt)) return null;
+  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  const branch = _gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], wt).out || '';
+  const up = _gitTry(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], wt);
+  const hasUpstream = up.ok && !!up.out;
+  const tracking = hasUpstream ? up.out : ('origin/' + (baseBranch || 'main'));
+  const trackingExists = _gitTry(['rev-parse', '--verify', '--quiet', tracking], wt).ok;
+  const SEP = '\x1f';
+  const FMT = ['%H', '%h', '%s', '%an', '%aI'].join(SEP);
+  const parse = (out) => String(out || '').split('\n').filter(Boolean).map((l) => {
+    const [sha, short, subject, author, date] = l.split(SEP);
+    return { sha, short, subject, author, date };
+  });
+  let ahead = [], behind = [];
+  if (trackingExists) {
+    ahead = parse(_gitTry(['log', tracking + '..HEAD', '--pretty=format:' + FMT, '-n', String(limit)], wt).out);
+    behind = parse(_gitTry(['log', 'HEAD..' + tracking, '--pretty=format:' + FMT, '-n', String(limit)], wt).out);
+  }
+  const recent = parse(_gitTry(['log', 'HEAD', '--pretty=format:' + FMT, '-n', String(limit)], wt).out);
+  const aheadSet = new Set(ahead.map((c) => c.sha));
+  for (const c of recent) c.pushed = trackingExists ? !aheadSet.has(c.sha) : false;
+  return {
+    branch, tracking, hasUpstream, trackingExists,
+    ahead, behind, recent,
+    aheadCount: ahead.length, behindCount: behind.length,
+    truncated: recent.length >= limit,
     lastChecked: new Date().toISOString()
   };
 }
@@ -370,11 +413,13 @@ function prDrift(wt, sourceBranch, { fetch = true } = {}) {
       comparable = true;
     }
   }
-  const dirty = (_gitTry(['status', '--porcelain'], wt).out || '').length > 0;
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain'], wt).out || '');
+  const dirty = cls.dirty;
   const inSync = comparable && ahead === 0 && behind === 0 && !dirty;
   return {
     sourceBranch: src, localHead, remoteHead,
     ahead, behind, dirty, comparable, inSync,
+    ignoredReports: cls.ignored,
     lastChecked: new Date().toISOString()
   };
 }
@@ -479,6 +524,35 @@ function removeWorktree(org, project, repo, devId, wt) {
 const REPORT_EXTS = new Set(['.html', '.htm', '.md', '.markdown', '.txt']);
 const REPORT_NAME_RE = /(report|status|summary|metrics|results?)/i;
 const REPORT_SUBDIRS = ['reports', 'report', 'docs', '.reports'];
+
+// A worktree change is "ignorable" when it's an agent-generated status report
+// (e.g. IMPLEMENTATION_SUMMARY.md, dev-status-report.html) — files we surface on
+// the card but intentionally never commit. They must not flip a card to "dirty".
+// Matches the same name/extension heuristic used to discover reports.
+function isIgnorableReportPath(rel) {
+  if (!rel) return false;
+  const base = String(rel).split('/').pop();
+  const ext = path.extname(base).toLowerCase();
+  if (!REPORT_EXTS.has(ext)) return false;
+  return REPORT_NAME_RE.test(base);
+}
+
+// Split `git status --porcelain` output into committable changes vs ignorable
+// agent reports. Returns { dirty, changed:[], ignored:[] } where `dirty` reflects
+// ONLY the committable changes — so a worktree whose only change is a generated
+// report reads as clean.
+function classifyPorcelain(out) {
+  const changed = [], ignored = [];
+  for (const raw of String(out || '').split('\n')) {
+    if (!raw.trim()) continue;
+    let p = raw.slice(3).trim();            // strip the 2-char XY status + space
+    const arrow = p.indexOf(' -> ');         // rename entries: "old -> new"
+    if (arrow >= 0) p = p.slice(arrow + 4).trim();
+    if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
+    (isIgnorableReportPath(p) ? ignored : changed).push(p);
+  }
+  return { dirty: changed.length > 0, changed, ignored };
+}
 
 function _scanReportDir(absDir, relPrefix, out) {
   let entries;
@@ -602,6 +676,9 @@ function cacheReports(boardId, devId, wt, reports) {
 function findAndCacheReports(boardId, devId, wt) {
   const reports = findReports(wt);
   try { cacheReports(boardId, devId, wt, reports); } catch {}
+  // Keep generated reports out of git so they never dirty the card or get swept
+  // into a push/commit. Best-effort; harmless if already excluded or tracked.
+  for (const r of reports) { try { addGitExclude(wt, r.rel); } catch {} }
   return reports;
 }
 
@@ -699,6 +776,9 @@ module.exports = {
   createWorktree,
   createWorktreeAsync,
   worktreeStatus,
+  branchCommits,
+  classifyPorcelain,
+  isIgnorableReportPath,
   syncWorktree,
   commitAll,
   prDrift,

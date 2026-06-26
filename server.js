@@ -8300,6 +8300,24 @@ app.post('/api/boards/:id/dev-items/:devId/push', async (req, res) => {
     : ('Pushed to ' + (push.branch || slot.branch) + '.');
   res.json({ ok: true, message, committed, dev: updated });
 });
+
+// Commit-level branch insight for a dev card repo slot: which commits are local
+// (unpushed), which are on the remote/PR branch but missing locally, plus recent
+// history tagged pushed/local. Read-only; pass ?fetch=1 to refresh from origin
+// first. The slot's upstream is its own origin/<branch> (== the PR source branch
+// when a PR exists), so this answers both "vs origin" and "vs PR branch".
+app.get('/api/boards/:id/dev-items/:devId/commits', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const slot = _findRepoSlot(ctx.dev, req.query.repoId || 'primary');
+  if (!slot || !slot.worktreePath || !fs.existsSync(slot.worktreePath)) {
+    return res.status(400).json({ error: 'No worktree for this repo yet.' });
+  }
+  let commits;
+  try { commits = devitems.branchCommits(slot.worktreePath, { baseBranch: slot.baseBranch, fetch: req.query.fetch === '1' }); }
+  catch (e) { return res.status(500).json({ error: (e && e.message) || 'git failed' }); }
+  res.json({ ok: true, commits, slot: { id: slot.id, repo: slot.repo, branch: slot.branch, prId: slot.prId || ctx.dev.prId || '' } });
+});
 // `repos` is the unified slot list, each entry { slot, pr, git, diff } — so a card
 // that spans multiple repos (primary + d.repos[]) is summarized across ALL of them,
 // each with its own PR, reviewer votes, branch sync state, and diff hunks.

@@ -1525,6 +1525,8 @@
       padding:14px 16px; box-shadow:0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
     }
     .cf-pr-card.cf-attn { border-color:var(--cp-accent); }
+    .cf-pr-card.cf-focus { border-color:var(--cp-accent); box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); animation:cfFocusPulse 1.2s ease-out 1; }
+    @keyframes cfFocusPulse { 0% { box-shadow:0 0 0 0 var(--cp-accent); } 70% { box-shadow:0 0 0 6px var(--cp-accent-soft); } 100% { box-shadow:0 0 0 2px var(--cp-accent-soft), var(--cp-shadow); } }
     .cf-pr-top { display:flex; align-items:flex-start; gap:12px; }
     .cf-pr-title { font-size:15px; font-weight:650; line-height:1.35; color:var(--cp-text); text-decoration:none; }
     .cf-pr-title:hover { color:var(--cp-accent); }
@@ -7049,7 +7051,7 @@
                                               </div>
                                             </div>
                                             <div class="cal-meta" x-show="s.prId || s.agentName">
-                                              <span x-show="s.prId">PR <a :href="devPrUrl(s)" target="_blank" rel="noopener" @click.stop :title="s.pr ? s.pr.title : 'Open pull request'" x-text="'!' + s.prId"></a><span x-show="s.pr && s.pr.status" x-text="' ' + (s.pr ? (s.pr.isDraft ? 'draft' : s.pr.status) : '')"></span></span>
+                                              <span x-show="s.prId">PR <a :href="slotPrHref(s)" @click.stop.prevent="openSlotPrInFlow(d, s)" :title="(s.pr && s.pr.title ? s.pr.title + ' — ' : '') + ((s.pr && s.pr.status && String(s.pr.status).toLowerCase() !== 'active' && String(s.pr.status).toLowerCase() !== 'draft') ? 'Open in Azure DevOps' : 'Open in Code Flows')" x-text="'!' + s.prId"></a><span x-show="s.pr && s.pr.status" x-text="' ' + (s.pr ? (s.pr.isDraft ? 'draft' : s.pr.status) : '')"></span></span>
                                               <span x-show="s.prId && s.agentName" class="sep">·</span>
                                               <span x-show="s.agentName" :title="'Dev agent: ' + s.agentName + ' — selectable in VS Code / Copilot; auto-selected when opening the CLI'">agent <span class="mono" x-text="s.agentName"></span></span>
                                             </div>
@@ -7082,10 +7084,67 @@
                                                   <button class="cal-tbtn" type="button" title="Open the worktree folder in Explorer" @click="slotOpen(d,s,'explorer')">📁</button>
                                                   <button class="cal-tbtn" type="button" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
                                                   <span class="cal-tsep"></span>
+                                                  <button class="cal-tbtn" type="button" :class="slotCommitsOpen[slotCommitsKey(d,s)] ? 'primary' : ''" @click="slotToggleCommits(d,s)" title="Show which commits are local-only (unpushed), which are on the origin/PR branch but missing locally, and recent history">↕ Commits</button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? '⟳…' : '⟳ Sync'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
                                                 </div>
+                                                <template x-if="slotCommitsOpen[slotCommitsKey(d,s)]">
+                                                  <div style="border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:8px;display:flex;flex-direction:column;gap:8px;font-size:11px;margin-top:6px">
+                                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                                                      <span style="color:var(--cp-text-muted)">
+                                                        <template x-if="slotCommitsState(d,s).data">
+                                                          <span>
+                                                            <span x-text="slotCommitsState(d,s).data.branch || 'branch'"></span>
+                                                            <span> vs </span>
+                                                            <span class="mono" x-text="slotCommitsState(d,s).data.tracking || '—'"></span>
+                                                            <span x-show="slotCommitsState(d,s).slot && slotCommitsState(d,s).slot.prId" x-text="' · PR branch'"></span>
+                                                          </span>
+                                                        </template>
+                                                      </span>
+                                                      <button class="cal-tbtn" type="button" :disabled="slotCommitsState(d,s).loading" @click="loadSlotCommits(d,s,true)" title="Fetch from origin and refresh" x-text="slotCommitsState(d,s).loading ? '⟳…' : '⟳ Refresh'"></button>
+                                                    </div>
+                                                    <div x-show="slotCommitsState(d,s).loading && !slotCommitsState(d,s).data" style="color:var(--cp-text-muted)">Loading commits…</div>
+                                                    <div x-show="slotCommitsState(d,s).error" style="color:var(--cp-danger)" x-text="slotCommitsState(d,s).error"></div>
+                                                    <template x-if="slotCommitsState(d,s).data">
+                                                      <div style="display:flex;flex-direction:column;gap:10px">
+                                                        <div>
+                                                          <div style="font-weight:600;color:var(--cp-text)">
+                                                            <span x-text="'↑ Local only (' + (slotCommitsState(d,s).data.aheadCount||0) + ')'"></span>
+                                                            <span style="font-weight:400;color:var(--cp-text-muted)" x-text="(slotCommitsState(d,s).slot && slotCommitsState(d,s).slot.prId) ? ' — not yet on the PR branch' : ' — not yet pushed to origin'"></span>
+                                                          </div>
+                                                          <div x-show="!(slotCommitsState(d,s).data.aheadCount)" style="color:var(--cp-text-muted)">— none, your branch is fully pushed</div>
+                                                          <template x-for="c in slotCommitsState(d,s).data.ahead" :key="c.sha">
+                                                            <div style="display:flex;gap:6px;align-items:baseline">
+                                                              <span class="mono" style="color:var(--cp-warning)" x-text="c.short"></span>
+                                                              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="c.subject" :title="c.subject + ' — ' + (c.author||'') + ' · ' + (c.date||'')"></span>
+                                                            </div>
+                                                          </template>
+                                                        </div>
+                                                        <div x-show="slotCommitsState(d,s).data.behindCount">
+                                                          <div style="font-weight:600;color:var(--cp-text)" x-text="'↓ On remote, missing locally (' + (slotCommitsState(d,s).data.behindCount||0) + ')'"></div>
+                                                          <template x-for="c in slotCommitsState(d,s).data.behind" :key="c.sha">
+                                                            <div style="display:flex;gap:6px;align-items:baseline">
+                                                              <span class="mono" style="color:var(--cp-danger)" x-text="c.short"></span>
+                                                              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="c.subject" :title="c.subject + ' — ' + (c.author||'') + ' · ' + (c.date||'')"></span>
+                                                            </div>
+                                                          </template>
+                                                        </div>
+                                                        <div>
+                                                          <div style="font-weight:600;color:var(--cp-text)">Recent history <span style="font-weight:400;color:var(--cp-text-muted)">(● on origin · ○ local only)</span></div>
+                                                          <template x-for="c in slotCommitsState(d,s).data.recent" :key="c.sha">
+                                                            <div style="display:flex;gap:6px;align-items:baseline">
+                                                              <span :title="c.pushed ? 'On origin' : 'Local only (unpushed)'" x-text="c.pushed ? '●' : '○'" :style="'color:' + (c.pushed ? 'var(--cp-success)' : 'var(--cp-warning)')"></span>
+                                                              <span class="mono" x-text="c.short"></span>
+                                                              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="c.subject" :title="c.subject + ' — ' + (c.author||'') + ' · ' + (c.date||'')"></span>
+                                                            </div>
+                                                          </template>
+                                                          <div x-show="slotCommitsState(d,s).data.truncated" style="color:var(--cp-text-muted)" x-text="'(showing latest ' + (slotCommitsState(d,s).data.recent||[]).length + ')'"></div>
+                                                        </div>
+                                                      </div>
+                                                    </template>
+                                                  </div>
+                                                </template>
                                               </div>
                                             </template>
                                             </div>
@@ -8104,7 +8163,7 @@
                   </div>
                   <div class="cf-group-items" x-show="!grp.label || cfGrpIsOpen(grp)">
                     <template x-for="pr in grp.items" :key="pr.org + '/' + pr.repo + '/' + pr.id">
-                <article class="cf-pr-card" :class="{ 'cf-attn': pr.attention }">
+                <article class="cf-pr-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr) }">
                   <div class="cf-pr-top">
                     <div style="flex:1;min-width:0">
                       <a class="cf-pr-title" :href="pr.url" target="_blank" rel="noopener" x-text="pr.title"></a>
@@ -12359,6 +12418,9 @@
         // Dev cards — per-item busy flag ('worktree'|'refresh'|'sync'|'summary') +
         // the create/edit modal form state.
         devBusy: {},
+        // Per-slot commit-detail panel: open flag + loaded data keyed by slot.
+        slotCommitsOpen: {},
+        slotCommits: {},
         devLinkDraft: {},
         devRepoDraft: {},
         reportPreview: { open: false, title: '', url: '', mode: 'html', html: '', loading: false, error: '' },
@@ -12379,6 +12441,8 @@
         // Code Flow — Azure DevOps PR monitoring across watched repos.
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews'
+          focusKey: '',          // cfPrKey to scroll-to/highlight after a deep-link
+          focusFallbackUrl: '',  // AzDO URL to open if the deep-linked PR isn't on the page (e.g. closed)
           loading: false,
           repos: [],             // watched repo entries {id,org,project,repo}
           pullRequests: [],
@@ -13231,8 +13295,11 @@
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'codeflow') {
+            const cfFocus = this.app.routeParam || '';
+            if (!cfFocus) this.codeflow.focusKey = '';
             await this.loadCodeFlow();
             this.codeflowPrefillRepoDefaults();
+            if (cfFocus) this.focusCodeflowPr(cfFocus);
           } else if (this.route === 'dev-archive') {
             // Archived dev cards are computed client-side from this.boards (every
             // board carries its full devItems), so just ensure boards are loaded.
@@ -16816,6 +16883,53 @@
         // ---- Code Flow review worktrees ----
         cfPrKey(pr) {
           return [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
+        },
+        // Scroll to and briefly highlight a PR on the Code Flows page after a
+        // deep-link (e.g. from a dev card's PR link). The target is usually one of
+        // "my" PRs, but if it isn't in the current list we try the reviews view once.
+        async focusCodeflowPr(rawKey) {
+          const key = (rawKey || '').toLowerCase();
+          if (!key) { this.codeflow.focusKey = ''; this.codeflow.focusFallbackUrl = ''; return; }
+          this.codeflow.focusKey = key;
+          const has = () => (this.codeflow.pullRequests || []).some(p => this.cfPrKey(p) === key);
+          // A stale repo filter could hide the target — drop it if so.
+          if (this.codeflow.filterRepo) {
+            const visible = (this.codeflow.pullRequests || []).some(p => this.cfPrKey(p) === key && p.repoId === this.codeflow.filterRepo);
+            if (!visible) this.codeflow.filterRepo = '';
+          }
+          if (!has() && this.codeflow.view !== 'reviews') {
+            this.codeflow.view = 'reviews';
+            this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null;
+            if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
+            try { await this.loadCodeFlow(); } catch {}
+          }
+          // The PR isn't on the Code Flows page (e.g. it's closed/completed, so
+          // it's filtered out, or it lives in a view we can't load). Fall back to
+          // Azure DevOps directly rather than stranding the user on an empty page.
+          if (!has()) {
+            const fb = this.codeflow.focusFallbackUrl || '';
+            this.codeflow.focusFallbackUrl = '';
+            this.codeflow.focusKey = '';
+            if (fb && fb !== '#') window.open(fb, '_blank', 'noopener');
+            return;
+          }
+          this.codeflow.focusFallbackUrl = '';
+          // If the PR lives inside a collapsed group, open that group so it renders.
+          if (this.codeflow.groupBy && this.codeflow.groupBy !== 'none') {
+            try {
+              for (const grp of this.groupedCodeflowPrs()) {
+                if ((grp.items || []).some(p => this.cfPrKey(p) === key) && !this.cfGrpIsOpen(grp)) { this.cfGrpToggle(grp); }
+              }
+            } catch {}
+          }
+          if (this._cfFocusTimer) { clearTimeout(this._cfFocusTimer); this._cfFocusTimer = null; }
+          this.$nextTick(() => {
+            setTimeout(() => {
+              const el = document.getElementById('cfpr-' + key);
+              if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { el.scrollIntoView(); } }
+            }, 80);
+          });
+          this._cfFocusTimer = setTimeout(() => { if (this.codeflow.focusKey === key) this.codeflow.focusKey = ''; }, 5000);
         },
         cfWt(pr) {
           return (this.codeflow.worktrees || {})[this.cfPrKey(pr)] || null;
@@ -21184,16 +21298,20 @@
           const g = d && d.git;
           if (!g) return { text: 'untracked', title: 'No git status yet — refresh to check.', attention: false };
           const ahead = g.ahead || 0, behind = g.behind || 0, dirty = !!g.dirty;
-          if (!ahead && !behind && !dirty) return { text: '✓ up to date', title: 'Up to date with origin, clean working tree.', attention: false };
+          const ignored = (g.ignoredReports || []).length;
+          const reportNote = ignored ? ('; ' + ignored + ' generated report' + (ignored === 1 ? '' : 's') + ' ignored') : '';
+          if (!ahead && !behind && !dirty) {
+            return { text: '✓ up to date', title: 'Up to date with origin, clean working tree' + reportNote + '.', attention: false };
+          }
           const parts = [];
           if (ahead) parts.push('↑' + ahead);
           if (behind) parts.push('↓' + behind);
           if (dirty) parts.push('● dirty');
           const title = [
-            ahead ? ahead + ' ahead of origin' : '',
-            behind ? behind + ' behind origin' : '',
+            ahead ? ahead + ' ahead of origin (unpushed)' : '',
+            behind ? behind + ' behind origin (missing locally)' : '',
             dirty ? 'uncommitted changes' : ''
-          ].filter(Boolean).join(', ');
+          ].filter(Boolean).join(', ') + reportNote;
           return { text: parts.join(' '), title: title || 'modified', attention: behind > 0 || dirty };
         },
         // True when the linked work item is in a terminal state (Done/Closed/etc.).
@@ -21733,6 +21851,61 @@
         slotSync(d, s) { return (s && s.primary) ? this.syncDevItem(d) : this.syncDevSlot(d, s); },
         slotCleanup(d, s) { return (s && s.primary) ? this.cleanupDevWorktree(d) : this.cleanupDevSlot(d, s); },
         slotCreatePr(d, s) { return (s && s.primary) ? this.createDevPr(d) : this.createDevSlotPr(d, s); },
+        // Commit-detail panel: stable key, open state, and a lazy fetch of the
+        // branch's commit breakdown (unpushed / missing / recent) vs origin.
+        slotCommitsKey(d, s) { return d.id + '#' + ((s && s.id) || 'primary'); },
+        // Build the Code Flows PR key for a dev-card repo slot (matches cfPrKey()).
+        cfKeyFromSlot(s) {
+          return [s && s.org, s && s.project, s && s.repo, s && s.prId].map(x => (x == null ? '' : x)).join('|').toLowerCase();
+        },
+        // href target for a slot's PR link: the Code Flows deep-link when the PR
+        // is active and locatable, otherwise the raw AzDO URL (closed PRs aren't
+        // listed on Code Flows). Mirrors openSlotPrInFlow so middle-click matches.
+        slotPrHref(s) {
+          const hasIdentity = !!(s && s.org && s.project && s.repo && s.prId);
+          const status = (s && s.pr && s.pr.status ? String(s.pr.status) : '').toLowerCase();
+          const inactive = !!status && status !== 'active' && status !== 'draft';
+          if (hasIdentity && !inactive) {
+            return '#/codeflow/' + encodeURIComponent(this.cfKeyFromSlot(s));
+          }
+          return (s && s.pr && s.pr.url) ? s.pr.url : this.devPrUrl(s);
+        },
+        // Open a slot's PR on the Code Flows page (deep-link + highlight) rather
+        // than jumping straight to Azure DevOps. Code Flows only lists *active*
+        // PRs, so if the slot's PR is closed/completed/abandoned — or we lack the
+        // org/project/repo identity needed to locate it — go directly to AzDO.
+        openSlotPrInFlow(d, s) {
+          const url = (s && s.pr && s.pr.url) ? s.pr.url : this.devPrUrl(s);
+          const hasIdentity = !!(s && s.org && s.project && s.repo && s.prId);
+          const status = (s && s.pr && s.pr.status ? String(s.pr.status) : '').toLowerCase();
+          const inactive = !!status && status !== 'active' && status !== 'draft';
+          if (!hasIdentity || inactive) {
+            if (url && url !== '#') window.open(url, '_blank', 'noopener');
+            return;
+          }
+          // Stash the AzDO URL so focusCodeflowPr can bail out to it if the PR
+          // turns out not to be present on the Code Flows page for any reason.
+          this.codeflow.focusFallbackUrl = (url && url !== '#') ? url : '';
+          this.goTo('#/codeflow/' + encodeURIComponent(this.cfKeyFromSlot(s)));
+        },
+        slotCommitsState(d, s) { return this.slotCommits[this.slotCommitsKey(d, s)] || {}; },
+        async slotToggleCommits(d, s) {
+          const key = this.slotCommitsKey(d, s);
+          if (this.slotCommitsOpen[key]) { this.slotCommitsOpen[key] = false; return; }
+          this.slotCommitsOpen[key] = true;
+          await this.loadSlotCommits(d, s, false);
+        },
+        async loadSlotCommits(d, s, fetch) {
+          const key = this.slotCommitsKey(d, s);
+          this.slotCommits[key] = { ...(this.slotCommits[key] || {}), loading: true, error: '' };
+          try {
+            const qs = '?repoId=' + encodeURIComponent((s && s.id) || 'primary') + (fetch ? '&fetch=1' : '');
+            const r = await this.request(this._devUrl(d, 'commits') + qs, { method: 'GET' });
+            this.slotCommits[key] = { loading: false, error: '', data: (r && r.commits) || null, slot: (r && r.slot) || null };
+          } catch (e) {
+            this.slotCommits[key] = { loading: false, error: (e && e.message) || 'Failed to load commits', data: null };
+          }
+        },
         // True when a slot has an OPEN PR whose source branch differs from its dev
         // branch — i.e. there's a distinct PR branch to open a worktree against.
         slotPrBranchAvailable(d, s) {
