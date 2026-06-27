@@ -7061,22 +7061,22 @@
                                                       </div>
                                                     </details>
                                                   </template>
-                                                  <!-- Review worktree actions — identical to the Code Flow PR card. -->
+                                                  <!-- Worktree actions — identical to the Code Flow PR card. Persona depends on view (own PR → steward, else reviewer). -->
                                                   <div class="cf-wt">
                                                     <template x-if="!cfWt(pr)">
                                                       <span class="cf-wt-row">
                                                         <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click.stop="reviewWithAi(pr)"
-                                                                title="Create a worktree for this PR (if needed) and run the AI reviewer to generate a report">
-                                                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : '🤖 Review with AI'"></span>
+                                                                :title="cfIsSteward(pr) ? 'Create a worktree for your PR (if needed) and run the AI steward to review, fix feedback, harden & validate it' : 'Create a worktree for this PR (if needed) and run the AI reviewer to generate a report'">
+                                                          <span x-text="cfRunLabel(pr)"></span>
                                                         </button>
                                                         <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="createCfWorktree(pr)"
-                                                                title="Just create a git worktree on this PR's branch with a read-only AI review agent (no auto-run)">
-                                                          <span x-text="cfBusy(pr) === 'create' ? 'Creating…' : '🔍 Create review worktree'"></span>
+                                                                :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
+                                                          <span x-text="cfCreateLabel(pr)"></span>
                                                         </button>
                                                       </span>
                                                     </template>
                                                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
-                                                      <span class="cf-wt-status" x-text="cfReviewing(pr) ? '✦ Preparing worktree for review…' : 'Creating review worktree…'"></span>
+                                                      <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
                                                     </template>
                                                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
                                                       <span class="cf-wt-row">
@@ -7091,11 +7091,11 @@
                                                       <div class="cf-wt-ready">
                                                         <div class="cf-wt-ready-main">
                                                           <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click.stop="reviewWithAi(pr)"
-                                                                  title="Run the AI reviewer in this worktree and (re)generate the report">
-                                                            <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
+                                                                  :title="cfIsSteward(pr) ? 'Run the AI steward in this worktree: review, fix feedback, harden & validate, then (re)generate the report' : 'Run the AI reviewer in this worktree and (re)generate the report'">
+                                                            <span x-text="cfRunLabel(pr)"></span>
                                                           </button>
                                                           <span class="cf-wt-label"
-                                                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
+                                                                :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
                                                           <span class="cf-wt-open">
                                                             <span class="cf-wt-open-k">Open</span>
                                                             <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'editor')">VS Code</button>
@@ -8592,22 +8592,22 @@
                     </details>
                   </template>
 
-                  <!-- Review worktree: create a worktree against the PR branch + a read-only review agent -->
+                  <!-- Worktree: create a worktree against the PR branch + the right agent (own PR → steward; else read-only reviewer) -->
                   <div class="cf-wt">
                     <template x-if="!cfWt(pr)">
                       <span class="cf-wt-row">
                         <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="reviewWithAi(pr)"
-                                title="Create a worktree for this PR (if needed) and run the AI reviewer to generate a report">
-                          <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : '🤖 Review with AI'"></span>
+                                :title="cfIsSteward(pr) ? 'Create a worktree for your PR (if needed) and run the AI steward to review, fix feedback, harden & validate it' : 'Create a worktree for this PR (if needed) and run the AI reviewer to generate a report'">
+                          <span x-text="cfRunLabel(pr)"></span>
                         </button>
                         <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
-                                title="Just create a git worktree on this PR's branch with a read-only AI review agent (no auto-run)">
-                          <span x-text="cfBusy(pr) === 'create' ? 'Creating…' : '🔍 Create review worktree'"></span>
+                                :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
+                          <span x-text="cfCreateLabel(pr)"></span>
                         </button>
                       </span>
                     </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
-                      <span class="cf-wt-status" x-text="cfReviewing(pr) ? '✦ Preparing worktree for review…' : 'Creating review worktree…'"></span>
+                      <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
                     </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
                       <span class="cf-wt-row">
@@ -8622,11 +8622,11 @@
                       <div class="cf-wt-ready">
                         <div class="cf-wt-ready-main">
                           <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
-                                  title="Run the AI reviewer in this worktree and (re)generate the report">
-                            <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
+                                  :title="cfIsSteward(pr) ? 'Run the AI steward in this worktree: review, fix feedback, harden & validate, then (re)generate the report' : 'Run the AI reviewer in this worktree and (re)generate the report'">
+                            <span x-text="cfRunLabel(pr)"></span>
                           </button>
                           <span class="cf-wt-label"
-                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
+                                :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
                           <span class="cf-wt-open">
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
@@ -8696,17 +8696,17 @@
                   </div>
                   <div class="cf-wt">
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
-                      <span class="cf-wt-status" x-text="cfReviewing(pr) ? '✦ Preparing worktree for review…' : 'Creating review worktree…'"></span>
+                      <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
                     </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
                         <div class="cf-wt-ready-main">
                           <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
-                                  title="Run the AI reviewer in this worktree and (re)generate the report">
-                            <span x-text="cfReviewing(pr) ? '✦ Reviewing…' : ((cfWt(pr).reports || []).length ? '🤖 Re-review' : '🤖 Review with AI')"></span>
+                                  :title="cfIsSteward(pr) ? 'Run the AI steward in this worktree: review, fix feedback, harden & validate, then (re)generate the report' : 'Run the AI reviewer in this worktree and (re)generate the report'">
+                            <span x-text="cfRunLabel(pr)"></span>
                           </button>
                           <span class="cf-wt-label"
-                                :title="cfWt(pr).reviewAgentName ? ('Review agent: ' + cfWt(pr).reviewAgentName) : 'Review worktree'">🔍 Review worktree</span>
+                                :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
                           <span class="cf-wt-open">
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
@@ -17629,7 +17629,7 @@
           try {
             await this.request('/api/codeflow/pr/worktree', {
               method: 'POST',
-              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id })
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, view: this.cfMode(pr) })
             });
             // Optimistic creating record so the card shows progress immediately.
             this.codeflow.worktrees[key] = Object.assign({}, this.codeflow.worktrees[key], {
@@ -17641,6 +17641,36 @@
           } finally {
             delete this.codeflow.wtBusy[key];
           }
+        },
+        // The persona/mode for a PR's worktree: "mine" → STEWARD (review + fix
+        // feedback + harden + validate, may commit) vs "reviews" → read-only
+        // reviewer. Prefer the worktree record's stored view (so kept/orphan
+        // worktrees keep their identity), else the current Code Flow view.
+        cfMode(pr) {
+          const rec = this.cfWt(pr);
+          const v = (rec && rec.view) || this.codeflow.view;
+          return String(v || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
+        },
+        cfIsSteward(pr) { return this.cfMode(pr) === 'mine'; },
+        // Verb shown on the primary action button (idle/in-progress).
+        cfRunLabel(pr) {
+          const steward = this.cfIsSteward(pr);
+          if (this.cfReviewing(pr)) return steward ? '✦ Tending…' : '✦ Reviewing…';
+          const hasReports = ((this.cfWt(pr) || {}).reports || []).length > 0;
+          if (steward) return hasReports ? '🛠 Re-tend with AI' : '🛠 Tend with AI';
+          return hasReports ? '🤖 Re-review' : '🤖 Review with AI';
+        },
+        // Verb for the "create worktree only" link + the worktree label/status.
+        cfWtNoun(pr) { return this.cfIsSteward(pr) ? 'work' : 'review'; },
+        cfWtLabel(pr) { return this.cfIsSteward(pr) ? '🛠 Work worktree' : '🔍 Review worktree'; },
+        cfCreateLabel(pr) {
+          if (this.cfBusy(pr) === 'create') return 'Creating…';
+          return this.cfIsSteward(pr) ? '🛠 Create work worktree' : '🔍 Create review worktree';
+        },
+        cfWtStatusText(pr) {
+          const steward = this.cfIsSteward(pr);
+          if (this.cfReviewing(pr)) return steward ? '✦ Preparing worktree to tend the PR…' : '✦ Preparing worktree for review…';
+          return steward ? 'Creating work worktree…' : 'Creating review worktree…';
         },
         // True while an AI review is running (server-side reviewStatus or local busy flag).
         cfReviewing(pr) {
@@ -17655,7 +17685,7 @@
           try {
             await this.request('/api/codeflow/pr/review', {
               method: 'POST',
-              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id }),
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, view: this.cfMode(pr) }),
               timeoutMs: 0
             });
             // Optimistic reviewing record so the card shows progress immediately.

@@ -655,6 +655,38 @@ async function getPrThreads(org, project, repo, prId) {
   return { activeComments: active, resolvedComments: resolved, totalThreads: total };
 }
 
+// Detailed ACTIVE (unresolved) comment threads on a PR, for an agent that must
+// respond to and fix reviewer feedback. Returns up to `max` threads, each with
+// its file/line anchor, status, and the ordered human comments (author + text).
+// System/status-only threads and resolved threads are skipped. Best-effort.
+async function getPrActiveThreads(org, project, repo, prId, { max = 50 } = {}) {
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}/threads?api-version=${API_VERSION}`
+  );
+  const out = [];
+  for (const t of (d.value || [])) {
+    const st = (t.status || '').toLowerCase();
+    // Only unresolved discussion threads need a response.
+    if (st === 'fixed' || st === 'closed' || st === 'wontfix' || st === 'bydesign') continue;
+    const comments = (t.comments || [])
+      .filter(c => !c.isDeleted && (c.commentType || 'text') === 'text')
+      .map(c => ({
+        author: (c.author && c.author.displayName) || 'unknown',
+        text: String(c.content || '').trim()
+      }))
+      .filter(c => c.text);
+    if (!comments.length) continue; // pure system/status thread
+    const tc = t.threadContext || {};
+    const file = tc.filePath ? String(tc.filePath).replace(/^\/+/, '') : null;
+    const line = (tc.rightFileStart && tc.rightFileStart.line) ||
+      (tc.leftFileStart && tc.leftFileStart.line) || null;
+    out.push({ id: t.id, status: st || 'active', file, line, comments });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 // Post a comment thread to a PR. When filePath + rightLine are given the thread
 // is anchored to that file/line in the PR diff (right/new side); otherwise it is
 // a general discussion comment. Returns the created thread. Caller should catch.
@@ -885,6 +917,7 @@ module.exports = {
   getPrChangedFiles,
   listPullRequests,
   getPrThreads,
+  getPrActiveThreads,
   createPrThread,
   getPrStatuses,
   getPrPolicyEvaluations,

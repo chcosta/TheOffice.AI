@@ -1828,6 +1828,18 @@ function _cfReviewAgentSlug(o) {
   return ('review-' + (o.repo || 'repo') + '-pr' + pid)
     .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase() || 'pr-review-agent';
 }
+// Slug for the STEWARD agent that tends YOUR OWN PR (mine view): reviews, then
+// addresses reviewer feedback, hardens the change, and validates it.
+function _cfStewardAgentSlug(o) {
+  const pid = o.prId != null ? o.prId : o.id;
+  return ('steward-' + (o.repo || 'repo') + '-pr' + pid)
+    .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).toLowerCase() || 'pr-steward-agent';
+}
+// Which agent persona applies to a worktree, from its view. "mine" → steward
+// (review + fix + harden), anything else → read-only reviewer.
+function _cfAgentKindForView(view) {
+  return String(view || '').toLowerCase() === 'mine' ? 'steward' : 'reviewer';
+}
 
 // The review agent persona. Read-only by design: it analyzes and reports, it
 // does NOT change the PR's code or push anything.
@@ -1917,23 +1929,141 @@ In addition to the HTML report, write a **second** file named \`${commentsName}\
   return body;
 }
 
-// Write the review agent into the worktree and git-exclude both the agent file
-// AND the report it will generate, so neither can land in the PR branch.
+// The PR STEWARD persona body. For YOUR OWN pull request (Code Flow "mine"
+// view): it does everything the reviewer does, but is NOT read-only — it
+// addresses reviewer feedback, hardens the change, validates it, and commits
+// the fixes locally (the human pushes from the card). Shared by the .agent.md
+// the user opens AND the headless "Tend with AI" run, so both follow the same
+// contract.
+function _stewardPersonaBody({ pr, workItems, threads = [], reportName, commentsName = CODEFLOW_COMMENTS_NAME }) {
+  const ctx = [];
+  ctx.push('## Your pull request');
+  ctx.push(`- **#${pr.id}** ${pr.title || ''}`);
+  ctx.push('- ' + [pr.org, pr.project, pr.repo].filter(Boolean).join(' / ') +
+    `  (source \`${pr.sourceBranch || ''}\` → target \`${pr.targetBranch || 'main'}\`)`);
+  if (pr.status) ctx.push('- Status: ' + pr.status + (pr.isDraft ? ' (draft)' : ''));
+  if (pr.createdBy && pr.createdBy.name) ctx.push('- Author: ' + pr.createdBy.name);
+  if (pr.url) ctx.push('- Link: ' + pr.url);
+  if (pr.description) ctx.push('- Description: ' + String(pr.description).slice(0, 600).replace(/\s+/g, ' '));
+  ctx.push('');
+  if (workItems && workItems.length) {
+    ctx.push('## Associated work item(s)');
+    for (const wi of workItems) {
+      ctx.push(`- **#${wi.id} [${wi.type}]** ${wi.title} — ${wi.state}${wi.assignedTo ? ' · ' + wi.assignedTo : ''}`);
+      if (wi.url) ctx.push('  - ' + wi.url);
+    }
+    ctx.push('');
+  } else {
+    ctx.push('## Associated work item');
+    ctx.push('- No linked work item was detected automatically. **Look for one yourself** — check the PR description, commit messages, and branch name for a work-item id (e.g. `AB#12345`) and reason about the original intent.');
+    ctx.push('');
+  }
+  // Embed the real, unresolved reviewer feedback so the steward addresses it
+  // concretely rather than guessing.
+  ctx.push('## Active reviewer feedback to address');
+  if (threads && threads.length) {
+    ctx.push('These are the **unresolved** comment threads on the PR. Address every one — fix the code where a change is warranted, or draft a clear reply where it is a question or you disagree:');
+    ctx.push('');
+    let n = 0;
+    for (const t of threads) {
+      n++;
+      const where = t.file ? ('`' + t.file + '`' + (t.line ? ':' + t.line : '')) : '(general discussion)';
+      ctx.push(`${n}. **${where}** — thread #${t.id} (${t.status})`);
+      for (const c of (t.comments || [])) {
+        ctx.push(`   - **${c.author}:** ${String(c.text).slice(0, 800).replace(/\s+/g, ' ')}`);
+      }
+    }
+    ctx.push('');
+  } else {
+    ctx.push('- No unresolved review comments were detected automatically. **Still check yourself** (`git log`, the PR page) and treat your own self-review findings as the feedback to resolve.');
+    ctx.push('');
+  }
+  ctx.push('## This worktree');
+  ctx.push('- This worktree is checked out to **your PR\'s source branch** `' + (pr.sourceBranch || '') +
+    '`, so your changes are already present and you may edit, build, test, and commit here.');
+  ctx.push('- See exactly what your PR proposes by diffing against the target branch:');
+  ctx.push('  ```');
+  ctx.push('  git fetch origin ' + (pr.targetBranch || 'main'));
+  ctx.push('  git diff origin/' + (pr.targetBranch || 'main') + '...HEAD');
+  ctx.push('  ```');
+  ctx.push('');
+
+  const body = `You are a senior engineer **tending your own pull request**. This PR is *yours*: your job is not only to review it, but to make it genuinely excellent — resolve reviewer feedback, raise the quality bar, add the validation it needs, and guard against regressions. You **may edit, build, run, test, and commit** in this worktree. You do **not** push (the human pushes from the Code Flow card), and you **never** commit your own agent/report/scratch files.
+
+${ctx.join('\n')}
+## How to work, in order
+Narrate which step you are on as you go:
+1. **Understand the goals.** Read the PR title/description and any linked work item to understand what this change must achieve and its acceptance criteria. State the goals in your own words.
+2. **Understand the system.** Study the surrounding code, architecture, and existing patterns this change touches so every change you make fits how this codebase actually works.
+3. **Analyze the change.** Walk the full diff (\`git diff\` against the target branch above). Summarize what it does and how the pieces fit.
+4. **Address every piece of reviewer feedback.** For each active thread above: understand the intent, then **make the code change** that resolves it. If it is a question or you genuinely disagree, draft a clear, respectful reply explaining your reasoning instead of changing code. Track, per thread, exactly what you did (resolved-by-change / replied / deferred-with-reason).
+5. **Go above and beyond — harden the change.** Don't stop at the literal feedback. Proactively improve quality: add or extend **tests**, add **input validation** and **error handling**, cover **edge cases**, tighten naming/readability where it aids correctness, and remove foot-guns. Be deliberate — every change must be justified and in scope; do not gold-plate unrelated code.
+6. **Prevent regressions.** Identify what this change could break (callers, contracts, data shapes, concurrency, performance) and add guards/tests that would catch a future regression. Call out anything you cannot fully cover.
+7. **Validate.** Discover the repo's **existing** build/lint/test commands (package.json scripts, Makefile, CI yaml, README) and run the relevant ones. Iterate until they pass. Do **not** introduce new tooling/frameworks — use what the repo already has. Capture the exact commands you ran and their results.
+8. **Self-review to the reviewer's bar.** Re-judge correctness, edge cases, error handling, security, performance, readability, test coverage, and convention-consistency. Fix what you find.
+9. **Commit your work locally.** Stage only the real source/test/doc changes and commit with clear messages (split into logical commits if it helps). **Do NOT push** — the human pushes from the card. **Never** stage \`.github/agents/*\`, the report, or the findings file.
+10. **Write the report + machine-readable file** described below.
+
+## Steward report (HTML)
+Write a **self-contained** HTML report named \`${reportName}\` at the root of this worktree (overwrite/refresh it as you learn more). Requirements:
+- **Single file, inline all CSS/JS** — no external assets or CDNs, so it opens correctly from disk. Any chart must render offline (inline SVG / pure-CSS bars).
+- **Theme-friendly.** The host re-themes the report for light/dark automatically, so use the standard skeleton class names and DON'T hard-force a full-page background/color. Use these semantic classes where they apply: the verdict banner \`<div class="verdict approve|needs-work|blocked">\`; severity spans \`sev-blocker\`/\`sev-major\`/\`sev-minor\`/\`sev-nit\`; the byline line \`<p class="meta">\`; and plain \`<table>\`/\`<th>\`/\`<code>\`/\`<pre>\` for tabular/code content.
+- **Cover these sections, in order:**
+  1. **Overview** — the PR (id + link), the author, the associated work item (id + link), and a one-paragraph bottom line: is the PR now ready to push / what still blocks it.
+  2. **Goals** — what the PR set out to do, and whether it now meets them.
+  3. **Feedback addressed** — a **table** with columns: *thread (file·line or "general") · reviewer comment · what you did · status (resolved-by-change / replied / deferred)*. One row per active thread above.
+  4. **Changes made** — what you changed and why, concise but specific (files/areas, approach), and the commit message(s) you created.
+  5. **Hardening & regression guards** — the above-and-beyond improvements: tests added, validation/error-handling added, edge cases covered, regression risks identified and how you guarded them.
+  6. **Validations run** — the exact build/lint/test commands you ran and their results (pass/fail), in a \`<pre>\` or table.
+  7. **Remaining risks & follow-ups** — anything still risky, deferred, or needing a human decision before merge.
+- **Lead with the bottom line.** Make "ready to push?" obvious at the top; keep the layout calm, professional, timestamped, with the PR id/link.
+
+## Machine-readable findings (JSON)
+Also write a **second** file named \`${commentsName}\` at the root of this worktree — a machine-readable list of any **remaining recommendations** (things you did NOT change but a human should consider) so they can be surfaced. Requirements:
+- **Valid JSON only**, exactly this shape:
+  \`\`\`json
+  {"summary": "<one-line: ready to push? what's left>", "comments": [{"file": "relative/path/from/repo/root.ext", "line": 123, "severity": "blocker|major|minor|nit", "title": "<short title>", "body": "<the recommendation>", "suggestion": "<concrete suggested fix, optional>"}]}
+  \`\`\`
+- One entry per remaining recommendation (NOT the things you already fixed). \`file\` is the repo-relative path (forward slashes) and \`line\` is the line number in the **new/right** version of that file; omit \`line\` (or null) for a general note.
+- An empty \`comments\` array is fine if you fully addressed everything.
+
+- **Push is the human's call.** Commit locally so your work is ready, but do **not** \`git push\` — the user pushes from the Code Flow card after reviewing your report.
+- **Never check yourself in.** NEVER stage, commit, or otherwise include your own agent definition (any file under \`.github/agents/\`), your generated report (\`${reportName}\`), or the machine-readable findings (\`${commentsName}\`). If you notice any of them in \`git status\`, leave them untracked and never add them.
+`;
+  return body;
+}
+
+// Build the steward agent .agent.md (frontmatter + steward persona body).
+function _buildStewardAgentMd({ agentName, pr, workItems, threads, reportName, commentsName }) {
+  const desc = 'PR steward for ' + (pr.repo || 'repo') + ' #' + pr.id + ' — reviews, fixes feedback, hardens & validates your own PR';
+  const fm = ['---', 'name: ' + agentName, 'description: ' + JSON.stringify(desc), '---', ''].join('\n');
+  return fm + _stewardPersonaBody({ pr, workItems, threads, reportName, commentsName });
+}
+
+// Write the per-PR agent into the worktree and git-exclude the agent file AND
+// the report/findings it will generate, so none of them can land in the PR
+// branch. The persona depends on the worktree's `view`: "mine" → STEWARD (review
+// + fix feedback + harden + validate, may commit), anything else → read-only
+// REVIEWER. `threads` (active reviewer feedback) is only used by the steward.
 const CODEFLOW_REPORT_NAME = 'pr-review-report.html';
 const CODEFLOW_COMMENTS_NAME = 'pr-review-comments.json';
-function _writeCfReviewAgentFile(rec, pr, workItems) {
+function _writeCfReviewAgentFile(rec, pr, workItems, opts = {}) {
   const wt = rec.worktreePath;
   if (!wt || !fs.existsSync(wt)) return null;
-  const slug = _cfReviewAgentSlug(pr);
+  const kind = _cfAgentKindForView(opts.view != null ? opts.view : rec.view);
+  const steward = kind === 'steward';
+  const slug = steward ? _cfStewardAgentSlug(pr) : _cfReviewAgentSlug(pr);
   const rel = '.github/agents/' + slug + '.agent.md';
   const agentsDir = path.join(wt, '.github', 'agents');
   fs.mkdirSync(agentsDir, { recursive: true });
-  fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'),
-    _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME }));
+  const md = steward
+    ? _buildStewardAgentMd({ agentName: slug, pr, workItems, threads: opts.threads || [], reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME })
+    : _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME });
+  fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), md);
   try { devitems.addGitExclude(wt, rel); } catch {}
   try { devitems.addGitExclude(wt, CODEFLOW_REPORT_NAME); } catch {}
   try { devitems.addGitExclude(wt, CODEFLOW_COMMENTS_NAME); } catch {}
-  return { reviewAgentName: slug, reviewAgentFile: rel };
+  return { reviewAgentName: slug, reviewAgentFile: rel, agentKind: kind };
 }
 
 // All review-worktree records (for frontend hydration). Returns an array.
@@ -2016,6 +2146,7 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
   if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const view = String(b.view || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
   // Resolve the PR fresh (don't trust client branch); require it to be OPEN.
   let pr;
   try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
@@ -2025,7 +2156,7 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
   const key = _cfWtKey(o);
   const devId = _cfWtDevId(o);
   _saveCfWt(key, {
-    org: o.org, project: o.project, repo: o.repo, prId: pr.id,
+    org: o.org, project: o.project, repo: o.repo, prId: pr.id, view,
     prTitle: pr.title || '', prUrl: pr.url || '',
     sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
     prStatus: String(pr.status || '').toLowerCase(),
@@ -2045,7 +2176,11 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
       // Gather linked work items (best-effort) so the agent file is grounded.
       let workItems = [];
       try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
-      const agent = _writeCfReviewAgentFile(rec, { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy }, workItems);
+      // For your own PR (mine), ground the steward with the actual unresolved
+      // reviewer feedback so it can address each thread concretely.
+      let threads = [];
+      if (view === 'mine') { try { threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
+      const agent = _writeCfReviewAgentFile(rec, { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy }, workItems, { view, threads });
       const save = {};
       if (agent) Object.assign(save, agent);
       try { save.reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, r.worktreePath); } catch {}
@@ -2072,9 +2207,13 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   const key = _cfWtKey(o);
   const devId = _cfWtDevId(o);
   let rec = _getCfWt(key);
+  // View decides the persona: explicit body.view wins, else the worktree's
+  // remembered view, else default to read-only review.
+  const view = String(b.view || (rec && rec.view) || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
+  const steward = view === 'mine';
   const haveWt = !!(rec && rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath));
   rec = _saveCfWt(key, {
-    org: o.org, project: o.project, repo: o.repo, prId: pr.id,
+    org: o.org, project: o.project, repo: o.repo, prId: pr.id, view,
     prTitle: pr.title || (rec && rec.prTitle) || '', prUrl: pr.url || (rec && rec.prUrl) || '',
     sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
     prStatus: String(pr.status || '').toLowerCase(),
@@ -2097,16 +2236,22 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       }
       const wtPath = rec.worktreePath;
       if (!wtPath || !fs.existsSync(wtPath)) throw new Error('Worktree is not available.');
-      // 2. Write/refresh the review agent file (grounded with linked work items).
+      // 2. Write/refresh the agent file (grounded with linked work items; the
+      //    steward also gets the actual unresolved reviewer feedback to address).
       let workItems = [];
       try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+      let threads = [];
+      if (steward) { try { threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
       const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
-      const agent = _writeCfReviewAgentFile(rec, prCtx, workItems);
+      const agent = _writeCfReviewAgentFile(rec, prCtx, workItems, { view, threads });
       if (agent) rec = _saveCfWt(key, agent);
-      // 3. Run the reviewer in the worktree. Prefer the resolved review agent;
-      //    fall back to a plain prompt run (same persona body) if it can't resolve.
-      const slug = (agent && agent.reviewAgentName) || rec.reviewAgentName || _cfReviewAgentSlug({ ...o, id: pr.id });
-      const kickoff = 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When both files are written and saved, reply with the single word DONE.';
+      // 3. Run the agent in the worktree. Prefer the resolved agent; fall back to
+      //    a plain prompt run (same persona body) if it can't resolve.
+      const slug = (agent && agent.reviewAgentName) || rec.reviewAgentName ||
+        (steward ? _cfStewardAgentSlug({ ...o, id: pr.id }) : _cfReviewAgentSlug({ ...o, id: pr.id }));
+      const kickoff = steward
+        ? 'Tend your pull request now. Work through every step in order: understand the goals, analyze the diff, ADDRESS EVERY active reviewer comment (fix the code or draft a reply), go above and beyond to harden the change and prevent regressions, then VALIDATE by running the repo\'s existing build/lint/tests until they pass. COMMIT your changes locally (do NOT push). Finally WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When everything is committed and both files are written, reply with the single word DONE.'
+        : 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When both files are written and saved, reply with the single word DONE.';
       const model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined;
       const sid = require('crypto').randomUUID();
       let acc = '';
@@ -2116,7 +2261,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       });
       if (!run || run.fallback) {
         // Agent didn't resolve — run the persona body directly with full tools.
-        const body = _reviewPersonaBody({ pr: prCtx, workItems, reportName: CODEFLOW_REPORT_NAME });
+        const body = steward
+          ? _stewardPersonaBody({ pr: prCtx, workItems, threads, reportName: CODEFLOW_REPORT_NAME })
+          : _reviewPersonaBody({ pr: prCtx, workItems, reportName: CODEFLOW_REPORT_NAME });
         acc = '';
         run = await sdkRunner.runPrompt({
           prompt: body + '\n\n---\n\n' + kickoff,
@@ -2131,7 +2278,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       _saveCfWt(key, {
         reports,
         reviewStatus: ok ? 'done' : 'error',
-        reviewError: ok ? null : 'The review finished but no report file was produced.',
+        reviewError: ok ? null : 'The run finished but no report file was produced.',
         reviewFinishedAt: new Date().toISOString()
       });
     } catch (e) {
