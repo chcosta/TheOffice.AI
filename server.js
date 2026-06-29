@@ -8167,6 +8167,30 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   const { out, contextBlocks } = _resolveBoardItems(b, { forSummary: true });
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+  // Notes, checklists and dev cards are first-class board context too — surface them
+  // as briefing Sources (each with its own type + last-updated time) alongside the
+  // pinned items, then re-sort so the merged list stays most-recent-first.
+  const manualSources = [];
+  for (const n of (Array.isArray(b.notes) ? b.notes : [])) {
+    const text = clip(n.text, 240);
+    if (!text) continue;
+    manualSources.push({ id: 'note:' + n.id, kind: 'note', refId: n.id, label: clip(n.text, 80) || 'Note', sublabel: 'Note', route: '', when: n.updatedAt || n.createdAt || null, status: '', detail: text });
+  }
+  for (const cl of (Array.isArray(b.checklists) ? b.checklists : [])) {
+    const items = Array.isArray(cl.items) ? cl.items : [];
+    const done = items.filter(i => i.done).length;
+    manualSources.push({ id: 'cl:' + cl.id, kind: 'checklist', refId: cl.id, label: clip(cl.title, 120) || 'Checklist', sublabel: `${done}/${items.length} done`, route: '', when: cl.updatedAt || cl.createdAt || null, status: (items.length && done === items.length) ? 'success' : '', detail: items.map(i => `${i.done ? '✓' : '○'} ${clip(i.text, 80)}`).join(' · ') });
+  }
+  for (const d of (Array.isArray(b.devItems) ? b.devItems : [])) {
+    if (d && d.archived) continue;
+    const sub = [d.repo, d.branch].filter(Boolean).join(' @ ') || (d.workItemId ? 'WI #' + d.workItemId : 'Dev card');
+    manualSources.push({ id: 'dev:' + d.id, kind: 'dev', refId: d.id, label: clip(d.title || d.repo || 'Dev card', 120), sublabel: sub, route: '', when: d.updatedAt || d.createdAt || null, status: '', detail: clip((d.summary && d.summary.text) || sub, 240) });
+  }
+  if (manualSources.length) {
+    out.push(...manualSources);
+    out.sort((a, c) => new Date(c.when || 0) - new Date(a.when || 0));
+  }
+
   // Deltas: what changed since the user last viewed (generated a briefing for) this
   // board. Pinned items whose latest activity timestamp is newer than lastViewedAt,
   // flagged for attention when the latest run errored/failed.

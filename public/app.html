@@ -3836,6 +3836,9 @@
       color: var(--cp-link); text-decoration: none; font-size: 12.5px; cursor: pointer;
     }
     .brief-source-link:hover { text-decoration: underline; }
+    .brief-source-link.no-route { color: var(--cp-text); cursor: default; }
+    .brief-source-link.no-route:hover { text-decoration: none; }
+    .brief-source-type { flex: 0 0 auto; color: var(--cp-text-soft); font-size: 11px; white-space: nowrap; opacity: .85; }
     .brief-source-when { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 11px; white-space: nowrap; }
     /* ----- Fullscreen board "focus" mode ----- */
     /* The active board is lifted out of the normal flow and made to fill the whole
@@ -6702,13 +6705,15 @@
                                 <div>
                                   <template x-for="s in briefingSources()" :key="s.id">
                                     <div class="brief-source-row">
-                                      <a class="brief-source-link" href="#" @click.prevent="s.route && goTo(s.route)" x-text="s.label || s.refId"></a>
-                                      <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
-                                    </div>
-                                  </template>
-                                </div>
-                              </template>
-                            </div>
+                                    <template x-if="s.route"><a class="brief-source-link" href="#" @click.prevent="goTo(s.route)" x-text="s.label || s.refId"></a></template>
+                                    <template x-if="!s.route"><span class="brief-source-link no-route" x-text="s.label || s.refId"></span></template>
+                                     <span class="brief-source-type" x-text="boardKindLabel(s.kind)"></span>
+                                     <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
+                                   </div>
+                                 </template>
+                               </div>
+                             </template>
+                             </div>
                           </template>
                           <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
                         </div>
@@ -6834,7 +6839,9 @@
                                         <div>
                                           <template x-for="s in briefingSources()" :key="s.id">
                                             <div class="brief-source-row">
-                                              <a class="brief-source-link" href="#" @click.prevent="s.route && goTo(s.route)" x-text="s.label || s.refId"></a>
+                                              <template x-if="s.route"><a class="brief-source-link" href="#" @click.prevent="goTo(s.route)" x-text="s.label || s.refId"></a></template>
+                                              <template x-if="!s.route"><span class="brief-source-link no-route" x-text="s.label || s.refId"></span></template>
+                                              <span class="brief-source-type" x-text="boardKindLabel(s.kind)"></span>
                                               <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
                                             </div>
                                           </template>
@@ -18568,7 +18575,7 @@
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
         },
         boardKindIcon(kind) {
           return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄' })[kind] || '📌';
