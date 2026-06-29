@@ -1569,6 +1569,9 @@
     .cf-view-tab .cf-tab-count.attn { background:var(--cp-danger); color:#fff; }
     .cf-view-tab.on .cf-tab-count.attn { background:var(--cp-danger); color:#fff; }
     .cf-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+    .cf-reviews-toggle { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--cp-text-muted); cursor:pointer; user-select:none; margin-right:4px; }
+    .cf-reviews-toggle input { accent-color:var(--cp-accent); cursor:pointer; margin:0; }
+    .cf-reviews-toggle:hover { color:var(--cp-text); }
     .cf-select { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
     .cf-pr-list { display:flex; flex-direction:column; gap:12px; }
     .cf-pr-list.grouped { gap:22px; }
@@ -3813,6 +3816,27 @@
     }
     .board-prompt-edit textarea { resize: vertical; min-height: 64px; }
     .board-prompt-edit-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    /* ----- Briefing "Sources" list (per-source last-updated freshness) -----
+       A calm, quiet index under the briefing: plain text links with a muted relative
+       time. NOT pills — see the no-pills-for-organization house rule. */
+    .brief-sources { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--cp-border); }
+    .brief-sources-label {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--cp-text-muted); margin-bottom: 6px;
+      display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;
+    }
+    .brief-sources-label:hover { color: var(--cp-text); }
+    .brief-sources-caret { font-size: 9px; line-height: 1; opacity: .8; }
+    .brief-sources-count { opacity: .7; font-variant-numeric: tabular-nums; }
+    .brief-source-row {
+      display: flex; align-items: baseline; gap: 8px; padding: 2px 0; min-width: 0;
+    }
+    .brief-source-link {
+      flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--cp-link); text-decoration: none; font-size: 12.5px; cursor: pointer;
+    }
+    .brief-source-link:hover { text-decoration: underline; }
+    .brief-source-when { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 11px; white-space: nowrap; }
     /* ----- Fullscreen board "focus" mode ----- */
     /* The active board is lifted out of the normal flow and made to fill the whole
        window, hiding the sidebar / topbar / other page chrome behind it. It's a flex
@@ -6657,6 +6681,7 @@
                           </div>
                         </div>
                         <div class="board-tab-brief-body" x-show="boardBriefOpen()">
+                          <div class="hint" style="font-size:11px;margin-bottom:8px" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
                           <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
                             <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
                               <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
@@ -6666,6 +6691,25 @@
                             </div>
                           </template>
                           <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
+                          <template x-if="briefingSources().length">
+                            <div class="brief-sources">
+                              <div class="brief-sources-label" @click="toggleBriefSources()">
+                                <span class="brief-sources-caret" x-text="briefSourcesOpen() ? '▾' : '▸'"></span>
+                                <span>Sources</span>
+                                <span class="brief-sources-count" x-text="briefingSources().length"></span>
+                              </div>
+                              <template x-if="briefSourcesOpen()">
+                                <div>
+                                  <template x-for="s in briefingSources()" :key="s.id">
+                                    <div class="brief-source-row">
+                                      <a class="brief-source-link" href="#" @click.prevent="s.route && goTo(s.route)" x-text="s.label || s.refId"></a>
+                                      <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
                           <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
                         </div>
                       </div>
@@ -6779,6 +6823,25 @@
                                     </div>
                                   </template>
                                   <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
+                                  <template x-if="briefingSources().length">
+                                    <div class="brief-sources" style="flex:0 0 auto">
+                                      <div class="brief-sources-label" @click="toggleBriefSources()">
+                                        <span class="brief-sources-caret" x-text="briefSourcesOpen() ? '▾' : '▸'"></span>
+                                        <span>Sources</span>
+                                        <span class="brief-sources-count" x-text="briefingSources().length"></span>
+                                      </div>
+                                      <template x-if="briefSourcesOpen()">
+                                        <div>
+                                          <template x-for="s in briefingSources()" :key="s.id">
+                                            <div class="brief-source-row">
+                                              <a class="brief-source-link" href="#" @click.prevent="s.route && goTo(s.route)" x-text="s.label || s.refId"></a>
+                                              <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
+                                            </div>
+                                          </template>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </template>
                                   <div x-show="!boardSummaryLoading && !(activeBoard().summary)" class="empty-state" style="padding:12px">Pin items, then click <strong>↻ Update</strong> to generate an AI briefing of where you left off.</div>
                                 </div>
                               </template>
@@ -6958,7 +7021,7 @@
                                                     <a class="cf-m-id" :href="pr.url || '#'" target="_blank" rel="noopener" x-text="pr.id != null && pr.id !== '' ? '#' + pr.id : ''"></a>
                                                     <span class="cf-m-muted" x-show="boardPrFull(item) && pr.isDraft">Draft</span>
                                                     <span class="cf-m-muted" x-show="boardPrFull(item)" x-text="codeflowAgeLabel(pr)"></span>
-                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && (item.meta && item.meta.view) === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + (pr.createdBy && pr.createdBy.name)"></span>
+                                                    <span class="cf-m-muted" x-show="boardPrFull(item) && (item.meta && item.meta.view) !== 'mine' && pr.createdBy && pr.createdBy.name" x-text="'by ' + (pr.createdBy && pr.createdBy.name)"></span>
                                                     <span x-show="boardPrFull(item)" :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
                                                     <span class="cf-m-muted" x-show="boardPrFull(item) && pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + (pr.comments && pr.comments.activeComments) + ' active'"></span>
                                                     <span class="cf-m-ok" x-show="boardPrFull(item) && pr.readyToMerge">✅ Ready to merge</span>
@@ -7124,7 +7187,7 @@
                                                           <button x-show="(item.meta && item.meta.view) === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfPush(pr)"
                                                                   title="Commit any local changes and push to the PR branch"
                                                                   x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
-                                                          <button x-show="(item.meta && item.meta.view) === 'reviews' && (cfWt(pr).reviewComments || 0) > 0"
+                                                          <button x-show="(item.meta && item.meta.view) !== 'mine' && (cfWt(pr).reviewComments || 0) > 0"
                                                                   class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click.stop="cfPostComments(pr)"
                                                                   :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
                                                                   x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
@@ -8322,7 +8385,7 @@
               <span class="cf-attn-icon">⚠️</span>
               <div style="flex:1">
                 <strong x-text="codeflow.attentionCount + (codeflow.attentionCount === 1 ? ' pull request needs' : ' pull requests need') + ' your attention'"></strong>
-                <div class="hint" x-text="codeflow.view === 'reviews' ? 'Reviews are waiting on you.' : 'Changes requested, failing checks, or ready to merge.'"></div>
+                <div class="hint" x-text="codeflow.view === 'mine' ? 'Changes requested, failing checks, or ready to merge.' : 'Reviews are waiting on you.'"></div>
               </div>
             </div>
 
@@ -8399,17 +8462,21 @@
                       :title="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' of ' + codeflowAttention.mineActive + ' pull requests need your attention') : (codeflowAttention.mineActive + ' open pull requests')"
                       x-text="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' / ' + codeflowAttention.mineActive) : codeflowAttention.mineActive"></span>
               </button>
-              <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'reviews' }" role="tab"
-                      :aria-selected="codeflow.view === 'reviews'" @click="setCodeflowView('reviews')">
-                <span>👀 Reviews needed from me</span>
-                <span class="cf-tab-count" :class="{ attn: codeflowAttention.reviews > 0 }" x-show="codeflowAttention.reviewsActive > 0"
-                      :title="codeflowAttention.reviews > 0 ? (codeflowAttention.reviews + ' of ' + codeflowAttention.reviewsActive + ' pull requests need your review') : (codeflowAttention.reviewsActive + ' pull requests')"
-                      x-text="codeflowAttention.reviews > 0 ? (codeflowAttention.reviews + ' / ' + codeflowAttention.reviewsActive) : codeflowAttention.reviewsActive"></span>
+              <button type="button" class="cf-view-tab" :class="{ on: codeflow.view !== 'mine' }" role="tab"
+                      :aria-selected="codeflow.view !== 'mine'" @click="setCodeflowView(codeflow.reviewsOnly ? 'reviews' : 'active')">
+                <span>👀 Active PRs</span>
+                <span class="cf-tab-count" :class="{ attn: cfReviewsTab().attn }" x-show="cfReviewsTab().show"
+                      :title="cfReviewsTab().title" x-text="cfReviewsTab().text"></span>
               </button>
             </div>
 
             <!-- Toolbar: filter + sort -->
             <div class="cf-toolbar" x-show="codeflow.repos.length">
+              <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine'"
+                     title="Show only pull requests that list you as a reviewer">
+                <input type="checkbox" :checked="codeflow.reviewsOnly" @change="toggleReviewsOnly()">
+                <span>Reviews needed from me</span>
+              </label>
               <label class="hint" style="display:flex;align-items:center;gap:6px">Repo
                 <select class="cf-select" x-model="codeflow.filterRepo">
                   <option value="">All repos</option>
@@ -8454,7 +8521,7 @@
               No repos monitored yet. Click <strong>Manage repos</strong> above to add an Azure DevOps repository.
             </div>
             <div x-show="!codeflow.loading && codeflow.repos.length && !filteredCodeflowPrs().length" class="empty-state">
-              <span x-text="codeflow.view === 'reviews' ? 'No pull requests are waiting on your review. 🎉' : 'You have no open pull requests in the watched repos.'"></span>
+              <span x-text="codeflow.view === 'mine' ? 'You have no open pull requests in the watched repos.' : (codeflow.view === 'active' ? 'No active pull requests in the watched repos.' : 'No pull requests are waiting on your review. 🎉')"></span>
             </div>
 
             <!-- PR list -->
@@ -8479,7 +8546,7 @@
                         <a class="cf-m-id" :href="pr.url" target="_blank" rel="noopener" x-text="'#' + pr.id"></a>
                         <span class="cf-m-muted" x-show="pr.isDraft">Draft</span>
                         <span class="cf-m-muted" x-text="codeflowAgeLabel(pr)"></span>
-                        <span class="cf-m-muted" x-show="codeflow.view === 'reviews' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
+                        <span class="cf-m-muted" x-show="codeflow.view !== 'mine' && pr.createdBy && pr.createdBy.name" x-text="'by ' + pr.createdBy.name"></span>
                         <span :class="'cf-m-' + codeflowApprovalPill(pr).tone" x-text="codeflowApprovalPill(pr).label"></span>
                         <span class="cf-m-muted" x-show="pr.comments && pr.comments.activeComments > 0" x-text="'💬 ' + pr.comments.activeComments + ' active'"></span>
                         <span class="cf-m-ok" x-show="pr.readyToMerge">✅ Ready to merge</span>
@@ -8657,8 +8724,8 @@
                           <button x-show="codeflow.view === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
                                   title="Commit any local changes and push to the PR branch"
                                   x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
-                          <!-- Reviews view: post the AI review findings as PR comments -->
-                          <button x-show="codeflow.view === 'reviews' && (cfWt(pr).reviewComments || 0) > 0"
+                          <!-- Non-mine views: post the AI review findings as PR comments -->
+                          <button x-show="codeflow.view !== 'mine' && (cfWt(pr).reviewComments || 0) > 0"
                                   class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfPostComments(pr)"
                                   :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
                                   x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
@@ -12784,7 +12851,11 @@
         insightSuggestError: '',
         // Code Flow — Azure DevOps PR monitoring across watched repos.
         codeflow: {
-          view: 'mine',          // 'mine' | 'reviews'
+          view: 'mine',          // 'mine' | 'reviews' | 'active'
+          // The non-"mine" tab ("Active PRs") shows every open PR in the watched
+          // repos; this toggle (default on) narrows that to PRs that list me as a
+          // reviewer. On → view 'reviews'; off → view 'active'.
+          reviewsOnly: (() => { try { const v = localStorage.getItem('cfReviewsOnly'); return v === null ? true : !!JSON.parse(v); } catch { return true; } })(),
           focusKey: '',          // cfPrKey to scroll-to/highlight after a deep-link
           focusFallbackUrl: '',  // AzDO URL to open if the deep-linked PR isn't on the page (e.g. closed)
           loading: false,
@@ -13844,6 +13915,7 @@
             this._reconcileQuickPins();
             await this.loadActivity();
             await this.handleRouteChange(opts);
+            if (this.route === 'boards') this.refreshBoardPinDetails();
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } catch (error) {
             this.errorMessage = error.message;
@@ -17249,13 +17321,48 @@
           }
         },
         setCodeflowView(view) {
-          if (view !== 'mine' && view !== 'reviews') return;
+          if (view !== 'mine' && view !== 'reviews' && view !== 'active') return;
           if (this.codeflow.view === view) return;
           this.codeflow.view = view;
           this.codeflow.ai = {};
           this.codeflow.aiGeneratedAt = null;
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
+        },
+        // The "Reviews needed from me" toggle on the Active PRs tab. On → only PRs that
+        // list me as a reviewer (server view 'reviews'); off → every open PR ('active').
+        // Persisted so the choice sticks across sessions.
+        toggleReviewsOnly() {
+          this.codeflow.reviewsOnly = !this.codeflow.reviewsOnly;
+          try { localStorage.setItem('cfReviewsOnly', JSON.stringify(this.codeflow.reviewsOnly)); } catch {}
+          if (this.codeflow.view === 'mine') return; // only affects the Active PRs tab
+          this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
+          this.codeflow.ai = {};
+          this.codeflow.aiGeneratedAt = null;
+          if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
+          this.loadCodeFlow();
+        },
+        // Badge for the Active PRs tab. In 'active' mode it reflects the loaded list
+        // (reviews-needed / total active); otherwise the lightweight reviews counts.
+        cfReviewsTab() {
+          if (this.codeflow.view === 'active') {
+            const total = (this.codeflow.pullRequests || []).length;
+            const attn = this.codeflow.attentionCount || 0;
+            return {
+              show: total > 0, attn: attn > 0,
+              text: attn > 0 ? (attn + ' / ' + total) : String(total),
+              title: attn > 0 ? (attn + ' of ' + total + ' active pull requests need your review')
+                              : (total + ' active pull requests')
+            };
+          }
+          const a = this.codeflowAttention || {};
+          const active = a.reviewsActive || 0, need = a.reviews || 0;
+          return {
+            show: active > 0, attn: need > 0,
+            text: need > 0 ? (need + ' / ' + active) : String(active),
+            title: need > 0 ? (need + ' of ' + active + ' pull requests need your review')
+                            : (active + ' pull requests')
+          };
         },
         async addCodeflowRepo() {
           const f = this.codeflowRepoForm;
@@ -17483,10 +17590,19 @@
             const visible = (this.codeflow.pullRequests || []).some(p => this.cfPrKey(p) === key && p.repoId === this.codeflow.filterRepo);
             if (!visible) this.codeflow.filterRepo = '';
           }
-          if (!has() && this.codeflow.view !== 'reviews') {
-            this.codeflow.view = 'reviews';
+          if (!has() && this.codeflow.view === 'mine') {
+            // Not one of my PRs — switch to the Active PRs tab (honoring the
+            // reviews-only toggle) to find a PR I review or any open PR.
+            this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
             this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null;
             if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
+            try { await this.loadCodeFlow(); } catch {}
+          }
+          if (!has() && this.codeflow.reviewsOnly && this.codeflow.view === 'reviews') {
+            // Still not found and we were narrowing to my reviews — widen to all
+            // active PRs once before giving up and falling back to AzDO.
+            this.codeflow.view = 'active';
+            this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null;
             try { await this.loadCodeFlow(); } catch {}
           }
           // The PR isn't on the Code Flows page (e.g. it's closed/completed, so
@@ -18325,7 +18441,7 @@
           try { localStorage.setItem('active-board-id', id || ''); } catch {}
           this.syncBoardLayout();
           this.loadBoardCompliance(id);
-          this.$nextTick(() => this._scheduleBoardCanvasH());
+          this.$nextTick(() => { this._scheduleBoardCanvasH(); this.refreshBoardPinDetails(); });
         },
         // ---- Board team-compliance: a team-scoped board with out-of-team pins is
         // "blocked" until each offending item is migrated or removed. ----
@@ -18862,6 +18978,20 @@
             this.loadBoardPrs();
           }
         },
+        // Proactively refresh the run history for every task/assignment pin on the active
+        // board so cards and the Briefing's Sources reflect the latest runs without the
+        // user clicking Refresh. Called after data loads (refreshAll) and on board open.
+        // Force-reloads even when cached so a stale snapshot is replaced with the newest run.
+        refreshBoardPinDetails() {
+          const b = this.activeBoard();
+          const items = (b && Array.isArray(b.items)) ? b.items : [];
+          for (const item of items) {
+            if (item.kind === 'task' || item.kind === 'assignment') {
+              const t = this.allTasks().find(x => x.taskKey === item.refId);
+              if (t) this.loadTaskHistory(t);
+            }
+          }
+        },
         // Lazy-load the latest run/message for a pin, reusing the same data paths the
         // detail pages use (no new run plumbing). Safe to call again to refresh.
         async boardPinLoadDetail(item) {
@@ -18869,8 +18999,17 @@
           try {
             if (item.kind === 'task' || item.kind === 'assignment') {
               const t = this.allTasks().find(x => x.taskKey === item.refId);
-              if (t) await this.loadTaskHistory(t);
-              else this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
+              if (t) { if (this._pinDetailRetries) delete this._pinDetailRetries[item.refId]; await this.loadTaskHistory(t); }
+              else {
+                // The task list may not be loaded yet — board panels can x-init before
+                // refreshAll() populates data.managers/data.tasks. Don't poison the cache
+                // with an empty result (that would stick at "No run history yet" until a
+                // manual Refresh). Retry briefly until the task appears.
+                const tries = (this._pinDetailRetries || (this._pinDetailRetries = {}));
+                const n = tries[item.refId] || 0;
+                if (n < 12) { tries[item.refId] = n + 1; setTimeout(() => this.boardPinLoadDetail(item), 350); }
+                else this.taskHistoryCache = { ...this.taskHistoryCache, [item.refId]: [] };
+              }
             } else if (item.kind === 'flow') {
               await this.loadChainRuns(item.refId);
               const last = (this.chainRuns[item.refId] || [])[0];
@@ -19420,6 +19559,58 @@
           // The briefing bar sits above the tabbed canvas; collapsing/expanding it changes
           // the canvas top, so re-measure the fixed canvas height to keep the bar docked.
           if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
+        },
+        // The sources that fed the active board briefing: the resolved pinned items
+        // (excludes any flagged "off summary"), each carrying its own last-updated time
+        // (`when`). Sorted most-recent first by the server. Used to show per-source
+        // freshness under the briefing. The snapshot `when` is frozen at briefing time,
+        // so overlay the freshest known run/activity time from live caches — this keeps
+        // each source's timestamp current without forcing a manual briefing Update.
+        briefingSources() {
+          const s = this.activeBoard() && this.activeBoard().summary;
+          const items = (s && Array.isArray(s.items)) ? s.items : [];
+          return items.map(it => {
+            const live = this._briefSourceLiveWhen(it);
+            if (live && (!it.when || new Date(live) > new Date(it.when))) return { ...it, when: live };
+            return it;
+          });
+        },
+        // Freshest last-run / last-activity time for a briefing source, read from the
+        // same live data the board cards use. Returns null when nothing fresher is known.
+        _briefSourceLiveWhen(item) {
+          try {
+            const k = item.kind, id = item.refId;
+            if (k === 'task' || k === 'assignment') {
+              const r = (this.taskHistoryCache[id] || [])[0];
+              if (r) return r.finished_at || r.started_at || null;
+              const t = this.allTasks().find(x => x.taskKey === id);
+              const lr = t && t.lastRun; return lr ? (lr.finished_at || lr.started_at || null) : null;
+            }
+            if (k === 'agent') {
+              const a = (this.data.agents || []).find(x => x.id === id);
+              const lr = a && a.lastRun; return lr ? (lr.finished_at || lr.started_at || null) : null;
+            }
+            if (k === 'manager') {
+              const m = (this.data.managers || []).find(x => x.id === id);
+              const lr = m && m.lastRun; return lr ? (lr.finished_at || lr.started_at || null) : null;
+            }
+            if (k === 'flow') {
+              const c = (this.data.chains || []).find(x => x.id === id);
+              return c ? (c.lastRunAt || null) : null;
+            }
+            if (k === 'chat') {
+              const c = (this.data.chats || []).find(x => x.id === id);
+              return c ? (c.updatedAt || c.lastMessageAt || null) : null;
+            }
+          } catch {}
+          return null;
+        },
+        // The Sources list under the briefing is collapsed by default (it's a long, quiet
+        // reference). Persist the open/closed flag per board in the canvas store.
+        briefSourcesOpen() { return this.boardCanvas.sourcesOpen === true; },
+        toggleBriefSources() {
+          this.boardCanvas = { ...this.boardCanvas, sourcesOpen: !this.briefSourcesOpen() };
+          this._saveBoardCanvas();
         },
         // ----- Briefing guidance prompts -----
         // Per-board saved prompts that steer the "Where was I?" briefing. The active one's

@@ -1513,9 +1513,11 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     if (n && n !== creatorName && !isViewer(c.name, c.email)) { areaExpert = { name: c.name, commits: c.count }; break; }
   }
 
-  // Suggested reviewers: who else recently touched this PR's changed files.
+  // Suggested reviewers: who else recently touched this PR's changed files. This
+  // fans out one changed-files call + several blame/contributor calls per PR, so it
+  // is skipped in the broad "active" view (opts.lite) to keep that listing fast.
   let suggestedReviewers = [];
-  try {
+  if (!opts.lite) try {
     const files = await azdo.getPrChangedFiles(pr.org, pr.project, pr.repo, pr.id, 60);
     const pick = files.slice(0, 4);
     const perFile = await Promise.all(pick.map(p =>
@@ -1586,6 +1588,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     approvalState,
     readyToMerge: !!readyToMerge,
     myVote,
+    amReviewer: !!myReviewer,
     areaExpert,
     suggestedReviewers,
     devCard,
@@ -1595,7 +1598,10 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
 
 // Flag a PR as needing attention (drives the banner + menu badge).
 function _codeflowAttention(pr, view) {
-  if (view === 'reviews') {
+  if (view === 'reviews' || view === 'active') {
+    // In the broad "active" view, only PRs that actually list me as a reviewer can be
+    // "awaiting your review" — everyone else's PRs aren't my action item.
+    if (view === 'active' && !pr.amReviewer) return { attention: false, reason: '' };
     // Awaiting my review (I haven't voted) or I asked for changes and it moved on.
     if (!pr.myVote || pr.myVote === 'no-vote') return { attention: true, reason: 'awaiting-your-review' };
     if (pr.myVote === 'waiting-for-author' && pr.approvalState !== 'waiting-for-author')
@@ -1628,12 +1634,16 @@ async function _gatherCodeflow(view) {
     const me = userByOrg[r.org];
     if (!me || !me.id) { errors.push({ repo: r.repo, error: 'identity unavailable' }); return []; }
     try {
-      const filter = view === 'reviews' ? { reviewerId: me.id } : { creatorId: me.id };
+      // 'mine' → PRs I authored; 'reviews' → PRs that list me as a reviewer;
+      // 'active' → every open PR in the repo (no person filter — a broad listing).
+      const filter = view === 'reviews' ? { reviewerId: me.id }
+                   : view === 'active' ? { top: 100 }
+                   : { creatorId: me.id };
       const [prs, repoContributors] = await Promise.all([
         azdo.listPullRequests(r.org, r.project, r.repo, filter),
         azdo.getRepoContributors(r.org, r.project, r.repo).catch(() => [])
       ]);
-      const opts = { repoContributors, devCardIndex, viewerName: me.name, viewerEmail: me.email };
+      const opts = { repoContributors, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: view === 'active' };
       const enriched = await Promise.all(prs.map(async (pr) => {
         const e = await _enrichCodeflowPr(pr, me.id, opts);
         const a = _codeflowAttention(e, view);
@@ -1655,7 +1665,7 @@ async function _gatherCodeflow(view) {
 }
 
 app.get('/api/codeflow/pullrequests', async (req, res) => {
-  const view = req.query.view === 'reviews' ? 'reviews' : 'mine';
+  const view = (req.query.view === 'reviews' || req.query.view === 'active') ? req.query.view : 'mine';
   const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
   try {
     const cached = _codeflowCache.get(view);
@@ -1737,7 +1747,8 @@ function _parseCodeflowAi(text) {
   catch { return null; }
 }
 app.post('/api/codeflow/ai', async (req, res) => {
-  const view = (req.body && req.body.view) === 'reviews' ? 'reviews' : 'mine';
+  const bview = req.body && req.body.view;
+  const view = (bview === 'reviews' || bview === 'active') ? bview : 'mine';
   const refresh = !!(req.body && req.body.refresh);
   try {
     // Use cached view data if fresh, else gather it.
@@ -7659,14 +7670,19 @@ function _findTaskByRef(refId) {
   return tasks.find(x => x.id === rawId || ('task-' + x.id) === refId || x.id === refId) || null;
 }
 function _findAssignmentByRef(refId) {
-  const m = String(refId).match(/^assignment-(.+)-([^-]+)$/);
-  if (!m) return null;
-  const managerId = m[1], assignmentId = m[2];
-  const entry = managerAgent.managers.get(managerId);
-  if (!entry) return null;
-  const assignment = (entry.config.assignments || []).find(a => a.id === assignmentId);
-  if (!assignment) return null;
-  return { managerId, assignmentId, assignment, entry };
+  // refId is `assignment-<managerId>-<assignmentId>`. Both ids can contain hyphens,
+  // so a regex split is ambiguous — instead match against the real manager/assignment
+  // pairs and find the one whose composed key equals the refId.
+  const rid = String(refId);
+  if (!rid.startsWith('assignment-')) return null;
+  for (const [managerId, entry] of managerAgent.managers) {
+    for (const a of ((entry.config && entry.config.assignments) || [])) {
+      if (`assignment-${managerId}-${a.id}` === rid) {
+        return { managerId, assignmentId: a.id, assignment: a, entry };
+      }
+    }
+  }
+  return null;
 }
 function _chatTargetEmployeeOf(refId, kind) {
   let chatId = String(refId);
@@ -7966,10 +7982,14 @@ function _resolveBoardItems(b, opts = {}) {
         }
       } else if (it.kind === 'assignment') {
         route = '#/assignments/' + encodeURIComponent(it.refId);
-        const m = String(it.refId).match(/^assignment-(.+)-([^-]+)$/);
-        if (m) {
-          const managerId = m[1], assignmentId = m[2];
-          const runs = (managerAgent.getRunHistory(managerId, 20) || []).filter(r => !r.assignment_id || r.assignment_id === assignmentId);
+        const found = _findAssignmentByRef(it.refId);
+        if (found) {
+          const { managerId, assignmentId } = found;
+          const all = managerAgent.getRunHistory(managerId, 20) || [];
+          // Prefer runs stamped with this assignment; fall back to the latest
+          // manager run only when none are stamped (mirrors the client).
+          let runs = all.filter(r => r.assignment_id === assignmentId || r.assignmentId === assignmentId);
+          if (!runs.length) runs = all;
           const r0 = runs[0];
           if (r0) { when = r0.finished_at || r0.started_at || when; status = r0.status || (r0.error ? 'error' : 'success'); detail = clip(r0.result || r0.error || '', 240); context = clip(r0.result || r0.error || '', CTX_CLIP); }
         }
