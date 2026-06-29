@@ -43,6 +43,12 @@ const DEFAULTS = {
   // created. Empty = a short auto-chosen default (e.g. C:\a) to maximize Windows
   // MAX_PATH headroom. Set to any short directory to relocate all new worktrees.
   worktreeRoot: '',
+  // Master kill-switch for all OUTBOUND external-access subsystems: the Azure
+  // Service Bus event listener, the cloud relay poller, and mobile/phone command
+  // handling. When true, the server neither connects to Service Bus nor polls the
+  // relay, and the related connect/pair endpoints refuse. Local agents, schedules
+  // and the browser UI keep working — only the external bridges are severed.
+  externalAccessDisabled: false,
 };
 
 let cache = null;
@@ -72,7 +78,9 @@ function updateSettings(patch) {
   const next = { ...cur };
   for (const k of Object.keys(DEFAULTS)) {
     if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-      if (typeof DEFAULTS[k] === 'number') {
+      if (typeof DEFAULTS[k] === 'boolean') {
+        next[k] = typeof patch[k] === 'boolean' ? patch[k] : (patch[k] === 'true' || patch[k] === 1 || patch[k] === '1');
+      } else if (typeof DEFAULTS[k] === 'number') {
         const n = Number(patch[k]);
         next[k] = Number.isFinite(n) ? n : DEFAULTS[k];
       } else {
@@ -116,6 +124,12 @@ function getCostPerPremiumRequest() {
   return Number.isFinite(v) && v >= 0 ? v : DEFAULTS.costPerPremiumRequest;
 }
 
+// True when the master external-access kill-switch is engaged. Consulted by the
+// Service Bus event listener, relay poller and mobile/pairing endpoints.
+function isExternalAccessDisabled() {
+  return getSettings().externalAccessDisabled === true;
+}
+
 module.exports = {
   SETTINGS_PATH,
   DEFAULTS,
@@ -124,4 +138,5 @@ module.exports = {
   updateSettings,
   resolveModel,
   getCostPerPremiumRequest,
+  isExternalAccessDisabled,
 };

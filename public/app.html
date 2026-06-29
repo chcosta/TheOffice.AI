@@ -3840,6 +3840,24 @@
     .brief-source-link.no-route:hover { text-decoration: none; }
     .brief-source-type { flex: 0 0 auto; color: var(--cp-text-soft); font-size: 11px; white-space: nowrap; opacity: .85; }
     .brief-source-when { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 11px; white-space: nowrap; }
+    /* ----- Settings left-rail navigation ----- */
+    .settings-shell { display: flex; gap: 28px; align-items: flex-start; }
+    .settings-rail { flex: 0 0 196px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 12px; }
+    .settings-rail-link {
+      display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+      border-radius: 8px; border-left: 3px solid transparent;
+      color: var(--cp-text-muted); text-decoration: none; font-size: 0.92rem; cursor: pointer;
+    }
+    .settings-rail-link:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .settings-rail-link.active { color: var(--cp-text); font-weight: 600; border-left-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .settings-rail-ico { font-size: 1rem; width: 1.3em; text-align: center; flex: 0 0 auto; }
+    .settings-pane { flex: 1 1 auto; min-width: 0; max-width: 760px; }
+    @media (max-width: 760px) {
+      .settings-shell { flex-direction: column; }
+      .settings-rail { flex-direction: row; flex-wrap: wrap; position: static; flex-basis: auto; gap: 4px; }
+      .settings-rail-link { border-left: 0; border-bottom: 3px solid transparent; }
+      .settings-rail-link.active { border-left: 0; border-bottom-color: var(--cp-accent); }
+    }
     /* ----- Fullscreen board "focus" mode ----- */
     /* The active board is lifted out of the normal flow and made to fill the whole
        window, hiding the sidebar / topbar / other page chrome behind it. It's a flex
@@ -9078,7 +9096,12 @@
                       <span class="status-badge" :class="statusClass(opDetail().status)" x-text="statusLabel(opDetail().status)"></span>
                       <span class="status-badge success" x-show="opLive()?.active">● live</span>
                     </div>
-                    <p x-text="opDetail().ownerName + ' • ' + opDetail().scheduleSummary"></p>
+                    <p>
+                      <template x-if="opDetail().type === 'assignment' && opDetail().managerId"><a href="#" @click.prevent="goTo('#/managers/' + encodeURIComponent(opDetail().managerId))" style="color:var(--cp-link)" :title="'Open ' + opDetail().ownerName" x-text="opDetail().ownerName"></a></template>
+                      <template x-if="opDetail().type === 'agent' && opDetail().agentId"><a href="#" @click.prevent="goTo('#/agents/' + encodeURIComponent(opDetail().agentId))" style="color:var(--cp-link)" :title="'Open ' + opDetail().ownerName" x-text="opDetail().ownerName"></a></template>
+                      <template x-if="!((opDetail().type === 'assignment' && opDetail().managerId) || (opDetail().type === 'agent' && opDetail().agentId))"><span x-text="opDetail().ownerName"></span></template>
+                      <span x-text="' • ' + opDetail().scheduleSummary"></span>
+                    </p>
                   </div>
                   <div class="toolbar">
                     <button class="btn" type="button" @click="openQuickPin(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().ownerName)" title="Pin to board">📌</button>
@@ -9542,12 +9565,42 @@
               </div>
             </div>
 
-            <!-- Settings sub-page tabs -->
-            <div class="filter-pills" style="margin-bottom:18px">
-              <button class="pill" type="button" :class="{ active: route === 'settings' }" @click="goTo('#/settings')">General</button>
-              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">🌐 External</button>
+            <div class="settings-shell">
+              <nav class="settings-rail">
+                <template x-for="s in settingsNav()" :key="s.id">
+                  <a href="#" @click.prevent="goTo(s.hash)" class="settings-rail-link" :class="{ active: settingsCatActive(s.id) }">
+                    <span class="settings-rail-ico" x-text="s.ico"></span>
+                    <span x-text="s.label"></span>
+                  </a>
+                </template>
+              </nav>
+              <div class="settings-pane">
+
+            <!-- External Access kill-switch (always visible so access can be restored) -->
+            <div class="card" style="margin-bottom:20px" :style="externalAccessDisabled ? 'border-left:3px solid var(--cp-danger)' : ''">
+              <div style="display:flex;align-items:flex-start;gap:16px;justify-content:space-between;flex-wrap:wrap">
+                <div style="flex:1 1 320px;min-width:0">
+                  <h3 style="margin-bottom:12px">🔌 External Access</h3>
+                  <p class="hint" style="margin-bottom:6px">Master switch for everything that reaches <strong>outside this machine</strong>: the Azure <strong>Service Bus</strong> event listener, the cloud <strong>relay poller</strong>, and the <strong>mobile / phone</strong> command bridge.</p>
+                  <p class="hint" style="margin-bottom:0">When disabled, the server stops polling the relay, disconnects Service Bus, and refuses connect/pair requests. Your local agents, schedules, boards and the browser UI keep working — only the external bridges are severed. Takes effect immediately; no restart.</p>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto">
+                  <span class="hint" x-text="externalAccessDisabled ? 'Disabled' : 'Enabled'"></span>
+                  <label class="toggle-switch" :title="externalAccessDisabled ? 'Enable external access' : 'Disable external access'">
+                    <input type="checkbox" :checked="!externalAccessDisabled" :disabled="externalAccessBusy" @change="toggleExternalAccess()" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
             </div>
 
+            <!-- Disabled notice -->
+            <div class="card" x-show="externalAccessDisabled" style="margin-bottom:20px;border-left:3px solid var(--cp-danger)">
+              <p class="hint" style="margin:0">⛔ External access is currently <strong>disabled</strong>, so the Service Bus, mobile relay and connection settings are hidden. Enable the switch above to manage them.</p>
+            </div>
+
+            <!-- Deep external configuration (only reachable while access is enabled) -->
+            <div x-show="!externalAccessDisabled">
             <!-- Status Banner -->
             <div class="card" style="margin-bottom:20px">
               <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
@@ -9829,6 +9882,10 @@
                 </template>
               </div>
             </div>
+            </div><!-- /deep external config (!externalAccessDisabled) -->
+
+              </div><!-- /settings-pane -->
+            </div><!-- /settings-shell -->
           </section>
 
           <!-- Settings Page -->
@@ -9840,13 +9897,19 @@
               </div>
             </div>
 
-            <!-- Settings sub-page tabs -->
-            <div class="filter-pills" style="margin-bottom:18px">
-              <button class="pill" type="button" :class="{ active: route === 'settings' }" @click="goTo('#/settings')">General</button>
-              <button class="pill" type="button" :class="{ active: route === 'events' }" @click="goTo('#/events')">🌐 External</button>
-            </div>
+            <div class="settings-shell">
+              <nav class="settings-rail">
+                <template x-for="s in settingsNav()" :key="s.id">
+                  <a href="#" @click.prevent="goTo(s.hash)" class="settings-rail-link" :class="{ active: settingsCatActive(s.id) }">
+                    <span class="settings-rail-ico" x-text="s.ico"></span>
+                    <span x-text="s.label"></span>
+                  </a>
+                </template>
+              </nav>
+              <div class="settings-pane">
 
-            <!-- Appearance Section -->
+            <!-- ===== Appearance category ===== -->
+            <div x-show="settingsCat === 'appearance'">
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">🎨 Appearance</h3>
               <p class="hint" style="margin-bottom:14px">Choose how the dashboard looks. "System" follows your operating system setting.</p>
@@ -9907,6 +9970,10 @@
               </div>
             </div>
 
+            </div><!-- /appearance category -->
+
+            <!-- ===== AI & Behavior category ===== -->
+            <div x-show="settingsCat === 'ai'">
             <!-- Chat Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">💬 Chat</h3>
@@ -9958,6 +10025,10 @@
               <p class="hint" x-show="modelsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
+            </div><!-- /ai category -->
+
+            <!-- ===== Integrations category ===== -->
+            <div x-show="settingsCat === 'integrations'">
             <!-- Default Export Repository Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">⤴ Default Export Repository</h3>
@@ -10044,6 +10115,10 @@
               <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
+            </div><!-- /integrations category -->
+
+            <!-- ===== Sync & Machines category ===== -->
+            <div x-show="settingsCat === 'sync'">
             <!-- Cloud Sync Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">☁️ Cloud Sync</h3>
@@ -10176,6 +10251,10 @@
               <div x-show="machinesMsg" style="margin-top:8px;font-size:0.85rem;color:var(--cp-text-muted)" x-text="machinesMsg"></div>
             </div>
 
+            </div><!-- /sync category -->
+
+            <!-- ===== About category ===== -->
+            <div x-show="settingsCat === 'about'">
             <!-- System Info -->
             <div class="card" style="margin-top:24px">
               <h2 style="font-size:1rem;margin-bottom:12px">System Info</h2>
@@ -10192,6 +10271,10 @@
               <div class="help-row" style="margin-top:10px"><span>Command palette navigation</span><span class="kbd">↑ ↓ Enter</span></div>
               <div class="help-row" style="margin-top:10px"><span>Close overlays</span><span class="kbd">Esc</span></div>
             </div>
+            </div><!-- /about category -->
+
+              </div><!-- /settings-pane -->
+            </div><!-- /settings-shell -->
           </section>
 
           <!-- Marketplace -->
@@ -13038,6 +13121,9 @@
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
+        externalAccessDisabled: false,
+        externalAccessBusy: false,
+        settingsCat: 'appearance',
         exportSettingsRepos: [],
         exportSettingsBranches: [],
         exportSettingsLoadingRepos: false,
@@ -13136,6 +13222,7 @@
           await this.refreshAll();
           this.loadModels();
           this.connectEvents();
+          this.loadExternalAccessFlag();
           setInterval(() => { this.now = Date.now(); }, 1000);
           // Code Flow attention badge — best-effort + lazy so it never blocks startup,
           // then refreshed periodically to keep the menu badge live.
@@ -13821,6 +13908,8 @@
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
+            const cats = ['appearance', 'ai', 'integrations', 'sync', 'about'];
+            this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
             this.loadModelSettings();
@@ -14631,7 +14720,7 @@
             home,
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
-            { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.total || 0, attnTitle: 'Pull requests needing your attention' },
+            { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
             watercooler,
             ...globalZone
           ];
@@ -15960,6 +16049,7 @@
               };
               this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '', worktreeRoot: s.worktreeRoot || '' };
               this._devSettingsLoaded = true;
+              this.externalAccessDisabled = s.externalAccessDisabled === true;
               // Pre-populate the repo/branch pickers when a default org+project exist
               // so they're immediately editable on revisit (silent: no error toast).
               if (this.exportSettings.exportOrg.trim() && this.exportSettings.exportProject.trim()) {
@@ -15967,6 +16057,50 @@
               }
             }
           } catch {}
+        },
+        // Lightweight early load of just the external-access flag so the route
+        // guard + External tab visibility are correct before the Settings page is
+        // ever opened. Best-effort; silent on failure.
+        async loadExternalAccessFlag() {
+          try {
+            const s = await this.request('/api/settings');
+            if (s) this.externalAccessDisabled = s.externalAccessDisabled === true;
+          } catch {}
+        },
+        // Settings left-rail categories. The "External Access" item routes to the
+        // dedicated #/events page (which shares this rail), so it always stays
+        // reachable — it houses the kill-switch needed to re-enable access.
+        settingsNav() {
+          return [
+            { id: 'appearance', label: 'Appearance', ico: '🎨', hash: '#/settings/appearance' },
+            { id: 'ai', label: 'AI & Behavior', ico: '🧠', hash: '#/settings/ai' },
+            { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
+            { id: 'sync', label: 'Sync & Machines', ico: '☁️', hash: '#/settings/sync' },
+            { id: 'external', label: 'External Access', ico: '🌐', hash: '#/events' },
+            { id: 'about', label: 'About', ico: 'ℹ️', hash: '#/settings/about' },
+          ];
+        },
+        settingsCatActive(id) {
+          if (this.route === 'events') return id === 'external';
+          return this.route === 'settings' && this.settingsCat === id;
+        },
+        // Master kill-switch for all outbound external-access subsystems (Azure
+        // Service Bus event listener, cloud relay poller, mobile/phone bridge).
+        // Persists server-side and takes effect immediately — no restart.
+        async toggleExternalAccess() {
+          const next = !this.externalAccessDisabled;
+          this.externalAccessBusy = true;
+          try {
+            const saved = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify({ externalAccessDisabled: next }) });
+            this.externalAccessDisabled = saved ? (saved.externalAccessDisabled === true) : next;
+            this.showToast('External access', this.externalAccessDisabled
+              ? 'Disabled — Service Bus, relay and mobile bridges are severed.'
+              : 'Enabled — relay poller running; Service Bus available on connect.', this.externalAccessDisabled ? 'info' : 'success');
+          } catch (err) {
+            this.showToast('External access', 'Could not update: ' + err.message, 'error');
+          } finally {
+            this.externalAccessBusy = false;
+          }
         },
         async saveExportSettings() {
           this.exportSettingsSaved = false;

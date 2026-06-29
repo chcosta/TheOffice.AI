@@ -6239,7 +6239,13 @@ app.get('/api/settings', (req, res) => {
 // Update the global settings. Body may include chatModel/executionModel/systemModel.
 app.put('/api/settings', (req, res) => {
   try {
+    const before = settings.isExternalAccessDisabled();
     const next = settings.updateSettings(req.body || {});
+    // If the external-access kill-switch flipped, apply it to the live subsystems
+    // (relay poller + Service Bus) immediately — no restart required.
+    if (settings.isExternalAccessDisabled() !== before) {
+      Promise.resolve(applyExternalAccessState()).catch(e => console.warn('[external-access] apply failed:', e.message));
+    }
     // Persist into this machine's cloud config too, if sync is on and we lead.
     try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
     res.json(next);
@@ -11885,6 +11891,9 @@ app.put('/api/events/config', express.json(), async (req, res) => {
 });
 
 app.post('/api/events/connect', async (req, res) => {
+  if (settings.isExternalAccessDisabled()) {
+    return res.json({ ok: false, error: 'External access is disabled in Settings. Re-enable it to connect to Service Bus.' });
+  }
   try {
     await eventListener.connect();
     res.json({ ok: true });
@@ -11903,6 +11912,9 @@ app.post('/api/events/disconnect', async (req, res) => {
 });
 
 app.post('/api/events/test-connection', express.json(), async (req, res) => {
+  if (settings.isExternalAccessDisabled()) {
+    return res.json({ ok: false, error: 'External access is disabled in Settings.' });
+  }
   const { connectionString, namespace, queueName } = req.body;
   if ((!connectionString && !namespace) || !queueName) {
     return res.json({ ok: false, error: 'Connection string (or namespace) and queue name are required' });
@@ -11934,6 +11946,9 @@ app.post('/api/events/test-connection', express.json(), async (req, res) => {
 
 // Generate a mobile device pairing payload for a user
 app.post('/api/events/pair-device', express.json(), async (req, res) => {
+  if (settings.isExternalAccessDisabled()) {
+    return res.json({ ok: false, error: 'External access is disabled in Settings. Re-enable it to pair a mobile device.' });
+  }
   const { userId } = req.body;
   if (!userId) return res.json({ ok: false, error: 'userId is required' });
   
@@ -12278,6 +12293,8 @@ function _recordRelayDevice(deviceId, type) {
 }
 
 async function pollRelay() {
+  // Master kill-switch: when external access is disabled, never reach the relay.
+  if (settings.isExternalAccessDisabled()) return;
   relayStatus.lastPollAt = new Date().toISOString();
   try {
     // Identify ourselves so the relay hands us messages addressed to this
@@ -12387,12 +12404,37 @@ async function pollRelay() {
 
 function startRelayPoller() {
   if (relayPollerInterval) return;
+  if (settings.isExternalAccessDisabled()) {
+    console.log('[relay-poller] External access disabled — relay poller not started.');
+    return;
+  }
   console.log(`[relay-poller] Polling relay at ${RELAY_URL} every 3s`);
   relayPollerInterval = setInterval(pollRelay, 3000);
   pollRelay(); // immediate first poll
 }
 
-// Start the relay poller
+function stopRelayPoller() {
+  if (!relayPollerInterval) return;
+  clearInterval(relayPollerInterval);
+  relayPollerInterval = null;
+  console.log('[relay-poller] Stopped.');
+}
+
+// Apply the external-access kill-switch to the live subsystems. Called on startup
+// and whenever the setting is toggled via PUT /api/settings.
+async function applyExternalAccessState() {
+  const disabled = settings.isExternalAccessDisabled();
+  if (disabled) {
+    stopRelayPoller();
+    try { if (eventListener.connected) await eventListener.disconnect(); } catch (e) { console.warn('[external-access] disconnect failed:', e.message); }
+    console.log('[external-access] DISABLED — Service Bus + relay/mobile severed.');
+  } else {
+    startRelayPoller();
+    console.log('[external-access] ENABLED — relay poller running; Service Bus available on connect.');
+  }
+}
+
+// Start the relay poller (respects the external-access kill-switch internally)
 startRelayPoller();
 
 // SPA catch-all: serve app.html for any non-API route (must be last)
