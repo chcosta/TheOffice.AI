@@ -7281,9 +7281,14 @@ app.post('/api/boards/:id/items', (req, res) => {
   // without a live AzDo lookup. Stored as-is and preserved by _normalizeBoard.
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
     const m = {};
-    for (const k of ['org', 'project', 'repo', 'prId', 'url', 'view', 'title']) {
+    for (const k of ['org', 'project', 'repo', 'prId', 'url', 'view', 'title', 'role', 'ts']) {
       if (meta[k] != null) m[k] = String(meta[k]);
     }
+    // Comment pins snapshot the full message body so each pin renders ITS OWN
+    // text — never re-resolved by a fragile timestamp match that could collapse
+    // two distinct comment pins to the chat's latest message. Capped to keep
+    // boards.json lean.
+    if (meta.content != null) m.content = String(meta.content).slice(0, 8000);
     if (Object.keys(m).length) item.meta = m;
   }
   b.items.unshift(item);

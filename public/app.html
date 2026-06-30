@@ -19114,7 +19114,11 @@
           const refId = this.activeChat.id + '~' + (message.timestamp || '');
           const who = message.role === 'user' ? 'You' : (this.activeChat.targetName || this.activeChat.target || 'Agent');
           const sub = (this.activeChat.title || 'Chat') + ' · ' + who;
-          this.openQuickPin('comment', refId, snippet, sub);
+          this.openQuickPin('comment', refId, snippet, sub, {
+            content: message.content || '',
+            role: message.role || '',
+            ts: message.timestamp || ''
+          });
         },
         boardJump(item) {
           // CLI sessions resume directly in a terminal rather than opening the list page.
@@ -19318,9 +19322,17 @@
           const stamp = this._commentStamp(item.refId);
           const chat = this.boardChatCache[chatId];
           const msgs = (chat && chat.messages) || [];
-          if (!msgs.length) return null;
+          // Prefer a live exact match (keeps the full/edited text fresh)…
           if (stamp) { const m = msgs.find(x => String(x.timestamp) === String(stamp)); if (m) return m; }
-          return msgs[msgs.length - 1];
+          // …else fall back to the snapshot captured at pin time so each pin shows
+          // ITS OWN message. Never collapse to the chat's latest message — that made
+          // two distinct comment pins render identical bodies.
+          const meta = item.meta || {};
+          if (meta.content) return { role: meta.role || 'assistant', content: meta.content, timestamp: meta.ts || stamp || '' };
+          // Legacy pins (no snapshot): only safe to use the latest message when there
+          // is no stamp to disambiguate; with a stamp, an unmatched message is missing.
+          if (!stamp && msgs.length) return msgs[msgs.length - 1];
+          return null;
         },
         // ----- Phase 3: checklist items that reference / run a board pin -----
         // Kinds that can be executed directly from a checklist item. Others
