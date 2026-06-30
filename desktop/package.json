@@ -1,0 +1,15 @@
+{
+  "name": "theoffice-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tauri desktop shell for TheOffice.AI — spawns the Node server as a sidecar and loads its localhost UI.",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icon": "tauri icon icon-source.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
