@@ -4437,12 +4437,16 @@ async function computeUpdateStatus(entry) {
     try {
       let current = null;
       if (s.kind === 'plugin') {
+        // fresh.objectId is now a composite signature over all plugin files
+        // (see azdo.pluginSignature), so any file change is detected.
         try {
           const items = await azdo.discover(s.org, s.project, s.repo, s.branch);
           const fresh = items.find(it => it.kind === 'plugin' && it.path === s.path);
           current = (fresh && fresh.objectId) || null;
         } catch {}
-        if (!current) current = await azdo.getObjectId(s.org, s.project, s.repo, s.branch, s.path + '/plugin.json');
+        // No plugin.json-only fallback: comparing a single blob against the
+        // composite would mis-report. If discovery fails we treat it as
+        // indeterminate (upToDate) rather than nag with a false positive.
       } else {
         current = await azdo.getObjectId(s.org, s.project, s.repo, s.branch, s.path);
       }

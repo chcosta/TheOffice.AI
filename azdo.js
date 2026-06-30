@@ -14,6 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execSync } = require('child_process');
 
 // Well-known Azure DevOps application (resource) ID for AAD tokens.
@@ -204,6 +205,21 @@ function titleCase(id) {
 const AGENT_RE = /(^|\/)\.github\/agents\/([^/]+)\.md$/i;
 const PLUGIN_JSON_RE = /(^|\/)\.github\/plugin\/([^/]+)\/plugin\.json$/i;
 
+// A plugin is a multi-file artifact (plugin.json + agents/, skills/, .mcp.json,
+// configs, scripts…). Fingerprinting only plugin.json's blob misses changes to
+// any other file, so updates to agent prompts/tools went undetected. This
+// returns a stable composite signature over EVERY file's git objectId so a
+// change to any file in the plugin flips the signature.
+function pluginSignature(files) {
+  const list = Array.isArray(files) ? files : [];
+  if (!list.length) return null;
+  const lines = list
+    .map(f => `${f.path}:${f.objectId || ''}`)
+    .sort()
+    .join('\n');
+  return crypto.createHash('sha1').update(lines).digest('hex');
+}
+
 // ---- Discovery -----------------------------------------------------------
 
 async function discover(org, project, repo, branch) {
@@ -255,7 +271,10 @@ async function discover(org, project, repo, branch) {
       description: pj.description || '',
       version: pj.version || '',
       path: pluginRoot,
-      objectId: it.objectId,
+      // Composite of all files in the plugin, so updates to any file (agents,
+      // skills, .mcp.json, configs) are detected — not just plugin.json edits.
+      objectId: pluginSignature(files) || it.objectId,
+      pluginJsonObjectId: it.objectId,
       hasMcp,
       files
     });
@@ -925,6 +944,7 @@ module.exports = {
   listRepos,
   listBranches,
   discover,
+  pluginSignature,
   getTree,
   getFileText,
   materializeAgent,
