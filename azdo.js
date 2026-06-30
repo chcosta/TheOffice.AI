@@ -518,8 +518,96 @@ async function getWorkItem(org, project, id) {
     state: f['System.State'] || '',
     type: f['System.WorkItemType'] || '',
     assignedTo: assigned ? (assigned.displayName || assigned.uniqueName || '') : '',
+    // Additive fields (other callers ignore these) — used to ground a generated
+    // standup agent's persona in the real epic.
+    areaPath: f['System.AreaPath'] || '',
+    iterationPath: f['System.IterationPath'] || '',
+    tags: f['System.Tags'] || '',
+    description: f['System.Description'] || '',
     url: workItemUrl(org, project, id)
   };
+}
+
+// Search Epics (and DNCEng Epics) in a project by title substring. Returns a
+// compact list for the standup-agent Epic picker. WIQL only returns IDs, so we
+// fetch fields for the top matches via the batch endpoint. Never throws on an
+// empty result; bubbles auth/permission errors from apiSend.
+const EPIC_TYPES = ['Epic', 'DNCEng Epic'];
+async function searchEpics(org, project, text, { top = 25 } = {}) {
+  const q = String(text || '').trim().replace(/'/g, "''");
+  const typeClause = EPIC_TYPES.map(t => `[System.WorkItemType] = '${t}'`).join(' OR ');
+  let where = `(${typeClause})`;
+  if (q) where += ` AND [System.Title] CONTAINS '${q}'`;
+  const wiql = `SELECT [System.Id] FROM WorkItems WHERE ${where} ORDER BY [System.ChangedDate] DESC`;
+  const res = await apiSend(org, `${seg(project)}/_apis/wit/wiql?api-version=${API_VERSION}`, {
+    method: 'POST', body: { query: wiql }, contentType: 'application/json'
+  });
+  const ids = (res.workItems || []).map(w => w.id).filter(Boolean).slice(0, top);
+  if (!ids.length) return [];
+  const batch = await apiSend(org, `${seg(project)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`, {
+    method: 'POST',
+    body: {
+      ids,
+      fields: ['System.Id', 'System.Title', 'System.State', 'System.WorkItemType', 'System.AssignedTo', 'System.AreaPath']
+    },
+    contentType: 'application/json'
+  });
+  const order = new Map(ids.map((id, i) => [id, i]));
+  return (batch.value || [])
+    .map(d => {
+      const f = d.fields || {};
+      const assigned = f['System.AssignedTo'];
+      return {
+        id: d.id,
+        title: f['System.Title'] || '',
+        state: f['System.State'] || '',
+        type: f['System.WorkItemType'] || '',
+        areaPath: f['System.AreaPath'] || '',
+        assignedTo: assigned ? (assigned.displayName || assigned.uniqueName || '') : '',
+        url: workItemUrl(org, project, d.id)
+      };
+    })
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
+// Fetch the discussion comments on a work item, newest first, as plain text.
+// The work-item *fields* (title/state/assignedTo) are only the headline — the real
+// up-to-date status (decisions, blockers, "moved to X because…", carry-forward
+// context) lives in the comment thread. Comment bodies are HTML, so they're
+// flattened to readable text. Returns { count, comments:[{id, author, date, text}] }
+// ordered newest→oldest and capped at `top`. Never throws on an empty/locked
+// thread; bubbles auth errors from apiSend. Uses the preview comments API.
+async function getWorkItemComments(org, project, id, { top = 20 } = {}) {
+  let d;
+  try {
+    d = await apiSend(org, `${seg(project)}/_apis/wit/workItems/${seg(id)}/comments?$top=${Math.max(1, Math.min(200, top))}&api-version=7.1-preview.4`);
+  } catch (_) {
+    // Older collections / restricted threads — treat as no comments rather than fail.
+    return { count: 0, comments: [] };
+  }
+  const all = Array.isArray(d.comments) ? d.comments : [];
+  const flatten = (html) => String(html || '')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const comments = all
+    .map(c => {
+      const by = c.createdBy || c.modifiedBy || {};
+      return {
+        id: c.id,
+        author: by.displayName || by.uniqueName || '',
+        date: c.createdDate || c.modifiedDate || '',
+        text: flatten(c.text)
+      };
+    })
+    .filter(c => c.text)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+    .slice(0, top);
+  return { count: typeof d.totalCount === 'number' ? d.totalCount : all.length, comments };
 }
 
 // Move a work item to a new state (e.g. "In PR"). Uses a JSON-Patch PATCH.
@@ -961,6 +1049,9 @@ module.exports = {
   workItemUrl,
   pullRequestUrl,
   getWorkItem,
+  getWorkItemComments,
+  searchEpics,
+  EPIC_TYPES,
   getPrWorkItems,
   updateWorkItemState,
   getPullRequest

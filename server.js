@@ -19,6 +19,7 @@ const agentPackage = require('./agentPackage');
 const agentExport = require('./agentExport');
 const marketplace = require('./marketplace');
 const marketplaceDesign = require('./marketplace-design');
+const standupAgent = require('./standupAgent');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
 // repo. The repo only ships built-in plugin seeds in builtin-plugins/.
@@ -3828,7 +3829,109 @@ app.post('/api/agents', (req, res) => {
   res.json({ ok: true });
 });
 
-// Compute everything that references an agent so we can warn before deletion
+// ---- Standup agent generator -------------------------------------------
+// "Create Standup Agent": pick an Epic (or DNCEng Epic), generate a standup
+// facilitator persona rooted at that epic, register it as an employee, and wire
+// the scriptedai AzDo MCPs so it can read/write work items at runtime. The
+// generated agent is exportable to AzDo via the existing export flow.
+const STANDUP_AGENTS_DIR = path.join(path.dirname(AGENTS_PATH), 'standup-agents');
+const STANDUP_MCP_SERVERS = {
+  'scriptedai-mcp-azdo': { command: 'scriptedai-mcp-azdo', args: [], env: {} },
+  'scriptedai-mcp-devtools': { command: 'scriptedai-mcp-devtools', args: [], env: {} }
+};
+
+function isEpicType(t) {
+  return standupAgent && (azdo.EPIC_TYPES || ['Epic', 'DNCEng Epic'])
+    .some(x => x.toLowerCase() === String(t || '').trim().toLowerCase());
+}
+
+// Search Epics by title within an org/project.
+app.get('/api/standup/epics', async (req, res) => {
+  const org = (req.query.org || '').trim();
+  const project = (req.query.project || '').trim();
+  const q = (req.query.q || '').trim();
+  if (!org || !project) return res.status(400).json({ error: 'org and project are required' });
+  try {
+    const items = await azdo.searchEpics(org, project, q);
+    res.json({ items });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Validate / fetch a single Epic by id (manual-entry fallback).
+app.get('/api/standup/epic', async (req, res) => {
+  const org = (req.query.org || '').trim();
+  const project = (req.query.project || '').trim();
+  const id = (req.query.id || '').trim();
+  if (!org || !project || !id) return res.status(400).json({ error: 'org, project and id are required' });
+  try {
+    const wi = await azdo.getWorkItem(org, project, id);
+    if (!isEpicType(wi.type)) {
+      return res.status(400).json({ error: `Work item #${id} is a "${wi.type}", not an Epic. Pick an Epic or DNCEng Epic.` });
+    }
+    res.json({ epic: wi });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Create a standup agent from a picked epic.
+app.post('/api/standup-agents', async (req, res) => {
+  const org = (req.body.org || '').trim();
+  const project = (req.body.project || '').trim();
+  const epicId = (req.body.epicId || '').toString().trim();
+  if (!org || !project || !epicId) {
+    return res.status(400).json({ error: 'org, project and epicId are required' });
+  }
+  try {
+    // Re-fetch the epic server-side (don't trust client-supplied fields) and
+    // enforce the type gate.
+    const epic = await azdo.getWorkItem(org, project, epicId);
+    if (!isEpicType(epic.type)) {
+      return res.status(400).json({ error: `Work item #${epicId} is a "${epic.type}", not an Epic. Pick an Epic or DNCEng Epic.` });
+    }
+
+    const slug = standupAgent.standupSlug(epic);
+    const displayName = standupAgent.standupDisplayName(epic);
+    const description = standupAgent.standupDescription(epic);
+    const cwd = path.join(STANDUP_AGENTS_DIR, slug);
+    const agentsDir = path.join(cwd, '.github', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    const md = standupAgent.buildStandupAgentMd({ org, project, epic });
+    fs.writeFileSync(path.join(agentsDir, `${slug}.agent.md`), md);
+
+    // Wire the AzDo MCP servers via the overlay so the agent can read/write
+    // work items at runtime (project agents don't auto-wire MCP).
+    for (const [name, cfg] of Object.entries(STANDUP_MCP_SERVERS)) {
+      try { capabilities.attachMcp(slug, name, cfg); } catch (e) {
+        console.warn(`[standup] could not wire ${name}:`, e.message);
+      }
+    }
+
+    const config = {
+      id: slug,
+      name: displayName,
+      cwd,
+      agent: displayName,
+      schedule: 'never',
+      durable: true,
+      group: 'Standup',
+      description,
+      source: { type: 'standup', org, project, epicId: epic.id, epicType: epic.type, epicTitle: epic.title }
+    };
+
+    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
+    const existing = agents.findIndex(a => a.id === config.id);
+    if (existing >= 0) agents[existing] = config; else agents.push(config);
+    fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+    supervisor.register(config);
+
+    res.json({ ok: true, agent: config });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 // and cascade-clean afterwards. Managers keep the agent id in their `team`
 // array; tasks reference it via `agentId`; flows reference it indirectly via a
 // step's task, or directly via an AI edge condition's `agentId`.
@@ -8656,12 +8759,28 @@ app.get('/api/boards/:id/dev-items/:devId/commits', (req, res) => {
 // `repos` is the unified slot list, each entry { slot, pr, git, diff } — so a card
 // that spans multiple repos (primary + d.repos[]) is summarized across ALL of them,
 // each with its own PR, reviewer votes, branch sync state, and diff hunks.
-function _buildDevSummaryPrompt(d, { wi, repos } = {}) {
+function _buildDevSummaryPrompt(d, { wi, wiComments, repos } = {}) {
   const list = Array.isArray(repos) ? repos.filter(Boolean) : [];
   const multi = list.length > 1;
   const ctxLines = [];
   ctxLines.push(`Dev card: ${d.title || d.repo}`);
   if (wi) ctxLines.push(`Work item #${wi.id} [${wi.type}] "${wi.title}" — state: ${wi.state}${wi.assignedTo ? ', assigned: ' + wi.assignedTo : ''}`);
+  // Recent work-item discussion: the headline fields rarely capture the live status,
+  // so surface the most recent comments (newest first) as primary status signal.
+  const comments = (wiComments && Array.isArray(wiComments.comments)) ? wiComments.comments : [];
+  if (comments.length) {
+    ctxLines.push('');
+    ctxLines.push(`Work item discussion — ${comments.length} most recent comment${comments.length === 1 ? '' : 's'} (newest first; the latest reflects the CURRENT status):`);
+    let budget = 4000;
+    for (const c of comments) {
+      if (budget <= 0) break;
+      const when = c.date ? new Date(c.date).toISOString().slice(0, 10) : '';
+      const body = String(c.text || '').slice(0, 700);
+      const line = `  • ${c.author || 'someone'}${when ? ' (' + when + ')' : ''}: ${body}`;
+      ctxLines.push(line);
+      budget -= line.length;
+    }
+  }
   if (multi) ctxLines.push(`This work spans ${list.length} repositories — each has its own PR / branch / diff below.`);
   // Per-repo diff slice: keep the whole prompt bounded regardless of repo count.
   const diffCap = multi ? 18000 : 32000;
@@ -8706,7 +8825,7 @@ function _buildDevSummaryPrompt(d, { wi, repos } = {}) {
     : 'You are given an Azure DevOps work item, its pull request (including reviewer votes), and the local git worktree with the ACTUAL git diff hunks of what changed (committed vs base, plus staged/unstaged edits).';
   return [
     'You are a dev-work status summarizer. You are given the COMPLETE current state of one piece of work. ' + spanNote + ' Reason directly over that real data. Write a SHORT status briefing (2–4 sentences of plain prose) that tells the developer, at a glance: what this work actually changes, where it truly stands, and what is left to do next.',
-    'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. Ground the status in the real signals: PR lifecycle, reviewer votes, mergeability, and the branch sync/dirty state. If the PR is in draft, has conflicts, is awaiting a required reviewer, or the branch is behind origin or dirty, call that out as the next action. If everything is approved and clean, say it looks ready to merge. If the diff is truncated, base your "what changed" on the hunks you can see plus the file stat. If there is nothing actionable, say so. No preamble, no headings, no surrounding quotes.',
+    'Reason about the diff content: summarize WHAT the changes do (e.g. "adds X validation", "refactors the Y handler", "wires up the Z endpoint"), not just which files were touched. Ground the status in the real signals: PR lifecycle, reviewer votes, mergeability, and the branch sync/dirty state. If a "Work item discussion" section is present, treat the MOST RECENT comments as authoritative for the current status, blockers, and decisions (they often explain a state change or what is being waited on) — reconcile them with the PR/git signals and prefer the comment thread when it is more current than the work-item state field. If the PR is in draft, has conflicts, is awaiting a required reviewer, or the branch is behind origin or dirty, call that out as the next action. If everything is approved and clean, say it looks ready to merge. If the diff is truncated, base your "what changed" on the hunks you can see plus the file stat. If there is nothing actionable, say so. No preamble, no headings, no surrounding quotes.',
     multi
       ? 'Because this work spans multiple repositories, synthesize ONE cohesive cross-repo status — describe what the change set does as a whole, and call out per-repo blockers where they differ (e.g. "the server PR is approved but the client PR is still in draft"). Only say the whole thing looks ready to merge when EVERY repo\'s PR is mergeable/approved and its branch is clean; if any single repo is blocked, the overall next action is that repo.'
       : '',
@@ -8724,9 +8843,15 @@ function _buildDevSummaryPrompt(d, { wi, repos } = {}) {
 // Captures only meaningful, user-visible signals so trivial churn doesn't thrash.
 // Spans ALL repos: each repo's PR (incl. reviewer votes) and git sync state are
 // folded in, so a vote change on ANY repo's PR re-triggers the summary.
-function _devFingerprint({ wi, repos } = {}) {
+function _devFingerprint({ wi, wiComments, repos } = {}) {
   const parts = [];
   if (wi) parts.push('wi:' + wi.id + '|' + (wi.state || '') + '|' + (wi.title || '') + '|' + (wi.assignedTo || ''));
+  // A new (or edited) work-item comment changes the live status, so fold the comment
+  // count + latest comment id/date into the fingerprint to re-trigger the summary.
+  if (wiComments) {
+    const latest = (wiComments.comments && wiComments.comments[0]) || null;
+    parts.push('wic:' + (wiComments.count || 0) + '|' + (latest ? (latest.id || '') + '@' + (latest.date || '') : ''));
+  }
   for (const rp of (Array.isArray(repos) ? repos : [])) {
     if (!rp) continue;
     const s = rp.slot || {};
@@ -8746,7 +8871,12 @@ function _devFingerprint({ wi, repos } = {}) {
 // (network `git fetch` only when fresh:true). Returns { wi, repos:[{slot,pr,git}] }.
 async function _devRepoMeta(d, { fresh = false } = {}) {
   let wi = d.workItem;
+  let wiComments = null;
   try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  // The work-item fields are only the headline; the live status (decisions, blockers,
+  // "moved to X because…") lives in the discussion thread, so pull recent comments to
+  // ground the summary. Best-effort — never let a comment fetch fail the meta gather.
+  try { if (d.workItemId && d.org && d.project) wiComments = await azdo.getWorkItemComments(d.org, d.project, d.workItemId, { top: 12 }); } catch {}
   const slots = _devRepoSlots(d).filter(s => s && s.org && s.project && s.repo);
   const repos = await Promise.all(slots.map(async (s) => {
     let pr = s.primary ? d.pr : s.pr;
@@ -8756,7 +8886,7 @@ async function _devRepoMeta(d, { fresh = false } = {}) {
     try { if (s.worktreePath) { const g = devitems.worktreeStatus(s.worktreePath, { fetch: !!fresh, baseBranch: s.baseBranch }); if (g) git = g; } } catch {}
     return { slot: s, pr: pr || null, git: git || null };
   }));
-  return { wi: wi || null, repos };
+  return { wi: wi || null, wiComments: wiComments || null, repos };
 }
 
 // Map gathered per-repo meta back into a persistable partial: primary repo's pr/git
@@ -8823,7 +8953,7 @@ async function _generateDevSummary(d, opts = {}) {
     rp.diff = '';
     try { if (rp.slot && rp.slot.worktreePath) rp.diff = devitems.diffSummary(rp.slot.worktreePath, { baseBranch: rp.slot.baseBranch, maxDiffChars: per }); } catch {}
   }
-  const prompt = _buildDevSummaryPrompt(d, { wi: meta.wi, repos: meta.repos });
+  const prompt = _buildDevSummaryPrompt(d, { wi: meta.wi, wiComments: meta.wiComments, repos: meta.repos });
   // Run from the primary worktree (or the first repo with one) for a sane cwd.
   const cwdSlot = (meta.repos.find(rp => rp.slot && rp.slot.primary && rp.slot.worktreePath)
     || meta.repos.find(rp => rp.slot && rp.slot.worktreePath) || {}).slot;
@@ -8842,7 +8972,7 @@ app.post('/api/boards/:id/dev-items/:devId/summary', async (req, res) => {
   const d = ctx.dev;
   try {
     const gen = await _generateDevSummary(d, { fresh: true });
-    const fingerprint = _devFingerprint({ wi: gen.wi, repos: gen.repos });
+    const fingerprint = _devFingerprint({ wi: gen.wi, wiComments: gen.meta && gen.meta.wiComments, repos: gen.repos });
     const updated = ctx.save({ summary: { text: gen.text, generatedAt: gen.generatedAt, fingerprint, auto: false }, ..._devLivePartial(d, gen.meta) });
     res.json({ ok: true, dev: updated });
   } catch (e) {
@@ -8895,7 +9025,7 @@ async function _reconcileDevSummaries() {
             } catch {}
           }
 
-          const fp = _devFingerprint({ wi: meta.wi, repos: meta.repos });
+          const fp = _devFingerprint({ wi: meta.wi, wiComments: meta.wiComments, repos: meta.repos });
           const prevFp = (d.summary && d.summary.fingerprint) || '';
           const haveSummary = !!(d.summary && d.summary.text);
           const lastGen = (d.summary && d.summary.generatedAt) ? Date.parse(d.summary.generatedAt) : 0;

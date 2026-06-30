@@ -4948,6 +4948,7 @@
               <div class="toolbar">
                 <span class="badge-count" x-text="agentStatusCounts().all + ' total'"></span>
                 <button class="btn" type="button" @click="goTo('#/marketplace/design')">✨ Design with AI</button>
+                <button class="btn" type="button" @click="openStandupModal()" title="Generate a standup facilitator agent for an Epic">🧍 Create Standup Agent</button>
                 <button class="btn primary" type="button" @click="openAgentDiscovery()">＋ Add Agent</button>
               </div>
             </div>
@@ -7909,6 +7910,74 @@
                 </div>
               </div>
             </div>
+
+            <template x-teleport="body">
+            <div class="modal-backdrop modal-overlay" x-show="standupModal.open" x-transition.opacity.duration.150ms @click.self="standupModal.open=false" x-cloak style="z-index:9999">
+              <div class="modal-card" style="max-width:580px">
+                <div class="modal-header">
+                  <h2 class="modal-title">Create Standup Agent</h2>
+                  <button class="icon-button" type="button" @click="standupModal.open=false">✕</button>
+                </div>
+                <div style="padding:18px;display:flex;flex-direction:column;gap:12px;max-height:74vh;overflow:auto">
+                  <p class="hint" style="margin:0">Pick an Epic (or DNCEng Epic). A standup facilitator agent is generated for that epic and its descendants — review flow, surface blockers, check status, and manage work items. You can export it to Azure DevOps afterward.</p>
+                  <div style="display:flex;gap:10px">
+                    <label style="flex:1">
+                      <div class="field-label">Azure DevOps org</div>
+                      <input class="field-input" type="text" x-model="standupModal.org" placeholder="dnceng" @change="searchStandupEpics()" />
+                    </label>
+                    <label style="flex:1">
+                      <div class="field-label">Project</div>
+                      <input class="field-input" type="text" x-model="standupModal.project" placeholder="internal" @change="searchStandupEpics()" />
+                    </label>
+                  </div>
+                  <label>
+                    <div class="field-label">Search Epics by title</div>
+                    <div style="display:flex;gap:6px">
+                      <input class="field-input" type="text" x-model="standupModal.q" placeholder="e.g. Helix UX" style="flex:1"
+                        @keydown.enter.prevent="searchStandupEpics()" />
+                      <button class="btn" type="button" @click="searchStandupEpics()" :disabled="standupModal.loading">Search</button>
+                    </div>
+                  </label>
+
+                  <div x-show="standupModal.loading" class="hint" style="margin:0">Searching…</div>
+
+                  <div x-show="standupModal.results.length" style="display:flex;flex-direction:column;gap:2px;max-height:240px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;padding:4px">
+                    <template x-for="ep in standupModal.results" :key="ep.id">
+                      <button type="button"
+                        @click="selectStandupEpic(ep)"
+                        style="display:flex;flex-direction:column;gap:2px;text-align:left;padding:8px 10px;border:0;border-radius:6px;background:transparent;cursor:pointer"
+                        :style="standupModal.selected && standupModal.selected.id===ep.id ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : ''">
+                        <span style="font-weight:600;color:var(--cp-text)"><span style="color:var(--cp-text-muted)">#<span x-text="ep.id"></span></span> <span x-text="ep.title"></span></span>
+                        <span class="hint" style="margin:0"><span x-text="ep.type"></span> · <span x-text="ep.state"></span><template x-if="ep.assignedTo"> · <span x-text="ep.assignedTo"></span></template></span>
+                      </button>
+                    </template>
+                  </div>
+
+                  <details>
+                    <summary class="hint" style="cursor:pointer">Or enter an Epic ID directly</summary>
+                    <div style="display:flex;gap:6px;margin-top:8px">
+                      <input class="field-input" type="text" x-model="standupModal.manualId" placeholder="e.g. 10503" style="flex:1"
+                        @keydown.enter.prevent="fetchStandupEpicById()" />
+                      <button class="btn" type="button" @click="fetchStandupEpicById()" :disabled="standupModal.loading">Look up</button>
+                    </div>
+                  </details>
+
+                  <div x-show="standupModal.selected" style="border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px;background:var(--cp-surface-soft)">
+                    <div class="field-label" style="margin-bottom:4px">Selected Epic</div>
+                    <div style="font-weight:600;color:var(--cp-text)"><span style="color:var(--cp-text-muted)">#<span x-text="standupModal.selected && standupModal.selected.id"></span></span> <span x-text="standupModal.selected && standupModal.selected.title"></span></div>
+                    <div class="hint" style="margin:2px 0 0"><span x-text="standupModal.selected && standupModal.selected.type"></span> · <span x-text="standupModal.selected && standupModal.selected.state"></span></div>
+                  </div>
+
+                  <div x-show="standupModal.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="standupModal.error"></div>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn" type="button" @click="standupModal.open=false">Cancel</button>
+                  <button class="btn primary" type="button" @click="createStandupAgent()" :disabled="!standupModal.selected || standupModal.creating"
+                    x-text="standupModal.creating ? 'Creating…' : 'Create Standup Agent'"></button>
+                </div>
+              </div>
+            </div>
+            </template>
 
             <div class="modal-backdrop modal-overlay" x-show="devModal.open" x-transition.opacity.duration.150ms @click.self="devModal.open=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:560px">
@@ -13150,6 +13219,7 @@
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
+        standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '' },
         externalAccessDisabled: false,
         externalAccessBusy: false,
         settingsCat: 'appearance',
@@ -22760,6 +22830,81 @@
           this.boards[idx] = { ...b, devItems: items };
         },
         // ----- Create / edit modal -----
+        // ---- Create Standup Agent ----------------------------------------
+        async openStandupModal() {
+          const m = this.standupModal;
+          await this.ensureDevSettings();
+          const ds = this.devSettings || {}, es = this.exportSettings || {};
+          m.org = ds.devOrg || es.exportOrg || '';
+          m.project = ds.devProject || es.exportProject || '';
+          m.q = ''; m.results = []; m.loading = false; m.selected = null;
+          m.manualId = ''; m.creating = false; m.error = '';
+          m.open = true;
+          if (m.org && m.project) this.searchStandupEpics();
+        },
+        closeStandupModal() { this.standupModal.open = false; },
+        async searchStandupEpics() {
+          const m = this.standupModal;
+          const org = (m.org || '').trim(), project = (m.project || '').trim();
+          m.error = ''; m.results = [];
+          if (!org || !project) { m.error = 'Enter an org and project.'; return; }
+          m.loading = true;
+          try {
+            const url = '/api/standup/epics?org=' + encodeURIComponent(org) +
+              '&project=' + encodeURIComponent(project) + '&q=' + encodeURIComponent((m.q || '').trim());
+            const data = await this.request(url);
+            m.results = (data && data.items) || [];
+            if (!m.results.length) m.error = 'No Epics found. Try a different search, or enter an Epic ID below.';
+          } catch (e) {
+            m.error = e.message;
+          } finally {
+            m.loading = false;
+          }
+        },
+        selectStandupEpic(epic) {
+          this.standupModal.selected = epic;
+          this.standupModal.error = '';
+        },
+        async fetchStandupEpicById() {
+          const m = this.standupModal;
+          const org = (m.org || '').trim(), project = (m.project || '').trim();
+          const id = (m.manualId || '').trim();
+          m.error = '';
+          if (!org || !project) { m.error = 'Enter an org and project.'; return; }
+          if (!id) { m.error = 'Enter an Epic ID.'; return; }
+          m.loading = true;
+          try {
+            const url = '/api/standup/epic?org=' + encodeURIComponent(org) +
+              '&project=' + encodeURIComponent(project) + '&id=' + encodeURIComponent(id);
+            const data = await this.request(url);
+            if (data && data.epic) { m.selected = data.epic; }
+          } catch (e) {
+            m.error = e.message;
+          } finally {
+            m.loading = false;
+          }
+        },
+        async createStandupAgent() {
+          const m = this.standupModal;
+          if (!m.selected) { m.error = 'Pick an Epic first.'; return; }
+          m.creating = true; m.error = '';
+          try {
+            const data = await this.request('/api/standup-agents', {
+              method: 'POST',
+              body: JSON.stringify({ org: m.org, project: m.project, epicId: String(m.selected.id) })
+            });
+            const name = (data && data.agent && data.agent.name) || 'Standup agent';
+            const newId = data && data.agent && data.agent.id;
+            m.open = false;
+            await this.refreshAll(false);
+            this.showToast('Standup agent created', `${name} is ready. Export it to AzDO from its detail page.`, 'info');
+            if (newId) this.goTo('#/agents/' + encodeURIComponent(newId));
+          } catch (e) {
+            m.error = e.message;
+          } finally {
+            m.creating = false;
+          }
+        },
         async openDevModal(d) {
           const m = this.devModal;
           if (d) {
