@@ -1553,6 +1553,16 @@
       background:var(--cp-accent-soft); color:var(--cp-text);
     }
     .cf-attn-banner .cf-attn-icon { font-size:20px; }
+    .cf-change-banner {
+      display:flex; align-items:center; gap:12px; padding:11px 14px; margin-bottom:18px;
+      border-radius:12px; border:1px solid var(--cp-border-strong);
+      border-left:3px solid var(--cp-link); background:var(--cp-surface); color:var(--cp-text);
+    }
+    .cf-change-banner .cf-change-x {
+      flex:0 0 auto; width:26px; height:26px; border:none; border-radius:8px; cursor:pointer;
+      background:transparent; color:var(--cp-text-muted); font-size:13px; line-height:1;
+    }
+    .cf-change-banner .cf-change-x:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
     .cf-views { display:flex; gap:6px; margin-bottom:16px; }
     .cf-view-tab {
       display:inline-flex; align-items:center; gap:8px; font:inherit; font-size:13px; font-weight:600;
@@ -7188,7 +7198,9 @@
                                                             <span class="cf-wt-open-k">Open</span>
                                                             <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'editor')">VS Code</button>
                                                             <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'cli')">CLI</button>
+                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
                                                             <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'diff')">Diff</button>
+                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
                                                           </span>
                                                           <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                                                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
@@ -8405,6 +8417,18 @@
               </div>
             </div>
 
+            <!-- Auto-refresh change banner (background 15-min poller detected
+                 new PRs, merged/closed PRs, or material PR-state changes) -->
+            <div x-show="codeflow.changeBanner" class="cf-change-banner" x-transition.opacity.duration.150ms>
+              <span class="cf-attn-icon">🔄</span>
+              <div style="flex:1;min-width:0">
+                <strong x-text="'Code Flow updated — ' + codeflowChangeSummary()"></strong>
+                <div class="hint" x-text="(codeflow.changeBanner && codeflow.changeBanner.at ? 'Detected ' + formatRelative(codeflow.changeBanner.at) : '') + ' · ' + codeflowViewLabel(codeflow.changeBanner && codeflow.changeBanner.view)"></div>
+              </div>
+              <button class="btn ghost small" type="button" @click="refreshCodeFlow(); dismissCodeflowChanges()" :disabled="codeflow.loading">↻ Refresh</button>
+              <button class="cf-change-x" type="button" title="Dismiss" @click="dismissCodeflowChanges()">✕</button>
+            </div>
+
             <!-- Attention banner -->
             <div x-show="codeflow.attentionCount > 0" class="cf-attn-banner">
               <span class="cf-attn-icon">⚠️</span>
@@ -8723,7 +8747,9 @@
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
                           </span>
                           <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
@@ -8803,7 +8829,9 @@
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
                           </span>
                           <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
@@ -10300,7 +10328,7 @@
             <div class="card" x-show="mkt.showAddForm" x-transition.opacity.duration.150ms style="margin-bottom:18px">
               <div class="filter-pills" style="margin-bottom:12px">
                 <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'local' }" @click="mkt.addForm.kind = 'local'">📁 Local folder</button>
-                <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'azdo' }" @click="mkt.addForm.kind = 'azdo'">☁️ Azure DevOps</button>
+                <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'azdo' }" @click="mkt.addForm.kind = 'azdo'; mktPrefillAddRepoDefaults()">☁️ Azure DevOps</button>
               </div>
               <template x-if="mkt.addForm.kind === 'local'">
                 <div class="form-row">
@@ -10314,8 +10342,8 @@
               <template x-if="mkt.addForm.kind === 'azdo'">
                 <div>
                   <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">
-                    <div class="form-row"><label>Organization</label><input type="text" x-model="mkt.addForm.org" placeholder="dnceng" @keydown.enter.prevent="mktLoadAddRepos()"></div>
-                    <div class="form-row"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @keydown.enter.prevent="mktLoadAddRepos()"></div>
+                    <div class="form-row"><label>Organization</label><input type="text" x-model="mkt.addForm.org" placeholder="dnceng" @input.debounce.600ms="mktLoadAddRepos()" @keydown.enter.prevent="mktLoadAddRepos()"></div>
+                    <div class="form-row"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @input.debounce.600ms="mktLoadAddRepos()" @keydown.enter.prevent="mktLoadAddRepos()"></div>
                     <div class="form-row" x-show="!mkt.addForm.manual">
                       <button class="btn" type="button" :disabled="mkt.addForm.loadingRepos || !mkt.addForm.org.trim() || !mkt.addForm.project.trim()" @click="mktLoadAddRepos()" x-text="mkt.addForm.loadingRepos ? 'Loading…' : (mkt.addForm.repos.length ? 'Reload repos' : 'Load repositories')"></button>
                     </div>
@@ -12798,7 +12826,7 @@
           q: '',
           activeSourceId: null,
           showAddForm: false,
-          addForm: { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false },
+          addForm: { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false, prefilled: false },
           scanning: {},
           syncing: false,
           addCap: { entry: null, agentId: '' },
@@ -12966,7 +12994,8 @@
           boardPrsLoading: false,
           boardPrsLoadedFor: '',  // boardId the boardPrs map was last loaded for (one fetch per board view)
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
-          grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })()
+          grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })(),
+          changeBanner: null     // {added,removed,changed,at,view,examples} when the auto-poller sees significant changes; dismissable
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0 },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
@@ -13228,6 +13257,11 @@
           // then refreshed periodically to keep the menu badge live.
           setTimeout(() => this.loadCodeflowAttention(true), 4000);
           this._codeflowAttnTimer = setInterval(() => this.loadCodeflowAttention(true), 180000);
+          // Code Flow auto-refresh: establish a change-detection baseline shortly
+          // after startup (cache-friendly), then poll every 15 minutes for new /
+          // merged / materially-changed PRs and raise a dismissable banner.
+          setTimeout(() => this.codeflowAutoRefresh(false), 20000);
+          this._codeflowAutoTimer = setInterval(() => this.codeflowAutoRefresh(true), 900000);
           // Keep the board canvas sized so it's the only scroller (no double scrollbars).
           window.addEventListener('resize', () => { if (this.route === 'boards') this._recalcBoardCanvasH(); });
           // Multi-client single-writer: when this tab becomes the visible client again, re-fit ONCE
@@ -17411,6 +17445,8 @@
             // Auto-generate AI summaries in the background (server only pays for new/changed PRs).
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
             this.loadCfWorktrees();
+            // Baseline the change detector to what the user is now looking at.
+            this._codeflowSeedSnap();
           } catch (e) {
             this.codeflow.errors = [{ repo: '', error: e.message }];
           } finally {
@@ -17431,11 +17467,84 @@
             this.loadCodeflowAttention(true);
             // Re-generate AI summaries for any PRs that changed since last analysis.
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
+            // Re-baseline the change detector so the next auto-poll only flags
+            // changes since this manual refresh.
+            this._codeflowSeedSnap();
           } catch (e) {
             this.showToast('Code Flow', e.message, 'error');
           } finally {
             this.codeflow.loading = false;
           }
+        },
+        // --- Background change detection (15-minute auto-refresh) ---
+        // A lightweight snapshot of the current PR list, keyed repoId:prId. The
+        // per-PR `signature` (from the server) already folds in the volatile state
+        // a human cares about — last commit, approval, comments, draft/ready,
+        // reviewer votes and check results — so a signature change == a material
+        // change. We also track presence to detect new and merged/closed PRs.
+        _codeflowSnap(list) {
+          const m = {};
+          for (const pr of (list || [])) {
+            const id = (pr.id ?? pr.pullRequestId ?? '');
+            const key = (pr.repoId || '') + ':' + id;
+            m[key] = { sig: pr.signature || '', title: pr.title || ('PR ' + id), repo: pr.repo || '', attention: !!pr.attention };
+          }
+          return m;
+        },
+        _codeflowSeedSnap() {
+          if (!this._codeflowSnaps) this._codeflowSnaps = {};
+          this._codeflowSnaps[this.codeflow.view] = this._codeflowSnap(this.codeflow.pullRequests);
+        },
+        codeflowViewLabel(view) {
+          return view === 'mine' ? 'My PRs' : view === 'reviews' ? 'Active PRs (reviews needed)' : 'Active PRs';
+        },
+        codeflowChangeSummary() {
+          const b = this.codeflow.changeBanner; if (!b) return '';
+          const parts = [];
+          if (b.added) parts.push(b.added + (b.added === 1 ? ' new PR' : ' new PRs'));
+          if (b.changed) parts.push(b.changed + ' updated');
+          if (b.removed) parts.push(b.removed + ' merged/closed');
+          return parts.join(' · ') || 'changes detected';
+        },
+        dismissCodeflowChanges() { this.codeflow.changeBanner = null; },
+        // Poll the current view, diff against the last snapshot, and raise a
+        // dismissable banner when something significant changed. Runs on a timer
+        // regardless of which page is open; updates the live list only when the
+        // user is actually looking at Code Flow. `force` triggers a fresh AzDO
+        // fetch (the 15-min tick); the initial baseline call may use the cache.
+        async codeflowAutoRefresh(force = true) {
+          if (this.codeflow.loading) return;
+          if (!this._codeflowSnaps) this._codeflowSnaps = {};
+          const view = this.codeflow.view;
+          let data;
+          try {
+            data = await this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view) + '&refresh=' + (force ? '1' : '0'));
+          } catch { return; }
+          const list = Array.isArray(data.pullRequests) ? data.pullRequests : [];
+          const next = this._codeflowSnap(list);
+          const prev = this._codeflowSnaps[view];
+          // Keep the open page live so a user watching Code Flow sees fresh data.
+          if (this.route === 'codeflow' && this.codeflow.view === view) {
+            this.codeflow.pullRequests = list;
+            this.codeflow.errors = Array.isArray(data.errors) ? data.errors : [];
+            this.codeflow.attentionCount = data.attentionCount || 0;
+            this.codeflow.fetchedAt = data.fetchedAt || null;
+            if (list.length) this.loadCodeflowAi(false, true);
+          }
+          this._codeflowSnaps[view] = next;
+          if (!prev) return; // first observation for this view — just baseline.
+          const added = [], removed = [], changed = [];
+          for (const k of Object.keys(next)) {
+            if (!prev[k]) added.push(next[k]);
+            else if (prev[k].sig !== next[k].sig) changed.push(next[k]);
+          }
+          for (const k of Object.keys(prev)) { if (!next[k]) removed.push(prev[k]); }
+          if (!(added.length || removed.length || changed.length)) return;
+          // Accumulate into any still-visible (undismissed) banner.
+          const b = this.codeflow.changeBanner || { added: 0, removed: 0, changed: 0, at: null, view };
+          b.added += added.length; b.removed += removed.length; b.changed += changed.length;
+          b.at = Date.now(); b.view = view;
+          this.codeflow.changeBanner = b;
         },
         async loadCodeflowAi(refresh, silent) {
           if (this.codeflow.aiBusy) return;
@@ -17994,10 +18103,21 @@
         async openCfWorktree(pr, target) {
           const rec = this.cfWt(pr);
           if (!rec || !rec.worktreePath) return;
+          // Resolve to a directly-usable branch worktree (e.g. an existing dev-card
+          // Work worktree) instead of the detached read-only review snapshot, so the
+          // terminal/editor lands somewhere you can actually fetch/rebase/push the PR.
+          let dir = rec.worktreePath;
+          try {
+            const r = await this.request('/api/codeflow/pr/worktree/open-dir', {
+              method: 'POST',
+              body: JSON.stringify({ org: rec.org, project: rec.project, repo: rec.repo, prId: rec.prId })
+            });
+            if (r && r.dir) dir = r.dir;
+          } catch (e) { /* fall back to the review worktree path */ }
           try {
             await this.request('/api/fs/open', {
               method: 'POST',
-              body: JSON.stringify({ path: rec.worktreePath, target, agent: rec.reviewAgentName || undefined })
+              body: JSON.stringify({ path: dir, target, agent: rec.reviewAgentName || undefined })
             });
           } catch (e) {
             this.showToast('Open', e.message, 'error');
@@ -27025,6 +27145,26 @@
             this.mkt.syncing = false;
           }
         },
+        // Pre-fill the Add-source form's org/project from the saved Settings defaults
+        // (Dev Card org/project preferred, falling back to the AzDO export target) so
+        // users don't retype them. Only fills empty fields and runs once per form open;
+        // auto-loads the repo dropdown when both are present. Mirrors
+        // codeflowPrefillRepoDefaults so the Marketplace AzDO form behaves the same.
+        async mktPrefillAddRepoDefaults() {
+          const f = this.mkt.addForm;
+          if (f.kind !== 'azdo' || f.prefilled) return;
+          f.prefilled = true;
+          try {
+            const s = await this.request('/api/settings');
+            if (s) {
+              const org = (s.devOrg || s.exportOrg || '').trim();
+              const project = (s.devProject || s.exportProject || '').trim();
+              if (org && !f.org.trim()) f.org = org;
+              if (project && !f.project.trim()) f.project = project;
+            }
+          } catch {}
+          if (f.org.trim() && f.project.trim() && !f.repos.length && !f.loadingRepos) this.mktLoadAddRepos();
+        },
         async mktLoadAddRepos() {
           const f = this.mkt.addForm;
           const org = (f.org || '').trim(), project = (f.project || '').trim();
@@ -27080,7 +27220,7 @@
               : { kind: 'azdo', org: f.org, project: f.project, repo: f.repo, branch: f.branch };
             const r = await this.request('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(body) });
             this.mkt.showAddForm = false;
-            this.mkt.addForm = { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false };
+            this.mkt.addForm = { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false, prefilled: false };
             await this.loadMarketplace();
             if (r.source) await this.scanMarketplaceSource(r.source.id);
           } catch (e) {

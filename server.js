@@ -2157,6 +2157,30 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   res.json({ worktree: { key, ...rec } });
 });
 
+// Resolve a directly-usable (branch-attached) worktree directory for a PR before
+// opening it in a terminal / editor / Explorer. Code Flow review worktrees are
+// detached read-only snapshots (so they never collide with a dev card on the same
+// branch), which is useless for actually updating the PR. This points "Open" at the
+// real branch worktree: an existing one (e.g. a dev card's Work worktree) if present,
+// otherwise the review worktree attached onto the branch when it's free. Falls back
+// to the review worktree path. Returns { dir, branch, reused, attached, detached }.
+app.post('/api/codeflow/pr/worktree/open-dir', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const rec = _getCfWt(_cfWtKey(o));
+  const current = rec && rec.worktreePath ? rec.worktreePath : '';
+  if (!current) return res.json({ dir: '' });
+  let r;
+  try {
+    r = devitems.resolveUsableWorktree({
+      org: o.org, project: o.project, repo: o.repo,
+      sourceBranch: rec.sourceBranch, current
+    });
+  } catch { r = { dir: current, branch: rec.sourceBranch || '', reused: false, attached: false }; }
+  res.json({ dir: (r && r.dir) || current, branch: r && r.branch, reused: !!(r && r.reused), attached: !!(r && r.attached) });
+});
+
 // Create (or re-attach) a review worktree for a PR. Fire-and-forget like the
 // dev-card worktree route; the blocking clone runs in a worker thread.
 app.post('/api/codeflow/pr/worktree', async (req, res) => {
@@ -7524,6 +7548,37 @@ app.post('/api/fs/open', (req, res) => {
         setTimeout(() => launchDiff(pr, false), 1100 + i * 350);
       });
       return res.json({ ok: true, target, editor: editorName, base: baseLabel, files: pairs.length, total: rows.length, truncated: rows.length > pairs.length });
+    }
+    if (target === 'devcmd') {
+      // Open a Visual Studio Developer Command Prompt in the worktree. Locate
+      // VsDevCmd.bat via vswhere (the well-known installer path); if VS isn't
+      // installed, fall back to a plain command prompt at the folder.
+      let vsDevCmd = '';
+      try {
+        const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        const vswhere = path.join(pf86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+        if (fs.existsSync(vswhere)) {
+          const r = spawnSync(vswhere, ['-latest', '-prerelease', '-products', '*', '-property', 'installationPath'], { encoding: 'utf-8' });
+          const installPath = (r.status === 0 ? (r.stdout || '') : '').split(/\r?\n/)[0].trim();
+          if (installPath) {
+            const cand = path.join(installPath, 'Common7', 'Tools', 'VsDevCmd.bat');
+            if (fs.existsSync(cand)) vsDevCmd = cand;
+          }
+        }
+      } catch { /* best-effort; fall back to a plain prompt */ }
+      const lines = ['@echo off', `if not exist "${dir}" goto nodir`];
+      if (vsDevCmd) lines.push(`call "${vsDevCmd}" -startdir=none`);
+      else lines.push('echo Visual Studio Developer Command Prompt not found - opening a plain prompt.');
+      lines.push(
+        `cd /d "${dir}"`,
+        'cmd /k',
+        'exit /b 0',
+        ':nodir', `echo ERROR: Working directory not found: ${dir}`, 'pause', 'exit /b 1'
+      );
+      const batPath = path.join(__dirname, `temp-loc-devcmd-${Date.now().toString(36)}.bat`);
+      fs.writeFileSync(batPath, lines.join('\r\n'));
+      exec(`start "Developer Command Prompt" "${batPath}"`);
+      return res.json({ ok: true, target, vsDevCmd: vsDevCmd || null });
     }
     if (target === 'cli') {
       const copilotCmd = process.env.COPILOT_PATH || 'copilot';

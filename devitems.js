@@ -479,6 +479,79 @@ function syncToPrBranch(wt, { sourceBranch, force = false } = {}) {
   return { ok: true, message: 'Synced to the PR branch.', drift };
 }
 
+// List the managed clone's registered worktrees as
+// [{ path, branch|null, detached }]. Empty on any problem.
+function listWorktrees(org, project, repo) {
+  const clone = clonePath(org, project, repo);
+  if (!_isRepo(clone)) return [];
+  const r = _gitTry(['worktree', 'list', '--porcelain'], clone);
+  if (!r.ok) return [];
+  const out = [];
+  let cur = null;
+  for (const line of r.out.split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) {
+      if (cur) out.push(cur);
+      cur = { path: line.slice('worktree '.length).trim(), branch: null, detached: false };
+    } else if (line.startsWith('branch ') && cur) {
+      cur.branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
+    } else if (line === 'detached' && cur) {
+      cur.detached = true;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+// Resolve a directly-usable (branch-attached) worktree directory for a PR branch,
+// so opening "Open → CLI/Dev Cmd/Explorer" lands the user on the real branch — ready
+// to fetch/rebase/push — instead of a detached read-only review snapshot.
+//
+// Preference order:
+//  1. `current` is itself already checked out on the branch → use it.
+//  2. Another worktree is checked out on the branch (e.g. a dev card's "Work
+//     worktree") → reuse that directory.
+//  3. The branch isn't checked out anywhere AND `current` is a clean detached
+//     review checkout sitting exactly at the branch tip → attach it onto the
+//     branch (no commits lost) so it becomes usable.
+// Otherwise fall back to `current`. Returns { dir, branch, reused, attached }.
+function resolveUsableWorktree({ org, project, repo, sourceBranch, current } = {}) {
+  const br = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  const fallback = { dir: current || '', branch: br, reused: false, attached: false };
+  if (!br) return fallback;
+  const norm = (p) => { try { return path.resolve(String(p || '')).toLowerCase(); } catch { return String(p || '').toLowerCase(); } };
+  let wts;
+  try { wts = listWorktrees(org, project, repo); } catch { return fallback; }
+  const curN = norm(current);
+
+  // 1. Current worktree already on the branch.
+  const cur = wts.find(w => norm(w.path) === curN);
+  if (cur && !cur.detached && cur.branch === br && fs.existsSync(cur.path)) {
+    return { dir: cur.path, branch: br, reused: true, attached: false };
+  }
+  // 2. Another worktree checked out on the branch (e.g. a dev card Work worktree).
+  const onBranch = wts.find(w => !w.detached && w.branch === br && norm(w.path) !== curN && fs.existsSync(w.path));
+  if (onBranch) return { dir: onBranch.path, branch: br, reused: true, attached: false };
+
+  // 3. Branch is free — attach the current detached review worktree onto it, but
+  // only when it's clean and sitting exactly at the branch tip so no work is lost.
+  if (current && _isRepo(current)) {
+    const clone = clonePath(org, project, repo);
+    const localHas = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok;
+    const remoteHas = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + br], clone).ok;
+    const headSha = (_gitTry(['rev-parse', 'HEAD'], current).out || '').trim();
+    const tgtRef = localHas ? ('refs/heads/' + br) : (remoteHas ? 'origin/' + br : '');
+    const tgtSha = tgtRef ? (_gitTry(['rev-parse', tgtRef], clone).out || '').trim() : '';
+    const clean = !(_gitTry(['status', '--porcelain'], current).out || '').trim();
+    if (tgtRef && headSha && tgtSha && headSha === tgtSha && clean) {
+      const sw = localHas
+        ? _gitTry(['switch', br], current)
+        : _gitTry(['switch', '-c', br, '--track', 'origin/' + br], current);
+      if (sw.ok) return { dir: current, branch: br, reused: false, attached: true };
+    }
+  }
+  return fallback;
+}
+
 // Add a path to the worktree's git exclude (so an app-managed file never shows
 // in `git status` / gets committed). Resolves the correct exclude file even for
 // a linked worktree via `git rev-parse --git-path`. Best-effort.
@@ -784,6 +857,8 @@ module.exports = {
   prDrift,
   pushPrBranch,
   syncToPrBranch,
+  listWorktrees,
+  resolveUsableWorktree,
   diffSummary,
   pushBranch,
   addGitExclude,
