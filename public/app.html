@@ -1020,6 +1020,58 @@
     .home-section-label .hsl-toggle { margin-left: auto; align-self: center; font-size: 11px; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid var(--cp-border); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
     .home-section-label .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     .home-section { margin-bottom: 22px; }
+
+    /* ----- Getting started (Basic mode onboarding) ----- */
+    .gs-card {
+      position: relative;
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      padding: 20px 22px;
+      margin-bottom: 22px;
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+    }
+    .gs-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+    .gs-head .gs-emoji { font-size: 24px; line-height: 1.1; }
+    .gs-head .gs-titles { flex: 1; min-width: 0; }
+    .gs-head h2 { margin: 0; font-size: 17px; font-weight: 700; color: var(--cp-text); }
+    .gs-head p { margin: 3px 0 0; font-size: 13px; color: var(--cp-text-muted); }
+    .gs-dismiss {
+      flex-shrink: 0; background: transparent; border: 1px solid var(--cp-border);
+      border-radius: 0.625rem; color: var(--cp-text-soft); font-size: 12px; font-weight: 600;
+      padding: 5px 11px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .gs-dismiss:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .gs-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .gs-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--cp-surface-soft); overflow: hidden; }
+    .gs-bar > span { display: block; height: 100%; background: var(--cp-accent); border-radius: 999px; transition: width .3s ease; }
+    .gs-progress .gs-count { font-size: 12px; font-weight: 600; color: var(--cp-text-muted); white-space: nowrap; }
+    .gs-steps { display: flex; flex-direction: column; gap: 10px; }
+    .gs-step {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--cp-bg-elevated); border: 1px solid var(--cp-border);
+      border-radius: 12px; padding: 13px 15px;
+    }
+    .gs-step.is-done { border-color: color-mix(in srgb, var(--cp-success) 45%, var(--cp-border)); }
+    .gs-step-num {
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 999px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      background: var(--cp-surface-soft); color: var(--cp-text-muted);
+      border: 1px solid var(--cp-border);
+    }
+    .gs-step.is-done .gs-step-num { background: var(--cp-success); color: #fff; border-color: var(--cp-success); }
+    .gs-step-body { flex: 1; min-width: 0; }
+    .gs-step-body strong { display: block; font-size: 14px; font-weight: 600; color: var(--cp-text); }
+    .gs-step-body span { display: block; font-size: 12.5px; color: var(--cp-text-muted); margin-top: 2px; }
+    .gs-step-action {
+      flex-shrink: 0; background: var(--cp-accent); color: var(--cp-accent-fg);
+      border: none; border-radius: 0.625rem; font-size: 13px; font-weight: 600;
+      padding: 8px 16px; cursor: pointer; transition: background .15s ease;
+    }
+    .gs-step-action:hover { background: var(--cp-accent-hover); }
+    .gs-step-action:disabled { opacity: .5; cursor: not-allowed; }
+    .gs-step.is-done .gs-step-action { background: transparent; color: var(--cp-success); border: 1px solid color-mix(in srgb, var(--cp-success) 45%, var(--cp-border)); cursor: default; }
     .orgh-card {
       background: var(--cp-surface); border: 1px solid var(--cp-border); border-left-width: 4px;
       border-radius: 14px; padding: 14px; cursor: pointer;
@@ -4421,7 +4473,7 @@
           <div>TheOffice.AI</div>
         </button>
       </div>
-      <div class="mode-switch" role="tablist" aria-label="App mode">
+      <div class="mode-switch" role="tablist" aria-label="App mode" x-show="experienceLevel === 'advanced'" x-cloak>
         <button type="button" class="mode-seg" :class="{ active: appMode === 'workspace' }" role="tab" :aria-selected="appMode === 'workspace'"
                 @click="setAppMode('workspace')" title="Productivity — boards, insights & planning">
           <span>📋</span><span class="mode-seg-label">Productivity</span>
@@ -4432,7 +4484,7 @@
         </button>
       </div>
       <div class="topbar-right">
-      <div class="org-switcher" @click.outside="orgMenuOpen = false">
+      <div class="org-switcher" x-show="teamSelectorVisible()" x-cloak @click.outside="orgMenuOpen = false">
         <button class="org-switcher-btn" type="button" @click="orgMenuOpen = !orgMenuOpen" :title="currentOrg() ? currentOrg().name : 'All teams'">
           <span class="org-emoji" x-text="currentOrg() ? currentOrg().emoji : '🏛️'"></span>
           <span class="org-name" x-text="currentOrg() ? currentOrg().name : 'All teams'"></span>
@@ -4616,6 +4668,48 @@
               </div>
               <div class="toolbar">
                 <span class="badge-count" x-text="runningEntities().length + ' running' "></span>
+              </div>
+            </div>
+
+            <!-- Getting started (Basic mode onboarding for new users) -->
+            <div class="gs-card" x-show="showGettingStarted()" x-transition.opacity.duration.180ms>
+              <div class="gs-head">
+                <span class="gs-emoji">🚀</span>
+                <div class="gs-titles">
+                  <h2>Getting started</h2>
+                  <p>Three quick steps to set up your first standup workflow.</p>
+                </div>
+                <button type="button" class="gs-dismiss" @click="dismissGettingStarted()">Dismiss</button>
+              </div>
+              <div class="gs-progress">
+                <div class="gs-bar"><span :style="'width:' + Math.round(gsDoneCount() / 3 * 100) + '%'"></span></div>
+                <span class="gs-count" x-text="gsDoneCount() + ' / 3 done'"></span>
+              </div>
+              <div class="gs-steps">
+                <div class="gs-step" :class="gsStandupDone() ? 'is-done' : ''">
+                  <span class="gs-step-num" x-text="gsStandupDone() ? '✓' : '1'"></span>
+                  <div class="gs-step-body">
+                    <strong>Create a standup agent</strong>
+                    <span>Pick an Epic and we'll build an agent that tracks its status.</span>
+                  </div>
+                  <button type="button" class="gs-step-action" @click="gsStep1()" x-text="(gsStandupDone() && !gsPreview) ? 'Done' : 'Create'"></button>
+                </div>
+                <div class="gs-step" :class="gsTaskDone() ? 'is-done' : ''">
+                  <span class="gs-step-num" x-text="gsTaskDone() ? '✓' : '2'"></span>
+                  <div class="gs-step-body">
+                    <strong>Schedule a daily epic status</strong>
+                    <span>A 9am task that asks your standup agent "show me the epic status".</span>
+                  </div>
+                  <button type="button" class="gs-step-action" @click="gsStep2()" :disabled="!gsStandupDone()" x-text="(gsTaskDone() && !gsPreview) ? 'Done' : 'Schedule'"></button>
+                </div>
+                <div class="gs-step" :class="gsBoardDone() ? 'is-done' : ''">
+                  <span class="gs-step-num" x-text="gsBoardDone() ? '✓' : '3'"></span>
+                  <div class="gs-step-body">
+                    <strong>Create a board with the agent &amp; task pinned</strong>
+                    <span>An at-a-glance board for your epic with both pinned.</span>
+                  </div>
+                  <button type="button" class="gs-step-action" @click="gsStep3()" :disabled="!gsStandupDone() || gsBusy" x-text="(gsBoardDone() && !gsPreview) ? 'Done' : (gsBusy ? 'Working…' : 'Create')"></button>
+                </div>
               </div>
             </div>
 
@@ -10106,6 +10200,48 @@
               </nav>
               <div class="settings-pane">
 
+            <!-- ===== Experience category ===== -->
+            <div x-show="settingsCat === 'experience'">
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🧭 Experience level</h3>
+              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Boards, Code Flow, Agents and Marketplace — with the features you need and nothing else. <strong>Advanced</strong> unlocks the full Productivity / Management workspace with every page.</p>
+              <div class="filter-pills">
+                <button class="pill" type="button" :class="{ active: experienceLevel === 'basic' }" @click="setExperienceLevel('basic')">🌱 Basic</button>
+                <button class="pill" type="button" :class="{ active: experienceLevel === 'advanced' }" @click="setExperienceLevel('advanced')">🚀 Advanced</button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-bottom:20px" :style="experienceLevel === 'advanced' ? 'opacity:.5;pointer-events:none' : ''">
+              <h3 style="margin-bottom:12px">➕ Add features</h3>
+              <p class="hint" style="margin-bottom:14px" x-show="experienceLevel === 'basic'">Switch on extra capabilities while keeping the simplified Basic layout. Each one adds its page to the sidebar.</p>
+              <p class="hint" style="margin-bottom:14px" x-show="experienceLevel === 'advanced'">Every feature is already available in Advanced mode. Switch back to Basic to curate a simpler view.</p>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <template x-for="f in basicFeatureCatalog()" :key="f.key">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--cp-border)">
+                    <span style="font-size:18px;width:24px;text-align:center" x-text="f.icon"></span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:600;color:var(--cp-text)" x-text="f.label"></div>
+                      <div class="hint" style="margin:1px 0 0" x-text="f.hint"></div>
+                    </div>
+                    <label class="toggle-switch" :title="(basicFeatures[f.key] ? 'Hide ' : 'Show ') + f.label">
+                      <input type="checkbox" :checked="!!basicFeatures[f.key]" @change="toggleBasicFeature(f.key)" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+              <div class="card" style="margin-bottom:20px" x-show="experienceLevel === 'basic'">
+                <h3 style="margin-bottom:12px">🚀 Getting started guide</h3>
+                <p class="hint" style="margin-bottom:14px">The onboarding guide on Home disappears once its steps are complete or you dismiss it. Replay it any time — this only shows the walkthrough and never changes your agents, tasks, or boards.</p>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <button class="btn" type="button" @click="previewGettingStarted()" x-text="gsPreview ? '✓ Showing on Home' : 'Show getting started guide'"></button>
+                  <button class="btn ghost" type="button" x-show="gsPreview" @click="setGsPreview(false)">Stop showing</button>
+                </div>
+              </div>
+              </div><!-- /experience category -->
+
             <!-- ===== Appearance category ===== -->
             <div x-show="settingsCat === 'appearance'">
             <div class="card" style="margin-bottom:20px">
@@ -12926,6 +13062,23 @@
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
         appMode: (() => { try { const m = localStorage.getItem('app-mode'); return (m === 'workspace' || m === 'workforce') ? m : 'workspace'; } catch { return 'workspace'; } })(),
+        // Experience level: 'basic' (default, simplified single-view) vs 'advanced'
+        // (full Productivity/Management split + every page). Switched in Settings.
+        experienceLevel: (() => { try { const v = localStorage.getItem('experience-level'); return v === 'advanced' ? 'advanced' : 'basic'; } catch { return 'basic'; } })(),
+        // Optional features the user can switch on while staying in Basic mode. Each
+        // key toggles the matching nav item into the flat Basic sidebar.
+        basicFeatures: (() => {
+          const defaults = { insights: false, managers: false, tasks: true, flows: false, watercooler: false, teams: false, sessions: false, news: false };
+          try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
+        })(),
+        // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
+        // it disappears once the user finishes or hides it.
+        gettingStartedDismissed: (() => { try { return localStorage.getItem('getting-started-dismissed') === '1'; } catch { return false; } })(),
+        gsBusy: false,
+        // Preview override: force the Getting started guide to show (regardless of
+        // dismissal or completion) so the user can replay the onboarding without
+        // touching their real agents, tasks or boards.
+        gsPreview: (() => { try { return localStorage.getItem('gs-preview') === '1'; } catch { return false; } })(),
         chatFocused: false,
         chatSidebarW: (() => { try { const v = parseInt(localStorage.getItem('chat-sidebar-w'), 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
         agentSearch: '',
@@ -14119,7 +14272,7 @@
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['appearance', 'ai', 'integrations', 'sync', 'about'];
+            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
@@ -14905,10 +15058,40 @@
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
             ]}
           ];
+          // ===== Basic mode: a single flat view (no Productivity/Management split).
+          // Default items + any optional features the user switched on in Settings.
+          if (this.experienceLevel === 'basic') {
+            const bf = this.basicFeatures || {};
+            const boards = { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false };
+            const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
+            const insights = { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false };
+            const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
+            const managers = { key: 'managers', label: 'Managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [], collapsible: false };
+            const tasks = { key: 'tasks', label: 'Tasks', title: 'Tasks', icon: '⚡', href: '#/tasks', routeGroup: 'tasks', items: [], collapsible: false };
+            const flows = { key: 'chains', label: 'Flows', title: 'Flows', icon: '🔗', href: '#/chains', routeGroup: 'chains', items: [], collapsible: false };
+            const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false };
+            const teams = { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false };
+            const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
+            const news = { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
+              { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
+              { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
+            ]};
+            const out = [scope, home, boards, codeflow];
+            if (bf.insights) out.push(insights);
+            out.push(agents);
+            if (bf.managers) out.push(managers);
+            if (bf.tasks) out.push(tasks);
+            if (bf.flows) out.push(flows);
+            out.push(marketplace);
+            if (bf.watercooler) out.push(watercooler);
+            if (bf.teams) out.push(teams);
+            if (bf.sessions) out.push(sessions);
+            if (bf.news) out.push(news);
+            return out;
+          }
           if (this.appMode === 'workforce') {
             // Agentic experience: the AI workforce and how it runs.
             return [
-              scope,
               home,
               { key: 'resources', label: 'Employees', collapsible: true, isGroup: true, href: '#/resources', routeGroup: 'resources', children: [
                 { key: 'managers', title: 'Managers', icon: '👔', href: '#/managers', routeGroup: 'managers', items: [] },
@@ -15004,7 +15187,188 @@
             else if (rm) this.goTo('#/home');
           }
         },
-        // Reskin the whole app to match the selected organization's theme preset.
+        // ===== Experience level (Basic ⇄ Advanced) =====
+        // Catalog of optional features that can be switched on while in Basic mode.
+        // Order here drives the order they appear in the Settings checklist.
+        basicFeatureCatalog() {
+          return [
+            { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
+            { key: 'managers', label: 'Managers', icon: '👔', hint: 'AI managers that orchestrate your agents.' },
+            { key: 'tasks', label: 'Tasks', icon: '⚡', hint: 'Scheduled prompts & recurring operations.' },
+            { key: 'flows', label: 'Flows', icon: '🔗', hint: 'Multi-step agent chains.' },
+            { key: 'watercooler', label: 'Water cooler', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
+            { key: 'teams', label: 'Teams', icon: '🏢', hint: 'Group employees into teams.' },
+            { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
+            { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
+          ];
+        },
+        setExperienceLevel(level) {
+          const lv = level === 'advanced' ? 'advanced' : 'basic';
+          if (this.experienceLevel === lv) return;
+          this.experienceLevel = lv;
+          try { localStorage.setItem('experience-level', lv); } catch {}
+          // Basic is a single flat view with no Productivity/Management split, so the
+          // top-bar mode switch is hidden. Pin appMode to 'workspace' so the Home page
+          // (whose sections are gated on appMode) renders its productivity layout.
+          if (lv === 'basic') {
+            this.appMode = 'workspace';
+            try { localStorage.setItem('app-mode', 'workspace'); } catch {}
+            // If we're sitting on a page Basic doesn't surface, fall back to Home.
+            if (!this.basicRouteVisible(this.route)) this.goTo('#/home');
+            // Without the Teams feature there's no selector, so don't leave the user
+            // silently scoped to a team they can no longer see or change.
+            if (!this.teamSelectorVisible() && this.currentTeamId !== 'all') this.setCurrentOrg('all');
+          }
+        },
+        toggleBasicFeature(key) {
+          const cur = !!(this.basicFeatures || {})[key];
+          this.basicFeatures = Object.assign({}, this.basicFeatures, { [key]: !cur });
+          try { localStorage.setItem('basic-features', JSON.stringify(this.basicFeatures)); } catch {}
+          // Hiding the team selector while scoped to a team would strand the filter on.
+          if (key === 'teams' && cur && this.experienceLevel === 'basic' && this.currentTeamId !== 'all') {
+            this.setCurrentOrg('all');
+          }
+        },
+        // Whether a route is reachable from the Basic flat sidebar (so we don't strand
+        // the user on a hidden page after switching to Basic).
+        basicRouteVisible(route) {
+          const r = route || this.route;
+          // Always-available shared routes.
+          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'marketplace', 'settings', 'events'].includes(r)) return true;
+          const bf = this.basicFeatures || {};
+          const gated = {
+            insights: ['insights'],
+            managers: ['managers', 'manager-detail'],
+            tasks: ['tasks', 'task-detail', 'assignments', 'assignment-detail'],
+            flows: ['chains', 'chain-detail'],
+            watercooler: ['chat', 'chat-detail'],
+            teams: ['teams'],
+            sessions: ['sessions'],
+            news: ['activity', 'reports'],
+          };
+          for (const [feat, routes] of Object.entries(gated)) {
+            if (routes.includes(r)) return !!bf[feat];
+          }
+          return false;
+        },
+
+        // The team selector only makes sense once teams are part of the experience.
+        // In Basic mode it stays hidden until the user enables the Teams feature.
+        teamSelectorVisible() {
+          if (this.experienceLevel !== 'basic') return true;
+          return !!(this.basicFeatures && this.basicFeatures.teams);
+        },
+
+        // Detect existing standup agents (server stamps config.source.type==='standup'
+        // and group:'Standup').
+        gsStandupAgents() {
+          return (this.data.agents || []).filter(a => {
+            const c = a.config || a;
+            return (c.source && c.source.type === 'standup') || c.group === 'Standup';
+          });
+        },
+        gsStandupDone() { return this.gsStandupAgents().length > 0; },
+        // A scheduled "epic status" task pointed at a standup agent.
+        gsEpicTask() {
+          const standupIds = new Set(this.gsStandupAgents().map(a => a.id));
+          return (this.allTasks() || []).find(t =>
+            t.type === 'agent' && standupIds.has(t.agentId) &&
+            t.schedule && t.schedule !== 'never' &&
+            /epic status/i.test((t.prompt || '') + ' ' + (t.name || ''))
+          ) || null;
+        },
+        gsTaskDone() { return !!this.gsEpicTask(); },
+        // A board that pins both a standup agent and a task.
+        gsBoardDone() {
+          const standupIds = new Set(this.gsStandupAgents().map(a => a.id));
+          return (this.boards || []).some(b => {
+            const items = Array.isArray(b.items) ? b.items : [];
+            const hasAgent = items.some(it => it.kind === 'agent' && standupIds.has(it.refId));
+            const hasTask = items.some(it => it.kind === 'task');
+            return hasAgent && hasTask;
+          });
+        },
+        gsDoneCount() {
+          return (this.gsStandupDone() ? 1 : 0) + (this.gsTaskDone() ? 1 : 0) + (this.gsBoardDone() ? 1 : 0);
+        },
+        showGettingStarted() {
+          if (this.experienceLevel !== 'basic') return false;
+          if (this.route !== 'home') return false;
+          // Preview wins over dismissal and completion so the walkthrough can be replayed.
+          if (this.gsPreview) return true;
+          if (this.gettingStartedDismissed) return false;
+          return this.gsDoneCount() < 3;
+        },
+        dismissGettingStarted() {
+          this.gettingStartedDismissed = true;
+          this.setGsPreview(false);
+          try { localStorage.setItem('getting-started-dismissed', '1'); } catch {}
+        },
+        // Replay/preview the onboarding guide without altering any real data. Just
+        // flips a display flag and sends the user to Home where the card lives.
+        setGsPreview(on) {
+          this.gsPreview = !!on;
+          try { localStorage.setItem('gs-preview', this.gsPreview ? '1' : ''); } catch {}
+        },
+        previewGettingStarted() {
+          this.setGsPreview(true);
+          this.goTo('#/home');
+        },
+        gsStep1() {
+          // In preview we always re-run the action so the walkthrough is repeatable;
+          // normally a finished step just jumps to where the result lives.
+          if (this.gsStandupDone() && !this.gsPreview) { this.goTo('#/agents'); return; }
+          this.openStandupModal();
+        },
+        gsStep2() {
+          if (!this.gsStandupDone()) return;
+          if (this.gsTaskDone() && !this.gsPreview) { this.goTo('#/tasks'); return; }
+          const agent = this.gsStandupAgents()[0];
+          this.openTaskModal(null, agent.id);
+          this.$nextTick(() => {
+            this.newTaskForm.name = 'Show me the epic status';
+            this.newTaskForm.prompt = 'Show me the epic status';
+            this.newTaskForm.schedulePreset = 'custom';
+            this.newTaskForm.schedule = '0 9 * * *';
+          });
+        },
+        async gsStep3() {
+          if (!this.gsStandupDone() || this.gsBusy) return;
+          if (this.gsBoardDone() && !this.gsPreview) { this.goTo('#/boards'); return; }
+          this.gsBusy = true;
+          try {
+            const agent = this.gsStandupAgents()[0];
+            const c = agent.config || agent;
+            const epicTitle = (c.source && c.source.epicTitle) || agent.name || 'Epic';
+            const boardName = epicTitle.length > 40 ? epicTitle.slice(0, 40) : epicTitle;
+            const r = await this.request('/api/boards', {
+              method: 'POST',
+              body: JSON.stringify({ name: boardName, emoji: '📌', teamId: this.currentTeamId === 'all' ? null : this.currentTeamId })
+            });
+            const board = (r && r.board) ? r.board : r;
+            if (!board || !board.id) throw new Error('Board creation failed');
+            // Pin the standup agent.
+            await this.request(`/api/boards/${board.id}/items`, {
+              method: 'POST',
+              body: JSON.stringify({ kind: 'agent', refId: agent.id, label: agent.name, sublabel: 'Standup' })
+            });
+            // Pin the epic-status task if present.
+            const task = this.gsEpicTask();
+            if (task) {
+              await this.request(`/api/boards/${board.id}/items`, {
+                method: 'POST',
+                body: JSON.stringify({ kind: 'task', refId: task.taskKey, label: task.name, sublabel: task.ownerName })
+              });
+            }
+            await this.loadBoards(board.id);
+            this.showToast('Board created', 'Your standup agent and task are pinned.', 'success');
+            this.goTo('#/boards');
+          } catch (e) {
+            this.showToast('Could not create the board', (e.message || e), 'error');
+          } finally {
+            this.gsBusy = false;
+          }
+        },
         applyOrgTheme() {
           const org = this.currentOrg();
           const theme = org && org.theme && org.theme !== 'default' ? org.theme : null;
@@ -16283,6 +16647,7 @@
         // reachable — it houses the kill-switch needed to re-enable access.
         settingsNav() {
           return [
+            { id: 'experience', label: 'Experience', ico: '🧭', hash: '#/settings/experience' },
             { id: 'appearance', label: 'Appearance', ico: '🎨', hash: '#/settings/appearance' },
             { id: 'ai', label: 'AI & Behavior', ico: '🧠', hash: '#/settings/ai' },
             { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
@@ -18822,12 +19187,17 @@
         quickLaunchBoard(boardId) {
           if (!boardId) return;
           const b = (this.boards || []).find(x => x.id === boardId);
-          // Auto-select the board's team in the org dropdown when it's team-scoped.
-          if (b && b.teamId) {
-            if (this.currentTeamId !== b.teamId) this.setCurrentOrg(b.teamId);
-          } else if (b && !b.teamId && this.currentTeamId !== 'all') {
-            // Office-wide board: drop to the company-wide view.
-            this.setCurrentOrg('all');
+          // Auto-select the board's team in the org dropdown when it's team-scoped —
+          // but only when the team selector is actually part of the experience. In
+          // Basic mode without Teams there's no selector, so quietly switching scope
+          // would be invisible and confusing.
+          if (this.teamSelectorVisible()) {
+            if (b && b.teamId) {
+              if (this.currentTeamId !== b.teamId) this.setCurrentOrg(b.teamId);
+            } else if (b && !b.teamId && this.currentTeamId !== 'all') {
+              // Office-wide board: drop to the company-wide view.
+              this.setCurrentOrg('all');
+            }
           }
           this.activeBoardId = boardId;
           try { localStorage.setItem('active-board-id', boardId); } catch {}
@@ -18907,8 +19277,10 @@
         quickLaunchOpen(item) {
           if (!item) return;
           if (item.kind === 'board') return this.quickLaunchBoard(item.id);
-          if (item.teamId) { if (this.currentTeamId !== item.teamId) this.setCurrentOrg(item.teamId); }
-          else if (this.currentTeamId !== 'all') this.setCurrentOrg('all');
+          if (this.teamSelectorVisible()) {
+            if (item.teamId) { if (this.currentTeamId !== item.teamId) this.setCurrentOrg(item.teamId); }
+            else if (this.currentTeamId !== 'all') this.setCurrentOrg('all');
+          }
           if (item.route) window.location.hash = item.route;
         },
         async setBoardArchived(board, archived) {
