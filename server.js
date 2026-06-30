@@ -52,7 +52,21 @@ const BUILTIN_PLUGINS_DIR = path.join(__dirname, 'builtin-plugins');
 
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
-const PORT = process.env.PORT || 3847;
+// Default to the well-known 3847 so browser users keep their bookmark. Set
+// PORT=0 to let the OS assign a free port (desktop/sidecar mode — avoids
+// collisions when the app is launched repeatedly). The actually-bound port is
+// resolved after listen() into RESOLVED_PORT.
+const PORT = (process.env.PORT !== undefined && process.env.PORT !== '')
+  ? Number(process.env.PORT)
+  : 3847;
+// Listen interface. Defaults to all interfaces (undefined) so the LAN/mobile
+// (QR-code) flow keeps working. A host shell can pin it to loopback with
+// SUPERVISOR_HOST=127.0.0.1.
+const HOST = process.env.SUPERVISOR_HOST || undefined;
+// The port we actually bound to. Equals PORT unless PORT=0. Anything that builds
+// a URL/base must read getPort() so it reflects the real port in sidecar mode.
+let RESOLVED_PORT = PORT;
+function getPort() { return RESOLVED_PORT; }
 const DB_PATH = dataPath('supervisor.db');
 const AGENTS_PATH = dataPath('agents.json');
 const MANAGERS_PATH = dataPath('managers.json');
@@ -289,7 +303,7 @@ if (!process.env.COPILOT_PATH) {
 // committed. capabilities.buildCatalog() scans builtin-plugins/ for .mcp.json,
 // so writing this here auto-surfaces the board MCP in the per-agent attach
 // picker AND in Design-with-AI's catalog with no further wiring.
-(function ensureBoardPlugin() {
+function ensureBoardPlugin() {
   try {
     const boardDir = path.join(BUILTIN_PLUGINS_DIR, 'board');
     const mcpEntry = path.join(boardDir, 'mcp', 'board-mcp.js');
@@ -300,7 +314,7 @@ if (!process.env.COPILOT_PATH) {
       board: {
         command: 'node',
         args: [mcpEntry],
-        env: { BOARD_API_BASE: `http://127.0.0.1:${PORT}` },
+        env: { BOARD_API_BASE: `http://127.0.0.1:${getPort()}` },
       },
     },
     };
@@ -311,7 +325,8 @@ if (!process.env.COPILOT_PATH) {
     console.log('[supervisor] Generated board MCP config (.mcp.json)');
     }
   } catch (e) { console.warn('[supervisor] Could not generate board MCP config:', e.message); }
-})();
+}
+ensureBoardPlugin();
 
 // Get git version info and process identity at startup
 const PROCESS_START = new Date().toISOString();
@@ -592,7 +607,7 @@ const mobileHandler = new MobileHandler(supervisor, managerAgent, db, eventListe
 eventListener.mobileHandler = mobileHandler;
 // Let the handler reach the server's own HTTP endpoints (boards/insights live
 // here with all their resolution logic) without duplicating that logic.
-mobileHandler.localBaseUrl = `http://127.0.0.1:${PORT}`;
+mobileHandler.localBaseUrl = `http://127.0.0.1:${getPort()}`;
 
 // Session cleanup interval for idle event listener sessions
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
@@ -12688,8 +12703,19 @@ app.get('*', (req, res) => {
 // initialize agents — a redundant instance (e.g. spawned by an external
 // scheduler while one is already running) must not touch agent/DB state before
 // it discovers the conflict and exits via the EADDRINUSE handler below.
-const server = app.listen(PORT, () => {
-  console.log(`[supervisor] Dashboard running at http://localhost:${PORT}`);
+const onListen = () => {
+  // Resolve the actually-bound port (PORT=0 → OS-assigned) so every URL/base
+  // reflects reality in sidecar mode.
+  try { RESOLVED_PORT = server.address().port; } catch { /* keep PORT */ }
+  process.env.SUPERVISOR_PORT = String(RESOLVED_PORT);
+  // Rewrite anything that baked in the port before it was known.
+  mobileHandler.localBaseUrl = `http://127.0.0.1:${RESOLVED_PORT}`;
+  try { ensureBoardPlugin(); } catch { /* best effort */ }
+  console.log(`[supervisor] Dashboard running at http://localhost:${RESOLVED_PORT}`);
+  // Structured, machine-readable readiness line. A host process (e.g. the
+  // desktop shell) parses this to discover the bound port before opening a
+  // window. Keep the token stable.
+  console.log(`[supervisor] __READY__ ${JSON.stringify({ port: RESOLVED_PORT, url: `http://127.0.0.1:${RESOLVED_PORT}` })}`);
   // Register enabled agents as scheduled. startAll() never runs any agent on
   // boot — execution comes only from user/orchestrated/scheduled triggers.
   supervisor.startAll();
@@ -12701,7 +12727,8 @@ const server = app.listen(PORT, () => {
     const runAgents = process.env.SDK_RUN_AGENTS || '';
     console.log(`[supervisor] SDK modes — read: env=${envRead} effective=${_rdr.mode} | run: env=${envRun} effective=${_rnr.mode}${runAgents ? ' agents=[' + runAgents + ']' : ''} | node=${process.version} COPILOT_HOME=${process.env.COPILOT_HOME || '(default)'}`);
   } catch (e) { console.warn('[supervisor] could not log SDK modes:', e.message); }
-});
+};
+const server = HOST ? app.listen(PORT, HOST, onListen) : app.listen(PORT, onListen);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
@@ -12711,20 +12738,31 @@ server.on('error', (err) => {
   throw err;
 });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('[supervisor] Shutting down...');
-  configSync.stop();
-  supervisor.stopAll();
-  db.close();
+// Graceful shutdown — single path for every trigger so we always stop the
+// scheduler, flush the DB and release the port.
+let _shuttingDown = false;
+function shutdown(reason) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  console.log(`[supervisor] Shutting down (${reason})...`);
+  try { configSync.stop(); } catch { /* best effort */ }
+  try { supervisor.stopAll(); } catch { /* best effort */ }
+  try { db.close(); } catch { /* best effort */ }
+  try { server.close(); } catch { /* best effort */ }
   process.exit(0);
-});
-process.on('SIGTERM', () => {
-  configSync.stop();
-  supervisor.stopAll();
-  db.close();
-  process.exit(0);
-});
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+// When launched as a desktop sidecar (SUPERVISOR_SIDECAR=1) the host keeps a
+// pipe open on our stdin; if it closes, the parent is gone, so exit instead of
+// orphaning child CLI/git processes. Gated so normal `npm start` is unaffected.
+if (process.env.SUPERVISOR_SIDECAR === '1') {
+  try {
+    process.stdin.resume();
+    process.stdin.on('end', () => shutdown('stdin-end'));
+    process.stdin.on('close', () => shutdown('stdin-close'));
+  } catch { /* best effort */ }
+}
 
 } // end main
 
