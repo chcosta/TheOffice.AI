@@ -2721,9 +2721,39 @@
       min-height: 480px;
       max-height: calc(100vh - 150px);
       display: grid;
-      grid-template-columns: 300px 1fr;
+      grid-template-columns: var(--chat-sb-w, 300px) 1fr;
       overflow: hidden;
+      position: relative;
     }
+    .chat-resizer {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: var(--chat-sb-w, 300px);
+      width: 10px;
+      transform: translateX(-5px);
+      cursor: col-resize;
+      z-index: 6;
+      touch-action: none;
+    }
+    .chat-resizer::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1px;
+      background: transparent;
+      transition: background 120ms ease, width 120ms ease;
+    }
+    .chat-resizer:hover::after,
+    .chat-resizer.dragging::after {
+      width: 3px;
+      background: var(--cp-accent);
+    }
+    .chat-shell.chat-focused .chat-resizer { display: none; }
+    body.chat-resizing { cursor: col-resize; user-select: none; }
     .chat-sidebar {
       border-right: 1px solid var(--cp-border);
       background: color-mix(in srgb, var(--cp-surface-soft) 84%, transparent);
@@ -4243,6 +4273,7 @@
       .chat-shell {
         grid-template-columns: 1fr;
       }
+      .chat-resizer { display: none; }
       .sidebar {
         position: fixed;
         top: 0;
@@ -4271,6 +4302,7 @@
     .compact-mode .chat-shell {
       grid-template-columns: 1fr;
     }
+    .compact-mode .chat-resizer { display: none; }
     .compact-mode .sidebar {
       position: fixed;
       top: 0;
@@ -7979,6 +8011,73 @@
             </div>
             </template>
 
+            <!-- Review-comments preview/selection: choose which AI findings to post to the PR -->
+            <template x-teleport="body">
+            <div class="modal-backdrop modal-overlay" x-show="cfComments.open" x-transition.opacity.duration.150ms @click.self="cfComments.open=false" x-cloak style="z-index:9999">
+              <div class="modal-card" style="max-width:860px;width:92vw">
+                <div class="modal-header">
+                  <h2 class="modal-title">Review comments<span x-show="cfComments.pr" style="color:var(--cp-text-muted);font-weight:500"> · PR !<span x-text="cfComments.pr && cfComments.pr.id"></span></span></h2>
+                  <button class="icon-button" type="button" @click="cfComments.open=false">✕</button>
+                </div>
+                <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;max-height:74vh;overflow:auto">
+                  <p class="hint" style="margin:0">Pick which AI review findings to post as comments on the PR. Anchored findings attach to their file/line; the rest post as general comments.</p>
+                  <div x-show="cfComments.summary" style="border-left:3px solid var(--cp-accent);padding:6px 12px;background:var(--cp-surface-soft);border-radius:0 8px 8px 0;color:var(--cp-text)" x-text="cfComments.summary"></div>
+
+                  <div x-show="cfComments.loading" class="hint" style="margin:0">Loading findings…</div>
+                  <div x-show="!cfComments.loading && cfComments.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="cfComments.error"></div>
+                  <div x-show="!cfComments.loading && !cfComments.error && !cfComments.items.length" class="hint" style="margin:0">No review findings to post.</div>
+
+                  <div x-show="!cfComments.loading && cfComments.items.length" style="display:flex;align-items:center;gap:10px">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--cp-text)">
+                      <input type="checkbox" :checked="cfCmAllSelected()" @change="cfCmToggleAll()" />
+                      <span>Select all</span>
+                    </label>
+                    <span class="hint" style="margin:0"><span x-text="cfCmSelectedCount()"></span> of <span x-text="cfComments.items.length"></span> selected</span>
+                  </div>
+
+                  <div x-show="!cfComments.loading && cfComments.items.length" style="display:flex;flex-direction:column;gap:8px">
+                    <template x-for="c in cfComments.items" :key="c.index">
+                      <div style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start"
+                           :style="cfComments.sel[c.index] ? '' : 'opacity:.55'">
+                        <input type="checkbox" :checked="!!cfComments.sel[c.index]" @change="cfComments.sel[c.index] = !cfComments.sel[c.index]" style="margin-top:3px;flex:0 0 auto" />
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span style="font-size:12px;font-weight:600"
+                                  :style="c.severity==='blocker' ? 'color:var(--cp-danger)' : c.severity==='major' ? 'color:var(--cp-warning)' : c.severity==='minor' ? 'color:var(--cp-link)' : 'color:var(--cp-text-muted)'"
+                                  x-text="cfCmSevTag(c.severity)"></span>
+                            <span style="font-weight:600;color:var(--cp-text)" x-text="c.title || '(untitled finding)'"></span>
+                          </div>
+                          <div style="font-family:Consolas,'Courier New',monospace;font-size:11px;color:var(--cp-text-muted)">
+                            <template x-if="c.anchored"><span x-text="c.file + ':' + c.line"></span></template>
+                            <template x-if="!c.anchored"><span>General comment (not anchored to a line)</span></template>
+                          </div>
+                          <div x-show="c.snippet && c.snippet.length" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface-soft)">
+                            <template x-for="ln in (c.snippet || [])" :key="ln.n">
+                              <div style="display:flex;font-family:Consolas,'Courier New',monospace;font-size:11.5px;line-height:1.6"
+                                   :style="ln.target ? 'background:var(--cp-accent-soft)' : ''">
+                                <span style="flex:0 0 44px;text-align:right;padding:0 8px;color:var(--cp-text-soft);user-select:none;border-right:1px solid var(--cp-border)"
+                                      :style="ln.target ? 'color:var(--cp-accent);font-weight:700' : ''" x-text="ln.n"></span>
+                                <span style="padding:0 10px;white-space:pre;overflow-x:auto;color:var(--cp-text)" x-text="ln.text"></span>
+                              </div>
+                            </template>
+                          </div>
+                          <div x-show="c.body" style="font-size:13px;color:var(--cp-text);white-space:pre-wrap" x-text="c.body"></div>
+                          <div x-show="c.suggestion" style="font-size:12.5px;color:var(--cp-text-muted);white-space:pre-wrap"><span style="font-weight:600">Suggested fix:</span> <span x-text="c.suggestion"></span></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn" type="button" @click="cfComments.open=false">Cancel</button>
+                  <button class="btn primary" type="button" @click="cfCmPost()"
+                          :disabled="cfComments.posting || cfComments.loading || !cfCmSelectedCount()"
+                          x-text="cfComments.posting ? 'Posting…' : ('Post ' + cfCmSelectedCount() + ' comment' + (cfCmSelectedCount() === 1 ? '' : 's') + ' to PR')"></button>
+                </div>
+              </div>
+            </div>
+            </template>
+
             <div class="modal-backdrop modal-overlay" x-show="devModal.open" x-transition.opacity.duration.150ms @click.self="devModal.open=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:560px">
                 <div class="modal-header">
@@ -9413,7 +9512,7 @@
                 <button class="btn primary" type="button" @click="chatPickerOpen = true">＋ New chat</button>
               </div>
             </div>
-            <section class="chat-shell" :class="{ 'chat-focused': chatFocused }">
+            <section class="chat-shell" :class="{ 'chat-focused': chatFocused }" :style="'--chat-sb-w:' + chatSidebarW + 'px'">
               <aside class="chat-sidebar">
                 <div class="chat-sidebar-top">
                   <strong>Conversations</strong>
@@ -9462,6 +9561,8 @@
                   </div>
                 </div>
               </aside>
+
+              <div class="chat-resizer" role="separator" aria-orientation="vertical" aria-label="Resize conversations list" title="Drag to resize" @pointerdown="startChatResize($event)" @dblclick="resetChatSidebarWidth()"></div>
 
               <section class="chat-main">
                 <div class="chat-main-top" x-show="activeChat">
@@ -12826,6 +12927,7 @@
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
         appMode: (() => { try { const m = localStorage.getItem('app-mode'); return (m === 'workspace' || m === 'workforce') ? m : 'workspace'; } catch { return 'workspace'; } })(),
         chatFocused: false,
+        chatSidebarW: (() => { try { const v = parseInt(localStorage.getItem('chat-sidebar-w'), 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
         agentSearch: '',
         managerSearch: '',
         agentStatusFilter: 'all',
@@ -13070,6 +13172,11 @@
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
+        // Review-comments preview/selection modal: opened from a PR card's
+        // "Add N review comments to PR" link. Lets the user see each AI finding
+        // (with code context) and choose which ones to post. pr is the card it
+        // was opened from; sel is a Set of selected indices.
+        cfComments: { open: false, pr: null, key: '', loading: false, posting: false, error: '', summary: '', items: [], sel: {} },
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
@@ -18333,7 +18440,74 @@
             delete this.codeflow.wtBusy[key];
           }
         },
+        // Open the review-comments preview/selection modal for a PR. Fetches the
+        // AI findings (with code context) so the user can choose which to post,
+        // rather than firing all of them off blindly.
         async cfPostComments(pr) {
+          const m = this.cfComments;
+          m.open = true; m.pr = pr; m.key = this.cfPrKey(pr);
+          m.loading = true; m.posting = false; m.error = '';
+          m.summary = ''; m.items = []; m.sel = {};
+          try {
+            const qs = new URLSearchParams({ org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id) }).toString();
+            const resp = await this.request('/api/codeflow/pr/comments?' + qs);
+            m.summary = (resp && resp.summary) || '';
+            m.items = (resp && resp.comments) || [];
+            // Default: everything selected.
+            const sel = {};
+            for (const c of m.items) sel[c.index] = true;
+            m.sel = sel;
+          } catch (e) {
+            m.error = (e && e.message) || 'Could not load review findings.';
+          } finally {
+            m.loading = false;
+          }
+        },
+        cfCmSelectedCount() {
+          const m = this.cfComments;
+          return (m.items || []).filter(c => m.sel[c.index]).length;
+        },
+        cfCmAllSelected() {
+          const m = this.cfComments;
+          return (m.items || []).length > 0 && (m.items || []).every(c => m.sel[c.index]);
+        },
+        cfCmToggleAll() {
+          const m = this.cfComments;
+          const next = !this.cfCmAllSelected();
+          const sel = {};
+          for (const c of (m.items || [])) sel[c.index] = next;
+          m.sel = sel;
+        },
+        cfCmSevTag(s) {
+          const v = String(s || '').toLowerCase();
+          return v === 'blocker' ? '🚫 Blocker' : v === 'major' ? '⚠️ Major' : v === 'minor' ? '🔹 Minor' : v === 'nit' ? '💬 Nit' : '💬 Comment';
+        },
+        async cfCmPost() {
+          const m = this.cfComments;
+          const pr = m.pr;
+          if (!pr) return;
+          const indices = (m.items || []).filter(c => m.sel[c.index]).map(c => c.index);
+          if (!indices.length) { this.showToast('Add review comments', 'Select at least one comment to post.', 'error'); return; }
+          m.posting = true; m.error = '';
+          try {
+            const resp = await this.request('/api/codeflow/pr/comments/post', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, indices }),
+              timeoutMs: 0
+            });
+            const posted = (resp && resp.posted) || 0;
+            const total = (resp && resp.total) || indices.length;
+            m.open = false;
+            this.showToast('Add review comments',
+              'Posted ' + posted + ' of ' + total + ' comment' + (total === 1 ? '' : 's') + ' to PR !' + pr.id + '.',
+              posted ? 'success' : 'error');
+          } catch (e) {
+            m.error = (e && e.message) || 'Failed to post comments.';
+          } finally {
+            m.posting = false;
+          }
+        },
+        async cfPostCommentsLegacy(pr) {
           const key = this.cfPrKey(pr);
           const n = (this.cfWt(pr) || {}).reviewComments || 0;
           const ok = await this.uiConfirm('Add review comments to PR',
@@ -26804,6 +26978,39 @@
               if (el) el.scrollTop = el.scrollHeight;
             }, 50);
           }
+        },
+
+        startChatResize(event) {
+          event.preventDefault();
+          const handle = event.currentTarget;
+          const shell = handle.closest('.chat-shell');
+          if (!shell) return;
+          const minW = 200, maxW = 560;
+          const shellLeft = shell.getBoundingClientRect().left;
+          handle.classList.add('dragging');
+          document.body.classList.add('chat-resizing');
+          try { handle.setPointerCapture(event.pointerId); } catch {}
+          const onMove = (e) => {
+            let w = e.clientX - shellLeft;
+            if (w < minW) w = minW; if (w > maxW) w = maxW;
+            this.chatSidebarW = Math.round(w);
+          };
+          const onUp = () => {
+            handle.classList.remove('dragging');
+            document.body.classList.remove('chat-resizing');
+            try { handle.releasePointerCapture(event.pointerId); } catch {}
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            try { localStorage.setItem('chat-sidebar-w', String(this.chatSidebarW)); } catch {}
+          };
+          handle.addEventListener('pointermove', onMove);
+          handle.addEventListener('pointerup', onUp);
+          handle.addEventListener('pointercancel', onUp);
+        },
+        resetChatSidebarWidth() {
+          this.chatSidebarW = 300;
+          try { localStorage.setItem('chat-sidebar-w', '300'); } catch {}
         },
 
         handleGlobalKeydown(event) {

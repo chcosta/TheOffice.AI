@@ -2384,8 +2384,47 @@ app.post('/api/codeflow/pr/push', (req, res) => {
   }
 });
 
+// Return the AI reviewer's findings (parsed pr-review-comments.json), enriched
+// with a small code snippet around each anchored finding so the user can preview
+// exactly what each comment applies to before choosing which ones to post.
+app.get('/api/codeflow/pr/comments', (req, res) => {
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
+  const rc = _readCfReviewComments(rec.worktreePath);
+  if (!rc) return res.json({ summary: '', comments: [] });
+  const wt = rec.worktreePath;
+  const enrich = (c, i) => {
+    const rel = c.file ? String(c.file).replace(/^[\\/]+/, '') : '';
+    const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null;
+    const anchored = !!(rel && line);
+    let snippet = null;
+    if (anchored) {
+      try {
+        const fp = path.join(wt, rel);
+        if (fp.startsWith(wt) && fs.existsSync(fp) && fs.statSync(fp).isFile()) {
+          const lines = fs.readFileSync(fp, 'utf8').split(/\r?\n/);
+          const from = Math.max(1, line - 3);
+          const to = Math.min(lines.length, line + 3);
+          snippet = [];
+          for (let n = from; n <= to; n++) snippet.push({ n, text: lines[n - 1], target: n === line });
+        }
+      } catch {}
+    }
+    return {
+      index: i, file: rel, line, severity: String(c.severity || '').toLowerCase(),
+      title: c.title || '', body: c.body || '', suggestion: c.suggestion || '', anchored, snippet
+    };
+  };
+  res.json({ summary: rc.summary || '', comments: rc.comments.map(enrich) });
+});
+
 // Post the AI reviewer's findings (pr-review-comments.json) to the PR as review
-// comment threads — one per finding, anchored to file/line when known.
+// comment threads — one per finding, anchored to file/line when known. Pass an
+// optional `indices` array (into pr-review-comments.json's comments[]) to post
+// only the chosen findings; omit it to post all.
 app.post('/api/codeflow/pr/comments/post', async (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
@@ -2399,8 +2438,16 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
     const v = String(s || '').toLowerCase();
     return v === 'blocker' ? '🚫 Blocker' : v === 'major' ? '⚠️ Major' : v === 'minor' ? '🔹 Minor' : v === 'nit' ? '💬 Nit' : '💬 Comment';
   };
+  // Optional selection: post only the chosen indices into rc.comments[]. Omit
+  // (or pass a non-array) to post every finding, preserving the old behavior.
+  let picked = rc.comments.map((c, i) => ({ c, i }));
+  if (Array.isArray(b.indices)) {
+    const want = new Set(b.indices.map(Number).filter(n => Number.isInteger(n) && n >= 0));
+    picked = picked.filter(p => want.has(p.i));
+  }
+  if (!picked.length) return res.status(400).json({ error: 'No comments selected to post.' });
   const results = [];
-  for (const c of rc.comments) {
+  for (const { c } of picked) {
     try {
       const parts = ['**' + sevTag(c.severity) + (c.title ? ' — ' + c.title : '') + '**', ''];
       if (c.body) parts.push(c.body);
@@ -2420,7 +2467,7 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
     }
   }
   const posted = results.filter(r => r.ok).length;
-  res.json({ ok: posted > 0, posted, total: rc.comments.length, results });
+  res.json({ ok: posted > 0, posted, total: picked.length, results });
 });
 // Make a cached/agent-generated HTML report honor the SPA's light/dark theme.
 // Reports are free-form HTML the review agent writes, so we inject (idempotently):
