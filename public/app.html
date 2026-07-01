@@ -8700,6 +8700,9 @@
               /* The draft extends to fit its content — no inner scrollbar (overrides the
                  shared .md-output max-height cap so the page is the only scroller). */
               .connect-draft-preview.md-output { max-height:none; overflow:visible; }
+              .connect-history { border:1px solid var(--cp-border); border-radius:10px; padding:14px; background:var(--cp-bg-elevated); margin:12px 0 4px; }
+              .connect-version-row { border:1px solid var(--cp-border); border-radius:8px; padding:10px 12px; background:var(--cp-surface); }
+              .connect-version-preview { font-size:12.5px; color:var(--cp-text-muted); margin-top:5px; line-height:1.45; }
             </style>
 
             <div class="page-header">
@@ -8724,6 +8727,7 @@
             <div class="connect-tabs">
               <button class="connect-tab" :class="{ active: connect.tab === 'draft' }" @click="connectSetTab('draft')">📝 My Connect</button>
               <button class="connect-tab" :class="{ active: connect.tab === 'diary' }" @click="connectSetTab('diary')" x-text="'📖 Diary (' + (connect.evidence ? connect.evidence.length : 0) + ')'"></button>
+              <button class="connect-tab" :class="{ active: connect.tab === 'profile' }" @click="connectSetTab('profile')">👤 Profile</button>
               <button class="connect-tab" :class="{ active: connect.tab === 'guidance' }" @click="connectSetTab('guidance')">🎯 Guidance</button>
               <a class="connect-tab" href="#/settings/connect" style="margin-left:auto;text-decoration:none">⚙ Settings</a>
             </div>
@@ -8732,9 +8736,71 @@
 
             <!-- ===== Draft tab ===== -->
             <div x-show="!connect.loading && connect.tab === 'draft'" x-transition.opacity.duration.120ms>
+              <div class="connect-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                  <div>
+                    <h3>My Connect draft</h3>
+                    <p class="hint" style="margin:0">
+                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.source === 'ai'">✨ AI-drafted — review &amp; personalize below</span>
+                      <span class="connect-src-badge" x-show="!(connect.state && connect.state.draft && connect.state.draft.source === 'ai')">✍ Your draft</span>
+                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="' · updated ' + formatRelative(connect.state.draft.updatedAt)"></span>
+                    </p>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn ghost small" type="button" :disabled="connect.generating" @click="connectGenerate()" title="Draft a Connect from your diary evidence — your current draft is saved to history first" x-text="connect.generating ? 'Drafting…' : '✨ Generate from diary'"></button>
+                    <button class="btn ghost small" type="button" @click="connectToggleHistory()" x-text="'🕒 History' + (connect.versions && connect.versions.length ? ' (' + connect.versions.length + ')' : '')" title="View and restore earlier versions of this draft"></button>
+                    <button class="btn ghost small" type="button" @click="connect._preview = !connect._preview" x-text="connect._preview ? '✎ Edit' : '👁 Preview'"></button>
+                    <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
+                  </div>
+                </div>
+
+                <!-- Version history -->
+                <div x-show="connect.showHistory" x-transition.opacity.duration.120ms class="connect-history">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+                    <strong style="font-size:.92rem">Version history</strong>
+                    <button class="btn ghost small" type="button" @click="connect.showHistory=false">Close</button>
+                  </div>
+                  <p class="hint" x-show="!connect.versions || !connect.versions.length" style="margin:0">
+                    No earlier versions yet. A snapshot is saved automatically whenever you regenerate or overwrite a non-empty draft.
+                  </p>
+                  <div x-show="connect.versions && connect.versions.length" style="display:flex;flex-direction:column;gap:6px">
+                    <template x-for="v in connect.versions" :key="v.id">
+                      <div class="connect-version-row">
+                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+                          <div style="min-width:0;flex:1">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="connect-src-badge" x-text="v.source === 'ai' ? '✨ AI' : '✍ Manual'"></span>
+                              <span class="hint" style="margin:0" x-text="formatRelative(v.savedAt)"></span>
+                              <span class="hint" style="margin:0;opacity:.7" x-text="v.reason === 'replaced-by-ai' ? '· replaced by generate' : '· edited'"></span>
+                            </div>
+                            <div class="connect-version-preview" x-show="connect._viewVersionId !== v.id" x-text="connectVersionPreview(v)"></div>
+                          </div>
+                          <div style="display:flex;gap:6px;flex-shrink:0">
+                            <button class="btn ghost small" type="button" @click="connectViewVersion(v)" x-text="connect._viewVersionId === v.id ? 'Hide' : 'View'"></button>
+                            <button class="btn ghost small" type="button" @click="connectRestoreVersion(v)" title="Load this version into the editor (unsaved — review, then Save)">Restore</button>
+                          </div>
+                        </div>
+                        <div x-show="connect._viewVersionId === v.id" x-transition.opacity.duration.120ms class="connect-draft-preview md-output" style="margin-top:8px" x-html="renderMarkdown(v.markdown)"></div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <p class="hint" x-show="!connect.draftText.trim()">
+                  Write or paste your Connect here, or click <strong>✨ Generate from diary</strong>. Pull from your Diary
+                  entries for concrete, quantified examples of impact. It renders as Markdown — use <strong>✎ Edit</strong> to change it.
+                </p>
+                <textarea x-show="connect._preview === false || !connect.draftText.trim()" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
+                          placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
+                <div x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
+              </div>
+            </div>
+
+            <!-- ===== Profile tab ===== -->
+            <div x-show="!connect.loading && connect.tab === 'profile'" x-transition.opacity.duration.120ms>
               <div class="connect-card" x-show="connect.state">
                 <h3>My current role</h3>
-                <p class="hint">A little context so your Connect draft (and, later, the AI) understands your scope. Optional.</p>
+                <p class="hint">A little context so your Connect draft (and the AI) understands your scope. Optional, but it makes generated drafts sharper.</p>
                 <div class="connect-grid2" x-show="connect.state">
                   <div class="connect-field">
                     <label>Role / title</label>
@@ -8757,31 +8823,6 @@
                   <button class="btn ghost" type="button" @click="saveConnectProfile()">Save role details</button>
                   <button class="btn ghost" type="button" :disabled="connect.autofilling" @click="connectAutofillProfile()" title="Infer your role from recent Teams, email, and meeting activity" x-text="connect.autofilling ? 'Reading your work…' : '✨ Auto-fill from my work'"></button>
                 </div>
-              </div>
-
-              <div class="connect-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-                  <div>
-                    <h3>My Connect draft</h3>
-                    <p class="hint" style="margin:0">
-                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.source === 'ai'">✨ AI-drafted — review &amp; personalize below</span>
-                      <span class="connect-src-badge" x-show="!(connect.state && connect.state.draft && connect.state.draft.source === 'ai')">✍ Your draft</span>
-                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="' · updated ' + formatRelative(connect.state.draft.updatedAt)"></span>
-                    </p>
-                  </div>
-                  <div style="display:flex;gap:8px">
-                    <button class="btn ghost small" type="button" :disabled="connect.generating" @click="connectGenerate()" title="Draft a Connect from your diary evidence" x-text="connect.generating ? 'Drafting…' : '✨ Generate from diary'"></button>
-                    <button class="btn ghost small" type="button" @click="connect._preview = !connect._preview" x-text="connect._preview ? '✎ Edit' : '👁 Preview'"></button>
-                    <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
-                  </div>
-                </div>
-                <p class="hint" x-show="!connect.draftText.trim()">
-                  Write or paste your Connect here, or click <strong>✨ Generate from diary</strong>. Pull from your Diary
-                  entries for concrete, quantified examples of impact. It renders as Markdown — use <strong>✎ Edit</strong> to change it.
-                </p>
-                <textarea x-show="connect._preview === false || !connect.draftText.trim()" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
-                          placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
-                <div x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
               </div>
             </div>
 
@@ -13781,6 +13822,9 @@
           aiQuery: '',           // AI diary search box
           aiSearching: false,
           aiMatchIds: null,      // null = no AI filter; array = matched evidence ids
+          versions: [],          // draft version history (newest-first)
+          showHistory: false,    // history panel toggle on the draft tab
+          _viewVersionId: null,  // id of the version expanded inline in history
           evForm: null,          // manual-entry / edit form (null = closed)
           evBusy: false,
           busy: false,
@@ -18618,6 +18662,7 @@
             this.connect.draftText = (r.state && r.state.draft && r.state.draft.markdown) || '';
             this.connect.draftDirty = false;
             this.connect.loaded = true;
+            this.connectLoadVersions();
           } catch (e) {
             this.toast('Failed to load Connect: ' + (e.message || e), 'error');
           } finally {
@@ -18640,6 +18685,7 @@
             });
             if (r && r.state) this.connect.state = r.state;
             this.connect.draftDirty = false;
+            this.connectLoadVersions();
             this.toast('Connect draft saved', 'success');
           } catch (e) {
             this.toast('Save failed: ' + (e.message || e), 'error');
@@ -18820,18 +18866,54 @@
               this.connect._preview = true;
             }
             this.connect.tab = 'draft';
-            this.toast('Draft generated — review and personalize it', 'success');
+            this.connectLoadVersions();
+            this.toast('Draft generated — your previous version was saved to History', 'success');
           } catch (e) {
             this.toast('Generate failed: ' + (e.message || e), 'error');
           } finally {
             this.connect.generating = false;
           }
         },
+        async connectLoadVersions() {
+          try {
+            const r = await this.request('/api/connect/versions');
+            this.connect.versions = Array.isArray(r.versions) ? r.versions : [];
+          } catch { /* history is best-effort */ }
+        },
+        connectToggleHistory() {
+          this.connect.showHistory = !this.connect.showHistory;
+          if (this.connect.showHistory) this.connectLoadVersions();
+        },
+        connectVersionPreview(v) {
+          const t = (v && v.markdown || '').replace(/[#*_`>-]/g, ' ').replace(/\s+/g, ' ').trim();
+          return t.length > 160 ? t.slice(0, 160) + '…' : (t || '(empty)');
+        },
+        connectViewVersion(v) {
+          if (!v) return;
+          this.connect._viewVersionId = (this.connect._viewVersionId === v.id) ? null : v.id;
+        },
+        async connectRestoreVersion(v) {
+          if (!v) return;
+          if (this.connect.draftText.trim() && this.connect.draftText.trim() !== (v.markdown || '').trim()) {
+            const ok = await this.uiConfirm({
+              title: 'Restore this version?',
+              message: 'This loads the selected version into the editor. It is NOT saved yet — review it and click Save to keep it. Your current draft will be snapshotted to history when you save.',
+              confirmLabel: 'Load into editor',
+            });
+            if (!ok) return;
+          }
+          this.connect.draftText = v.markdown || '';
+          this.connect.draftDirty = true;
+          this.connect._preview = true;
+          this.connect.showHistory = false;
+          this.connect.tab = 'draft';
+          this.toast('Version loaded — review, then Save to keep it', 'info');
+        },
         async connectCollect() {
           if (this.connect.collecting) return;
           if (!(this.connect.config && this.connect.config.consent)) {
             this.toast('Turn on collection consent in Settings first', 'error');
-            this.connect.tab = 'settings';
+            window.location.hash = '#/settings/connect';
             return;
           }
           this.connect.collecting = true;

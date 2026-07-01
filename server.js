@@ -7035,6 +7035,34 @@ app.put('/api/connect/draft', (req, res) => {
   }
 });
 
+// Draft version history — prior revisions snapshotted on generate/overwrite so a
+// user can view or restore wording an AI regeneration replaced.
+app.get('/api/connect/versions', (req, res) => {
+  try {
+    res.json({ ok: true, versions: connect.listDraftVersions() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/connect/versions/:id', (req, res) => {
+  try {
+    const v = connect.getDraftVersion(req.params.id);
+    if (!v) return res.status(404).json({ error: 'version not found' });
+    res.json({ ok: true, version: v });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/connect/versions/:id', (req, res) => {
+  try {
+    res.json({ ok: connect.deleteDraftVersion(req.params.id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Evidence (diary) CRUD.
 app.get('/api/connect/evidence', (req, res) => {
   try {

@@ -44,6 +44,10 @@ function storageDir() {
 
 function _statePath() { return path.join(storageDir(), 'state.json'); }
 function _evidencePath() { return path.join(storageDir(), 'evidence.json'); }
+function _versionsPath() { return path.join(storageDir(), 'draft-versions.json'); }
+
+// How many prior draft revisions to retain (newest kept, oldest pruned).
+const MAX_DRAFT_VERSIONS = 40;
 
 function _readJson(file, fallback) {
   try {
@@ -155,6 +159,10 @@ function saveGuidance(patch) {
 
 // Save the draft body. `source` marks who authored this revision. Any user edit
 // of the body should pass source:'manual' so the draft is honestly labeled.
+//
+// Before overwriting a non-empty draft with different content, the prior body is
+// snapshotted into draft-versions.json so the user can view / restore an earlier
+// revision (e.g. if an AI regeneration replaced wording they liked).
 function saveDraft(patch, { source } = {}) {
   const st = getState();
   const p = patch && typeof patch === 'object' ? patch : {};
@@ -162,6 +170,12 @@ function saveDraft(patch, { source } = {}) {
   if (typeof p.markdown === 'string') next.markdown = p.markdown;
   if (p.sections && typeof p.sections === 'object') {
     next.sections = { ...next.sections, ..._pick(p.sections, Object.keys(DEFAULT_STATE.draft.sections)) };
+  }
+  // Snapshot the outgoing draft if it had real content and the body is changing.
+  const prevBody = (st.draft && st.draft.markdown || '').trim();
+  const nextBody = (next.markdown || '').trim();
+  if (prevBody && prevBody !== nextBody) {
+    _pushDraftVersion(st.draft, { reason: source === 'ai' ? 'replaced-by-ai' : 'edited' });
   }
   if (source === 'ai') {
     next.source = 'ai';
@@ -173,6 +187,56 @@ function saveDraft(patch, { source } = {}) {
   st.draft = next;
   _writeJson(_statePath(), st);
   return st;
+}
+
+// ---- Draft version history --------------------------------------------------
+
+function _readVersions() {
+  const obj = _readJson(_versionsPath(), { items: [] });
+  return Array.isArray(obj.items) ? obj.items : [];
+}
+
+function _writeVersions(items) {
+  return _writeJson(_versionsPath(), { items });
+}
+
+// Push a draft snapshot to the front of the history (newest-first), de-duping an
+// identical consecutive body and pruning to MAX_DRAFT_VERSIONS.
+function _pushDraftVersion(draft, { reason } = {}) {
+  const body = (draft && draft.markdown || '');
+  if (!body.trim()) return null;
+  const items = _readVersions();
+  if (items.length && (items[0].markdown || '').trim() === body.trim()) return items[0];
+  const entry = {
+    id: _id('cv'),
+    markdown: body,
+    source: draft && draft.source === 'ai' ? 'ai' : 'manual',
+    reason: reason || 'edited',
+    // When this revision was originally created (best-effort), and when archived.
+    createdAt: (draft && (draft.updatedAt || draft.generatedAt)) || new Date().toISOString(),
+    savedAt: new Date().toISOString(),
+  };
+  items.unshift(entry);
+  if (items.length > MAX_DRAFT_VERSIONS) items.length = MAX_DRAFT_VERSIONS;
+  _writeVersions(items);
+  return entry;
+}
+
+// List saved draft revisions, newest-first. Bodies are included (drafts are small).
+function listDraftVersions() {
+  return _readVersions();
+}
+
+function getDraftVersion(id) {
+  return _readVersions().find(v => v.id === id) || null;
+}
+
+function deleteDraftVersion(id) {
+  const items = _readVersions();
+  const next = items.filter(v => v.id !== id);
+  if (next.length === items.length) return false;
+  _writeVersions(next);
+  return true;
 }
 
 function _pick(obj, keys) {
@@ -303,6 +367,7 @@ function exportAll() {
     version: 1,
     state: getState(),
     evidence: _readEvidence().map(x => _normalizeEvidence(x)),
+    draftVersions: _readVersions(),
   };
 }
 
@@ -314,6 +379,9 @@ module.exports = {
   saveProfile,
   saveGuidance,
   saveDraft,
+  listDraftVersions,
+  getDraftVersion,
+  deleteDraftVersion,
   listEvidence,
   addEvidence,
   addEvidenceBatch,
