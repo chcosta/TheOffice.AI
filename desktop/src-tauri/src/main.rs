@@ -11,6 +11,25 @@ use tauri::Manager;
 /// Holds the spawned Node sidecar so we can terminate it on app exit.
 struct SidecarState(Mutex<Option<Child>>);
 
+/// Strip a Windows extended-length (`\\?\`) prefix from a path.
+///
+/// Tauri's `resource_dir()` can return verbatim paths like
+/// `\\?\C:\Users\…\server.js`. Handing that to Node as the entry script makes
+/// its module resolver fail with `EISDIR: illegal operation on a directory,
+/// lstat 'C:'` — so the sidecar exits instantly and the splash hangs forever.
+/// Normalizing back to a plain path (`C:\Users\…`) fixes the spawn. Idempotent
+/// for already-clean paths.
+fn de_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    p
+}
+
 /// Node executable to run the sidecar with.
 ///
 /// Order:
@@ -71,9 +90,9 @@ fn resolve_server_js(app: &tauri::AppHandle) -> PathBuf {
 /// window to the localhost URL it reports via the `__READY__` line.
 fn start_sidecar(app: &tauri::AppHandle) {
     let handle = app.clone();
-    let server_js = resolve_server_js(&handle);
+    let server_js = de_verbatim(resolve_server_js(&handle));
     let server_dir = server_js.parent().map(|p| p.to_path_buf());
-    let node_bin = resolve_node_bin(&handle);
+    let node_bin = de_verbatim(resolve_node_bin(&handle));
     let node_dir = node_bin.parent().map(|p| p.to_path_buf());
     println!("[desktop] sidecar: {} {}", node_bin.display(), server_js.display());
 

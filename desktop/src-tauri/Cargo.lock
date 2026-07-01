@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "theoffice-desktop"
-version = "1.0.0"
+version = "1.0.2"
 dependencies = [
  "serde_json",
  "tauri",

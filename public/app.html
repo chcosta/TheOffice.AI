@@ -415,29 +415,29 @@
   <style>
     :root {
       color-scheme: light;
-      --cp-bg: #f7f4ef;
-      --cp-bg-elevated: #fcfbf8;
+      --cp-bg: #f4f5f7;
+      --cp-bg-elevated: #fafbfc;
       --cp-surface: #ffffff;
-      --cp-surface-soft: #f5f5f5;
-      --cp-border: #dedede;
-      --cp-border-strong: #919191;
-      --cp-text: #242424;
-      --cp-text-muted: #5c5c5c;
-      --cp-text-soft: #6f6f6f;
-      --cp-accent: #b11f4b;
-      --cp-accent-hover: #9a1a41;
-      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-surface-soft: #eef0f3;
+      --cp-border: #dee1e6;
+      --cp-border-strong: #a8aeb8;
+      --cp-text: #1b1f27;
+      --cp-text-muted: #59616d;
+      --cp-text-soft: #6e7682;
+      --cp-accent: #1f2937;
+      --cp-accent-hover: #1b2430;
+      --cp-accent-soft: rgba(31, 41, 55, 0.1);
       --cp-accent-fg: #ffffff;
       --cp-success: #16a34a;
       --cp-danger: #dc2626;
       --cp-warning: #f59e0b;
-      --cp-link: #0078d4;
+      --cp-link: #1f2937;
       --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
       --cp-overlay: color-mix(in srgb, var(--cp-surface) 80%, transparent);
       --cp-panel: color-mix(in srgb, var(--cp-surface) 86%, transparent);
       --cp-panel-strong: color-mix(in srgb, var(--cp-surface) 96%, transparent);
       --cp-sheen: rgba(255, 255, 255, 0.55);
-      --cp-highlight: rgba(177, 31, 75, 0.12);
+      --cp-highlight: rgba(31, 41, 55, 0.12);
       --sidebar-width: 240px;
       --header-height: 56px;
       --radius-sm: 0.625rem;
@@ -450,29 +450,29 @@
     }
     html[data-theme="dark"] {
       color-scheme: dark;
-      --cp-bg: #3d3b3a;
-      --cp-bg-elevated: #343231;
-      --cp-surface: #292929;
-      --cp-surface-soft: #2e2e2e;
-      --cp-border: #474747;
-      --cp-border-strong: #5f5f5f;
-      --cp-text: #dedede;
-      --cp-text-muted: #919191;
-      --cp-text-soft: #b0b0b0;
-      --cp-accent: #fd8ea1;
-      --cp-accent-hover: #fb7b91;
-      --cp-accent-soft: rgba(253, 142, 161, 0.14);
-      --cp-accent-fg: #1a1a1a;
+      --cp-bg: #161922;
+      --cp-bg-elevated: #1b1f29;
+      --cp-surface: #21262f;
+      --cp-surface-soft: #272d37;
+      --cp-border: #343b47;
+      --cp-border-strong: #4b5563;
+      --cp-text: #e4e7ec;
+      --cp-text-muted: #98a1ad;
+      --cp-text-soft: #b4bcc6;
+      --cp-accent: #e5e7eb;
+      --cp-accent-hover: #e9eaee;
+      --cp-accent-soft: rgba(229, 231, 235, 0.16);
+      --cp-accent-fg: #111827;
       --cp-success: #4ade80;
       --cp-danger: #f87171;
       --cp-warning: #fbbf24;
-      --cp-link: #4da6ff;
+      --cp-link: #e5e7eb;
       --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
       --cp-overlay: color-mix(in srgb, var(--cp-surface) 88%, transparent);
       --cp-panel: color-mix(in srgb, var(--cp-surface) 72%, transparent);
       --cp-panel-strong: color-mix(in srgb, var(--cp-surface) 96%, transparent);
       --cp-sheen: rgba(255, 255, 255, 0.04);
-      --cp-highlight: rgba(253, 142, 161, 0.12);
+      --cp-highlight: rgba(229, 231, 235, 0.14);
     }
 
     /* ===== Per-organization theme presets =====
@@ -10584,7 +10584,7 @@
             <!-- Color Palette Section -->
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">🎨 Color palette</h3>
-              <p class="hint" style="margin-bottom:14px">Recolor the whole dashboard. "Follow organization" uses the current org's theme (the default).</p>
+              <p class="hint" style="margin-bottom:14px">Recolor the whole dashboard. "Follow organization" uses the current org's theme, or the neutral <strong>Graphite</strong> default when no org is selected.</p>
               <div class="appearance-grid">
                 <button type="button" class="appearance-swatch" :class="{ active: appearancePref === '' }" @click="setAppearance('')">
                   <span class="appearance-chip appearance-chip-follow"><span>Aa</span></span>
@@ -13560,7 +13560,7 @@
           { id: 'indigo', name: 'Indigo', bg: '#f7f7fc', border: '#dedef0', accent: '#4f46e5', text: '#1f2937' },
           { id: 'teal', name: 'Teal', bg: '#f3faf9', border: '#d3e8e6', accent: '#0d9488', text: '#1f2937' },
           { id: 'amber', name: 'Amber', bg: '#faf7f0', border: '#e9e0cd', accent: '#d97706', text: '#26211a' },
-          { id: 'graphite', name: 'Graphite', bg: '#f6f7f8', border: '#dcdfe2', accent: '#1f2937', text: '#111827' },
+          { id: 'graphite', name: 'Graphite (default)', bg: '#f6f7f8', border: '#dcdfe2', accent: '#1f2937', text: '#111827' },
           { id: 'rose', name: 'Rose', bg: '#faf4f1', border: '#e6d8d3', accent: '#b11f4b', text: '#242424' }
         ],
         iconSets: [
