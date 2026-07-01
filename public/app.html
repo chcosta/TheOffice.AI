@@ -10196,7 +10196,7 @@
               <div class="settings-pane">
 
             <!-- External Access kill-switch (always visible so access can be restored) -->
-            <div class="card" style="margin-bottom:20px" :style="externalAccessDisabled ? 'border-left:3px solid var(--cp-danger)' : ''">
+            <div class="card" style="margin-bottom:20px" :style="externalAccessLocked ? 'border-left:3px solid var(--cp-warning)' : (externalAccessDisabled ? 'border-left:3px solid var(--cp-danger)' : '')">
               <div style="display:flex;align-items:flex-start;gap:16px;justify-content:space-between;flex-wrap:wrap">
                 <div style="flex:1 1 320px;min-width:0">
                   <h3 style="margin-bottom:12px">🔌 External Access</h3>
@@ -10204,17 +10204,22 @@
                   <p class="hint" style="margin-bottom:0">When disabled, the server stops polling the relay, disconnects Service Bus, and refuses connect/pair requests. Your local agents, schedules, boards and the browser UI keep working — only the external bridges are severed. Takes effect immediately; no restart.</p>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto">
-                  <span class="hint" x-text="externalAccessDisabled ? 'Disabled' : 'Enabled'"></span>
-                  <label class="toggle-switch" :title="externalAccessDisabled ? 'Enable external access' : 'Disable external access'">
-                    <input type="checkbox" :checked="!externalAccessDisabled" :disabled="externalAccessBusy" @change="toggleExternalAccess()" />
+                  <span class="hint" x-text="externalAccessLocked ? 'Locked' : (externalAccessDisabled ? 'Disabled' : 'Enabled')"></span>
+                  <label class="toggle-switch" :title="externalAccessLocked ? 'External access is not available in this build' : (externalAccessDisabled ? 'Enable external access' : 'Disable external access')">
+                    <input type="checkbox" :checked="!externalAccessDisabled && !externalAccessLocked" :disabled="externalAccessBusy || externalAccessLocked" @change="toggleExternalAccess()" />
                     <span class="toggle-slider"></span>
                   </label>
                 </div>
               </div>
             </div>
 
+            <!-- Locked notice (external access hard-disabled by this build) -->
+            <div class="card" x-show="externalAccessLocked" style="margin-bottom:20px;border-left:3px solid var(--cp-warning)">
+              <p class="hint" style="margin:0">🔒 External access is <strong>not available in this build</strong>. Outbound bridges (Service Bus, cloud relay, mobile/phone) are disabled until stronger guardrails ship. Everything local — agents, schedules, boards and the browser UI — works normally.</p>
+            </div>
+
             <!-- Disabled notice -->
-            <div class="card" x-show="externalAccessDisabled" style="margin-bottom:20px;border-left:3px solid var(--cp-danger)">
+            <div class="card" x-show="externalAccessDisabled && !externalAccessLocked" style="margin-bottom:20px;border-left:3px solid var(--cp-danger)">
               <p class="hint" style="margin:0">⛔ External access is currently <strong>disabled</strong>, so the Service Bus, mobile relay and connection settings are hidden. Enable the switch above to manage them.</p>
             </div>
 
@@ -14086,6 +14091,7 @@
         _devSettingsLoaded: false,
         standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '' },
         externalAccessDisabled: false,
+        externalAccessLocked: false,
         externalAccessBusy: false,
         settingsCat: 'appearance',
         deps: { items: [], settings: { autoUpdate: false, channel: 'stable', schedule: 'daily at 3am', offlineMode: false, consent: false }, loading: false, checking: false, busy: {}, busyAll: false, error: '', _loaded: false },
@@ -17247,6 +17253,7 @@
               this.devSettings = { devOrg: s.devOrg || '', devProject: s.devProject || '', worktreeRoot: s.worktreeRoot || '' };
               this._devSettingsLoaded = true;
               this.externalAccessDisabled = s.externalAccessDisabled === true;
+              this.externalAccessLocked = s.externalAccessLocked === true;
               // Pre-populate the repo/branch pickers when a default org+project exist
               // so they're immediately editable on revisit (silent: no error toast).
               if (this.exportSettings.exportOrg.trim() && this.exportSettings.exportProject.trim()) {
@@ -17261,7 +17268,10 @@
         async loadExternalAccessFlag() {
           try {
             const s = await this.request('/api/settings');
-            if (s) this.externalAccessDisabled = s.externalAccessDisabled === true;
+            if (s) {
+              this.externalAccessDisabled = s.externalAccessDisabled === true;
+              this.externalAccessLocked = s.externalAccessLocked === true;
+            }
           } catch {}
         },
         // Settings left-rail categories. The "External Access" item routes to the
@@ -17413,6 +17423,12 @@
         // Service Bus event listener, cloud relay poller, mobile/phone bridge).
         // Persists server-side and takes effect immediately — no restart.
         async toggleExternalAccess() {
+          // Hard-locked off by the build until proper guardrails ship — the switch
+          // is read-only, so ignore any attempt to flip it.
+          if (this.externalAccessLocked) {
+            this.showToast('External access', 'External access is not available in this build.', 'info');
+            return;
+          }
           const next = !this.externalAccessDisabled;
           this.externalAccessBusy = true;
           try {

@@ -6629,14 +6629,24 @@ app.get('/api/models', async (req, res) => {
 
 // Read the global settings (model selections).
 app.get('/api/settings', (req, res) => {
-  res.json(settings.getSettings());
+  // Reflect the authoritative external-access state (may be hard-locked off by the
+  // build) so the UI shows the switch as disabled/locked rather than the stored value.
+  res.json({
+    ...settings.getSettings(),
+    externalAccessDisabled: settings.isExternalAccessDisabled(),
+    externalAccessLocked: settings.isExternalAccessLocked(),
+  });
 });
 
 // Update the global settings. Body may include chatModel/executionModel/systemModel.
 app.put('/api/settings', (req, res) => {
   try {
+    const body = { ...(req.body || {}) };
+    // External access is hard-locked off by the build — never let a settings write
+    // turn it on (or off); the kill-switch is authoritative via isExternalAccessDisabled().
+    if (settings.isExternalAccessLocked()) delete body.externalAccessDisabled;
     const before = settings.isExternalAccessDisabled();
-    const next = settings.updateSettings(req.body || {});
+    const next = settings.updateSettings(body);
     // If the external-access kill-switch flipped, apply it to the live subsystems
     // (relay poller + Service Bus) immediately — no restart required.
     if (settings.isExternalAccessDisabled() !== before) {
@@ -6650,7 +6660,11 @@ app.put('/api/settings', (req, res) => {
     try { scheduleConnectCollection(); } catch (e) { console.warn('[connect] reschedule failed:', e.message); }
     // If collection was just enabled and a scheduled run is already overdue, catch up.
     try { setTimeout(connectCatchUpCheck, 2_000); } catch {}
-    res.json(next);
+    res.json({
+      ...next,
+      externalAccessDisabled: settings.isExternalAccessDisabled(),
+      externalAccessLocked: settings.isExternalAccessLocked(),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

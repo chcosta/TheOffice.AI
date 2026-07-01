@@ -182,10 +182,24 @@ function getCostPerPremiumRequest() {
   return Number.isFinite(v) && v >= 0 ? v : DEFAULTS.costPerPremiumRequest;
 }
 
+// HARD LOCK — external access is not supported yet and must never be enabled.
+// While this is true the master kill-switch is forced ON regardless of the stored
+// setting, so no crafted settings write or stale config can turn on the Service
+// Bus listener, relay poller or mobile/pairing bridges. Flip to false (and add the
+// promised guardrails) when we're ready to support outbound external access.
+const EXTERNAL_ACCESS_LOCKED = true;
+
+// True when external access is permanently locked off by the build (not a
+// user-toggleable state). The UI reflects this so the switch shows as locked.
+function isExternalAccessLocked() {
+  return EXTERNAL_ACCESS_LOCKED === true;
+}
+
 // True when the master external-access kill-switch is engaged. Consulted by the
-// Service Bus event listener, relay poller and mobile/pairing endpoints.
+// Service Bus event listener, relay poller and mobile/pairing endpoints. Returns
+// true whenever the hard lock is engaged, otherwise honors the stored setting.
 function isExternalAccessDisabled() {
-  return getSettings().externalAccessDisabled === true;
+  return EXTERNAL_ACCESS_LOCKED === true || getSettings().externalAccessDisabled === true;
 }
 
 module.exports = {
@@ -197,4 +211,5 @@ module.exports = {
   resolveModel,
   getCostPerPremiumRequest,
   isExternalAccessDisabled,
+  isExternalAccessLocked,
 };

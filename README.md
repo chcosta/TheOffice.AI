@@ -2,6 +2,16 @@
 
 An intelligent orchestration platform for GitHub Copilot CLI agents. Schedule, monitor, and chain AI agents together — with Managers that coordinate multi-agent workflows, real-time chat, cloud sync, and a full web dashboard.
 
+[![Desktop installer](https://github.com/chcosta/TheOffice.AI/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/chcosta/TheOffice.AI/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/chcosta/TheOffice.AI?include_prereleases&label=latest%20installer&sort=semver)](https://github.com/chcosta/TheOffice.AI/releases/latest)
+[![Download](https://img.shields.io/badge/download-Windows%20installer-b11f4b)](https://github.com/chcosta/TheOffice.AI/releases/latest)
+
+> ### 💻 [⬇ Download the latest Windows installer](https://github.com/chcosta/TheOffice.AI/releases/latest)
+> Native desktop app — **no browser, no command line required.** Installs per-user (no admin).
+> Every push to `main` is built and published automatically by GitHub Actions (badge above);
+> grab the newest `TheOffice.AI_<version>_x64-setup.exe` from the
+> [latest release](https://github.com/chcosta/TheOffice.AI/releases/latest) and run it.
+
 ![Dashboard](docs/dashboard.png)
 
 ## 🎬 Demo
@@ -28,50 +38,43 @@ A guided tour of TheOffice.AI — agents, managers, an always-on AI briefing, an
 - 💬 **Interactive Chat** — Talk to any agent or manager in real-time with streaming responses and auto-retry
 - 📅 **Rich Scheduling** — Human-readable schedules, cron, intervals, and manager assignments
 - ☁️ **Cloud Sync** — Sync configuration across machines via Azure Blob Storage with leader election
-- 🔗 **Event System** — Azure Service Bus integration for cross-system event-driven automation
 - 📊 **Activity Timeline** — Full execution history with output capture and error visibility
 - 🔌 **Plugin System** — Extend agents with MCP servers for tools, APIs, and external integrations
 
 ---
 
-## 💻 Download (Windows desktop)
+## 💻 Install (Windows desktop)
 
-**[⬇ Download the latest preview installer](https://github.com/chcosta/TheOffice.AI/releases)** (~215 MB)
+**[⬇ Download the latest preview installer](https://github.com/chcosta/TheOffice.AI/releases/latest)** (~215 MB)
 
-> ℹ️ Every push to `main` is built and published automatically by GitHub Actions as a
-> **preview release** using standard prerelease semantic versioning (`vX.Y.Z-preview.N`).
-> Grab the newest build at the top of the
-> [releases page](https://github.com/chcosta/TheOffice.AI/releases): download the single
-> `TheOffice.AI_<version>_x64-setup.exe` asset and run it. Each release also ships a
-> `.sha256` file so you can verify the download.
+1. Download the `TheOffice.AI_<version>_x64-setup.exe` asset from the
+   [latest release](https://github.com/chcosta/TheOffice.AI/releases/latest).
+   (Each release also ships a `.sha256` file so you can verify the download.)
+2. Run the installer — it installs **per-user, no admin required**.
+3. On first launch it offers to install optional prerequisites (Git, Azure CLI,
+   ripgrep) via winget, and it will help you sign in to the Copilot CLI (`~/.copilot`)
+   as a one-time step.
 
 The desktop app is a native shell (Tauri v2) that runs the same server + SPA as a
-local sidecar and loads it in WebView2 — **no browser required**. It installs
-per-user (no admin), and on first launch offers to install optional prerequisites
-(Git, Azure CLI, ripgrep) via winget. Copilot CLI sign-in (`~/.copilot`) is a
-separate one-time step. See [`desktop/README.md`](desktop/README.md) for how the
-sidecar works and how to rebuild the installer.
+local sidecar and loads it in WebView2 — **no browser required**. Your agents run
+locally, on your machine, with your own credentials.
+
+> ℹ️ Builds are published automatically by GitHub Actions on every push to `main` as
+> **preview releases** using standard prerelease semantic versioning (`vX.Y.Z-preview.N`).
+> See [`desktop/README.md`](desktop/README.md) for how the sidecar works and how to
+> rebuild the installer.
 
 ---
 
-## Quick Start
-
-Run in the browser (dev / LAN / mobile):
-
-```bash
-npm install
-npm start
-```
-
-Open **http://localhost:3847** in your browser. The browser and desktop apps share
-the exact same `server.js` + `public/app.html` — the desktop shell just wraps them.
-
 ## Prerequisites
+
+The installer bundles the app and offers to install the optional tools below. If you
+run from source instead, you'll need these yourself:
 
 - **Node.js** v18+
 - **GitHub Copilot CLI** — installed globally or at a custom path
 - **Windows 10/11** — uses Windows-specific features (Scheduled Tasks, PowerShell)
-- **Azure account** (optional) — for Service Bus events and cloud sync
+- **Azure account** (optional) — for cloud sync
 
 ---
 
@@ -109,11 +112,11 @@ Interactive conversations with any agent or manager. Supports streaming response
 
 ![Chat](docs/chat-conversation.png)
 
-### 📡 Events
+### 📡 Events (not yet available)
 
-Azure Service Bus integration for event-driven automation. Configure listeners that trigger agents when messages arrive on specific topics/queues.
-
-![Events](docs/events.png)
+Azure Service Bus integration for event-driven automation is on the roadmap but is
+**disabled in current builds** while stronger outbound-access guardrails are designed.
+All external bridges are hard-locked off; agents run entirely locally.
 
 ### 📊 Activity
 
@@ -192,13 +195,12 @@ Sync your configuration across multiple machines with only one running scheduled
 
 ---
 
-## Event-Driven Automation
+## Event-Driven Automation (not yet available)
 
-Connect to Azure Service Bus for cross-system event processing:
-
-- **Topics & Subscriptions** — listen for events from external systems
-- **Agent Triggers** — automatically run agents when events arrive
-- **Dead Letter Handling** — failed events are preserved for debugging
+Azure Service Bus event listeners and the mobile/relay bridges are **hard-locked off**
+in current builds while outbound-access guardrails are designed. When enabled in a
+future release, they will let external systems trigger agents. Until then, everything
+runs locally on your machine.
 
 ---
 
@@ -273,22 +275,25 @@ Triggered agents can reference output from upstream agents:
 
 ---
 
-## Install as Windows Service
+## Run from source (advanced / dev)
+
+Most users should just [install the desktop app](#-install-windows-desktop). To run
+from source for development, LAN, or mobile access:
+
+```bash
+npm install
+npm start            # start the server
+npm run dev          # start with file watching
+```
+
+Open **http://localhost:3847** in your browser. The browser and desktop apps share
+the exact same `server.js` + `public/app.html` — the desktop shell just wraps them.
+
+### Install as a Windows Scheduled Task (optional)
 
 ```bash
 npm run install-service    # Runs on logon + 5-min watchdog
 npm run uninstall-service  # Remove
-```
-
----
-
-## CLI
-
-```bash
-npm start              # Start the server
-npm run dev            # Start with file watching
-npm run install-service   # Install as Windows Scheduled Task
-npm run uninstall-service # Remove scheduled task
 ```
 
 ---
@@ -333,13 +338,16 @@ npm run uninstall-service # Remove scheduled task
 │ Scheduling  │ Orchestration  │  Cloud Sync +        │
 │ & Execution │ & Chat         │  Leader Election     │
 ├─────────────┴────────────────┴──────────────────────┤
-│            Copilot CLI (child processes)             │
-│         GitHub Copilot AI Agent Runtime             │
+│            @github/copilot-sdk runtime               │
+│         GitHub Copilot AI Agent Runtime              │
 └─────────────────────────────────────────────────────┘
-         │                              │
-    Azure Service Bus              Azure Blob Storage
-    (Event Listeners)              (Config Sync)
+                                       │
+                                Azure Blob Storage
+                                (Config Sync)
 ```
+
+> Outbound external bridges (Azure Service Bus event listeners, cloud relay, mobile)
+> are present in the codebase but **hard-locked off** in current builds.
 
 ---
 
