@@ -12075,7 +12075,7 @@
             </div>
             <div class="empty-state" x-show="cliSessionsLoading">Loading sessions…</div>
             <!-- Grouping status bar (only in Grouped mode) -->
-            <div class="cli-group-status" x-show="!cliSessionsLoading && cliViewMode === 'grouped'">
+            <div class="cli-group-status" x-show="!cliSessionsLoading && cliViewMode === 'grouped' && !cliSearch.matchActive">
               <template x-if="cliClustering"><span class="hint">🧠 Grouping sessions by topic…</span></template>
               <template x-if="!cliClustering && cliClusterError"><span class="hint cli-group-err" x-text="'⚠ ' + cliClusterError"></span></template>
               <template x-if="!cliClustering && !cliClusterError && cliClusters.length">
@@ -12090,7 +12090,7 @@
               </template>
             </div>
             <!-- Top-of-page topic index: quick-jump links (grouped mode only) -->
-            <div class="cli-group-index" x-show="!cliSessionsLoading && cliViewMode === 'grouped' && !cliClustering && cliClusters.length">
+            <div class="cli-group-index" x-show="!cliSessionsLoading && cliViewMode === 'grouped' && !cliSearch.matchActive && !cliClustering && cliClusters.length">
               <span class="cli-index-label">Jump to</span>
               <template x-for="grp in cliRenderGroups().filter(g => !g._flat)" :key="'idx:' + grp.key">
                 <button type="button" class="cli-index-link" :class="{ 'is-open': !grp.collapsed }" @click="jumpToCliGroup(grp.key)">
@@ -18583,11 +18583,17 @@
           const sig = q + '|' + af + '|' + ff + '|' + of + '|' + ai + '|' + this.cliSessions.length;
           if (this._cliFilterCache && this._cliFilterCache.sig === sig) return this._cliFilterCache.result;
           let list = this.cliSessions;
-          // AI-match filter takes precedence in ordering: restrict to matched ids and
-          // preserve the assistant's best-first ranking.
+          // An active AI match takes FULL precedence: show exactly the matched
+          // sessions in the assistant's best-first order, and do not further
+          // constrain them by the sidebar filters. The origin filter defaults to
+          // 'external', so ANDing it here would silently hide matched
+          // system-launched sessions — the user clicks a result and sees an empty
+          // list. Clearing the AI filter returns to normal filtered browsing.
           if (this.cliSearch.matchActive && this.cliSearch.matchIds.length) {
             const order = new Map(this.cliSearch.matchIds.map((id, i) => [id, i]));
             list = list.filter(s => order.has(s.id)).sort((a, b) => order.get(a.id) - order.get(b.id));
+            this._cliFilterCache = { sig, result: list };
+            return list;
           }
           if (of) list = list.filter(s => (s.origin || 'external') === of);
           if (af === '__none__') list = list.filter(s => !s.agentName);
@@ -18623,6 +18629,14 @@
         // search filters still apply, and appends an "Ungrouped" bucket for any
         // filtered sessions the last grouping didn't cover.
         cliRenderGroups() {
+          // An active AI match is a targeted result set — topic grouping is
+          // meaningless for it, and the matched sessions may not belong to any
+          // existing cluster (which would otherwise render an empty list in
+          // Grouped view). Always show the matches as a flat list so clicking a
+          // search result reveals it regardless of view mode.
+          if (this.cliSearch.matchActive) {
+            return [{ key: '__flat__', _flat: true, sessions: this.pagedCliSessions() }];
+          }
           if (this.cliViewMode !== 'grouped') {
             return [{ key: '__flat__', _flat: true, sessions: this.pagedCliSessions() }];
           }
