@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const azdo = require('./azdo');
 
@@ -377,6 +378,36 @@ function _ensureGitIdentity(wt) {
 // uncommitted local edits are captured before a push / PR. Returns
 // { ok, committed, files, message }. committed=false (ok:true) when nothing was
 // staged (clean tree) — that is not an error.
+// List a worktree's uncommitted changes, split into committable `changed` and
+// ignorable agent-report `ignored`, each entry `{ path, xy }` where xy is the
+// 2-char git porcelain status (e.g. " M", "??", "A "). Never throws.
+function worktreeChanges(wt) {
+  if (!wt || !_isRepo(wt)) return { dirty: false, changed: [], ignored: [] };
+  const out = _gitTry(['status', '--porcelain'], wt).out || '';
+  const changed = [], ignored = [];
+  for (const raw of out.split('\n')) {
+    if (!raw.trim()) continue;
+    const xy = raw.slice(0, 2);
+    let p = raw.slice(3).trim();
+    const arrow = p.indexOf(' -> ');
+    if (arrow >= 0) p = p.slice(arrow + 4).trim();
+    if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
+    (isIgnorableReportPath(p) ? ignored : changed).push({ path: p, xy });
+  }
+  return { dirty: changed.length > 0, changed, ignored };
+}
+
+// Discard a worktree's uncommitted committable changes: hard-reset tracked edits
+// and remove untracked files. Excluded agent reports (info/exclude) are left in
+// place (git clean without -x skips ignored/excluded). Returns { ok, message }.
+function discardWorktreeChanges(wt) {
+  if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to clean.' };
+  const reset = _gitTry(['reset', '--hard', 'HEAD'], wt);
+  if (!reset.ok) return { ok: false, message: reset.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Reset failed.' };
+  _gitTry(['clean', '-fd'], wt);  // remove untracked (keeps excluded reports)
+  return { ok: true, message: 'Discarded uncommitted changes.' };
+}
+
 function commitAll(wt, { message } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, committed: false, files: 0, message: 'No worktree to commit.' };
   const before = (_gitTry(['status', '--porcelain'], wt).out || '');
@@ -733,15 +764,109 @@ function _cacheCopy(wt, destRoot, rel) {
 // has a cached copy (so callers can persist `cached:true` on the dev item and
 // keep serving the report after the worktree is removed). Mutates + returns the
 // same array. Best-effort: never throws.
+//
+// Before overwriting an existing cached report whose CONTENT has changed, the
+// prior cached copy is snapshotted into a timestamped `__history/` file and
+// recorded in the history manifest — so regenerating a report never silently
+// destroys the previous version (a comparable audit trail).
 function cacheReports(boardId, devId, wt, reports) {
   if (!boardId || !devId || !Array.isArray(reports) || !reports.length) return reports || [];
   const destRoot = reportCacheDir(boardId, devId);
   for (const r of reports) {
     if (!r || !r.rel) continue;
+    try { _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r); } catch {}
     const ok = _cacheCopy(wt, destRoot, r.rel);
     if (ok || hasCachedReport(boardId, devId, r.rel)) r.cached = true;
   }
   return reports;
+}
+
+// ---------------------------------------------------------------------------
+// Report history. When a report is regenerated with new content we keep the
+// prior cached copy under `<cache>/__history/<base>-<ISO>.<ext>` and append an
+// entry to `<cache>/__history/index.json` so the card can list past versions
+// with timestamps. Snapshots ONLY happen on a genuine content change, so
+// routine drift-refresh polling (same content) never creates spurious history.
+// ---------------------------------------------------------------------------
+const HISTORY_SUBDIR = '__history';
+
+function _historyDir(boardId, devId) {
+  return path.join(reportCacheDir(boardId, devId), HISTORY_SUBDIR);
+}
+function _historyManifestPath(boardId, devId) {
+  return path.join(_historyDir(boardId, devId), 'index.json');
+}
+function _readHistoryManifest(boardId, devId) {
+  try {
+    const raw = fs.readFileSync(_historyManifestPath(boardId, devId), 'utf-8');
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function _writeHistoryManifest(boardId, devId, list) {
+  try {
+    const dir = _historyDir(boardId, devId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(_historyManifestPath(boardId, devId), JSON.stringify((list || []).slice(0, 40), null, 2));
+  } catch {}
+}
+function _fileSha(abs) {
+  try { return crypto.createHash('sha1').update(fs.readFileSync(abs)).digest('hex'); } catch { return ''; }
+}
+
+// If a cached copy of `r.rel` already exists AND the incoming worktree version
+// differs in content, snapshot the existing cached copy into __history before it
+// gets overwritten. Best-effort; never throws.
+function _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r) {
+  if (!wt || !r || !r.rel) return;
+  const rootWt = path.resolve(wt);
+  const src = path.resolve(rootWt, r.rel);
+  if (!(src === rootWt || src.startsWith(rootWt + path.sep))) return;
+  const rootDest = path.resolve(destRoot);
+  const dest = path.resolve(rootDest, r.rel);
+  if (!(dest === rootDest || dest.startsWith(rootDest + path.sep))) return;
+  // Nothing to preserve if there's no prior cached copy, or no incoming file.
+  if (!fs.existsSync(dest) || !fs.existsSync(src)) return;
+  try { if (!fs.statSync(dest).isFile() || !fs.statSync(src).isFile()) return; } catch { return; }
+  const prevSha = _fileSha(dest);
+  const nextSha = _fileSha(src);
+  if (!prevSha || prevSha === nextSha) return;  // unchanged → no snapshot
+  const ext = path.extname(r.rel);
+  const base = path.basename(r.rel, ext);
+  const ts = new Date();
+  const stamp = ts.toISOString().replace(/[:.]/g, '-');
+  const histRel = HISTORY_SUBDIR + '/' + _sanitizeId(base) + '-' + stamp + ext;
+  const histAbs = path.resolve(rootDest, histRel);
+  if (!histAbs.startsWith(rootDest + path.sep)) return;
+  try {
+    fs.mkdirSync(path.dirname(histAbs), { recursive: true });
+    fs.copyFileSync(dest, histAbs);
+  } catch { return; }
+  let size = 0; try { size = fs.statSync(histAbs).size; } catch {}
+  const isHtml = /\.html?$/i.test(ext);
+  const manifest = _readHistoryManifest(boardId, devId);
+  manifest.unshift({
+    rel: histRel,
+    name: path.basename(r.rel),
+    of: r.rel,
+    ts: ts.toISOString(),
+    size,
+    sha: prevSha,
+    kind: isHtml ? 'html' : (/\.(md|markdown)$/i.test(ext) ? 'md' : 'txt')
+  });
+  // Prune oldest history files beyond the cap so the cache can't grow forever.
+  const KEEP = 30;
+  for (const old of manifest.slice(KEEP)) {
+    try { fs.rmSync(path.resolve(rootDest, old.rel), { force: true }); } catch {}
+  }
+  _writeHistoryManifest(boardId, devId, manifest.slice(0, KEEP));
+}
+
+// List a card's cached report history (newest first), enriched with a stable,
+// same-origin URL rel the card can link to via the existing report endpoint.
+function listReportHistory(boardId, devId) {
+  if (!boardId || !devId) return [];
+  return _readHistoryManifest(boardId, devId).filter(e => e && e.rel);
 }
 
 // Find reports in the worktree AND durably cache them in one shot. Use this
@@ -852,6 +977,8 @@ module.exports = {
   branchCommits,
   classifyPorcelain,
   isIgnorableReportPath,
+  worktreeChanges,
+  discardWorktreeChanges,
   syncWorktree,
   commitAll,
   prDrift,
@@ -868,6 +995,7 @@ module.exports = {
   readReport,
   findAndCacheReports,
   cacheReports,
+  listReportHistory,
   readReportCached,
   hasCachedReport,
   cacheLinkFile,

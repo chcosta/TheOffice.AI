@@ -2149,6 +2149,21 @@ function _cfStewardAgentSlug(o) {
 function _cfAgentKindForView(view) {
   return String(view || '').toLowerCase() === 'mine' ? 'steward' : 'reviewer';
 }
+// Resolve the agent that SHOULD tend a worktree's PR and whether its .agent.md
+// file is actually present on disk. The steward/reviewer file is git-excluded and
+// lives only in the worktree, so a recreated/cleaned worktree can lose it (the CLI
+// then errors "Custom agent ... not found"). Returns { agentKind, agentName, agentPresent }.
+function _cfAgentPresence(rec) {
+  const kind = _cfAgentKindForView(rec && rec.view);
+  const idish = { org: rec && rec.org, project: rec && rec.project, repo: rec && rec.repo, prId: rec && rec.prId };
+  const slug = kind === 'steward' ? _cfStewardAgentSlug(idish) : _cfReviewAgentSlug(idish);
+  let present = false;
+  try {
+    const wt = rec && rec.worktreePath;
+    if (wt) present = fs.existsSync(path.join(wt, '.github', 'agents', slug + '.agent.md'));
+  } catch {}
+  return { agentKind: kind, agentName: slug, agentPresent: present };
+}
 
 // The review agent persona. Read-only by design: it analyzes and reports, it
 // does NOT change the PR's code or push anything.
@@ -2516,7 +2531,18 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
       rec = _saveCfWt(key, save);
     } catch {}
   }
-  res.json({ worktree: { key, ...rec } });
+  // Computed (not persisted) enrichments for the card: agent-file presence,
+  // cached review-report history, and the uncommitted-change breakdown.
+  const extra = {};
+  try { Object.assign(extra, _cfAgentPresence(rec)); } catch {}
+  try { extra.reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, _cfWtDevId(o)) || []; } catch { extra.reportHistory = []; }
+  try {
+    if (rec.worktreePath && fs.existsSync(rec.worktreePath)) {
+      const ch = devitems.worktreeChanges(rec.worktreePath);
+      extra.changeCount = (ch.changed || []).length;
+    }
+  } catch {}
+  res.json({ worktree: { key, ...rec, ...extra } });
 });
 
 // Resolve a directly-usable (branch-attached) worktree directory for a PR before
@@ -2743,6 +2769,84 @@ app.post('/api/codeflow/pr/push', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: (e && e.message) || 'Push failed' });
   }
+});
+
+// (Re)write the per-PR review/steward agent file into the worktree WITHOUT
+// running it. Used to restore a steward/reviewer agent that went missing (the
+// git-excluded .agent.md can vanish when a worktree is recreated/cleaned, which
+// makes the CLI error "Custom agent ... not found"). Re-fetches the PR, linked
+// work items, and (for your own PR) active threads so the persona is grounded.
+app.post('/api/codeflow/pr/agent', async (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to add the agent to.' });
+  const view = String(b.view || rec.view || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
+  let pr;
+  try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
+  catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
+  if (!pr) return res.status(404).json({ error: 'Pull request not found.' });
+  let workItems = [];
+  try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+  let threads = [];
+  if (view === 'mine') { try { threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
+  const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
+  const agent = _writeCfReviewAgentFile(rec, prCtx, workItems, { view, threads });
+  if (!agent) return res.status(500).json({ error: 'Could not write the agent file.' });
+  const updated = _saveCfWt(key, agent);
+  res.json({ ok: true, ...agent, worktree: { key, ...updated, ..._cfAgentPresence(updated) } });
+});
+
+// List a review worktree's uncommitted changes (committable vs. ignored agent
+// reports). Powers the "out of sync — view changes" affordance on the PR card.
+app.get('/api/codeflow/pr/changes', (req, res) => {
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const rec = _getCfWt(_cfWtKey(o));
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree found.' });
+  try {
+    const ch = devitems.worktreeChanges(rec.worktreePath);
+    res.json({ ok: true, dirty: ch.dirty, changed: ch.changed, ignored: ch.ignored });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'Could not read changes.' }); }
+});
+
+// Commit the review worktree's uncommitted changes locally (does NOT push).
+app.post('/api/codeflow/pr/commit', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to commit.' });
+  try {
+    const r = devitems.commitAll(rec.worktreePath, { message: b.message });
+    if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Commit failed.' });
+    const save = {};
+    try { if (rec.sourceBranch) { const d = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
+    const updated = _saveCfWt(key, save);
+    res.json({ ok: true, committed: r.committed, files: r.files || 0, message: r.message, worktree: { key, ...updated } });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'Commit failed' }); }
+});
+
+// Discard the review worktree's uncommitted changes (reset --hard + clean).
+// Agent reports (git-excluded) are preserved.
+app.post('/api/codeflow/pr/discard', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to clean.' });
+  try {
+    const r = devitems.discardWorktreeChanges(rec.worktreePath);
+    if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Discard failed.' });
+    const save = {};
+    try { if (rec.sourceBranch) { const d = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
+    const updated = _saveCfWt(key, save);
+    res.json({ ok: true, message: r.message, worktree: { key, ...updated } });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'Discard failed' }); }
 });
 
 // Return the AI reviewer's findings (parsed pr-review-comments.json), enriched

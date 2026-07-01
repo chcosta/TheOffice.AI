@@ -1947,6 +1947,16 @@
     .cf-wt-danger { color:var(--cp-danger); }
     .cf-wt-drift { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--cp-warning); font-weight:600; }
     .cf-wt-insync { font-size:12px; color:var(--cp-success); font-weight:600; }
+    .cf-wt-agent { font-size:12px; color:var(--cp-text-muted); font-weight:600; }
+    .cf-wt-history { display:flex; flex-direction:column; gap:3px; margin:4px 0 2px; padding:6px 10px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:8px; }
+    .cf-wt-history-row { display:flex; align-items:baseline; gap:10px; justify-content:space-between; }
+    .cf-wt-history-ts { font-size:11px; color:var(--cp-text-soft); white-space:nowrap; }
+    .cf-wt-changes { display:flex; flex-direction:column; gap:3px; margin:4px 0 2px; padding:6px 10px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:8px; }
+    .cf-wt-changes-head { display:flex; align-items:center; gap:12px; justify-content:space-between; font-size:12px; font-weight:600; color:var(--cp-text-muted); }
+    .cf-wt-changes-actions { display:inline-flex; align-items:center; gap:12px; }
+    .cf-wt-change-row { display:flex; align-items:baseline; gap:10px; font-family:Consolas,"Courier New",Courier,monospace; font-size:11.5px; }
+    .cf-wt-change-st { min-width:64px; color:var(--cp-text-soft); font-weight:600; }
+    .cf-wt-change-path { color:var(--cp-text); word-break:break-all; }
     .cf-wt-sync, .cf-wt-push { font-size:12px; padding:4px 12px; }
     .cf-wt-approve { font-size:12px; padding:4px 12px; border-color:var(--cp-success); color:var(--cp-success); }
     .cf-wt-approve:not(:disabled):hover { background:rgba(22,163,74,0.08); }
@@ -7580,6 +7590,15 @@
                                                           </button>
                                                           <span class="cf-wt-label"
                                                                 :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
+                                                          <template x-if="cfWt(pr).agentPresent === false">
+                                                            <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="cfAddAgent(pr)"
+                                                                    :title="'The ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent file is missing from this worktree (the CLI needs it). Click to add it.'"
+                                                                    x-text="cfBusy(pr) === 'agent' ? 'Adding agent…' : ('⚠ Add ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent')"></button>
+                                                          </template>
+                                                          <template x-if="cfWt(pr).agentPresent === true && cfWt(pr).agentName">
+                                                            <span class="cf-wt-agent" :title="(cfWt(pr).agentKind === 'steward' ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).agentName"
+                                                                  x-text="'🤖 ' + cfWt(pr).agentName"></span>
+                                                          </template>
                                                           <span class="cf-wt-open">
                                                             <span class="cf-wt-open-k">Open</span>
                                                             <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'editor')">VS Code</button>
@@ -7592,9 +7611,25 @@
                                                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
                                                                x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
                                                           </template>
+                                                          <template x-if="(cfWt(pr).reportHistory || []).length">
+                                                            <button class="cf-wt-link" @click.stop="cfToggleHist(pr)"
+                                                                    title="Previously generated review reports, cached for comparison"
+                                                                    x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
+                                                          </template>
                                                           <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                                                                 x-text="cfWt(pr).reviewError"></span>
                                                         </div>
+                                                        <template x-if="cfHistOpen(pr) && (cfWt(pr).reportHistory || []).length">
+                                                          <div class="cf-wt-history">
+                                                            <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
+                                                              <div class="cf-wt-history-row">
+                                                                <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
+                                                                   x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
+                                                                <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
+                                                              </div>
+                                                            </template>
+                                                          </div>
+                                                        </template>
                                                         <div class="cf-wt-ready-util">
                                                           <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
                                                             <span class="cf-wt-drift" :title="cfDriftTip(pr)">
@@ -7606,6 +7641,11 @@
                                                           </template>
                                                           <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
                                                             <span class="cf-wt-insync" title="Local worktree matches the PR branch">✓ In sync</span>
+                                                          </template>
+                                                          <template x-if="(cfWt(pr).changeCount || 0) > 0">
+                                                            <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfToggleChanges(pr)"
+                                                                    title="View, commit, or discard uncommitted changes in this worktree"
+                                                                    x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
                                                           </template>
                                                           <button x-show="(item.meta && item.meta.view) === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfPush(pr)"
                                                                   title="Commit any local changes and push to the PR branch"
@@ -7620,6 +7660,27 @@
                                                           <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="removeCfWorktree(pr)"
                                                                   title="Delete this PR's review worktree and its cached report">Remove worktree</button>
                                                         </div>
+                                                        <template x-if="cfChangeState(pr) && cfChangeState(pr).open">
+                                                          <div class="cf-wt-changes">
+                                                            <div class="cf-wt-changes-head" x-show="!cfChangeState(pr).loading">
+                                                              <span x-show="(cfChangeState(pr).changed || []).length" x-text="(cfChangeState(pr).changed || []).length + ' uncommitted change' + ((cfChangeState(pr).changed || []).length === 1 ? '' : 's')"></span>
+                                                              <span x-show="!(cfChangeState(pr).changed || []).length" class="cf-wt-history-ts">No committable changes.</span>
+                                                              <span class="cf-wt-changes-actions" x-show="(cfChangeState(pr).changed || []).length">
+                                                                <button class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click.stop="cfCommit(pr)"
+                                                                        x-text="cfBusy(pr) === 'commit' ? 'Committing…' : '✓ Commit'"></button>
+                                                                <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="cfDiscard(pr)"
+                                                                        x-text="cfBusy(pr) === 'discard' ? 'Discarding…' : '✗ Discard'"></button>
+                                                              </span>
+                                                            </div>
+                                                            <span x-show="cfChangeState(pr).loading" class="cf-wt-history-ts">Loading changes…</span>
+                                                            <template x-for="c in (cfChangeState(pr).changed || [])" :key="c.path">
+                                                              <div class="cf-wt-change-row">
+                                                                <span class="cf-wt-change-st" x-text="cfChangeStatusLabel(c.xy)"></span>
+                                                                <span class="cf-wt-change-path" x-text="c.path"></span>
+                                                              </div>
+                                                            </template>
+                                                          </div>
+                                                        </template>
                                                       </div>
                                                     </template>
                                                   </div>
@@ -9695,6 +9756,15 @@
                           </button>
                           <span class="cf-wt-label"
                                 :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
+                          <template x-if="cfWt(pr).agentPresent === false">
+                            <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cfAddAgent(pr)"
+                                    :title="'The ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent file is missing from this worktree (the CLI needs it). Click to add it.'"
+                                    x-text="cfBusy(pr) === 'agent' ? 'Adding agent…' : ('⚠ Add ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent')"></button>
+                          </template>
+                          <template x-if="cfWt(pr).agentPresent === true && cfWt(pr).agentName">
+                            <span class="cf-wt-agent" :title="(cfWt(pr).agentKind === 'steward' ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).agentName"
+                                  x-text="'🤖 ' + cfWt(pr).agentName"></span>
+                          </template>
                           <span class="cf-wt-open">
                             <span class="cf-wt-open-k">Open</span>
                             <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
@@ -9707,9 +9777,25 @@
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
                                x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
                           </template>
+                          <template x-if="(cfWt(pr).reportHistory || []).length">
+                            <button class="cf-wt-link" @click="cfToggleHist(pr)"
+                                    :title="'Previously generated review reports, cached for comparison'"
+                                    x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
+                          </template>
                           <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                                 x-text="cfWt(pr).reviewError"></span>
                         </div>
+                        <template x-if="cfHistOpen(pr) && (cfWt(pr).reportHistory || []).length">
+                          <div class="cf-wt-history">
+                            <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
+                              <div class="cf-wt-history-row">
+                                <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
+                                   x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
+                                <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
                         <div class="cf-wt-ready-util">
                           <!-- Drift vs the PR branch: local checkout out of sync with origin/<sourceBranch> -->
                           <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
@@ -9722,6 +9808,12 @@
                           </template>
                           <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
                             <span class="cf-wt-insync" title="Local worktree matches the PR branch">✓ In sync</span>
+                          </template>
+                          <!-- Uncommitted local changes: view / commit / discard from the UI -->
+                          <template x-if="(cfWt(pr).changeCount || 0) > 0">
+                            <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfToggleChanges(pr)"
+                                    title="View, commit, or discard uncommitted changes in this worktree"
+                                    x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
                           </template>
                           <!-- Mine view: push local commits up to the PR branch -->
                           <button x-show="codeflow.view === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
@@ -9738,6 +9830,29 @@
                           <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
                                   title="Delete this PR's review worktree and its cached report">Remove worktree</button>
                         </div>
+                        <template x-if="cfChangeState(pr) && cfChangeState(pr).open">
+                          <div class="cf-wt-changes">
+                            <div class="cf-wt-changes-head" x-show="!cfChangeState(pr).loading">
+                              <span x-show="(cfChangeState(pr).changed || []).length" x-text="(cfChangeState(pr).changed || []).length + ' uncommitted change' + ((cfChangeState(pr).changed || []).length === 1 ? '' : 's')"></span>
+                              <span x-show="!(cfChangeState(pr).changed || []).length" class="cf-wt-history-ts">No committable changes.</span>
+                              <span class="cf-wt-changes-actions" x-show="(cfChangeState(pr).changed || []).length">
+                                <button class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfCommit(pr)"
+                                        x-text="cfBusy(pr) === 'commit' ? 'Committing…' : '✓ Commit'"></button>
+                                <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cfDiscard(pr)"
+                                        x-text="cfBusy(pr) === 'discard' ? 'Discarding…' : '✗ Discard'"></button>
+                              </span>
+                            </div>
+                            <span x-show="cfChangeState(pr).loading" class="cf-wt-history-ts">Loading changes…</span>
+                            <template x-for="c in (cfChangeState(pr).changed || [])" :key="c.path">
+                              <div class="cf-wt-change-row">
+                                <span class="cf-wt-change-st" x-text="cfChangeStatusLabel(c.xy)"></span>
+                                <span class="cf-wt-change-path" x-text="c.path"></span>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
                       </div>
                     </template>
                   </div>
@@ -14304,6 +14419,8 @@
           boardPrsLoadedFor: '',  // boardId the boardPrs map was last loaded for (one fetch per board view)
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
           grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })(),
+          changes: {},           // prKey -> { open, loading, dirty, changed[], ignored[] } uncommitted-change breakdown
+          histOpen: {},          // prKey -> bool: report-history list expanded
           changeBanner: null     // {added,removed,changed,at,view,examples} when the auto-poller sees significant changes; dismissable
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0 },
@@ -20511,6 +20628,112 @@
           } finally {
             delete this.codeflow.wtBusy[key];
           }
+        },
+        // ── Fix #1: steward/review agent presence ─────────────────────────────
+        // The AI review agent file lives only inside the worktree and is git-excluded,
+        // so a recreated/cleaned worktree can lose it → the CLI errors "Custom agent
+        // … not found". Re-write it (without running) so the agent is usable again.
+        async cfAddAgent(pr) {
+          const key = this.cfPrKey(pr);
+          this.codeflow.wtBusy[key] = 'agent';
+          try {
+            const resp = await this.request('/api/codeflow/pr/agent', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, view: this.cfMode(pr) })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Agent', (resp && resp.agentName) ? ('Added agent “' + resp.agentName + '”.') : 'Agent file written.', 'success');
+          } catch (e) {
+            this.showToast('Agent', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // ── Fix #2: view / commit / discard uncommitted worktree changes ──────
+        cfChangeState(pr) {
+          const key = this.cfPrKey(pr);
+          return (this.codeflow.changes || {})[key] || null;
+        },
+        async cfToggleChanges(pr) {
+          const key = this.cfPrKey(pr);
+          const cur = this.codeflow.changes[key];
+          if (cur && cur.open) { cur.open = false; return; }
+          const st = cur || { open: false, loading: false, dirty: false, changed: [], ignored: [] };
+          st.open = true; st.loading = true;
+          this.codeflow.changes[key] = st;
+          try {
+            const qs = new URLSearchParams({ org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id) }).toString();
+            const resp = await this.request('/api/codeflow/pr/changes?' + qs);
+            st.dirty = !!(resp && resp.dirty);
+            st.changed = (resp && resp.changed) || [];
+            st.ignored = (resp && resp.ignored) || [];
+          } catch (e) {
+            this.showToast('Changes', e.message, 'error');
+            st.open = false;
+          } finally {
+            st.loading = false;
+          }
+        },
+        cfChangeStatusLabel(xy) {
+          const s = (xy || '').trim();
+          if (s === '??') return 'new';
+          if (s.indexOf('M') >= 0) return 'modified';
+          if (s.indexOf('A') >= 0) return 'added';
+          if (s.indexOf('D') >= 0) return 'deleted';
+          if (s.indexOf('R') >= 0) return 'renamed';
+          return s || 'changed';
+        },
+        async cfCommit(pr) {
+          const key = this.cfPrKey(pr);
+          const msg = await this.uiPrompt({ title: 'Commit changes', label: 'Commit message for the local changes', value: 'Commit local changes', confirmLabel: 'Commit' });
+          if (msg === null) return;
+          this.codeflow.wtBusy[key] = 'commit';
+          try {
+            const resp = await this.request('/api/codeflow/pr/commit', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, message: msg })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Commit', (resp && resp.message) || 'Committed.', 'success');
+            if (this.codeflow.changes[key]) this.codeflow.changes[key].open = false;
+            await this._cfReloadWt(key, pr);
+          } catch (e) {
+            this.showToast('Commit', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        async cfDiscard(pr) {
+          const key = this.cfPrKey(pr);
+          const ok = await this.uiConfirm({ title: 'Discard changes',
+            message: 'Permanently discard all uncommitted changes in this worktree? Generated review reports are kept.',
+            confirmLabel: 'Discard', danger: true });
+          if (!ok) return;
+          this.codeflow.wtBusy[key] = 'discard';
+          try {
+            const resp = await this.request('/api/codeflow/pr/discard', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Discard', (resp && resp.message) || 'Discarded.', 'success');
+            if (this.codeflow.changes[key]) this.codeflow.changes[key].open = false;
+            await this._cfReloadWt(key, pr);
+          } catch (e) {
+            this.showToast('Discard', e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // ── Fix #3: cached review-report history ──────────────────────────────
+        cfHistOpen(pr) { return !!(this.codeflow.histOpen || {})[this.cfPrKey(pr)]; },
+        cfToggleHist(pr) {
+          const key = this.cfPrKey(pr);
+          if (this.codeflow.histOpen[key]) delete this.codeflow.histOpen[key];
+          else this.codeflow.histOpen[key] = true;
+        },
+        cfHistTs(h) {
+          try { return new Date(h.ts).toLocaleString(); } catch { return h.ts || ''; }
         },
         async cfPush(pr) {
           const key = this.cfPrKey(pr);
