@@ -92,7 +92,16 @@ const DEFAULTS = {
   connectEmailTo: '',
   // Whether to also collect Azure DevOps evidence (work items + PRs) alongside
   // the M365 signals. Off by default so Connect works with M365 access alone.
+  // When on, collection queries Azure DevOps DIRECTLY (via the Azure CLI token),
+  // not WorkIQ, for reliable/real PR + work-item evidence.
   connectAdoEnabled: false,
+  // Azure DevOps org to scan for the user's PRs and work items. Empty falls back
+  // to devOrg, then exportOrg. Just the org name (e.g. 'dnceng'), not a URL.
+  connectAdoOrg: '',
+  // Comma-separated Azure DevOps project name(s) to scan. Empty falls back to
+  // devProject, then exportProject. PRs are searched across ALL repos in each
+  // project; work items via WIQL (@Me, assigned-or-created in the window).
+  connectAdoProjects: '',
   // The command + args used to launch the WorkIQ MCP server for the collector
   // agent. Defaults to the public npm launcher; override for an air-gapped or
   // pinned install. Args are space-separated.

@@ -713,6 +713,7 @@ function _compactPr(d, org, project, repo) {
     sourceBranch: strip(d.sourceRefName),
     targetBranch: strip(d.targetRefName),
     creationDate: d.creationDate || '',
+    closedDate: d.closedDate || '',
     createdBy: {
       id: (d.createdBy && d.createdBy.id) || '',
       name: (d.createdBy && (d.createdBy.displayName || d.createdBy.uniqueName)) || ''
@@ -741,6 +742,76 @@ async function listPullRequests(org, project, repo, { creatorId, reviewerId, sta
     `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests?${qs.join('&')}&api-version=${API_VERSION}`
   );
   return (d.value || []).map(pr => _compactPr(pr, org, project, repo));
+}
+
+// Project-wide PR search (across ALL repos in a project), filtered by creatorId.
+// Unlike listPullRequests this takes no repo segment, so it answers "every PR I
+// authored in this project". Azure DevOps has no server-side date filter here, so
+// callers filter the returned creationDate/closedDate by their own window.
+// status: active (default) | completed | abandoned | all.
+async function listProjectPullRequests(org, project, { creatorId, reviewerId, status = 'completed', top = 100 } = {}) {
+  const qs = [`searchCriteria.status=${encodeURIComponent(status)}`, `$top=${Number(top) || 100}`];
+  if (creatorId) qs.push(`searchCriteria.creatorId=${encodeURIComponent(creatorId)}`);
+  if (reviewerId) qs.push(`searchCriteria.reviewerId=${encodeURIComponent(reviewerId)}`);
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/pullrequests?${qs.join('&')}&api-version=${API_VERSION}`
+  );
+  return (d.value || []).map(pr => _compactPr(pr, org, project, (pr.repository && pr.repository.name) || ''));
+}
+
+// Work items the authenticated user (@Me — the Azure CLI account) either had
+// ASSIGNED to them and changed, or CREATED, within [start,end]. `start`/`end` are
+// 'YYYY-MM-DD'; the window is widened to full-day UTC bounds. Returns compact,
+// window-relevant items hydrated via the batch endpoint. Never throws on empty.
+async function listMyWorkItems(org, project, { start, end, top = 200 } = {}) {
+  // WIQL DateTime literals use "date precision" — a time component is rejected
+  // (400). Use date-only bounds with an EXCLUSIVE upper bound (end + 1 day) so the
+  // whole of the end day is still included.
+  const lo = String(start).slice(0, 10);
+  const hiEx = (() => { const d = new Date(`${String(end).slice(0, 10)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+  const wiql =
+    `SELECT [System.Id] FROM WorkItems WHERE ` +
+    `( [System.AssignedTo] = @Me AND [System.ChangedDate] >= '${lo}' AND [System.ChangedDate] < '${hiEx}' ) ` +
+    `OR ( [System.CreatedBy] = @Me AND [System.CreatedDate] >= '${lo}' AND [System.CreatedDate] < '${hiEx}' ) ` +
+    `ORDER BY [System.ChangedDate] DESC`;
+  const res = await apiSend(org, `${seg(project)}/_apis/wit/wiql?api-version=${API_VERSION}`, {
+    method: 'POST', body: { query: wiql }, contentType: 'application/json'
+  });
+  const ids = (res.workItems || []).map(w => w.id).filter(Boolean).slice(0, Math.max(1, Math.min(200, top)));
+  if (!ids.length) return [];
+  const batch = await apiSend(org, `${seg(project)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`, {
+    method: 'POST',
+    body: {
+      ids,
+      fields: [
+        'System.Id', 'System.Title', 'System.State', 'System.WorkItemType',
+        'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo', 'System.CreatedBy',
+        'Microsoft.VSTS.Common.ClosedDate'
+      ]
+    },
+    contentType: 'application/json'
+  });
+  const order = new Map(ids.map((id, i) => [id, i]));
+  const person = (v) => (v ? (v.displayName || v.uniqueName || '') : '');
+  return (batch.value || [])
+    .map(d => {
+      const f = d.fields || {};
+      return {
+        id: d.id,
+        title: f['System.Title'] || '',
+        type: f['System.WorkItemType'] || '',
+        state: f['System.State'] || '',
+        changedDate: f['System.ChangedDate'] || '',
+        createdDate: f['System.CreatedDate'] || '',
+        closedDate: f['Microsoft.VSTS.Common.ClosedDate'] || '',
+        assignedTo: person(f['System.AssignedTo']),
+        createdBy: person(f['System.CreatedBy']),
+        org, project,
+        url: workItemUrl(org, project, d.id)
+      };
+    })
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 }
 
 // Comment threads on a PR. Returns active/resolved counts (user threads only)
@@ -1054,5 +1125,7 @@ module.exports = {
   EPIC_TYPES,
   getPrWorkItems,
   updateWorkItemState,
-  getPullRequest
+  getPullRequest,
+  listProjectPullRequests,
+  listMyWorkItems
 };

@@ -8697,6 +8697,9 @@
               .connect-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
               .connect-src-badge { font-size:11px; color:var(--cp-text-soft); }
               .connect-draft-preview { border:1px solid var(--cp-border); border-radius:10px; padding:16px; background:var(--cp-bg-elevated); }
+              /* The draft extends to fit its content — no inner scrollbar (overrides the
+                 shared .md-output max-height cap so the page is the only scroller). */
+              .connect-draft-preview.md-output { max-height:none; overflow:visible; }
             </style>
 
             <div class="page-header">
@@ -8722,7 +8725,7 @@
               <button class="connect-tab" :class="{ active: connect.tab === 'draft' }" @click="connectSetTab('draft')">📝 My Connect</button>
               <button class="connect-tab" :class="{ active: connect.tab === 'diary' }" @click="connectSetTab('diary')" x-text="'📖 Diary (' + (connect.evidence ? connect.evidence.length : 0) + ')'"></button>
               <button class="connect-tab" :class="{ active: connect.tab === 'guidance' }" @click="connectSetTab('guidance')">🎯 Guidance</button>
-              <button class="connect-tab" :class="{ active: connect.tab === 'settings' }" @click="connectSetTab('settings')">⚙ Settings</button>
+              <a class="connect-tab" href="#/settings/connect" style="margin-left:auto;text-decoration:none">⚙ Settings</a>
             </div>
 
             <div x-show="connect.loading" class="hint">Loading…</div>
@@ -8772,19 +8775,19 @@
                     <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
                   </div>
                 </div>
-                <p class="hint" x-show="!connect.draftText.trim() && !connect._preview">
-                  Write or paste your Connect here. Pull from your Diary entries for concrete, quantified examples of impact.
-                  Automated drafting from your work activity arrives next — for now this is your space to write.
+                <p class="hint" x-show="!connect.draftText.trim()">
+                  Write or paste your Connect here, or click <strong>✨ Generate from diary</strong>. Pull from your Diary
+                  entries for concrete, quantified examples of impact. It renders as Markdown — use <strong>✎ Edit</strong> to change it.
                 </p>
-                <textarea x-show="!connect._preview" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
+                <textarea x-show="connect._preview === false || !connect.draftText.trim()" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
                           placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
-                <div x-show="connect._preview" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
+                <div x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
               </div>
             </div>
 
             <!-- ===== Diary tab ===== -->
             <div x-show="!connect.loading && connect.tab === 'diary'" x-transition.opacity.duration.120ms>
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
                 <div style="display:flex;align-items:center;gap:8px">
                   <label class="hint" style="margin:0">Filter</label>
                   <select x-model="connect.filterSource" style="width:auto">
@@ -8801,6 +8804,23 @@
                 <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
                 <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" title="Pull recent Teams, email, and meeting activity into your diary" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
               </div>
+
+              <!-- Date range + AI search -->
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label class="hint" style="margin:0">From</label>
+                  <input type="date" x-model="connect.filterFrom" style="width:auto">
+                  <label class="hint" style="margin:0">to</label>
+                  <input type="date" x-model="connect.filterTo" style="width:auto">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:220px">
+                  <input type="text" x-model="connect.aiQuery" @keydown.enter.prevent="connectAiSearch()"
+                         placeholder="🔎 AI search — e.g. 'reliability work' or 'mentoring'" style="flex:1;min-width:0">
+                  <button class="btn ghost small" type="button" :disabled="connect.aiSearching || !connect.aiQuery.trim()" @click="connectAiSearch()" x-text="connect.aiSearching ? 'Searching…' : 'Search'"></button>
+                </div>
+                <button class="btn ghost small" type="button" x-show="connect.filterFrom || connect.filterTo || connect.aiMatchIds !== null || connect.filterSource" @click="connectClearDiaryFilters()">Clear</button>
+              </div>
+              <p class="hint" x-show="connect.aiMatchIds !== null" style="margin:-6px 0 12px" x-text="'✨ AI search — showing ' + connect.aiMatchIds.length + ' matching ' + (connect.aiMatchIds.length === 1 ? 'entry' : 'entries') + ' for “' + connect.aiQuery + '”'"></p>
 
               <!-- Inline add/edit form -->
               <div class="connect-card" x-show="connect.evForm" x-transition.opacity.duration.120ms>
@@ -8924,52 +8944,6 @@
               </div>
             </div>
 
-            <!-- ===== Settings tab ===== -->
-            <div x-show="!connect.loading && connect.tab === 'settings' && connect.config" x-transition.opacity.duration.120ms>
-              <div class="connect-card">
-                <h3>Automated collection</h3>
-                <p class="hint">When enabled, Connect gathers evidence of your work automatically (Teams channel/group posts, email you send, meetings) on your schedule — all processed locally.</p>
-                <label style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;cursor:pointer">
-                  <input type="checkbox" x-model="connect.config.consent" style="margin-top:3px">
-                  <span>I understand automated collection reads my Teams, email, meeting, and work-item activity to build my private diary. Nothing leaves my machine.</span>
-                </label>
-                <label style="display:flex;gap:10px;align-items:center;margin-bottom:12px;cursor:pointer" :style="!connect.config.consent ? 'opacity:.5' : ''">
-                  <input type="checkbox" x-model="connect.config.collectionEnabled" :disabled="!connect.config.consent">
-                  <span>Enable automated daily collection</span>
-                </label>
-                <div class="connect-grid2">
-                  <div class="connect-field">
-                    <label>Collection schedule</label>
-                    <input type="text" x-model="connect.config.schedule" placeholder="daily at 6pm">
-                  </div>
-                  <div class="connect-field" style="display:flex;align-items:flex-end">
-                    <label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-weight:400">
-                      <input type="checkbox" x-model="connect.config.generateDaily">
-                      <span>Also refresh my Connect draft after each collection</span>
-                    </label>
-                  </div>
-                </div>
-                <label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-weight:400;margin-bottom:4px">
-                  <input type="checkbox" x-model="connect.config.adoEnabled">
-                  <span>Also collect Azure DevOps work items &amp; pull requests</span>
-                </label>
-              </div>
-
-              <div class="connect-card">
-                <h3>Storage &amp; delivery</h3>
-                <div class="connect-field">
-                  <label>Storage folder</label>
-                  <input type="text" x-model="connect.config.storageDir" placeholder="Leave blank for the default local folder">
-                  <p class="hint" style="margin:5px 0 0">Point this at a OneDrive-synced folder (e.g. <code>C:\Users\you\OneDrive\Connect</code>) to keep your backing data in the cloud.</p>
-                </div>
-                <div class="connect-field">
-                  <label>Default email recipient</label>
-                  <input type="text" x-model="connect.config.emailTo" placeholder="you@microsoft.com (optional)">
-                </div>
-              </div>
-
-              <button class="btn primary" type="button" :disabled="connect.busy" @click="saveConnectConfig()" x-text="connect.busy ? 'Saving…' : 'Save settings'"></button>
-            </div>
           </section>
 
           <!-- ===== Code Flow ===== -->
@@ -11020,6 +10994,70 @@
             </div>
 
             </div><!-- /dependencies category -->
+
+            <!-- ===== Connect category ===== -->
+            <div x-show="settingsCat === 'connect'">
+              <div class="card" style="margin-top:24px" x-show="!connect.config">
+                <p class="hint" style="margin:0">Loading Connect settings…</p>
+              </div>
+              <template x-if="connect.config">
+              <div>
+                <div class="card" style="margin-top:24px">
+                  <h2 style="font-size:1rem;margin-bottom:6px">Automated collection</h2>
+                  <p class="hint" style="margin:0 0 14px">When enabled, Connect gathers evidence of your work automatically (Teams channel/group posts, email you send, meetings) on your schedule — all processed locally on your machine.</p>
+                  <label style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;cursor:pointer">
+                    <input type="checkbox" x-model="connect.config.consent" style="margin-top:3px">
+                    <span>I understand automated collection reads my Teams, email, meeting, and work-item activity to build my private diary. Nothing leaves my machine.</span>
+                  </label>
+                  <label style="display:flex;gap:10px;align-items:center;margin-bottom:16px;cursor:pointer" :style="!connect.config.consent ? 'opacity:.5' : ''">
+                    <input type="checkbox" x-model="connect.config.collectionEnabled" :disabled="!connect.config.consent">
+                    <span>Enable automated daily collection</span>
+                  </label>
+                  <div class="connect-field" style="margin-bottom:14px;max-width:360px">
+                    <label>Collection schedule</label>
+                    <input type="text" x-model="connect.config.schedule" placeholder="daily at 6pm">
+                  </div>
+                  <label style="display:flex;gap:10px;align-items:center;margin-bottom:12px;cursor:pointer;font-weight:400">
+                    <input type="checkbox" x-model="connect.config.generateDaily">
+                    <span>Also refresh my Connect draft after each collection</span>
+                  </label>
+                  <label style="display:flex;gap:10px;align-items:center;cursor:pointer;font-weight:400;margin-bottom:4px">
+                    <input type="checkbox" x-model="connect.config.adoEnabled">
+                    <span>Also collect Azure DevOps work items &amp; pull requests</span>
+                  </label>
+                  <div x-show="connect.config.adoEnabled" x-transition.opacity.duration.120ms style="margin-top:10px;padding-left:24px;border-left:2px solid var(--cp-border, #e5e5e5)">
+                    <p class="hint" style="margin:0 0 10px">Collected <strong>directly from Azure DevOps</strong> (using your <code>az login</code> session) — real PRs you authored and work items assigned to or created by you in the window. Not WorkIQ.</p>
+                    <div class="connect-field" style="margin-bottom:10px;max-width:360px">
+                      <label>Organization</label>
+                      <input type="text" x-model="connect.config.adoOrg" placeholder="e.g. dnceng (blank = use your dev/export org)">
+                    </div>
+                    <div class="connect-field" style="max-width:360px">
+                      <label>Project(s)</label>
+                      <input type="text" x-model="connect.config.adoProjects" placeholder="e.g. internal, public (comma-separated)">
+                      <p class="hint" style="margin:5px 0 0">PRs are searched across all repos in each project. Leave blank to fall back to your configured dev/export project.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card" style="margin-top:16px">
+                  <h2 style="font-size:1rem;margin-bottom:12px">Storage &amp; delivery</h2>
+                  <div class="connect-field" style="margin-bottom:14px">
+                    <label>Storage folder</label>
+                    <input type="text" x-model="connect.config.storageDir" placeholder="Leave blank for the default local folder">
+                    <p class="hint" style="margin:5px 0 0">Point this at a OneDrive-synced folder (e.g. <code>C:\Users\you\OneDrive\Connect</code>) to keep your backing data in the cloud.</p>
+                  </div>
+                  <div class="connect-field" style="max-width:360px">
+                    <label>Default email recipient</label>
+                    <input type="text" x-model="connect.config.emailTo" placeholder="you@microsoft.com (optional)">
+                  </div>
+                </div>
+
+                <div style="margin-top:16px">
+                  <button class="btn primary" type="button" :disabled="connect.busy" @click="saveConnectConfig()" x-text="connect.busy ? 'Saving…' : 'Save settings'"></button>
+                </div>
+              </div>
+              </template>
+            </div><!-- /connect category -->
 
             <!-- ===== About category ===== -->
             <div x-show="settingsCat === 'about'">
@@ -13738,10 +13776,15 @@
           draftDirty: false,
           savingDraft: false,
           filterSource: '',      // diary source filter ('' = all)
+          filterFrom: '',        // diary date-range lower bound (yyyy-mm-dd)
+          filterTo: '',          // diary date-range upper bound (yyyy-mm-dd)
+          aiQuery: '',           // AI diary search box
+          aiSearching: false,
+          aiMatchIds: null,      // null = no AI filter; array = matched evidence ids
           evForm: null,          // manual-entry / edit form (null = closed)
           evBusy: false,
           busy: false,
-          _preview: false,
+          _preview: true,        // draft renders as Markdown by default; ✎ Edit toggles the textarea
           generating: false,
           collecting: false,
           autofilling: false,
@@ -14728,12 +14771,13 @@
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'dependencies', 'about'];
+            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'dependencies', 'connect', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
             this.loadModelSettings();
             if (this.settingsCat === 'dependencies') this.loadDependencies();
+            if (this.settingsCat === 'connect') this.ensureConnectConfig();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
@@ -15531,7 +15575,7 @@
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false };
             const teams = { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
-            const connect = { key: 'connect', label: 'Connect', title: 'Connect — your living impact diary', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
+            const connect = { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
             const news = { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
               { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
@@ -15576,7 +15620,7 @@
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
-            { key: 'connect', label: 'Connect', title: 'Connect — your living impact diary', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false },
+            { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false },
             watercooler,
             ...globalZone
           ];
@@ -17123,6 +17167,7 @@
             { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
             { id: 'sync', label: 'Sync & Machines', ico: '☁️', hash: '#/settings/sync' },
             { id: 'dependencies', label: 'Dependencies', ico: '📦', hash: '#/settings/dependencies' },
+            { id: 'connect', label: 'Connect', ico: '🌟', hash: '#/settings/connect' },
             { id: 'external', label: 'External Access', ico: '🌐', hash: '#/events' },
             { id: 'about', label: 'About', ico: 'ℹ️', hash: '#/settings/about' },
           ];
@@ -18580,6 +18625,7 @@
           }
         },
         connectSetTab(t) { this.connect.tab = t; },
+        ensureConnectConfig() { if (!this.connect.config) this.loadConnect(); },
         connectDraftChanged() { this.connect.draftDirty = true; },
         connectDraftSource() {
           const d = this.connect.state && this.connect.state.draft;
@@ -18628,10 +18674,42 @@
             this.toast('Save failed: ' + (e.message || e), 'error');
           }
         },
+        connectClearDiaryFilters() {
+          this.connect.filterSource = '';
+          this.connect.filterFrom = '';
+          this.connect.filterTo = '';
+          this.connect.aiQuery = '';
+          this.connect.aiMatchIds = null;
+        },
+        async connectAiSearch() {
+          const q = (this.connect.aiQuery || '').trim();
+          if (!q) { this.connect.aiMatchIds = null; return; }
+          this.connect.aiSearching = true;
+          try {
+            const r = await this.request('/api/connect/search', { method: 'POST', body: JSON.stringify({ query: q }), timeoutMs: 120000 });
+            this.connect.aiMatchIds = Array.isArray(r.ids) ? r.ids : [];
+            if (!this.connect.aiMatchIds.length) this.toast('No diary entries matched that search', 'info');
+          } catch (e) {
+            this.connect.aiMatchIds = null;
+            this.toast('AI search failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.aiSearching = false;
+          }
+        },
         connectFilteredEvidence() {
           const src = this.connect.filterSource;
+          const from = this.connect.filterFrom;
+          const to = this.connect.filterTo;
+          const ai = this.connect.aiMatchIds;
           let items = this.connect.evidence || [];
           if (src) items = items.filter(x => x.source === src);
+          if (from) items = items.filter(x => x.date && x.date >= from);
+          if (to) items = items.filter(x => x.date && x.date <= to);
+          if (Array.isArray(ai)) {
+            const rank = new Map(ai.map((id, i) => [id, i]));
+            items = items.filter(x => rank.has(x.id));
+            items = items.slice().sort((a, b) => rank.get(a.id) - rank.get(b.id));
+          }
           return items;
         },
         connectEvidenceByDate() {
@@ -18801,6 +18879,8 @@
                 connectStorageDir: c.storageDir || '',
                 connectEmailTo: c.emailTo || '',
                 connectAdoEnabled: !!c.adoEnabled,
+                connectAdoOrg: (c.adoOrg || '').trim(),
+                connectAdoProjects: (c.adoProjects || '').trim(),
               }),
             });
             await this.loadConnect();
@@ -18814,7 +18894,7 @@
         connectRenderDraft() {
           const md = this.connect.draftText || '';
           if (!md.trim()) return '';
-          try { return window.marked ? window.marked.parse(md) : md; } catch { return md; }
+          try { return this.renderMarkdown(md); } catch { return md; }
         },
         async loadCodeFlow(silent) {
           if (!silent) this.codeflow.loading = true;

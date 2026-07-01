@@ -6627,6 +6627,8 @@ app.put('/api/settings', (req, res) => {
     try { scheduleDependencyAutoUpdate(); } catch (e) { console.warn('[deps] reschedule failed:', e.message); }
     // Re-arm the Connect collection job if its schedule/enable/consent changed.
     try { scheduleConnectCollection(); } catch (e) { console.warn('[connect] reschedule failed:', e.message); }
+    // If collection was just enabled and a scheduled run is already overdue, catch up.
+    try { setTimeout(connectCatchUpCheck, 2_000); } catch {}
     res.json(next);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -6695,9 +6697,114 @@ function _connectDateWindow(days) {
   return { start: iso(start), end: iso(end) };
 }
 
+// Collect REAL Azure DevOps evidence (PRs authored + work items assigned/created)
+// for the given window, straight from the Azure DevOps REST API via the Azure CLI
+// token — not WorkIQ. Returns Connect-shaped evidence items with stable ext: tags.
+// Best-effort per project: one project's failure never sinks the rest.
+async function runConnectAdoCollection({ days } = {}) {
+  const s = settings.getSettings();
+  const org = (s.connectAdoOrg || s.devOrg || s.exportOrg || '').trim();
+  const projects = String(s.connectAdoProjects || s.devProject || s.exportProject || '')
+    .split(',').map(p => p.trim()).filter(Boolean);
+  if (!org || !projects.length) return { skipped: 'no-ado-config', items: [] };
+
+  let me;
+  try { me = await azdo.getCurrentUser(org); }
+  catch (e) { return { error: `Azure DevOps auth failed (run "az login"): ${e.message}`, items: [] }; }
+  const creatorId = me && me.id;
+
+  const win = _connectDateWindow(days);
+  const inWin = (iso) => { const d = String(iso || '').slice(0, 10); return d && d >= win.start && d <= win.end; };
+  const DONE = new Set(['closed', 'done', 'resolved', 'completed']);
+  const items = [];
+  const errors = [];
+
+  for (const project of projects) {
+    // --- Work items (assigned-or-created by me, changed in window) ---
+    try {
+      const wis = await azdo.listMyWorkItems(org, project, { start: win.start, end: win.end });
+      for (const w of wis) {
+        const done = DONE.has(String(w.state || '').toLowerCase());
+        const date = String((done && w.closedDate) || w.changedDate || w.createdDate || win.end).slice(0, 10);
+        items.push({
+          date,
+          source: 'ado',
+          title: `${done ? 'Completed ' : ''}${w.type || 'Work item'} #${w.id}: ${w.title}`.trim(),
+          detail: `${project} · state: ${w.state || 'unknown'}${w.assignedTo ? ` · assigned to ${w.assignedTo}` : ''}`,
+          impact: '',
+          links: w.url ? [w.url] : [],
+          tags: [`ext:ado:${org}/${w.id}`, 'source:azdo']
+        });
+      }
+    } catch (e) { errors.push(`workitems ${project}: ${e.message}`); }
+
+    // --- Pull requests I authored (completed in window + opened in window) ---
+    for (const [status, verb, dateField] of [['completed', 'Merged', 'closedDate'], ['active', 'Opened', 'creationDate']]) {
+      try {
+        const prs = await azdo.listProjectPullRequests(org, project, { creatorId, status, top: 100 });
+        for (const pr of prs) {
+          if (!inWin(pr[dateField])) continue;
+          items.push({
+            date: String(pr[dateField]).slice(0, 10),
+            source: 'pr',
+            title: `${verb} PR !${pr.id}: ${pr.title}`,
+            detail: `${pr.repo || project}${pr.sourceBranch ? ` · ${pr.sourceBranch} → ${pr.targetBranch}` : ''}`,
+            impact: '',
+            links: pr.url ? [pr.url] : [],
+            tags: [`ext:pr:${org}/${project}/${pr.id}`, 'source:azdo']
+          });
+        }
+      } catch (e) { errors.push(`prs ${project}/${status}: ${e.message}`); }
+    }
+  }
+  if (errors.length) console.warn('[connect] ADO collection partial errors:', errors.join('; '));
+  return { items, org, projects, window: win, errors };
+}
+
 // Collect recent M365 activity into diary evidence. Scheduled runs are leader-,
 // consent- and enable-gated and never fire mid agent-run; manual runs bypass the
 // enable/leader gates but still require consent.
+// AI diary search — given a free-text query, ask the model which diary entries
+// match by meaning (not just keywords) and return their ids, most relevant first.
+async function runConnectSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) return { ids: [] };
+  const items = connect.listEvidence({ includeHidden: true });
+  if (!items.length) return { ids: [] };
+  const compact = items.slice(0, 400).map(e => ({
+    id: e.id,
+    date: e.date,
+    source: e.source,
+    title: e.title || '',
+    detail: (e.detail || '').slice(0, 300),
+    impact: (e.impact || '').slice(0, 200),
+    tags: Array.isArray(e.tags) ? e.tags.join(', ') : '',
+  }));
+  const prompt =
+    `You are a search assistant for a personal work diary. The user is searching for entries that match:\n\n` +
+    `"${q}"\n\n` +
+    `Here are the diary entries as a JSON array (each has an "id"):\n` +
+    JSON.stringify(compact) + `\n\n` +
+    `Return ONLY a JSON object {"ids":["id1","id2",...]} listing the ids that genuinely match the query, ` +
+    `most relevant first. Match on meaning, not just exact words (e.g. "reliability work" should match ` +
+    `entries about incidents, on-call, uptime, or SLAs). Include an entry only if it is truly relevant. ` +
+    `If nothing matches, return {"ids":[]}. No prose, no code fence.`;
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null, prompt, sessionId: require('crypto').randomUUID(),
+    resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+  });
+  let raw = (acc.trim() || (result && result.output) || '').trim();
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+  let ids = [];
+  if (a >= 0 && b > a) {
+    try { const parsed = JSON.parse(raw.slice(a, b + 1)); if (Array.isArray(parsed.ids)) ids = parsed.ids.map(String); } catch {}
+  }
+  const valid = new Set(items.map(e => e.id));
+  return { ids: ids.filter(id => valid.has(id)) };
+}
+
 async function runConnectCollection({ manual = false, days } = {}) {
   const s = settings.getSettings();
   if (!s.connectConsent) return { skipped: 'no-consent' };
@@ -6706,28 +6813,55 @@ async function runConnectCollection({ manual = false, days } = {}) {
     if (!s.connectCollectionEnabled) return { skipped: 'collection-off' };
     if (_anyAgentBusy()) { console.log('[connect] collection deferred — agent run in flight'); return { skipped: 'busy' }; }
   }
-  const win = _connectDateWindow(days != null ? days : (manual ? 7 : 1));
-  const adoNote = s.connectAdoEnabled
-    ? ' Also include Azure DevOps work items and pull requests the user drove if WorkIQ exposes them.'
-    : '';
+  const effDays = days != null ? days : (manual ? 7 : 1);
+  const win = _connectDateWindow(effDays);
   const prompt =
     `Collect my Connect diary evidence for the date range ${win.start} to ${win.end} (inclusive). ` +
     `Gather MY OWN activity across Teams channel/group posts, email I sent, and meetings I organized or ` +
-    `actively participated in — never one-on-one private chats.${adoNote} ` +
+    `actively participated in — never one-on-one private chats. ` +
     `Return only the JSON array of evidence items exactly as specified.`;
-  let text;
-  try { text = await _connectRunAgent('collector', prompt); }
-  catch (e) { console.warn('[connect] collection failed:', e.message); return { error: e.message }; }
-  const arr = _connectExtractJson(text);
-  if (!Array.isArray(arr)) return { error: 'Collector returned no parseable evidence', raw: String(text).slice(0, 400) };
-  const { added, skipped } = connect.addEvidenceBatch(arr, { origin: 'auto' });
+
+  // Source 1: M365 (Teams/email/meetings) via the WorkIQ-driven collector agent.
+  // Wrapped in a timeout so a WorkIQ stall (auth prompt, hung MCP) can never block
+  // the ADO source or the request. Runs CONCURRENTLY with ADO below.
+  const m365Task = (async () => {
+    const TIMEOUT_MS = 4 * 60_000;
+    let timer;
+    try {
+      const text = await Promise.race([
+        _connectRunAgent('collector', prompt),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('WorkIQ collector timed out')), TIMEOUT_MS); }),
+      ]);
+      const arr = _connectExtractJson(text);
+      if (Array.isArray(arr)) return arr;
+      console.warn('[connect] M365 collector returned no parseable evidence:', String(text).slice(0, 200));
+    } catch (e) { console.warn('[connect] M365 collection failed:', e.message); }
+    finally { clearTimeout(timer); }
+    return [];
+  })();
+
+  // Source 2: Azure DevOps (PRs + work items) queried directly for real evidence.
+  const adoTask = (async () => {
+    if (!s.connectAdoEnabled) return [];
+    try {
+      const r = await runConnectAdoCollection({ days: effDays });
+      if (r && r.skipped) console.log(`[connect] ADO collection ${r.skipped}`);
+      if (r && r.error) console.warn('[connect] ADO collection error:', r.error);
+      return (r && Array.isArray(r.items)) ? r.items : [];
+    } catch (e) { console.warn('[connect] ADO collection failed:', e.message); return []; }
+  })();
+
+  const [m365, ado] = await Promise.all([m365Task, adoTask]);
+
+  const all = m365.concat(ado);
+  const { added, skipped } = all.length ? connect.addEvidenceBatch(all, { origin: 'auto' }) : { added: 0, skipped: 0 };
   connect.markCollected();
-  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes), ${win.start}..${win.end}`);
+  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes) — ${m365.length} M365 + ${ado.length} ADO, ${win.start}..${win.end}`);
   let generated = false;
   if (!manual && s.connectGenerateDaily && added > 0) {
     try { await runConnectGeneration(); generated = true; } catch (e) { console.warn('[connect] auto-generate failed:', e.message); }
   }
-  return { ran: true, added, skipped, window: win, generated };
+  return { ran: true, added, skipped, m365: m365.length, ado: ado.length, window: win, generated };
 }
 
 // Draft an HR-standard Connect from the user's (non-hidden) evidence, role, and
@@ -6805,7 +6939,47 @@ function scheduleConnectCollection() {
   } else return;
   console.log(`[connect] collection scheduled: ${parsed.description}`);
 }
+
+// Catch up a collection that was DUE while the app was offline. croner (like any
+// cron) only fires at the scheduled instant — if the machine was asleep/off then,
+// that day's run is silently skipped. On startup (and whenever the schedule
+// changes) we compare the most recent scheduled occurrence against when we last
+// actually collected; if a run was missed, we fire one catch-up collection.
+function connectCatchUpCheck() {
+  try {
+    const s = settings.getSettings();
+    if (!s.connectCollectionEnabled || !s.connectConsent) return;
+    const sched = (s.connectSchedule || '').trim();
+    if (!sched || sched.toLowerCase() === 'never') return;
+    let parsed;
+    try { parsed = parseTaskSchedule(sched); } catch { return; }
+    let prevRun = null;
+    if (parsed.type === 'cron') {
+      // croner v10's previousRun() only reports an instance's actual prior fire (null here),
+      // so compute the most recent scheduled occurrence by stepping forward from a bounded
+      // floor (≤ a handful of iterations for daily/hourly schedules).
+      try {
+        const cron = new TaskCron(parsed.cron);
+        const floor = new Date(Date.now() - 8 * 86400000);
+        let guard = 0, n = cron.nextRun(floor);
+        while (n && n.getTime() <= Date.now() && guard++ < 100000) { prevRun = n; n = cron.nextRun(n); }
+      } catch {}
+    } else if (parsed.type === 'interval') {
+      prevRun = new Date(Date.now() - parsed.ms);
+    }
+    if (!prevRun) return;
+    const meta = connect.getState().meta || {};
+    const last = meta.lastCollectedAt ? new Date(meta.lastCollectedAt) : null;
+    const missed = !last || last.getTime() < prevRun.getTime();
+    if (!missed) return;
+    console.log(`[connect] missed scheduled collection (last=${last ? last.toISOString() : 'never'}, due=${prevRun.toISOString()}) — running catch-up`);
+    runConnectCollection().catch(e => console.warn('[connect] catch-up collection error:', e.message));
+  } catch (e) { console.warn('[connect] catch-up check failed:', e.message); }
+}
+
 scheduleConnectCollection();
+// Give the app ~90s to settle (leader election, WorkIQ auth) before any catch-up.
+setTimeout(connectCatchUpCheck, 90_000);
 
 // --- Connect (living impact / performance diary) ------------------------------
 app.get('/api/connect', (req, res) => {
@@ -6822,6 +6996,9 @@ app.get('/api/connect', (req, res) => {
         storageDir: connect.storageDir(),
         emailTo: s.connectEmailTo || '',
         adoEnabled: s.connectAdoEnabled === true,
+        adoOrg: s.connectAdoOrg || '',
+        adoProjects: s.connectAdoProjects || '',
+        lastCollectedAt: (connect.getState().meta || {}).lastCollectedAt || null,
       },
     });
   } catch (err) {
@@ -6862,6 +7039,16 @@ app.put('/api/connect/draft', (req, res) => {
 app.get('/api/connect/evidence', (req, res) => {
   try {
     res.json({ items: connect.listEvidence({ source: req.query.source || undefined }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AI search over diary evidence — returns matching evidence ids (best-first).
+app.post('/api/connect/search', async (req, res) => {
+  try {
+    const r = await runConnectSearch((req.body && req.body.query) || '');
+    res.json({ ok: true, ids: r.ids });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
