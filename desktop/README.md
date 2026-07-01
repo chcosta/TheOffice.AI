@@ -103,25 +103,87 @@ desktop/
 
 ---
 
-## Distribution (not yet wired)
+## Download
 
-The current build runs the **dev fallback**: it spawns the system `node` against the
-repo's `server.js`. A shippable installer still needs:
+**[⬇ Latest release](https://github.com/chcosta/TheOffice.AI/releases/latest)** ·
+**[TheOffice.AI_1.0.0_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.0/TheOffice.AI_1.0.0_x64-setup.exe)** (~215 MB)
 
-1. **Bundle the server as Tauri resources** — add `server.js` + its runtime deps
-   (`supervisor.js`, `manager.js`, `public/`, `node_modules`, …) to
-   `tauri.conf.json > bundle.resources`. `main.rs` already prefers
-   `<resources>/server/server.js` when present.
-2. **Ship a portable Node** — bundle a `node.exe` as a resource (or use a Node
-   single-executable) and point `SUPERVISOR_NODE` at it, so end users don't need
-   Node installed. (We deliberately do **not** use `pkg`/SEA for the server itself:
-   it relies on real on-disk `__dirname` files and spawns real child processes —
-   the Copilot CLI and `board-mcp.js` — which packed binaries break.)
-3. **Per-OS CI + code signing** — Windows Authenticode, macOS notarization.
-4. **Auto-updater** — Tauri's updater plugin.
+Per-user NSIS install (no admin). On first launch the installer offers to install
+optional prerequisites (Git, Azure CLI, ripgrep) via winget. Copilot CLI sign-in
+(`~/.copilot`) is separate.
 
-These are Phase 2/3 follow-ups; the current scaffold proves the sidecar/`__READY__`
-handshake and the native window end-to-end.
+---
+
+## Distribution (shipped)
+
+The distributable is a **self-contained NSIS installer** — end users need neither
+Node nor the repo. `npm run build` (which runs `stage-sidecar.mjs` via its
+`prebuild` hook, then `tauri build`) produces:
+
+```
+desktop/src-tauri/target/release/bundle/nsis/TheOffice.AI_1.0.0_x64-setup.exe
+```
+
+**≈215 MB**, LZMA-compressed from an ~820 MB staged payload.
+
+What's bundled (staged into `src-tauri/resources/`, gitignored, by
+`stage-sidecar.mjs`):
+
+1. **The server as Tauri resources** — `server.js` + all root `*.js`, `public/`,
+   `builtin-plugins/`, and production `node_modules` (puppeteer-core pruned) are
+   copied to `resources/server/`. `main.rs` prefers `<resources>/server/server.js`
+   when present (falling back to the repo path only in dev). The vendored Copilot
+   CLI/SDK + ripgrep ride along inside `node_modules`.
+2. **A portable Node** — `process.execPath` is copied to `resources/node/node.exe`
+   so end users don't need Node installed. `main.rs`'s `resolve_node_bin` finds it
+   (dual-path: `<res>/node/` or `<res>/resources/node/`). We deliberately do **not**
+   `pkg`/SEA the server — it relies on real on-disk `__dirname` files and spawns real
+   child processes (Copilot CLI, `board-mcp.js`), which packed binaries break.
+3. **Prereq installer** — `scripts/install-prerequisites.ps1` is staged to
+   `resources/scripts/` and invoked by the NSIS post-install hook
+   (`src-tauri/nsis/hooks.nsh`) to offer a per-user winget install of Git / Azure
+   CLI / ripgrep. Non-fatal and skipped in silent mode.
+
+### Rebuilding the installer
+
+```powershell
+cd desktop
+npm install                 # first time only (installs @tauri-apps/cli)
+npm run build               # stage-sidecar (prebuild) + tauri build → NSIS installer
+npm run build -- --no-bundle  # just the exe, for fast iteration
+```
+
+Notes / gotchas:
+
+- **NSIS toolchain download** — on the first `tauri build`, Tauri downloads its
+  NSIS toolchain from github.com (cached at `%LOCALAPPDATA%\tauri\NSIS`). A transient
+  DNS failure there aborts only the bundle step; the compiled exe survives, so a
+  retry resumes quickly.
+- **`time 0.3.51` pin** — held in `Cargo.lock` (a version skew in `time 0.3.52`
+  broke `cookie 0.18.1`). Don't bump it casually.
+- **Build time** — Rust ~7 min cold / ~2.5 min warm; makensis compression of ~14k
+  files is slow (~10+ min).
+
+### Publishing a release
+
+The installer is hosted on **GitHub Releases** on `chcosta/TheOffice.AI`:
+
+```powershell
+gh release create v1.0.0 -R chcosta/TheOffice.AI `
+  --title "TheOffice.AI v1.0.0 (Windows desktop)" `
+  --notes "…" `
+  "desktop/src-tauri/target/release/bundle/nsis/TheOffice.AI_1.0.0_x64-setup.exe"
+```
+
+Bump the `version` in `package.json` + `tauri.conf.json` and the tag together for
+each release. The `releases/latest` link in this README and the root README always
+resolves to the newest one.
+
+### Still to come (Phase 3)
+
+- **Per-OS CI + code signing** — Windows Authenticode, macOS notarization.
+- **Auto-updater** — Tauri's updater plugin pointing at the Release assets
+  (`latest.json` + signed artifacts).
 
 ---
 

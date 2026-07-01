@@ -34,14 +34,32 @@ A guided tour of TheOffice.AI — agents, managers, an always-on AI briefing, an
 
 ---
 
+## 💻 Download (Windows desktop)
+
+**[⬇ Download the latest Windows installer](https://github.com/chcosta/TheOffice.AI/releases/latest)** — or grab it directly:
+
+**[TheOffice.AI_1.0.0_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.0/TheOffice.AI_1.0.0_x64-setup.exe)** (~215 MB)
+
+The desktop app is a native shell (Tauri v2) that runs the same server + SPA as a
+local sidecar and loads it in WebView2 — **no browser required**. It installs
+per-user (no admin), and on first launch offers to install optional prerequisites
+(Git, Azure CLI, ripgrep) via winget. Copilot CLI sign-in (`~/.copilot`) is a
+separate one-time step. See [`desktop/README.md`](desktop/README.md) for how the
+sidecar works and how to rebuild the installer.
+
+---
+
 ## Quick Start
+
+Run in the browser (dev / LAN / mobile):
 
 ```bash
 npm install
 npm start
 ```
 
-Open **http://localhost:3847** in your browser.
+Open **http://localhost:3847** in your browser. The browser and desktop apps share
+the exact same `server.js` + `public/app.html` — the desktop shell just wraps them.
 
 ## Prerequisites
 
