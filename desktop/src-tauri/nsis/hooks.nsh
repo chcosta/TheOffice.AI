@@ -20,14 +20,27 @@
   nsExec::Exec 'taskkill /F /T /IM "TheOffice.AI.exe"'
   Pop $R9
 
-  ; 2. Precision cleanup via the bundled helper from the PREVIOUS install
-  ;    (PREINSTALL runs before new files land). Path-filtered so it never touches
-  ;    unrelated Node processes, and it waits until node.exe is unlocked.
-  StrCpy $R0 "$INSTDIR\scripts\stop-instances.ps1"
-  ${IfNot} ${FileExists} "$R0"
-    StrCpy $R0 "$INSTDIR\resources\scripts\stop-instances.ps1"
-  ${EndIf}
-  ${If} ${FileExists} "$R0"
+  ; 2. SELF-SUFFICIENT path-filtered cleanup. The old step here delegated to the
+  ;    PREVIOUS install's stop-instances.ps1 — absent when upgrading FROM a build
+  ;    that predates that script, which is exactly when the locked-file error bit.
+  ;    Instead we write a tiny helper into the NSIS temp dir ($PLUGINSDIR, always
+  ;    present, auto-cleaned) and run it. It kills ONLY node.exe / TheOffice.AI.exe
+  ;    whose image lives under $INSTDIR (so unrelated Node processes are never
+  ;    touched — e.g. Copilot CLI, the user's own node), then waits until they're
+  ;    gone (up to ~20s) so the OS releases node.exe before files are overwritten.
+  InitPluginsDir
+  StrCpy $R0 "$PLUGINSDIR\stop-office-instances.ps1"
+  FileOpen $R1 "$R0" w
+  ${If} $R1 != ""
+    FileWrite $R1 "param([string]$$InstallDir)$\r$\n"
+    FileWrite $R1 "try { $$base = $$InstallDir.TrimEnd('\').ToLowerInvariant() } catch { $$base = $$InstallDir }$\r$\n"
+    FileWrite $R1 "$$deadline = (Get-Date).AddSeconds(20)$\r$\n"
+    FileWrite $R1 "do {$\r$\n"
+    FileWrite $R1 "  $$procs = @(Get-CimInstance Win32_Process -Filter $\"Name='node.exe' OR Name='TheOffice.AI.exe'$\" -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLowerInvariant().StartsWith($$base) })$\r$\n"
+    FileWrite $R1 "  foreach ($$p in $$procs) { try { Stop-Process -Id $$p.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }$\r$\n"
+    FileWrite $R1 "  if ($$procs.Count -gt 0) { Start-Sleep -Milliseconds 400 }$\r$\n"
+    FileWrite $R1 "} while ($$procs.Count -gt 0 -and (Get-Date) -lt $$deadline)$\r$\n"
+    FileClose $R1
     nsExec::Exec 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$R0" -InstallDir "$INSTDIR"'
     Pop $R9
   ${EndIf}

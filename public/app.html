@@ -28,57 +28,94 @@
 
       const ls = window.localStorage;
       const rawSet = ls && ls.setItem ? ls.setItem.bind(ls) : null;
+      if (!rawSet) return;
+      const rawRemove = ls.removeItem.bind(ls);
 
-      // 1) Hydrate: pull server-stored durable prefs into localStorage BEFORE we
-      //    wrap setItem (so hydration writes don't echo straight back). Uses a
-      //    short synchronous XHR so the theme boot below sees hydrated values and
-      //    there's no flash. Never throws (offline / first-run → local defaults).
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', '/api/ui-prefs', false);
-        xhr.timeout = 1500;
-        xhr.send(null);
-        if (xhr.status >= 200 && xhr.status < 300 && rawSet) {
-          const prefs = (JSON.parse(xhr.responseText) || {}).prefs || {};
-          for (const k of Object.keys(prefs)) {
-            if (!DSET.has(k)) continue;
-            const v = prefs[k];
-            if (typeof v === 'string') { try { rawSet(k, v); } catch {} }
-          }
+      // The mirror stays OFF until we have CONFIRMED a successful hydrate from the
+      // server (HTTP 2xx — an empty {} on genuine first-run still counts). This is
+      // the critical guard: if the server is briefly unreachable at boot (desktop
+      // cold start), Alpine will fill localStorage with default values (basic /
+      // emoji). We must NOT mirror those defaults back, or they'd clobber the real
+      // prefs the server is still holding. Gate on hydrate success, not on any
+      // request completing.
+      let mirrorOn = false;
+      let timer = null;
+
+      const applyPrefs = (prefs) => {
+        if (!prefs || typeof prefs !== 'object') return 0;
+        let n = 0;
+        for (const k of Object.keys(prefs)) {
+          if (!DSET.has(k)) continue;
+          const v = prefs[k];
+          if (typeof v === 'string') { try { rawSet(k, v); n++; } catch {} }
         }
-      } catch {}
+        return n;
+      };
 
-      // 2) Mirror: after hydration, wrap setItem/removeItem so any durable-key
-      //    change debounces a full-snapshot PUT back to the server. Centralized —
-      //    covers every current + future durable write without editing call sites.
-      if (rawSet) {
-        const rawRemove = ls.removeItem.bind(ls);
-        let timer = null;
-        const flush = () => {
-          timer = null;
-          const snapshot = {};
-          for (const k of DURABLE) {
-            try { const v = ls.getItem(k); if (v != null) snapshot[k] = v; } catch {}
+      const flush = () => {
+        timer = null;
+        if (!mirrorOn) return;                         // never PUT before hydrate confirmed
+        const snapshot = {};
+        for (const k of DURABLE) {
+          try { const v = ls.getItem(k); if (v != null) snapshot[k] = v; } catch {}
+        }
+        if (!Object.keys(snapshot).length) return;     // never PUT a degenerate/empty snapshot
+        try {
+          fetch('/api/ui-prefs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefs: snapshot }),
+          }).catch(() => {});
+        } catch {}
+      };
+      const schedule = () => { if (!mirrorOn) return; if (timer) clearTimeout(timer); timer = setTimeout(flush, 400); };
+      try { window.__flushDurablePrefs = () => { if (timer) clearTimeout(timer); flush(); }; } catch {}
+
+      // Wrap setItem/removeItem immediately so no durable write is ever missed,
+      // but scheduling a PUT is itself gated on mirrorOn (see schedule()).
+      ls.setItem = function (k, v) { rawSet(k, v); if (DSET.has(k)) schedule(); };
+      ls.removeItem = function (k) { rawRemove(k); if (DSET.has(k)) schedule(); };
+
+      // 1) Synchronous hydrate (no flash — the theme boot below reads the result).
+      //    Retry a few times with a short timeout so a slightly-slow sidecar at
+      //    cold start still hydrates before Alpine reads defaults (avoids the
+      //    common case entirely and means no reload is needed).
+      let hydrated = false;
+      for (let attempt = 0; attempt < 3 && !hydrated; attempt++) {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', '/api/ui-prefs', false);
+          xhr.timeout = 800;
+          xhr.send(null);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            applyPrefs((JSON.parse(xhr.responseText) || {}).prefs || {});
+            hydrated = true;
           }
-          try {
-            fetch('/api/ui-prefs', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prefs: snapshot }),
-            }).catch(() => {});
-          } catch {}
-        };
-        const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(flush, 400); };
-        try { window.__flushDurablePrefs = () => { if (timer) clearTimeout(timer); flush(); }; } catch {}
+        } catch {}
+        if (!hydrated && attempt < 2) { const until = Date.now() + 250; while (Date.now() < until) { /* brief backoff */ } }
+      }
 
-        ls.setItem = function (k, v) {
-          rawSet(k, v);
-          if (DSET.has(k)) schedule();
+      if (hydrated) {
+        mirrorOn = true;
+      } else {
+        // 2) Very cold start: the server never answered synchronously. Do NOT turn
+        //    the mirror on (that would let Alpine's defaults overwrite real server
+        //    prefs). Retry asynchronously; only enable the mirror AFTER a real
+        //    hydrate. This can never lose data — worst case the user reloads once
+        //    to see roamed prefs; the server store is protected either way.
+        let tries = 0;
+        const retry = () => {
+          tries++;
+          fetch('/api/ui-prefs', { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : Promise.reject()))
+            .then((d) => {
+              const applied = applyPrefs((d || {}).prefs || {});
+              mirrorOn = true;
+              try { window.dispatchEvent(new CustomEvent('durable-prefs-hydrated', { detail: { applied } })); } catch {}
+            })
+            .catch(() => { if (tries < 30) setTimeout(retry, 500); });
         };
-        ls.removeItem = function (k) {
-          rawRemove(k);
-          if (DSET.has(k)) schedule();
-        };
+        setTimeout(retry, 400);
       }
     })();
   </script>

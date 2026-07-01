@@ -50,6 +50,15 @@ function replace(prefs) {
     clean[k] = v;
     n++;
   }
+  // Shrink-guard (defense-in-depth): never wipe a non-empty store with an empty
+  // snapshot. A 0-key PUT is almost always a client boot-race (localStorage not
+  // yet hydrated from the server) rather than a genuine "clear all prefs", so
+  // refuse it and keep the survived store. The client also gates this, but a
+  // single buggy/racing client must never be able to destroy persisted prefs.
+  if (Object.keys(clean).length === 0) {
+    const existing = get();
+    if (Object.keys(existing).length > 0) return existing;
+  }
   try {
     fs.writeFileSync(FILE(), JSON.stringify(clean, null, 2));
   } catch (e) {
