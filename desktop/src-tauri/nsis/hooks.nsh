@@ -1,7 +1,40 @@
 ; NSIS installer hooks for TheOffice.AI (Tauri v2).
-; Runs the bundled prerequisite installer (Git, Azure CLI, ripgrep via winget)
-; after the app files are laid down. Non-fatal: a failure here never aborts the
-; app install — the user can re-run install-prerequisites.ps1 later.
+; PRE-install: stop a running instance so an in-place upgrade can overwrite locked
+;   files (notably node\node.exe, held open by the Node sidecar). This is the
+;   safety net for "Error opening file for writing" upgrade failures.
+; POST-install: runs the bundled prerequisite installer (Git, Azure CLI, ripgrep
+;   via winget). Non-fatal: a failure here never aborts the app install — the user
+;   can re-run install-prerequisites.ps1 later.
+
+!macro NSIS_HOOK_PREINSTALL
+  ; The running app and its Node sidecar (plus any node.exe it spawned from the
+  ; bundled runtime) hold $INSTDIR\node\node.exe open, which makes an in-place
+  ; upgrade fail with "Error opening file for writing: node.exe". Stop them here,
+  ; BEFORE any files are written, and give the OS a moment to release the handles.
+  ; The desktop app also stops its own sidecar on exit, but a manually relaunched
+  ; app (or an orphaned sidecar) would otherwise still lock the file.
+
+  ; 1. Baseline: close the app AND its child tree (clean quoting; always safe).
+  ;    /T kills the Node sidecar and its grandchildren since they descend from the
+  ;    app process, covering the common case even on a first upgrade to this build.
+  nsExec::Exec 'taskkill /F /T /IM "TheOffice.AI.exe"'
+  Pop $R9
+
+  ; 2. Precision cleanup via the bundled helper from the PREVIOUS install
+  ;    (PREINSTALL runs before new files land). Path-filtered so it never touches
+  ;    unrelated Node processes, and it waits until node.exe is unlocked.
+  StrCpy $R0 "$INSTDIR\scripts\stop-instances.ps1"
+  ${IfNot} ${FileExists} "$R0"
+    StrCpy $R0 "$INSTDIR\resources\scripts\stop-instances.ps1"
+  ${EndIf}
+  ${If} ${FileExists} "$R0"
+    nsExec::Exec 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$R0" -InstallDir "$INSTDIR"'
+    Pop $R9
+  ${EndIf}
+
+  ; 3. Small settle so any remaining image-file handles finish releasing.
+  Sleep 700
+!macroend
 
 !macro NSIS_HOOK_POSTINSTALL
   ; Skip prerequisite handling entirely on an in-place upgrade (/UPDATE). An

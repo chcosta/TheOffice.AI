@@ -228,6 +228,82 @@ fn start_sidecar(app: &tauri::AppHandle) {
     }
 }
 
+/// Windows-only: force-terminate a process tree by PID. `/T` also kills
+/// grandchildren (MCP / Copilot `node.exe` the sidecar spawned via PATH), which
+/// hold the bundled `node.exe` open and would otherwise fail an in-place upgrade
+/// with "Error opening file for writing: ...\node\node.exe".
+#[cfg(windows)]
+fn taskkill_tree(pid: u32) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// Windows-only: kill any lingering `node.exe` whose image lives under `dir`
+/// (e.g. an orphaned grandchild). Path-filtered so unrelated Node processes on the
+/// machine — including the user's own dev servers — are never touched.
+#[cfg(windows)]
+fn kill_node_under(dir: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let d = dir.to_string_lossy().replace('\'', "''");
+    let ps = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" -ErrorAction SilentlyContinue | \
+         Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath.StartsWith('{d}', [System.StringComparison]::OrdinalIgnoreCase) }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+    );
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// Stop the Node sidecar (and its whole process tree), then block until the
+/// bundled `node.exe` is no longer locked so a staged installer can overwrite it.
+/// A running Windows image is opened by the loader WITHOUT `FILE_SHARE_WRITE`, so
+/// probing it with an open-for-write reliably tells us when every process that was
+/// executing it has exited. This is the primary fix for upgrade failures like
+/// "Error opening file for writing: ...\node\node.exe".
+fn stop_sidecar_and_wait(app: &tauri::AppHandle) {
+    // 1. Terminate the tracked sidecar and its whole tree.
+    if let Some(state) = app.try_state::<SidecarState>() {
+        if let Ok(mut guard) = state.0.lock() {
+            if let Some(mut child) = guard.take() {
+                #[cfg(windows)]
+                taskkill_tree(child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    // 2. Clean up any stray node.exe still running from the bundled node dir.
+    let node_bin = resolve_node_bin(app);
+    let node_dir = node_bin.parent().map(|p| p.to_path_buf());
+    #[cfg(windows)]
+    if let Some(dir) = &node_dir {
+        kill_node_under(dir);
+    }
+
+    // 3. Wait (up to ~8s) for the image-file lock to release before the installer runs.
+    if node_bin.exists() {
+        use std::fs::OpenOptions;
+        for _ in 0..40 {
+            if OpenOptions::new().write(true).open(&node_bin).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(SidecarState(Mutex::new(None)))
@@ -239,14 +315,10 @@ fn main() {
         .expect("error while building TheOffice.AI desktop app")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<SidecarState>() {
-                    if let Ok(mut guard) = state.0.lock() {
-                        if let Some(mut child) = guard.take() {
-                            let _ = child.kill();
-                        }
-                    }
-                }
-                // After the sidecar is down, apply a staged update (if any).
+                // Stop the sidecar tree and wait for the bundled node.exe lock to
+                // release, THEN apply a staged update — otherwise the installer
+                // races the still-running sidecar and fails to overwrite node.exe.
+                stop_sidecar_and_wait(app);
                 run_pending_update();
             }
         });

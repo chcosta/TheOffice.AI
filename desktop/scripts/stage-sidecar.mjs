@@ -120,6 +120,13 @@ if (existsSync(prereq)) {
 } else {
   log('WARNING: install-prerequisites.ps1 not found');
 }
+const stopScript = join(here, 'stop-instances.ps1');
+if (existsSync(stopScript)) {
+  copyFileSync(stopScript, join(scriptsDest, 'stop-instances.ps1'));
+  log('copied stop-instances.ps1');
+} else {
+  log('WARNING: stop-instances.ps1 not found');
+}
 
 // 7) Bake build-info.json so the packaged server (no git available) can report
 //    its version + commit. Version source of truth = desktop/package.json.
