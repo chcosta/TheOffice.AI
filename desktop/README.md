@@ -106,7 +106,7 @@ desktop/
 ## Download
 
 **[⬇ Latest release](https://github.com/chcosta/TheOffice.AI/releases/latest)** ·
-**[TheOffice.AI_1.0.2_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.2/TheOffice.AI_1.0.2_x64-setup.exe)** (~215 MB)
+**[TheOffice.AI v1.0.2](https://github.com/chcosta/TheOffice.AI/releases/tag/v1.0.2)** (~215 MB, split into 5 parts — reassembly snippet on the release page)
 
 Per-user NSIS install (no admin). On first launch the installer offers to install
 optional prerequisites (Git, Azure CLI, ripgrep) via winget. Copilot CLI sign-in
