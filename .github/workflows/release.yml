@@ -1,0 +1,123 @@
+name: Desktop installer
+
+# Build the Tauri/NSIS Windows installer and publish it as a preview release on
+# every push to main. Versions follow standard prerelease semantic versioning:
+# the base version comes from desktop/package.json and each build appends
+# `-preview.<run_number>`, e.g. 1.0.3-preview.12.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact version to build (e.g. 1.0.3-preview.99). Leave blank to auto-compute.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-installer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so build-info.json can record the commit
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Compute preview version
+        id: ver
+        shell: bash
+        run: |
+          override='${{ github.event.inputs.version }}'
+          if [ -n "$override" ]; then
+            version="$override"
+          else
+            base=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+            version="${base}-preview.${{ github.run_number }}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Building $version"
+
+      # npm ci runs against the committed manifests (before stamping) so the
+      # lockfiles stay in sync.
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Stamp version into manifests
+        shell: bash
+        run: node desktop/scripts/set-version.mjs "${{ steps.ver.outputs.version }}"
+
+      - name: Build installer
+        working-directory: desktop
+        run: npm run build
+
+      - name: Locate installer
+        id: art
+        shell: bash
+        run: |
+          f=$(ls desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | head -n1)
+          if [ -z "$f" ]; then echo "No installer produced" >&2; exit 1; fi
+          name=$(basename "$f")
+          sha=$(certutil -hashfile "$f" SHA256 | sed -n 2p | tr -d '\r ' | tr 'A-F' 'a-f')
+          printf '%s  %s\n' "$sha" "$name" > "$f.sha256"
+          echo "path=$f" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "Installer: $name ($sha)"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.art.outputs.name }}
+          path: ${{ steps.art.outputs.path }}
+          if-no-files-found: error
+
+      - name: Publish preview release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: TheOffice.AI ${{ steps.ver.outputs.tag }}
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            ${{ steps.art.outputs.path }}
+            ${{ steps.art.outputs.path }}.sha256
+          body: |
+            Automated **preview** build from `main` @ ${{ github.sha }}.
+
+            - **Installer:** `${{ steps.art.outputs.name }}`
+            - **SHA-256:** `${{ steps.art.outputs.sha256 }}`
+
+            Per-user install (no admin required). Download the `*-setup.exe` asset
+            below and run it. See the
+            [README](https://github.com/chcosta/TheOffice.AI#-download-windows-desktop)
+            for details.

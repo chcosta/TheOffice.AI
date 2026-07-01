@@ -1,6 +1,6 @@
 {
   "name": "copilot-agent-supervisor",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Local supervisor service for managing Copilot CLI agent schedules",
   "main": "server.js",
   "scripts": {
