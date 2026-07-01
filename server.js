@@ -1495,6 +1495,108 @@ const _codeflowCache = new Map(); // view -> { at, data }
 const CODEFLOW_TTL_MS = 120000;
 const _codeflowAiCache = new Map(); // view -> Map(prId -> { sig, at, insight })
 const CODEFLOW_AI_TTL_MS = 600000; // 10 min
+const _cfApproverCache = new Map(); // "org|project|repo" -> { at, entries }
+const CF_APPROVER_TTL_MS = 1800000; // 30 min — PR history changes slowly
+
+// Directory prefixes (truncated to `depth` path segments) for a set of changed
+// file paths. e.g. depth 2 of "src/hive/tools/x.ps1" -> "src/hive". Used to gauge
+// whether two PRs touched the "same space" of the repo.
+function _cfDirPrefixes(files, depth) {
+  const out = new Set();
+  for (const f of files || []) {
+    const parts = String(f || '').replace(/^\/+/, '').split('/').filter(Boolean);
+    if (parts.length <= 1) continue; // a root-level file has no dir "area"
+    const dir = parts.slice(0, -1); // drop the filename
+    if (!dir.length) continue;
+    out.add(dir.slice(0, depth).join('/').toLowerCase());
+  }
+  return out;
+}
+
+// Build a per-repo index of recently-COMPLETED PRs, each with the areas it touched
+// and the people who APPROVED it. This is the signal behind approval-based reviewer
+// suggestions: the best reviewer for a change is usually whoever has approved prior
+// changes in the same part of the repo — not whoever committed the most code.
+// Cached per repo (30 min); one changed-files call per completed PR, concurrency-capped.
+async function _cfApproverIndex(org, project, repo) {
+  const key = `${org}|${project}|${repo}`.toLowerCase();
+  const cached = _cfApproverCache.get(key);
+  if (cached && (Date.now() - cached.at) < CF_APPROVER_TTL_MS) return cached.entries;
+
+  let entries = [];
+  try {
+    const prs = await azdo.listPullRequests(org, project, repo, { status: 'completed', top: 60 });
+    // Keep only PRs that actually got an approving vote (others teach us nothing),
+    // most-recent first, capped so the fan-out stays bounded.
+    const withApprovers = [];
+    for (const pr of prs) {
+      const author = ((pr.createdBy && pr.createdBy.name) || '').trim().toLowerCase();
+      const approvers = (pr.reviewers || [])
+        .filter(r => Number(r.vote) >= 5) // approved / approved-with-suggestions
+        .map(r => ({ name: (r.name || '').trim(), email: (r.email || '').trim(), vote: Number(r.vote) }))
+        .filter(r => r.name && r.name.toLowerCase() !== author);
+      if (!approvers.length) continue;
+      const closed = pr.closedDate ? new Date(pr.closedDate).getTime() : 0;
+      withApprovers.push({ pr, approvers, closed });
+    }
+    withApprovers.sort((a, b) => b.closed - a.closed);
+    const pick = withApprovers.slice(0, 40);
+
+    // Fetch changed files with a small concurrency cap.
+    const results = [];
+    const CONC = 6;
+    for (let i = 0; i < pick.length; i += CONC) {
+      const chunk = pick.slice(i, i + CONC);
+      const files = await Promise.all(chunk.map(x =>
+        azdo.getPrChangedFiles(org, project, repo, x.pr.id, 100).catch(() => [])));
+      chunk.forEach((x, j) => results.push({ ...x, files: files[j] || [] }));
+    }
+    const now = Date.now();
+    entries = results
+      .filter(x => x.files.length)
+      .map(x => ({
+        approvers: x.approvers,
+        areas3: _cfDirPrefixes(x.files, 3),
+        areas2: _cfDirPrefixes(x.files, 2),
+        areas1: _cfDirPrefixes(x.files, 1),
+        ageDays: x.closed ? Math.max(0, (now - x.closed) / 86400000) : 999
+      }));
+  } catch { entries = []; /* best-effort — never fatal */ }
+
+  _cfApproverCache.set(key, { at: Date.now(), entries });
+  return entries;
+}
+
+// Given the current PR's changed files and the repo approver index, score people by
+// how often they approved prior PRs touching the SAME areas (deeper-path overlap +
+// recency + vote strength weighted). Returns a ranked [{name,email,score,prs}].
+function _cfRankApprovers(files, index) {
+  if (!files || !files.length || !index || !index.length) return [];
+  const cur3 = _cfDirPrefixes(files, 3);
+  const cur2 = _cfDirPrefixes(files, 2);
+  const cur1 = _cfDirPrefixes(files, 1);
+  const inter = (a, b) => { let n = 0; for (const v of a) if (b.has(v)) n++; return n; };
+  const tally = new Map();
+  for (const e of index) {
+    const ov3 = inter(cur3, e.areas3);
+    const ov2 = inter(cur2, e.areas2);
+    const ov1 = inter(cur1, e.areas1);
+    const overlap = ov3 * 4 + ov2 * 2 + (ov1 > 0 ? 1 : 0);
+    if (!overlap) continue;
+    const recency = e.ageDays <= 180 ? 1 : Math.max(0.3, 1 - (e.ageDays - 180) / 365);
+    for (const a of e.approvers) {
+      const voteW = a.vote >= 10 ? 1 : 0.7;
+      const w = overlap * recency * voteW;
+      const lk = a.name.toLowerCase();
+      const cur = tally.get(lk) || { name: a.name, email: a.email, score: 0, prs: 0 };
+      cur.score += w;
+      cur.prs += 1;
+      if (!cur.email && a.email) cur.email = a.email;
+      tally.set(lk, cur);
+    }
+  }
+  return [...tally.values()].sort((a, b) => b.score - a.score);
+}
 
 // Enrich a compact PR with threads / statuses / policy evals + derived state.
 // Index every board dev card by (org|project|repo|prId) so a Code Flow PR can
@@ -1670,51 +1772,82 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     return (viewerEmail && e === viewerEmail) || (n && n === viewerName);
   };
 
-  // Area expert: top repo contributor over the window who isn't the PR author or viewer.
+  // Area expert: prefer approval-based signal (below); default to the top repo
+  // contributor over the window who isn't the PR author or viewer.
   let areaExpert = null;
   for (const c of contribs) {
     const n = (c.name || '').trim().toLowerCase();
-    if (n && n !== creatorName && !isViewer(c.name, c.email)) { areaExpert = { name: c.name, commits: c.count }; break; }
+    if (n && n !== creatorName && !isViewer(c.name, c.email)) {
+      areaExpert = { name: c.name, commits: c.count, why: `Most active in ${pr.repo || 'this repo'} (last 60 days): ${c.count} commits` };
+      break;
+    }
   }
 
-  // Suggested reviewers: who else recently touched this PR's changed files. This
-  // fans out one changed-files call + several blame/contributor calls per PR, so it
-  // is skipped in the broad "active" view (opts.lite) to keep that listing fast.
+  // Suggested reviewers: primarily people who APPROVED prior PRs touching the same
+  // areas of the repo (a far better signal than who committed there); we fall back to
+  // recent file contributors, then top repo contributors. This fans out one
+  // changed-files call + several blame/contributor calls per PR, so it is skipped in
+  // the broad "active" view (opts.lite) to keep that listing fast.
   let suggestedReviewers = [];
   if (!opts.lite) try {
-    const files = await azdo.getPrChangedFiles(pr.org, pr.project, pr.repo, pr.id, 60);
-    const pick = files.slice(0, 4);
-    const perFile = await Promise.all(pick.map(p =>
-      azdo.getFileContributors(pr.org, pr.project, pr.repo, p, 60, 30).catch(() => [])));
-    const tally = new Map();
-    for (const list of perFile) for (const a of list) {
-      const n = (a.name || '').trim();
-      if (!n) continue;
-      const key = n.toLowerCase();
-      const cur = tally.get(key) || { name: n, count: 0, email: a.email };
-      cur.count += a.count;
-      if (!cur.email && a.email) cur.email = a.email;
-      tally.set(key, cur);
+    const files = await azdo.getPrChangedFiles(pr.org, pr.project, pr.repo, pr.id, 100);
+
+    // --- Primary signal: approvers of prior PRs in the same areas ---
+    const rankedApprovers = _cfRankApprovers(files, opts.approverIndex);
+    const notSelf = (a) => {
+      const n = (a.name || '').trim().toLowerCase();
+      return n && n !== creatorName && !isViewer(a.name, a.email);
+    };
+    const approverCandidates = rankedApprovers.filter(notSelf);
+    if (approverCandidates.length) {
+      const top = approverCandidates[0];
+      areaExpert = { name: top.name, approvals: top.prs, why: `Approved ${top.prs} prior PR${top.prs === 1 ? '' : 's'} in this area of ${pr.repo || 'the repo'}` };
     }
     const expertName = areaExpert ? areaExpert.name.toLowerCase() : null;
-    const exclude = (a) => {
-      const n = (a.name || '').trim().toLowerCase();
-      return !n || n === creatorName || n === expertName || existingReviewerNames.has(n) || isViewer(a.name, a.email);
+    const excludeName = (name, email) => {
+      const n = (name || '').trim().toLowerCase();
+      return !n || n === creatorName || n === expertName || existingReviewerNames.has(n) || isViewer(name, email);
     };
-    suggestedReviewers = [...tally.values()]
-      .filter(a => !exclude(a))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 3)
-      .map(a => ({ name: a.name, commits: a.count }));
-    // Fallback to top repo contributors when no per-file signal is available.
-    if (!suggestedReviewers.length && contribs.length) {
-      const seen = new Set();
+    const seen = new Set();
+    for (const a of approverCandidates) {
+      const lk = a.name.toLowerCase();
+      if (excludeName(a.name, a.email) || seen.has(lk)) continue;
+      seen.add(lk);
+      suggestedReviewers.push({ name: a.name, approvals: a.prs, why: `Approved ${a.prs} prior PR${a.prs === 1 ? '' : 's'} in this area` });
+      if (suggestedReviewers.length >= 3) break;
+    }
+
+    // --- Fallback signal: recent contributors to this PR's changed files (blame) ---
+    if (suggestedReviewers.length < 3) {
+      const pick = files.slice(0, 4);
+      const perFile = await Promise.all(pick.map(p =>
+        azdo.getFileContributors(pr.org, pr.project, pr.repo, p, 60, 30).catch(() => [])));
+      const tally = new Map();
+      for (const list of perFile) for (const a of list) {
+        const n = (a.name || '').trim();
+        if (!n) continue;
+        const key = n.toLowerCase();
+        const cur = tally.get(key) || { name: n, count: 0, email: a.email };
+        cur.count += a.count;
+        if (!cur.email && a.email) cur.email = a.email;
+        tally.set(key, cur);
+      }
+      for (const a of [...tally.values()].sort((a, b) => b.count - a.count)) {
+        const lk = a.name.toLowerCase();
+        if (excludeName(a.name, a.email) || seen.has(lk)) continue;
+        seen.add(lk);
+        suggestedReviewers.push({ name: a.name, commits: a.count, why: `Recently changed these files: ${a.count} commits` });
+        if (suggestedReviewers.length >= 3) break;
+      }
+    }
+    // Final fallback to top repo contributors when nothing else surfaced.
+    if (suggestedReviewers.length < 3 && contribs.length) {
       for (const c of contribs) {
         const n = (c.name || '').trim();
         const lk = n.toLowerCase();
-        if (exclude(c) || seen.has(lk)) continue;
+        if (excludeName(c.name, c.email) || seen.has(lk)) continue;
         seen.add(lk);
-        suggestedReviewers.push({ name: n, commits: c.count });
+        suggestedReviewers.push({ name: n, commits: c.count, why: `Most active in ${pr.repo || 'this repo'}: ${c.count} commits` });
         if (suggestedReviewers.length >= 3) break;
       }
     }
@@ -1803,11 +1936,12 @@ async function _gatherCodeflow(view) {
       const filter = view === 'reviews' ? { reviewerId: me.id }
                    : view === 'active' ? { top: 100 }
                    : { creatorId: me.id };
-      const [prs, repoContributors] = await Promise.all([
+      const [prs, repoContributors, approverIndex] = await Promise.all([
         azdo.listPullRequests(r.org, r.project, r.repo, filter),
-        azdo.getRepoContributors(r.org, r.project, r.repo).catch(() => [])
+        azdo.getRepoContributors(r.org, r.project, r.repo).catch(() => []),
+        view === 'active' ? Promise.resolve([]) : _cfApproverIndex(r.org, r.project, r.repo)
       ]);
-      const opts = { repoContributors, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: view === 'active' };
+      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: view === 'active' };
       const enriched = await Promise.all(prs.map(async (pr) => {
         const e = await _enrichCodeflowPr(pr, me.id, opts);
         const a = _codeflowAttention(e, view);
@@ -2339,11 +2473,20 @@ async function _cfReconcilePosted(o, key, rec, comments) {
   return rec;
 }
 
+// Per-worktree throttle for origin fetches during drift polling. The 2s status poll
+// must not `git fetch` every tick, but it also must not compare against an
+// indefinitely-stale local `origin/<src>` ref (which reports a false "In sync" after
+// someone pushes to the PR branch). So we fetch on ?refresh=1 OR at most once per
+// this interval, letting a stale in-sync reading self-heal within ~a minute.
+const _cfDriftFetchAt = new Map(); // wtKey -> last fetch epoch ms
+const CF_DRIFT_FETCH_TTL_MS = 60000;
+
 // One record (status poll). Re-scans + caches reports if the worktree is ready,
 // so a review report written by the agent after opening gets picked up. Also
 // surfaces PR-branch drift (local worktree vs origin/<sourceBranch>) and the
-// count of AI review findings ready to post. Pass ?refresh=1 to fetch from origin
-// for an up-to-date drift comparison (the 2s poll otherwise stays local-only).
+// count of AI review findings ready to post. Pass ?refresh=1 to force an immediate
+// origin fetch; otherwise the poll fetches at most once per minute so drift stays
+// accurate without a fetch on every 2s tick.
 app.get('/api/codeflow/pr/worktree', (req, res) => {
   const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
   if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
@@ -2356,7 +2499,10 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
       const save = { reports: reports || [] };
       if (rec.sourceBranch) {
         try {
-          const drift = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: req.query.refresh === '1' });
+          const lastFetch = _cfDriftFetchAt.get(key) || 0;
+          const doFetch = req.query.refresh === '1' || (Date.now() - lastFetch) > CF_DRIFT_FETCH_TTL_MS;
+          if (doFetch) _cfDriftFetchAt.set(key, Date.now());
+          const drift = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: doFetch });
           if (drift) save.drift = drift;
         } catch {}
       }

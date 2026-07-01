@@ -7468,12 +7468,12 @@
                                                   <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
                                                     <div class="cf-people">
                                                       <template x-if="pr.areaExpert">
-                                                        <span class="cf-people-seg" :title="'Most active in ' + (pr.repo || '') + ' (last 60 days): ' + pr.areaExpert.commits + ' commits'">
+                                                        <span class="cf-people-seg" :title="pr.areaExpert.why || ('Most active in ' + (pr.repo || '') + (pr.areaExpert.commits != null ? ' (last 60 days): ' + pr.areaExpert.commits + ' commits' : ''))">
                                                           <span class="cf-people-k">Area expert</span> <span class="cf-people-v" x-text="pr.areaExpert.name"></span>
                                                         </span>
                                                       </template>
                                                       <template x-if="pr.suggestedReviewers && pr.suggestedReviewers.length">
-                                                        <span class="cf-people-seg">
+                                                        <span class="cf-people-seg" :title="pr.suggestedReviewers.map(r => r.name + (r.why ? ' — ' + r.why : '')).join('\n')">
                                                           <span class="cf-people-k">Suggested reviewers</span>
                                                           <span class="cf-people-v" x-text="pr.suggestedReviewers.map(r => r.name).join(', ')"></span>
                                                         </span>
@@ -9531,12 +9531,12 @@
                   <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
                     <div class="cf-people">
                       <template x-if="pr.areaExpert">
-                        <span class="cf-people-seg" :title="'Most active in ' + pr.repo + ' (last 60 days): ' + pr.areaExpert.commits + ' commits'">
+                        <span class="cf-people-seg" :title="pr.areaExpert.why || ('Most active in ' + pr.repo + (pr.areaExpert.commits != null ? ' (last 60 days): ' + pr.areaExpert.commits + ' commits' : ''))">
                           <span class="cf-people-k">Area expert</span> <span class="cf-people-v" x-text="pr.areaExpert.name"></span>
                         </span>
                       </template>
                       <template x-if="pr.suggestedReviewers && pr.suggestedReviewers.length">
-                        <span class="cf-people-seg">
+                        <span class="cf-people-seg" :title="pr.suggestedReviewers.map(r => r.name + (r.why ? ' — ' + r.why : '')).join('\n')">
                           <span class="cf-people-k">Suggested reviewers</span>
                           <span class="cf-people-v" x-text="pr.suggestedReviewers.map(r => r.name).join(', ')"></span>
                         </span>
