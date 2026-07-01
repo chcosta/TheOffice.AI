@@ -106,7 +106,7 @@ desktop/
 ## Download
 
 **[⬇ Latest release](https://github.com/chcosta/TheOffice.AI/releases/latest)** ·
-**[TheOffice.AI_1.0.0_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.0/TheOffice.AI_1.0.0_x64-setup.exe)** (~215 MB)
+**[TheOffice.AI_1.0.1_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.1/TheOffice.AI_1.0.1_x64-setup.exe)** (~215 MB)
 
 Per-user NSIS install (no admin). On first launch the installer offers to install
 optional prerequisites (Git, Azure CLI, ripgrep) via winget. Copilot CLI sign-in
@@ -121,7 +121,7 @@ Node nor the repo. `npm run build` (which runs `stage-sidecar.mjs` via its
 `prebuild` hook, then `tauri build`) produces:
 
 ```
-desktop/src-tauri/target/release/bundle/nsis/TheOffice.AI_1.0.0_x64-setup.exe
+desktop/src-tauri/target/release/bundle/nsis/TheOffice.AI_1.0.1_x64-setup.exe
 ```
 
 **≈215 MB**, LZMA-compressed from an ~820 MB staged payload.
@@ -169,10 +169,10 @@ Notes / gotchas:
 The installer is hosted on **GitHub Releases** on `chcosta/TheOffice.AI`:
 
 ```powershell
-gh release create v1.0.0 -R chcosta/TheOffice.AI `
-  --title "TheOffice.AI v1.0.0 (Windows desktop)" `
+gh release create v1.0.1 -R chcosta/TheOffice.AI `
+  --title "TheOffice.AI v1.0.1 (Windows desktop)" `
   --notes "…" `
-  "desktop/src-tauri/target/release/bundle/nsis/TheOffice.AI_1.0.0_x64-setup.exe"
+  "desktop/src-tauri/target/release/bundle/nsis/TheOffice.AI_1.0.1_x64-setup.exe"
 ```
 
 Bump the `version` in `package.json` + `tauri.conf.json` and the tag together for

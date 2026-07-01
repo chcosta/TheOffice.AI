@@ -38,7 +38,7 @@ A guided tour of TheOffice.AI — agents, managers, an always-on AI briefing, an
 
 **[⬇ Download the latest Windows installer](https://github.com/chcosta/TheOffice.AI/releases/latest)** — or grab it directly:
 
-**[TheOffice.AI_1.0.0_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.0/TheOffice.AI_1.0.0_x64-setup.exe)** (~215 MB)
+**[TheOffice.AI_1.0.1_x64-setup.exe](https://github.com/chcosta/TheOffice.AI/releases/download/v1.0.1/TheOffice.AI_1.0.1_x64-setup.exe)** (~215 MB)
 
 The desktop app is a native shell (Tauri v2) that runs the same server + SPA as a
 local sidecar and loads it in WebView2 — **no browser required**. It installs
