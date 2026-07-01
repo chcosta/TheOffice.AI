@@ -21,6 +21,7 @@ const marketplace = require('./marketplace');
 const marketplaceDesign = require('./marketplace-design');
 const standupAgent = require('./standupAgent');
 const dependencies = require('./dependencies');
+const updater = require('./updater');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
 // repo. The repo only ships built-in plugin seeds in builtin-plugins/.
@@ -3382,8 +3383,44 @@ app.get('/api/version', (req, res) => {
     fileHash: GIT_VERSION.fileHash || 'unknown',
     pid: PROCESS_PID,
     startedAt: PROCESS_START,
-    uptime: Math.round(process.uptime()) + 's'
+    uptime: Math.round(process.uptime()) + 's',
+    desktop: updater.isDesktop()
   });
+});
+
+// --- In-app self-updater (desktop build only) ------------------------------
+// No-ops (supported:false) outside the packaged Tauri sidecar so browser/LAN
+// and `npm start` are unaffected.
+app.get('/api/update/check', async (req, res) => {
+  if (!updater.isDesktop()) return res.json({ supported: false });
+  try {
+    const r = await updater.checkForUpdate(GIT_VERSION.version || '');
+    const { _best, ...pub } = r;
+    res.json(pub);
+  } catch (e) {
+    res.json({ supported: true, error: (e && e.message) || String(e), updateAvailable: false });
+  }
+});
+
+app.post('/api/update/download', async (req, res) => {
+  if (!updater.isDesktop()) return res.json({ supported: false });
+  try {
+    const r = await updater.checkForUpdate(GIT_VERSION.version || '');
+    if (!r.updateAvailable || !r._best) return res.json({ started: false, error: 'No update available.' });
+    res.json(updater.startDownload(r._best));
+  } catch (e) {
+    res.status(500).json({ started: false, error: (e && e.message) || String(e) });
+  }
+});
+
+app.get('/api/update/status', (req, res) => {
+  if (!updater.isDesktop()) return res.json({ supported: false });
+  res.json({ supported: true, ...updater.status() });
+});
+
+app.post('/api/update/cancel', (req, res) => {
+  if (!updater.isDesktop()) return res.json({ supported: false });
+  res.json(updater.cancel());
 });
 
 // API Routes

@@ -1457,6 +1457,37 @@
       color: var(--cp-text-soft);
       padding: 0 10px;
     }
+    /* In-app updater controls (desktop build only). Plain, compact — NOT a pill. */
+    .sidebar-update-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      border: 1px solid var(--cp-accent);
+      border-radius: 8px;
+      background: var(--cp-accent-soft);
+      color: var(--cp-accent);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .sidebar-update-btn:hover:not(:disabled) { background: var(--cp-highlight); }
+    .sidebar-update-btn:disabled { opacity: 0.6; cursor: default; }
+    .sidebar-update-note {
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .sidebar-update-note.is-ready {
+      border-color: var(--cp-success);
+      color: var(--cp-success);
+    }
     .content {
       min-height: 0;
       min-width: 0;
@@ -4638,6 +4669,14 @@
             <span>Settings</span>
           </a>
           <div class="sidebar-meta">
+            <template x-if="update.supported && update.available && (update.phase === 'idle' || update.phase === 'error') && !update.dismissed">
+              <button type="button" class="sidebar-update-btn" @click="downloadUpdate()" :disabled="update.busy"
+                      :title="'A new version (v' + update.latest + ') is available'"
+                      x-text="update.busy ? 'Preparing…' : ('↑ Update to v' + update.latest)"></button>
+            </template>
+            <template x-if="update.supported && (update.phase === 'downloading' || update.phase === 'verifying' || update.phase === 'ready')">
+              <div class="sidebar-update-note" :class="update.phase === 'ready' ? 'is-ready' : ''" x-text="updateStatusText()"></div>
+            </template>
             <div x-text="versionLabel()"></div>
             <div x-text="sseStatusLabel()"></div>
           </div>
@@ -13632,6 +13671,10 @@
           { id: 'calm', name: '○ Calm' }
         ],
         sseStatus: 'disconnected',
+        // In-app self-updater state (desktop build only). `supported` gates the
+        // whole UI so browser/LAN builds never show update chrome.
+        update: { supported: false, checked: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false },
+        updateConfirmOpen: false,
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
         appMode: (() => { try { const m = localStorage.getItem('app-mode'); return (m === 'workspace' || m === 'workforce') ? m : 'workspace'; } catch { return 'workspace'; } })(),
@@ -14994,6 +15037,7 @@
             await this.handleRouteChange(opts);
             if (this.route === 'boards') this.refreshBoardPinDetails();
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
+            this.initUpdater();
           } catch (error) {
             this.errorMessage = error.message;
             this.showToast('Load failed', error.message, 'error');
@@ -28591,6 +28635,93 @@
             return `v${v.version}${commit && commit !== 'unknown' ? '+' + commit : ''}${dirty}`;
           }
           return `${v.gitHash || 'unknown'}${dirty}`;
+        },
+
+        // --- In-app self-updater (desktop build only) ------------------------
+        // Kicked off from init() after /api/version resolves. All endpoints
+        // return {supported:false} outside the desktop sidecar, so this stays
+        // dormant for browser/LAN/`npm start`.
+        async initUpdater() {
+          try {
+            if (!this.data.version || !this.data.version.desktop) return;
+            this.update.supported = true;
+            await this.checkForUpdate();
+            // Re-check periodically so a long-running window still notices a release.
+            if (!this._updateCheckTimer) {
+              this._updateCheckTimer = setInterval(() => { this.checkForUpdate(); }, 30 * 60 * 1000);
+            }
+          } catch { /* never break app load on updater failure */ }
+        },
+        async checkForUpdate() {
+          if (!this.update.supported) return;
+          try {
+            const r = await this.request('/api/update/check');
+            if (!r || r.supported === false) { this.update.supported = false; return; }
+            this.update.checked = true;
+            this.update.available = !!r.updateAvailable;
+            this.update.latest = r.latest || '';
+            this.update.current = r.current || '';
+            // If a download is already staged/in-flight, reflect it.
+            await this.pollUpdateStatus();
+          } catch { /* leave state as-is */ }
+        },
+        async downloadUpdate() {
+          if (!this.update.supported || !this.update.available) return;
+          const ok = await this.uiConfirm({
+            title: `Update to v${this.update.latest}?`,
+            message: 'The update downloads in the background. It installs automatically when you close the app, then reopens on the new version. You can keep working until then.',
+            confirmLabel: 'Download update'
+          });
+          if (!ok) return;
+          this.update.busy = true;
+          try {
+            const r = await this.request('/api/update/download', { method: 'POST' });
+            if (r && r.supported === false) { this.update.supported = false; return; }
+            this.update.phase = 'downloading';
+            this._startUpdatePolling();
+          } catch (e) {
+            this.update.phase = 'error';
+            this.update.error = (e && e.message) || 'Download failed to start.';
+          } finally {
+            this.update.busy = false;
+          }
+        },
+        _startUpdatePolling() {
+          if (this._updatePollTimer) return;
+          this._updatePollTimer = setInterval(() => { this.pollUpdateStatus(); }, 1500);
+        },
+        _stopUpdatePolling() {
+          if (this._updatePollTimer) { clearInterval(this._updatePollTimer); this._updatePollTimer = null; }
+        },
+        async pollUpdateStatus() {
+          if (!this.update.supported) return;
+          try {
+            const s = await this.request('/api/update/status');
+            if (!s || s.supported === false) return;
+            this.update.phase = s.phase || 'idle';
+            this.update.progress = s.progress || 0;
+            this.update.error = s.error || '';
+            if (s.phase === 'downloading' || s.phase === 'verifying') {
+              this._startUpdatePolling();
+            } else {
+              this._stopUpdatePolling();
+            }
+          } catch { /* keep last known */ }
+        },
+        async cancelUpdate() {
+          this._stopUpdatePolling();
+          try { await this.request('/api/update/cancel', { method: 'POST' }); } catch { /* */ }
+          this.update.phase = 'idle';
+          this.update.progress = 0;
+          this.update.error = '';
+        },
+        updateStatusText() {
+          const u = this.update;
+          if (u.phase === 'downloading') return `Downloading v${u.latest}… ${u.progress || 0}%`;
+          if (u.phase === 'verifying') return `Verifying v${u.latest}…`;
+          if (u.phase === 'ready') return `Update ready — installs when you close the app`;
+          if (u.phase === 'error') return `Update failed: ${u.error || 'unknown error'}`;
+          return '';
         },
 
         sseStatusLabel() {

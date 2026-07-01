@@ -8,6 +8,53 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
+/// On exit, if the in-app updater staged a downloaded installer, launch it
+/// detached with `/UPDATE /P /R` (in-place upgrade, passive, relaunch) so the
+/// upgrade applies seamlessly after the app closes. The marker is written by
+/// `updater.js` at `%LOCALAPPDATA%\TheOffice.AI\pending-update.json`.
+fn run_pending_update() {
+    let base = match std::env::var("LOCALAPPDATA") {
+        Ok(v) if !v.is_empty() => PathBuf::from(v),
+        _ => return,
+    };
+    let marker = base.join("TheOffice.AI").join("pending-update.json");
+    let raw = match std::fs::read_to_string(&marker) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let json: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = std::fs::remove_file(&marker);
+            return;
+        }
+    };
+    let installer = json.get("installer").and_then(|v| v.as_str()).unwrap_or("");
+    if installer.is_empty() || !std::path::Path::new(installer).exists() {
+        let _ = std::fs::remove_file(&marker);
+        return;
+    }
+    let args: Vec<String> = json
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_else(|| vec!["/UPDATE".into(), "/P".into(), "/R".into()]);
+
+    // Consume the marker before launching so a failed spawn can't loop.
+    let _ = std::fs::remove_file(&marker);
+
+    let mut cmd = Command::new(installer);
+    cmd.args(&args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+    let _ = cmd.spawn();
+}
+
 /// Holds the spawned Node sidecar so we can terminate it on app exit.
 struct SidecarState(Mutex<Option<Child>>);
 
@@ -186,6 +233,8 @@ fn main() {
                         }
                     }
                 }
+                // After the sidecar is down, apply a staged update (if any).
+                run_pending_update();
             }
         });
 }
