@@ -8974,6 +8974,18 @@
               .connect-chat-applied { font-size:12px; color:var(--cp-success); margin-top:6px; }
               .connect-chat-input { display:flex; gap:8px; align-items:flex-end; }
               .connect-chat-input textarea { flex:1; resize:vertical; }
+              .connect-mem-add { display:flex; gap:8px; align-items:center; }
+              .connect-mem-add input { flex:1; }
+              .connect-mem-list { list-style:none; margin:12px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+              .connect-mem-item { border:1px solid var(--cp-border); border-radius:8px; padding:9px 12px; background:var(--cp-bg-elevated); }
+              .connect-mem-row { display:flex; align-items:flex-start; gap:12px; justify-content:space-between; }
+              .connect-mem-text { font-size:13.5px; line-height:1.5; flex:1; }
+              .connect-mem-actions { font-size:12.5px; white-space:nowrap; color:var(--cp-text-muted); }
+              .connect-mem-actions a { color:var(--cp-link); text-decoration:none; }
+              .connect-mem-actions a:hover { text-decoration:underline; }
+              .connect-mem-actions .dot { color:var(--cp-text-soft); margin:0 5px; }
+              .connect-mem-edit textarea { width:100%; resize:vertical; }
+              .connect-mem-edit .connect-mem-actions { margin-top:6px; }
             </style>
 
             <div class="page-header">
@@ -9293,6 +9305,42 @@
                   <textarea rows="3" x-model="connect.state.guidance.instructions" placeholder="e.g. Emphasize measurable outcomes. Keep each section to 2-3 sentences. Call out one clear growth area."></textarea>
                 </div>
                 <button class="btn primary" type="button" @click="saveConnectGuidance()">Save guidance</button>
+              </div>
+              <div class="connect-card">
+                <h3>Remembered preferences <span class="hint" style="font-weight:400" x-show="connect.memories.length" x-text="connect.memories.length"></span></h3>
+                <p class="hint">Durable guidance the AI distills when you save a draft from Ask AI. These steer future revisions and "Generate from diary." Edit or delete any you no longer want.</p>
+                <div class="connect-mem-add">
+                  <input type="text" x-model="connect.memNew" placeholder="Add a preference the AI should always remember…"
+                         @keydown.enter.prevent="connectAddMemory()">
+                  <button class="btn small" type="button" :disabled="connect.memBusy || !connect.memNew.trim()" @click="connectAddMemory()">Add</button>
+                </div>
+                <p class="hint" x-show="!connect.memories.length" style="margin-top:10px">No remembered preferences yet. As you iterate with Ask AI and save, the AI will note what matters to you here.</p>
+                <ul class="connect-mem-list" x-show="connect.memories.length">
+                  <template x-for="m in connect.memories" :key="m.id">
+                    <li class="connect-mem-item">
+                      <template x-if="connect.memEditId === m.id">
+                        <div class="connect-mem-edit">
+                          <textarea rows="2" x-model="connect.memEditText"></textarea>
+                          <div class="connect-mem-actions">
+                            <a href="#" @click.prevent="connectSaveMemory()">Save</a>
+                            <span class="dot">·</span>
+                            <a href="#" @click.prevent="connectCancelEditMemory()">Cancel</a>
+                          </div>
+                        </div>
+                      </template>
+                      <template x-if="connect.memEditId !== m.id">
+                        <div class="connect-mem-row">
+                          <span class="connect-mem-text" x-text="m.text"></span>
+                          <span class="connect-mem-actions">
+                            <a href="#" @click.prevent="connectStartEditMemory(m)">Edit</a>
+                            <span class="dot">·</span>
+                            <a href="#" @click.prevent="connectDeleteMemory(m)">Delete</a>
+                          </span>
+                        </div>
+                      </template>
+                    </li>
+                  </template>
+                </ul>
               </div>
               <div class="connect-privacy">
                 <span style="font-size:16px;line-height:1">💡</span>
@@ -14213,6 +14261,11 @@
           aiMatchIds: null,      // null = no AI filter; array = matched evidence ids
           versions: [],          // draft version history (newest-first)
           showHistory: false,    // history panel toggle on the draft tab
+          memories: [],          // guiding memories (durable preferences, newest-first)
+          memNew: '',            // add-memory input
+          memBusy: false,
+          memEditId: null,       // id of the memory being edited inline
+          memEditText: '',
           _viewVersionId: null,  // id of the version expanded inline in history
           evForm: null,          // manual-entry / edit form (null = closed)
           evBusy: false,
@@ -19106,6 +19159,7 @@
             this.connect.config = r.config || null;
             this.connect.draftText = (r.state && r.state.draft && r.state.draft.markdown) || '';
             this.connect.draftDirty = false;
+            this.connect.memories = Array.isArray(r.memories) ? r.memories : [];
             this.connect.loaded = true;
             this.connectLoadVersions();
           } catch (e) {
@@ -19175,18 +19229,102 @@
         async saveConnectDraft() {
           this.connect.savingDraft = true;
           try {
-            const r = await this.request('/api/connect/draft', {
-              method: 'PUT',
-              body: JSON.stringify({ markdown: this.connect.draftText, source: 'manual' }),
-            });
-            if (r && r.state) this.connect.state = r.state;
+            const c = this.connect.chat || {};
+            const hasChat = Array.isArray(c.messages) && c.messages.some(m => m.role === 'assistant');
+            if (hasChat) {
+              // Iterated with Ask AI → save AND let the AI distill a guiding memory
+              // from the conversation so future drafts stay aligned.
+              const lastUser = [...c.messages].reverse().find(m => m.role === 'user');
+              const r = await this.request('/api/connect/draft/save', {
+                method: 'POST',
+                body: JSON.stringify({
+                  markdown: this.connect.draftText,
+                  source: this.connectDraftSource(),
+                  history: c.messages.map(m => ({ role: m.role, content: m.content })),
+                  message: lastUser ? lastUser.content : '',
+                }),
+                timeoutMs: 120000,
+              });
+              if (r && r.state) this.connect.state = r.state;
+              const added = Array.isArray(r && r.memories) ? r.memories : [];
+              if (added.length) {
+                this.connect.memories = [...added, ...this.connect.memories];
+                this.toast(`Connect draft saved · remembered ${added.length} preference${added.length === 1 ? '' : 's'}`, 'success');
+              } else {
+                this.toast('Connect draft saved', 'success');
+              }
+            } else {
+              const r = await this.request('/api/connect/draft', {
+                method: 'PUT',
+                body: JSON.stringify({ markdown: this.connect.draftText, source: 'manual' }),
+              });
+              if (r && r.state) this.connect.state = r.state;
+              this.toast('Connect draft saved', 'success');
+            }
             this.connect.draftDirty = false;
             this.connectLoadVersions();
-            this.toast('Connect draft saved', 'success');
           } catch (e) {
             this.toast('Save failed: ' + (e.message || e), 'error');
           } finally {
             this.connect.savingDraft = false;
+          }
+        },
+        async connectAddMemory() {
+          const text = (this.connect.memNew || '').trim();
+          if (!text || this.connect.memBusy) return;
+          this.connect.memBusy = true;
+          try {
+            const r = await this.request('/api/connect/memories', {
+              method: 'POST', body: JSON.stringify({ text }),
+            });
+            if (r && Array.isArray(r.memories)) this.connect.memories = r.memories;
+            this.connect.memNew = '';
+            this.toast('Memory added', 'success');
+          } catch (e) {
+            this.toast('Could not add memory: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.memBusy = false;
+          }
+        },
+        connectStartEditMemory(m) {
+          this.connect.memEditId = m.id;
+          this.connect.memEditText = m.text || '';
+        },
+        connectCancelEditMemory() {
+          this.connect.memEditId = null;
+          this.connect.memEditText = '';
+        },
+        async connectSaveMemory() {
+          const id = this.connect.memEditId;
+          const text = (this.connect.memEditText || '').trim();
+          if (!id || !text || this.connect.memBusy) return;
+          this.connect.memBusy = true;
+          try {
+            const r = await this.request('/api/connect/memories/' + encodeURIComponent(id), {
+              method: 'PUT', body: JSON.stringify({ text }),
+            });
+            if (r && Array.isArray(r.memories)) this.connect.memories = r.memories;
+            this.connectCancelEditMemory();
+            this.toast('Memory updated', 'success');
+          } catch (e) {
+            this.toast('Could not update memory: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.memBusy = false;
+          }
+        },
+        async connectDeleteMemory(m) {
+          if (!(await this.uiConfirm({
+            title: 'Delete memory?',
+            message: 'The AI will no longer be guided by this preference when drafting your Connect.',
+            confirmLabel: 'Delete',
+          }))) return;
+          try {
+            const r = await this.request('/api/connect/memories/' + encodeURIComponent(m.id), { method: 'DELETE' });
+            if (r && Array.isArray(r.memories)) this.connect.memories = r.memories;
+            else this.connect.memories = this.connect.memories.filter(x => x.id !== m.id);
+            this.toast('Memory deleted', 'success');
+          } catch (e) {
+            this.toast('Could not delete memory: ' + (e.message || e), 'error');
           }
         },
         async saveConnectProfile() {
@@ -19395,6 +19533,11 @@
               this.connect.draftText = r.draft;
               this.connect.draftDirty = true;
               this.connect._preview = true;
+            }
+            // If the user asked to save/keep the draft, run the save-with-memory
+            // path so the AI can distill a guiding memory from the conversation.
+            if (r && r.saveRequested) {
+              this.$nextTick(() => this.saveConnectDraft());
             }
           } catch (e) {
             c.messages.push({ role: 'assistant', content: 'Sorry — that failed: ' + (e.message || e) });

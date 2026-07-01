@@ -7250,6 +7250,15 @@ async function runConnectCollection({ manual = false, days } = {}) {
   return { ran: true, added, skipped, m365: m365.length, ado: ado.length, window: win, generated };
 }
 
+// Format the user's guiding memories for prompt injection. Returns null when
+// there are none so callers can omit the section entirely.
+function _connectMemoryLines() {
+  let mems = [];
+  try { mems = connect.listMemories(); } catch { mems = []; }
+  if (!mems.length) return null;
+  return mems.slice(0, 60).map(m => `- ${String(m.text || '').trim()}`).filter(Boolean).join('\n');
+}
+
 // Draft an HR-standard Connect from the user's (non-hidden) evidence, role, and
 // guidance. Saved as source:'ai' — an editable draft the user personalizes.
 async function runConnectGeneration() {
@@ -7261,6 +7270,7 @@ async function runConnectGeneration() {
   const evLines = evidence.map(e =>
     `- [${e.date}] (${e.source}) ${e.title}${e.detail ? ' — ' + e.detail : ''}${e.impact ? ' | Impact: ' + e.impact : ''}`
   ).join('\n');
+  const memLines = _connectMemoryLines();
   const prompt = [
     'Draft my Connect from the material below. Follow the connect-standards skill and output only the Connect Markdown body.',
     '',
@@ -7274,6 +7284,11 @@ async function runConnectGeneration() {
     `Framing: ${g.positivity || 'balanced'}`,
     `Focus areas: ${(g.focusAreas || []).join(', ') || '(none specified)'}`,
     `Extra instructions: ${g.instructions || '(none)'}`,
+    ...(memLines ? [
+      '',
+      '## Remembered preferences (durable guidance from past sessions — honor these)',
+      memLines,
+    ] : []),
     '',
     '## Diary evidence',
     evLines,
@@ -7304,6 +7319,7 @@ async function runConnectDraftChat({ message, history, draft }) {
     const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
     return `${role}: ${String((h && h.content) || '').trim()}`;
   }).filter(Boolean).join('\n') || '(none)';
+  const memLines = _connectMemoryLines();
   const prompt = [
     'You are revising my Connect draft through conversation. Follow your output protocol exactly.',
     '',
@@ -7317,6 +7333,11 @@ async function runConnectDraftChat({ message, history, draft }) {
     `Framing: ${g.positivity || 'balanced'}`,
     `Focus areas: ${(g.focusAreas || []).join(', ') || '(none specified)'}`,
     `Extra instructions: ${g.instructions || '(none)'}`,
+    ...(memLines ? [
+      '',
+      '## Remembered preferences (durable guidance from past sessions — honor these)',
+      memLines,
+    ] : []),
     '',
     '## Diary evidence',
     evLines,
@@ -7343,7 +7364,71 @@ async function runConnectDraftChat({ message, history, draft }) {
     if (d) newDraft = d;
   }
   if (!reply) reply = newDraft ? 'Updated the draft below — review the changes.' : 'Done.';
-  return { reply, draft: newDraft };
+  // Detect a "save the draft" intent so the client can persist it AND capture a
+  // guiding memory in one step (see saveConnectDraftWithMemory).
+  const saveRequested = /\b(save|keep|commit|finali[sz]e|lock in|apply)\b/i.test(msg)
+    && /\b(draft|connect|it|this|that|changes?)\b/i.test(msg);
+  return { reply, draft: newDraft, saveRequested };
+}
+
+// Distill 0..N durable guiding "memories" from an Ask-AI editing conversation.
+// Called when the user saves a draft. Memories capture the user's lasting
+// preferences (tone, framing, work areas to emphasize, phrasings) — NOT one-off
+// edits — so future drafts and "Generate from diary" stay aligned. Existing
+// memories are passed in so the model only proposes genuinely NEW guidance.
+async function extractConnectMemories({ history, message } = {}) {
+  const hist = (Array.isArray(history) ? history : []).slice(-14).map(h => {
+    const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${String((h && h.content) || '').trim()}`;
+  }).filter(Boolean);
+  if (message && String(message).trim()) hist.push(`User: ${String(message).trim()}`);
+  if (!hist.length) return [];
+  let existing = [];
+  try { existing = connect.listMemories().map(m => m.text); } catch { existing = []; }
+  const prompt =
+    `You maintain a short list of DURABLE guiding preferences for how my Connect (a Microsoft ` +
+    `self-review) should be drafted. From the editing conversation below, extract ONLY lasting ` +
+    `preferences worth remembering for FUTURE drafts — e.g. tone/voice rules, framing choices, ` +
+    `work areas to emphasize or downplay, phrasings to prefer or avoid, structural preferences. ` +
+    `Do NOT capture one-off wording tweaks, factual corrections, or anything specific to a single ` +
+    `sentence. Each memory must be a concise, self-contained instruction (max ~140 chars).\n\n` +
+    `Preferences I already remember (do NOT repeat or restate these):\n` +
+    (existing.length ? existing.map(t => `- ${t}`).join('\n') : '(none yet)') + `\n\n` +
+    `Editing conversation:\n${hist.join('\n')}\n\n` +
+    `Return ONLY a JSON object {"memories":["...","..."]} with the NEW durable preferences (0 to 4). ` +
+    `If nothing lasting is worth remembering, return {"memories":[]}. No prose, no code fence.`;
+  let acc = '';
+  let result;
+  try {
+    result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    });
+  } catch (e) { console.warn('[connect] memory extraction failed:', e.message); return []; }
+  let rawOut = (acc.trim() || (result && result.output) || '').trim();
+  rawOut = rawOut.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const a = rawOut.indexOf('{'), b = rawOut.lastIndexOf('}');
+  let mems = [];
+  if (a >= 0 && b > a) {
+    try {
+      const parsed = JSON.parse(rawOut.slice(a, b + 1));
+      if (Array.isArray(parsed.memories)) mems = parsed.memories.map(s => String(s || '').trim()).filter(Boolean);
+    } catch {}
+  }
+  return mems.slice(0, 4);
+}
+
+// Save the draft AND capture guiding memories distilled from the Ask-AI session.
+// Returns the new state plus the memories that were newly remembered.
+async function saveConnectDraftWithMemory({ markdown, source, history, message } = {}) {
+  const src = source === 'manual' ? 'manual' : 'ai';
+  const state = connect.saveDraft({ markdown: String(markdown || '') }, { source: src });
+  let added = [];
+  try {
+    const mems = await extractConnectMemories({ history, message });
+    added = mems.length ? connect.addMemoryBatch(mems, { source: 'ai' }) : [];
+  } catch (e) { console.warn('[connect] save-with-memory extraction failed:', e.message); }
+  return { state, memories: added };
 }
 
 // Infer the "My current role" fields from recent activity. Only fills fields the
@@ -7434,6 +7519,7 @@ app.get('/api/connect', (req, res) => {
     res.json({
       state: connect.getState(),
       evidence: connect.listEvidence(),
+      memories: connect.listMemories(),
       config: {
         collectionEnabled: s.connectCollectionEnabled === true,
         consent: s.connectConsent === true,
@@ -7504,6 +7590,45 @@ app.get('/api/connect/versions/:id', (req, res) => {
 app.delete('/api/connect/versions/:id', (req, res) => {
   try {
     res.json({ ok: connect.deleteDraftVersion(req.params.id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Guiding memories — durable preferences that steer future drafting. Distilled
+// by AI on save (see /draft/save) or added by hand; fully user-managed.
+app.get('/api/connect/memories', (req, res) => {
+  try {
+    res.json({ ok: true, memories: connect.listMemories() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/connect/memories', (req, res) => {
+  try {
+    const text = (req.body && req.body.text) || '';
+    const entry = connect.addMemory(text, { source: 'manual' });
+    if (!entry) return res.status(400).json({ error: 'Memory text is required.' });
+    res.json({ ok: true, memory: entry, memories: connect.listMemories() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/connect/memories/:id', (req, res) => {
+  try {
+    const entry = connect.updateMemory(req.params.id, req.body || {});
+    if (!entry) return res.status(404).json({ error: 'memory not found' });
+    res.json({ ok: true, memory: entry, memories: connect.listMemories() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/connect/memories/:id', (req, res) => {
+  try {
+    res.json({ ok: connect.deleteMemory(req.params.id), memories: connect.listMemories() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -7656,6 +7781,18 @@ app.post('/api/connect/draft/chat', async (req, res) => {
     res.json({ ok: true, ...r });
   } catch (err) {
     res.status(err.message && /would like to change/.test(err.message) ? 400 : 500).json({ error: err.message });
+  }
+});
+
+// Save the current draft from the Ask-AI flow AND distill a guiding memory from
+// the conversation, so future drafts and "Generate from diary" stay aligned.
+app.post('/api/connect/draft/save', async (req, res) => {
+  try {
+    const { markdown, source, history, message } = req.body || {};
+    const r = await saveConnectDraftWithMemory({ markdown, source, history, message });
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

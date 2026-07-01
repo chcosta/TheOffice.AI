@@ -45,9 +45,12 @@ function storageDir() {
 function _statePath() { return path.join(storageDir(), 'state.json'); }
 function _evidencePath() { return path.join(storageDir(), 'evidence.json'); }
 function _versionsPath() { return path.join(storageDir(), 'draft-versions.json'); }
+function _memoriesPath() { return path.join(storageDir(), 'memories.json'); }
 
 // How many prior draft revisions to retain (newest kept, oldest pruned).
 const MAX_DRAFT_VERSIONS = 40;
+// How many guiding memories to retain (newest kept, oldest pruned).
+const MAX_MEMORIES = 120;
 
 function _readJson(file, fallback) {
   try {
@@ -239,6 +242,86 @@ function deleteDraftVersion(id) {
   return true;
 }
 
+// ---- Guiding memories -------------------------------------------------------
+// Durable, user-visible preferences that steer future drafting: tone rules,
+// framing choices, work areas to emphasize, phrasings to prefer/avoid. Distilled
+// by the AI when the user saves a draft from Ask-AI, or added by hand. Injected
+// into both the "Generate from diary" and Ask-AI prompts. Fully user-managed
+// (view/edit/delete) so the system is never steered in a way the user can't undo.
+
+function _readMemories() {
+  const obj = _readJson(_memoriesPath(), { items: [] });
+  return Array.isArray(obj.items) ? obj.items : [];
+}
+
+function _writeMemories(items) {
+  return _writeJson(_memoriesPath(), { items });
+}
+
+function _normMemoryText(t) {
+  return String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+}
+
+// List memories, newest-first.
+function listMemories() {
+  return _readMemories();
+}
+
+// Add a memory. De-dupes case-insensitively against existing text and returns
+// the existing entry when a duplicate is found (never creating a second copy).
+function addMemory(text, { source } = {}) {
+  const body = _normMemoryText(text);
+  if (!body) return null;
+  const items = _readMemories();
+  const dup = items.find(m => _normMemoryText(m.text).toLowerCase() === body.toLowerCase());
+  if (dup) return dup;
+  const now = new Date().toISOString();
+  const entry = {
+    id: _id('cm'),
+    text: body,
+    source: source === 'ai' ? 'ai' : 'manual',
+    createdAt: now,
+    updatedAt: now,
+  };
+  items.unshift(entry);
+  if (items.length > MAX_MEMORIES) items.length = MAX_MEMORIES;
+  _writeMemories(items);
+  return entry;
+}
+
+// Add several memories at once (used by AI distillation on save). Returns the
+// list of entries that were newly created (duplicates skipped).
+function addMemoryBatch(list, { source } = {}) {
+  const added = [];
+  for (const t of (Array.isArray(list) ? list : [])) {
+    const body = _normMemoryText(t);
+    if (!body) continue;
+    const before = _readMemories().length;
+    const entry = addMemory(body, { source });
+    if (entry && _readMemories().length > before) added.push(entry);
+  }
+  return added;
+}
+
+function updateMemory(id, patch = {}) {
+  const items = _readMemories();
+  const idx = items.findIndex(m => m.id === id);
+  if (idx < 0) return null;
+  const body = _normMemoryText(patch.text);
+  if (body) items[idx].text = body;
+  items[idx].updatedAt = new Date().toISOString();
+  _writeMemories(items);
+  return items[idx];
+}
+
+function deleteMemory(id) {
+  const items = _readMemories();
+  const next = items.filter(m => m.id !== id);
+  if (next.length === items.length) return false;
+  _writeMemories(next);
+  return true;
+}
+
 function _pick(obj, keys) {
   const out = {};
   if (!obj || typeof obj !== 'object') return out;
@@ -368,6 +451,7 @@ function exportAll() {
     state: getState(),
     evidence: _readEvidence().map(x => _normalizeEvidence(x)),
     draftVersions: _readVersions(),
+    memories: _readMemories(),
   };
 }
 
@@ -382,6 +466,11 @@ module.exports = {
   listDraftVersions,
   getDraftVersion,
   deleteDraftVersion,
+  listMemories,
+  addMemory,
+  addMemoryBatch,
+  updateMemory,
+  deleteMemory,
   listEvidence,
   addEvidence,
   addEvidenceBatch,
