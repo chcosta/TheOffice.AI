@@ -93,6 +93,27 @@ jobs:
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
           echo "Installer: $name ($sha)"
 
+      - name: Build server delta
+        id: delta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          out="desktop/src-tauri/target/release/bundle/nsis"
+          node desktop/scripts/build-delta.mjs --out "$out" --repo "${{ github.repository }}" || true
+          manifest="desktop/src-tauri/resources/server/server-manifest.json"
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+          delta=$(ls "$out"/server-delta-*.zip 2>/dev/null | head -n1 || true)
+          if [ -n "$delta" ]; then
+            echo "delta=$delta" >> "$GITHUB_OUTPUT"
+            echo "deltasha=$delta.sha256" >> "$GITHUB_OUTPUT"
+            echo "Delta: $(basename "$delta")"
+          else
+            echo "delta=" >> "$GITHUB_OUTPUT"
+            echo "deltasha=" >> "$GITHUB_OUTPUT"
+            echo "No delta produced (first release or no diff) — installer only."
+          fi
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -107,10 +128,13 @@ jobs:
           name: TheOffice.AI ${{ steps.ver.outputs.tag }}
           prerelease: true
           make_latest: false
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           files: |
             ${{ steps.art.outputs.path }}
             ${{ steps.art.outputs.path }}.sha256
+            ${{ steps.delta.outputs.manifest }}
+            ${{ steps.delta.outputs.delta }}
+            ${{ steps.delta.outputs.deltasha }}
           body: |
             Automated **preview** build from `main` @ ${{ github.sha }}.
 

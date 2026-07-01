@@ -18,6 +18,9 @@ import {
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 const here = dirname(fileURLToPath(import.meta.url));      // desktop/scripts
 const repoRoot = join(here, '..', '..');                   // repo root
@@ -135,5 +138,25 @@ try {
 
 // Sanity: the entrypoint must exist.
 if (!existsSync(join(serverDest, 'server.js'))) throw new Error('staging failed: server.js missing in dest');
+
+// 8) Bake server-manifest.json (relpath -> {sha256,size}) over the staged server
+//    tree so the in-app delta updater can diff releases and apply only the files
+//    that actually changed. Excludes the manifest itself.
+try {
+  const { hashTree } = require(join(repoRoot, 'hash-tree.js'));
+  let version = '', commit = '';
+  try {
+    const bi = JSON.parse(readFileSync(join(serverDest, 'build-info.json'), 'utf-8'));
+    version = bi.version || ''; commit = bi.commit || '';
+  } catch { /* build-info optional */ }
+  const { files } = hashTree(serverDest, {
+    exclude: (rel) => rel === 'server-manifest.json',
+  });
+  const manifest = { version, commit, generatedAt: new Date().toISOString(), files };
+  writeFileSync(join(serverDest, 'server-manifest.json'), JSON.stringify(manifest));
+  log(`baked server-manifest.json (${Object.keys(files).length} files)`);
+} catch (e) {
+  log(`WARNING: could not bake server-manifest.json: ${e.message}`);
+}
 
 log(`DONE. server=${dirSizeMB(serverDest)} MB, node=${dirSizeMB(nodeDest)} MB`);

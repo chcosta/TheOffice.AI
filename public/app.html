@@ -5,6 +5,84 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TheOffice.AI</title>
   <script>
+    // --- Durable UI preferences: hydrate + mirror -----------------------------
+    // Runs FIRST (before the theme/appearance boot scripts and Alpine) so the
+    // values written into localStorage here are already present when the rest of
+    // the page reads them. Persists a whitelist of durable prefs server-side
+    // (/api/ui-prefs) so they survive a desktop reinstall (which wipes the
+    // WebView2 localStorage) and roam across machines via config-sync.
+    (() => {
+      // Durable keys: real user preferences that should persist across installs.
+      // Deliberately EXCLUDES ephemeral caches / per-view transient state.
+      const DURABLE = [
+        'cp-theme', 'current-appearance', 'current-org-theme', 'current-iconset',
+        'experience-level', 'app-mode', 'basic-features',
+        'nav-collapsed', 'sidebar-collapsed', 'cp-nav-transition', 'cp-nav-transition-ms',
+        'chat-sidebar-w', 'nav-sidebar-w', 'board-tab-rail-width', 'board-tab-rail-style',
+        'getting-started-dismissed', 'gs-preview', 'current-org-id',
+        'cliViewMode', 'cfReviewsOnly', 'cfGroupBy',
+        'quick-launch-pins', 'discovery-paths', 'azdo-conn',
+      ];
+      const DSET = new Set(DURABLE);
+      try { window.__DURABLE_PREF_KEYS = DURABLE.slice(); } catch {}
+
+      const ls = window.localStorage;
+      const rawSet = ls && ls.setItem ? ls.setItem.bind(ls) : null;
+
+      // 1) Hydrate: pull server-stored durable prefs into localStorage BEFORE we
+      //    wrap setItem (so hydration writes don't echo straight back). Uses a
+      //    short synchronous XHR so the theme boot below sees hydrated values and
+      //    there's no flash. Never throws (offline / first-run → local defaults).
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/ui-prefs', false);
+        xhr.timeout = 1500;
+        xhr.send(null);
+        if (xhr.status >= 200 && xhr.status < 300 && rawSet) {
+          const prefs = (JSON.parse(xhr.responseText) || {}).prefs || {};
+          for (const k of Object.keys(prefs)) {
+            if (!DSET.has(k)) continue;
+            const v = prefs[k];
+            if (typeof v === 'string') { try { rawSet(k, v); } catch {} }
+          }
+        }
+      } catch {}
+
+      // 2) Mirror: after hydration, wrap setItem/removeItem so any durable-key
+      //    change debounces a full-snapshot PUT back to the server. Centralized —
+      //    covers every current + future durable write without editing call sites.
+      if (rawSet) {
+        const rawRemove = ls.removeItem.bind(ls);
+        let timer = null;
+        const flush = () => {
+          timer = null;
+          const snapshot = {};
+          for (const k of DURABLE) {
+            try { const v = ls.getItem(k); if (v != null) snapshot[k] = v; } catch {}
+          }
+          try {
+            fetch('/api/ui-prefs', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prefs: snapshot }),
+            }).catch(() => {});
+          } catch {}
+        };
+        const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(flush, 400); };
+        try { window.__flushDurablePrefs = () => { if (timer) clearTimeout(timer); flush(); }; } catch {}
+
+        ls.setItem = function (k, v) {
+          rawSet(k, v);
+          if (DSET.has(k)) schedule();
+        };
+        ls.removeItem = function (k) {
+          rawRemove(k);
+          if (DSET.has(k)) schedule();
+        };
+      }
+    })();
+  </script>
+  <script>
     (() => {
       const param = new URLSearchParams(window.location.search).get("scoutTheme");
       let pref = param;
@@ -1306,11 +1384,47 @@
       background: color-mix(in srgb, var(--cp-panel) 96%, transparent);
       backdrop-filter: blur(16px);
       padding: 16px 12px 12px;
+      position: relative;
     }
     .sidebar-scroll {
       min-height: 0;
       overflow: auto;
       padding-right: 4px;
+    }
+    /* Drag handle on the sidebar's right edge — resizes --sidebar-width. */
+    .nav-resizer {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: 0;
+      width: 10px;
+      transform: translateX(5px);
+      cursor: col-resize;
+      z-index: 20;
+      touch-action: none;
+    }
+    .nav-resizer::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1px;
+      background: transparent;
+      transition: background 120ms ease, width 120ms ease;
+    }
+    .nav-resizer:hover::after,
+    .nav-resizer.dragging::after {
+      width: 3px;
+      background: var(--cp-accent);
+    }
+    body.nav-resizing { cursor: col-resize; user-select: none; }
+    /* The sidebar goes off-canvas in mobile/compact/collapsed modes — no edge to grab. */
+    body.nav-collapsed .nav-resizer,
+    .compact-mode .nav-resizer { display: none; }
+    @media (max-width: 700px) {
+      .nav-resizer { display: none; }
     }
     .sidebar-section + .sidebar-section { margin-top: 10px; }
     .nav-zone-label {
@@ -3756,6 +3870,21 @@
     }
     .board-tab-rail::-webkit-scrollbar { width: 8px; }
     .board-tab-rail::-webkit-scrollbar-thumb { background: var(--cp-border-strong); border-radius: 8px; }
+    /* Drag handle to resize the tab rail (a flex item beside the rail). */
+    .board-rail-resizer {
+      flex: 0 0 auto; align-self: stretch;
+      width: 8px; margin: 0 -6px 0 -3px;
+      cursor: col-resize; touch-action: none;
+      position: relative; z-index: 4;
+    }
+    .board-rail-resizer::after {
+      content: ""; position: absolute; top: 12px; bottom: 12px; left: 50%;
+      transform: translateX(-50%); width: 1px; border-radius: 2px;
+      background: transparent; transition: background .12s ease, width .12s ease;
+    }
+    .board-rail-resizer:hover::after,
+    .board-rail-resizer.dragging::after { width: 3px; background: var(--cp-accent); }
+    body.rail-resizing { cursor: col-resize; user-select: none; }
     .board-tab-empty { padding: 10px; }
     .board-tab {
       position: relative; display: flex; align-items: center; gap: 9px;
@@ -4620,7 +4749,7 @@
       </template>
     </nav>
 
-    <div class="body-grid">
+    <div class="body-grid" :style="'--sidebar-width:' + navSidebarW + 'px'">
       <!-- Mobile nav toggle + overlay -->
       <div class="mobile-overlay" x-show="mobileNavOpen" @click="mobileNavOpen = false" x-transition.opacity></div>
       <button class="mobile-nav-toggle" type="button" @click="mobileNavOpen = !mobileNavOpen" :aria-label="mobileNavOpen ? 'Close menu' : 'Open menu'">
@@ -4742,6 +4871,7 @@
             <div x-text="sseStatusLabel()"></div>
           </div>
         </div>
+        <div class="nav-resizer" @pointerdown="startNavResize($event)" @dblclick="resetNavSidebarWidth()" title="Drag to resize · double-click to reset"></div>
       </aside>
 
       <main class="content">
@@ -4797,10 +4927,13 @@
                 <div class="gs-step" :class="gsTaskDone() ? 'is-done' : ''">
                   <span class="gs-step-num" x-text="gsTaskDone() ? '✓' : '2'"></span>
                   <div class="gs-step-body">
-                    <strong>Schedule a daily epic status</strong>
-                    <span>A 9am task that asks your standup agent "show me the epic status".</span>
+                    <strong>Schedule a daily epic status — and run it now</strong>
+                    <span>A 9am task that asks your standup agent "show me the epic status". Run it now to see today's status right away.</span>
                   </div>
-                  <button type="button" class="gs-step-action" @click="gsStep2()" :disabled="!gsStandupDone()" x-text="(gsTaskDone() && !gsPreview) ? 'Done' : 'Schedule'"></button>
+                  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+                    <button type="button" class="gs-step-action ghost" @click="gsRunNow()" :disabled="!gsStandupDone() || gsBusy" x-text="gsBusy ? 'Running…' : 'Run now'"></button>
+                    <button type="button" class="gs-step-action" @click="gsStep2()" :disabled="!gsStandupDone()" x-text="(gsTaskDone() && !gsPreview) ? 'Done' : 'Schedule'"></button>
+                  </div>
                 </div>
                 <div class="gs-step" :class="gsBoardDone() ? 'is-done' : ''">
                   <span class="gs-step-num" x-text="gsBoardDone() ? '✓' : '3'"></span>
@@ -4981,7 +5114,7 @@
                 <div class="empty-state" x-show="!homeBoards().length">No boards in this team yet.</div>
               </section>
 
-              <section class="card">
+              <section class="card" x-show="featureVisible('insights')">
                 <div class="card-header">
                   <div>
                     <h2 class="card-title">🛰️ Insights</h2>
@@ -5002,6 +5135,31 @@
                   </template>
                 </div>
                 <div class="empty-state" x-show="!homeInsights().length">No insights cover this team yet.</div>
+              </section>
+
+              <section class="card" x-show="homePrs.items.length || homePrs.loading">
+                <div class="card-header">
+                  <div>
+                    <h2 class="card-title">🔀 My pull requests</h2>
+                    <div class="card-subtitle" x-text="homePrs.items.length + ' open PR' + (homePrs.items.length === 1 ? '' : 's') + ' you authored'"></div>
+                  </div>
+                  <a class="btn ghost" href="#/codeflow">Open</a>
+                </div>
+                <div class="stack" x-show="homePrs.items.length">
+                  <template x-for="pr in homePrs.items.slice(0, 6)" :key="'home-pr-' + (pr.repoId || pr.repo) + ':' + pr.id">
+                    <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
+                         @click="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))"
+                         @keydown.enter="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span x-show="pr.attention" title="Needs your attention" style="color:var(--cp-accent)">●</span>
+                        <strong x-text="pr.title || ('PR ' + pr.id)"></strong>
+                        <span class="hint" x-show="pr.isDraft" style="color:var(--cp-text-soft)">draft</span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="(pr.repo || '') + ' · !' + pr.id + (pr.ageDays != null ? ' · ' + pr.ageDays + 'd old' : '')"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="empty-state" x-show="!homePrs.items.length && homePrs.loading">Loading your PRs…</div>
               </section>
             </div>
 
@@ -6839,7 +6997,7 @@
                     <!-- Tabbed view: vertical tab rail (icons + names) on the left -->
                     <template x-if="boardIsTabbed()">
                       <div style="display:contents">
-                      <div class="board-tab-rail" :class="'rail-' + boardTabRailStyle">
+                      <div class="board-tab-rail" :class="'rail-' + boardTabRailStyle" :style="'width:' + boardRailW + 'px'">
                         <template x-if="!boardTabPanels().length">
                           <div class="board-tab-empty hint">Nothing pinned yet.</div>
                         </template>
@@ -6890,6 +7048,7 @@
                           </div>
                         </template>
                       </div>
+                      <div class="board-rail-resizer" @pointerdown="startRailResize($event)" @dblclick="resetRailWidth()" title="Drag to resize · double-click to reset"></div>
                       <!-- Single hover preview flyout (body-teleported, fixed-positioned via JS). -->
                       <template x-teleport="body">
                         <div class="board-tab-flyout" x-show="_tabFlyout.show" :style="'top:' + _tabFlyout.top + 'px; left:' + _tabFlyout.left + 'px;'">
@@ -8221,25 +8380,27 @@
                   <div x-show="!cfComments.loading && cfComments.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="cfComments.error"></div>
                   <div x-show="!cfComments.loading && !cfComments.error && !cfComments.items.length" class="hint" style="margin:0">No review findings to post.</div>
 
-                  <div x-show="!cfComments.loading && cfComments.items.length" style="display:flex;align-items:center;gap:10px">
+                  <div x-show="!cfComments.loading && cfComments.items.length" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--cp-text)">
                       <input type="checkbox" :checked="cfCmAllSelected()" @change="cfCmToggleAll()" />
                       <span>Select all</span>
                     </label>
                     <span class="hint" style="margin:0"><span x-text="cfCmSelectedCount()"></span> of <span x-text="cfComments.items.length"></span> selected</span>
+                    <span class="hint" x-show="cfCmPostedCount()" style="margin:0;color:var(--cp-success)"><span x-text="cfCmPostedCount()"></span> already posted</span>
                   </div>
 
                   <div x-show="!cfComments.loading && cfComments.items.length" style="display:flex;flex-direction:column;gap:8px">
                     <template x-for="c in cfComments.items" :key="c.index">
                       <div style="border:1px solid var(--cp-border);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start"
-                           :style="cfComments.sel[c.index] ? '' : 'opacity:.55'">
-                        <input type="checkbox" :checked="!!cfComments.sel[c.index]" @change="cfComments.sel[c.index] = !cfComments.sel[c.index]" style="margin-top:3px;flex:0 0 auto" />
+                           :style="c.posted ? 'opacity:.6;border-color:var(--cp-success)' : (cfComments.sel[c.index] ? '' : 'opacity:.55')">
+                        <input type="checkbox" :checked="!!cfComments.sel[c.index]" :disabled="c.posted" @change="cfComments.sel[c.index] = !cfComments.sel[c.index]" style="margin-top:3px;flex:0 0 auto" />
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
                           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                             <span style="font-size:12px;font-weight:600"
                                   :style="c.severity==='blocker' ? 'color:var(--cp-danger)' : c.severity==='major' ? 'color:var(--cp-warning)' : c.severity==='minor' ? 'color:var(--cp-link)' : 'color:var(--cp-text-muted)'"
                                   x-text="cfCmSevTag(c.severity)"></span>
                             <span style="font-weight:600;color:var(--cp-text)" x-text="c.title || '(untitled finding)'"></span>
+                            <span x-show="c.posted" style="font-size:11px;font-weight:600;color:var(--cp-success)">✓ Posted</span>
                           </div>
                           <div style="font-family:Consolas,'Courier New',monospace;font-size:11px;color:var(--cp-text-muted)">
                             <template x-if="c.anchored"><span x-text="c.file + ':' + c.line"></span></template>
@@ -8803,6 +8964,16 @@
               .connect-history { border:1px solid var(--cp-border); border-radius:10px; padding:14px; background:var(--cp-bg-elevated); margin:12px 0 4px; }
               .connect-version-row { border:1px solid var(--cp-border); border-radius:8px; padding:10px 12px; background:var(--cp-surface); }
               .connect-version-preview { font-size:12.5px; color:var(--cp-text-muted); margin-top:5px; line-height:1.45; }
+              .connect-chat { border:1px solid var(--cp-border); border-radius:10px; padding:14px; background:var(--cp-bg-elevated); margin:14px 0 4px; }
+              .connect-chat-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+              .connect-chat-log { display:flex; flex-direction:column; gap:10px; max-height:340px; overflow-y:auto; padding:4px 2px; margin-bottom:8px; }
+              .connect-chat-msg { border:1px solid var(--cp-border); border-radius:8px; padding:9px 12px; background:var(--cp-surface); }
+              .connect-chat-msg.is-user { background:var(--cp-accent-soft); border-color:var(--cp-accent); }
+              .connect-chat-role { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin-bottom:3px; }
+              .connect-chat-body { font-size:13.5px; line-height:1.5; }
+              .connect-chat-applied { font-size:12px; color:var(--cp-success); margin-top:6px; }
+              .connect-chat-input { display:flex; gap:8px; align-items:flex-end; }
+              .connect-chat-input textarea { flex:1; resize:vertical; }
             </style>
 
             <div class="page-header">
@@ -8848,6 +9019,7 @@
                   </div>
                   <div style="display:flex;gap:8px">
                     <button class="btn ghost small" type="button" :disabled="connect.generating" @click="connectGenerate()" title="Draft a Connect from your diary evidence — your current draft is saved to history first" x-text="connect.generating ? 'Drafting…' : '✨ Generate from diary'"></button>
+                    <button class="btn ghost small" type="button" @click="connectOpenChat()" :class="connect.chat.open ? 'active' : ''" title="Chat with AI to revise tone, refocus, or highlight accomplishments">💬 Ask AI</button>
                     <button class="btn ghost small" type="button" @click="connectToggleHistory()" x-text="'🕒 History' + (connect.versions && connect.versions.length ? ' (' + connect.versions.length + ')' : '')" title="View and restore earlier versions of this draft"></button>
                     <button class="btn ghost small" type="button" @click="connect._preview = !connect._preview" x-text="connect._preview ? '✎ Edit' : '👁 Preview'"></button>
                     <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
@@ -8893,6 +9065,48 @@
                 <textarea x-show="connect._preview === false || !connect.draftText.trim()" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
                           placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
                 <div x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
+
+                <!-- ===== AI revision drawer ("Ask AI") — right-side overlay, mirrors Board AI ===== -->
+                <div class="board-assistant-backdrop" x-show="connect.chat.open" x-transition.opacity.duration.150ms @click.self="connect.chat.open=false" x-cloak>
+                  <aside class="board-assistant-drawer" :style="'width:' + (connect.chat.width || 420) + 'px'" x-show="connect.chat.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+                    <div class="ba-resize" :class="{ dragging: connect.chat.resizing }" @mousedown.prevent="connectChatResizeStart($event)" title="Drag to resize"></div>
+                    <div class="board-assistant-head">
+                      <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                        <span style="font-size:18px">💬</span>
+                        <div style="min-width:0">
+                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Revise with AI</div>
+                          <div class="hint" style="font-size:11px">Adjust tone, refocus, highlight wins — you review before Save</div>
+                        </div>
+                      </div>
+                      <button class="icon-button" type="button" @click="connect.chat.open=false" title="Close">✕</button>
+                    </div>
+                    <div class="board-assistant-body" x-ref="connectChatLog">
+                      <div x-show="!connect.chat.messages.length" class="empty-state" style="padding:16px;font-size:13px">
+                        <div style="margin-bottom:8px">Ask AI to revise the draft or weigh in on impact. Try:</div>
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Make the tone more confident'; connectDraftChat()">“Make the tone more confident”</button>
+                          <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Focus more on a specific work area'; connectDraftChat()">“Focus more on a specific work area”</button>
+                          <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Where can I show more impact?'; connectDraftChat()">“Where can I show more impact?”</button>
+                        </div>
+                      </div>
+                      <template x-for="(m, i) in connect.chat.messages" :key="i">
+                        <div class="ba-msg" :class="m.role">
+                          <div class="ba-bubble" x-show="m.role==='user'" x-text="m.content"></div>
+                          <div class="ba-bubble assistant" x-show="m.role!=='user'">
+                            <div class="md-output" x-html="renderMarkdown(m.content)"></div>
+                            <div class="connect-chat-applied" x-show="m.appliedDraft">✓ Applied a revised draft — review, then Save.</div>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="board-assistant-input">
+                      <textarea rows="2" x-model="connect.chat.input" :disabled="connect.chat.busy" style="flex:1;resize:none"
+                                @keydown.enter.prevent="connectDraftChat()"
+                                placeholder="Ask AI to revise the draft, or ask an opinion…"></textarea>
+                      <button class="btn primary small" type="button" :disabled="connect.chat.busy || !connect.chat.input.trim()" @click="connectDraftChat()" x-text="connect.chat.busy ? 'Thinking…' : 'Send'"></button>
+                    </div>
+                  </aside>
+                </div>
               </div>
             </div>
 
@@ -8944,6 +9158,7 @@
                 </div>
                 <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
                 <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" title="Pull recent Teams, email, and meeting activity into your diary" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
+                <span class="hint" style="font-size:0.72rem;white-space:nowrap" x-show="connect.config && connect.config.lastCollectedAt" x-text="'Last collected ' + formatRelative(connect.config && connect.config.lastCollectedAt)" :title="(connect.config && connect.config.lastCollectedAt) ? new Date(connect.config.lastCollectedAt).toLocaleString() : ''"></span>
               </div>
 
               <!-- Date range + AI search -->
@@ -13758,6 +13973,8 @@
         gsPreview: (() => { try { return localStorage.getItem('gs-preview') === '1'; } catch { return false; } })(),
         chatFocused: false,
         chatSidebarW: (() => { try { const v = parseInt(localStorage.getItem('chat-sidebar-w'), 10); return (v >= 200 && v <= 560) ? v : 300; } catch { return 300; } })(),
+        navSidebarW: (() => { try { const v = parseInt(localStorage.getItem('nav-sidebar-w'), 10); return (v >= 180 && v <= 460) ? v : 240; } catch { return 240; } })(),
+        boardRailW: (() => { try { const v = parseInt(localStorage.getItem('board-tab-rail-width'), 10); return (v >= 160 && v <= 460) ? v : 230; } catch { return 230; } })(),
         agentSearch: '',
         managerSearch: '',
         agentStatusFilter: 'all',
@@ -14005,6 +14222,7 @@
           collecting: false,
           autofilling: false,
           notice: '',
+          chat: { open: false, messages: [], input: '', busy: false, width: 420, resizing: false },
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -14036,6 +14254,9 @@
           changeBanner: null     // {added,removed,changed,at,view,examples} when the auto-poller sees significant changes; dismissable
         },
         codeflowAttention: { mine: 0, reviews: 0, total: 0, mineActive: 0, reviewsActive: 0 },
+        // Lightweight copy of the user's own active PRs for the Home page card.
+        // Kept separate from codeflow.pullRequests (which may hold a different view).
+        homePrs: { loading: false, items: [], fetchedAt: null },
         codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
@@ -15054,6 +15275,7 @@
             await this.loadSchedules();
             // Surface boards + insights on the team-scoped home overview (silent; no auto-generate).
             this.loadBoards(null, true);
+            this.loadHomePrs();
             try { const list = await this.request('/api/insights'); this.insights = Array.isArray(list) ? list : []; } catch {}
           }
           // Deep-link focus requested from the schedules dashboard.
@@ -15979,6 +16201,15 @@
           return false;
         },
 
+        // Whether an optional feature's surface should render. In Advanced mode
+        // everything is available; in Basic mode a feature only shows when the user
+        // has opted into it via basicFeatures. Used to gate in-page cards (e.g. the
+        // Insights card on the Basic Home page) — NOT just whole routes.
+        featureVisible(feat) {
+          if (this.experienceLevel !== 'basic') return true;
+          return !!(this.basicFeatures && this.basicFeatures[feat]);
+        },
+
         // The team selector only makes sense once teams are part of the experience.
         // In Basic mode it stays hidden until the user enables the Teams feature.
         teamSelectorVisible() {
@@ -16058,6 +16289,20 @@
             this.newTaskForm.schedulePreset = 'custom';
             this.newTaskForm.schedule = '0 9 * * *';
           });
+        },
+        // Getting Started: run the standup agent immediately so the user sees today's
+        // epic status without waiting for the scheduled task.
+        async gsRunNow() {
+          if (!this.gsStandupDone() || this.gsBusy) return;
+          const agent = this.gsStandupAgents()[0];
+          if (!agent || !agent.id) return;
+          this.gsBusy = true;
+          try {
+            await this.runAgentNow(agent.id);
+            this.goTo('#/agents/' + encodeURIComponent(agent.id));
+          } finally {
+            this.gsBusy = false;
+          }
         },
         async gsStep3() {
           if (!this.gsStandupDone() || this.gsBusy) return;
@@ -19125,6 +19370,62 @@
             this.connect.generating = false;
           }
         },
+        async connectDraftChat() {
+          const c = this.connect.chat;
+          const msg = (c.input || '').trim();
+          if (!msg || c.busy) return;
+          c.messages.push({ role: 'user', content: msg });
+          c.input = '';
+          c.busy = true;
+          this.$nextTick(() => { const el = this.$refs.connectChatLog; if (el) el.scrollTop = el.scrollHeight; });
+          try {
+            const r = await this.request('/api/connect/draft/chat', {
+              method: 'POST',
+              body: JSON.stringify({
+                message: msg,
+                history: c.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+                draft: this.connect.draftText,
+              }),
+              timeoutMs: 120000,
+            });
+            const reply = (r && r.reply) || '…';
+            const applied = !!(r && r.draft);
+            c.messages.push({ role: 'assistant', content: reply, appliedDraft: applied });
+            if (applied) {
+              this.connect.draftText = r.draft;
+              this.connect.draftDirty = true;
+              this.connect._preview = true;
+            }
+          } catch (e) {
+            c.messages.push({ role: 'assistant', content: 'Sorry — that failed: ' + (e.message || e) });
+          } finally {
+            c.busy = false;
+            this.$nextTick(() => { const el = this.$refs.connectChatLog; if (el) el.scrollTop = el.scrollHeight; });
+          }
+        },
+        connectOpenChat() {
+          if (!this.connect.chat.open) {
+            try { const w = parseInt(localStorage.getItem('connect-chat-width'), 10); if (w) this.connect.chat.width = Math.max(320, Math.min(720, w)); } catch {}
+          }
+          this.connect.chat.open = !this.connect.chat.open;
+        },
+        connectChatResizeStart(e) {
+          const startX = e.clientX;
+          const startW = this.connect.chat.width || 420;
+          const clamp = (w) => Math.max(320, Math.min(720, Math.round(w)));
+          this.connect.chat.resizing = true;
+          document.body.style.userSelect = 'none';
+          const onMove = (ev) => { this.connect.chat.width = clamp(startW + (startX - ev.clientX)); };
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            document.body.style.userSelect = '';
+            this.connect.chat.resizing = false;
+            try { localStorage.setItem('connect-chat-width', String(this.connect.chat.width)); } catch {}
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        },
         async connectLoadVersions() {
           try {
             const r = await this.request('/api/connect/versions');
@@ -19169,9 +19470,12 @@
           }
           this.connect.collecting = true;
           try {
-            const r = await this.request('/api/connect/collect', { method: 'POST', body: JSON.stringify({ days: 7 }) });
+            const r = await this.request('/api/connect/collect', { method: 'POST', body: JSON.stringify({}) });
             if (r && r.evidence) this.connect.evidence = r.evidence;
             if (r && r.state) this.connect.state = r.state;
+            if (r && r.state && r.state.meta && r.state.meta.lastCollectedAt && this.connect.config) {
+              this.connect.config.lastCollectedAt = r.state.meta.lastCollectedAt;
+            }
             const added = (r && r.added) || 0;
             this.toast(added ? ('Collected ' + added + ' new item' + (added === 1 ? '' : 's')) : 'No new activity found', 'success');
           } catch (e) {
@@ -19228,6 +19532,20 @@
           const md = this.connect.draftText || '';
           if (!md.trim()) return '';
           try { return this.renderMarkdown(md); } catch { return md; }
+        },
+        // Load the user's own active PRs for the Home page card (warm cache; no forced refresh).
+        async loadHomePrs() {
+          this.homePrs.loading = true;
+          try {
+            const r = await this.request('/api/codeflow/pullrequests?view=mine');
+            this.homePrs.items = Array.isArray(r && r.pullRequests) ? r.pullRequests : [];
+            this.homePrs.fetchedAt = (r && r.fetchedAt) || Date.now();
+          } catch (e) {
+            // No codeflow repos configured, or a transient error — leave the card empty.
+            this.homePrs.items = [];
+          } finally {
+            this.homePrs.loading = false;
+          }
         },
         async loadCodeFlow(silent) {
           if (!silent) this.codeflow.loading = true;
@@ -20080,9 +20398,9 @@
             const resp = await this.request('/api/codeflow/pr/comments?' + qs);
             m.summary = (resp && resp.summary) || '';
             m.items = (resp && resp.comments) || [];
-            // Default: everything selected.
+            // Default: select the findings not already posted to the PR.
             const sel = {};
-            for (const c of m.items) sel[c.index] = true;
+            for (const c of m.items) sel[c.index] = !c.posted;
             m.sel = sel;
           } catch (e) {
             m.error = (e && e.message) || 'Could not load review findings.';
@@ -20094,15 +20412,20 @@
           const m = this.cfComments;
           return (m.items || []).filter(c => m.sel[c.index]).length;
         },
+        cfCmPostedCount() {
+          const m = this.cfComments;
+          return (m.items || []).filter(c => c.posted).length;
+        },
         cfCmAllSelected() {
           const m = this.cfComments;
-          return (m.items || []).length > 0 && (m.items || []).every(c => m.sel[c.index]);
+          const eligible = (m.items || []).filter(c => !c.posted);
+          return eligible.length > 0 && eligible.every(c => m.sel[c.index]);
         },
         cfCmToggleAll() {
           const m = this.cfComments;
           const next = !this.cfCmAllSelected();
           const sel = {};
-          for (const c of (m.items || [])) sel[c.index] = next;
+          for (const c of (m.items || [])) sel[c.index] = c.posted ? false : next;
           m.sel = sel;
         },
         cfCmSevTag(s) {
@@ -28645,6 +28968,72 @@
         resetChatSidebarWidth() {
           this.chatSidebarW = 300;
           try { localStorage.setItem('chat-sidebar-w', '300'); } catch {}
+        },
+
+        startNavResize(event) {
+          event.preventDefault();
+          const handle = event.currentTarget;
+          const grid = handle.closest('.body-grid');
+          if (!grid) return;
+          const minW = 180, maxW = 460;
+          const gridLeft = grid.getBoundingClientRect().left;
+          handle.classList.add('dragging');
+          document.body.classList.add('nav-resizing');
+          try { handle.setPointerCapture(event.pointerId); } catch {}
+          const onMove = (e) => {
+            let w = e.clientX - gridLeft;
+            if (w < minW) w = minW; if (w > maxW) w = maxW;
+            this.navSidebarW = Math.round(w);
+          };
+          const onUp = () => {
+            handle.classList.remove('dragging');
+            document.body.classList.remove('nav-resizing');
+            try { handle.releasePointerCapture(event.pointerId); } catch {}
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            try { localStorage.setItem('nav-sidebar-w', String(this.navSidebarW)); } catch {}
+          };
+          handle.addEventListener('pointermove', onMove);
+          handle.addEventListener('pointerup', onUp);
+          handle.addEventListener('pointercancel', onUp);
+        },
+        resetNavSidebarWidth() {
+          this.navSidebarW = 240;
+          try { localStorage.setItem('nav-sidebar-w', '240'); } catch {}
+        },
+
+        startRailResize(event) {
+          event.preventDefault();
+          const handle = event.currentTarget;
+          const rail = handle.parentElement && handle.parentElement.querySelector('.board-tab-rail');
+          if (!rail) return;
+          const minW = 160, maxW = 460;
+          const railLeft = rail.getBoundingClientRect().left;
+          handle.classList.add('dragging');
+          document.body.classList.add('rail-resizing');
+          try { handle.setPointerCapture(event.pointerId); } catch {}
+          const onMove = (e) => {
+            let w = e.clientX - railLeft;
+            if (w < minW) w = minW; if (w > maxW) w = maxW;
+            this.boardRailW = Math.round(w);
+          };
+          const onUp = () => {
+            handle.classList.remove('dragging');
+            document.body.classList.remove('rail-resizing');
+            try { handle.releasePointerCapture(event.pointerId); } catch {}
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            handle.removeEventListener('pointercancel', onUp);
+            try { localStorage.setItem('board-tab-rail-width', String(this.boardRailW)); } catch {}
+          };
+          handle.addEventListener('pointermove', onMove);
+          handle.addEventListener('pointerup', onUp);
+          handle.addEventListener('pointercancel', onUp);
+        },
+        resetRailWidth() {
+          this.boardRailW = 230;
+          try { localStorage.setItem('board-tab-rail-width', '230'); } catch {}
         },
 
         handleGlobalKeydown(event) {

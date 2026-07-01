@@ -1,6 +1,12 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+
+// Apply any pending in-place sidecar delta update BEFORE loading other modules,
+// so the files being overwritten are not yet locked by this process. No-op unless
+// running as the desktop sidecar (SUPERVISOR_SIDECAR==='1'); never throws.
+try { require('./apply-update')(__dirname); } catch { /* never block startup */ }
+
 const yazl = require('yazl');
 const yauzl = require('yauzl');
 const multer = require('multer');
@@ -373,6 +379,25 @@ let connectPluginDir = null;
       fs.mkdirSync(PLUGINS_DIR, { recursive: true });
       fs.cpSync(builtinConnect, runtimeConnect, { recursive: true });
       console.log('[supervisor] Seeded connect plugin into runtime store');
+    } else if (fs.existsSync(builtinConnect) && fs.existsSync(runtimeConnect)) {
+      // Upgrade path: copy any agent/skill files added to the builtin plugin
+      // that aren't yet in the runtime store (never clobber the generated .mcp.json).
+      for (const sub of ['agents', 'skills']) {
+        const src = path.join(builtinConnect, sub);
+        const dst = path.join(runtimeConnect, sub);
+        if (!fs.existsSync(src)) continue;
+        try { fs.mkdirSync(dst, { recursive: true }); } catch { /* ignore */ }
+        for (const f of fs.readdirSync(src)) {
+          const sf = path.join(src, f);
+          const df = path.join(dst, f);
+          try {
+            if (fs.statSync(sf).isFile() && !fs.existsSync(df)) {
+              fs.copyFileSync(sf, df);
+              console.log(`[supervisor] Synced connect ${sub}/${f} into runtime store`);
+            }
+          } catch { /* best-effort */ }
+        }
+      }
     }
   } catch (e) { console.warn('[supervisor] Could not seed connect plugin:', e.message); }
 
@@ -478,6 +503,7 @@ const supervisor = new Supervisor(db);
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
 const settings = require('./settings');
+const uiPrefs = require('./ui-prefs');
 const connect = require('./connect');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
@@ -2266,6 +2292,53 @@ function _readCfReviewComments(wtPath) {
   } catch { return null; }
 }
 
+// Stable content fingerprint for a single review finding. The findings file has
+// no IDs and its array indices shift whenever the reviewer regenerates it, so we
+// content-address each finding (file/line/severity/title/body) to recognize the
+// ones the user already posted to the PR. Same content => same fp across re-reads.
+function _cfCommentFp(c) {
+  try {
+    const norm = (s) => String(s == null ? '' : s).replace(/\r\n/g, '\n').trim();
+    const file = norm(c && c.file).replace(/^[\\/]+/, '').replace(/\\/g, '/');
+    const line = (c && c.line != null && Number.isFinite(Number(c.line))) ? String(Number(c.line)) : '';
+    const raw = [file, line, norm(c && c.severity).toLowerCase(), norm(c && c.title), norm(c && c.body)].join('\u0001');
+    return require('crypto').createHash('sha1').update(raw).digest('hex').slice(0, 16);
+  } catch { return ''; }
+}
+// The set of finding fingerprints already posted to a PR (persisted on the wt record).
+function _cfPostedSet(rec) {
+  return new Set(Array.isArray(rec && rec.postedComments) ? rec.postedComments : []);
+}
+// Best-effort reconciliation: recognize findings the user posted to the PR before
+// we tracked them (or from another machine) by matching our own posted format
+// (the "_Posted from AI code review._" footer + the finding's title/body) against
+// the PR's existing comment threads. Persists any newly-recognized fingerprints so
+// the card count and modal stop re-offering them. Returns the (possibly updated) rec.
+async function _cfReconcilePosted(o, key, rec, comments) {
+  try {
+    if (!Array.isArray(comments) || !comments.length) return rec;
+    const threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId, { max: 200 });
+    const texts = [];
+    for (const t of (threads || [])) for (const c of (t.comments || [])) {
+      const tx = String(c.text || '');
+      if (/Posted from AI code review/i.test(tx)) texts.push(tx.toLowerCase());
+    }
+    if (!texts.length) return rec;
+    const have = _cfPostedSet(rec);
+    let changed = false;
+    for (const c of comments) {
+      const fp = _cfCommentFp(c);
+      if (!fp || have.has(fp)) continue;
+      const title = String(c.title || '').trim().toLowerCase();
+      const body = String(c.body || '').trim().toLowerCase();
+      const probe = title.length >= 4 ? title : body.slice(0, 40);
+      if (probe && texts.some(tx => tx.includes(probe))) { have.add(fp); changed = true; }
+    }
+    if (changed) return _saveCfWt(key, { postedComments: Array.from(have), postedCommentsAt: new Date().toISOString() });
+  } catch {}
+  return rec;
+}
+
 // One record (status poll). Re-scans + caches reports if the worktree is ready,
 // so a review report written by the agent after opening gets picked up. Also
 // surfaces PR-branch drift (local worktree vs origin/<sourceBranch>) and the
@@ -2288,7 +2361,12 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
         } catch {}
       }
       const rc = _readCfReviewComments(rec.worktreePath);
-      save.reviewComments = rc ? rc.comments.length : 0;
+      if (rc) {
+        const posted = _cfPostedSet(rec);
+        save.reviewComments = rc.comments.filter(c => !posted.has(_cfCommentFp(c))).length;
+      } else {
+        save.reviewComments = 0;
+      }
       rec = _saveCfWt(key, save);
     } catch {}
   }
@@ -2524,15 +2602,18 @@ app.post('/api/codeflow/pr/push', (req, res) => {
 // Return the AI reviewer's findings (parsed pr-review-comments.json), enriched
 // with a small code snippet around each anchored finding so the user can preview
 // exactly what each comment applies to before choosing which ones to post.
-app.get('/api/codeflow/pr/comments', (req, res) => {
+app.get('/api/codeflow/pr/comments', async (req, res) => {
   const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
   if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
   const key = _cfWtKey(o);
-  const rec = _getCfWt(key);
+  let rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
   const rc = _readCfReviewComments(rec.worktreePath);
   if (!rc) return res.json({ summary: '', comments: [] });
+  // Recognize findings already posted to the PR (including before we tracked them).
+  rec = await _cfReconcilePosted(o, key, rec, rc.comments);
   const wt = rec.worktreePath;
+  const postedSet = _cfPostedSet(rec);
   const enrich = (c, i) => {
     const rel = c.file ? String(c.file).replace(/^[\\/]+/, '') : '';
     const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null;
@@ -2550,8 +2631,10 @@ app.get('/api/codeflow/pr/comments', (req, res) => {
         }
       } catch {}
     }
+    const fingerprint = _cfCommentFp(c);
     return {
-      index: i, file: rel, line, severity: String(c.severity || '').toLowerCase(),
+      index: i, fp: fingerprint, posted: postedSet.has(fingerprint),
+      file: rel, line, severity: String(c.severity || '').toLowerCase(),
       title: c.title || '', body: c.body || '', suggestion: c.suggestion || '', anchored, snippet
     };
   };
@@ -2584,6 +2667,7 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
   }
   if (!picked.length) return res.status(400).json({ error: 'No comments selected to post.' });
   const results = [];
+  const postedFps = [];
   for (const { c } of picked) {
     try {
       const parts = ['**' + sevTag(c.severity) + (c.title ? ' — ' + c.title : '') + '**', ''];
@@ -2599,11 +2683,22 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
         status: 'active'
       });
       results.push({ ok: true, title: c.title || '', anchored: !!(file && line) });
+      const fp = _cfCommentFp(c);
+      if (fp) postedFps.push(fp);
     } catch (e) {
       results.push({ ok: false, title: c.title || '', error: (e && e.message) || 'failed' });
     }
   }
   const posted = results.filter(r => r.ok).length;
+  // Remember which findings we posted so the card count and the modal don't keep
+  // re-offering comments the user already approved and applied through the app.
+  if (postedFps.length) {
+    try {
+      const merged = _cfPostedSet(_getCfWt(key) || rec);
+      for (const fp of postedFps) merged.add(fp);
+      _saveCfWt(key, { postedComments: Array.from(merged), postedCommentsAt: new Date().toISOString() });
+    } catch {}
+  }
   res.json({ ok: posted > 0, posted, total: picked.length, results });
 });
 // Make a cached/agent-generated HTML report honor the SPA's light/dark theme.
@@ -3394,7 +3489,7 @@ app.get('/api/version', (req, res) => {
 app.get('/api/update/check', async (req, res) => {
   if (!updater.isDesktop()) return res.json({ supported: false });
   try {
-    const r = await updater.checkForUpdate(GIT_VERSION.version || '');
+    const r = await updater.checkForUpdate(GIT_VERSION.version || '', { serverDir: __dirname });
     const { _best, ...pub } = r;
     res.json(pub);
   } catch (e) {
@@ -3405,9 +3500,9 @@ app.get('/api/update/check', async (req, res) => {
 app.post('/api/update/download', async (req, res) => {
   if (!updater.isDesktop()) return res.json({ supported: false });
   try {
-    const r = await updater.checkForUpdate(GIT_VERSION.version || '');
+    const r = await updater.checkForUpdate(GIT_VERSION.version || '', { serverDir: __dirname });
     if (!r.updateAvailable || !r._best) return res.json({ started: false, error: 'No update available.' });
-    res.json(updater.startDownload(r._best));
+    res.json(updater.startDownload(r._best, { serverDir: __dirname }));
   } catch (e) {
     res.status(500).json({ started: false, error: (e && e.message) || String(e) });
   }
@@ -6707,7 +6802,32 @@ app.put('/api/settings', (req, res) => {
   }
 });
 
-// --- Data storage location (breadcrumb / redirect) ---------------------------
+// --- Durable UI preferences (survive desktop reinstall/upgrade) ---------------
+// The SPA keeps theme/palette/icon-set/experience-level/app-mode/basic-features/
+// sidebar-widths in browser localStorage, which is wiped on a WebView2 reinstall.
+// We mirror a whitelist of durable keys here (under the reinstall-durable profile
+// dir, and roamed by config-sync) so they persist across installs + machines.
+app.get('/api/ui-prefs', (req, res) => {
+  try {
+    res.json({ prefs: uiPrefs.get() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Replace the stored durable prefs wholesale (the SPA sends a full snapshot of
+// its durable keys, so replace lets key removals propagate).
+app.put('/api/ui-prefs', (req, res) => {
+  try {
+    const prefs = uiPrefs.replace((req.body && req.body.prefs) || {});
+    // Roam to this machine's cloud config too, if sync is on and we lead.
+    try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    res.json({ prefs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Lets the user point their settings/config store at OneDrive or another folder.
 // Changing it requires an app restart (the DB + cached paths are opened at boot).
 app.get('/api/data-location', (req, res) => {
@@ -6917,7 +7037,23 @@ async function runConnectCollection({ manual = false, days } = {}) {
     if (!s.connectCollectionEnabled) return { skipped: 'collection-off' };
     if (_anyAgentBusy()) { console.log('[connect] collection deferred — agent run in flight'); return { skipped: 'busy' }; }
   }
-  const effDays = days != null ? days : (manual ? 7 : 1);
+  // Determine the collection window. An explicit `days` always wins. Otherwise
+  // collect incrementally from the last successful collection forward (with a
+  // 1-day overlap so late-arriving same-day items aren't missed), rather than a
+  // fixed lookback — so nothing between runs is dropped and re-runs stay cheap.
+  let effDays = days;
+  if (effDays == null) {
+    const last = (() => {
+      try { return connect.getState().meta.lastCollectedAt; } catch { return null; }
+    })();
+    const lastMs = last ? Date.parse(last) : NaN;
+    if (Number.isFinite(lastMs)) {
+      const spanDays = Math.ceil((Date.now() - lastMs) / 86400000) + 1; // +1 = same-day overlap
+      effDays = Math.min(45, Math.max(1, spanDays));
+    } else {
+      effDays = manual ? 7 : 1; // first-ever run seed
+    }
+  }
   const win = _connectDateWindow(effDays);
   const prompt =
     `Collect my Connect diary evidence for the date range ${win.start} to ${win.end} (inclusive). ` +
@@ -7002,6 +7138,66 @@ async function runConnectGeneration() {
   if (fence && fence[1].trim()) md = fence[1].trim();
   if (!md) throw new Error('The writer returned an empty draft. Try again.');
   return connect.saveDraft({ markdown: md }, { source: 'ai' });
+}
+
+// Feature #3 — conversational revision of the current draft. Returns the assistant's
+// short reply plus an OPTIONAL fully-revised draft (parsed from a sentinel block).
+// Never saves — the caller loads any returned draft unsaved for the user to review.
+async function runConnectDraftChat({ message, history, draft }) {
+  const msg = String(message || '').trim();
+  if (!msg) throw new Error('Say what you would like to change or ask about the draft.');
+  const st = connect.getState();
+  const evidence = connect.listEvidence({ includeHidden: false }).slice(0, 60);
+  const g = st.guidance || {};
+  const p = st.profile || {};
+  const curDraft = String(draft != null ? draft : ((st.draft && st.draft.markdown) || '')).trim();
+  const evLines = evidence.map(e =>
+    `- [${e.date}] (${e.source}) ${e.title}${e.detail ? ' — ' + e.detail : ''}${e.impact ? ' | Impact: ' + e.impact : ''}`
+  ).join('\n') || '(no diary evidence)';
+  const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
+    const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${String((h && h.content) || '').trim()}`;
+  }).filter(Boolean).join('\n') || '(none)';
+  const prompt = [
+    'You are revising my Connect draft through conversation. Follow your output protocol exactly.',
+    '',
+    '## My current role',
+    `Role: ${p.role || '(unspecified)'}${p.level ? ' (level ' + p.level + ')' : ''}`,
+    `Responsibilities: ${p.responsibilities || '(unspecified)'}`,
+    `Priorities: ${p.priorities || '(unspecified)'}`,
+    '',
+    '## Guidance',
+    `Tone: ${g.tone || 'professional'}`,
+    `Framing: ${g.positivity || 'balanced'}`,
+    `Focus areas: ${(g.focusAreas || []).join(', ') || '(none specified)'}`,
+    `Extra instructions: ${g.instructions || '(none)'}`,
+    '',
+    '## Diary evidence',
+    evLines,
+    '',
+    '## Current draft',
+    curDraft || '(the draft is empty)',
+    '',
+    '## Conversation so far',
+    histLines,
+    '',
+    '## My latest message',
+    msg,
+  ].join('\n');
+  const text = await _connectRunAgent('editor', prompt);
+  const raw = String(text || '').trim();
+  let reply = raw;
+  let newDraft = null;
+  const m = raw.match(/===DRAFT===\s*([\s\S]*?)\s*===END DRAFT===/i);
+  if (m) {
+    reply = raw.slice(0, m.index).trim();
+    let d = m[1].trim();
+    const fence = d.match(/```(?:markdown|md)?\s*([\s\S]*?)```/i);
+    if (fence && fence[1].trim()) d = fence[1].trim();
+    if (d) newDraft = d;
+  }
+  if (!reply) reply = newDraft ? 'Updated the draft below — review the changes.' : 'Done.';
+  return { reply, draft: newDraft };
 }
 
 // Infer the "My current role" fields from recent activity. Only fills fields the
@@ -7303,6 +7499,17 @@ app.post('/api/connect/generate', async (req, res) => {
     res.json({ ok: true, state });
   } catch (err) {
     res.status(err.message && /No diary evidence/.test(err.message) ? 400 : 500).json({ error: err.message });
+  }
+});
+
+// Feature #3 — conversational AI editing of the current Connect draft (no auto-save).
+app.post('/api/connect/draft/chat', async (req, res) => {
+  try {
+    const { message, history, draft } = req.body || {};
+    const r = await runConnectDraftChat({ message, history, draft });
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(err.message && /would like to change/.test(err.message) ? 400 : 500).json({ error: err.message });
   }
 });
 

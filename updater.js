@@ -32,9 +32,22 @@ const DOWNLOAD_RETRIES = 3;
 const BASE_DIR = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'TheOffice.AI');
 const UPDATE_DIR = path.join(BASE_DIR, 'updates');
 const MARKER_PATH = path.join(BASE_DIR, 'pending-update.json');
+// Marker consumed by apply-update.js at the next sidecar launch for a fast,
+// in-place server-file delta (avoids a full multi-hundred-MB installer re-extract).
+const SERVER_MARKER_PATH = path.join(BASE_DIR, 'pending-server-update.json');
 
 function isDesktop() {
   return process.env.SUPERVISOR_SIDECAR === '1';
+}
+
+// Read the version recorded in the installed server-manifest.json (baked by
+// stage-sidecar at build time). Returns '' if unknown.
+function installedManifestVersion(serverDir) {
+  if (!serverDir) return '';
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(serverDir, 'server-manifest.json'), 'utf-8'));
+    return String(m.version || '').replace(/^v/i, '');
+  } catch { return ''; }
 }
 
 // --- semver (prerelease-aware) ---------------------------------------------
@@ -97,15 +110,16 @@ async function fetchJson(url) {
 
 // Query GitHub for the newest release with a *-setup.exe asset and compare it
 // to the currently-running version.
-async function checkForUpdate(currentVersion) {
+async function checkForUpdate(currentVersion, opts = {}) {
   const current = String(currentVersion || '').trim();
+  const serverDir = opts.serverDir || '';
   const now = Date.now();
   if (_checkCache.result && _checkCache.current === current && now - _checkCache.at < CHECK_CACHE_MS) {
     return _checkCache.result;
   }
 
   const releases = await fetchJson(`https://api.github.com/repos/${REPO}/releases?per_page=30`);
-  let best = null; // { version, tag, asset, shaAsset, notes, publishedAt }
+  let best = null; // { version, tag, asset, shaAsset, notes, publishedAt, delta* }
   for (const rel of Array.isArray(releases) ? releases : []) {
     if (rel.draft) continue;
     const tag = rel.tag_name || rel.name || '';
@@ -114,9 +128,21 @@ async function checkForUpdate(currentVersion) {
     const setup = assets.find(a => /-setup\.exe$/i.test(a.name || ''));
     if (!setup) continue;
     const sha = assets.find(a => a.name === `${setup.name}.sha256`)
-      || assets.find(a => /\.sha256$/i.test(a.name || ''));
+      || assets.find(a => /-setup\.exe\.sha256$/i.test(a.name || ''));
     const version = String(tag).replace(/^v/i, '');
     if (!best || compareSemver(version, best.version) > 0) {
+      // Optional delta asset, named `server-delta-<base>__<target>.zip`.
+      let deltaBase = '', deltaUrl = '', deltaShaUrl = '';
+      const delta = assets.find(a => /^server-delta-.+__.+\.zip$/i.test(a.name || ''));
+      if (delta) {
+        const m = /^server-delta-(.+)__(.+)\.zip$/i.exec(delta.name);
+        if (m) {
+          deltaBase = m[1].replace(/^v/i, '');
+          deltaUrl = delta.browser_download_url;
+          const dsha = assets.find(a => a.name === `${delta.name}.sha256`);
+          deltaShaUrl = dsha ? dsha.browser_download_url : '';
+        }
+      }
       best = {
         version,
         tag,
@@ -125,8 +151,20 @@ async function checkForUpdate(currentVersion) {
         shaUrl: sha ? sha.browser_download_url : null,
         notes: rel.body || '',
         publishedAt: rel.published_at || '',
+        deltaBase,
+        deltaUrl,
+        deltaShaUrl,
       };
     }
+  }
+
+  // A delta only applies when the installed release is exactly the delta's base
+  // (one release behind). Otherwise fall back to the full installer.
+  const installedVersion = installedManifestVersion(serverDir) || current;
+  if (best) {
+    best.serverDir = serverDir;
+    best.canDelta = !!(best.deltaUrl && best.deltaBase && installedVersion
+      && compareSemver(best.deltaBase, installedVersion) === 0);
   }
 
   const updateAvailable = !!(best && current && parseSemver(current) && compareSemver(best.version, current) > 0);
@@ -136,6 +174,7 @@ async function checkForUpdate(currentVersion) {
     latest: best ? best.version : '',
     updateAvailable,
     assetName: best ? best.assetName : '',
+    deltaAvailable: !!(best && best.canDelta),
     notes: best ? best.notes : '',
     publishedAt: best ? best.publishedAt : '',
     _best: best, // internal: consumed by startDownload
@@ -274,27 +313,145 @@ async function _run(best) {
   }
 }
 
+// Extract a delta zip to `destDir` using yauzl (callback API wrapped in a promise).
+function _extractZip(zipPath, destDir) {
+  const yauzl = require('yauzl');
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
+      if (err || !zip) return reject(err || new Error('could not open delta zip'));
+      zip.on('error', reject);
+      zip.on('end', resolve);
+      zip.readEntry();
+      zip.on('entry', (entry) => {
+        const name = entry.fileName;
+        // Guard against path traversal.
+        const outPath = path.join(destDir, name);
+        if (!path.resolve(outPath).startsWith(path.resolve(destDir) + path.sep)
+          && path.resolve(outPath) !== path.resolve(destDir)) {
+          zip.readEntry();
+          return;
+        }
+        if (/\/$/.test(name)) { // directory entry
+          fs.mkdirSync(outPath, { recursive: true });
+          zip.readEntry();
+          return;
+        }
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        zip.openReadStream(entry, (e2, rs) => {
+          if (e2 || !rs) return reject(e2 || new Error('could not read delta entry'));
+          const ws = fs.createWriteStream(outPath);
+          rs.on('error', reject);
+          ws.on('error', reject);
+          ws.on('finish', () => zip.readEntry());
+          rs.pipe(ws);
+        });
+      });
+    });
+  });
+}
+
+// Download + verify + extract a small server-file delta and stage the marker
+// that apply-update.js consumes on the next sidecar launch. Much faster than the
+// full installer for small changes; only used when installed === delta.base.
+async function _runDelta(best) {
+  _dl = { phase: 'downloading', progress: 0, receivedBytes: 0, totalBytes: 0, version: best.version, error: '', installer: '' };
+  try {
+    fs.mkdirSync(UPDATE_DIR, { recursive: true });
+    const zipDest = path.join(UPDATE_DIR, `server-delta-${best.version}.zip`);
+    try { fs.rmSync(zipDest, { force: true }); } catch { /* */ }
+
+    let expected = '';
+    if (best.deltaShaUrl) {
+      try {
+        const res = await fetch(best.deltaShaUrl, { headers: { 'User-Agent': 'TheOffice.AI-Updater' } });
+        if (res.ok) expected = (await res.text()).trim().split(/\s+/)[0].toLowerCase();
+      } catch { /* best effort */ }
+    }
+
+    let lastErr = null;
+    for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
+      try {
+        await downloadTo(best.deltaUrl, zipDest, (received, total) => {
+          _dl.receivedBytes = received;
+          _dl.totalBytes = total;
+          _dl.progress = total ? Math.min(99, Math.round((received / total) * 100)) : 0;
+        });
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        try { fs.rmSync(zipDest, { force: true }); } catch { /* */ }
+        if (attempt < DOWNLOAD_RETRIES) await new Promise(r => setTimeout(r, 1500 * attempt));
+      }
+    }
+    if (lastErr) throw lastErr;
+
+    _dl.phase = 'verifying';
+    if (expected) {
+      const actual = (await sha256File(zipDest)).toLowerCase();
+      if (actual !== expected) {
+        try { fs.rmSync(zipDest, { force: true }); } catch { /* */ }
+        throw new Error('Downloaded delta failed checksum verification.');
+      }
+    }
+
+    // Extract to a fresh staging dir.
+    const staging = path.join(UPDATE_DIR, `staging-${best.version}`);
+    try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* */ }
+    fs.mkdirSync(staging, { recursive: true });
+    await _extractZip(zipDest, staging);
+    try { fs.rmSync(zipDest, { force: true }); } catch { /* */ }
+
+    const meta = JSON.parse(fs.readFileSync(path.join(staging, '__delta__.json'), 'utf-8'));
+    if (!meta || !meta.files || !meta.target) throw new Error('delta metadata missing');
+
+    // Stage the marker apply-update.js consumes at next launch.
+    fs.mkdirSync(BASE_DIR, { recursive: true });
+    fs.writeFileSync(SERVER_MARKER_PATH, JSON.stringify({
+      version: String(meta.target).replace(/^v/i, ''),
+      staging,
+      deleted: Array.isArray(meta.deleted) ? meta.deleted : [],
+      files: meta.files,
+      stagedAt: new Date().toISOString(),
+    }, null, 2));
+
+    _dl.installer = staging;
+    _dl.progress = 100;
+    _dl.phase = 'ready';
+  } catch (e) {
+    _dl.phase = 'error';
+    _dl.error = (e && e.message) || String(e);
+  }
+}
+
 // Begin (or resume) staging the newest update. Idempotent while in progress /
-// ready for the same version.
-function startDownload(best) {
-  if (!best || !best.assetUrl) return { started: false, error: 'No installer asset available.' };
+// ready for the same version. Uses the fast server-file delta when applicable,
+// otherwise the full installer.
+function startDownload(best, opts = {}) {
+  if (!best) return { started: false, error: 'No update available.' };
+  const useDelta = !!best.canDelta;
+  if (!useDelta && !best.assetUrl) return { started: false, error: 'No installer asset available.' };
   if ((_dl.phase === 'downloading' || _dl.phase === 'verifying') && _dl.version === best.version) {
-    return { started: true, already: true };
+    return { started: true, already: true, delta: useDelta };
   }
   if (_dl.phase === 'ready' && _dl.version === best.version) {
-    return { started: true, ready: true };
+    return { started: true, ready: true, delta: useDelta };
   }
-  _run(best); // fire-and-forget; progress via status()
-  return { started: true };
+  if (useDelta) _runDelta(best); // fire-and-forget; progress via status()
+  else _run(best);
+  return { started: true, delta: useDelta };
 }
 
 function cancel() {
   try { if (_abort) _abort.abort(); } catch { /* */ }
   try { fs.rmSync(MARKER_PATH, { force: true }); } catch { /* */ }
+  try { fs.rmSync(SERVER_MARKER_PATH, { force: true }); } catch { /* */ }
   try {
     if (fs.existsSync(UPDATE_DIR)) {
       for (const f of fs.readdirSync(UPDATE_DIR)) {
-        if (/\.exe$/i.test(f)) fs.rmSync(path.join(UPDATE_DIR, f), { force: true });
+        if (/\.exe$/i.test(f) || /\.zip$/i.test(f) || /^staging-/i.test(f)) {
+          fs.rmSync(path.join(UPDATE_DIR, f), { recursive: true, force: true });
+        }
       }
     }
   } catch { /* */ }
@@ -310,5 +467,6 @@ module.exports = {
   status,
   cancel,
   MARKER_PATH,
+  SERVER_MARKER_PATH,
   UPDATE_DIR,
 };
