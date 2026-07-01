@@ -4,7 +4,7 @@ const fs = require('fs');
 const yazl = require('yazl');
 const yauzl = require('yauzl');
 const multer = require('multer');
-const { dataPath } = require('./data-paths');
+const { dataPath, getLocationInfo, setLocation, clearLocation } = require('./data-paths');
 const { openDatabase } = require('./db');
 const Supervisor = require('./supervisor');
 const ManagerAgent = require('./manager');
@@ -433,6 +433,17 @@ let connectPluginDir = null;
 // Get git version info and process identity at startup
 const PROCESS_START = new Date().toISOString();
 const PROCESS_PID = process.pid;
+
+// In the packaged desktop app the server runs from resources/server (no git),
+// so we bake a build-info.json at build time as the authoritative version/commit.
+let BUILD_INFO = {};
+try {
+  BUILD_INFO = JSON.parse(fs.readFileSync(path.join(__dirname, 'build-info.json'), 'utf-8')) || {};
+} catch { /* dev / not packaged */ }
+
+let PKG_VERSION = BUILD_INFO.version || '';
+if (!PKG_VERSION) { try { PKG_VERSION = require('./package.json').version || ''; } catch {} }
+
 let GIT_VERSION = { hash: 'unknown', message: '', dirty: false };
 try {
   const { execSync } = require('child_process');
@@ -447,6 +458,13 @@ try {
   const fileHash = crypto.createHash('sha256').update(serverSrc).update(supervisorSrc).digest('hex').substring(0, 8);
   GIT_VERSION = { hash, message, dirty, fileHash };
 } catch {}
+// Fall back to the baked commit/message when git isn't available (packaged app).
+if ((!GIT_VERSION.hash || GIT_VERSION.hash === 'unknown') && BUILD_INFO.commit) {
+  GIT_VERSION.hash = BUILD_INFO.commit;
+}
+if (!GIT_VERSION.message && BUILD_INFO.commitMessage) GIT_VERSION.message = BUILD_INFO.commitMessage;
+GIT_VERSION.version = PKG_VERSION || '';
+GIT_VERSION.builtAt = BUILD_INFO.builtAt || '';
 
 async function main() {
 
@@ -3355,6 +3373,9 @@ function serveSpa(req, res) {
 // Version/health endpoint for verifying deployed version
 app.get('/api/version', (req, res) => {
   res.json({
+    version: GIT_VERSION.version || '',
+    commit: GIT_VERSION.hash,
+    builtAt: GIT_VERSION.builtAt || '',
     gitHash: GIT_VERSION.hash,
     gitMessage: GIT_VERSION.message,
     dirty: GIT_VERSION.dirty,
@@ -6630,6 +6651,38 @@ app.put('/api/settings', (req, res) => {
     // If collection was just enabled and a scheduled run is already overdue, catch up.
     try { setTimeout(connectCatchUpCheck, 2_000); } catch {}
     res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Data storage location (breadcrumb / redirect) ---------------------------
+// Lets the user point their settings/config store at OneDrive or another folder.
+// Changing it requires an app restart (the DB + cached paths are opened at boot).
+app.get('/api/data-location', (req, res) => {
+  try {
+    res.json(getLocationInfo());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/data-location', (req, res) => {
+  try {
+    const target = (req.body && req.body.path || '').trim();
+    if (!target) return res.status(400).json({ error: 'A destination path is required.' });
+    const move = req.body && req.body.move !== false;
+    const info = setLocation(target, { move });
+    res.json({ ...info, restartRequired: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/data-location/reset', (req, res) => {
+  try {
+    const info = clearLocation();
+    res.json({ ...info, restartRequired: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -11100,6 +11100,61 @@
               </template>
             </div><!-- /connect category -->
 
+            <!-- ===== Storage category ===== -->
+            <div x-show="settingsCat === 'storage'">
+              <div class="card" style="margin-top:24px">
+                <h2 style="font-size:1rem;margin-bottom:6px">Data location</h2>
+                <p style="color:var(--cp-text-muted);font-size:0.85rem;margin-bottom:16px">
+                  Where TheOffice.AI stores your settings, boards, agents, managers and run history.
+                  Move it to OneDrive or another folder to keep it synced and preserved across upgrades.
+                  A small breadcrumb file stays at the default location so the app can always find your data.
+                </p>
+
+                <template x-if="!dataLoc.loaded">
+                  <div style="color:var(--cp-text-muted)">Loading…</div>
+                </template>
+
+                <template x-if="dataLoc.loaded">
+                  <div>
+                    <div class="help-row"><strong>Current location</strong><span class="mono" x-text="dataLoc.info.effective || '—'"></span></div>
+                    <div class="help-row" style="margin-top:10px"><strong>Default</strong><span class="mono" x-text="dataLoc.info.default || '—'"></span></div>
+                    <div class="help-row" style="margin-top:10px"><strong>Source</strong>
+                      <span x-text="dataLoc.info.envOverride ? 'Environment override' : (dataLoc.info.redirected ? 'Custom (redirect pointer)' : 'Default')"></span>
+                    </div>
+
+                    <template x-if="dataLoc.info.envOverride">
+                      <div style="margin-top:14px;padding:12px;border:1px solid var(--cp-border);border-radius:10px;background:var(--cp-accent-soft);color:var(--cp-text-muted);font-size:0.85rem">
+                        The location is currently pinned by the <span class="mono">SUPERVISOR_DATA_DIR</span> environment variable, so it can't be changed here. Remove that variable to manage the location from this page.
+                      </div>
+                    </template>
+
+                    <template x-if="!dataLoc.info.envOverride">
+                      <div style="margin-top:18px">
+                        <label style="display:block;font-weight:600;margin-bottom:6px">Move data to a new folder</label>
+                        <input type="text" class="input mono" style="width:100%" x-model="dataLoc.newPath"
+                          placeholder="e.g. C:\Users\you\OneDrive\TheOfficeAI">
+                        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.88rem;color:var(--cp-text-muted)">
+                          <input type="checkbox" x-model="dataLoc.copy"> Copy existing data to the new location
+                        </label>
+                        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                          <button class="btn primary" type="button" :disabled="dataLoc.busy || !dataLoc.newPath.trim()"
+                            @click="saveDataLocation()" x-text="dataLoc.busy ? 'Applying…' : 'Save & move'"></button>
+                          <button class="btn ghost" type="button" :disabled="dataLoc.busy || !dataLoc.info.redirected"
+                            @click="resetDataLocation()">Reset to default</button>
+                        </div>
+                        <p style="color:var(--cp-warning);font-size:0.82rem;margin-top:12px">
+                          ⚠ Changing the data location requires restarting the app to take effect.
+                        </p>
+                        <template x-if="dataLoc.msg">
+                          <div class="mono" style="margin-top:10px;color:var(--cp-success);font-size:0.82rem" x-text="dataLoc.msg"></div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div><!-- /storage category -->
+
             <!-- ===== About category ===== -->
             <div x-show="settingsCat === 'about'">
             <!-- System Info -->
@@ -13806,6 +13861,14 @@
         insightSuggestError: '',
         // Code Flow — Azure DevOps PR monitoring across watched repos.
         // ===== Connect (living impact / performance diary) =====
+        dataLoc: {
+          loaded: false,
+          info: {},          // { dataDir, defaultDir, source, redirect }
+          newPath: '',
+          copy: true,
+          busy: false,
+          msg: '',
+        },
         connect: {
           loaded: false,
           loading: false,
@@ -14815,12 +14878,13 @@
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'dependencies', 'connect', 'about'];
+            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'dependencies', 'storage', 'connect', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
             this.loadModelSettings();
             if (this.settingsCat === 'dependencies') this.loadDependencies();
+            if (this.settingsCat === 'storage') this.loadDataLocation();
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
@@ -17211,6 +17275,7 @@
             { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
             { id: 'sync', label: 'Sync & Machines', ico: '☁️', hash: '#/settings/sync' },
             { id: 'dependencies', label: 'Dependencies', ico: '📦', hash: '#/settings/dependencies' },
+            { id: 'storage', label: 'Storage', ico: '💾', hash: '#/settings/storage' },
             { id: 'connect', label: 'Connect', ico: '🌟', hash: '#/settings/connect' },
             { id: 'external', label: 'External Access', ico: '🌐', hash: '#/events' },
             { id: 'about', label: 'About', ico: 'ℹ️', hash: '#/settings/about' },
@@ -18671,6 +18736,57 @@
         },
         connectSetTab(t) { this.connect.tab = t; },
         ensureConnectConfig() { if (!this.connect.config) this.loadConnect(); },
+        async loadDataLocation() {
+          try {
+            const r = await this.request('/api/data-location');
+            this.dataLoc.info = r || {};
+            this.dataLoc.newPath = '';
+            this.dataLoc.msg = '';
+          } catch (e) {
+            this.dataLoc.info = {};
+          } finally {
+            this.dataLoc.loaded = true;
+          }
+        },
+        async saveDataLocation() {
+          const target = (this.dataLoc.newPath || '').trim();
+          if (!target) return;
+          const ok = await this.uiConfirm({ title: 'Move data location', message: `Move your data to:\n${target}\n\nThe app must be restarted afterward. Continue?`, confirmLabel: 'Move' });
+          if (!ok) return;
+          this.dataLoc.busy = true;
+          this.dataLoc.msg = '';
+          try {
+            const r = await this.request('/api/data-location', {
+              method: 'POST',
+              body: JSON.stringify({ path: target, move: this.dataLoc.copy }),
+              headers: { 'Content-Type': 'application/json' },
+              timeoutMs: 0,
+            });
+            await this.loadDataLocation();
+            this.dataLoc.msg = r && r.restartRequired ? 'Saved. Please restart the app to use the new location.' : 'Saved.';
+            this.toast('Data location updated — restart required', 'success');
+          } catch (e) {
+            this.toast('Could not update data location: ' + (e.message || e), 'error');
+          } finally {
+            this.dataLoc.busy = false;
+          }
+        },
+        async resetDataLocation() {
+          const ok = await this.uiConfirm({ title: 'Reset data location', message: 'Reset the data location back to the default folder? The app must be restarted afterward.', confirmLabel: 'Reset' });
+          if (!ok) return;
+          this.dataLoc.busy = true;
+          this.dataLoc.msg = '';
+          try {
+            const r = await this.request('/api/data-location/reset', { method: 'POST', timeoutMs: 0 });
+            await this.loadDataLocation();
+            this.dataLoc.msg = r && r.restartRequired ? 'Reset. Please restart the app.' : 'Reset.';
+            this.toast('Data location reset — restart required', 'success');
+          } catch (e) {
+            this.toast('Could not reset data location: ' + (e.message || e), 'error');
+          } finally {
+            this.dataLoc.busy = false;
+          }
+        },
         connectDraftChanged() { this.connect.draftDirty = true; },
         connectDraftSource() {
           const d = this.connect.state && this.connect.state.draft;
@@ -28451,9 +28567,14 @@
         },
 
         versionLabel() {
-          if (!this.data.version) return 'Version unavailable';
-          const dirty = this.data.version.dirty ? ' • dirty' : '';
-          return `${this.data.version.gitHash || 'unknown'}${dirty}`;
+          const v = this.data.version;
+          if (!v) return 'Version unavailable';
+          const dirty = v.dirty ? ' • dirty' : '';
+          if (v.version) {
+            const commit = v.commit || v.gitHash;
+            return `v${v.version}${commit && commit !== 'unknown' ? '+' + commit : ''}${dirty}`;
+          }
+          return `${v.gitHash || 'unknown'}${dirty}`;
         },
 
         sseStatusLabel() {

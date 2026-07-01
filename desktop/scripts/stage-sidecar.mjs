@@ -13,6 +13,7 @@
 
 import {
   cpSync, rmSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync,
+  readFileSync, writeFileSync,
 } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +116,21 @@ if (existsSync(prereq)) {
   log('copied install-prerequisites.ps1');
 } else {
   log('WARNING: install-prerequisites.ps1 not found');
+}
+
+// 7) Bake build-info.json so the packaged server (no git available) can report
+//    its version + commit. Version source of truth = desktop/package.json.
+try {
+  let version = '';
+  try { version = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf-8')).version || ''; } catch {}
+  let commit = '', commitMessage = '';
+  try { commit = execSync('git rev-parse --short HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim(); } catch {}
+  try { commitMessage = execSync('git log -1 --format=%s', { cwd: repoRoot, encoding: 'utf-8' }).trim(); } catch {}
+  const buildInfo = { version, commit, commitMessage, builtAt: new Date().toISOString() };
+  writeFileSync(join(serverDest, 'build-info.json'), JSON.stringify(buildInfo, null, 2));
+  log(`baked build-info.json (v${version || '?'}+${commit || '?'})`);
+} catch (e) {
+  log(`WARNING: could not bake build-info.json: ${e.message}`);
 }
 
 // Sanity: the entrypoint must exist.
