@@ -20,6 +20,7 @@ const agentExport = require('./agentExport');
 const marketplace = require('./marketplace');
 const marketplaceDesign = require('./marketplace-design');
 const standupAgent = require('./standupAgent');
+const dependencies = require('./dependencies');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
 // repo. The repo only ships built-in plugin seeds in builtin-plugins/.
@@ -241,6 +242,9 @@ function _cfWtBits(wt) {
 // node_modules (shipped with the desktop build), then a global npm install, then PATH.
 if (!process.env.COPILOT_PATH) {
   const candidates = [
+    // App-managed copy (updatable, under the data dir) takes precedence over the
+    // bundled floor so manual/scheduled updates actually take effect.
+    (() => { try { return dependencies.resolveManagedCopilot(); } catch { return null; } })(),
     // Bundled platform binary (desktop resources): node_modules/@github/copilot-win32-x64/copilot.exe
     path.join(__dirname, 'node_modules', '@github', 'copilot-win32-x64', 'copilot.exe'),
     // Bundled npm shim
@@ -346,6 +350,86 @@ function ensureBoardPlugin() {
 }
 ensureBoardPlugin();
 
+// Runtime dir of the seeded Connect plugin (set by ensureConnectPlugin). The
+// Phase-2 collector/writer/profiler runs point config.pluginDir here so the SDK
+// loads the plugin's agents + skills + WorkIQ .mcp.json.
+let connectPluginDir = null;
+
+// Seed the built-in Connect plugin into the runtime store, register it, and
+// (re)generate its WorkIQ .mcp.json from settings. Mirrors ensureManagerPlugin +
+// ensureBoardPlugin. The plugin is skills/agents-only in the repo; the .mcp.json
+// (machine/settings-specific) is generated here and gitignored.
+(function ensureConnectPlugin() {
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const configPath = path.join(homeDir, '.copilot', 'config.json');
+  const installedDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+  const builtinConnect = path.join(BUILTIN_PLUGINS_DIR, 'connect');
+  const runtimeConnect = path.join(PLUGINS_DIR, 'connect');
+  const targetDir = path.join(installedDir, 'connect');
+
+  try {
+    if (fs.existsSync(builtinConnect) && !fs.existsSync(runtimeConnect)) {
+      fs.mkdirSync(PLUGINS_DIR, { recursive: true });
+      fs.cpSync(builtinConnect, runtimeConnect, { recursive: true });
+      console.log('[supervisor] Seeded connect plugin into runtime store');
+    }
+  } catch (e) { console.warn('[supervisor] Could not seed connect plugin:', e.message); }
+
+  if (!fs.existsSync(runtimeConnect)) return;
+  connectPluginDir = runtimeConnect;
+
+  // Generate the WorkIQ .mcp.json from settings so the collector/profiler agents
+  // can read the user's M365 activity. Static command/args keep it overridable.
+  try {
+    let cmd = 'npx';
+    let argsRaw = '-y @microsoft/workiq@latest mcp';
+    try {
+      const s = require('./settings').getSettings();
+      if (s.connectWorkIqCommand) cmd = s.connectWorkIqCommand;
+      if (s.connectWorkIqArgs) argsRaw = s.connectWorkIqArgs;
+    } catch { /* settings not ready — use defaults */ }
+    const desired = {
+      mcpServers: {
+        workiq: { command: cmd, args: String(argsRaw).split(/\s+/).filter(Boolean) },
+      },
+    };
+    const mcpJsonPath = path.join(runtimeConnect, '.mcp.json');
+    let current = null;
+    try { current = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8')); } catch { current = null; }
+    if (JSON.stringify(current) !== JSON.stringify(desired)) {
+      fs.writeFileSync(mcpJsonPath, JSON.stringify(desired, null, 2));
+      console.log('[supervisor] Generated connect WorkIQ MCP config (.mcp.json)');
+    }
+  } catch (e) { console.warn('[supervisor] Could not generate connect MCP config:', e.message); }
+
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(installedDir, { recursive: true });
+      require('child_process').execSync(`mklink /J "${targetDir}" "${runtimeConnect}"`, { shell: true });
+      console.log('[supervisor] Created connect plugin junction');
+    } catch (e) { console.warn('[supervisor] Could not create connect plugin junction:', e.message); }
+  }
+
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf-8').replace(/^\s*\/\/.*$/gm, '');
+      const config = JSON.parse(raw);
+      if (!config.installedPlugins) config.installedPlugins = [];
+      if (!config.installedPlugins.some(p => p.name === 'connect')) {
+        config.installedPlugins.push({
+          name: 'connect', marketplace: '', version: '1.0.0',
+          installed_at: new Date().toISOString(), enabled: true,
+          cache_path: targetDir,
+          source: { source: 'local', path: runtimeConnect },
+        });
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('[supervisor] Registered connect plugin in copilot config');
+      }
+    } catch (e) { console.warn('[supervisor] Could not register connect plugin:', e.message); }
+  }
+})();
+
+
 // Get git version info and process identity at startup
 const PROCESS_START = new Date().toISOString();
 const PROCESS_PID = process.pid;
@@ -375,6 +459,7 @@ const supervisor = new Supervisor(db);
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
 const settings = require('./settings');
+const connect = require('./connect');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
 // disk only on session disconnect, so disk reads lag the live stream — live
@@ -4393,6 +4478,85 @@ function rescheduleAllTasks() {
 // Activate schedules for any already-saved tasks at startup.
 rescheduleAllTasks();
 
+// --- Managed-dependency auto-update job --------------------------------------
+// A single scheduled job (leader-gated, consent+online gated, quiesced during
+// in-flight agent runs) that checks for and applies dependency updates per the
+// global + per-dependency policy. Manual updates from the UI are unaffected.
+let depsUpdateJob = null;
+
+function _anyAgentBusy() {
+  try {
+    for (const entry of supervisor.agents.values()) if (entry && entry.running) return true;
+  } catch {}
+  try {
+    if (managerAgent && managerAgent.managers) {
+      for (const m of managerAgent.managers.values()) {
+        if (m && (m.running || (m.activeRuns && m.activeRuns.size > 0))) return true;
+      }
+    }
+  } catch {}
+  return false;
+}
+
+async function runDependencyAutoUpdate({ manual = false } = {}) {
+  if (!manual && !leaderCheck()) return { skipped: 'not-leader' };
+  const s = settings.getSettings();
+  if (s.depsOfflineMode) return { skipped: 'offline' };
+  if (!manual) {
+    if (!s.depsAutoUpdate) return { skipped: 'auto-update-off' };
+    if (!s.depsConsent) return { skipped: 'no-consent' };
+  }
+  // Quiesce: never promote a new binary while an agent/manager run is in flight.
+  if (_anyAgentBusy()) {
+    console.log('[deps] auto-update deferred — agent/manager run in flight');
+    return { skipped: 'busy' };
+  }
+  const globalChannel = s.depsChannel || 'stable';
+  const results = [];
+  let items;
+  try { await dependencies.check(); items = dependencies.list(); }
+  catch (e) { console.warn('[deps] auto-update check failed:', e.message); return { error: e.message }; }
+  for (const dep of items) {
+    if (!dep || dep.manageable === false) continue;
+    // Per-dependency autoUpdate override wins; null inherits the global switch.
+    const wants = dep.autoUpdate == null ? true : !!dep.autoUpdate;
+    if (!wants) continue;
+    if (!dep.updateAvailable) continue;
+    if (_anyAgentBusy()) { console.log('[deps] auto-update paused mid-run — deferring rest'); break; }
+    try {
+      const channel = dep.channel || globalChannel;
+      const r = await dependencies.update(dep.id, { channel });
+      results.push({ id: dep.id, ok: !!(r && r.ok !== false), detail: r });
+      if (r && r.ok !== false) console.log(`[deps] auto-updated ${dep.id} → ${r.version || 'latest'}`);
+      else console.warn(`[deps] auto-update ${dep.id} failed:`, (r && r.error) || 'unknown');
+    } catch (e) {
+      results.push({ id: dep.id, ok: false, error: e.message });
+      console.warn(`[deps] auto-update ${dep.id} threw:`, e.message);
+    }
+  }
+  return { ran: true, results };
+}
+
+function scheduleDependencyAutoUpdate() {
+  if (depsUpdateJob) { try { depsUpdateJob.stop(); } catch {} depsUpdateJob = null; }
+  const s = settings.getSettings();
+  const sched = (s.depsSchedule || '').trim();
+  if (!sched || sched.toLowerCase() === 'never') return;
+  let parsed;
+  try { parsed = parseTaskSchedule(sched); }
+  catch (e) { console.warn(`[deps] bad depsSchedule "${sched}": ${e.message}`); return; }
+  const fire = () => { runDependencyAutoUpdate().catch(e => console.warn('[deps] auto-update job error:', e.message)); };
+  if (parsed.type === 'cron') {
+    depsUpdateJob = new TaskCron(parsed.cron, fire);
+  } else if (parsed.type === 'interval') {
+    const timer = setInterval(fire, parsed.ms);
+    depsUpdateJob = { stop: () => clearInterval(timer) };
+  } else return;
+  console.log(`[deps] auto-update scheduled: ${parsed.description}`);
+}
+scheduleDependencyAutoUpdate();
+
+
 // Backfill task attribution on historical agent runs. The task_id column was
 // added later, so runs that predate it have task_id = NULL. When an agent is
 // driven by exactly one task and has no schedule of its own, every run of that
@@ -6459,13 +6623,468 @@ app.put('/api/settings', (req, res) => {
     }
     // Persist into this machine's cloud config too, if sync is on and we lead.
     try { if (configSync && configSync.enabled && configSync.isLeader && configSync.pushConfig) configSync.pushConfig(); } catch {}
+    // Re-arm the managed-dependency auto-update job if its schedule changed.
+    try { scheduleDependencyAutoUpdate(); } catch (e) { console.warn('[deps] reschedule failed:', e.message); }
+    // Re-arm the Connect collection job if its schedule/enable/consent changed.
+    try { scheduleConnectCollection(); } catch (e) { console.warn('[connect] reschedule failed:', e.message); }
     res.json(next);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- Reports / Usage analytics ----------------------------------------------
+// --- Connect (living impact / performance diary) ------------------------------
+// Phase 2 — automation. A seeded `connect` plugin (WorkIQ MCP + collector/
+// profiler/writer agents) powers three flows, all consent- and user-gated:
+//   collect  — WorkIQ reads recent Teams(channel/group)/email/meeting activity
+//              → diary evidence (connect.addEvidenceBatch).
+//   generate — writer agent turns evidence+role+guidance into an HR-standard
+//              draft the user then personalizes (saved source:'ai').
+//   autofill — profiler agent infers the "My current role" fields.
+// The AI is a drafting assistant only — never the author or a performance rater.
+
+let connectCollectJob = null;
+
+// Pull the first JSON value (array or object) out of a model response that may
+// wrap it in a ```json fence or surround it with prose.
+function _connectExtractJson(text) {
+  if (!text || typeof text !== 'string') return null;
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  try { return JSON.parse(t); } catch {}
+  // Fall back to the first balanced array/object in the text.
+  for (const [open, close] of [['[', ']'], ['{', '}']]) {
+    const start = t.indexOf(open);
+    if (start === -1) continue;
+    let depth = 0;
+    for (let i = start; i < t.length; i++) {
+      if (t[i] === open) depth++;
+      else if (t[i] === close) { depth--; if (depth === 0) {
+        try { return JSON.parse(t.slice(start, i + 1)); } catch { break; }
+      } }
+    }
+  }
+  return null;
+}
+
+// Run one of the Connect plugin agents (collector|profiler|writer) as a one-off
+// SDK chat and return the accumulated text output.
+async function _connectRunAgent(agentName, prompt) {
+  if (!connectPluginDir || !fs.existsSync(connectPluginDir)) {
+    throw new Error('Connect plugin is not available yet — restart the server.');
+  }
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: { pluginDir: connectPluginDir, agent: agentName, cwd: __dirname },
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    onChunk: (c) => { acc += c; },
+  });
+  if (result && result.fallback) throw new Error(result.error || 'Connect agent runtime unavailable');
+  return acc.trim() ? acc : ((result && result.output) || '');
+}
+
+function _connectDateWindow(days) {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - Math.max(1, Number(days) || 1));
+  const iso = d => d.toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
+
+// Collect recent M365 activity into diary evidence. Scheduled runs are leader-,
+// consent- and enable-gated and never fire mid agent-run; manual runs bypass the
+// enable/leader gates but still require consent.
+async function runConnectCollection({ manual = false, days } = {}) {
+  const s = settings.getSettings();
+  if (!s.connectConsent) return { skipped: 'no-consent' };
+  if (!manual) {
+    if (!leaderCheck()) return { skipped: 'not-leader' };
+    if (!s.connectCollectionEnabled) return { skipped: 'collection-off' };
+    if (_anyAgentBusy()) { console.log('[connect] collection deferred — agent run in flight'); return { skipped: 'busy' }; }
+  }
+  const win = _connectDateWindow(days != null ? days : (manual ? 7 : 1));
+  const adoNote = s.connectAdoEnabled
+    ? ' Also include Azure DevOps work items and pull requests the user drove if WorkIQ exposes them.'
+    : '';
+  const prompt =
+    `Collect my Connect diary evidence for the date range ${win.start} to ${win.end} (inclusive). ` +
+    `Gather MY OWN activity across Teams channel/group posts, email I sent, and meetings I organized or ` +
+    `actively participated in — never one-on-one private chats.${adoNote} ` +
+    `Return only the JSON array of evidence items exactly as specified.`;
+  let text;
+  try { text = await _connectRunAgent('collector', prompt); }
+  catch (e) { console.warn('[connect] collection failed:', e.message); return { error: e.message }; }
+  const arr = _connectExtractJson(text);
+  if (!Array.isArray(arr)) return { error: 'Collector returned no parseable evidence', raw: String(text).slice(0, 400) };
+  const { added, skipped } = connect.addEvidenceBatch(arr, { origin: 'auto' });
+  connect.markCollected();
+  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes), ${win.start}..${win.end}`);
+  let generated = false;
+  if (!manual && s.connectGenerateDaily && added > 0) {
+    try { await runConnectGeneration(); generated = true; } catch (e) { console.warn('[connect] auto-generate failed:', e.message); }
+  }
+  return { ran: true, added, skipped, window: win, generated };
+}
+
+// Draft an HR-standard Connect from the user's (non-hidden) evidence, role, and
+// guidance. Saved as source:'ai' — an editable draft the user personalizes.
+async function runConnectGeneration() {
+  const st = connect.getState();
+  const evidence = connect.listEvidence({ includeHidden: false }).slice(0, 80);
+  if (!evidence.length) throw new Error('No diary evidence to draft from yet. Add entries or run a collection first.');
+  const g = st.guidance || {};
+  const p = st.profile || {};
+  const evLines = evidence.map(e =>
+    `- [${e.date}] (${e.source}) ${e.title}${e.detail ? ' — ' + e.detail : ''}${e.impact ? ' | Impact: ' + e.impact : ''}`
+  ).join('\n');
+  const prompt = [
+    'Draft my Connect from the material below. Follow the connect-standards skill and output only the Connect Markdown body.',
+    '',
+    '## My current role',
+    `Role: ${p.role || '(unspecified)'}${p.level ? ' (level ' + p.level + ')' : ''}`,
+    `Responsibilities: ${p.responsibilities || '(unspecified)'}`,
+    `Priorities: ${p.priorities || '(unspecified)'}`,
+    '',
+    '## Guidance',
+    `Tone: ${g.tone || 'professional'}`,
+    `Framing: ${g.positivity || 'balanced'}`,
+    `Focus areas: ${(g.focusAreas || []).join(', ') || '(none specified)'}`,
+    `Extra instructions: ${g.instructions || '(none)'}`,
+    '',
+    '## Diary evidence',
+    evLines,
+  ].join('\n');
+  const text = await _connectRunAgent('writer', prompt);
+  let md = String(text || '').trim();
+  const fence = md.match(/```(?:markdown|md)?\s*([\s\S]*?)```/i);
+  if (fence && fence[1].trim()) md = fence[1].trim();
+  if (!md) throw new Error('The writer returned an empty draft. Try again.');
+  return connect.saveDraft({ markdown: md }, { source: 'ai' });
+}
+
+// Infer the "My current role" fields from recent activity. Only fills fields the
+// user has left blank; returns both the merged state and the raw suggestion.
+async function runConnectProfileAutofill() {
+  const s = settings.getSettings();
+  if (!s.connectConsent) throw new Error('Auto-fill needs collection consent (enable it in Connect → Settings).');
+  const text = await _connectRunAgent('profiler',
+    'Infer my current role from my recent Microsoft 365 activity and return only the JSON object specified.');
+  const obj = _connectExtractJson(text);
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('Could not infer your role from the available activity.');
+  }
+  const cur = connect.getState().profile || {};
+  const patch = {};
+  for (const k of ['role', 'level', 'responsibilities', 'priorities', 'summary']) {
+    const v = typeof obj[k] === 'string' ? obj[k].trim() : '';
+    if (v && !(cur[k] && String(cur[k]).trim())) patch[k] = v;
+  }
+  const state = Object.keys(patch).length ? connect.saveProfile(patch) : connect.getState();
+  return { state, suggestion: obj, applied: Object.keys(patch) };
+}
+
+function scheduleConnectCollection() {
+  if (connectCollectJob) { try { connectCollectJob.stop(); } catch {} connectCollectJob = null; }
+  const s = settings.getSettings();
+  if (!s.connectCollectionEnabled || !s.connectConsent) return;
+  const sched = (s.connectSchedule || '').trim();
+  if (!sched || sched.toLowerCase() === 'never') return;
+  let parsed;
+  try { parsed = parseTaskSchedule(sched); }
+  catch (e) { console.warn(`[connect] bad connectSchedule "${sched}": ${e.message}`); return; }
+  const fire = () => { runConnectCollection().catch(e => console.warn('[connect] collection job error:', e.message)); };
+  if (parsed.type === 'cron') {
+    connectCollectJob = new TaskCron(parsed.cron, fire);
+  } else if (parsed.type === 'interval') {
+    const timer = setInterval(fire, parsed.ms);
+    connectCollectJob = { stop: () => clearInterval(timer) };
+  } else return;
+  console.log(`[connect] collection scheduled: ${parsed.description}`);
+}
+scheduleConnectCollection();
+
+// --- Connect (living impact / performance diary) ------------------------------
+app.get('/api/connect', (req, res) => {
+  try {
+    const s = settings.getSettings();
+    res.json({
+      state: connect.getState(),
+      evidence: connect.listEvidence(),
+      config: {
+        collectionEnabled: s.connectCollectionEnabled === true,
+        consent: s.connectConsent === true,
+        schedule: s.connectSchedule || '',
+        generateDaily: s.connectGenerateDaily === true,
+        storageDir: connect.storageDir(),
+        emailTo: s.connectEmailTo || '',
+        adoEnabled: s.connectAdoEnabled === true,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update the "My current role" profile that steers drafting.
+app.put('/api/connect/profile', (req, res) => {
+  try {
+    res.json({ ok: true, state: connect.saveProfile(req.body || {}) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update the AI guidance/tone controls.
+app.put('/api/connect/guidance', (req, res) => {
+  try {
+    res.json({ ok: true, state: connect.saveGuidance(req.body || {}) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save the editable draft body. Any hand-edit marks source:'manual'.
+app.put('/api/connect/draft', (req, res) => {
+  try {
+    const body = req.body || {};
+    const source = body.source === 'ai' ? 'ai' : 'manual';
+    res.json({ ok: true, state: connect.saveDraft(body, { source }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Evidence (diary) CRUD.
+app.get('/api/connect/evidence', (req, res) => {
+  try {
+    res.json({ items: connect.listEvidence({ source: req.query.source || undefined }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/connect/evidence', (req, res) => {
+  try {
+    const item = connect.addEvidence(req.body || {}, { origin: 'manual' });
+    res.json({ ok: true, item });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/connect/evidence/:id', (req, res) => {
+  try {
+    const item = connect.updateEvidence(req.params.id, req.body || {});
+    if (!item) return res.status(404).json({ error: 'Evidence not found' });
+    res.json({ ok: true, item });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/connect/evidence/:id', (req, res) => {
+  try {
+    const ok = connect.deleteEvidence(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Evidence not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Email the current Connect draft (reuses the .eml share mechanism).
+app.post('/api/connect/email', (req, res) => {
+  try {
+    const st = connect.getState();
+    const body = (req.body && typeof req.body.content === 'string' && req.body.content)
+      ? req.body.content
+      : (st.draft.markdown || '');
+    if (!body.trim()) return res.status(400).json({ error: 'The Connect draft is empty — nothing to email.' });
+    const s = settings.getSettings();
+    const to = (req.body && req.body.to) || s.connectEmailTo || '';
+    const subject = (req.body && req.body.subject) || 'My Connect';
+
+    const { marked } = require('marked');
+    const htmlBody = marked.parse(body);
+    const htmlEmail = `<html><head><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #222; padding: 16px; }
+h1, h2, h3 { color: #333; }
+a { color: #0078d4; }
+hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+</style></head><body>${htmlBody}</body></html>`;
+
+    const boundary = `----=_Part_${Date.now()}`;
+    const headers = [`Subject: ${subject}`];
+    if (to) headers.push(`To: ${to}`);
+    const eml = [
+      ...headers,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      `X-Unsent: 1`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      body,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/html; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      htmlEmail,
+      ``,
+      `--${boundary}--`,
+    ].join('\r\n');
+
+    const draftDir = path.join(__dirname, '.share-drafts');
+    fs.mkdirSync(draftDir, { recursive: true });
+    const emlPath = path.join(draftDir, `connect-${Date.now()}.eml`);
+    fs.writeFileSync(emlPath, eml, 'utf8');
+    const { exec } = require('child_process');
+    exec(`start "" "${emlPath}"`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download the full backing data (state + evidence) as JSON.
+app.get('/api/connect/export', (req, res) => {
+  try {
+    const data = connect.exportAll();
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="connect-export-${new Date().toISOString().slice(0,10)}.json"`);
+    res.send(JSON.stringify(data, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Phase 2 — collect recent M365 activity into diary evidence (manual trigger).
+app.post('/api/connect/collect', async (req, res) => {
+  try {
+    const days = req.body && req.body.days != null ? Number(req.body.days) : undefined;
+    const r = await runConnectCollection({ manual: true, days });
+    if (r.error) return res.status(502).json(r);
+    res.json({ ...r, state: connect.getState(), evidence: connect.listEvidence() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Phase 2 — draft an HR-standard Connect from evidence + role + guidance.
+app.post('/api/connect/generate', async (req, res) => {
+  try {
+    const state = await runConnectGeneration();
+    res.json({ ok: true, state });
+  } catch (err) {
+    res.status(err.message && /No diary evidence/.test(err.message) ? 400 : 500).json({ error: err.message });
+  }
+});
+
+// Phase 2 — infer "My current role" from recent activity (fills blank fields).
+app.post('/api/connect/profile/autofill', async (req, res) => {
+  try {
+    const r = await runConnectProfileAutofill();
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Managed dependencies -----------------------------------------------------
+// Copilot CLI/SDK + machine prerequisites (git, az, ripgrep). The bundled copy
+// what we update. All per-user, no admin, staged + validated + atomic promote.
+app.get('/api/dependencies', (req, res) => {
+  try {
+    res.json({ items: dependencies.list(), settings: _depsGlobalConfig() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Refresh the latest-known version for one dependency (?id=) or all.
+app.post('/api/dependencies/check', async (req, res) => {
+  try {
+    const s = settings.getSettings();
+    if (s.depsOfflineMode) return res.status(409).json({ error: 'Offline mode is enabled — version checks are disabled.' });
+    const id = req.body && req.body.id ? String(req.body.id) : (req.query.id ? String(req.query.id) : null);
+    const result = await dependencies.check(id);
+    res.json({ ok: true, checked: result, items: dependencies.list() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Manually update a single dependency now.
+app.post('/api/dependencies/:id/update', async (req, res) => {
+  try {
+    const s = settings.getSettings();
+    if (s.depsOfflineMode) return res.status(409).json({ error: 'Offline mode is enabled — updates are disabled.' });
+    const opts = {
+      version: req.body && req.body.version ? String(req.body.version) : undefined,
+      channel: req.body && req.body.channel ? String(req.body.channel) : undefined,
+    };
+    const result = await dependencies.update(req.params.id, opts);
+    if (result && result.ok === false) return res.status(400).json({ error: result.error || 'Update failed', result, items: dependencies.list() });
+    res.json({ ok: true, result, items: dependencies.list() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Roll a managed dependency back to its previous version.
+app.post('/api/dependencies/:id/rollback', async (req, res) => {
+  try {
+    const result = await dependencies.rollback(req.params.id);
+    if (result && result.ok === false) return res.status(400).json({ error: result.error || 'Rollback failed', result, items: dependencies.list() });
+    res.json({ ok: true, result, items: dependencies.list() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Per-dependency config: channel + autoUpdate override (null = inherit global).
+app.put('/api/dependencies/:id/config', (req, res) => {
+  try {
+    const patch = {};
+    if (req.body && 'channel' in req.body) patch.channel = req.body.channel;
+    if (req.body && 'autoUpdate' in req.body) patch.autoUpdate = req.body.autoUpdate;
+    const result = dependencies.setConfig(req.params.id, patch);
+    res.json({ ok: true, result, items: dependencies.list() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Run all pending managed-dependency updates now (respects per-dep policy, quiesce).
+app.post('/api/dependencies/update-all', async (req, res) => {
+  try {
+    const result = await runDependencyAutoUpdate({ manual: true });
+    res.json({ ok: true, result, items: dependencies.list() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Compact view of the global dependency settings the UI cares about.
+function _depsGlobalConfig() {
+  const s = settings.getSettings();
+  return {
+    autoUpdate: !!s.depsAutoUpdate,
+    channel: s.depsChannel || 'stable',
+    schedule: s.depsSchedule || '',
+    offlineMode: !!s.depsOfflineMode,
+    consent: !!s.depsConsent,
+  };
+}
+
+
 // Exhaustive usage + cost reporting backed by the canonical usage_events ledger.
 // Returns aggregate totals plus per-day, per-model and per-source breakdowns for
 // a time window (default: last 30 days). Every billable run path (agent, task,

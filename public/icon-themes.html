@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Icon theme exploration — Copilot Supervisor</title>
+<script>
+  (() => {
+    const param = new URLSearchParams(window.location.search).get("scoutTheme");
+    const theme = param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.setAttribute("data-theme", theme);
+  })();
+</script>
+<style>
+:root{
+  color-scheme: light;
+  --cp-bg:#f7f4ef; --cp-bg-elevated:#fcfbf8; --cp-surface:#ffffff; --cp-surface-soft:#f5f5f5;
+  --cp-border:#dedede; --cp-border-strong:#919191; --cp-text:#242424; --cp-text-muted:#5c5c5c; --cp-text-soft:#6f6f6f;
+  --cp-accent:#b11f4b; --cp-accent-hover:#9a1a41; --cp-accent-soft:rgba(177,31,75,.08); --cp-accent-fg:#ffffff;
+  --cp-success:#16a34a; --cp-danger:#dc2626; --cp-warning:#f59e0b; --cp-link:#0078d4;
+  --cp-shadow:0 18px 48px rgba(0,0,0,.12); --cp-overlay:rgba(255,255,255,.8); --cp-panel:rgba(255,255,255,.86);
+  --cp-panel-strong:rgba(255,255,255,.96); --cp-sheen:rgba(255,255,255,.55); --cp-highlight:rgba(177,31,75,.12);
+}
+html[data-theme="dark"]{
+  color-scheme: dark;
+  --cp-bg:#3d3b3a; --cp-bg-elevated:#343231; --cp-surface:#292929; --cp-surface-soft:#2e2e2e;
+  --cp-border:#474747; --cp-border-strong:#5f5f5f; --cp-text:#dedede; --cp-text-muted:#919191; --cp-text-soft:#b0b0b0;
+  --cp-accent:#fd8ea1; --cp-accent-hover:#fb7b91; --cp-accent-soft:rgba(253,142,161,.14); --cp-accent-fg:#1a1a1a;
+  --cp-success:#4ade80; --cp-danger:#f87171; --cp-warning:#fbbf24; --cp-link:#4da6ff;
+  --cp-shadow:0 18px 48px rgba(0,0,0,.32); --cp-overlay:rgba(41,41,41,.88); --cp-panel:rgba(41,41,41,.72);
+  --cp-panel-strong:rgba(41,41,41,.96); --cp-sheen:rgba(255,255,255,.04); --cp-highlight:rgba(253,142,161,.12);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cp-bg);color:var(--cp-text);
+  font-family:"Segoe UI",Aptos,Calibri,-apple-system,BlinkMacSystemFont,sans-serif;
+  font-size:14px;line-height:1.5;}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 24px 80px;}
+header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:8px;}
+h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em;}
+.sub{color:var(--cp-text-muted);max-width:720px;}
+.toggle{display:inline-flex;border:1px solid var(--cp-border);border-radius:10px;overflow:hidden;background:var(--cp-surface);}
+.toggle button{border:0;background:transparent;color:var(--cp-text-muted);padding:8px 14px;cursor:pointer;font-size:13px;font-family:inherit;}
+.toggle button.on{background:var(--cp-accent);color:var(--cp-accent-fg);}
+h2{font-size:16px;margin:36px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--cp-border);}
+.note{color:var(--cp-text-soft);font-size:12.5px;margin:-6px 0 18px;}
+
+/* ===== icon base geometry (shared across themes) ===== */
+.iconwrap{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:10px;color:var(--cp-text);flex:none;}
+.iconwrap svg{width:24px;height:24px;display:block;}
+.iconwrap svg path,.iconwrap svg rect,.iconwrap svg circle,.iconwrap svg line,.iconwrap svg polyline,.iconwrap svg polygon{
+  fill:none;stroke:currentColor;vector-effect:non-scaling-stroke;}
+.iconwrap svg .dot{fill:currentColor;stroke:none;}
+.iconwrap.sm{width:30px;height:30px;}
+.iconwrap.sm svg{width:18px;height:18px;}
+
+/* ===== theme skins ===== */
+/* Modern Line */
+.t-modern svg *{stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.t-modern .acc{stroke:var(--cp-accent);}
+.t-modern .acc.dot{fill:var(--cp-accent);}
+/* Industrial */
+.t-industrial{background:var(--cp-surface-soft);border:1px solid var(--cp-border-strong);border-radius:6px;}
+.t-industrial svg *{stroke-width:2.3;stroke-linecap:butt;stroke-linejoin:miter;}
+.t-industrial .acc{stroke:currentColor;}
+/* Nature / Calm-organic */
+.t-nature{background:var(--cp-accent-soft);border-radius:15px;}
+.t-nature svg *{stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.t-nature .acc{stroke:var(--cp-success);}
+.t-nature .acc.dot{fill:var(--cp-success);}
+/* Futuristic / Tech HUD */
+.t-futuristic{background:var(--cp-bg-elevated);border:1px solid var(--cp-accent);color:var(--cp-accent);
+  box-shadow:0 0 0 1px var(--cp-accent-soft),0 0 12px -3px var(--cp-accent);border-radius:8px;}
+.t-futuristic svg *{stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;}
+.t-futuristic .acc{stroke:var(--cp-text);opacity:.85;}
+.t-futuristic .acc.dot{fill:var(--cp-text);}
+/* Calm / soft minimal */
+.t-calm{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:18px;color:var(--cp-text-muted);}
+.t-calm svg *{stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;}
+.t-calm .acc{stroke:var(--cp-accent);}
+.t-calm .acc.dot{fill:var(--cp-accent);}
+
+/* state colors for status dots */
+.s-ok{color:var(--cp-success);} .s-warn{color:var(--cp-warning);} .s-err{color:var(--cp-danger);}
+
+/* ===== theme mockups (in-context) ===== */
+.mockups{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:18px;}
+.mock{background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:16px;overflow:hidden;
+  box-shadow:0 0 2px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.14);}
+.mock .mhd{padding:13px 16px;border-bottom:1px solid var(--cp-border);background:var(--cp-bg-elevated);}
+.mock .mhd .tname{font-weight:600;font-size:14px;}
+.mock .mhd .tdesc{color:var(--cp-text-muted);font-size:12px;}
+.chrome{display:grid;grid-template-columns:54px 1fr;min-height:230px;}
+.rail{border-right:1px solid var(--cp-border);padding:10px 0;display:flex;flex-direction:column;align-items:center;gap:4px;background:var(--cp-bg-elevated);}
+.rail .iconwrap{cursor:default;}
+.rail .iconwrap.active{background:var(--cp-accent-soft);}
+.t-industrial.active,.t-nature.active,.t-futuristic.active,.t-calm.active{}
+.body{padding:12px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--cp-border);padding-bottom:8px;}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:8px;font-size:12.5px;color:var(--cp-text-muted);}
+.tab.active{color:var(--cp-text);background:var(--cp-surface-soft);font-weight:600;}
+.tab .iconwrap{width:26px;height:26px;}.tab .iconwrap svg{width:16px;height:16px;}
+.panelhd{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--cp-bg-elevated);
+  border:1px solid var(--cp-border);border-radius:10px;padding:8px 10px;}
+.panelhd .ttl{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;}
+.panelhd .acts{display:flex;gap:2px;}
+.panelhd .acts .iconwrap{width:30px;height:30px;}.panelhd .acts .iconwrap svg{width:17px;height:17px;}
+.statrow{display:flex;gap:14px;flex-wrap:wrap;}
+.stat{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);}
+.stat .iconwrap{width:26px;height:26px;}.stat .iconwrap svg{width:16px;height:16px;}
+.statdot{width:8px;height:8px;border-radius:50%;}
+.btns{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:9px;font-size:12.5px;
+  border:1px solid var(--cp-border);background:var(--cp-surface);color:var(--cp-text);cursor:default;}
+.btn.acc{background:var(--cp-accent);border-color:var(--cp-accent);color:var(--cp-accent-fg);}
+.btn .iconwrap{width:22px;height:22px;}.btn .iconwrap svg{width:15px;height:15px;}
+.btn.acc .iconwrap{color:var(--cp-accent-fg);}
+
+/* ===== comparison grid ===== */
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 14px;font-size:12px;color:var(--cp-text-muted);}
+.gridtbl{width:100%;border-collapse:separate;border-spacing:0;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:14px;overflow:hidden;}
+.gridtbl th,.gridtbl td{padding:9px 8px;text-align:center;border-bottom:1px solid var(--cp-border);}
+.gridtbl thead th{position:sticky;top:0;background:var(--cp-bg-elevated);font-size:12px;font-weight:600;z-index:2;}
+.gridtbl tbody tr:last-child td{border-bottom:0;}
+.gridtbl .rk{text-align:left;padding-left:16px;}
+.gridtbl .rk .lbl{font-weight:600;font-size:12.5px;}
+.gridtbl .rk .where{color:var(--cp-text-soft);font-size:11px;}
+.gridtbl .em{font-size:20px;font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif;}
+.gridtbl tbody tr.grouphd td{background:var(--cp-surface-soft);text-align:left;padding-left:16px;font-weight:700;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--cp-text-muted);}
+.cell{display:flex;align-items:center;justify-content:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Icon theme exploration</h1>
+      <div class="sub">Five candidate icon directions to replace the system's Unicode emoji <em>and</em> monochrome glyphs in UI chrome (nav, tabs, panel headers, buttons, status). Each theme is one coherent SVG set that recolors for light/dark via the app's <code>--cp-*</code> variables. Pick a direction; I'll then wire it into the live UI.</div>
+    </div>
+    <div class="toggle" id="lt">
+      <button data-t="light">Light</button>
+      <button data-t="dark">Dark</button>
+    </div>
+  </header>
+
+  <h2>Theme mockups (in context)</h2>
+  <div class="note">Same faux app chrome rendered in each theme: nav rail · tab bar · panel header actions · status badges · buttons.</div>
+  <div class="mockups" id="mockups"></div>
+
+  <h2>Full icon reference — every role, every theme</h2>
+  <div class="legend">
+    <span><strong>Pictographic emoji</strong> + <strong>monochrome glyphs</strong>, consolidated into semantic roles.</span>
+  </div>
+  <div style="overflow:auto;border-radius:14px;">
+    <table class="gridtbl" id="gridtbl"></table>
+  </div>
+</div>
+
+<script>
+/* ---------- icon geometry (24x24 viewBox), shared across all themes ---------- */
+const I = {
+  agent:'<rect class="acc" x="5" y="8" width="14" height="11" rx="3"/><line x1="12" y1="3.2" x2="12" y2="5.6"/><circle class="dot" cx="12" cy="3" r="1.2"/><circle class="dot" cx="9.6" cy="13" r="1.1"/><circle class="dot" cx="14.4" cy="13" r="1.1"/><line x1="9.5" y1="16.5" x2="14.5" y2="16.5"/>',
+  manager:'<circle cx="12" cy="7.8" r="3"/><path d="M5.5 19c0-3.4 2.9-5.2 6.5-5.2s6.5 1.8 6.5 5.2"/><path class="acc" d="M10.4 14l1.6 2 1.6-2"/>',
+  org:'<rect x="5" y="4" width="14" height="16" rx="1.5"/><circle class="dot" cx="9" cy="8" r=".9"/><circle class="dot" cx="15" cy="8" r=".9"/><circle class="dot" cx="9" cy="12" r=".9"/><circle class="dot" cx="15" cy="12" r=".9"/><line x1="11" y1="20" x2="11" y2="16.5"/><line x1="13" y1="20" x2="13" y2="16.5"/>',
+  home:'<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10.5V19h12v-8.5"/><rect class="acc" x="10" y="14" width="4" height="5"/>',
+  plugin:'<path d="M10 4.2a1.8 1.8 0 0 1 3.6 0v1.3h2.4a.8.8 0 0 1 .8.8V10h1.2a1.8 1.8 0 0 1 0 3.6H16.8v3.8a.8.8 0 0 1-.8.8h-2.4v-1.3a1.8 1.8 0 0 0-3.6 0v1.3H7.6a.8.8 0 0 1-.8-.8V14H5.6a1.8 1.8 0 0 1 0-3.6H6.8V6.3a.8.8 0 0 1 .8-.8H10z"/>',
+  skill:'<path d="M14.6 6.4a3.4 3.4 0 0 1-4.4 4.4l-5 5 1.5 1.5 5-5a3.4 3.4 0 0 0 4.4-4.4l-1.8 1.8-1.5-1.5z"/>',
+  mcp:'<path d="M9 4v3.5M15 4v3.5"/><path d="M7 7.5h10v3a5 5 0 0 1-10 0z"/><line x1="12" y1="15.5" x2="12" y2="20"/>',
+  sparkle:'<path class="acc" d="M11.5 4 13 8.4 17.5 10 13 11.6 11.5 16 10 11.6 5.5 10 10 8.4z"/><path class="dot acc" d="M17 14.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/>',
+  tasks:'<rect x="6" y="5" width="12" height="15" rx="2"/><rect x="9" y="3.5" width="6" height="3" rx="1"/><line class="acc" x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="17" x2="13" y2="17"/>',
+  folder:'<path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H10l2 2h6.5A1.5 1.5 0 0 1 20 9.5V17.5A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"/>',
+  archive:'<rect x="4" y="6" width="16" height="4" rx="1"/><path d="M5 10v7.5A1.5 1.5 0 0 0 6.5 19h11A1.5 1.5 0 0 0 19 17.5V10"/><line class="acc" x1="10" y1="13.5" x2="14" y2="13.5"/>',
+  chart:'<line x1="5" y1="19.5" x2="20" y2="19.5"/><rect class="acc" x="7" y="12" width="3" height="5.5"/><rect x="11.5" y="9" width="3" height="8.5"/><rect class="acc" x="16" y="6.5" width="3" height="11"/>',
+  model:'<path d="M9.5 5.5A3 3 0 0 0 6 8.4 3 3 0 0 0 5 14a3 3 0 0 0 4.5 2.6z"/><path d="M14.5 5.5A3 3 0 0 1 18 8.4 3 3 0 0 1 19 14a3 3 0 0 1-4.5 2.6z"/><line class="acc" x1="12" y1="5.2" x2="12" y2="18.5"/>',
+  pr:'<circle cx="7" cy="6.5" r="2"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/><line x1="7" y1="8.5" x2="7" y2="15.5"/><path d="M17 15.5v-3.5a3 3 0 0 0-3-3h-2.5"/><path class="acc" d="M13 7l-1.8 2 1.8 2"/>',
+  branch:'<circle cx="7" cy="6.5" r="2"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="8" r="2"/><line x1="7" y1="8.5" x2="7" y2="15.5"/><path class="acc" d="M7 13a6 6 0 0 0 6-4"/>',
+  link:'<path d="M10 14a3.4 3.4 0 0 0 4.8 0l2.4-2.4a3.4 3.4 0 0 0-4.8-4.8L11 8"/><path class="acc" d="M14 10a3.4 3.4 0 0 0-4.8 0L6.8 12.4a3.4 3.4 0 0 0 4.8 4.8L13 16"/>',
+  bolt:'<path class="acc" d="M13 3 5 13h5l-1 8 8-10h-5z"/>',
+  search:'<circle cx="11" cy="11" r="6"/><line class="acc" x1="15.5" y1="15.5" x2="20" y2="20"/>',
+  insights:'<path class="acc" d="M4 14.5 13 11l1 3-9 3.5z"/><path d="M13 11l4.5-1.6 1 3-4.5 1.6"/><line x1="8.5" y1="16.5" x2="7.5" y2="20"/><line x1="11" y1="15.7" x2="12.5" y2="20"/>',
+  share:'<path d="M12 15V4.5"/><path class="acc" d="M8 8l4-4 4 4"/><path d="M5.5 13v4.5A1.5 1.5 0 0 0 7 19h10a1.5 1.5 0 0 0 1.5-1.5V13"/>',
+  chat:'<path d="M5 6.5A1.5 1.5 0 0 1 6.5 5h11A1.5 1.5 0 0 1 19 6.5v7A1.5 1.5 0 0 1 17.5 15H10l-4 3v-3H6.5A1.5 1.5 0 0 1 5 13.5z"/><line class="acc" x1="9" y1="10" x2="15" y2="10"/>',
+  edit:'<path class="acc" d="M5 19l1-4L16 5l3 3L9 18z"/><line x1="14" y1="7" x2="17" y2="10"/>',
+  trash:'<path d="M6 7h12"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7"/><path d="M7 7l1 12.5A1.5 1.5 0 0 0 9.5 21h5a1.5 1.5 0 0 0 1.5-1.5L17 7"/><line class="acc" x1="10.5" y1="10.5" x2="10.8" y2="17"/><line class="acc" x1="13.5" y1="10.5" x2="13.2" y2="17"/>',
+  refresh:'<path d="M19 12a7 7 0 1 1-2-4.9"/><path class="acc" d="M19 4.5V9h-4.5"/>',
+  settings:'<circle cx="12" cy="12" r="3.1"/><path d="M12 3.6v2.2M12 18.2v2.2M3.6 12h2.2M18.2 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6"/>',
+  lock:'<rect x="6" y="10" width="12" height="9" rx="2"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"/><circle class="dot acc" cx="12" cy="14.3" r="1.1"/>',
+  key:'<circle cx="8" cy="12" r="3.4"/><path class="acc" d="M11.4 12H20l-2 2m2-2-2-2"/><line x1="16" y1="12.2" x2="16" y2="15"/>',
+  success:'<circle class="acc" cx="12" cy="12" r="8"/><path d="M8.4 12.4l2.6 2.6 4.6-5"/>',
+  error:'<circle cx="12" cy="12" r="8"/><line class="acc" x1="9" y1="9" x2="15" y2="15"/><line class="acc" x1="15" y1="9" x2="9" y2="15"/>',
+  warning:'<path d="M12 4.2 20.5 19H3.5z"/><line class="acc" x1="12" y1="10" x2="12" y2="13.8"/><circle class="dot acc" cx="12" cy="16.4" r="1"/>',
+  mobile:'<rect x="7" y="3" width="10" height="18" rx="2.5"/><line class="acc" x1="10.5" y1="18" x2="13.5" y2="18"/>',
+  live:'<circle class="dot acc" cx="12" cy="12" r="2"/><path d="M8.6 8.6a5 5 0 0 0 0 6.8M15.4 8.6a5 5 0 0 1 0 6.8"/><path d="M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12"/>',
+  status:'<circle class="dot" cx="12" cy="12" r="5"/>',
+  bell:'<path d="M7 16.5V11a5 5 0 0 1 10 0v5.5l1.4 2H5.6z"/><path class="acc" d="M10.4 19a1.6 1.6 0 0 0 3.2 0"/>',
+  pin:'<path d="M9 4h6l-1 6 3 3H7l3-3z"/><line class="acc" x1="12" y1="16" x2="12" y2="20"/>',
+  star:'<path class="acc" d="M12 4l2.3 4.7 5.2.8-3.75 3.6.9 5.1L12 16.8 7.4 18.3l.9-5.1L4.5 9.5l5.2-.8z"/>',
+  tag:'<path d="M4 11V5.5A1.5 1.5 0 0 1 5.5 4H11l8 8-6.5 6.5z"/><circle class="dot acc" cx="8" cy="8" r="1.2"/>',
+  user:'<circle cx="12" cy="8" r="3.1"/><path d="M5.5 19c0-3.4 2.9-5.2 6.5-5.2s6.5 1.8 6.5 5.2"/>',
+  save:'<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H16l3 3v11A1.5 1.5 0 0 1 17.5 19.5h-11A1.5 1.5 0 0 1 5 18z"/><rect x="8" y="4" width="6" height="4"/><rect class="acc" x="8" y="13" width="8" height="6.5"/>',
+  calendar:'<rect x="5" y="6" width="14" height="14" rx="2"/><line x1="5" y1="10" x2="19" y2="10"/><line x1="9" y1="4" x2="9" y2="7"/><line x1="15" y1="4" x2="15" y2="7"/><circle class="dot acc" cx="12" cy="14.5" r="1.2"/>',
+  package:'<path d="M12 3 4 7v10l8 4 8-4V7z"/><path class="acc" d="M4 7l8 4 8-4M12 11v10"/>',
+  email:'<rect x="4" y="6" width="16" height="12" rx="2"/><path class="acc" d="M5 8l7 5 7-5"/>',
+  global:'<circle cx="12" cy="12" r="8"/><path class="acc" d="M4 12h16"/><path d="M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/>',
+  machines:'<rect x="4" y="5" width="16" height="11" rx="1.5"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/><line class="acc" x1="7" y1="8.5" x2="13" y2="8.5"/>',
+  session:'<rect x="4" y="5" width="16" height="14" rx="2"/><path class="acc" d="M8 10l2 2-2 2"/><line class="acc" x1="13" y1="14" x2="16" y2="14"/>',
+  report:'<path d="M7 4h7l4 4v11.5A.5.5 0 0 1 17.5 20H7a.5.5 0 0 1-.5-.5V4.5A.5.5 0 0 1 7 4z"/><path d="M14 4v4h4"/><line class="acc" x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="16" x2="13" y2="16"/>',
+  raw:'<path d="M6 5h9a2 2 0 0 1 2 2v9a2 2 0 0 0 2 2H8a2 2 0 0 1-2-2z"/><line class="acc" x1="9" y1="9" x2="14" y2="9"/><line x1="9" y1="12" x2="14" y2="12"/>',
+  clean:'<path d="M14 4l-7 7 3 3 7-7z"/><path class="acc" d="M7 11l-3 6 6-3"/>',
+  view:'<path d="M4 12s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle class="acc" cx="12" cy="12" r="2.6"/>',
+  stash:'<path d="M4 12s3-6 8-6c1.5 0 2.8.4 4 1M20 12s-1.3 2.6-4 4.3M14 14a2.6 2.6 0 0 1-4-3.6"/><line class="acc" x1="5" y1="5" x2="19" y2="19"/>',
+  briefing:'<circle cx="12" cy="12" r="8"/><path class="acc" d="M15.2 8.8 13 14l-5 1 2-5z"/>',
+  assistant:'<path d="M5 19l9-9"/><path class="acc" d="M16 3.5l1.1 2.4 2.4 1.1-2.4 1.1L16 11.5l-1.1-2.4L12.5 8l2.4-1.1z"/>',
+  cost:'<circle cx="12" cy="12" r="8"/><path class="acc" d="M14.6 9.4a3 3 0 0 0-2.6-1.3c-1.6 0-2.6 1-2.6 2 0 2.5 5.6 1.4 5.6 4 0 1.1-1.1 2.1-2.8 2.1a3.2 3.2 0 0 1-2.8-1.4"/><line x1="12" y1="6.3" x2="12" y2="17.7"/>',
+  theme:'<path d="M12 4a8 8 0 1 0 0 16c1.4 0 1.6-1.8.6-2.5-1-.7-.4-2 .9-2H17a3 3 0 0 0 3-3 8 8 0 0 0-8-8.5z"/><circle class="dot" cx="8.5" cy="11" r="1"/><circle class="dot" cx="12" cy="8.5" r="1"/><circle class="dot acc" cx="15.3" cy="11" r="1"/>',
+  servicebus:'<rect x="4" y="9" width="4" height="6" rx="1"/><rect x="16" y="9" width="4" height="6" rx="1"/><line class="acc" x1="8" y1="12" x2="16" y2="12"/><circle class="dot" cx="12" cy="12" r="1.5"/>',
+  azdo:'<path class="acc" d="M12 4 20 12 12 20 4 12z"/><path d="M9.5 12h5M12 9.5v5"/>',
+  celebrate:'<path class="acc" d="M5 19l4-11 7 7z"/><path d="M14 4.5a2 2 0 0 1 2 2M17 8a2 2 0 0 1 2 2"/><circle class="dot acc" cx="18" cy="5" r=".9"/><circle class="dot" cx="13" cy="9" r=".9"/>',
+  target:'<circle cx="12" cy="12" r="7"/><circle class="acc" cx="12" cy="12" r="3.4"/><circle class="dot acc" cx="12" cy="12" r="1.2"/>',
+  suggestion:'<path d="M9 15a5 5 0 1 1 6 0c-.6.4-1 1-1 1.7H10c0-.7-.4-1.3-1-1.7z"/><line class="acc" x1="10" y1="19" x2="14" y2="19"/><line class="acc" x1="10.5" y1="21" x2="13.5" y2="21"/>',
+  outage:'<path d="M12 4.2 20.5 19H3.5z"/><path class="acc" d="M12.5 9l-1.3 4h2l-1.7 4"/>',
+  new:'<path d="M12 4l2 4.5 4.8.5-3.6 3.2 1 4.8L12 14.8 7.8 17l1-4.8L5.2 9l4.8-.5z"/><line class="acc" x1="12" y1="9" x2="12" y2="13"/><line class="acc" x1="10" y1="11" x2="14" y2="11"/>',
+  image:'<rect x="4" y="5" width="16" height="14" rx="2"/><circle class="dot acc" cx="9" cy="10" r="1.4"/><path d="M5 17l4.5-4.5L13 16l2.5-2.5L19 17"/>',
+  /* ---- monochrome glyph roles ---- */
+  close:'<line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="6.5" x2="6.5" y2="17.5"/>',
+  check:'<path d="M5 12.5l4.2 4.2L19 7"/>',
+  'arrow-right':'<line x1="4" y1="12" x2="18.5" y2="12"/><path class="acc" d="M13 6.5l6 5.5-6 5.5"/>',
+  'arrow-left':'<line x1="20" y1="12" x2="5.5" y2="12"/><path class="acc" d="M11 6.5 5 12l6 5.5"/>',
+  'caret-down':'<path d="M6 9.5l6 6 6-6"/>',
+  'caret-right':'<path d="M9.5 6l6 6-6 6"/>',
+  menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>',
+  undo:'<path d="M5 8.5h9a5 5 0 1 1 0 10h-2.5"/><path class="acc" d="M8 5.5 5 8.5l3 3"/>',
+  external:'<path class="acc" d="M14 5h5v5"/><line x1="19" y1="5" x2="11" y2="13"/><path d="M17 14v4.5A1.5 1.5 0 0 1 15.5 20h-9A1.5 1.5 0 0 1 5 18.5v-9A1.5 1.5 0 0 1 6.5 8H11"/>',
+  'fit-width':'<line x1="4" y1="12" x2="20" y2="12"/><path class="acc" d="M7 9l-3 3 3 3M17 9l3 3-3 3"/>',
+  'fit-height':'<line x1="12" y1="4" x2="12" y2="20"/><path class="acc" d="M9 7l3-3 3 3M9 17l3 3 3-3"/>',
+  'fit-screen':'<path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5A1.5 1.5 0 0 1 18.5 20H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/>',
+  font:'<path d="M5 18l4-11 4 11M6.3 14h5.4"/><path class="acc" d="M15 18l2.5-7 2.5 7M16 16h3"/>',
+  add:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  more:'<circle class="dot" cx="5.5" cy="12" r="1.5"/><circle class="dot" cx="12" cy="12" r="1.5"/><circle class="dot" cx="18.5" cy="12" r="1.5"/>',
+};
+
+const THEMES = [
+  {key:'modern', name:'Modern Line', cls:'t-modern', desc:'Minimal monochrome strokes, rounded caps. Clean SaaS feel.'},
+  {key:'industrial', name:'Industrial', cls:'t-industrial', desc:'Thick square strokes on panel tiles. Sturdy, mechanical.'},
+  {key:'nature', name:'Nature / Calm', cls:'t-nature', desc:'Soft rounded strokes, green accent, pebble tiles. Organic.'},
+  {key:'futuristic', name:'Futuristic', cls:'t-futuristic', desc:'Thin accent strokes with HUD glow tiles. Techy.'},
+  {key:'calm', name:'Calm Soft', cls:'t-calm', desc:'Low-contrast hairlines, generous rounding. Quiet, distraction-free.'},
+];
+
+/* roles grouped for the reference table */
+const ROLES = [
+  ['Navigation & entities', [
+    ['agent','🤖','Agent','mode seg · agent cards · run labels'],
+    ['manager','🧑‍💼 👔','Manager','manager avatars · manager tab'],
+    ['org','🏢 🏛','Organization','org switcher · headings'],
+    ['home','🏠','Home','primary nav'],
+    ['plugin','🧩','Plugin / Resources','resources card · plugin type'],
+    ['skill','🛠 🔧','Skill / Tool','skills capability · tools'],
+    ['mcp','🔌','MCP / Connection','MCP servers · connections'],
+    ['sparkle','✨','AI / Design','Skills · Design with AI'],
+    ['tasks','📋','Tasks','productivity seg · dev card #'],
+    ['chart','📊','Stats / Runs','runs tab · metrics'],
+    ['model','🧠','Model','model badge'],
+    ['insights','🔭 🛰','Insights','insights cards'],
+  ]],
+  ['Source control & files', [
+    ['pr','🔀','Pull request','PR id · code flow'],
+    ['branch','🌿 🌱','Branch / Worktree','repo branch · worktree'],
+    ['azdo','🔷','Azure DevOps','source / repo origin'],
+    ['folder','📁 📂','Folder','install path · location'],
+    ['archive','🗄 🗃','Archive','archive · repos'],
+    ['package','📦','Package','all items · package'],
+    ['report','📄','Report','report links'],
+    ['raw','📜','Raw stream','raw output details'],
+    ['session','💻','Session','CLI session channel'],
+    ['machines','🖥','Machines','connected machines'],
+    ['link','🔗','Link / Flow','flows · links'],
+  ]],
+  ['Actions', [
+    ['chat','💬 🗨','Chat','chat buttons · comments'],
+    ['edit','📝 ✏','Edit','edit source / board'],
+    ['trash','🗑','Delete','remove agent / manager'],
+    ['refresh','🔄','Refresh','reinstall · reload'],
+    ['settings','⚙','Settings / Manage','manage · settings'],
+    ['share','📤','Share / Export','share · export'],
+    ['email','📧','Email','share via email'],
+    ['save','💾','Save','save layout / exec'],
+    ['search','🔍 🔎','Search','search · reasoning'],
+    ['key','🔑','Access','manage access'],
+    ['lock','🔒 🔓','Lock','panel lock · unlock caps'],
+    ['pin','📌 📍','Pin','pinned items'],
+    ['star','★ ☆','Quick launch','favorites'],
+    ['tag','🏷','Tag / Group','groups · labels'],
+    ['clean','🧹','Clean','clean work'],
+    ['view','👁','View','watch / show'],
+    ['stash','🙈','Stash / Hide','hide panel'],
+    ['assistant','🪄','Assistant','board assistant'],
+    ['target','🎯','Prompt','board prompt'],
+    ['briefing','🧭','Briefing','board briefing'],
+    ['bolt','⚡','Run / Trigger','brand mark · run · trigger'],
+  ]],
+  ['Status & signals', [
+    ['success','✅','Success','enabled · ready'],
+    ['error','❌ ⛔','Error / Blocked','failed · blocked'],
+    ['warning','⚠','Warning','warnings · update avail'],
+    ['status','🟢 🟡 🔴','Status dot','connection status'],
+    ['bell','🔔','Notification','since last looked'],
+    ['live','📡','Live','live toggle · broadcast'],
+    ['mobile','📱','Mobile','mobile relay'],
+    ['servicebus','🚌','Service bus','service bus status'],
+    ['outage','🚨','Outage','outage / alert'],
+    ['celebrate','🎉','Celebrate','empty-success states'],
+    ['suggestion','💡','Suggestion','suggestions'],
+    ['cost','💵 💲 🪙','Cost','cost stats'],
+    ['user','👤 👥','User','connected users'],
+    ['global','🌐','Global','global scope'],
+    ['theme','🎨 🌙','Appearance','theme picker'],
+    ['calendar','🗓 📅 🕑','Schedule','schedules · time'],
+    ['new','🆕','New','new skills'],
+    ['image','🖼','Image','image file type'],
+  ]],
+  ['Monochrome glyphs (also replaced)', [
+    ['close','✕','Close','dialog close · chip remove'],
+    ['check','✓','Check','inline confirm · applied'],
+    ['arrow-right','→','Next / All →','navigate forward'],
+    ['arrow-left','←','Back','navigate back'],
+    ['caret-down','▾','Expanded','open group / section'],
+    ['caret-right','▸','Collapsed','closed group / section'],
+    ['menu','☰','Menu','hamburger / overflow'],
+    ['more','⋯','More','more actions'],
+    ['add','＋','Add','new item · add'],
+    ['undo','↩','Undo','AI layout undo · reset'],
+    ['external','↗','Open external','open link / new'],
+    ['fit-width','↔','Fit width','board fit width'],
+    ['fit-height','↕','Fit height','board fit vertical'],
+    ['fit-screen','⤢','Fit screen','board fit to screen'],
+    ['font','🔤','Font size','board font'],
+  ]],
+];
+
+function svg(name){
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">'+(I[name]||'')+'</svg>';
+}
+function icon(name, themeCls, extra){
+  return '<span class="iconwrap '+themeCls+(extra?' '+extra:'')+'">'+svg(name)+'</span>';
+}
+
+/* ---------- render in-context mockups ---------- */
+function mockup(t){
+  const c = t.cls;
+  const navItems = ['home','manager','agent','plugin','pr','insights','settings'];
+  const rail = navItems.map((n,i)=>'<span class="iconwrap '+c+(i===2?' active':'')+'">'+svg(n)+'</span>').join('');
+  const tabs = [['tasks','Tasks',true],['chart','Runs',false],['search','Reasoning',false],['mcp','MCP',false]]
+    .map(([n,l,a])=>'<span class="tab'+(a?' active':'')+'"><span class="iconwrap '+c+'">'+svg(n)+'</span>'+l+'</span>').join('');
+  const acts = ['chat','edit','refresh','share','trash'].map(n=>'<span class="iconwrap '+c+'">'+svg(n)+'</span>').join('');
+  const stats =
+    '<span class="stat"><span class="iconwrap '+c+'">'+svg('mobile')+'</span>Mobile <span class="iconwrap '+c+' s-ok">'+svg('status')+'</span></span>'+
+    '<span class="stat"><span class="iconwrap '+c+'">'+svg('live')+'</span>Live <span class="iconwrap '+c+' s-warn">'+svg('status')+'</span></span>'+
+    '<span class="stat"><span class="iconwrap '+c+'">'+svg('servicebus')+'</span>Bus <span class="iconwrap '+c+' s-err">'+svg('status')+'</span></span>';
+  const btns =
+    '<span class="btn acc"><span class="iconwrap '+c+'">'+svg('sparkle')+'</span>Design with AI</span>'+
+    '<span class="btn"><span class="iconwrap '+c+'">'+svg('save')+'</span>Save</span>'+
+    '<span class="btn"><span class="iconwrap '+c+'">'+svg('caret-down')+'</span>Group: Repo</span>';
+  return ''+
+  '<div class="mock">'+
+    '<div class="mhd"><div class="tname">'+t.name+'</div><div class="tdesc">'+t.desc+'</div></div>'+
+    '<div class="chrome">'+
+      '<div class="rail">'+rail+'</div>'+
+      '<div class="body">'+
+        '<div class="tabs">'+tabs+'</div>'+
+        '<div class="panelhd"><div class="ttl"><span class="iconwrap '+c+'">'+svg('agent')+'</span>Azure Status Observer</div>'+
+          '<div class="acts">'+acts+'</div></div>'+
+        '<div class="statrow">'+stats+'</div>'+
+        '<div class="btns">'+btns+'</div>'+
+      '</div>'+
+    '</div>'+
+  '</div>';
+}
+document.getElementById('mockups').innerHTML = THEMES.map(mockup).join('');
+
+/* ---------- render comparison table ---------- */
+(function(){
+  const head = '<thead><tr><th class="rk">Role</th><th>Emoji / glyph</th>'+
+    THEMES.map(t=>'<th>'+t.name+'</th>').join('')+'</tr></thead>';
+  let body = '<tbody>';
+  for(const [grp, rows] of ROLES){
+    body += '<tr class="grouphd"><td colspan="'+(THEMES.length+2)+'">'+grp+'</td></tr>';
+    for(const [key,em,lbl,where] of rows){
+      body += '<tr>'+
+        '<td class="rk"><div class="lbl">'+lbl+'</div><div class="where">'+where+'</div></td>'+
+        '<td class="em">'+em+'</td>'+
+        THEMES.map(t=>'<td><div class="cell">'+icon(key,t.cls)+'</div></td>').join('')+
+      '</tr>';
+    }
+  }
+  body += '</tbody>';
+  document.getElementById('gridtbl').innerHTML = head+body;
+})();
+
+/* ---------- light/dark toggle ---------- */
+(function(){
+  const lt = document.getElementById('lt');
+  function set(t){
+    document.documentElement.setAttribute('data-theme', t);
+    [...lt.querySelectorAll('button')].forEach(b=>b.classList.toggle('on', b.dataset.t===t));
+  }
+  lt.addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) set(b.dataset.t); });
+  set(document.documentElement.getAttribute('data-theme')||'light');
+})();
+</script>
+</body>
+</html>

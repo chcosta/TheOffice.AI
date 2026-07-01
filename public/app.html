@@ -8661,6 +8661,318 @@
           </section>
 
           <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
+          <!-- ===== Connect (living impact / performance diary) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'connect'" x-transition.opacity.duration.180ms>
+            <style>
+              .connect-tabs { display:flex; gap:4px; border-bottom:1px solid var(--cp-border); margin:0 0 20px; }
+              .connect-tab { appearance:none; background:none; border:none; padding:10px 14px; font-size:14px; font-weight:600;
+                color:var(--cp-text-muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+              .connect-tab:hover { color:var(--cp-text); }
+              .connect-tab.active { color:var(--cp-accent); border-bottom-color:var(--cp-accent); }
+              .connect-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px; padding:18px; margin-bottom:16px; }
+              .connect-card h3 { margin:0 0 4px; font-size:15px; }
+              .connect-card .hint { margin:0 0 14px; }
+              .connect-privacy { display:flex; gap:10px; align-items:flex-start; background:var(--cp-accent-soft);
+                border:1px solid var(--cp-border); border-radius:10px; padding:12px 14px; margin-bottom:18px; font-size:13px; color:var(--cp-text-muted); }
+              .connect-draft-area { width:100%; min-height:340px; font-family:Consolas,'Courier New',monospace; font-size:13.5px;
+                line-height:1.55; resize:vertical; }
+              .connect-diary-day { margin-bottom:18px; }
+              .connect-diary-date { font-size:12px; font-weight:700; letter-spacing:.03em; text-transform:uppercase;
+                color:var(--cp-text-soft); margin:0 0 8px; }
+              .connect-ev { display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--cp-border); }
+              .connect-ev.hidden-ev { opacity:.5; }
+              .connect-ev-icon { font-size:18px; line-height:1.3; width:22px; text-align:center; flex:0 0 auto; }
+              .connect-ev-body { flex:1; min-width:0; }
+              .connect-ev-title { font-weight:600; font-size:14px; }
+              .connect-ev-src { font-size:12px; color:var(--cp-text-soft); }
+              .connect-ev-detail { font-size:13px; color:var(--cp-text-muted); white-space:pre-wrap; margin-top:3px; }
+              .connect-ev-impact { font-size:13px; margin-top:4px; }
+              .connect-ev-impact b { color:var(--cp-accent); }
+              .connect-ev-actions { display:flex; gap:6px; flex:0 0 auto; align-items:flex-start; }
+              .connect-ev-actions button { background:none; border:none; cursor:pointer; color:var(--cp-text-soft); font-size:13px; padding:2px 4px; }
+              .connect-ev-actions button:hover { color:var(--cp-text); }
+              .connect-field { margin-bottom:14px; }
+              .connect-field label { display:block; font-size:13px; font-weight:600; margin-bottom:5px; }
+              .connect-field input, .connect-field select, .connect-field textarea { width:100%; }
+              .connect-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+              .connect-src-badge { font-size:11px; color:var(--cp-text-soft); }
+              .connect-draft-preview { border:1px solid var(--cp-border); border-radius:10px; padding:16px; background:var(--cp-bg-elevated); }
+            </style>
+
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🌟 Connect</h1>
+                <p>Your living, private impact diary — capture what you've accomplished, then draft a Connect that shows your impact honestly and in your own voice. Stored locally on your machine.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn ghost" type="button" :disabled="connect.busy" @click="exportConnect()" title="Download the full backing data as JSON">⬇ Export data</button>
+                <button class="btn" type="button" :disabled="connect.busy || !connect.draftText.trim()" @click="emailConnect()">✉ Email my Connect</button>
+              </div>
+            </div>
+
+            <div class="connect-privacy">
+              <span style="font-size:16px;line-height:1">🔒</span>
+              <div>
+                <strong style="color:var(--cp-text)">Yours, and private.</strong>
+                Everything here stays on your machine. AI only ever helps you <em>draft</em> — you always review and edit in your own voice. Nothing is collected automatically until you turn it on in Settings.
+              </div>
+            </div>
+
+            <div class="connect-tabs">
+              <button class="connect-tab" :class="{ active: connect.tab === 'draft' }" @click="connectSetTab('draft')">📝 My Connect</button>
+              <button class="connect-tab" :class="{ active: connect.tab === 'diary' }" @click="connectSetTab('diary')" x-text="'📖 Diary (' + (connect.evidence ? connect.evidence.length : 0) + ')'"></button>
+              <button class="connect-tab" :class="{ active: connect.tab === 'guidance' }" @click="connectSetTab('guidance')">🎯 Guidance</button>
+              <button class="connect-tab" :class="{ active: connect.tab === 'settings' }" @click="connectSetTab('settings')">⚙ Settings</button>
+            </div>
+
+            <div x-show="connect.loading" class="hint">Loading…</div>
+
+            <!-- ===== Draft tab ===== -->
+            <div x-show="!connect.loading && connect.tab === 'draft'" x-transition.opacity.duration.120ms>
+              <div class="connect-card" x-show="connect.state">
+                <h3>My current role</h3>
+                <p class="hint">A little context so your Connect draft (and, later, the AI) understands your scope. Optional.</p>
+                <div class="connect-grid2" x-show="connect.state">
+                  <div class="connect-field">
+                    <label>Role / title</label>
+                    <input type="text" x-model="connect.state.profile.role" placeholder="e.g. Senior Software Engineer">
+                  </div>
+                  <div class="connect-field">
+                    <label>Level (optional)</label>
+                    <input type="text" x-model="connect.state.profile.level" placeholder="e.g. 63">
+                  </div>
+                </div>
+                <div class="connect-field" x-show="connect.state">
+                  <label>What you're responsible for</label>
+                  <textarea rows="2" x-model="connect.state.profile.responsibilities" placeholder="Your core responsibilities and areas of ownership"></textarea>
+                </div>
+                <div class="connect-field" x-show="connect.state">
+                  <label>Current priorities</label>
+                  <textarea rows="2" x-model="connect.state.profile.priorities" placeholder="What matters most this period"></textarea>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button class="btn ghost" type="button" @click="saveConnectProfile()">Save role details</button>
+                  <button class="btn ghost" type="button" :disabled="connect.autofilling" @click="connectAutofillProfile()" title="Infer your role from recent Teams, email, and meeting activity" x-text="connect.autofilling ? 'Reading your work…' : '✨ Auto-fill from my work'"></button>
+                </div>
+              </div>
+
+              <div class="connect-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                  <div>
+                    <h3>My Connect draft</h3>
+                    <p class="hint" style="margin:0">
+                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.source === 'ai'">✨ AI-drafted — review &amp; personalize below</span>
+                      <span class="connect-src-badge" x-show="!(connect.state && connect.state.draft && connect.state.draft.source === 'ai')">✍ Your draft</span>
+                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="' · updated ' + formatRelative(connect.state.draft.updatedAt)"></span>
+                    </p>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn ghost small" type="button" :disabled="connect.generating" @click="connectGenerate()" title="Draft a Connect from your diary evidence" x-text="connect.generating ? 'Drafting…' : '✨ Generate from diary'"></button>
+                    <button class="btn ghost small" type="button" @click="connect._preview = !connect._preview" x-text="connect._preview ? '✎ Edit' : '👁 Preview'"></button>
+                    <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
+                  </div>
+                </div>
+                <p class="hint" x-show="!connect.draftText.trim() && !connect._preview">
+                  Write or paste your Connect here. Pull from your Diary entries for concrete, quantified examples of impact.
+                  Automated drafting from your work activity arrives next — for now this is your space to write.
+                </p>
+                <textarea x-show="!connect._preview" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
+                          placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
+                <div x-show="connect._preview" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
+              </div>
+            </div>
+
+            <!-- ===== Diary tab ===== -->
+            <div x-show="!connect.loading && connect.tab === 'diary'" x-transition.opacity.duration.120ms>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <label class="hint" style="margin:0">Filter</label>
+                  <select x-model="connect.filterSource" style="width:auto">
+                    <option value="">All sources</option>
+                    <option value="manual">✍ Manual</option>
+                    <option value="teams">💬 Teams</option>
+                    <option value="email">✉ Email</option>
+                    <option value="meeting">📅 Meetings</option>
+                    <option value="ado">📋 Work items</option>
+                    <option value="pr">🔀 Pull requests</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
+                <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" title="Pull recent Teams, email, and meeting activity into your diary" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
+              </div>
+
+              <!-- Inline add/edit form -->
+              <div class="connect-card" x-show="connect.evForm" x-transition.opacity.duration.120ms>
+                <h3 x-text="connect.evForm && connect.evForm.id ? 'Edit entry' : 'New diary entry'"></h3>
+                <div class="connect-grid2" x-show="connect.evForm">
+                  <div class="connect-field">
+                    <label>Date</label>
+                    <input type="date" x-model="connect.evForm.date">
+                  </div>
+                  <div class="connect-field">
+                    <label>Source</label>
+                    <select x-model="connect.evForm.source">
+                      <option value="manual">✍ Manual</option>
+                      <option value="teams">💬 Teams</option>
+                      <option value="email">✉ Email</option>
+                      <option value="meeting">📅 Meeting</option>
+                      <option value="ado">📋 Work item</option>
+                      <option value="pr">🔀 Pull request</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="connect-field" x-show="connect.evForm">
+                  <label>Title</label>
+                  <input type="text" x-model="connect.evForm.title" placeholder="What did you do?">
+                </div>
+                <div class="connect-field" x-show="connect.evForm">
+                  <label>Detail</label>
+                  <textarea rows="2" x-model="connect.evForm.detail" placeholder="Context, what you did, who was involved"></textarea>
+                </div>
+                <div class="connect-field" x-show="connect.evForm">
+                  <label>Impact <span class="hint" style="font-weight:400">— the outcome it drove</span></label>
+                  <textarea rows="2" x-model="connect.evForm.impact" placeholder="e.g. cut build time 40%, unblocked 3 teams"></textarea>
+                </div>
+                <div class="connect-grid2" x-show="connect.evForm">
+                  <div class="connect-field">
+                    <label>Links <span class="hint" style="font-weight:400">(one per line)</span></label>
+                    <textarea rows="2" x-model="connect.evForm.links" placeholder="https://…"></textarea>
+                  </div>
+                  <div class="connect-field">
+                    <label>Tags <span class="hint" style="font-weight:400">(comma-separated)</span></label>
+                    <input type="text" x-model="connect.evForm.tags" placeholder="leadership, reliability">
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button class="btn primary" type="button" :disabled="connect.evBusy" @click="saveConnectEvidence()" x-text="connect.evBusy ? 'Saving…' : 'Save entry'"></button>
+                  <button class="btn ghost" type="button" @click="closeConnectEvidence()">Cancel</button>
+                </div>
+              </div>
+
+              <div x-show="!connectFilteredEvidence().length && !connect.evForm" class="hint" style="padding:24px 0;text-align:center">
+                No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect.
+              </div>
+
+              <template x-for="day in connectEvidenceByDate()" :key="day.date">
+                <div class="connect-diary-day">
+                  <div class="connect-diary-date" x-text="new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })"></div>
+                  <template x-for="ev in day.items" :key="ev.id">
+                    <div class="connect-ev" :class="{ 'hidden-ev': ev.hidden }">
+                      <div class="connect-ev-icon" x-text="connectSourceMeta(ev.source).icon"></div>
+                      <div class="connect-ev-body">
+                        <div class="connect-ev-title" x-text="ev.title || '(untitled)'"></div>
+                        <div class="connect-ev-src">
+                          <span x-text="connectSourceMeta(ev.source).label"></span>
+                          <span x-show="ev.origin === 'auto'"> · collected</span>
+                          <span x-show="ev.hidden"> · hidden from draft</span>
+                        </div>
+                        <div class="connect-ev-detail" x-show="ev.detail" x-text="ev.detail"></div>
+                        <div class="connect-ev-impact" x-show="ev.impact"><b>Impact:</b> <span x-text="ev.impact"></span></div>
+                        <div x-show="ev.links && ev.links.length" style="margin-top:4px">
+                          <template x-for="(l, i) in ev.links" :key="i">
+                            <a :href="l" target="_blank" class="hint" style="margin-right:10px" x-text="'↗ link ' + (i+1)"></a>
+                          </template>
+                        </div>
+                      </div>
+                      <div class="connect-ev-actions">
+                        <button type="button" @click="openConnectEvidence(ev)" title="Edit">✎</button>
+                        <button type="button" @click="toggleConnectEvidenceHidden(ev)" :title="ev.hidden ? 'Show in draft' : 'Hide from draft'" x-text="ev.hidden ? '🙈' : '👁'"></button>
+                        <button type="button" @click="deleteConnectEvidence(ev)" title="Delete">🗑</button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+
+            <!-- ===== Guidance tab ===== -->
+            <div x-show="!connect.loading && connect.tab === 'guidance' && connect.state" x-transition.opacity.duration.120ms>
+              <div class="connect-card">
+                <h3>Steer your Connect</h3>
+                <p class="hint">Tell the AI how you want your Connect to read. It's a drafting assistant only — you always have the final word.</p>
+                <div class="connect-grid2" x-show="connect.state">
+                  <div class="connect-field">
+                    <label>Tone</label>
+                    <input type="text" x-model="connect.state.guidance.tone" placeholder="e.g. professional, direct, warm">
+                  </div>
+                  <div class="connect-field">
+                    <label>Framing</label>
+                    <select x-model="connect.state.guidance.positivity">
+                      <option value="balanced">Balanced — confident but honest on growth</option>
+                      <option value="confident">Confident — lead with strengths</option>
+                      <option value="humble">Humble — understated</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="connect-field" x-show="connect.state">
+                  <label>Focus areas <span class="hint" style="font-weight:400">(comma-separated)</span></label>
+                  <input type="text" :value="(connect.state.guidance.focusAreas || []).join(', ')"
+                         @input="connect.state.guidance.focusAreas = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                         placeholder="reliability, mentorship, cross-team impact">
+                </div>
+                <div class="connect-field" x-show="connect.state">
+                  <label>Extra instructions for the AI</label>
+                  <textarea rows="3" x-model="connect.state.guidance.instructions" placeholder="e.g. Emphasize measurable outcomes. Keep each section to 2-3 sentences. Call out one clear growth area."></textarea>
+                </div>
+                <button class="btn primary" type="button" @click="saveConnectGuidance()">Save guidance</button>
+              </div>
+              <div class="connect-privacy">
+                <span style="font-size:16px;line-height:1">💡</span>
+                <div>A great Connect leads with <strong style="color:var(--cp-text)">impact</strong>, not activity — one or two concrete, quantified examples beat a long list. Own your growth areas honestly; it reads as strength.</div>
+              </div>
+            </div>
+
+            <!-- ===== Settings tab ===== -->
+            <div x-show="!connect.loading && connect.tab === 'settings' && connect.config" x-transition.opacity.duration.120ms>
+              <div class="connect-card">
+                <h3>Automated collection</h3>
+                <p class="hint">When enabled, Connect gathers evidence of your work automatically (Teams channel/group posts, email you send, meetings) on your schedule — all processed locally.</p>
+                <label style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;cursor:pointer">
+                  <input type="checkbox" x-model="connect.config.consent" style="margin-top:3px">
+                  <span>I understand automated collection reads my Teams, email, meeting, and work-item activity to build my private diary. Nothing leaves my machine.</span>
+                </label>
+                <label style="display:flex;gap:10px;align-items:center;margin-bottom:12px;cursor:pointer" :style="!connect.config.consent ? 'opacity:.5' : ''">
+                  <input type="checkbox" x-model="connect.config.collectionEnabled" :disabled="!connect.config.consent">
+                  <span>Enable automated daily collection</span>
+                </label>
+                <div class="connect-grid2">
+                  <div class="connect-field">
+                    <label>Collection schedule</label>
+                    <input type="text" x-model="connect.config.schedule" placeholder="daily at 6pm">
+                  </div>
+                  <div class="connect-field" style="display:flex;align-items:flex-end">
+                    <label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-weight:400">
+                      <input type="checkbox" x-model="connect.config.generateDaily">
+                      <span>Also refresh my Connect draft after each collection</span>
+                    </label>
+                  </div>
+                </div>
+                <label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-weight:400;margin-bottom:4px">
+                  <input type="checkbox" x-model="connect.config.adoEnabled">
+                  <span>Also collect Azure DevOps work items &amp; pull requests</span>
+                </label>
+              </div>
+
+              <div class="connect-card">
+                <h3>Storage &amp; delivery</h3>
+                <div class="connect-field">
+                  <label>Storage folder</label>
+                  <input type="text" x-model="connect.config.storageDir" placeholder="Leave blank for the default local folder">
+                  <p class="hint" style="margin:5px 0 0">Point this at a OneDrive-synced folder (e.g. <code>C:\Users\you\OneDrive\Connect</code>) to keep your backing data in the cloud.</p>
+                </div>
+                <div class="connect-field">
+                  <label>Default email recipient</label>
+                  <input type="text" x-model="connect.config.emailTo" placeholder="you@microsoft.com (optional)">
+                </div>
+              </div>
+
+              <button class="btn primary" type="button" :disabled="connect.busy" @click="saveConnectConfig()" x-text="connect.busy ? 'Saving…' : 'Save settings'"></button>
+            </div>
+          </section>
+
+          <!-- ===== Code Flow ===== -->
           <section x-show="!loading && !errorMessage && route === 'codeflow'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -10586,6 +10898,128 @@
             </div>
 
             </div><!-- /sync category -->
+
+            <!-- ===== Dependencies category ===== -->
+            <div x-show="settingsCat === 'dependencies'">
+            <div class="card" style="margin-bottom:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+                <h3 style="margin:0">📦 Dependencies</h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn ghost" type="button" @click="checkDependencies()" :disabled="deps.checking || deps.settings.offlineMode" style="font-size:0.82rem">
+                    <span x-show="!deps.checking">↻ Check for updates</span>
+                    <span x-show="deps.checking">Checking…</span>
+                  </button>
+                  <button class="btn" type="button" @click="updateAllDependencies()" :disabled="deps.busyAll || deps.settings.offlineMode || !depsAnyUpdatable()" style="font-size:0.82rem" title="Apply every pending update now">
+                    <span x-show="!deps.busyAll">⬆ Update all</span>
+                    <span x-show="deps.busyAll">Updating…</span>
+                  </button>
+                </div>
+              </div>
+              <p class="hint" style="margin-bottom:0">The bundled copy is the floor; the app keeps an updatable copy that actually runs. Updates are staged, validated, then swapped in atomically — a failed update never breaks what you have. Everything here is per-user; no admin rights required.</p>
+              <div x-show="deps.error" style="margin-top:10px;font-size:0.85rem;color:var(--cp-danger)" x-text="deps.error"></div>
+            </div>
+
+            <!-- Auto-update policy -->
+            <div class="card" style="margin-bottom:20px">
+              <h3 style="margin-bottom:12px">🕒 Automatic updates</h3>
+              <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;cursor:pointer">
+                <input type="checkbox" :checked="deps.settings.autoUpdate" @change="saveDepsSettings({ depsAutoUpdate: $event.target.checked })" style="margin-top:3px" />
+                <span>
+                  <span style="font-weight:600">Keep dependencies up to date on a schedule</span>
+                  <span class="hint" style="display:block;font-size:0.8rem">When on, the app checks and applies updates in the background using the schedule below.</span>
+                </span>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;cursor:pointer">
+                <input type="checkbox" :checked="deps.settings.consent" @change="saveDepsSettings({ depsConsent: $event.target.checked })" style="margin-top:3px" />
+                <span>
+                  <span style="font-weight:600">I consent to automatic updates</span>
+                  <span class="hint" style="display:block;font-size:0.8rem">Automatic updates stay off until you turn this on, even when the schedule is enabled. Manual updates always work.</span>
+                </span>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;cursor:pointer">
+                <input type="checkbox" :checked="deps.settings.offlineMode" @change="saveDepsSettings({ depsOfflineMode: $event.target.checked })" style="margin-top:3px" />
+                <span>
+                  <span style="font-weight:600">Offline mode</span>
+                  <span class="hint" style="display:block;font-size:0.8rem">Skip all network version checks and updates (air-gapped or metered connections). The app still runs off the copies you already have.</span>
+                </span>
+              </label>
+              <div style="display:flex;gap:20px;flex-wrap:wrap">
+                <div style="min-width:180px">
+                  <div class="field-label" style="margin-bottom:6px">Default channel</div>
+                  <select class="input" :value="deps.settings.channel" @change="saveDepsSettings({ depsChannel: $event.target.value })" style="width:100%">
+                    <option value="stable">Stable (recommended)</option>
+                    <option value="latest">Latest / prerelease</option>
+                    <option value="pinned">Pinned (don't move)</option>
+                  </select>
+                  <div class="hint" style="font-size:0.75rem;margin-top:4px">Per-dependency overrides below take precedence.</div>
+                </div>
+                <div style="min-width:200px">
+                  <div class="field-label" style="margin-bottom:6px">Schedule</div>
+                  <input class="input" type="text" :value="deps.settings.schedule" @change="saveDepsSettings({ depsSchedule: $event.target.value })" placeholder="daily at 3am" style="width:100%" />
+                  <div class="hint" style="font-size:0.75rem;margin-top:4px">e.g. "daily at 3am", "every 12 hours", or "never".</div>
+                </div>
+              </div>
+              <div class="hint" style="font-size:0.78rem;margin-top:12px">Updates are deferred while an agent or manager run is in flight, then applied once things are idle.</div>
+            </div>
+
+            <!-- Per-dependency list -->
+            <div class="card" style="margin-bottom:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <h3 style="margin:0">Installed <span class="hint" style="font-weight:400" x-text="'· ' + (deps.items.length) + ' tracked'"></span></h3>
+                <span x-show="deps.loading" class="hint" style="font-size:0.8rem">Loading…</span>
+              </div>
+              <div x-show="!deps.loading && deps.items.length === 0" class="hint">No dependencies found.</div>
+              <template x-for="d in deps.items" :key="d.id">
+                <div style="border:1px solid var(--cp-border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (d.status === 'error' ? 'var(--cp-danger)' : (d.updateAvailable ? 'var(--cp-warning)' : 'var(--cp-success)'))"
+                      :title="d.status === 'error' ? 'Error' : (d.updateAvailable ? 'Update available' : 'Up to date')"></span>
+                    <div style="min-width:0;flex:1">
+                      <div style="font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span x-text="d.name || d.label || d.id"></span>
+                        <span x-show="d.managed" class="hint" style="font-size:0.7rem;color:var(--cp-accent)" title="Running an app-managed copy">managed</span>
+                        <span x-show="d.channel === 'pinned'" class="hint" style="font-size:0.7rem" title="Pinned to its current version — not auto-updated">pinned</span>
+                      </div>
+                      <div class="hint mono" style="font-size:0.76rem" x-text="depVersionLine(d)"></div>
+                      <div x-show="d.lastError" class="hint" style="font-size:0.74rem;color:var(--cp-danger)" x-text="d.lastError"></div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                      <span x-show="d.updateAvailable" class="hint" style="font-size:0.76rem;color:var(--cp-warning)" x-text="'→ ' + (d.latestKnown || 'newer')"></span>
+                      <button x-show="d.manageable !== false" class="btn" type="button" @click="updateDependency(d.id)" :disabled="deps.busy[d.id] || deps.settings.offlineMode || !d.updateAvailable" style="font-size:0.8rem">
+                        <span x-show="deps.busy[d.id] !== 'update'">Update</span>
+                        <span x-show="deps.busy[d.id] === 'update'">…</span>
+                      </button>
+                      <button x-show="d.managed && d.previousVersion" class="btn ghost" type="button" @click="rollbackDependency(d.id)" :disabled="deps.busy[d.id]" style="font-size:0.8rem" :title="'Roll back to ' + d.previousVersion">
+                        <span x-show="deps.busy[d.id] !== 'rollback'">↩ Rollback</span>
+                        <span x-show="deps.busy[d.id] === 'rollback'">…</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div x-show="d.manageable !== false" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--cp-border)">
+                    <label x-show="d.kind === 'managed-npm'" style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem">
+                      <span class="field-label">Channel</span>
+                      <select class="input" style="font-size:0.8rem;padding:4px 8px" :value="d.channel || ''" @change="setDepConfig(d.id, { channel: $event.target.value || null })">
+                        <option value="">Inherit default</option>
+                        <option value="stable">Stable</option>
+                        <option value="latest">Latest / prerelease</option>
+                        <option value="pinned">Pinned</option>
+                      </select>
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem">
+                      <span class="field-label">Auto-update</span>
+                      <select class="input" style="font-size:0.8rem;padding:4px 8px" :value="d.autoUpdate === null || d.autoUpdate === undefined ? '' : (d.autoUpdate ? 'on' : 'off')" @change="setDepConfig(d.id, { autoUpdate: $event.target.value === '' ? null : $event.target.value === 'on' })">
+                        <option value="">Inherit global</option>
+                        <option value="on">Always</option>
+                        <option value="off">Never</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div x-show="d.manageable === false" class="hint" style="font-size:0.74rem;margin-top:8px" x-text="d.reason || d.detail || 'Managed by your system; not updatable from here.'"></div>
+                </div>
+              </template>
+            </div>
+
+            </div><!-- /dependencies category -->
 
             <!-- ===== About category ===== -->
             <div x-show="settingsCat === 'about'">
@@ -13292,6 +13726,27 @@
         insightSuggestHint: '',
         insightSuggestError: '',
         // Code Flow — Azure DevOps PR monitoring across watched repos.
+        // ===== Connect (living impact / performance diary) =====
+        connect: {
+          loaded: false,
+          loading: false,
+          state: null,           // { profile, draft, guidance, meta }
+          evidence: [],          // diary items (newest-first)
+          config: null,          // { collectionEnabled, consent, schedule, ... }
+          tab: 'draft',          // 'draft' | 'diary' | 'guidance' | 'settings'
+          draftText: '',         // editable buffer for the draft body
+          draftDirty: false,
+          savingDraft: false,
+          filterSource: '',      // diary source filter ('' = all)
+          evForm: null,          // manual-entry / edit form (null = closed)
+          evBusy: false,
+          busy: false,
+          _preview: false,
+          generating: false,
+          collecting: false,
+          autofilling: false,
+          notice: '',
+        },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
           // The non-"mine" tab ("Active PRs") shows every open PR in the watched
@@ -13483,6 +13938,7 @@
         externalAccessDisabled: false,
         externalAccessBusy: false,
         settingsCat: 'appearance',
+        deps: { items: [], settings: { autoUpdate: false, channel: 'stable', schedule: 'daily at 3am', offlineMode: false, consent: false }, loading: false, checking: false, busy: {}, busyAll: false, error: '', _loaded: false },
         exportSettingsRepos: [],
         exportSettingsBranches: [],
         exportSettingsLoadingRepos: false,
@@ -14253,7 +14709,7 @@
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -14272,11 +14728,12 @@
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'about'];
+            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'dependencies', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
             this.loadModelSettings();
+            if (this.settingsCat === 'dependencies') this.loadDependencies();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
           } else if (this.route === 'design') {
@@ -14317,6 +14774,8 @@
               await this.loadBoards(this.app.routeParam);
               this.$nextTick(() => this._scheduleBoardCanvasH());
             }
+          } else if (this.route === 'connect') {
+            await this.loadConnect();
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'codeflow') {
@@ -15072,6 +15531,7 @@
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false };
             const teams = { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
+            const connect = { key: 'connect', label: 'Connect', title: 'Connect — your living impact diary', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
             const news = { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
               { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
@@ -15087,6 +15547,7 @@
             if (bf.teams) out.push(teams);
             if (bf.sessions) out.push(sessions);
             if (bf.news) out.push(news);
+            if (bf.connect) out.push(connect);
             return out;
           }
           if (this.appMode === 'workforce') {
@@ -15115,6 +15576,7 @@
             { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
+            { key: 'connect', label: 'Connect', title: 'Connect — your living impact diary', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false },
             watercooler,
             ...globalZone
           ];
@@ -15163,7 +15625,7 @@
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow'].includes(r)) return 'workspace';
+          if (['boards', 'insights', 'codeflow', 'connect'].includes(r)) return 'workspace';
           if (['agents', 'agent-detail', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'chains', 'chain-detail', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
@@ -15200,6 +15662,7 @@
             { key: 'teams', label: 'Teams', icon: '🏢', hint: 'Group employees into teams.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
+            { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.' },
           ];
         },
         setExperienceLevel(level) {
@@ -15245,6 +15708,7 @@
             teams: ['teams'],
             sessions: ['sessions'],
             news: ['activity', 'reports'],
+            connect: ['connect'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return !!bf[feat];
@@ -15917,6 +16381,12 @@
           this.confirmModal.open = false;
           this.confirmModal._resolve = null;
           if (r) r(val);
+        },
+        // Lightweight alias over showToast(title, message, type). Callers that only
+        // have a single message string use this; the title is inferred from type.
+        toast(message, type = 'info') {
+          const title = type === 'error' ? 'Error' : type === 'success' ? 'Done' : 'Notice';
+          this.showToast(title, message, type === 'success' ? 'info' : type);
         },
         uiPrompt(opts) {
           if (typeof opts === 'string') opts = { title: opts };
@@ -16652,6 +17122,7 @@
             { id: 'ai', label: 'AI & Behavior', ico: '🧠', hash: '#/settings/ai' },
             { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
             { id: 'sync', label: 'Sync & Machines', ico: '☁️', hash: '#/settings/sync' },
+            { id: 'dependencies', label: 'Dependencies', ico: '📦', hash: '#/settings/dependencies' },
             { id: 'external', label: 'External Access', ico: '🌐', hash: '#/events' },
             { id: 'about', label: 'About', ico: 'ℹ️', hash: '#/settings/about' },
           ];
@@ -16659,6 +17130,130 @@
         settingsCatActive(id) {
           if (this.route === 'events') return id === 'external';
           return this.route === 'settings' && this.settingsCat === id;
+        },
+        depVersionLine(d) {
+          if (!d) return '';
+          const parts = [];
+          const cur = d.activeVersion || d.currentVersion;
+          parts.push('current ' + (cur || '—'));
+          if (d.bundledVersion && d.bundledVersion !== cur) parts.push('bundled ' + d.bundledVersion);
+          if (d.latestKnown && d.latestKnown !== cur) parts.push('latest ' + d.latestKnown);
+          if (d.previousVersion) parts.push('prev ' + d.previousVersion);
+          return parts.join(' · ');
+        },
+        depsAnyUpdatable() {
+          return (this.deps.items || []).some(d => d.updateAvailable && d.manageable !== false);
+        },
+        _applyDepsResponse(r) {
+          if (!r) return;
+          if (Array.isArray(r.items)) this.deps.items = r.items;
+          if (r.settings) this.deps.settings = Object.assign({}, this.deps.settings, r.settings);
+        },
+        async loadDependencies(force) {
+          if (this.deps._loaded && !force) return;
+          this.deps.loading = true;
+          this.deps.error = '';
+          try {
+            const r = await this.request('/api/dependencies');
+            this._applyDepsResponse(r);
+            this.deps._loaded = true;
+          } catch (err) {
+            this.deps.error = 'Could not load dependencies: ' + err.message;
+          } finally {
+            this.deps.loading = false;
+          }
+        },
+        async checkDependencies(id) {
+          this.deps.checking = true;
+          this.deps.error = '';
+          try {
+            const body = id ? JSON.stringify({ id }) : '{}';
+            const r = await this.request('/api/dependencies/check', { method: 'POST', body });
+            this._applyDepsResponse(r);
+          } catch (err) {
+            this.deps.error = 'Check failed: ' + err.message;
+          } finally {
+            this.deps.checking = false;
+          }
+        },
+        async updateDependency(id) {
+          if (this.deps.busy[id]) return;
+          this.deps.busy = Object.assign({}, this.deps.busy, { [id]: 'update' });
+          this.deps.error = '';
+          try {
+            const r = await this.request('/api/dependencies/' + encodeURIComponent(id) + '/update', { method: 'POST', body: '{}' });
+            this._applyDepsResponse(r);
+            this.showToast('Dependencies', 'Updated ' + id + (r && r.result && r.result.version ? ' → ' + r.result.version : ''), 'success');
+          } catch (err) {
+            this.deps.error = 'Update failed: ' + err.message;
+            this.showToast('Dependencies', 'Update failed: ' + err.message, 'error');
+          } finally {
+            const b = Object.assign({}, this.deps.busy); delete b[id]; this.deps.busy = b;
+          }
+        },
+        async rollbackDependency(id) {
+          if (this.deps.busy[id]) return;
+          if (!(await this.uiConfirm('Roll back ' + id + ' to the previous version?'))) return;
+          this.deps.busy = Object.assign({}, this.deps.busy, { [id]: 'rollback' });
+          this.deps.error = '';
+          try {
+            const r = await this.request('/api/dependencies/' + encodeURIComponent(id) + '/rollback', { method: 'POST', body: '{}' });
+            this._applyDepsResponse(r);
+            this.showToast('Dependencies', 'Rolled back ' + id, 'success');
+          } catch (err) {
+            this.deps.error = 'Rollback failed: ' + err.message;
+            this.showToast('Dependencies', 'Rollback failed: ' + err.message, 'error');
+          } finally {
+            const b = Object.assign({}, this.deps.busy); delete b[id]; this.deps.busy = b;
+          }
+        },
+        async setDepConfig(id, patch) {
+          this.deps.error = '';
+          try {
+            const r = await this.request('/api/dependencies/' + encodeURIComponent(id) + '/config', { method: 'PUT', body: JSON.stringify(patch || {}) });
+            this._applyDepsResponse(r);
+          } catch (err) {
+            this.deps.error = 'Could not save: ' + err.message;
+          }
+        },
+        async updateAllDependencies() {
+          if (this.deps.busyAll) return;
+          this.deps.busyAll = true;
+          this.deps.error = '';
+          try {
+            const r = await this.request('/api/dependencies/update-all', { method: 'POST', body: '{}' });
+            this._applyDepsResponse(r);
+            this.showToast('Dependencies', 'Applied all available updates.', 'success');
+          } catch (err) {
+            this.deps.error = 'Update all failed: ' + err.message;
+            this.showToast('Dependencies', 'Update all failed: ' + err.message, 'error');
+          } finally {
+            this.deps.busyAll = false;
+          }
+        },
+        async saveDepsSettings(patch) {
+          this.deps.settings = Object.assign({}, this.deps.settings, this._depsPatchToLocal(patch));
+          this.deps.error = '';
+          try {
+            const saved = await this.request('/api/settings', { method: 'PUT', body: JSON.stringify(patch || {}) });
+            if (saved) {
+              this.deps.settings = {
+                autoUpdate: saved.depsAutoUpdate === true,
+                channel: saved.depsChannel || 'stable',
+                schedule: saved.depsSchedule || 'daily at 3am',
+                offlineMode: saved.depsOfflineMode === true,
+                consent: saved.depsConsent === true,
+              };
+            }
+          } catch (err) {
+            this.deps.error = 'Could not save settings: ' + err.message;
+          }
+        },
+        _depsPatchToLocal(patch) {
+          const map = { depsAutoUpdate: 'autoUpdate', depsChannel: 'channel', depsSchedule: 'schedule', depsOfflineMode: 'offlineMode', depsConsent: 'consent' };
+          const out = {};
+          for (const k in (patch || {})) { if (map[k]) out[map[k]] = patch[k]; }
+          return out;
         },
         // Master kill-switch for all outbound external-access subsystems (Azure
         // Service Bus event listener, cloud relay poller, mobile/phone bridge).
@@ -17967,6 +18562,260 @@
           }
         },
         // ---- Code Flow (Azure DevOps PR monitoring) ----------------------------
+        // ===== Connect (living impact / performance diary) =====
+        async loadConnect() {
+          this.connect.loading = true;
+          try {
+            const r = await this.request('/api/connect');
+            this.connect.state = r.state || null;
+            this.connect.evidence = Array.isArray(r.evidence) ? r.evidence : [];
+            this.connect.config = r.config || null;
+            this.connect.draftText = (r.state && r.state.draft && r.state.draft.markdown) || '';
+            this.connect.draftDirty = false;
+            this.connect.loaded = true;
+          } catch (e) {
+            this.toast('Failed to load Connect: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.loading = false;
+          }
+        },
+        connectSetTab(t) { this.connect.tab = t; },
+        connectDraftChanged() { this.connect.draftDirty = true; },
+        connectDraftSource() {
+          const d = this.connect.state && this.connect.state.draft;
+          return d && d.source === 'ai' ? 'ai' : 'manual';
+        },
+        async saveConnectDraft() {
+          this.connect.savingDraft = true;
+          try {
+            const r = await this.request('/api/connect/draft', {
+              method: 'PUT',
+              body: JSON.stringify({ markdown: this.connect.draftText, source: 'manual' }),
+            });
+            if (r && r.state) this.connect.state = r.state;
+            this.connect.draftDirty = false;
+            this.toast('Connect draft saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.savingDraft = false;
+          }
+        },
+        async saveConnectProfile() {
+          try {
+            const p = (this.connect.state && this.connect.state.profile) || {};
+            const r = await this.request('/api/connect/profile', { method: 'PUT', body: JSON.stringify(p) });
+            if (r && r.state) this.connect.state = r.state;
+            this.toast('Role details saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          }
+        },
+        async saveConnectGuidance() {
+          try {
+            const g = (this.connect.state && this.connect.state.guidance) || {};
+            const payload = {
+              tone: g.tone || '',
+              positivity: g.positivity || 'balanced',
+              instructions: g.instructions || '',
+              focusAreas: Array.isArray(g.focusAreas) ? g.focusAreas
+                : String(g.focusAreas || '').split(',').map(s => s.trim()).filter(Boolean),
+            };
+            const r = await this.request('/api/connect/guidance', { method: 'PUT', body: JSON.stringify(payload) });
+            if (r && r.state) this.connect.state = r.state;
+            this.toast('Guidance saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          }
+        },
+        connectFilteredEvidence() {
+          const src = this.connect.filterSource;
+          let items = this.connect.evidence || [];
+          if (src) items = items.filter(x => x.source === src);
+          return items;
+        },
+        connectEvidenceByDate() {
+          const groups = {};
+          for (const e of this.connectFilteredEvidence()) {
+            (groups[e.date] = groups[e.date] || []).push(e);
+          }
+          return Object.keys(groups).sort((a, b) => a < b ? 1 : -1).map(date => ({ date, items: groups[date] }));
+        },
+        connectSourceMeta(src) {
+          const m = {
+            teams: { icon: '💬', label: 'Teams' },
+            email: { icon: '✉', label: 'Email' },
+            meeting: { icon: '📅', label: 'Meeting' },
+            ado: { icon: '📋', label: 'Work item' },
+            pr: { icon: '🔀', label: 'Pull request' },
+            manual: { icon: '✍', label: 'Manual' },
+            other: { icon: '•', label: 'Other' },
+          };
+          return m[src] || m.other;
+        },
+        openConnectEvidence(ev) {
+          if (ev) {
+            this.connect.evForm = {
+              id: ev.id, date: ev.date, source: ev.source, title: ev.title,
+              detail: ev.detail, impact: ev.impact,
+              links: (ev.links || []).join('\n'), tags: (ev.tags || []).join(', '),
+            };
+          } else {
+            this.connect.evForm = {
+              id: null, date: new Date().toISOString().slice(0, 10), source: 'manual',
+              title: '', detail: '', impact: '', links: '', tags: '',
+            };
+          }
+        },
+        closeConnectEvidence() { this.connect.evForm = null; },
+        async saveConnectEvidence() {
+          const f = this.connect.evForm;
+          if (!f) return;
+          if (!f.title.trim() && !f.detail.trim()) { this.toast('Add a title or detail', 'error'); return; }
+          this.connect.evBusy = true;
+          try {
+            const payload = {
+              date: f.date, source: f.source, title: f.title, detail: f.detail, impact: f.impact,
+              links: String(f.links || '').split('\n').map(s => s.trim()).filter(Boolean),
+              tags: String(f.tags || '').split(',').map(s => s.trim()).filter(Boolean),
+            };
+            if (f.id) {
+              await this.request('/api/connect/evidence/' + encodeURIComponent(f.id), { method: 'PUT', body: JSON.stringify(payload) });
+            } else {
+              await this.request('/api/connect/evidence', { method: 'POST', body: JSON.stringify(payload) });
+            }
+            await this.loadConnect();
+            this.connect.evForm = null;
+            this.toast('Saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.evBusy = false;
+          }
+        },
+        async toggleConnectEvidenceHidden(ev) {
+          try {
+            await this.request('/api/connect/evidence/' + encodeURIComponent(ev.id), { method: 'PUT', body: JSON.stringify({ hidden: !ev.hidden }) });
+            ev.hidden = !ev.hidden;
+          } catch (e) {
+            this.toast('Failed: ' + (e.message || e), 'error');
+          }
+        },
+        async deleteConnectEvidence(ev) {
+          if (!(await this.uiConfirm('Delete this diary entry? This cannot be undone.'))) return;
+          try {
+            await this.request('/api/connect/evidence/' + encodeURIComponent(ev.id), { method: 'DELETE' });
+            this.connect.evidence = this.connect.evidence.filter(x => x.id !== ev.id);
+            this.toast('Deleted', 'success');
+          } catch (e) {
+            this.toast('Delete failed: ' + (e.message || e), 'error');
+          }
+        },
+        async emailConnect() {
+          this.connect.busy = true;
+          try {
+            await this.request('/api/connect/email', { method: 'POST', body: JSON.stringify({ content: this.connect.draftText }) });
+            this.toast('Opening your Connect in your mail client…', 'success');
+          } catch (e) {
+            this.toast('Email failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.busy = false;
+          }
+        },
+        exportConnect() {
+          window.open('/api/connect/export', '_blank');
+        },
+        async connectGenerate() {
+          if (this.connect.generating) return;
+          if (this.connect.draftText.trim() && !(await this.uiConfirm({
+            title: 'Regenerate draft?',
+            message: 'This replaces the current draft with a fresh AI draft from your diary. Your saved evidence is untouched, and you can still edit the result.',
+            confirmLabel: 'Regenerate',
+          }))) return;
+          this.connect.generating = true;
+          try {
+            const r = await this.request('/api/connect/generate', { method: 'POST', body: '{}' });
+            if (r && r.state) {
+              this.connect.state = r.state;
+              this.connect.draftText = (r.state.draft && r.state.draft.markdown) || '';
+              this.connect.draftDirty = false;
+              this.connect._preview = true;
+            }
+            this.connect.tab = 'draft';
+            this.toast('Draft generated — review and personalize it', 'success');
+          } catch (e) {
+            this.toast('Generate failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.generating = false;
+          }
+        },
+        async connectCollect() {
+          if (this.connect.collecting) return;
+          if (!(this.connect.config && this.connect.config.consent)) {
+            this.toast('Turn on collection consent in Settings first', 'error');
+            this.connect.tab = 'settings';
+            return;
+          }
+          this.connect.collecting = true;
+          try {
+            const r = await this.request('/api/connect/collect', { method: 'POST', body: JSON.stringify({ days: 7 }) });
+            if (r && r.evidence) this.connect.evidence = r.evidence;
+            if (r && r.state) this.connect.state = r.state;
+            const added = (r && r.added) || 0;
+            this.toast(added ? ('Collected ' + added + ' new item' + (added === 1 ? '' : 's')) : 'No new activity found', 'success');
+          } catch (e) {
+            this.toast('Collection failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.collecting = false;
+          }
+        },
+        async connectAutofillProfile() {
+          if (this.connect.autofilling) return;
+          if (!(this.connect.config && this.connect.config.consent)) {
+            this.toast('Auto-fill needs collection consent (Settings tab)', 'error');
+            return;
+          }
+          this.connect.autofilling = true;
+          try {
+            const r = await this.request('/api/connect/profile/autofill', { method: 'POST', body: '{}' });
+            if (r && r.state) this.connect.state = r.state;
+            const n = (r && r.applied && r.applied.length) || 0;
+            this.toast(n ? ('Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' — review and save') : 'Nothing new to fill in', 'success');
+          } catch (e) {
+            this.toast('Auto-fill failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.autofilling = false;
+          }
+        },
+        async saveConnectConfig() {
+          const c = this.connect.config || {};
+          this.connect.busy = true;
+          try {
+            await this.request('/api/settings', {
+              method: 'PUT',
+              body: JSON.stringify({
+                connectCollectionEnabled: !!c.collectionEnabled,
+                connectConsent: !!c.consent,
+                connectSchedule: c.schedule || '',
+                connectGenerateDaily: !!c.generateDaily,
+                connectStorageDir: c.storageDir || '',
+                connectEmailTo: c.emailTo || '',
+                connectAdoEnabled: !!c.adoEnabled,
+              }),
+            });
+            await this.loadConnect();
+            this.toast('Connect settings saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.busy = false;
+          }
+        },
+        connectRenderDraft() {
+          const md = this.connect.draftText || '';
+          if (!md.trim()) return '';
+          try { return window.marked ? window.marked.parse(md) : md; } catch { return md; }
+        },
         async loadCodeFlow(silent) {
           if (!silent) this.codeflow.loading = true;
           try {

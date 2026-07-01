@@ -67,7 +67,7 @@ belongs — don't just drop it into the main nav for everyone.**
   shared routes like home/settings/marketplace).
 - **`basicFeatures`** (`localStorage: basic-features`) — a map of **optional features
   the user can toggle on while staying in Basic**. Defaults: `tasks: true`, everything
-  else off (`insights, managers, flows, watercooler, teams, sessions, news`). The
+  else off (`insights, managers, flows, watercooler, teams, sessions, news, connect`). The
   toggle checklist is driven by **`basicFeatureCatalog()`**; the flat sidebar is built
   in the `experienceLevel === 'basic'` branch of the nav builder (~L15187).
 - **Always-on in Basic** (no toggle): Home, Boards, Code Flow, Agents, Marketplace
@@ -79,6 +79,12 @@ belongs — don't just drop it into the main nav for everyone.**
   `setExperienceLevel`/`toggleBasicFeature`/quick-launch).
 - **Getting Started onboarding** is **Basic-only** (guided standup-agent → daily task
   → board flow). `gsPreview` (`localStorage: gs-preview`) force-replays it.
+- **Connect** (living impact/Connect diary) is **Advanced-default with a Basic opt-in**
+  (`basicFeatures.connect`, off by default). It auto-collects the user's M365 work via
+  the `connect` builtin plugin (WorkIQ-driven `collector`/`profiler`/`writer` agents) and
+  synthesizes an HR-standard draft. All collection is **consent-gated** (`connectConsent`)
+  and stays off until the user enables it; scheduled collection is also leader-gated. Data
+  lives locally in `~/.copilot/agent-supervisor/connect` (`connectStorageDir` for OneDrive).
 
 **Decision guide for a new feature:**
 

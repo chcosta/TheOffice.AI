@@ -49,6 +49,55 @@ const DEFAULTS = {
   // relay, and the related connect/pair endpoints refuse. Local agents, schedules
   // and the browser UI keep working — only the external bridges are severed.
   externalAccessDisabled: false,
+  // --- Managed dependencies (Copilot CLI/SDK + machine prereqs) ------------
+  // Master switch for scheduled auto-updates of managed dependencies. When
+  // false, the app never updates on its own — the user updates manually from
+  // Settings → Dependencies. Per-dependency overrides live in the dependency
+  // state file (dependencies.json), not here.
+  depsAutoUpdate: false,
+  // Default release channel for managed npm dependencies: 'stable' (npm latest),
+  // 'latest' (prerelease tag), or 'pinned' (never move).
+  depsChannel: 'stable',
+  // Schedule string (parsed by scheduler.js, e.g. 'daily at 3am') for the
+  // background check-and-update job. Empty / 'never' disables the schedule.
+  depsSchedule: 'daily at 3am',
+  // When true, skip all network version checks and auto-updates (air-gapped /
+  // metered connection). The app still runs off the bundled/managed copies.
+  depsOfflineMode: false,
+  // Explicit user consent required before any automatic update runs. Auto-update
+  // stays inert until this is turned on, even if depsAutoUpdate is true.
+  depsConsent: false,
+  // --- Connect (living impact / performance diary) -------------------------
+  // Master switch for the Connect feature's automated M365/ADO collection. When
+  // false, nothing is ever gathered on the user's behalf — the page still works
+  // for manual entries + drafting, but no background collection runs.
+  connectCollectionEnabled: false,
+  // Explicit, separate consent that the user understands automated collection
+  // reads their Teams/email/meetings/ADO activity. Collection stays inert until
+  // BOTH connectCollectionEnabled AND connectConsent are true.
+  connectConsent: false,
+  // Schedule string (parsed by the scheduler) for the daily evidence-collection
+  // job. Empty / 'never' disables the scheduled run (manual "Collect now" still
+  // works when collection is enabled).
+  connectSchedule: 'daily at 6pm',
+  // When true, the generation agent also refreshes the Connect draft right after
+  // each daily collection. When false, drafting is on-demand only ("Regenerate").
+  connectGenerateDaily: false,
+  // Optional override for where Connect data is stored. Empty = the per-user data
+  // dir (connect/ under the profile store). Point this at a OneDrive-synced folder
+  // to keep the backing data in the cloud (e.g. C:\Users\me\OneDrive\Connect).
+  connectStorageDir: '',
+  // Default recipient for the "Email my Connect" action. Empty = leave the .eml
+  // To: blank for the user to fill in their mail client.
+  connectEmailTo: '',
+  // Whether to also collect Azure DevOps evidence (work items + PRs) alongside
+  // the M365 signals. Off by default so Connect works with M365 access alone.
+  connectAdoEnabled: false,
+  // The command + args used to launch the WorkIQ MCP server for the collector
+  // agent. Defaults to the public npm launcher; override for an air-gapped or
+  // pinned install. Args are space-separated.
+  connectWorkIqCommand: 'npx',
+  connectWorkIqArgs: '-y @microsoft/workiq@latest mcp',
 };
 
 let cache = null;

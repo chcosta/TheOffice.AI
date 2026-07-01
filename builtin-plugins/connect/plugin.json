@@ -1,0 +1,7 @@
+{
+  "name": "connect",
+  "description": "Private impact-diary helpers for the Connect feature: collect the user's recent M365 work (Teams channel/group activity, email, meetings) into diary evidence, and draft a Microsoft-HR-standard Connect the user personalizes in their own voice. AI drafts only — never authors or rates.",
+  "version": "1.0.0",
+  "agents": "agents/",
+  "skills": "skills/"
+}
