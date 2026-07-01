@@ -6,6 +6,9 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
+    "stage": "node scripts/stage-sidecar.mjs",
+    "stage:clean": "node scripts/stage-sidecar.mjs --clean",
+    "prebuild": "node scripts/stage-sidecar.mjs",
     "build": "tauri build",
     "icon": "tauri icon icon-source.png"
   },

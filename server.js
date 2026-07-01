@@ -236,14 +236,32 @@ function _cfWtBits(wt) {
   return bits;
 }
 
-// Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled tasks)
+// Resolve copilot CLI path for environments where it's not in PATH (e.g., scheduled
+// tasks, the bundled desktop app). Prefers the copilot vendored inside this app's
+// node_modules (shipped with the desktop build), then a global npm install, then PATH.
 if (!process.env.COPILOT_PATH) {
-  const copilotCmd = 'C:\\Users\\chcosta\\AppData\\Roaming\\npm\\copilot.cmd';
-  if (fs.existsSync(copilotCmd)) {
-    process.env.COPILOT_PATH = copilotCmd;
-    console.log(`[supervisor] Resolved copilot CLI: ${copilotCmd}`);
+  const candidates = [
+    // Bundled platform binary (desktop resources): node_modules/@github/copilot-win32-x64/copilot.exe
+    path.join(__dirname, 'node_modules', '@github', 'copilot-win32-x64', 'copilot.exe'),
+    // Bundled npm shim
+    path.join(__dirname, 'node_modules', '.bin', process.platform === 'win32' ? 'copilot.cmd' : 'copilot'),
+    // Common global npm install (Windows)
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'npm', 'copilot.cmd') : null,
+  ].filter(Boolean);
+  let resolved = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+  if (!resolved) {
+    // Fall back to whatever is on PATH.
+    try {
+      const whichCmd = process.platform === 'win32' ? 'where copilot' : 'command -v copilot';
+      const found = require('child_process').execSync(whichCmd, { encoding: 'utf-8', timeout: 5000 }).split(/\r?\n/)[0].trim();
+      if (found && fs.existsSync(found)) resolved = found;
+    } catch { /* not on PATH */ }
+  }
+  if (resolved) {
+    process.env.COPILOT_PATH = resolved;
+    console.log(`[supervisor] Resolved copilot CLI: ${resolved}`);
   } else {
-    console.warn('[supervisor] WARNING: copilot.cmd not found at expected path');
+    console.warn('[supervisor] WARNING: copilot CLI not found (bundled, npm global, or PATH)');
   }
 }
 
@@ -312,7 +330,7 @@ function ensureBoardPlugin() {
     const desired = {
     mcpServers: {
       board: {
-        command: 'node',
+        command: process.execPath,
         args: [mcpEntry],
         env: { BOARD_API_BASE: `http://127.0.0.1:${getPort()}` },
       },

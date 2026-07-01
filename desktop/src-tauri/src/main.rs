@@ -11,9 +11,31 @@ use tauri::Manager;
 /// Holds the spawned Node sidecar so we can terminate it on app exit.
 struct SidecarState(Mutex<Option<Child>>);
 
-/// Node executable to run the sidecar with. Overridable for bundled runtimes.
-fn node_bin() -> String {
-    std::env::var("SUPERVISOR_NODE").unwrap_or_else(|_| "node".to_string())
+/// Node executable to run the sidecar with.
+///
+/// Order:
+/// 1. `SUPERVISOR_NODE` env override.
+/// 2. Bundled resource at `<resources>/node/node(.exe)` (packaged builds).
+/// 3. `node` on PATH (dev fallback).
+fn resolve_node_bin(app: &tauri::AppHandle) -> PathBuf {
+    if let Ok(p) = std::env::var("SUPERVISOR_NODE") {
+        let pb = PathBuf::from(p);
+        if pb.exists() {
+            return pb;
+        }
+    }
+    if let Ok(res) = app.path().resource_dir() {
+        let exe = if cfg!(windows) { "node.exe" } else { "node" };
+        for cand in [
+            res.join("node").join(exe),
+            res.join("resources").join("node").join(exe),
+        ] {
+            if cand.exists() {
+                return cand;
+            }
+        }
+    }
+    PathBuf::from("node")
 }
 
 /// Resolve the path to the Node server entrypoint.
@@ -30,9 +52,13 @@ fn resolve_server_js(app: &tauri::AppHandle) -> PathBuf {
         }
     }
     if let Ok(res) = app.path().resource_dir() {
-        let pb = res.join("server").join("server.js");
-        if pb.exists() {
-            return pb;
+        for cand in [
+            res.join("server").join("server.js"),
+            res.join("resources").join("server").join("server.js"),
+        ] {
+            if cand.exists() {
+                return cand;
+            }
         }
     }
     let mut pb = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -47,9 +73,11 @@ fn start_sidecar(app: &tauri::AppHandle) {
     let handle = app.clone();
     let server_js = resolve_server_js(&handle);
     let server_dir = server_js.parent().map(|p| p.to_path_buf());
-    println!("[desktop] sidecar: {} {}", node_bin(), server_js.display());
+    let node_bin = resolve_node_bin(&handle);
+    let node_dir = node_bin.parent().map(|p| p.to_path_buf());
+    println!("[desktop] sidecar: {} {}", node_bin.display(), server_js.display());
 
-    let mut cmd = Command::new(node_bin());
+    let mut cmd = Command::new(&node_bin);
     cmd.arg(&server_js)
         .env("PORT", "0")
         .env("SUPERVISOR_SIDECAR", "1")
@@ -59,6 +87,12 @@ fn start_sidecar(app: &tauri::AppHandle) {
         .stderr(Stdio::piped());
     if let Some(dir) = &server_dir {
         cmd.current_dir(dir);
+    }
+    // Put the bundled node dir on PATH so `command: "node"` MCP servers resolve.
+    if let Some(ndir) = &node_dir {
+        let prev = std::env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        cmd.env("PATH", format!("{}{}{}", ndir.display(), sep, prev));
     }
 
     let mut child = match cmd.spawn() {
