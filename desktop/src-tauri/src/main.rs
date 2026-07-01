@@ -161,6 +161,19 @@ fn start_sidecar(app: &tauri::AppHandle) {
         cmd.env("PATH", format!("{}{}{}", ndir.display(), sep, prev));
     }
 
+    // Run the Node sidecar hidden — node.exe is a console-subsystem binary, so
+    // spawning it from this GUI app would otherwise pop a visible cmd/console
+    // window that the user could accidentally close (killing the service). The
+    // process still runs in the user's own session with their credentials; we
+    // just suppress its console. stdout/stderr stay piped for the __READY__
+    // handshake and logging.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {

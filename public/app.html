@@ -29,6 +29,67 @@
     })();
   </script>
   <script>
+  /* ===== desktop external-link bridge =====
+     In the packaged desktop app the SPA runs inside a WebView2 (Tauri) shell,
+     which has no browser tabs — so `target="_blank"` anchors and window.open()
+     silently do nothing. When running under the desktop sidecar we intercept
+     those and hand the URL to the local server, which opens it in the user's
+     default browser (POST /api/open-external). No-op in a normal browser. */
+  (function () {
+    window.__DESKTOP__ = false;
+    fetch('/api/version')
+      .then(r => r.json())
+      .then(v => { window.__DESKTOP__ = !!(v && v.desktop); })
+      .catch(() => {});
+
+    function openExternal(url) {
+      try {
+        fetch('/api/open-external', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url })
+        });
+      } catch (e) { /* ignore */ }
+    }
+    window.__openExternal = openExternal;
+
+    // Capture-phase click interceptor: runs before Alpine's @click handlers so
+    // external / new-tab anchors reliably open in the OS browser on desktop.
+    document.addEventListener('click', function (e) {
+      if (!window.__DESKTOP__) return;
+      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      var raw = a.getAttribute('href') || '';
+      if (!raw || raw === '#') return;
+      var u;
+      try { u = new URL(raw, location.href); } catch (_) { return; }
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+      var isBlank = a.getAttribute('target') === '_blank';
+      var isExternal = u.origin !== location.origin;
+      // Same-origin, same-tab links (none expected — routing is @click) proceed.
+      if (!isBlank && !isExternal) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openExternal(u.href);
+    }, true);
+
+    // Route programmatic external window.open() calls through the OS browser too.
+    var _open = window.open;
+    window.open = function (url, target, features) {
+      if (window.__DESKTOP__ && typeof url === 'string' && url) {
+        try {
+          var u = new URL(url, location.href);
+          if ((u.protocol === 'http:' || u.protocol === 'https:') && u.origin !== location.origin) {
+            openExternal(u.href);
+            return null;
+          }
+        } catch (_) { /* fall through */ }
+      }
+      return _open.apply(window, arguments);
+    };
+  })();
+  </script>
+  <script>
   /* ===== themed icon engine + appearance runtime ===== */
   (function(){
     const PATHS = (function(){ const I = {

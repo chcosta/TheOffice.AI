@@ -8748,7 +8748,36 @@ app.post('/api/fs/open', (req, res) => {
   }
 });
 
-// Search a pinned source folder for a text query. Prefers ripgrep; falls back to a
+// Open an http/https URL in the user's default browser. This exists mainly for
+// the packaged desktop app, whose WebView2 shell has no browser tabs — so the
+// SPA's target="_blank" anchors / window.open() calls are routed here instead
+// (see the desktop external-link bridge in app.html). Only http(s) is allowed.
+app.post('/api/open-external', (req, res) => {
+  const url = String((req.body && req.body.url) || '').trim();
+  if (!url) return res.status(400).json({ error: 'url required' });
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'invalid url' }); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return res.status(400).json({ error: 'only http/https urls are allowed' });
+  }
+  const { spawn } = require('child_process');
+  try {
+    if (process.platform === 'win32') {
+      // rundll32 FileProtocolHandler opens the default browser without a cmd
+      // shell and without mangling '&' in query strings the way `start` does.
+      spawn('rundll32', ['url.dll,FileProtocolHandler', parsed.href], {
+        detached: true, stdio: 'ignore', windowsHide: true
+      }).unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', [parsed.href], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn('xdg-open', [parsed.href], { detached: true, stdio: 'ignore' }).unref();
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) || 'open failed' });
+  }
+});
 // bounded Node recursive scan. Returns file/line/snippet matches.
 function _fsSearchNode(root, query, maxMatches) {
   const ql = query.toLowerCase();
