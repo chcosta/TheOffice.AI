@@ -740,8 +740,17 @@ supervisor.on('agent-running', (agentId) => {
 supervisor.on('agent-output', ({ agentId, stream, chunk }) => {
   broadcastSSE('agent-output', { id: agentId, stream, chunk });
 });
-supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, steps, model }) => {
+let resilience = null;
+supervisor.on('agent-completed', ({ agentId, code, output, error, sessionId, steps, model, taskId }) => {
   broadcastSSE('agent-completed', { id: agentId, code, output: output?.slice(-10000), error: error?.slice(-2000), sessionId, steps: Array.isArray(steps) ? steps : [], model: model || '' });
+  if (taskId && resilience) {
+    try {
+      const task = loadTasks().find(t => t.id === taskId);
+      if (task && task.resilient) {
+        resilience.onCompletion({ kind: 'task', refId: taskId, name: task.name, ok: code === 0, error: error || '', output: output || '', maxRetries: task.maxRetries });
+      }
+    } catch (e) { console.warn('[resilience] task completion hook failed:', e.message); }
+  }
 });
 // Initialize manager agent system
 const managerAgent = new ManagerAgent(db, supervisor);
@@ -5273,8 +5282,38 @@ const chainEngine = new ChainEngine({
   supervisor,
   loadTasks,
   broadcast: broadcastSSE,
-  onPersist: () => { if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (chains) failed:', e.message)); }
+  onPersist: () => { if (configSync.enabled) configSync.pushConfig().catch(e => console.warn('[sync] auto-push (chains) failed:', e.message)); },
+  onRunFinished: ({ chainId, status, run }) => {
+    if (!resilience) return;
+    try {
+      const chain = chainEngine.get(chainId);
+      if (!chain || !chain.resilient) return;
+      const ok = status !== 'error';
+      let err = '';
+      if (!ok && run && run.nodes && typeof run.nodes === 'object') {
+        err = Object.values(run.nodes)
+          .filter(n => n && n.status === 'failed')
+          .map(n => `${n.taskName || 'step'}: ${(n.reason || n.output || '').slice(0, 500)}`)
+          .join('\n') || 'Flow finished with an error.';
+      }
+      resilience.onCompletion({ kind: 'flow', refId: chainId, name: chain.name, ok, error: err, output: '', maxRetries: chain.maxRetries });
+    } catch (e) { console.warn('[resilience] flow completion hook failed:', e.message); }
+  }
 });
+
+const { ResilienceManager } = require('./resilience');
+resilience = new ResilienceManager({
+  db,
+  sdkRunner,
+  broadcast: broadcastSSE,
+  leaderCheck,
+  cwd: __dirname,
+});
+resilience.setRunners({
+  runTask: (id) => { const t = loadTasks().find(x => x.id === id); if (t) executeTask(t, null, { scheduled: true }); },
+  runFlow: (id) => chainEngine.runChain(id, { manual: true }),
+});
+resilience.start();
 
 mobileHandler.chainEngine = chainEngine;
 
@@ -5332,7 +5371,7 @@ app.get('/api/tasks/:id', (req, res) => {
 });
 
 app.post('/api/tasks', (req, res) => {
-  const { id, name, agentId, prompt, schedule, enabled, teamId, orgId } = req.body;
+  const { id, name, agentId, prompt, schedule, enabled, teamId, orgId, resilient, maxRetries } = req.body;
   if (!name || !agentId) return res.status(400).json({ error: 'name and agentId are required' });
   const tasks = loadTasks();
   const taskId = id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -5342,7 +5381,7 @@ app.post('/api/tasks', (req, res) => {
     return res.status(409).json({ error: 'duplicate_name', existingId: existing.id, message: `A task named "${name}" already exists.` });
   }
   const team = teamId !== undefined ? teamId : orgId;
-  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, teamId: team || null, createdAt: new Date().toISOString() };
+  const task = { id: taskId, name, agentId, prompt: prompt || '', schedule: schedule || 'never', enabled: enabled !== false, teamId: team || null, resilient: resilient === true, maxRetries: Number.isFinite(maxRetries) && maxRetries > 0 ? Math.min(20, Math.round(maxRetries)) : 3, createdAt: new Date().toISOString() };
   tasks.push(task);
   saveTasks(tasks);
   scheduleTask(task);
@@ -5354,7 +5393,7 @@ app.put('/api/tasks/:id', (req, res) => {
   const tasks = loadTasks();
   const idx = tasks.findIndex(t => t.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Task not found' });
-  const { name, prompt, schedule, enabled, teamId, orgId } = req.body;
+  const { name, prompt, schedule, enabled, teamId, orgId, resilient, maxRetries } = req.body;
   const team = teamId !== undefined ? teamId : orgId;
   // Check for name collision (excluding self)
   if (name) {
@@ -5368,6 +5407,8 @@ app.put('/api/tasks/:id', (req, res) => {
   if (schedule !== undefined) tasks[idx].schedule = schedule;
   if (enabled !== undefined) tasks[idx].enabled = enabled;
   if (team !== undefined) tasks[idx].teamId = team || null;
+  if (resilient !== undefined) tasks[idx].resilient = resilient === true;
+  if (maxRetries !== undefined) tasks[idx].maxRetries = Number.isFinite(maxRetries) && maxRetries > 0 ? Math.min(20, Math.round(maxRetries)) : 3;
   tasks[idx].updatedAt = new Date().toISOString();
   saveTasks(tasks);
   scheduleTask(tasks[idx]);
@@ -5411,6 +5452,21 @@ app.get('/api/tasks/:id/runs', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// --- Resilience (auto-retry of transient failures) ---
+app.get('/api/resilience/retries', (req, res) => {
+  try {
+    res.json(resilience ? resilience.listRetries({ kind: req.query.kind, refId: req.query.refId, limit: req.query.limit ? parseInt(req.query.limit) : undefined }) : []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/resilience/retries/:id', (req, res) => {
+  try {
+    const ok = resilience && resilience.cancelRetry(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Retry not found or not pending' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Describe a schedule string

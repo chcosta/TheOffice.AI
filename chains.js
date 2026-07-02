@@ -26,11 +26,12 @@ const settings = require('./settings');
 const CHAINS_PATH = require('./data-paths').dataPath('chains.json');
 
 class ChainEngine extends EventEmitter {
-  constructor({ db, supervisor, loadTasks, broadcast, onPersist }) {
+  constructor({ db, supervisor, loadTasks, broadcast, onPersist, onRunFinished }) {
     super();
     this.db = db;
     this.supervisor = supervisor;
     this.loadTasks = loadTasks;
+    this.onRunFinished = onRunFinished || null;
     const rawBroadcast = broadcast || (() => {});
     // Broadcast to SSE clients AND re-emit locally so in-process consumers
     // (e.g. the mobile handler) can subscribe to live chain run events.
@@ -127,6 +128,8 @@ class ChainEngine extends EventEmitter {
       teamId: (chain.teamId !== undefined ? chain.teamId : (chain.orgId || null)),
       schedule: chain.schedule || 'never',
       enabled: chain.enabled !== false,
+      resilient: chain.resilient === true,
+      maxRetries: Number.isFinite(chain.maxRetries) && chain.maxRetries > 0 ? Math.min(20, Math.round(chain.maxRetries)) : 3,
       steps,
       edges: (chain.edges || [])
         .filter(e => validIds.has(e.from) && validIds.has(e.to))
@@ -312,6 +315,9 @@ class ChainEngine extends EventEmitter {
     this._persist(run);
     this.broadcast('chain-run-finished', this._public(run));
     console.log(`[chains] run ${run.id} ${run.status}`);
+    if (typeof this.onRunFinished === 'function') {
+      try { this.onRunFinished({ chainId: run.chainId, runId: run.id, status: run.status, run: this._public(run) }); } catch {}
+    }
   }
 
   // ---------- Condition evaluation ----------

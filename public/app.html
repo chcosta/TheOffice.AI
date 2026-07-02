@@ -10469,6 +10469,30 @@
                   </div>
                 </div>
 
+                <!-- Resilience (AI auto-retry) reasoning -->
+                <div style="margin-top:18px" x-show="opDetail().type === 'agent' && opDetail().resilient && resilienceFor('task', opDetail().id).length">
+                  <div class="field-label"><span>🛡️ Auto-retry reasoning</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadResilience('task', opDetail().id)">↻ Refresh</button></div>
+                  <div class="run-list" style="margin-top:8px">
+                    <template x-for="rt in resilienceFor('task', opDetail().id).slice(0, 6)" :key="'rt-' + rt.id">
+                      <div class="run-item" style="padding:10px 14px">
+                        <div class="split-meta">
+                          <div style="min-width:0">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="status-badge" style="font-size:0.7rem" :class="resilienceStatusClass(rt.status)" x-text="resilienceStatusLabel(rt.status)"></span>
+                              <span class="hint" x-text="'Attempt ' + rt.attempt + ' / ' + rt.maxRetries"></span>
+                              <template x-if="rt.status === 'pending' && rt.dueAt"><span class="hint" x-text="'· due ' + formatDateTime(rt.dueAt)"></span></template>
+                            </div>
+                            <div style="margin-top:6px;font-size:0.82rem" x-text="rt.reason || 'No reasoning recorded.'"></div>
+                          </div>
+                          <div class="toolbar" x-show="rt.status === 'pending'">
+                            <button class="btn ghost" style="font-size:0.72rem" type="button" @click="cancelResilience('task', opDetail().id, rt.id)" title="Cancel this scheduled retry">✕ Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
                 <!-- Recent run history -->
                 <div style="margin-top:18px">
                   <div class="field-label"><span>Recent Runs</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadTaskHistory(opDetail())">↻ Refresh</button></div>
@@ -10581,6 +10605,30 @@
                     </template>
                   </div>
                   <div class="hint" x-show="!chainRunState[detailChain().id]" style="margin-top:6px">This flow has not run in this session. Click <strong>▶ Run</strong> to start it, or load a past run below.</div>
+                </div>
+
+                <!-- Resilience (AI auto-retry) reasoning -->
+                <div style="margin-top:16px" x-show="detailChain().resilient && resilienceFor('flow', detailChain().id).length">
+                  <div class="field-label"><span>🛡️ Auto-retry reasoning</span><button class="btn ghost" style="font-size:0.72rem;padding:2px 8px" type="button" @click="loadResilience('flow', detailChain().id)">↻ Refresh</button></div>
+                  <div class="run-list" style="margin-top:8px">
+                    <template x-for="rt in resilienceFor('flow', detailChain().id).slice(0, 6)" :key="'rf-' + rt.id">
+                      <div class="run-item" style="padding:10px 14px">
+                        <div class="split-meta">
+                          <div style="min-width:0">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span class="status-badge" style="font-size:0.7rem" :class="resilienceStatusClass(rt.status)" x-text="resilienceStatusLabel(rt.status)"></span>
+                              <span class="hint" x-text="'Attempt ' + rt.attempt + ' / ' + rt.maxRetries"></span>
+                              <template x-if="rt.status === 'pending' && rt.dueAt"><span class="hint" x-text="'· due ' + formatDateTime(rt.dueAt)"></span></template>
+                            </div>
+                            <div style="margin-top:6px;font-size:0.82rem" x-text="rt.reason || 'No reasoning recorded.'"></div>
+                          </div>
+                          <div class="toolbar" x-show="rt.status === 'pending'">
+                            <button class="btn ghost" style="font-size:0.72rem" type="button" @click="cancelResilience('flow', detailChain().id, rt.id)" title="Cancel this scheduled retry">✕ Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
                 </div>
 
                 <!-- Recent runs -->
@@ -13705,6 +13753,20 @@
               </div>
             </div>
           </div>
+          <div x-show="newTaskForm.kind === 'agent'">
+            <div class="field-label"><span>Resilience</span></div>
+            <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer">
+              <input type="checkbox" x-model="newTaskForm.resilient" style="margin-top:3px" />
+              <span>
+                <span style="font-weight:500">Auto-retry on transient failures</span>
+                <span class="hint" style="display:block; margin-top:2px">If a run fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the task itself), the AI decides whether and when to retry. Its reasoning is shown in Recent Runs.</span>
+              </span>
+            </label>
+            <div x-show="newTaskForm.resilient" x-transition style="margin-top:8px; display:flex; align-items:center; gap:8px">
+              <span class="hint">Max retries</span>
+              <input class="field-input" type="number" min="1" max="10" x-model.number="newTaskForm.maxRetries" style="width:80px" />
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -13765,6 +13827,8 @@
                 <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No team contains all of this flow's agents yet.</div>
               </div>
               <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
+              <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.resilient" style="margin-top:2px" /> <span><span style="font-weight:500">Auto-retry on transient failures</span><span class="hint" style="display:block;margin-top:2px">If the flow fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the flow itself), the AI decides whether and when to re-run the whole flow. Its reasoning is shown in Recent Runs.</span></span></label>
+              <div x-show="chainDraft.resilient" x-transition style="display:flex;align-items:center;gap:8px;margin-left:24px"><span class="hint">Max retries</span><input class="field-input" type="number" min="1" max="10" x-model.number="chainDraft.maxRetries" style="width:80px" /></div>
 
               <!-- Canvas builder -->
               <div>
@@ -14515,6 +14579,7 @@
         expanded: {},
         selectedTaskId: null,
         taskHistoryCache: {},
+        resilienceRetries: {},
         pendingFocus: null,
         homeShowDoneDev: false,
         selectedChainId: null,
@@ -14898,7 +14963,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           cwd: '',
           schedule: 'never',
           schedulePreset: 'never',
-          prompt: ''
+          prompt: '',
+          resilient: false,
+          maxRetries: 3
         },
 
         // Event Listeners state
@@ -16308,6 +16375,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             source.addEventListener('insights-changed', () => {
               if (this.route === 'insights') this.loadInsights(this.activeInsightId, true);
             });
+            // Resilience (AI auto-retry) decisions → refresh the reasoning display live.
+            const _resilienceRefresh = (event) => {
+              try {
+                const d = JSON.parse(event.data || '{}');
+                if (d && d.kind && d.refId) this.loadResilience(d.kind, d.refId);
+              } catch {}
+            };
+            source.addEventListener('resilience-decision', (event) => {
+              _resilienceRefresh(event);
+              try {
+                const d = JSON.parse(event.data || '{}');
+                if (d && d.transient && d.action === 'retry') {
+                  const when = d.delayMinutes ? ('in ' + d.delayMinutes + ' min') : 'now';
+                  this.toast('🛡️ Auto-retry scheduled ' + when + (d.name ? ' for ' + d.name : ''), 'info');
+                }
+              } catch {}
+            });
+            source.addEventListener('resilience-retry-fired', _resilienceRefresh);
+            source.addEventListener('resilience-retry-cancelled', () => {
+              // Cancelled events only carry {id}; refresh whatever detail is open.
+              const op = this.opDetail && this.opDetail();
+              if (op && op.type === 'agent' && op.resilient) this.loadResilience('task', op.id);
+              const c = this.detailChain && this.detailChain();
+              if (c && c.resilient) this.loadResilience('flow', c.id);
+            });
             source.addEventListener('agent-output', (event) => {
               const { id, stream, chunk } = JSON.parse(event.data || '{}');
               if (!this.liveOutput[id]) this.liveOutput[id] = { text: '', startedAt: new Date().toISOString(), active: true };
@@ -17615,6 +17707,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const t = (this.allTasks() || []).find(x => x.taskKey === key);
           if (!t) return;
           if (!this.taskHistoryCache[key]) this.loadTaskHistory(t);
+          if (t.type === 'agent' && t.resilient) this.loadResilience('task', t.id);
           const liveKey = t.type === 'assignment' ? t.managerId : t.agentId;
           if (liveKey) this.hydrateLiveOutput(liveKey);
         },
@@ -17624,6 +17717,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.$nextTick(() => this.renderChainDiagram(c, 'chain-diagram-detail-' + c.id));
           this.refreshChainRun(c);
           if (!this.chainRuns[id]) this.loadChainRuns(id);
+          if (c.resilient) this.loadResilience('flow', id);
         },
         async deleteOpFromDetail(t) {
           if (!t) return;
@@ -29187,6 +29281,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const id = 'chain-' + Date.now().toString(36);
             this.chainDraft = {
               id, name: 'New flow', description: '', teamId: (this.currentTeamId !== 'all' ? this.currentTeamId : ''), schedule: 'never', enabled: true,
+              resilient: false, maxRetries: 3,
               steps: [],
               edges: [],
               _new: true
@@ -29666,6 +29761,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             teamId: (draft.teamId && validOrgs.has(draft.teamId)) ? draft.teamId : null,
             schedule: draft.schedule,
             enabled: draft.enabled !== false,
+            resilient: !!draft.resilient,
+            maxRetries: Number(draft.maxRetries) || 3,
             steps: steps.map(s => ({ id: s.id, taskId: s.taskId || null, agentId: s.agentId || null, prompt: s.prompt || '', x: Number(s.x) || 0, y: Number(s.y) || 0 })),
             edges: (draft.edges || []).filter(e => validIds.has(e.from) && validIds.has(e.to)).map(e => {
               const c = e.condition || {};
@@ -29838,7 +29935,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         resetItemForm() {
-          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '', teamId: '' };
+          this.newTaskForm = { kind: 'agent', editingId: '', managerId: '', agentId: '', id: '', name: '', agent: '', cwd: '', schedule: 'never', schedulePreset: 'never', prompt: '', teamId: '', resilient: false, maxRetries: 3 };
         },
 
         closeItemModal() {
@@ -29863,6 +29960,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const sched = task.schedule || task.scheduleDraft || 'never';
             this.newTaskForm.schedule = sched;
             this.newTaskForm.schedulePreset = this.resolveSchedulePreset(sched);
+            this.newTaskForm.resilient = !!task.resilient;
+            this.newTaskForm.maxRetries = Number.isFinite(task.maxRetries) ? task.maxRetries : 3;
           } else if (presetAgentId) {
             this.newTaskForm.agentId = presetAgentId;
           }
@@ -29940,12 +30039,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               if (f.editingId) {
                 await this.request(`/api/tasks/${encodeURIComponent(f.editingId)}`, {
                   method: 'PUT',
-                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule, teamId: f.teamId || null })
+                  body: JSON.stringify({ name, prompt, schedule: resolvedSchedule, teamId: f.teamId || null, resilient: !!f.resilient, maxRetries: Number(f.maxRetries) || 3 })
                 });
               } else {
                 await this.request('/api/tasks', {
                   method: 'POST',
-                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule, teamId: f.teamId || null })
+                  body: JSON.stringify({ name, agentId: f.agentId, prompt, schedule: resolvedSchedule, teamId: f.teamId || null, resilient: !!f.resilient, maxRetries: Number(f.maxRetries) || 3 })
                 });
               }
             } else {
@@ -30002,6 +30101,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.taskHistoryCache = { ...this.taskHistoryCache, [task.taskKey]: runs || [] };
           } catch (e) {
             this.taskHistoryCache = { ...this.taskHistoryCache, [task.taskKey]: [] };
+          }
+        },
+
+        // ---- Resilience (AI auto-retry) reasoning -------------------------------
+        async loadResilience(kind, refId) {
+          if (!kind || !refId) return;
+          const key = kind + ':' + refId;
+          try {
+            const rows = await this.request(`/api/resilience/retries?kind=${encodeURIComponent(kind)}&refId=${encodeURIComponent(refId)}&limit=10`);
+            this.resilienceRetries = { ...this.resilienceRetries, [key]: rows || [] };
+          } catch (e) {
+            this.resilienceRetries = { ...this.resilienceRetries, [key]: [] };
+          }
+        },
+        resilienceFor(kind, refId) {
+          return this.resilienceRetries[kind + ':' + refId] || [];
+        },
+        resilienceStatusLabel(s) {
+          return { pending: 'Retry scheduled', fired: 'Retried', cancelled: 'Cancelled', gaveup: 'Not retried', exhausted: 'Budget exhausted' }[s] || s;
+        },
+        resilienceStatusClass(s) {
+          if (s === 'pending' || s === 'fired') return 'running';
+          if (s === 'cancelled' || s === 'gaveup' || s === 'exhausted') return 'idle';
+          return 'idle';
+        },
+        async cancelResilience(kind, refId, id) {
+          try {
+            await this.request(`/api/resilience/retries/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            await this.loadResilience(kind, refId);
+          } catch (e) {
+            this.toast('Could not cancel retry: ' + (e.message || e), 'error');
           }
         },
 

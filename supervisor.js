@@ -460,7 +460,7 @@ class Supervisor extends EventEmitter {
     else status = 'idle';
     this.db.prepare('UPDATE agent_state SET status = ? WHERE agent_id = ?').run(status, agentId);
 
-    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId, steps: Array.isArray(steps) ? steps : [], model: model || '' });
+    this.emit('agent-completed', { agentId, code, output: fullOutput, error: error || '', sessionId, steps: Array.isArray(steps) ? steps : [], model: model || '', taskId: taskId || null });
     console.log(`[supervisor] Agent "${config.name}" finished (exit ${code})`);
 
     // Append to the canonical usage ledger (task vs. ad-hoc agent run by task_id).
