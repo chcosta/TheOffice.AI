@@ -19890,6 +19890,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
           this._connectBackfillTimer = setTimeout(tick, 4000);
         },
+        async connectAutofillProfile() {
           if (this.connect.autofilling) return;
           if (!(this.connect.config && this.connect.config.consent)) {
             this.toast('Auto-fill needs collection consent (Settings tab)', 'error');
