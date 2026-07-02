@@ -2140,6 +2140,9 @@
     .cf-wt-envs { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
     .cf-panes { min-width:0; }
     .cf-pane { min-width:0; }
+    .cf-subsec { min-width:0; }
+    .cf-subsec + .cf-subsec { margin-top:14px; border-top:1px dashed var(--cp-border); padding-top:14px; }
+    .cf-subhead { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); margin:0 0 8px; }
     @media (max-width:640px){ .cf-drawer { grid-template-columns:1fr; } .cf-rail { flex-direction:row; flex-wrap:wrap; } }    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:8px; }
     .cf-validation-summary { display:flex; align-items:center; gap:7px; list-style:none; }
     .cf-validation-summary::-webkit-details-marker { display:none; }
@@ -7922,13 +7925,24 @@
                                         <button class="btn primary" type="button" style="font-size:11px;padding:3px 10px;white-space:nowrap" :disabled="devBusy[d.id]==='archive'" @click="archiveDevItem(d)" x-text="devBusy[d.id]==='archive' ? '…' : '🗄 Archive'"></button>
                                       </div>
 
-                                      <!-- Compact face: one-line AI summary + key-signal strip (PR-card scheme) -->
+                                      <!-- Compact face: full AI summary + controls + key-signal strip (PR-card scheme) -->
                                       <div class="cf-ai-face">
-                                        <div class="cf-ai-inline" x-show="devFaceSummary(d)">
+                                        <div class="cf-ai-head" style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
                                           <span class="cf-ai-badge">🧠</span>
-                                          <span class="cf-ai-summary" x-text="devFaceSummary(d)"></span>
+                                          <span style="font-weight:600;font-size:12.5px">Summary</span>
+                                          <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
+                                            <span class="summary-muted-pill" style="font-size:9.5px" x-show="d.summary && d.summary.auto && devBusy[d.id]!=='summary'" title="This summary updates itself automatically when the work item, PR, or worktree changes. Use ↻ Refresh to regenerate now.">⚡ Auto</span>
+                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='summary'" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
+                                          </div>
                                         </div>
-                                        <div class="cf-stat-strip">
+                                        <div x-show="devBusy[d.id]==='summary'" class="hint" style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--cp-accent)">
+                                          <span class="ba-spinner"></span>
+                                          <span>AI is reviewing the work item, PR and code diff…</span>
+                                        </div>
+                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
+                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
+                                        <div class="cf-stat-strip" style="margin-top:8px">
                                           <template x-for="st in devFaceStats(d)" :key="st.k">
                                             <span class="cf-stat" :class="'cf-tone-' + st.tone">
                                               <span class="cf-stat-k" x-text="st.k"></span>
@@ -7954,27 +7968,9 @@
                                           </template>
                                         </div>
                                         <div class="cf-panes">
-                                          <div class="cf-pane" x-show="devActivePane(d)==='summary'">
-                                      <!-- AI summary of the work item / PR / diff state -->
-                                      <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
-                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
-                                          <span style="font-weight:600;font-size:13.5px">🧠 Summary</span>
-                                          <div style="display:flex;align-items:center;gap:8px">
-                                            <span class="hint" style="font-size:10px" x-show="d.summary && d.summary.generatedAt && devBusy[d.id]!=='summary'" x-text="formatRelative(d.summary && d.summary.generatedAt)"></span>
-                                            <span class="summary-muted-pill" style="font-size:9.5px" x-show="d.summary && d.summary.auto && devBusy[d.id]!=='summary'" title="This summary updates itself automatically when the work item, PR, or worktree changes. Use ↻ Refresh to regenerate now.">⚡ Auto</span>
-                                            <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='summary'" @click="refreshDevSummary(d)" x-text="devBusy[d.id]==='summary' ? '⏳ Reviewing…' : '↻ Refresh'"></button>
-                                          </div>
-                                        </div>
-                                        <div x-show="devBusy[d.id]==='summary'" class="hint" style="font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--cp-accent)">
-                                          <span class="ba-spinner"></span>
-                                          <span>AI is reviewing the work item, PR and code diff…</span>
-                                        </div>
-                                        <div x-show="d.summary && d.summary.text" class="md-output" style="line-height:1.55;font-size:0.92rem" :style="devBusy[d.id]==='summary' ? 'opacity:.45' : ''" x-html="renderMarkdown(cleanDevSummary(d.summary ? d.summary.text : ''))"></div>
-                                        <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
-                                      </div>
-
+                                          <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <!-- Work item link row (the work item is shared by the whole card; PRs are per repo, shown in the Repos box below) -->
-                                      <div style="display:flex;flex-wrap:wrap;gap:8px">
+                                      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
                                         <template x-if="d.workItemId">
                                           <a class="pill" :href="devWorkItemUrl(d)" target="_blank" rel="noopener" style="font-size:11px;text-decoration:none" :title="d.workItem ? (d.workItem.type + ': ' + d.workItem.title) : 'Open work item'">
                                             <span x-text="'📋 #' + d.workItemId"></span>
@@ -7983,8 +7979,6 @@
                                         </template>
                                         <span class="hint" x-show="!d.workItemId && !d.prId" style="font-size:11px">No work item / PR linked — ✎ to add.</span>
                                       </div>
-                                          </div>
-                                          <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <!-- Repos: primary + extra worktrees (one work item spanning one or more repos) -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -9881,7 +9875,7 @@
                     <div style="flex:0 0 auto">
                       <button class="btn ghost" type="button" style="font-size:0.72rem"
                               title="Pin this pull request to a board (with full review/worktree actions)"
-                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title })">📌 Pin to board</button>
+                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to board</button>
                     </div>
                   </div>
 
@@ -9907,6 +9901,16 @@
                         🧰 <span x-text="pr.devCard.title || 'Dev card'"></span>
                       </a>
                     </template>
+                    <div class="cf-ai-meta">
+                      <template x-if="codeflowAi(pr)">
+                        <span x-show="codeflow.aiGeneratedAt" x-text="'Analyzed ' + formatRelative(codeflow.aiGeneratedAt)"></span>
+                      </template>
+                      <template x-if="!codeflowAi(pr)">
+                        <span class="cf-m-muted" x-text="codeflow.aiBusy ? 'Analyzing…' : 'No AI analysis yet.'"></span>
+                      </template>
+                      <button type="button" class="cf-ai-refresh" @click.stop="loadCodeflowAi(true)" :disabled="codeflow.aiBusy"
+                              x-text="codeflow.aiBusy ? 'Refreshing…' : (codeflowAi(pr) ? '↻ Refresh AI' : '✨ Analyze')"></button>
+                    </div>
                   </div>
 
                   <button type="button" class="cf-drawer-toggle" @click="cfDrawerToggle(pr)" x-text="(cfDrawerIsOpen(pr) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
@@ -9920,43 +9924,6 @@
                       </template>
                     </div>
                     <div class="cf-panes">
-                      <div class="cf-pane" x-show="cfActivePane(pr) === 'summary'">
-                  <!-- Summary: AI review + at-a-glance PR stats in one place -->
-                  <div class="cf-sum-grid">
-                    <template x-for="(st, i) in cfSummaryStats(pr)" :key="i">
-                      <div class="cf-sum-cell" :class="'cf-tone-' + st.tone">
-                        <div class="cf-sum-k" x-text="st.k || 'Status'"></div>
-                        <div class="cf-sum-v" x-text="st.v"></div>
-                      </div>
-                    </template>
-                  </div>
-                  <!-- AI insight: summary + urgency -->
-                  <template x-if="codeflowAi(pr)">
-                    <div class="cf-ai-detail">
-                      <div class="cf-ai">
-                        <span class="cf-ai-badge">✨</span>
-                        <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
-                              :title="codeflowAi(pr).urgencyReason"
-                              x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
-                        <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
-                      </div>
-                      <div class="cf-ai-reason" x-show="codeflowAi(pr).urgencyReason" x-text="codeflowAi(pr).urgencyReason"></div>
-                      <div class="cf-ai-meta">
-                        <span x-show="codeflow.aiGeneratedAt" x-text="'Analyzed ' + formatRelative(codeflow.aiGeneratedAt)"></span>
-                        <button type="button" class="cf-ai-refresh" @click="loadCodeflowAi(true)" :disabled="codeflow.aiBusy"
-                                x-text="codeflow.aiBusy ? 'Refreshing…' : '↻ Refresh AI'"></button>
-                      </div>
-                    </div>
-                  </template>
-                  <template x-if="!codeflowAi(pr)">
-                    <div class="cf-ai-meta">
-                      <span class="cf-m-muted" x-text="codeflow.aiBusy ? 'Analyzing…' : 'No AI analysis yet.'"></span>
-                      <button type="button" class="cf-ai-refresh" @click="loadCodeflowAi(true)" :disabled="codeflow.aiBusy"
-                              x-text="codeflow.aiBusy ? 'Refreshing…' : '✨ Analyze'"></button>
-                    </div>
-                  </template>
-
-                  </div>
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'reviewers'">
                   <!-- Actual PR reviewers, split Required vs Optional, showing each vote -->
                   <template x-if="cfReviewerGroups(pr).required.length || cfReviewerGroups(pr).optional.length">
@@ -10073,8 +10040,10 @@
                   </template>
 
                   </div>
-                      <!-- Review agent pane: identity, run/create/add-agent, cached reports -->
-                      <div class="cf-pane" x-show="cfActivePane(pr) === 'agent'">
+                      <!-- Worktree: Review agent + Git + Worktree rolled into ONE section (stacked sub-headers) -->
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'worktree'">
+                        <div class="cf-subsec">
+                        <div class="cf-subhead">🤖 Review agent</div>
                         <div class="cf-agent-id">
                           <span class="cf-agent-avatar">🤖</span>
                           <span class="cf-agent-idmeta">
@@ -10129,9 +10098,9 @@
                             </div>
                           </template>
                         </div>
-                      </div>
-                      <!-- Git pane: sync state vs the PR branch, uncommitted changes, git ops -->
-                      <div class="cf-pane" x-show="cfActivePane(pr) === 'git'">
+                        </div>
+                        <div class="cf-subsec">
+                        <div class="cf-subhead">🌿 Git</div>
                         <template x-if="!cfWt(pr) || cfWt(pr).worktreeStatus !== 'ready'">
                           <div class="cf-git-empty">
                             <span class="cf-wt-history-ts">Create a worktree to see git state and manage changes.</span>
@@ -10205,8 +10174,8 @@
                           </div>
                         </template>
                       </div>
-                      <!-- Worktree pane: create / open environments / remove -->
-                      <div class="cf-pane" x-show="cfActivePane(pr) === 'worktree'">
+                        <div class="cf-subsec">
+                        <div class="cf-subhead" x-text="'🧰 ' + ((codeflow && codeflow.view === 'reviews') ? 'Review env' : 'Worktree')"></div>
                         <template x-if="!cfWt(pr)">
                           <span class="cf-wt-row">
                             <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)" x-text="cfCreateLabel(pr)"></button>
@@ -10243,6 +10212,7 @@
                             </div>
                           </div>
                         </template>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -21202,6 +21172,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             org: m.org, project: m.project, repo: m.repo,
             id: m.prId != null ? m.prId : '',
             url: m.url || '', title: m.title || item.label || '',
+            provider: m.provider || '',
             _view: view, _full: false,
           };
         },
@@ -21232,7 +21203,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               try { resp = await this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view)); }
               catch { resp = null; }
               for (const pr of ((resp && resp.pullRequests) || [])) {
-                const k = this.cfPrKey(pr);
+                const k = [pr.org, pr.project || '', pr.repo, pr.id].join('|').toLowerCase();
                 if (wantKeys.has(k)) map[k] = pr;
               }
             }
@@ -21266,8 +21237,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         cfSections(pr) {
           const s = [];
-          // Summary is always first — AI review + PR stats live together here.
-          s.push({ id: 'summary', label: 'Summary', attn: this.cfSummaryAttn(pr) });
+          // Summary lives untruncated on the card face; the drawer no longer duplicates it.
           const revs = (pr.reviewers && pr.reviewers.length) || 0;
           const hasPeople = revs || (pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard;
           if (hasPeople) s.push({ id: 'reviewers', label: 'Reviewers', count: revs || undefined });
@@ -21275,16 +21245,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (v) s.push({ id: 'validation', label: 'Validation', count: v, attn: (pr.failedChecks || 0) > 0 || (pr.pendingChecks || 0) > 0 });
           const wt = this.cfWt(pr);
           const reviews = this.codeflow && this.codeflow.view === 'reviews';
+          // Review agent + Git + Worktree are rolled into ONE section (stacked sub-headers).
+          let wtAttn = false;
           if (wt && wt.worktreeStatus === 'ready') {
-            s.push({ id: 'agent', label: 'Review agent', attn: wt.agentPresent === false || wt.reviewStatus === 'error' });
-            s.push({ id: 'git', label: 'Git', attn: !!(wt.drift && wt.drift.comparable && !wt.drift.inSync) || (wt.changeCount || 0) > 0 });
-            s.push({ id: 'worktree', label: reviews ? 'Review env' : 'Worktree', attn: false });
+            wtAttn = wt.agentPresent === false || wt.reviewStatus === 'error'
+              || !!(wt.drift && wt.drift.comparable && !wt.drift.inSync) || (wt.changeCount || 0) > 0;
           } else {
-            // Even before a worktree exists, surface an Agent tab so the user sees which
-            // agent would run and can create the worktree from there.
-            s.push({ id: 'agent', label: 'Review agent', attn: !!(wt && wt.worktreeStatus === 'error') });
-            s.push({ id: 'worktree', label: reviews ? 'Review' : 'Worktree', attn: !!(wt && wt.worktreeStatus === 'error') });
+            wtAttn = !!(wt && wt.worktreeStatus === 'error');
           }
+          s.push({ id: 'worktree', label: reviews ? 'Review env' : 'Worktree', attn: wtAttn });
           return s;
         },
         cfSummaryAttn(pr) {
@@ -21337,7 +21306,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfActivePane(pr) {
           const key = this.cfPrKey(pr);
           const secs = this.cfSections(pr);
-          const cur = (this.codeflow.pane || {})[key];
+          let cur = (this.codeflow.pane || {})[key];
+          if (cur === 'agent' || cur === 'git') cur = 'worktree'; // legacy panes merged into Worktree
           if (cur && secs.some(x => x.id === cur)) return cur;
           return secs.length ? secs[0].id : 'worktree';
         },
@@ -23903,7 +23873,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (p.type === 'pin') return 'Unpin from this board';
           if (p.type === 'note') return 'Delete this note';
           if (p.type === 'checklist') return 'Delete this checklist';
-          if (p.type === 'dev') return 'Remove this dev card';
+          if (p.type === 'dev') return 'Remove from board';
           return 'Remove';
         },
         // Remove a panel's underlying item, with a confirmation. Pins are unpinned
@@ -26478,7 +26448,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devDrawerToggle(d) { if (d) this.devDrawer[d.id] = !this.devDrawer[d.id]; },
         // Rail sections, each with an optional count + attention flag.
         devSections(d) {
-          const secs = [{ id: 'summary', label: '🧠 Summary', attn: this.devSuggestArchive(d) || this.devNeedsCleanup(d) }];
+          const secs = [];
           const slots = this.devSlots(d);
           let repoAttn = false;
           for (const s of slots) {

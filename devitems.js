@@ -214,7 +214,7 @@ function worktreeStatus(wt, { fetch = true, baseBranch = 'main', desc = null } =
   // Exclude agent-generated status reports (IMPLEMENTATION_SUMMARY.md, etc.) from
   // the dirty signal — they're surfaced on the card but intentionally never
   // committed, so they must not light up the worktree as "dirty".
-  const cls = classifyPorcelain(_gitTry(['status', '--porcelain'], wt).out || '');
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
   const dirty = cls.dirty;
   // HEAD commit sha — lets callers detect a new commit even when ahead/behind
   // don't move (e.g. an amend, or a commit that also pulled base in).
@@ -410,7 +410,7 @@ function _ensureGitIdentity(wt) {
 // 2-char git porcelain status (e.g. " M", "??", "A "). Never throws.
 function worktreeChanges(wt) {
   if (!wt || !_isRepo(wt)) return { dirty: false, changed: [], ignored: [] };
-  const out = _gitTry(['status', '--porcelain'], wt).out || '';
+  const out = _gitTry(['status', '--porcelain', '-uall'], wt).out || '';
   const changed = [], ignored = [];
   for (const raw of out.split('\n')) {
     if (!raw.trim()) continue;
@@ -419,7 +419,7 @@ function worktreeChanges(wt) {
     const arrow = p.indexOf(' -> ');
     if (arrow >= 0) p = p.slice(arrow + 4).trim();
     if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
-    (isIgnorableReportPath(p) ? ignored : changed).push({ path: p, xy });
+    (isIgnorableWorktreePath(p) ? ignored : changed).push({ path: p, xy });
   }
   return { dirty: changed.length > 0, changed, ignored };
 }
@@ -471,7 +471,7 @@ function prDrift(wt, sourceBranch, { fetch = true, desc = null } = {}) {
       comparable = true;
     }
   }
-  const cls = classifyPorcelain(_gitTry(['status', '--porcelain'], wt).out || '');
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
   const dirty = cls.dirty;
   const inSync = comparable && ahead === 0 && behind === 0 && !dirty;
   return {
@@ -555,7 +555,7 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
   const mode = strategy === 'rebase' ? 'rebase' : 'merge';
 
   // A merge/rebase needs a clean tree — never silently discard the user's work.
-  const cls = classifyPorcelain(_gitTry(['status', '--porcelain'], wt).out || '');
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
   if (cls.dirty) {
     return { ok: false, needsClean: true, message: 'Commit or discard your uncommitted changes before updating from ' + tgt + '.' };
   }
@@ -721,6 +721,25 @@ function isIgnorableReportPath(rel) {
   return REPORT_NAME_RE.test(base);
 }
 
+// Copilot/agent tooling artifacts that land in a worktree purely as a side-effect
+// of running the CLI (e.g. `.github/copilot-instructions.md` dropped by a Copilot
+// session) or the `*.agent.md` files we write for review/dev work. These are never
+// committed into the user's PR, so — like generated reports — they must not flip a
+// worktree to "dirty" or block an update-from-main.
+function isIgnorableAgentArtifact(rel) {
+  if (!rel) return false;
+  const base = String(rel).replace(/\\/g, '/').split('/').pop();
+  if (base === 'copilot-instructions.md') return true;
+  if (/\.agent\.md$/i.test(base)) return true;
+  return false;
+}
+
+// A worktree change is ignorable when it's a generated report OR a Copilot/agent
+// tooling artifact — both are surfaced/managed by us but never committed.
+function isIgnorableWorktreePath(rel) {
+  return isIgnorableReportPath(rel) || isIgnorableAgentArtifact(rel);
+}
+
 // Split `git status --porcelain` output into committable changes vs ignorable
 // agent reports. Returns { dirty, changed:[], ignored:[] } where `dirty` reflects
 // ONLY the committable changes — so a worktree whose only change is a generated
@@ -733,7 +752,7 @@ function classifyPorcelain(out) {
     const arrow = p.indexOf(' -> ');         // rename entries: "old -> new"
     if (arrow >= 0) p = p.slice(arrow + 4).trim();
     if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
-    (isIgnorableReportPath(p) ? ignored : changed).push(p);
+    (isIgnorableWorktreePath(p) ? ignored : changed).push(p);
   }
   return { dirty: changed.length > 0, changed, ignored };
 }
