@@ -1404,12 +1404,14 @@ app.get('/api/azdo/discover', async (req, res) => {
 function sameInstallSource(a, b) {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === 'azdo') return a.org === b.org && a.project === b.project && a.repo === b.repo && a.path === b.path;
+  if (a.type === 'github') return a.org === b.org && a.repo === b.repo && a.path === b.path;
   if (a.type === 'local') return String(a.path || '') === String(b.path || '');
   return false;
 }
 function sourceSuffix(source) {
   if (!source) return 'src';
   if (source.type === 'azdo') return 'azdo';
+  if (source.type === 'github') return 'github';
   if (source.type === 'local') return 'local';
   return String(source.type || 'src');
 }
@@ -1433,36 +1435,47 @@ function resolveInstallId(baseId, newSource, agents) {
   }
 }
 
-async function installAzdoItem({ org, project, repo, branch, item, group }) {
+// Materialize + register an agent/plugin from a forge provider (azdo|github).
+// Shared by /api/azdo/install, /api/forge/install and marketplace install.
+// `provider` (missing ⇒ azdo) selects the module; GitHub uses org as the owner
+// and leaves project ''. Source records carry `type: provider` so a same-id item
+// from a different provider/source coexists (suffixed) rather than clobbering.
+async function installForgeItem({ provider, org, project, repo, branch, item, group }) {
+  const prov = providerOf({ provider });
+  const mod = forge({ provider: prov });
+  const isGithub = prov === 'github';
+  const proj = isGithub ? '' : project;
   const source = {
-    type: 'azdo', kind: item.kind, org, project, repo, branch,
+    type: prov, kind: item.kind, org, project: proj, repo, branch,
     path: item.path, objectId: item.objectId || null,
     installedAt: new Date().toISOString()
   };
   const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
   const { id: finalId, suffixed } = resolveInstallId(item.id, source, agents);
   const baseName = item.displayName || item.name || item.id;
-  const name = suffixed ? `${baseName} (Azure DevOps)` : baseName;
+  const providerLabel = isGithub ? 'GitHub' : 'Azure DevOps';
+  const name = suffixed ? `${baseName} (${providerLabel})` : baseName;
+  const defaultGroup = isGithub ? 'GitHub' : 'Azure DevOps';
   let config;
   if (item.kind === 'plugin') {
-    const { pluginDir, mcpConfig } = await azdo.materializePlugin(org, project, repo, branch, item);
+    const { pluginDir, mcpConfig } = await mod.materializePlugin(org, proj, repo, branch, item);
     registerLocalPluginInCopilot(pluginDir);
     config = {
       id: finalId,
       name,
-      cwd: azdo.repoRoot(org, project, repo, branch),
+      cwd: mod.repoRoot(org, proj, repo, branch),
       pluginDir,
       sourceDir: pluginDir,
       agent: ensurePluginAgent(pluginDir),
       schedule: 'never',
       durable: true,
-      group: group || 'Azure DevOps',
+      group: group || defaultGroup,
       description: item.description || '',
       source
     };
     if (mcpConfig) config.mcpConfig = mcpConfig;
   } else {
-    const { cwd, mcpConfig, skillCount } = await azdo.materializeAgent(org, project, repo, branch, item.path);
+    const { cwd, mcpConfig, skillCount } = await mod.materializeAgent(org, proj, repo, branch, item.path);
     config = {
       id: finalId,
       name,
@@ -1470,7 +1483,7 @@ async function installAzdoItem({ org, project, repo, branch, item, group }) {
       agent: item.agentRef || item.name || item.id,
       schedule: 'never',
       durable: true,
-      group: group || 'Azure DevOps',
+      group: group || defaultGroup,
       description: item.description || '',
       source
     };
@@ -1487,6 +1500,11 @@ async function installAzdoItem({ org, project, repo, branch, item, group }) {
   return config;
 }
 
+// Back-compat thin wrapper — AzDO install path (provider defaults to azdo).
+async function installAzdoItem({ org, project, repo, branch, item, group }) {
+  return installForgeItem({ provider: 'azdo', org, project, repo, branch, item, group });
+}
+
 app.post('/api/azdo/install', async (req, res) => {
   const { org, project, repo, branch, item, group } = req.body || {};
   if (!org || !project || !repo || !branch || !item || !item.kind || !item.id) {
@@ -1497,6 +1515,52 @@ app.post('/api/azdo/install', async (req, res) => {
     res.json({ ok: true, agent: config });
   } catch (e) {
     res.status(500).json({ error: `Azure DevOps install failed: ${e.message}` });
+  }
+});
+
+// Provider-aware discovery + install (mirrors /api/azdo/discover + /api/azdo/install).
+// GitHub has no "project" — owner lives in `org`, project stays ''. Missing
+// provider ⇒ azdo (back-compat). Source-aware "registered" match so an item from
+// THIS source shows as installed even if its id was suffixed to coexist.
+app.get('/api/forge/discover', async (req, res) => {
+  const provider = providerOf({ provider: req.query.provider });
+  const org = (req.query.org || '').trim();
+  const project = (req.query.project || '').trim();
+  const repo = (req.query.repo || '').trim();
+  const branch = (req.query.branch || '').trim();
+  if (!org || !repo || !branch || (provider === 'azdo' && !project)) {
+    return res.status(400).json({ error: provider === 'github' ? 'owner (org), repo and branch are required' : 'org, project, repo and branch are required' });
+  }
+  const proj = provider === 'github' ? '' : project;
+  try {
+    let registered = [];
+    try { registered = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8')); } catch {}
+    const isRegistered = (d) => registered.some(a => {
+      const s = a.source;
+      if (s && s.type === provider) {
+        if (provider === 'github') return s.org === org && s.repo === repo && s.path === d.path;
+        return s.org === org && s.project === proj && s.repo === repo && s.path === d.path;
+      }
+      return a.id === d.id;
+    });
+    const discovered = (await forge({ provider, org }).discover(org, proj, repo, branch))
+      .map(d => ({ ...d, registered: isRegistered(d) }));
+    res.json({ discovered });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+app.post('/api/forge/install', async (req, res) => {
+  const provider = providerOf(req.body || {});
+  const { org, project, repo, branch, item, group } = req.body || {};
+  const proj = provider === 'github' ? '' : project;
+  if (!org || !repo || !branch || !item || !item.kind || !item.id || (provider === 'azdo' && !project)) {
+    return res.status(400).json({ error: provider === 'github' ? 'owner (org), repo, branch and item{kind,id,path} are required' : 'org, project, repo, branch and item{kind,id,path} are required' });
+  }
+  try {
+    const config = await installForgeItem({ provider, org, project: proj, repo, branch, item, group });
+    res.json({ ok: true, agent: config });
+  } catch (e) {
+    res.status(500).json({ error: `${provider === 'github' ? 'GitHub' : 'Azure DevOps'} install failed: ${e.message}` });
   }
 });
 
@@ -3363,7 +3427,12 @@ app.post('/api/marketplace/install', async (req, res) => {
     // agent | plugin install
     if (entry.sourceKind === 'azdo' && entry.install && entry.azdo) {
       const { org, project, repo, branch } = entry.azdo;
-      const config = await installAzdoItem({ org, project, repo, branch, item: entry.install.item, group });
+      const config = await installForgeItem({ provider: 'azdo', org, project, repo, branch, item: entry.install.item, group });
+      return res.json({ ok: true, agent: config });
+    }
+    if (entry.sourceKind === 'github' && entry.install && entry.github) {
+      const { org, repo, branch } = entry.github;
+      const config = await installForgeItem({ provider: 'github', org, project: '', repo, branch, item: entry.install.item, group });
       return res.json({ ok: true, agent: config });
     }
     if (entry.sourceKind === 'local') {

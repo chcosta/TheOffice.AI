@@ -11837,6 +11837,7 @@
               <div class="filter-pills" style="margin-bottom:12px">
                 <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'local' }" @click="mkt.addForm.kind = 'local'">📁 Local folder</button>
                 <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'azdo' }" @click="mkt.addForm.kind = 'azdo'; mktPrefillAddRepoDefaults()">☁️ Azure DevOps</button>
+                <button class="pill" type="button" :class="{ active: mkt.addForm.kind === 'github' }" @click="mkt.addForm.kind = 'github'; mktPrefillAddRepoDefaults()">🐙 GitHub</button>
               </div>
               <template x-if="mkt.addForm.kind === 'local'">
                 <div class="form-row">
@@ -11847,13 +11848,13 @@
                   </div>
                 </div>
               </template>
-              <template x-if="mkt.addForm.kind === 'azdo'">
+              <template x-if="mkt.addForm.kind === 'azdo' || mkt.addForm.kind === 'github'">
                 <div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">
-                    <div class="form-row"><label>Organization</label><input type="text" x-model="mkt.addForm.org" placeholder="dnceng" @input.debounce.600ms="mktLoadAddRepos()" @keydown.enter.prevent="mktLoadAddRepos()"></div>
-                    <div class="form-row"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @input.debounce.600ms="mktLoadAddRepos()" @keydown.enter.prevent="mktLoadAddRepos()"></div>
+                  <div :style="mkt.addForm.kind === 'github' ? 'display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end' : 'display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end'">
+                    <div class="form-row"><label x-text="mkt.addForm.kind === 'github' ? 'Owner' : 'Organization'"></label><input type="text" x-model="mkt.addForm.org" :placeholder="mkt.addForm.kind === 'github' ? 'costahome' : 'dnceng'" @input.debounce.600ms="mktLoadAddRepos()" @keydown.enter.prevent="mktLoadAddRepos()"></div>
+                    <div class="form-row" x-show="mkt.addForm.kind !== 'github'"><label>Project</label><input type="text" x-model="mkt.addForm.project" placeholder="internal" @input.debounce.600ms="mktLoadAddRepos()" @keydown.enter.prevent="mktLoadAddRepos()"></div>
                     <div class="form-row" x-show="!mkt.addForm.manual">
-                      <button class="btn" type="button" :disabled="mkt.addForm.loadingRepos || !mkt.addForm.org.trim() || !mkt.addForm.project.trim()" @click="mktLoadAddRepos()" x-text="mkt.addForm.loadingRepos ? 'Loading…' : (mkt.addForm.repos.length ? 'Reload repos' : 'Load repositories')"></button>
+                      <button class="btn" type="button" :disabled="mkt.addForm.loadingRepos || !mkt.addForm.org.trim() || (mkt.addForm.kind !== 'github' && !mkt.addForm.project.trim())" @click="mktLoadAddRepos()" x-text="mkt.addForm.loadingRepos ? 'Loading…' : (mkt.addForm.repos.length ? 'Reload repos' : 'Load repositories')"></button>
                     </div>
                   </div>
                   <template x-if="!mkt.addForm.manual">
@@ -11926,6 +11927,9 @@
                 <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
                   <option value="kind:azdo" x-text="'🔷 All Azure DevOps (' + mktKindTotal('azdo') + ')'"></option>
                 </template>
+                <template x-if="mkt.sources.some(s => s.kind === 'github')">
+                  <option value="kind:github" x-text="'🐙 All GitHub (' + mktKindTotal('github') + ')'"></option>
+                </template>
                 <template x-if="mkt.sources.some(s => s.kind === 'local')">
                   <optgroup label="Local folders">
                     <template x-for="src in mkt.sources.filter(s => s.kind === 'local')" :key="'opt-' + src.id">
@@ -11936,6 +11940,13 @@
                 <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
                   <optgroup label="Azure DevOps">
                     <template x-for="src in mkt.sources.filter(s => s.kind === 'azdo')" :key="'opt-' + src.id">
+                      <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
+                    </template>
+                  </optgroup>
+                </template>
+                <template x-if="mkt.sources.some(s => s.kind === 'github')">
+                  <optgroup label="GitHub">
+                    <template x-for="src in mkt.sources.filter(s => s.kind === 'github')" :key="'opt-' + src.id">
                       <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
                     </template>
                   </optgroup>
@@ -11958,18 +11969,18 @@
                   <button class="btn primary" type="button" @click="mkt.showAddForm = true">+ Add source</button>
                 </div>
               </div>
-              <div x-show="!mkt.sources.length" class="hint" style="font-style:italic;padding:6px 0">No sources connected yet. Add a local folder or Azure DevOps repo above.</div>
+              <div x-show="!mkt.sources.length" class="hint" style="font-style:italic;padding:6px 0">No sources connected yet. Add a local folder, Azure DevOps repo, or GitHub repo above.</div>
               <template x-for="src in mkt.sources" :key="'mng-' + src.id">
                 <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--cp-border)">
-                  <span style="font-size:1.05rem" x-text="src.kind === 'azdo' ? '🔷' : '📁'"></span>
+                  <span style="font-size:1.05rem" x-text="src.kind === 'azdo' ? '🔷' : (src.kind === 'github' ? '🐙' : '📁')"></span>
                   <div style="min-width:0;flex:1">
                     <div style="font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                       <span x-text="src.label"></span>
                       <span class="hint" style="font-size:0.7rem" x-text="mktSrcCount(src) + ' items'"></span>
                     </div>
                     <div class="hint mono" style="font-size:0.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-                         :title="src.kind === 'azdo' ? (src.azdo.org + '/' + src.azdo.project + '/' + src.azdo.repo + '@' + src.azdo.branch) : (src.local && src.local.path)"
-                         x-text="src.kind === 'azdo' ? (src.azdo.org + '/' + src.azdo.project + '/' + src.azdo.repo + '@' + src.azdo.branch) : (src.local && src.local.path)"></div>
+                         :title="src.kind === 'azdo' ? (src.azdo.org + '/' + src.azdo.project + '/' + src.azdo.repo + '@' + src.azdo.branch) : (src.kind === 'github' ? (src.github.org + '/' + src.github.repo + '@' + src.github.branch) : (src.local && src.local.path))"
+                         x-text="src.kind === 'azdo' ? (src.azdo.org + '/' + src.azdo.project + '/' + src.azdo.repo + '@' + src.azdo.branch) : (src.kind === 'github' ? (src.github.org + '/' + src.github.repo + '@' + src.github.branch) : (src.local && src.local.path))"></div>
                   </div>
                   <span class="hint" style="font-size:0.7rem;white-space:nowrap" x-show="src.lastScannedAt" x-text="'scanned ' + formatRelative(src.lastScannedAt)"></span>
                   <button class="btn ghost" type="button" @click="scanMarketplaceSource(src.id)" :disabled="mkt.scanning[src.id]" x-text="mkt.scanning[src.id] ? '⏳ Scanning…' : '🔄 Rescan'"></button>
@@ -30149,7 +30160,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return { agent: '🤖', plugin: '🧩', skill: '🛠️', mcp: '🔌' }[t] || '•';
         },
         mktSourceMeta(entry) {
-          const kind = entry.sourceKind || (entry.azdo ? 'azdo' : 'installed');
+          const kind = entry.sourceKind || (entry.github ? 'github' : (entry.azdo ? 'azdo' : 'installed'));
+          if (kind === 'github' && entry.github) {
+            const g = entry.github;
+            const loc = [g.org, g.repo].filter(Boolean).join('/') + (g.branch ? '@' + g.branch : '');
+            return { icon: '🐙', kind: 'GitHub', location: loc, title: 'GitHub · ' + loc };
+          }
           if (kind === 'azdo' && entry.azdo) {
             const a = entry.azdo;
             const loc = [a.org, a.project, a.repo].filter(Boolean).join('/') + (a.branch ? '@' + a.branch : '');
@@ -30166,7 +30182,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return { icon: '✓', kind: 'Installed', location: entry.sourceLabel || 'Installed', title: 'Installed' + (full ? ' · ' + full : '') };
         },
         mktEntryKind(entry) {
-          return entry.sourceKind || (entry.azdo ? 'azdo' : 'installed');
+          return entry.sourceKind || (entry.github ? 'github' : (entry.azdo ? 'azdo' : 'installed'));
         },
         // Collapse a deep local artifact/plugin path to its source-location root:
         // trim at the first \.github\, \plugins\ or \plugin\ segment (case-insensitive,
@@ -30183,7 +30199,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // from one configured source collapses into a single group.
         mktSourcePathMeta(e) {
           const src = (this.mkt.sources || []).find(s => s.id === e.sourceId);
-          const kind = e.sourceKind || (src && src.kind) || (e.azdo ? 'azdo' : 'installed');
+          const kind = e.sourceKind || (src && src.kind) || (e.github ? 'github' : (e.azdo ? 'azdo' : 'installed'));
+          if (kind === 'github') {
+            const g = (src && src.github) || e.github || {};
+            const loc = [g.org, g.repo].filter(Boolean).join('/') + (g.branch ? '@' + g.branch : '');
+            const label = loc || e.sourceLabel || '(GitHub)';
+            return { key: 'github|' + (e.sourceId || loc), label, icon: '🐙', title: 'GitHub · ' + label };
+          }
           if (kind === 'azdo') {
             const a = (src && src.azdo) || e.azdo || {};
             const loc = [a.org, a.project, a.repo].filter(Boolean).join('/') + (a.branch ? '@' + a.branch : '');
@@ -30482,8 +30504,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // codeflowPrefillRepoDefaults so the Marketplace AzDO form behaves the same.
         async mktPrefillAddRepoDefaults() {
           const f = this.mkt.addForm;
-          if (f.kind !== 'azdo' || f.prefilled) return;
+          if ((f.kind !== 'azdo' && f.kind !== 'github') || f.prefilled) return;
           f.prefilled = true;
+          if (f.kind === 'github') {
+            try {
+              const s = await this.request('/api/settings');
+              if (s && s.githubOwner && !f.org.trim()) f.org = (s.githubOwner || '').trim();
+            } catch {}
+            if (f.org.trim() && !f.repos.length && !f.loadingRepos) this.mktLoadAddRepos();
+            return;
+          }
           try {
             const s = await this.request('/api/settings');
             if (s) {
@@ -30497,13 +30527,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async mktLoadAddRepos() {
           const f = this.mkt.addForm;
+          const isGithub = f.kind === 'github';
           const org = (f.org || '').trim(), project = (f.project || '').trim();
           f.repos = []; f.branches = []; f.repo = ''; f.branch = '';
-          if (!org || !project) return;
+          if (!org || (!isGithub && !project)) return;
           f.loadingRepos = true;
           this.mkt.error = '';
           try {
-            const data = await this.request(`/api/azdo/repos?org=${encodeURIComponent(org)}&project=${encodeURIComponent(project)}`);
+            const provider = isGithub ? 'github' : 'azdo';
+            const url = `/api/forge/repos?provider=${provider}&org=${encodeURIComponent(org)}` + (isGithub ? '' : `&project=${encodeURIComponent(project)}`);
+            const data = await this.request(url);
             f.repos = data.repos || [];
             if (!f.repos.length) this.mkt.error = 'No repositories found (or no access). You can enter them manually.';
           } catch (e) {
@@ -30514,12 +30547,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async mktAddRepoChange() {
           const f = this.mkt.addForm;
+          const isGithub = f.kind === 'github';
           f.branch = ''; f.branches = [];
           if (!f.repo) return;
           f.loadingBranches = true;
           try {
             const r = f.repos.find(x => x.name === f.repo);
-            const data = await this.request(`/api/azdo/branches?org=${encodeURIComponent((f.org || '').trim())}&project=${encodeURIComponent((f.project || '').trim())}&repo=${encodeURIComponent(f.repo)}`);
+            const provider = isGithub ? 'github' : 'azdo';
+            const url = `/api/forge/branches?provider=${provider}&org=${encodeURIComponent((f.org || '').trim())}&repo=${encodeURIComponent(f.repo)}` + (isGithub ? '' : `&project=${encodeURIComponent((f.project || '').trim())}`);
+            const data = await this.request(url);
             f.branches = data.branches || [];
             if (r && r.defaultBranch && f.branches.includes(r.defaultBranch)) f.branch = r.defaultBranch;
             else if (f.branches.includes('main')) f.branch = 'main';
@@ -30547,7 +30583,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const f = this.mkt.addForm;
             const body = f.kind === 'local'
               ? { kind: 'local', path: f.path }
-              : { kind: 'azdo', org: f.org, project: f.project, repo: f.repo, branch: f.branch };
+              : f.kind === 'github'
+                ? { kind: 'github', org: f.org, repo: f.repo, branch: f.branch }
+                : { kind: 'azdo', org: f.org, project: f.project, repo: f.repo, branch: f.branch };
             const r = await this.request('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(body) });
             this.mkt.showAddForm = false;
             this.mkt.addForm = { kind: 'local', path: '', browsing: false, org: '', project: '', repo: '', branch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, manual: false, prefilled: false };

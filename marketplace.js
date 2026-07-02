@@ -23,6 +23,10 @@ const path = require('path');
 const crypto = require('crypto');
 const azdo = require('./azdo');
 const capabilities = require('./capabilities');
+// GitHub provider (lazy in a try/catch so a broken github.js can't kill the
+// module load / azdo scanning). Only exercised by kind:'github' sources.
+let github = null;
+try { github = require('./github'); } catch (_) { github = null; }
 
 const SUPERVISOR_DATA_DIR = process.env.SUPERVISOR_DATA_DIR
   || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.copilot', 'agent-supervisor');
@@ -108,6 +112,25 @@ function addSource(input) {
       lastScannedAt: null,
       counts: {},
     };
+  } else if (input.kind === 'github') {
+    // GitHub has no "project" — the owner lives in `org`. Mirrors the azdo shape
+    // with project always '' so downstream code (id/label/scan) stays uniform.
+    const org = String(input.org || input.owner || '').trim();
+    const repo = String(input.repo || '').trim();
+    const branch = String(input.branch || '').trim();
+    if (!org || !repo || !branch) {
+      throw new Error('owner (org), repo and branch are required for a github source');
+    }
+    const id = 'github-' + shortHash([org, repo, branch].join('/').toLowerCase());
+    if (sources.some(s => s.id === id)) throw new Error('That GitHub repo/branch is already a source');
+    source = {
+      id, kind: 'github',
+      label: input.label || `${repo}@${branch}`,
+      github: { org, project: '', repo, branch },
+      addedAt: new Date().toISOString(),
+      lastScannedAt: null,
+      counts: {},
+    };
   } else {
     throw new Error(`Unknown source kind: ${input.kind}`);
   }
@@ -152,9 +175,16 @@ function suggestSources(agents) {
 
     // AzDO-installed agents/plugins -> an azdo source for that repo/branch.
     const org = src.org, project = src.project, repo = src.repo, branch = src.branch;
-    if ((src.type === 'azdo' || (org && repo)) && org && project && repo && branch) {
+    if ((src.type === 'azdo' || (org && repo)) && src.type !== 'github' && org && project && repo && branch) {
       const id = 'azdo-' + shortHash([org, project, repo, branch].join('/').toLowerCase());
       add({ kind: 'azdo', org, project, repo, branch, label: `${repo}@${branch}` }, id, name);
+      continue;
+    }
+
+    // GitHub-installed agents/plugins -> a github source (no project slot).
+    if (src.type === 'github' && org && repo && branch) {
+      const id = 'github-' + shortHash([org, repo, branch].join('/').toLowerCase());
+      add({ kind: 'github', org, repo, branch, label: `${repo}@${branch}` }, id, name);
       continue;
     }
 
@@ -361,12 +391,81 @@ async function scanAzdo(source) {
   return entries;
 }
 
+// ---- github scan ---------------------------------------------------------
+//
+// Mirrors scanAzdo 1:1 but through the github.js provider. GitHub owner lives in
+// `org`; the project slot is always '' (github.js ignores the middle arg). All
+// entries carry a `github:{org,project:'',repo,branch}` field so the install +
+// materialize paths can dispatch by source kind.
+
+async function scanGithub(source) {
+  if (!github) throw new Error('GitHub provider unavailable');
+  const { org, repo, branch } = source.github;
+  const project = '';
+  const entries = [];
+
+  // Agents + plugins via github.discover (frontmatter aware, R13 tree fallback).
+  let discovered = [];
+  try { discovered = await github.discover(org, project, repo, branch); } catch (_) { discovered = []; }
+  for (const d of discovered) {
+    entries.push(makeEntry(source, d.kind === 'plugin' ? 'plugin' : 'agent', d.displayName || d.name || d.id, {
+      displayName: d.displayName || d.name || d.id,
+      description: d.description || '',
+      path: d.path || '',
+      fields: {
+        github: { org, project, repo, branch, objectId: d.objectId || null },
+        install: { kind: d.kind, item: d },
+      },
+    }));
+  }
+
+  // Standalone skills + co-located .mcp.json via a tree sweep.
+  let tree = [];
+  try { tree = await github.getTree(org, project, repo, branch); } catch (_) { tree = []; }
+  const skillPaths = tree.filter(i => /(^|\/)SKILL\.md$/i.test(i.path));
+  const mcpPaths = tree.filter(i => /(^|\/)\.mcp\.json$/i.test(i.path));
+
+  for (const s of skillPaths) {
+    const dir = s.path.replace(/\/SKILL\.md$/i, '');
+    const name = dir.split('/').filter(Boolean).pop() || 'skill';
+    let desc = '';
+    try { desc = skillDescription(await github.getFileText(org, project, repo, branch, s.path)); } catch (_) {}
+    entries.push(makeEntry(source, 'skill', name, {
+      description: desc, path: s.path,
+      fields: { github: { org, project, repo, branch }, skill: { repoPath: s.path } },
+    }));
+  }
+  for (const m of mcpPaths) {
+    let text = '';
+    try { text = await github.getFileText(org, project, repo, branch, m.path); } catch (_) {}
+    for (const [sname, cfg] of mcpServerNames(text)) {
+      entries.push(makeEntry(source, 'mcp', sname, {
+        description: (cfg && (cfg.command || cfg.url)) || '', path: m.path,
+        fields: {
+          github: { org, project, repo, branch },
+          mcp: {
+            server: sname,
+            command: (cfg && (cfg.command || cfg.url)) || '',
+            args: (cfg && Array.isArray(cfg.args)) ? cfg.args : [],
+            envKeys: (cfg && cfg.env) ? Object.keys(cfg.env) : [],
+            repoPath: m.path,
+          },
+        },
+      }));
+    }
+  }
+  return entries;
+}
+
 // ---- scan + catalog ------------------------------------------------------
 
 async function scanSource(id) {
   const source = getSource(id);
   if (!source) throw new Error('Unknown source: ' + id);
-  const entries = source.kind === 'local' ? scanLocal(source) : await scanAzdo(source);
+  let entries;
+  if (source.kind === 'local') entries = scanLocal(source);
+  else if (source.kind === 'github') entries = await scanGithub(source);
+  else entries = await scanAzdo(source);
 
   const counts = {};
   for (const e of entries) counts[e.type] = (counts[e.type] || 0) + 1;
@@ -471,11 +570,29 @@ async function materializeForAttach(entry) {
       fs.writeFileSync(dest, text);
       return { kind: 'mcp', sourcePath: dest, name: entry.mcp.server };
     }
+    if (entry.github && entry.mcp && entry.mcp.repoPath) {
+      if (!github) throw new Error('GitHub provider unavailable');
+      const { org, project, repo, branch } = entry.github;
+      const text = await github.getFileText(org, project, repo, branch, entry.mcp.repoPath);
+      const dest = path.join(CACHE_DIR, safeSlug(entry.sourceId), safeSlug(entry.mcp.repoPath));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, text);
+      return { kind: 'mcp', sourcePath: dest, name: entry.mcp.server };
+    }
   } else if (entry.type === 'skill') {
     if (entry.skill && entry.skill.dir) return { kind: 'skill', sourceDir: entry.skill.dir, name: entry.name };
     if (entry.azdo && entry.skill && entry.skill.repoPath) {
       const { org, project, repo, branch } = entry.azdo;
       const text = await azdo.getFileText(org, project, repo, branch, entry.skill.repoPath);
+      const dir = path.join(CACHE_DIR, safeSlug(entry.sourceId), 'skills', safeSlug(entry.name));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), text);
+      return { kind: 'skill', sourceDir: dir, name: entry.name };
+    }
+    if (entry.github && entry.skill && entry.skill.repoPath) {
+      if (!github) throw new Error('GitHub provider unavailable');
+      const { org, project, repo, branch } = entry.github;
+      const text = await github.getFileText(org, project, repo, branch, entry.skill.repoPath);
       const dir = path.join(CACHE_DIR, safeSlug(entry.sourceId), 'skills', safeSlug(entry.name));
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'SKILL.md'), text);
@@ -496,6 +613,7 @@ module.exports = {
   suggestSources,
   scanLocal,
   scanAzdo,
+  scanGithub,
   scanSource,
   getCatalog,
   findEntry,
