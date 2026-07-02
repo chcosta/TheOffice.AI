@@ -201,7 +201,17 @@ function saveCodeflowRepos(repos) {
 //   reviewAgentName, reviewAgentFile, reports[], worktreeStatus, error, ... }.
 // Lives under the profile DATA_DIR — never inside the repo, never committed.
 function _cfWtKey(o) {
-  return `${o.org}|${o.project}|${o.repo}|${o.prId}`.toLowerCase();
+  // AzDo keys stay byte-identical (no prefix) so existing on-disk records never
+  // orphan; GitHub is namespaced (project slot is empty for GitHub).
+  const base = `${o.org}|${o.project || ''}|${o.repo}|${o.prId}`.toLowerCase();
+  return String(o.provider || 'azdo').toLowerCase() === 'github' ? `github|${base}` : base;
+}
+// Provider-aware presence guard for the Code Flow PR handlers. AzDo needs a
+// project; GitHub stores the owner in `org` and leaves `project` empty.
+function _cfPrOk(o) {
+  if (!o || !o.org || !o.repo || !o.prId) return false;
+  if (String(o.provider || 'azdo').toLowerCase() === 'github') return true;
+  return !!o.project;
 }
 function loadCodeflowWorktrees() {
   try {
@@ -1918,7 +1928,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   // the broad "active" view (opts.lite) to keep that listing fast.
   let suggestedReviewers = [];
   if (!opts.lite) try {
-    const files = await azdo.getPrChangedFiles(pr.org, pr.project, pr.repo, pr.id, 100);
+    const files = await F.getPrChangedFiles(pr.org, pr.project, pr.repo, pr.id, 100);
 
     // --- Primary signal: approvers of prior PRs in the same areas ---
     const rankedApprovers = _cfRankApprovers(files, opts.approverIndex);
@@ -1949,7 +1959,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
     if (suggestedReviewers.length < 3) {
       const pick = files.slice(0, 4);
       const perFile = await Promise.all(pick.map(p =>
-        azdo.getFileContributors(pr.org, pr.project, pr.repo, p, 60, 30).catch(() => [])));
+        F.getFileContributors(pr.org, pr.project, pr.repo, p, 60, 30).catch(() => [])));
       const tally = new Map();
       for (const list of perFile) for (const a of list) {
         const n = (a.name || '').trim();
@@ -2261,7 +2271,12 @@ const CODEFLOW_REPORT_BOARD = 'codeflow-pr'; // namespace for the report cache
 
 // Stable, filesystem-safe id for the report cache + worktree devId.
 function _cfWtDevId(o) {
-  return ('cfpr-' + [o.org, o.project, o.repo, o.prId].join('-'))
+  // AzDo devIds stay byte-identical; GitHub is namespaced (empty project slot
+  // would otherwise collapse `org--repo`).
+  const parts = String(o.provider || 'azdo').toLowerCase() === 'github'
+    ? ['cfpr-gh', o.org, o.repo, o.prId]
+    : ['cfpr', o.org, o.project, o.repo, o.prId];
+  return parts.join('-')
     .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).toLowerCase();
 }
 function _cfReviewAgentSlug(o) {
@@ -2538,13 +2553,13 @@ app.get('/api/codeflow/pr/worktrees', async (req, res) => {
   const now = Date.now();
   const stale = Object.keys(map).filter(k => {
     const r = map[k];
-    return r && r.org && r.project && r.repo && r.prId != null &&
+    return _cfPrOk(r) &&
       (!r.prStatusCheckedAt || (now - r.prStatusCheckedAt) > CF_PRSTATUS_TTL_MS);
   });
   await Promise.allSettled(stale.map(async k => {
     const r = map[k];
     try {
-      const pr = await azdo.getPullRequest(r.org, r.project, r.repo, r.prId);
+      const pr = await forge(r).getPullRequest(r.org, r.project, r.repo, r.prId);
       const save = { prStatusCheckedAt: now };
       if (pr && pr.status) {
         save.prStatus = String(pr.status).toLowerCase();
@@ -2598,7 +2613,7 @@ function _cfPostedSet(rec) {
 async function _cfReconcilePosted(o, key, rec, comments) {
   try {
     if (!Array.isArray(comments) || !comments.length) return rec;
-    const threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId, { max: 200 });
+    const threads = await forge(o).getPrActiveThreads(o.org, o.project, o.repo, o.prId, { max: 200 });
     const texts = [];
     for (const t of (threads || [])) for (const c of (t.comments || [])) {
       const tx = String(c.text || '');
@@ -2635,8 +2650,8 @@ const CF_DRIFT_FETCH_TTL_MS = 60000;
 // origin fetch; otherwise the poll fetches at most once per minute so drift stays
 // accurate without a fetch on every 2s tick.
 app.get('/api/codeflow/pr/worktree', (req, res) => {
-  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   let rec = _getCfWt(key);
   if (!rec) return res.json({ worktree: null });
@@ -2686,8 +2701,8 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
 // to the review worktree path. Returns { dir, branch, reused, attached, detached }.
 app.post('/api/codeflow/pr/worktree/open-dir', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const rec = _getCfWt(_cfWtKey(o));
   const current = rec && rec.worktreePath ? rec.worktreePath : '';
   if (!current) return res.json({ dir: '' });
@@ -2705,19 +2720,19 @@ app.post('/api/codeflow/pr/worktree/open-dir', (req, res) => {
 // dev-card worktree route; the blocking clone runs in a worker thread.
 app.post('/api/codeflow/pr/worktree', async (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const view = String(b.view || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
   // Resolve the PR fresh (don't trust client branch); require it to be OPEN.
   let pr;
-  try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
+  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); }
   catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
   if (!pr || !pr.sourceBranch) return res.status(400).json({ error: 'PR has no source branch to review.' });
   if (String(pr.status || '').toLowerCase() !== 'active') return res.status(400).json({ error: 'PR is not open (active).' });
   const key = _cfWtKey(o);
   const devId = _cfWtDevId(o);
   _saveCfWt(key, {
-    org: o.org, project: o.project, repo: o.repo, prId: pr.id, view,
+    org: o.org, project: o.project, repo: o.repo, prId: pr.id, view, provider: o.provider || 'azdo',
     prTitle: pr.title || '', prUrl: pr.url || '',
     sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
     prStatus: String(pr.status || '').toLowerCase(),
@@ -2727,7 +2742,7 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
   (async () => {
     try {
       const r = await devitems.createWorktreeAsync({
-        org: o.org, project: o.project, repo: o.repo,
+        org: o.org, project: o.project, repo: o.repo, provider: o.provider,
         baseBranch: pr.targetBranch, branch: pr.sourceBranch, devId, detach: true
       });
       let rec = _saveCfWt(key, {
@@ -2736,11 +2751,11 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
       });
       // Gather linked work items (best-effort) so the agent file is grounded.
       let workItems = [];
-      try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+      try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
       // For your own PR (mine), ground the steward with the actual unresolved
       // reviewer feedback so it can address each thread concretely.
       let threads = [];
-      if (view === 'mine') { try { threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
+      if (view === 'mine') { try { threads = await forge(o).getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
       const agent = _writeCfReviewAgentFile(rec, { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy }, workItems, { view, threads });
       const save = {};
       if (agent) Object.assign(save, agent);
@@ -2759,10 +2774,10 @@ app.post('/api/codeflow/pr/worktree', async (req, res) => {
 // the worktree record's reviewStatus.
 app.post('/api/codeflow/pr/review', async (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   let pr;
-  try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
+  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); }
   catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
   if (!pr || !pr.sourceBranch) return res.status(400).json({ error: 'PR has no source branch to review.' });
   const key = _cfWtKey(o);
@@ -2774,7 +2789,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   const steward = view === 'mine';
   const haveWt = !!(rec && rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath));
   rec = _saveCfWt(key, {
-    org: o.org, project: o.project, repo: o.repo, prId: pr.id, view,
+    org: o.org, project: o.project, repo: o.repo, prId: pr.id, view, provider: o.provider || 'azdo',
     prTitle: pr.title || (rec && rec.prTitle) || '', prUrl: pr.url || (rec && rec.prUrl) || '',
     sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
     prStatus: String(pr.status || '').toLowerCase(),
@@ -2787,7 +2802,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       // 1. Ensure the worktree (create detached if we don't already have one).
       if (!haveWt) {
         const r = await devitems.createWorktreeAsync({
-          org: o.org, project: o.project, repo: o.repo,
+          org: o.org, project: o.project, repo: o.repo, provider: o.provider,
           baseBranch: pr.targetBranch, branch: pr.sourceBranch, devId, detach: true
         });
         rec = _saveCfWt(key, {
@@ -2800,9 +2815,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       // 2. Write/refresh the agent file (grounded with linked work items; the
       //    steward also gets the actual unresolved reviewer feedback to address).
       let workItems = [];
-      try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+      try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
       let threads = [];
-      if (steward) { try { threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
+      if (steward) { try { threads = await forge(o).getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
       const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
       const agent = _writeCfReviewAgentFile(rec, prCtx, workItems, { view, threads });
       if (agent) rec = _saveCfWt(key, agent);
@@ -2851,12 +2866,12 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
 // Remove a review worktree + its cached reports + the record.
 app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   const devId = _cfWtDevId(o);
-  try { if (rec) devitems.removeWorktree(o.org, o.project, o.repo, devId, rec.worktreePath); } catch {}
+  try { if (rec) devitems.removeWorktree(o.org, o.project, o.repo, devId, rec.worktreePath, o.provider); } catch {}
   try { devitems.clearReportCache(CODEFLOW_REPORT_BOARD, devId); } catch {}
   _deleteCfWt(key);
   res.json({ ok: true });
@@ -2866,8 +2881,8 @@ app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
 // reset). Refuses to discard local commits/changes unless force=true.
 app.post('/api/codeflow/pr/worktree/sync', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to sync.' });
@@ -2889,8 +2904,8 @@ app.post('/api/codeflow/pr/worktree/sync', (req, res) => {
 // client can offer the other strategy or manual resolution.
 app.post('/api/codeflow/pr/worktree/update-from-target', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const targetBranch = String(b.targetBranch || '').trim();
   if (!targetBranch) return res.status(400).json({ error: 'targetBranch is required' });
   const strategy = b.strategy === 'rebase' ? 'rebase' : 'merge';
@@ -2919,8 +2934,8 @@ app.post('/api/codeflow/pr/worktree/update-from-target', (req, res) => {
 // worktree and wants to update the PR branch.
 app.post('/api/codeflow/pr/push', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to push from.' });
@@ -2942,20 +2957,20 @@ app.post('/api/codeflow/pr/push', (req, res) => {
 // work items, and (for your own PR) active threads so the persona is grounded.
 app.post('/api/codeflow/pr/agent', async (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to add the agent to.' });
   const view = String(b.view || rec.view || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
   let pr;
-  try { pr = await azdo.getPullRequest(o.org, o.project, o.repo, o.prId); }
+  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); }
   catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
   if (!pr) return res.status(404).json({ error: 'Pull request not found.' });
   let workItems = [];
-  try { workItems = await azdo.getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
+  try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
   let threads = [];
-  if (view === 'mine') { try { threads = await azdo.getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
+  if (view === 'mine') { try { threads = await forge(o).getPrActiveThreads(o.org, o.project, o.repo, o.prId); } catch {} }
   const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
   const agent = _writeCfReviewAgentFile(rec, prCtx, workItems, { view, threads });
   if (!agent) return res.status(500).json({ error: 'Could not write the agent file.' });
@@ -2966,8 +2981,8 @@ app.post('/api/codeflow/pr/agent', async (req, res) => {
 // List a review worktree's uncommitted changes (committable vs. ignored agent
 // reports). Powers the "out of sync — view changes" affordance on the PR card.
 app.get('/api/codeflow/pr/changes', (req, res) => {
-  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const rec = _getCfWt(_cfWtKey(o));
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree found.' });
   try {
@@ -2979,8 +2994,8 @@ app.get('/api/codeflow/pr/changes', (req, res) => {
 // Commit the review worktree's uncommitted changes locally (does NOT push).
 app.post('/api/codeflow/pr/commit', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to commit.' });
@@ -2998,8 +3013,8 @@ app.post('/api/codeflow/pr/commit', (req, res) => {
 // Agent reports (git-excluded) are preserved.
 app.post('/api/codeflow/pr/discard', (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to clean.' });
@@ -3017,8 +3032,8 @@ app.post('/api/codeflow/pr/discard', (req, res) => {
 // with a small code snippet around each anchored finding so the user can preview
 // exactly what each comment applies to before choosing which ones to post.
 app.get('/api/codeflow/pr/comments', async (req, res) => {
-  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   let rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
@@ -3061,8 +3076,8 @@ app.get('/api/codeflow/pr/comments', async (req, res) => {
 // only the chosen findings; omit it to post all.
 app.post('/api/codeflow/pr/comments/post', async (req, res) => {
   const b = req.body || {};
-  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
@@ -3090,7 +3105,7 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
       parts.push('', '_Posted from AI code review._');
       const file = c.file ? (String(c.file).startsWith('/') ? String(c.file) : '/' + String(c.file)) : null;
       const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null;
-      await azdo.createPrThread(o.org, o.project, o.repo, o.prId, {
+      await forge(o).createPrThread(o.org, o.project, o.repo, o.prId, {
         content: parts.join('\n'),
         filePath: file && line ? file : null,
         rightLine: file && line ? line : null,
@@ -3153,8 +3168,8 @@ html[data-theme="dark"] .sev-nit{color:#a0a0a0;}
 }
 
 app.get('/api/codeflow/pr/report', (req, res) => {
-  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId };
-  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).send('org, project, repo and prId are required');
+  const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
+  if (!_cfPrOk(o)) return res.status(400).send('org, repo and prId are required');
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   const devId = _cfWtDevId(o);

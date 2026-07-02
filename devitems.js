@@ -681,9 +681,9 @@ function addGitExclude(wt, relLine) {
 }
 
 // Remove a worktree (best-effort). Leaves the managed clone in place.
-function removeWorktree(org, project, repo, devId, wt) {
+function removeWorktree(org, project, repo, devId, wt, provider) {
   const target = wt || worktreePath(repo, devId);
-  const clone = clonePath(org, project, repo);
+  const clone = clonePath(org, project, repo, provider);
   if (_isRepo(clone)) _gitTry(['worktree', 'remove', '--force', target], clone);
   try { if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true }); } catch {}
   if (_isRepo(clone)) _gitTry(['worktree', 'prune'], clone);
