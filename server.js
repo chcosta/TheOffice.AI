@@ -882,6 +882,29 @@ app.use(express.json());
 app.use('/public', express.static(path.join(__dirname, 'public')));
 const SPA_PATH = path.join(__dirname, 'public', 'app.html');
 
+// The board PR card and the Code Flow PR card share ONE canonical body (face + drawer)
+// authored once in app.html between <!--CF_PR_CARD_BODY:START--> and :END markers. At
+// serve time we inject that inner content into the standalone <!--CF_PR_CARD_BODY-->
+// marker at the board location, so both cards stay byte-identical from a single source.
+const _CF_START = '<!--CF_PR_CARD_BODY:START-->';
+const _CF_END = '<!--CF_PR_CARD_BODY:END-->';
+const _CF_SLOT = '<!--CF_PR_CARD_BODY-->';
+let _spaCache = { mtimeMs: 0, html: null };
+function renderSpaHtml() {
+  const st = fs.statSync(SPA_PATH);
+  if (_spaCache.html && _spaCache.mtimeMs === st.mtimeMs) return _spaCache.html;
+  let html = fs.readFileSync(SPA_PATH, 'utf8');
+  const s = html.indexOf(_CF_START);
+  const e = html.indexOf(_CF_END);
+  if (s !== -1 && e !== -1 && e > s) {
+    const inner = html.slice(s + _CF_START.length, e);
+    // Replace ONLY the standalone slot marker (not the START/END-wrapped canonical copy).
+    html = html.replace(_CF_SLOT, inner);
+  }
+  _spaCache = { mtimeMs: st.mtimeMs, html };
+  return html;
+}
+
 // SSE (Server-Sent Events) for real-time updates
 const sseClients = new Set();
 
@@ -3770,7 +3793,12 @@ function reapDesignTestArtifacts() {
 // SPA — serve new unified app for all page routes
 function serveSpa(req, res) {
   if (fs.existsSync(SPA_PATH)) {
-    res.sendFile(SPA_PATH);
+    try {
+      res.type('html').send(renderSpaHtml());
+    } catch (err) {
+      console.error('serveSpa render failed, falling back to raw file:', err && err.message);
+      res.sendFile(SPA_PATH);
+    }
   } else {
     // SPA asset missing (degraded state). The legacy embedded dashboard has been removed.
     res.status(503).send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>TheOffice.AI</title></head><body style="font-family:system-ui;padding:40px"><h1>TheOffice.AI</h1><p>The SPA bundle (<code>public/app.html</code>) was not found. Please restore it and reload.</p></body></html>');

@@ -1930,6 +1930,9 @@
     .cf-people-v { color:var(--cp-text); }
     .cf-devcard { color:var(--cp-link); text-decoration:none; cursor:pointer; }
     .cf-devcard:hover { text-decoration:underline; }
+    .cf-devcard-chip { display:inline-flex; align-items:center; gap:4px; margin-top:6px; padding:2px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); color:var(--cp-link); font-size:0.74rem; text-decoration:none; cursor:pointer; max-width:100%; }
+    .cf-devcard-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-devcard-chip:hover { border-color:var(--cp-border-strong); background:var(--cp-highlight); }
     /* Summary stat strip (always-on face) + summary-pane stat grid + tones */
     .cf-tone-ok { color:var(--cp-success); }
     .cf-tone-warn { color:var(--cp-warning); }
@@ -2053,6 +2056,30 @@
     .cf-wt-sync, .cf-wt-push { font-size:12px; padding:4px 12px; }
     .cf-wt-approve { font-size:12px; padding:4px 12px; border-color:var(--cp-success); color:var(--cp-success); }
     .cf-wt-approve:not(:disabled):hover { background:rgba(22,163,74,0.08); }
+    /* Review-agent pane */
+    .cf-agent-id { display:flex; align-items:center; gap:11px; margin-bottom:10px; }
+    .cf-agent-avatar { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:var(--cp-surface-soft); border:1px solid var(--cp-border); font-size:15px; flex:0 0 auto; }
+    .cf-agent-idmeta { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .cf-agent-name { font-weight:600; font-size:13px; color:var(--cp-text); word-break:break-all; }
+    .cf-agent-state { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; }
+    .cf-agent-dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex:0 0 auto; }
+    .cf-agent-reports { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+    .cf-agent-reports > .cf-wt-report { align-self:flex-start; }
+    /* Git pane */
+    .cf-git-empty { display:flex; align-items:center; gap:12px; font-size:12.5px; }
+    .cf-git-state { display:flex; flex-direction:column; gap:5px; margin-bottom:10px; padding:8px 12px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:8px; }
+    .cf-git-row { display:flex; align-items:baseline; gap:12px; font-size:12.5px; }
+    .cf-git-k { min-width:96px; flex:0 0 auto; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--cp-text-soft); }
+    .cf-git-v { color:var(--cp-text); word-break:break-all; }
+    .cf-git-actions { flex-wrap:wrap; gap:14px; }
+    /* Worktree pane — quiet Open buttons + separated Remove */
+    .cf-wt-envwrap { display:flex; flex-direction:column; gap:10px; }
+    .cf-wt-open-row { display:flex; align-items:center; gap:11px; flex-wrap:wrap; }
+    .cf-wt-openbtns { display:inline-flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .cf-openbtn { font:inherit; font-size:12px; padding:3px 10px; border:1px solid var(--cp-border); background:transparent; color:var(--cp-text); border-radius:8px; cursor:pointer; line-height:1.4; }
+    .cf-openbtn:hover { background:var(--cp-surface-soft); border-color:var(--cp-border-strong); }
+    .cf-wt-path { font-family:Consolas,"Courier New",Courier,monospace; font-size:11px; color:var(--cp-text-soft); word-break:break-all; }
+    .cf-wt-remove-row { margin-top:4px; padding-top:10px; border-top:1px solid var(--cp-border); }
     .cf-orphans { margin-top:22px; padding-top:14px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:12px; }
     .cf-orphans-head { display:flex; flex-direction:column; gap:2px; }
     .cf-orphans-title { font-weight:600; font-size:13.5px; color:var(--cp-text); }
@@ -7557,261 +7584,7 @@
                                                     <button class="btn ghost" style="font-size:0.72rem" type="button" title="Jump to this PR on the Code Flow page" @click.stop="boardJump(item)">🔀 Code Flow</button>
                                                     <span class="hint" x-show="codeflow.boardPrsLoading && !boardPrFull(item)">Loading live PR…</span>
                                                   </div>
-                                                  <!-- AI insight: summary + urgency (parity with Code Flow). -->
-                                                  <template x-if="codeflowAi(pr)">
-                                                    <div class="cf-ai">
-                                                      <span class="cf-ai-badge">✨</span>
-                                                      <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
-                                                            :title="codeflowAi(pr).urgencyReason"
-                                                            x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
-                                                      <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
-                                                    </div>
-                                                  </template>
-                                                  <!-- At-a-glance PR stats (parity with Code Flow Summary). -->
-                                                  <template x-if="boardPrFull(item)">
-                                                    <div class="cf-stat-strip" style="margin-top:6px">
-                                                      <template x-for="(st, i) in cfSummaryStats(pr)" :key="i">
-                                                        <span class="cf-stat" :class="'cf-tone-' + st.tone"><template x-if="st.k"><span class="cf-stat-k" x-text="st.k"></span></template><span class="cf-stat-v" x-text="st.v"></span></span>
-                                                      </template>
-                                                    </div>
-                                                  </template>
-                                                  <!-- Actual PR reviewers, split Required vs Optional. -->
-                                                  <template x-if="boardPrFull(item) && (cfReviewerGroups(pr).required.length || cfReviewerGroups(pr).optional.length)">
-                                                    <div class="cf-revs" style="margin-top:6px">
-                                                      <template x-if="cfReviewerGroups(pr).required.length">
-                                                        <div class="cf-rev-group">
-                                                          <div class="cf-rev-hdr">Required <span class="cf-grp-count" x-text="'· ' + cfReviewerGroups(pr).required.length"></span></div>
-                                                          <template x-for="r in cfReviewerGroups(pr).required" :key="r.id || r.name">
-                                                            <span class="cf-rev" :class="'cf-tone-' + cfVoteTone(r.vote)" :title="(r.name || '') + (r.voteLabel ? ' — ' + r.voteLabel : '')">
-                                                              <span class="cf-rev-name" x-text="r.name"></span>
-                                                              <span class="cf-rev-vote" x-show="r.voteLabel" x-text="r.voteLabel"></span>
-                                                            </span>
-                                                          </template>
-                                                        </div>
-                                                      </template>
-                                                      <template x-if="cfReviewerGroups(pr).optional.length">
-                                                        <div class="cf-rev-group">
-                                                          <div class="cf-rev-hdr">Optional <span class="cf-grp-count" x-text="'· ' + cfReviewerGroups(pr).optional.length"></span></div>
-                                                          <template x-for="r in cfReviewerGroups(pr).optional" :key="r.id || r.name">
-                                                            <span class="cf-rev" :class="'cf-tone-' + cfVoteTone(r.vote)" :title="(r.name || '') + (r.voteLabel ? ' — ' + r.voteLabel : '')">
-                                                              <span class="cf-rev-name" x-text="r.name"></span>
-                                                              <span class="cf-rev-vote" x-show="r.voteLabel" x-text="r.voteLabel"></span>
-                                                            </span>
-                                                          </template>
-                                                        </div>
-                                                      </template>
-                                                    </div>
-                                                  </template>
-                                                  <!-- Reviewers, area expert, dev-card link. -->
-                                                  <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
-                                                    <div class="cf-people">
-                                                      <template x-if="pr.areaExpert">
-                                                        <span class="cf-people-seg" :title="pr.areaExpert.why || ('Most active in ' + (pr.repo || '') + (pr.areaExpert.commits != null ? ' (last 60 days): ' + pr.areaExpert.commits + ' commits' : ''))">
-                                                          <span class="cf-people-k">Area expert</span> <span class="cf-people-v" x-text="pr.areaExpert.name"></span>
-                                                        </span>
-                                                      </template>
-                                                      <template x-if="pr.suggestedReviewers && pr.suggestedReviewers.length">
-                                                        <span class="cf-people-seg" :title="pr.suggestedReviewers.map(r => r.name + (r.why ? ' — ' + r.why : '')).join('\n')">
-                                                          <span class="cf-people-k">Suggested reviewers</span>
-                                                          <span class="cf-people-v" x-text="pr.suggestedReviewers.map(r => r.name).join(', ')"></span>
-                                                        </span>
-                                                      </template>
-                                                      <template x-if="pr.devCard">
-                                                        <a class="cf-people-seg cf-devcard" href="#" @click.prevent.stop="goTo('#/boards/' + pr.devCard.boardId)"
-                                                           :title="'Open dev card on board: ' + pr.devCard.boardName">
-                                                          🧰 <span x-text="pr.devCard.title || 'Dev card'"></span>
-                                                        </a>
-                                                      </template>
-                                                    </div>
-                                                  </template>
-                                                  <!-- Validation: always visible, with a count + status summary. -->
-                                                  <template x-if="pr.validation && pr.validation.length">
-                                                    <div class="cf-validation">
-                                                      <div class="cf-validation-summary">
-                                                        <span class="cf-validation-title">Validation</span>
-                                                        <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
-                                                        <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
-                                                        <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'· ' + pr.pendingChecks + ' pending'"></span>
-                                                        <span class="cf-m-warn" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' optional failing'"></span>
-                                                        <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0 && !(pr.failedOptionalChecks > 0)">· all passing</span>
-                                                      </div>
-                                                      <div class="cf-checks">
-                                                        <template x-if="pr.validation.some(c => c.required !== false)">
-                                                          <div class="cf-check-group cf-grp-required">
-                                                            <div class="cf-check-grouphdr">
-                                                              <span>Required</span>
-                                                              <span class="cf-grp-count" x-text="'· ' + pr.validation.filter(c => c.required !== false).length"></span>
-                                                              <span class="cf-grp-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
-                                                            </div>
-                                                            <template x-for="chk in pr.validation.filter(c => c.required !== false)" :key="chk.id">
-                                                              <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
-                                                                <span class="cf-check-dot" :class="chk.mergeGate ? 's-mergegate' : ('s-' + (chk.state || 'notset'))"></span>
-                                                                <template x-if="chk.targetUrl">
-                                                                  <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
-                                                                </template>
-                                                                <template x-if="!chk.targetUrl">
-                                                                  <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
-                                                                </template>
-                                                                <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
-                                                                <span class="cf-check-mergenote" x-show="chk.mergeGate" title="Proof of presence is satisfied by a human at merge time — not a blocking failure">merge-time gate</span>
-                                                              </div>
-                                                            </template>
-                                                          </div>
-                                                        </template>
-                                                        <template x-if="pr.validation.some(c => c.required === false)">
-                                                          <div class="cf-check-group cf-grp-optional">
-                                                            <div class="cf-check-grouphdr">
-                                                              <span>Optional</span>
-                                                              <span class="cf-grp-count" x-text="'· ' + pr.validation.filter(c => c.required === false).length"></span>
-                                                              <span class="cf-grp-bad" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' failing'"></span>
-                                                            </div>
-                                                            <template x-for="chk in pr.validation.filter(c => c.required === false)" :key="chk.id">
-                                                              <div class="cf-check" :class="{ 'cf-check-gate': chk.kind === 'build' || chk.kind === 'policy' }">
-                                                                <span class="cf-check-dot" :class="chk.mergeGate ? 's-mergegate' : ('s-' + (chk.state || 'notset'))"></span>
-                                                                <template x-if="chk.targetUrl">
-                                                                  <a :href="chk.targetUrl" target="_blank" rel="noopener" class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></a>
-                                                                </template>
-                                                                <template x-if="!chk.targetUrl">
-                                                                  <span class="cf-check-name" x-text="(chk.genre ? chk.genre + '/' : '') + chk.name"></span>
-                                                                </template>
-                                                                <span class="cf-check-desc" x-show="chk.description" x-text="chk.description"></span>
-                                                                <span class="cf-check-mergenote" x-show="chk.mergeGate" title="Proof of presence is satisfied by a human at merge time — not a blocking failure">merge-time gate</span>
-                                                              </div>
-                                                            </template>
-                                                          </div>
-                                                        </template>
-                                                      </div>
-                                                    </div>
-                                                  </template>
-                                                  <!-- Worktree actions — identical to the Code Flow PR card. Persona depends on view (own PR → steward, else reviewer). -->
-                                                  <div class="cf-wt">
-                                                    <template x-if="!cfWt(pr)">
-                                                      <span class="cf-wt-row">
-                                                        <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click.stop="reviewWithAi(pr)"
-                                                                :title="cfIsSteward(pr) ? 'Create a worktree for your PR (if needed) and run the AI steward to review, fix feedback, harden & validate it' : 'Create a worktree for this PR (if needed) and run the AI reviewer to generate a report'">
-                                                          <span x-text="cfRunLabel(pr)"></span>
-                                                        </button>
-                                                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="createCfWorktree(pr)"
-                                                                :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
-                                                          <span x-text="cfCreateLabel(pr)"></span>
-                                                        </button>
-                                                      </span>
-                                                    </template>
-                                                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
-                                                      <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
-                                                    </template>
-                                                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
-                                                      <span class="cf-wt-row">
-                                                        <span class="cf-wt-err" x-text="cfWt(pr).error || 'Worktree failed'"></span>
-                                                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="createCfWorktree(pr)"
-                                                                x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
-                                                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="cancelCfWorktree(pr)"
-                                                                x-text="cfBusy(pr) === 'cancel' ? 'Cancelling…' : 'Cancel'"></button>
-                                                      </span>
-                                                    </template>
-                                                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
-                                                      <div class="cf-wt-ready">
-                                                        <div class="cf-wt-ready-main">
-                                                          <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click.stop="reviewWithAi(pr)"
-                                                                  :title="cfIsSteward(pr) ? 'Run the AI steward in this worktree: review, fix feedback, harden & validate, then (re)generate the report' : 'Run the AI reviewer in this worktree and (re)generate the report'">
-                                                            <span x-text="cfRunLabel(pr)"></span>
-                                                          </button>
-                                                          <span class="cf-wt-label"
-                                                                :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
-                                                          <template x-if="cfWt(pr).agentPresent === false">
-                                                            <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="cfAddAgent(pr)"
-                                                                    :title="'The ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent file is missing from this worktree (the CLI needs it). Click to add it.'"
-                                                                    x-text="cfBusy(pr) === 'agent' ? 'Adding agent…' : ('⚠ Add ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent')"></button>
-                                                          </template>
-                                                          <template x-if="cfWt(pr).agentPresent === true && cfWt(pr).agentName">
-                                                            <span class="cf-wt-agent" :title="(cfWt(pr).agentKind === 'steward' ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).agentName"
-                                                                  x-text="'🤖 ' + cfWt(pr).agentName"></span>
-                                                          </template>
-                                                          <span class="cf-wt-open">
-                                                            <span class="cf-wt-open-k">Open</span>
-                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'editor')">VS Code</button>
-                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'cli')">CLI</button>
-                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
-                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'diff')">Diff</button>
-                                                            <button class="cf-wt-link" @click.stop="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
-                                                          </span>
-                                                          <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
-                                                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                                                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
-                                                          </template>
-                                                          <template x-if="(cfWt(pr).reportHistory || []).length">
-                                                            <button class="cf-wt-link" @click.stop="cfToggleHist(pr)"
-                                                                    title="Previously generated review reports, cached for comparison"
-                                                                    x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
-                                                          </template>
-                                                          <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
-                                                                x-text="cfWt(pr).reviewError"></span>
-                                                        </div>
-                                                        <template x-if="cfHistOpen(pr) && (cfWt(pr).reportHistory || []).length">
-                                                          <div class="cf-wt-history">
-                                                            <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
-                                                              <div class="cf-wt-history-row">
-                                                                <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
-                                                                   x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
-                                                                <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
-                                                              </div>
-                                                            </template>
-                                                          </div>
-                                                        </template>
-                                                        <div class="cf-wt-ready-util">
-                                                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
-                                                            <span class="cf-wt-drift" :title="cfDriftTip(pr)">
-                                                              <span x-text="cfDriftLabel(pr)"></span>
-                                                              <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfSync(pr)"
-                                                                      title="Reset this local worktree to match the PR branch (origin)"
-                                                                      x-text="cfBusy(pr) === 'sync' ? 'Syncing…' : '↺ Sync'"></button>
-                                                            </span>
-                                                          </template>
-                                                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
-                                                            <span class="cf-wt-insync" title="Local worktree matches the PR branch">✓ In sync</span>
-                                                          </template>
-                                                          <template x-if="(cfWt(pr).changeCount || 0) > 0">
-                                                            <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfToggleChanges(pr)"
-                                                                    title="View, commit, or discard uncommitted changes in this worktree"
-                                                                    x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
-                                                          </template>
-                                                          <button x-show="(item.meta && item.meta.view) === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="cfPush(pr)"
-                                                                  title="Commit any local changes and push to the PR branch"
-                                                                  x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
-                                                          <button x-show="(item.meta && item.meta.view) !== 'mine' && (cfWt(pr).reviewComments || 0) > 0"
-                                                                  class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click.stop="cfPostComments(pr)"
-                                                                  :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
-                                                                  x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
-                                                          <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click.stop="refreshCfReview(pr)"
-                                                                  title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
-                                                                  x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
-                                                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="removeCfWorktree(pr)"
-                                                                  title="Delete this PR's review worktree and its cached report">Remove worktree</button>
-                                                        </div>
-                                                        <template x-if="cfChangeState(pr) && cfChangeState(pr).open">
-                                                          <div class="cf-wt-changes">
-                                                            <div class="cf-wt-changes-head" x-show="!cfChangeState(pr).loading">
-                                                              <span x-show="(cfChangeState(pr).changed || []).length" x-text="(cfChangeState(pr).changed || []).length + ' uncommitted change' + ((cfChangeState(pr).changed || []).length === 1 ? '' : 's')"></span>
-                                                              <span x-show="!(cfChangeState(pr).changed || []).length" class="cf-wt-history-ts">No committable changes.</span>
-                                                              <span class="cf-wt-changes-actions" x-show="(cfChangeState(pr).changed || []).length">
-                                                                <button class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click.stop="cfCommit(pr)"
-                                                                        x-text="cfBusy(pr) === 'commit' ? 'Committing…' : '✓ Commit'"></button>
-                                                                <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click.stop="cfDiscard(pr)"
-                                                                        x-text="cfBusy(pr) === 'discard' ? 'Discarding…' : '✗ Discard'"></button>
-                                                              </span>
-                                                            </div>
-                                                            <span x-show="cfChangeState(pr).loading" class="cf-wt-history-ts">Loading changes…</span>
-                                                            <template x-for="c in (cfChangeState(pr).changed || [])" :key="c.path">
-                                                              <div class="cf-wt-change-row">
-                                                                <span class="cf-wt-change-st" x-text="cfChangeStatusLabel(c.xy)"></span>
-                                                                <span class="cf-wt-change-path" x-text="c.path"></span>
-                                                              </div>
-                                                            </template>
-                                                          </div>
-                                                        </template>
-                                                      </div>
-                                                    </template>
-                                                  </div>
+                                                  <!--CF_PR_CARD_BODY-->
                                                 </div>
                                               </template>
                                             </div>
@@ -9753,6 +9526,7 @@
                     </div>
                   </div>
 
+                  <!--CF_PR_CARD_BODY:START-->
                   <div class="cf-ai cf-ai-face">
                     <template x-if="codeflowAi(pr)">
                       <span class="cf-ai-inline">
@@ -9768,6 +9542,12 @@
                         <span class="cf-stat" :class="'cf-tone-' + st.tone"><template x-if="st.k"><span class="cf-stat-k" x-text="st.k"></span></template><span class="cf-stat-v" x-text="st.v"></span></span>
                       </template>
                     </span>
+                    <template x-if="pr.devCard">
+                      <a class="cf-devcard-chip" href="#" @click.prevent.stop="goTo('#/boards/' + pr.devCard.boardId)"
+                         :title="'Open related dev card on board: ' + pr.devCard.boardName">
+                        🧰 <span x-text="pr.devCard.title || 'Dev card'"></span>
+                      </a>
+                    </template>
                   </div>
 
                   <button type="button" class="cf-drawer-toggle" @click="cfDrawerToggle(pr)" x-text="(cfDrawerIsOpen(pr) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
@@ -9934,145 +9714,177 @@
                   </template>
 
                   </div>
-                      <div class="cf-pane" x-show="['agent','git','worktree'].includes(cfActivePane(pr))">
-                  <!-- Worktree: create a worktree against the PR branch + the right agent (own PR → steward; else read-only reviewer) -->
-                  <div class="cf-wt">
-                    <template x-if="!cfWt(pr)">
-                      <span class="cf-wt-row">
-                        <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="reviewWithAi(pr)"
-                                :title="cfIsSteward(pr) ? 'Create a worktree for your PR (if needed) and run the AI steward to review, fix feedback, harden & validate it' : 'Create a worktree for this PR (if needed) and run the AI reviewer to generate a report'">
-                          <span x-text="cfRunLabel(pr)"></span>
-                        </button>
-                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
-                                :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
-                          <span x-text="cfCreateLabel(pr)"></span>
-                        </button>
-                      </span>
-                    </template>
-                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
-                      <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
-                    </template>
-                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
-                      <span class="cf-wt-row">
-                        <span class="cf-wt-err" x-text="cfWt(pr).error || 'Worktree failed'"></span>
-                        <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
-                                x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
-                        <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cancelCfWorktree(pr)"
-                                x-text="cfBusy(pr) === 'cancel' ? 'Cancelling…' : 'Cancel'"></button>
-                      </span>
-                    </template>
-                    <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
-                      <div class="cf-wt-ready">
-                        <div class="cf-wt-ready-main" x-show="cfActivePane(pr) === 'agent'">
-                          <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
-                                  :title="cfIsSteward(pr) ? 'Run the AI steward in this worktree: review, fix feedback, harden & validate, then (re)generate the report' : 'Run the AI reviewer in this worktree and (re)generate the report'">
+                      <!-- Review agent pane: identity, run/create/add-agent, cached reports -->
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'agent'">
+                        <div class="cf-agent-id">
+                          <span class="cf-agent-avatar">🤖</span>
+                          <span class="cf-agent-idmeta">
+                            <span class="cf-agent-name" x-text="cfAgentName(pr)"></span>
+                            <span class="cf-agent-state" :class="'cf-tone-' + cfAgentState(pr).tone">
+                              <span class="cf-agent-dot"></span>
+                              <span x-text="cfAgentState(pr).label"></span>
+                            </span>
+                          </span>
+                        </div>
+                        <div class="cf-wt-row">
+                          <button class="cf-wt-btn" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
+                                  :title="cfIsSteward(pr) ? 'Create a worktree for your PR (if needed) and run the AI steward to review, fix feedback, harden & validate it' : 'Create a worktree for this PR (if needed) and run the AI reviewer to generate a report'">
                             <span x-text="cfRunLabel(pr)"></span>
                           </button>
-                          <span class="cf-wt-label"
-                                :title="cfWt(pr).reviewAgentName ? ((cfIsSteward(pr) ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).reviewAgentName) : cfWtLabel(pr)" x-text="cfWtLabel(pr)"></span>
-                          <template x-if="cfWt(pr).agentPresent === false">
+                          <button x-show="!cfWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                                  :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
+                            <span x-text="cfCreateLabel(pr)"></span>
+                          </button>
+                          <button x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                                  x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
+                          <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready' && cfWt(pr).agentPresent === false">
                             <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cfAddAgent(pr)"
                                     :title="'The ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent file is missing from this worktree (the CLI needs it). Click to add it.'"
                                     x-text="cfBusy(pr) === 'agent' ? 'Adding agent…' : ('⚠ Add ' + (cfWt(pr).agentKind === 'steward' ? 'steward' : 'review') + ' agent')"></button>
                           </template>
-                          <template x-if="cfWt(pr).agentPresent === true && cfWt(pr).agentName">
-                            <span class="cf-wt-agent" :title="(cfWt(pr).agentKind === 'steward' ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).agentName"
-                                  x-text="'🤖 ' + cfWt(pr).agentName"></span>
-                          </template>
-                          <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
+                          <button x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
+                                  title="Delete this worktree and recreate it fresh on the next run">↻ Recreate</button>
+                        </div>
+                        <span class="cf-wt-status" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'" x-text="cfWtStatusText(pr)"></span>
+                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="cfWt(pr).error || 'Worktree failed'"></span>
+                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr).reviewError"></span>
+                        <div class="cf-agent-reports" x-show="cfWt(pr) && ((cfWt(pr).reports || []).length || (cfWt(pr).reportHistory || []).length)">
+                          <template x-for="r in (cfWt(pr) ? (cfWt(pr).reports || []) : [])" :key="r.rel">
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
                                x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
                           </template>
-                          <template x-if="(cfWt(pr).reportHistory || []).length">
+                          <template x-if="cfWt(pr) && (cfWt(pr).reportHistory || []).length">
                             <button class="cf-wt-link" @click="cfToggleHist(pr)"
                                     :title="'Previously generated review reports, cached for comparison'"
                                     x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
                           </template>
-                          <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
-                                x-text="cfWt(pr).reviewError"></span>
+                          <template x-if="cfHistOpen(pr) && cfWt(pr) && (cfWt(pr).reportHistory || []).length">
+                            <div class="cf-wt-history">
+                              <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
+                                <div class="cf-wt-history-row">
+                                  <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
+                                     x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
+                                  <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
                         </div>
-                        <template x-if="cfHistOpen(pr) && (cfWt(pr).reportHistory || []).length">
-                          <div class="cf-wt-history" x-show="cfActivePane(pr) === 'agent'">
-                            <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
-                              <div class="cf-wt-history-row">
-                                <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
-                                   x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
-                                <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
-                              </div>
-                            </template>
+                      </div>
+                      <!-- Git pane: sync state vs the PR branch, uncommitted changes, git ops -->
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'git'">
+                        <template x-if="!cfWt(pr) || cfWt(pr).worktreeStatus !== 'ready'">
+                          <div class="cf-git-empty">
+                            <span class="cf-wt-history-ts">Create a worktree to see git state and manage changes.</span>
+                            <button x-show="!cfWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                                    x-text="cfCreateLabel(pr)"></button>
                           </div>
                         </template>
-                        <div class="cf-wt-ready-util" x-show="cfActivePane(pr) === 'git'">
-                          <!-- Drift vs the PR branch: local checkout out of sync with origin/<sourceBranch> -->
-                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
-                            <span class="cf-wt-drift" :title="cfDriftTip(pr)">
-                              <span x-text="cfDriftLabel(pr)"></span>
-                              <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfSync(pr)"
+                        <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
+                          <div>
+                            <div class="cf-git-state">
+                              <div class="cf-git-row"><span class="cf-git-k">PR branch</span><span class="cf-git-v" x-text="(cfWt(pr).drift && cfWt(pr).drift.sourceBranch) || pr.sourceBranch || '—'"></span></div>
+                              <div class="cf-git-row"><span class="cf-git-k">Merges into</span><span class="cf-git-v" x-text="pr.targetBranch || '—'"></span></div>
+                              <div class="cf-git-row">
+                                <span class="cf-git-k">Sync</span>
+                                <span class="cf-git-v">
+                                  <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
+                                    <span class="cf-tone-warn" :title="cfDriftTip(pr)" x-text="cfDriftLabel(pr)"></span>
+                                  </template>
+                                  <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
+                                    <span class="cf-tone-ok">✓ In sync</span>
+                                  </template>
+                                  <template x-if="!cfWt(pr).drift || !cfWt(pr).drift.comparable">
+                                    <span class="cf-wt-history-ts">—</span>
+                                  </template>
+                                </span>
+                              </div>
+                              <div class="cf-git-row"><span class="cf-git-k">Uncommitted</span><span class="cf-git-v" :class="(cfWt(pr).changeCount || 0) > 0 ? 'cf-tone-warn' : 'cf-tone-ok'" x-text="(cfWt(pr).changeCount || 0) > 0 ? ((cfWt(pr).changeCount) + ' file' + (cfWt(pr).changeCount === 1 ? '' : 's')) : 'Clean'"></span></div>
+                            </div>
+                            <div class="cf-wt-row cf-git-actions">
+                              <button x-show="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfSync(pr)"
                                       title="Reset this local worktree to match the PR branch (origin)"
                                       x-text="cfBusy(pr) === 'sync' ? 'Syncing…' : '↺ Sync'"></button>
-                            </span>
-                          </template>
-                          <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && cfWt(pr).drift.inSync">
-                            <span class="cf-wt-insync" title="Local worktree matches the PR branch">✓ In sync</span>
-                          </template>
-                          <!-- Uncommitted local changes: view / commit / discard from the UI -->
-                          <template x-if="(cfWt(pr).changeCount || 0) > 0">
-                            <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfToggleChanges(pr)"
-                                    title="View, commit, or discard uncommitted changes in this worktree"
-                                    x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
-                          </template>
-                          <!-- Mine view: push local commits up to the PR branch -->
-                          <button x-show="codeflow.view === 'mine'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
-                                  title="Commit any local changes and push to the PR branch"
-                                  x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
-                          <!-- Non-mine views: post the AI review findings as PR comments -->
-                          <button x-show="codeflow.view !== 'mine' && (cfWt(pr).reviewComments || 0) > 0"
-                                  class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfPostComments(pr)"
-                                  :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
-                                  x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
-                          <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
-                                  title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
-                                  x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
-                        </div>
-                        <div class="cf-wt-envs" x-show="cfActivePane(pr) === 'worktree'">
-                          <span class="cf-wt-open">
-                            <span class="cf-wt-open-k">Open</span>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
-                          </span>
-                          <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
-                                  title="Delete this PR's review worktree and its cached report">Remove worktree</button>
-                        </div>
-                        <template x-if="cfChangeState(pr) && cfChangeState(pr).open">
-                          <div class="cf-wt-changes" x-show="cfActivePane(pr) === 'git'">
-                            <div class="cf-wt-changes-head" x-show="!cfChangeState(pr).loading">
-                              <span x-show="(cfChangeState(pr).changed || []).length" x-text="(cfChangeState(pr).changed || []).length + ' uncommitted change' + ((cfChangeState(pr).changed || []).length === 1 ? '' : 's')"></span>
-                              <span x-show="!(cfChangeState(pr).changed || []).length" class="cf-wt-history-ts">No committable changes.</span>
-                              <span class="cf-wt-changes-actions" x-show="(cfChangeState(pr).changed || []).length">
-                                <button class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfCommit(pr)"
-                                        x-text="cfBusy(pr) === 'commit' ? 'Committing…' : '✓ Commit'"></button>
-                                <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cfDiscard(pr)"
-                                        x-text="cfBusy(pr) === 'discard' ? 'Discarding…' : '✗ Discard'"></button>
-                              </span>
+                              <button x-show="(cfWt(pr).changeCount || 0) > 0" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfToggleChanges(pr)"
+                                      title="View, commit, or discard uncommitted changes in this worktree"
+                                      x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
+                              <button x-show="cfIsSteward(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
+                                      title="Commit any local changes and push to the PR branch"
+                                      x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
+                              <button x-show="!cfIsSteward(pr) && (cfWt(pr).reviewComments || 0) > 0"
+                                      class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfPostComments(pr)"
+                                      :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"
+                                      x-text="cfBusy(pr) === 'comments' ? 'Posting…' : ('💬 Add ' + (cfWt(pr).reviewComments || 0) + ' review comment' + ((cfWt(pr).reviewComments || 0) === 1 ? '' : 's') + ' to PR')"></button>
+                              <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
+                                      title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
+                                      x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
                             </div>
-                            <span x-show="cfChangeState(pr).loading" class="cf-wt-history-ts">Loading changes…</span>
-                            <template x-for="c in (cfChangeState(pr).changed || [])" :key="c.path">
-                              <div class="cf-wt-change-row">
-                                <span class="cf-wt-change-st" x-text="cfChangeStatusLabel(c.xy)"></span>
-                                <span class="cf-wt-change-path" x-text="c.path"></span>
+                            <template x-if="cfChangeState(pr) && cfChangeState(pr).open">
+                              <div class="cf-wt-changes">
+                                <div class="cf-wt-changes-head" x-show="!cfChangeState(pr).loading">
+                                  <span x-show="(cfChangeState(pr).changed || []).length" x-text="(cfChangeState(pr).changed || []).length + ' uncommitted change' + ((cfChangeState(pr).changed || []).length === 1 ? '' : 's')"></span>
+                                  <span x-show="!(cfChangeState(pr).changed || []).length" class="cf-wt-history-ts">No committable changes.</span>
+                                  <span class="cf-wt-changes-actions" x-show="(cfChangeState(pr).changed || []).length">
+                                    <button class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfCommit(pr)"
+                                            x-text="cfBusy(pr) === 'commit' ? 'Committing…' : '✓ Commit'"></button>
+                                    <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cfDiscard(pr)"
+                                            x-text="cfBusy(pr) === 'discard' ? 'Discarding…' : '✗ Discard'"></button>
+                                  </span>
+                                </div>
+                                <span x-show="cfChangeState(pr).loading" class="cf-wt-history-ts">Loading changes…</span>
+                                <template x-for="c in (cfChangeState(pr).changed || [])" :key="c.path">
+                                  <div class="cf-wt-change-row">
+                                    <span class="cf-wt-change-st" x-text="cfChangeStatusLabel(c.xy)"></span>
+                                    <span class="cf-wt-change-path" x-text="c.path"></span>
+                                  </div>
+                                </template>
                               </div>
                             </template>
                           </div>
                         </template>
                       </div>
-                    </template>
-                  </div>
+                      <!-- Worktree pane: create / open environments / remove -->
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'worktree'">
+                        <template x-if="!cfWt(pr)">
+                          <span class="cf-wt-row">
+                            <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)" x-text="cfCreateLabel(pr)"></button>
+                          </span>
+                        </template>
+                        <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'">
+                          <span class="cf-wt-status" x-text="cfWtStatusText(pr)"></span>
+                        </template>
+                        <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'">
+                          <span class="cf-wt-row">
+                            <span class="cf-wt-err" x-text="cfWt(pr).error || 'Worktree failed'"></span>
+                            <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                                    x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
+                            <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="cancelCfWorktree(pr)"
+                                    x-text="cfBusy(pr) === 'cancel' ? 'Cancelling…' : 'Cancel'"></button>
+                          </span>
+                        </template>
+                        <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
+                          <div class="cf-wt-envwrap">
+                            <div class="cf-wt-open-row">
+                              <span class="cf-wt-open-k">Open in</span>
+                              <span class="cf-wt-openbtns">
+                                <button class="cf-openbtn" @click="openCfWorktree(pr, 'editor')">VS Code</button>
+                                <button class="cf-openbtn" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                                <button class="cf-openbtn" @click="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
+                                <button class="cf-openbtn" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                                <button class="cf-openbtn" @click="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
+                              </span>
+                            </div>
+                            <div class="cf-wt-path" x-show="cfWt(pr).worktreePath" x-text="cfWt(pr).worktreePath"></div>
+                            <div class="cf-wt-remove-row">
+                              <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
+                                      title="Delete this PR's review worktree and its cached report">Remove worktree</button>
+                            </div>
+                          </div>
+                        </template>
                       </div>
                     </div>
                   </div>
+                  <!--CF_PR_CARD_BODY:END-->
                 </article>
                     </template>
                   </div>
@@ -20507,6 +20319,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfWt(pr) {
           return (this.codeflow.worktrees || {})[this.cfPrKey(pr)] || null;
         },
+        // Is this `pr` the full live object (loaded via loadBoardPrs / Code Flow list)
+        // rather than a thin board-pin stub? Gates the rich drawer sections so a stub
+        // degrades gracefully. Code Flow PRs leave `_full` undefined → treated as true.
+        cfFull(pr) { return !pr || pr._full !== false; },
         // Reconstruct a Code Flow-shaped `pr` object from a board PR pin's meta so all
         // the cf* action functions (which key off pr.org/project/repo/id + cfPrKey) work
         // unchanged on a pinned PR. meta stores prId; cf* needs `id`. When the full live
@@ -20514,13 +20330,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // renders with full Code Flow parity (header, AI insight, reviewers, validation).
         boardPrFor(item) {
           const m = (item && item.meta) || {};
+          const view = m.view === 'reviews' ? 'reviews' : 'mine';
           const key = [m.org, m.project, m.repo, (m.prId != null ? m.prId : '')].join('|').toLowerCase();
           const full = (this.codeflow.boardPrs || {})[key];
-          if (full) return full;
+          if (full) { full._view = view; full._full = true; return full; }
           return {
             org: m.org, project: m.project, repo: m.repo,
             id: m.prId != null ? m.prId : '',
             url: m.url || '', title: m.title || item.label || '',
+            _view: view, _full: false,
           };
         },
         // Has the full live PR (not just the meta snapshot) loaded for this pin yet?
@@ -20714,10 +20532,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // worktrees keep their identity), else the current Code Flow view.
         cfMode(pr) {
           const rec = this.cfWt(pr);
-          const v = (rec && rec.view) || this.codeflow.view;
+          const v = (rec && rec.view) || (pr && pr._view) || this.codeflow.view;
           return String(v || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
         },
         cfIsSteward(pr) { return this.cfMode(pr) === 'mine'; },
+        // Identity of the worktree's review/steward agent (used in the Review agent pane).
+        cfAgentName(pr) {
+          const wt = this.cfWt(pr) || {};
+          return wt.agentName || wt.reviewAgentName || (this.cfIsSteward(pr) ? 'AI Steward' : 'AI Reviewer');
+        },
+        // Human-readable state of that agent, with a tone class for the status dot.
+        cfAgentState(pr) {
+          const wt = this.cfWt(pr);
+          if (!wt) return { label: 'Not created — no worktree yet', tone: 'muted' };
+          if (wt.worktreeStatus === 'creating') return { label: 'Creating worktree…', tone: 'warn' };
+          if (wt.worktreeStatus === 'error') return { label: wt.error || 'Worktree error', tone: 'bad' };
+          if (wt.worktreeStatus === 'ready') {
+            if (this.cfReviewing(pr)) return { label: 'Running…', tone: 'warn' };
+            if (wt.reviewStatus === 'error') return { label: 'Last run errored', tone: 'bad' };
+            if (wt.agentPresent === false) return { label: 'Agent file missing', tone: 'bad' };
+            return { label: 'Ready', tone: 'ok' };
+          }
+          return { label: 'Pending', tone: 'muted' };
+        },
         // Verb shown on the primary action button (idle/in-progress).
         cfRunLabel(pr) {
           const steward = this.cfIsSteward(pr);
