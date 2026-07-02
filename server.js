@@ -781,6 +781,12 @@ function loadAgents() {
   return agents;
 }
 
+// Persist the agents array to disk (pure writer — no re-register side effects,
+// unlike loadAgents which registers every agent on read).
+function saveAgents(agents) {
+  fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
+}
+
 // Load manager configs
 function loadManagers() {
   if (!fs.existsSync(MANAGERS_PATH)) return [];
@@ -2837,6 +2843,38 @@ app.post('/api/codeflow/pr/worktree/sync', (req, res) => {
   }
 });
 
+// Update the PR/source branch FROM its target (base) branch — merge or rebase
+// origin/<targetBranch> into the local worktree ("my PR is behind main, catch it
+// up"). This is the opposite direction of /worktree/sync. Does NOT push; the user
+// pushes afterwards via /pr/push. On conflict returns 409 {conflict:true} so the
+// client can offer the other strategy or manual resolution.
+app.post('/api/codeflow/pr/worktree/update-from-target', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId };
+  if (!o.org || !o.project || !o.repo || !o.prId) return res.status(400).json({ error: 'org, project, repo and prId are required' });
+  const targetBranch = String(b.targetBranch || '').trim();
+  if (!targetBranch) return res.status(400).json({ error: 'targetBranch is required' });
+  const strategy = b.strategy === 'rebase' ? 'rebase' : 'merge';
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to update.' });
+  if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
+  try {
+    const r = devitems.updateFromTargetBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, targetBranch, strategy });
+    if (!r || r.ok === false) {
+      return res.status(409).json({
+        error: (r && r.message) || 'Update failed.',
+        conflict: !!(r && r.conflict), needsClean: !!(r && r.needsClean),
+        strategy: (r && r.strategy) || strategy, drift: r && r.drift
+      });
+    }
+    const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
+    res.json({ ok: true, message: r.message, noop: !!r.noop, drift: r.drift || null, worktree: { key, ...updated } });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Update failed' });
+  }
+});
+
 // Push the local worktree's commits to the PR's source branch (commits any dirty
 // changes first). Used for "my PRs" where the user worked locally in the review
 // worktree and wants to update the PR branch.
@@ -4723,6 +4761,15 @@ app.post('/api/agents/:id/reinstall', async (req, res) => {
 
     // For plugins with a pluginDir, re-read the plugin.json and agent.md
     if (agent.pluginDir && fs.existsSync(agent.pluginDir)) {
+      // Re-register the plugin into Copilot (junction + config entry) so a reinstall
+      // actually refreshes the installed plugin — not just its metadata. This is the
+      // modern equivalent of the copilot-CLI uninstall/install that a second,
+      // unreachable /reinstall handler used to (never) perform.
+      try {
+        registerLocalPluginInCopilot(agent.pluginDir);
+      } catch (e) {
+        console.warn('reinstall: registerLocalPluginInCopilot failed:', e && e.message);
+      }
       const pluginJsonPath = path.join(agent.pluginDir, 'plugin.json');
       if (fs.existsSync(pluginJsonPath)) {
         const pj = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
@@ -4813,26 +4860,6 @@ app.get('/api/agents/:id/files', (req, res) => {
     }
   })(root, '');
   res.json({ root, files, truncated, count: files.length });
-});
-
-// Update agent group
-app.put('/api/agents/:id/group', (req, res) => {
-  const { group } = req.body;
-  try {
-    const entry = supervisor.agents.get(req.params.id);
-    if (!entry) return res.status(404).json({ error: 'Agent not found' });
-    entry.config.group = group || undefined;
-
-    const agents = JSON.parse(fs.readFileSync(AGENTS_PATH, 'utf-8'));
-    const agent = agents.find(a => a.id === req.params.id);
-    if (agent) {
-      if (group) { agent.group = group; } else { delete agent.group; }
-      fs.writeFileSync(AGENTS_PATH, JSON.stringify(agents, null, 2));
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
 });
 
 // Rename a group
@@ -5365,44 +5392,6 @@ app.get('/api/agents/:id/check-update', async (req, res) => {
     res.json(await computeUpdateStatus(entry));
   } catch (e) {
     res.json({ upToDate: true, reason: 'error', error: e.message });
-  }
-});
-app.post('/api/agents/:id/reinstall', async (req, res) => {
-  const entry = supervisor.agents.get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Agent not found' });
-  if (!entry.config.pluginDir) return res.status(400).json({ error: 'Not a plugin agent' });
-  
-  const { execSync } = require('child_process');
-  const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  let pluginDir = entry.config.pluginDir;
-  
-  // If configured pluginDir doesn't exist, try resolving relative to server's plugins/ directory
-  if (!fs.existsSync(pluginDir)) {
-    const localDir = path.join(PLUGINS_DIR, path.basename(pluginDir));
-    if (fs.existsSync(localDir)) {
-      pluginDir = localDir;
-    }
-  }
-  
-  try {
-    // Get plugin name from plugin.json
-    const pluginJsonPath = path.join(pluginDir, 'plugin.json');
-    const pluginJson = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8'));
-    const pluginName = pluginJson.name || path.basename(pluginDir);
-    
-    // Uninstall existing
-    try {
-      execSync(`"${copilotCmd}" plugin uninstall "${pluginName}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
-    } catch (e) {
-      // Uninstall may fail if not installed — that's ok
-    }
-    
-    // Install directly from source (no --plugin-dir needed at runtime, so no patching required)
-    const output = execSync(`"${copilotCmd}" plugin install "${pluginDir}"`, { encoding: 'utf-8', shell: true, timeout: 30000 });
-
-    res.json({ ok: true, output: output.trim() });
-  } catch (e) {
-    res.status(500).json({ error: e.stderr || e.message });
   }
 });
 

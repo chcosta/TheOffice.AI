@@ -9803,8 +9803,11 @@
                             </div>
                             <div class="cf-wt-row cf-git-actions">
                               <button x-show="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfSync(pr)"
-                                      title="Reset this local worktree to match the PR branch (origin)"
-                                      x-text="cfBusy(pr) === 'sync' ? 'Syncing…' : '↺ Sync'"></button>
+                                      title="Reset this local worktree to match the PR branch on origin (pulls the PR branch DOWN, discarding local commits/changes)"
+                                      x-text="cfBusy(pr) === 'sync' ? 'Resetting…' : '↺ Reset to PR branch'"></button>
+                              <button x-show="pr.targetBranch" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfUpdateFromTarget(pr)"
+                                      :title="'Merge origin/' + pr.targetBranch + ' INTO the PR branch (catch this PR up with ' + pr.targetBranch + '). Does not push.'"
+                                      x-text="cfBusy(pr) === 'update-target' ? 'Updating…' : ('⤵ Update from ' + pr.targetBranch)"></button>
                               <button x-show="(cfWt(pr).changeCount || 0) > 0" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfToggleChanges(pr)"
                                       title="View, commit, or discard uncommitted changes in this worktree"
                                       x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
@@ -20784,7 +20787,47 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             delete this.codeflow.wtBusy[key];
           }
         },
-        // ── Fix #1: steward/review agent presence ─────────────────────────────
+        // Update the PR branch FROM its target/base branch (merge or rebase
+        // origin/<target> into the worktree). Opposite direction of cfSync. Does
+        // not push. On a conflict the server aborts cleanly and returns 409; we
+        // offer to retry with the other strategy.
+        async cfUpdateFromTarget(pr, strategy = 'merge') {
+          const key = this.cfPrKey(pr);
+          const target = pr.targetBranch;
+          if (!target) { this.showToast('Update', 'This PR has no target branch on record.', 'error'); return; }
+          this.codeflow.wtBusy[key] = 'update-target';
+          try {
+            const resp = await this.request('/api/codeflow/pr/worktree/update-from-target', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, targetBranch: target, strategy })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Update from ' + target,
+              (resp && resp.message) || (resp && resp.noop ? 'Already up to date.' : 'Updated from ' + target + '.'), 'success');
+          } catch (e) {
+            if (e && e.status === 409) {
+              const body = e.body || {};
+              if (body.needsClean) {
+                this.showToast('Update from ' + target,
+                  'Commit or discard your uncommitted changes first (use the Changes list), then try again.', 'error');
+                return;
+              }
+              if (body.conflict) {
+                const other = strategy === 'rebase' ? 'merge' : 'rebase';
+                const ok = await this.uiConfirm('Update from ' + target,
+                  (strategy === 'rebase' ? 'Rebase' : 'Merge') + ' onto ' + target +
+                  ' hit conflicts and was aborted (your worktree is unchanged). Try a ' + other + ' instead?');
+                if (ok) { await this.cfUpdateFromTarget(pr, other); return; }
+                this.showToast('Update from ' + target,
+                  'Conflicts need manual resolution — open the worktree and ' + strategy + ' origin/' + target + ' yourself.', 'error');
+                return;
+              }
+            }
+            this.showToast('Update from ' + target, e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
         // The AI review agent file lives only inside the worktree and is git-excluded,
         // so a recreated/cleaned worktree can lose it → the CLI errors "Custom agent
         // … not found". Re-write it (without running) so the agent is usable again.
