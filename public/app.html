@@ -21863,15 +21863,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               try { resp = await this.request('/api/codeflow/pullrequests?view=' + view + (force ? '&refresh=1' : '')); } catch { resp = null; }
               const prs = (resp && (resp.pullRequests || resp.prs)) || [];
               for (const pr of prs) {
-                if (!pr || !pr.org || !pr.project || !pr.repo || pr.id == null) continue;
-                const refId = [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
+                if (!pr || !pr.org || !pr.repo || pr.id == null) continue;
+                const gh = String(pr.provider || 'azdo').toLowerCase() === 'github';
+                if (!gh && !pr.project) continue;
+                const base = [pr.org, pr.project || '', pr.repo, pr.id].join('|').toLowerCase();
+                const refId = gh ? 'github|' + base : base;
                 if (seen.has(refId)) continue;
                 seen.add(refId);
                 out.push({
                   kind: 'pr', refId,
                   label: pr.title || (pr.repo + ' #' + pr.id),
                   sublabel: pr.repo + ' #' + pr.id + ' · ' + view,
-                  meta: { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '' },
+                  meta: { org: pr.org, project: pr.project || '', repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '', provider: pr.provider || 'azdo' },
                 });
               }
             }

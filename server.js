@@ -1593,9 +1593,13 @@ const CF_APPROVER_TTL_MS = 1800000; // 30 min — PR history changes slowly
 function _cfPrLive(m) {
   if (!m || m.prId == null) return null;
   const wantId = String(m.prId);
-  const idKey = p => (p && p.org && p.project && p.repo && p.id != null)
-    ? [p.org, p.project, p.repo, p.id].join('|').toLowerCase() : null;
-  const wantKey = idKey({ org: m.org, project: m.project, repo: m.repo, id: m.prId });
+  // Composite match key: include provider (default azdo) and tolerate an empty
+  // project slot (GitHub stores owner in `org`, no project). AzDo keys stay
+  // symmetric — provider defaults to 'azdo' on both sides and project is present —
+  // so existing matching is byte-identical.
+  const idKey = p => (p && p.org && p.repo && p.id != null)
+    ? [String(p.provider || 'azdo').toLowerCase(), p.org, p.project || '', p.repo, p.id].join('|').toLowerCase() : null;
+  const wantKey = idKey({ provider: m.provider, org: m.org, project: m.project, repo: m.repo, id: m.prId });
   let pr = null, foundView = null;
   for (const view of ['mine', 'reviews', 'active']) {
     const cached = _codeflowCache.get(view);
@@ -10426,7 +10430,7 @@ function _resolveBoardItems(b, opts = {}) {
         const m = it.meta || {};
         route = '#/codeflow/' + encodeURIComponent(it.refId);
         let wt = null;
-        try { wt = _getCfWt(_cfWtKey({ org: m.org, project: m.project, repo: m.repo, prId: m.prId })); } catch {}
+        try { wt = _getCfWt(_cfWtKey({ provider: m.provider, org: m.org, project: m.project, repo: m.repo, prId: m.prId })); } catch {}
         const bits = _cfWtBits(wt);
         if (wt && wt.updatedAt) when = wt.updatedAt;
         status = wt ? (wt.reviewStatus || wt.worktreeStatus || 'pr') : 'pr';
@@ -10686,19 +10690,21 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 // means the Links section, not a work-item markdown link in a checklist).
 function _devCardContextLines(devItems) {
   const clip = (s, n) => { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  const slug = (o, p, r) => [o, p, r].filter(Boolean).join('/') || '?';
   return (Array.isArray(devItems) ? devItems : []).map(d => {
+    const gh = String(d.provider || 'azdo').toLowerCase() === 'github';
     const wt = d.worktreePath ? (d.worktreeStatus || 'ready') : 'none';
-    const wi = d.workItemId ? `WI #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : 'no work item';
-    const pr = d.prId ? `PR !${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
+    const wi = d.workItemId ? `${gh ? 'Issue' : 'WI'} #${d.workItemId}${d.workItem && d.workItem.state ? ' (' + d.workItem.state + ')' : ''}` : (gh ? 'no issue' : 'no work item');
+    const pr = d.prId ? `PR ${gh ? '#' : '!'}${d.prId}${d.pr && d.pr.status ? ' (' + d.pr.status + ')' : ''}` : 'no PR';
     const git = d.git ? ` | git ahead ${d.git.ahead || 0}/behind ${d.git.behind || 0}${d.git.dirty ? '/dirty' : ''}` : '';
     const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
-    const head = `- (${d.id}) "${clip(d.title || d.repo || 'Dev card', 100)}" — ${d.org || '?'}/${d.project || '?'}/${d.repo || '?'} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}`;
+    const head = `- (${d.id}) "${clip(d.title || d.repo || 'Dev card', 100)}" — ${gh ? 'GitHub ' : ''}${slug(d.org, d.project, d.repo)} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}`;
     const extra = [];
     const links = Array.isArray(d.links) ? d.links : [];
     if (links.length) extra.push('    links: ' + links.map(l => `[${clip(l.label || l.url, 60)} → ${clip(l.url, 160)} (${l.id})]`).join(', '));
     else extra.push('    links: none');
     const repos = Array.isArray(d.repos) ? d.repos : [];
-    if (repos.length) extra.push('    extra repos: ' + repos.map(r => `[${r.org}/${r.project}/${r.repo} @ ${r.branch || '?'} (${r.id})${r.worktreeStatus ? ' ' + r.worktreeStatus : ''}]`).join(', '));
+    if (repos.length) extra.push('    extra repos: ' + repos.map(r => `[${slug(r.org, r.project, r.repo)} @ ${r.branch || '?'} (${r.id})${r.worktreeStatus ? ' ' + r.worktreeStatus : ''}]`).join(', '));
     const reports = Array.isArray(d.reports) ? d.reports : [];
     if (reports.length) extra.push('    reports (read-only): ' + reports.map(r => `[${clip(r.name || r.rel, 80)} (${r.rel})]`).join(', '));
     if (d.summary && d.summary.text) extra.push('    summary: ' + clip(d.summary.text, 400));
@@ -12162,7 +12168,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     try { wtMap = loadCodeflowWorktrees() || {}; } catch { wtMap = {}; }
     ctx.push('## PINNED PULL REQUESTS (reference by prRefId; drive with pr_action)\n' + prPins.map(p => {
       const m = p.meta || {};
-      const wt = wtMap[_cfWtKey({ org: m.org, project: m.project, repo: m.repo, prId: m.prId })];
+      const wt = wtMap[_cfWtKey({ provider: m.provider, org: m.org, project: m.project, repo: m.repo, prId: m.prId })];
       const bits = _cfWtBits(wt);
       const live = _cfPrLive(m);
       const head = `- (pr:${p.refId}) "${clip(p.label || m.title || p.refId, 120)}" — ${clip(m.repo || '', 60)} #${m.prId || '?'} [${m.view || 'mine'}] (worktree: ${bits.join(', ')})`;
@@ -12179,14 +12185,17 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const cached = _codeflowCache.get(view);
       if (!cached || !cached.data || !Array.isArray(cached.data.pullRequests)) continue;
       for (const pr of cached.data.pullRequests) {
-        if (!pr || !pr.org || !pr.project || !pr.repo || pr.id == null) continue;
-        const refId = [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
+        if (!pr || !pr.org || !pr.repo || pr.id == null) continue;
+        const gh = String(pr.provider || 'azdo').toLowerCase() === 'github';
+        if (!gh && !pr.project) continue; // AzDo requires a project; GitHub has none
+        const base = [pr.org, pr.project || '', pr.repo, pr.id].join('|').toLowerCase();
+        const refId = gh ? 'github|' + base : base;
         if (pinByKey.has('pr:' + refId) || prCatalogByKey.has(refId)) continue;
         prCatalogByKey.set(refId, {
           refId,
           label: clip(pr.title || (pr.repo + ' #' + pr.id), 120),
           sublabel: clip(pr.repo + ' #' + pr.id, 80),
-          meta: { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '' },
+          meta: { org: pr.org, project: pr.project || '', repo: pr.repo, prId: String(pr.id), url: pr.url || '', view, title: pr.title || '', provider: pr.provider || 'azdo' },
         });
       }
     }
