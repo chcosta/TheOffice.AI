@@ -1739,6 +1739,26 @@
       border-color: var(--cp-success);
       color: var(--cp-success);
     }
+    .svc-restart-btn {
+      margin-top: 6px;
+      width: 100%;
+      padding: 5px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--cp-warning);
+      background: transparent;
+      color: var(--cp-warning);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .svc-restart-btn:hover:not(:disabled) {
+      background: var(--cp-accent-soft);
+    }
+    .svc-restart-btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
     .content {
       min-height: 0;
       min-width: 0;
@@ -4409,6 +4429,13 @@
       padding-right: var(--ba-dock-width, 400px);
       transition: padding-right .18s ease;
     }
+    /* Connect AI uses the same slide-over/docked chrome as Board AI, but its own
+       body class + width var so the two dock states never collide across routes. */
+    body.connect-ai-docked .app-shell {
+      padding-right: var(--connect-dock-width, 400px);
+      transition: padding-right .18s ease;
+    }
+    .connect-ai-fab { z-index: 56; }
     .board-assistant-head {
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
       padding: 14px 16px; border-bottom: 1px solid var(--cp-border); flex: 0 0 auto;
@@ -4856,7 +4883,7 @@
   </style>
 </head>
 <body x-data="supervisorApp()" x-init="init()" x-on:keydown.window="handleGlobalKeydown($event)" :class="{ 'nav-collapsed': navCollapsed }">
-  <div class="app-shell" x-effect="syncBaDock()">
+  <div class="app-shell" x-effect="syncBaDock(); syncConnectDock()">
     <header class="topbar">
       <div class="brand">
         <button class="icon-button nav-toggle-btn" type="button" @click="toggleMainNav()" :aria-label="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" :title="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">☰</button>
@@ -5043,6 +5070,11 @@
             </template>
             <div x-text="versionLabel()"></div>
             <div x-text="sseStatusLabel()"></div>
+            <template x-if="sseStuck && update.supported">
+              <button class="svc-restart-btn" @click="restartService()" :disabled="restarting"
+                x-text="restarting ? 'Restarting…' : '↻ Restart service'"
+                title="The realtime connection is stuck. Restart the background service."></button>
+            </template>
           </div>
         </div>
         <div class="nav-resizer" @pointerdown="startNavResize($event)" @dblclick="resetNavSidebarWidth()" title="Drag to resize · double-click to reset"></div>
@@ -7961,8 +7993,12 @@
                                         <template x-if="devRepoDraft[d.id] && devRepoDraft[d.id].open">
                                           <div style="display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--cp-border);padding-top:6px">
                                             <div style="display:flex;gap:6px;flex-wrap:wrap">
-                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="org" x-model="devRepoDraft[d.id].org" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
-                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="project" x-model="devRepoDraft[d.id].project" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
+                                              <select class="input" style="font-size:11px;flex:0 0 auto;min-width:76px" x-model="devRepoDraft[d.id].provider" @change="devDraftProviderChange(d)" title="Repository host">
+                                                <option value="azdo">Azure DevOps</option>
+                                                <option value="github">GitHub</option>
+                                              </select>
+                                              <input class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" :placeholder="devRepoDraft[d.id].provider==='github' ? 'owner' : 'org'" x-model="devRepoDraft[d.id].org" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
+                                              <input x-show="devRepoDraft[d.id].provider!=='github'" class="input" style="font-size:11px;flex:1 1 90px;min-width:80px" placeholder="project" x-model="devRepoDraft[d.id].project" @input.debounce.600ms="devDraftLoadRepos(d)" @change="devDraftLoadRepos(d)" />
                                             </div>
                                             <div style="display:flex;gap:6px;flex-wrap:wrap">
                                               <div x-data="repoCombo()" style="position:relative;flex:1 1 90px;min-width:80px">
@@ -7987,7 +8023,7 @@
                                                       x-text="r.name"></div>
                                                   </template>
                                                   <template x-if="!devRepoDraft[d.id].loadingRepos && !comboFilterRepos(devRepoDraft[d.id].repos, q).length">
-                                                    <div class="hint" style="padding:6px 10px;font-size:11px" x-text="(devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length) ? 'No match.' : (devRepoDraft[d.id].org && devRepoDraft[d.id].project ? 'No repos found.' : 'Enter org / project.')"></div>
+                                                    <div class="hint" style="padding:6px 10px;font-size:11px" x-text="(devRepoDraft[d.id].repos && devRepoDraft[d.id].repos.length) ? 'No match.' : (devRepoDraft[d.id].provider==='github' ? (devRepoDraft[d.id].org ? 'No repos found.' : 'Enter owner.') : (devRepoDraft[d.id].org && devRepoDraft[d.id].project ? 'No repos found.' : 'Enter org / project.'))"></div>
                                                   </template>
                                                 </div>
                                               </div>
@@ -9059,7 +9095,6 @@
                   </div>
                   <div style="display:flex;gap:8px">
                     <button class="btn ghost small" type="button" :disabled="connect.generating" @click="connectGenerate()" title="Draft a Connect from your diary evidence — your current draft is saved to history first" x-text="connect.generating ? 'Drafting…' : '✨ Generate from diary'"></button>
-                    <button class="btn ghost small" type="button" @click="connectOpenChat()" :class="connect.chat.open ? 'active' : ''" title="Chat with AI to revise tone, refocus, or highlight accomplishments">💬 Ask AI</button>
                     <button class="btn ghost small" type="button" @click="connectToggleHistory()" x-text="'🕒 History' + (connect.versions && connect.versions.length ? ' (' + connect.versions.length + ')' : '')" title="View and restore earlier versions of this draft"></button>
                     <button class="btn ghost small" type="button" @click="connect._preview = !connect._preview" x-text="connect._preview ? '✎ Edit' : '👁 Preview'"></button>
                     <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
@@ -9105,48 +9140,6 @@
                 <textarea x-show="connect._preview === false || !connect.draftText.trim()" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
                           placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
                 <div x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
-
-                <!-- ===== AI revision drawer ("Ask AI") — right-side overlay, mirrors Board AI ===== -->
-                <div class="board-assistant-backdrop" x-show="connect.chat.open" x-transition.opacity.duration.150ms @click.self="connect.chat.open=false" x-cloak>
-                  <aside class="board-assistant-drawer" :style="'width:' + (connect.chat.width || 420) + 'px'" x-show="connect.chat.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
-                    <div class="ba-resize" :class="{ dragging: connect.chat.resizing }" @mousedown.prevent="connectChatResizeStart($event)" title="Drag to resize"></div>
-                    <div class="board-assistant-head">
-                      <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                        <span style="font-size:18px">💬</span>
-                        <div style="min-width:0">
-                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Revise with AI</div>
-                          <div class="hint" style="font-size:11px">Adjust tone, refocus, highlight wins — you review before Save</div>
-                        </div>
-                      </div>
-                      <button class="icon-button" type="button" @click="connect.chat.open=false" title="Close">✕</button>
-                    </div>
-                    <div class="board-assistant-body" x-ref="connectChatLog">
-                      <div x-show="!connect.chat.messages.length" class="empty-state" style="padding:16px;font-size:13px">
-                        <div style="margin-bottom:8px">Ask AI to revise the draft or weigh in on impact. Try:</div>
-                        <div style="display:flex;flex-direction:column;gap:6px">
-                          <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Make the tone more confident'; connectDraftChat()">“Make the tone more confident”</button>
-                          <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Focus more on a specific work area'; connectDraftChat()">“Focus more on a specific work area”</button>
-                          <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Where can I show more impact?'; connectDraftChat()">“Where can I show more impact?”</button>
-                        </div>
-                      </div>
-                      <template x-for="(m, i) in connect.chat.messages" :key="i">
-                        <div class="ba-msg" :class="m.role">
-                          <div class="ba-bubble" x-show="m.role==='user'" x-text="m.content"></div>
-                          <div class="ba-bubble assistant" x-show="m.role!=='user'">
-                            <div class="md-output" x-html="renderMarkdown(m.content)"></div>
-                            <div class="connect-chat-applied" x-show="m.appliedDraft">✓ Applied a revised draft — review, then Save.</div>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="board-assistant-input">
-                      <textarea rows="2" x-model="connect.chat.input" :disabled="connect.chat.busy" style="flex:1;resize:none"
-                                @keydown.enter.prevent="connectDraftChat()"
-                                placeholder="Ask AI to revise the draft, or ask an opinion…"></textarea>
-                      <button class="btn primary small" type="button" :disabled="connect.chat.busy || !connect.chat.input.trim()" @click="connectDraftChat()" x-text="connect.chat.busy ? 'Thinking…' : 'Send'"></button>
-                    </div>
-                  </aside>
-                </div>
               </div>
             </div>
 
@@ -9399,6 +9392,79 @@
                 <span style="font-size:16px;line-height:1">💡</span>
                 <div>A great Connect leads with <strong style="color:var(--cp-text)">impact</strong>, not activity — one or two concrete, quantified examples beat a long list. Own your growth areas honestly; it reads as strength.</div>
               </div>
+            </div>
+
+            <!-- Connect AI FAB (lower-right, mirrors Board AI) -->
+            <button class="board-ai-fab connect-ai-fab" type="button" x-show="route==='connect' && !connect.chat.open" x-transition.opacity.duration.150ms @click="connectOpenChat()" title="Connect AI — edit drafts, manage diary entries, guidance & profile from chat" aria-label="Open Connect AI chat">💬</button>
+
+            <!-- Connect assistant slide-over ("Ask Connect"). Fixed overlay OUTSIDE the
+                 page content so it can dock to the side, mirroring Board AI. -->
+            <div class="board-assistant-backdrop" :class="{ docked: connect.chat.docked }" x-show="connect.chat.open" x-transition.opacity.duration.150ms @click.self="!connect.chat.docked && closeConnectChat()" x-cloak>
+              <aside class="board-assistant-drawer" :class="{ open: connect.chat.open, docked: connect.chat.docked }" :style="'width:' + connect.chat.width + 'px'" x-show="connect.chat.open" x-transition:enter="ba-enter" x-transition:enter-start="ba-enter-start" x-transition:enter-end="ba-enter-end">
+                <div class="ba-resize" :class="{ dragging: connect.chat.resizing }" @mousedown.prevent="connectChatResizeStart($event)" title="Drag to resize"></div>
+                <div class="board-assistant-head">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    <span style="font-size:18px">💬</span>
+                    <div style="min-width:0">
+                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Connect AI</div>
+                      <div class="hint" style="font-size:11px">edits drafts, entries, guidance &amp; profile — you confirm</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <button class="icon-button" type="button" @click="toggleConnectDock()" :class="{ active: connect.chat.docked }" x-text="connect.chat.docked ? '🔒' : '🔓'" :title="connect.chat.docked ? 'Unlock — float as overlay' : 'Lock to the side of the screen'"></button>
+                    <button class="icon-button" type="button" x-show="!connect.chat.docked" @click="closeConnectChat()" title="Close">✕</button>
+                  </div>
+                </div>
+                <div class="board-assistant-body" x-ref="connectChatLog">
+                  <div x-show="!connect.chat.messages.length" class="empty-state" style="padding:16px;font-size:13px">
+                    <div style="margin-bottom:8px">Ask Connect AI to revise your draft, manage diary entries, or update guidance &amp; profile. Try:</div>
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Make the tone more confident'; connectAssistantSend()">“Make the tone more confident”</button>
+                      <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Find my diary entries about code review'; connectAssistantSend()">“Find my entries about code review”</button>
+                      <button class="btn ghost" type="button" style="text-align:left" @click="connect.chat.input='Where can I show more impact?'; connectAssistantSend()">“Where can I show more impact?”</button>
+                    </div>
+                  </div>
+                  <template x-for="(m, mi) in connect.chat.messages" :key="mi">
+                    <div class="ba-msg" :class="m.role">
+                      <div class="ba-bubble" x-show="m.role==='user'" x-text="m.content"></div>
+                      <div class="ba-bubble assistant" x-show="m.role==='assistant'">
+                        <div class="md-output" x-html="renderMarkdown(m.content)"></div>
+                        <template x-if="(m.actions||[]).length">
+                          <div class="ba-actions">
+                            <template x-for="a in m.actions" :key="a.id">
+                              <div class="ba-action" :class="{ applied: a._applied, dismissed: a._dismissed }">
+                                <div style="min-width:0;flex:1">
+                                  <div style="display:flex;align-items:center;gap:6px">
+                                    <span class="ba-action-kind" x-text="a.label"></span>
+                                    <span class="hint" x-show="a._applied" style="color:var(--cp-success)" x-text="connectActionDoneLabel(a)"></span>
+                                    <span class="hint" x-show="a._dismissed">dismissed</span>
+                                  </div>
+                                  <div class="ba-action-preview" x-text="a.preview"></div>
+                                </div>
+                                <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
+                                  <button type="button" :class="a.destructive ? 'btn danger' : 'btn primary'" style="padding:3px 10px" :disabled="a._running" @click="applyConnectAction(a)" x-text="a._running ? 'Working…' : connectActionConfirmLabel(a)"></button>
+                                  <button class="icon-button" type="button" title="Dismiss" @click="a._dismissed=true">✕</button>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <div x-show="connect.chat.busy" class="ba-msg assistant">
+                    <div class="ba-bubble assistant" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <span class="ba-spinner"></span>
+                      <span x-text="((connect.chat.activity && connect.chat.activity.label) || 'Thinking') + '…'"></span>
+                      <span class="hint" style="font-variant-numeric:tabular-nums" x-show="connectElapsed>0" x-text="connectElapsedText()"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="board-assistant-input">
+                  <textarea class="field-input" rows="2" x-model="connect.chat.input" placeholder="Ask Connect AI…" :disabled="connect.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); connectAssistantSend(); }" style="flex:1;resize:none"></textarea>
+                  <button class="btn primary" type="button" @click="connectAssistantSend()" :disabled="connect.chat.busy || !connect.chat.input.trim()">Send</button>
+                </div>
+              </aside>
             </div>
 
           </section>
@@ -14305,9 +14371,17 @@
           { id: 'calm', name: '○ Calm' }
         ],
         sseStatus: 'disconnected',
+        // When the realtime stream is stuck reconnecting, we surface a manual
+        // "Restart service" affordance (desktop only). `_sseReconnectSince` marks
+        // when the current reconnecting streak began; `sseStuck` flips true once it
+        // persists past the threshold.
+        _sseReconnectSince: 0,
+        _sseStuckTimer: null,
+        sseStuck: false,
+        restarting: false,
         // In-app self-updater state (desktop build only). `supported` gates the
         // whole UI so browser/LAN builds never show update chrome.
-        update: { supported: false, checked: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false },
+        update: { supported: false, checked: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '' },
         updateConfirmOpen: false,
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
@@ -14588,8 +14662,14 @@
           collecting: false,
           autofilling: false,
           notice: '',
-          chat: { open: false, messages: [], input: '', busy: false, width: 420, resizing: false },
+          chat: {
+            open: false,
+            docked: (function(){ try { return localStorage.getItem('connect-ai-docked') === '1'; } catch { return false; } })(),
+            busy: false, input: '', messages: [], resizing: false, activity: null,
+            width: (function(){ try { const w = parseInt(localStorage.getItem('connect-chat-width'), 10); return Math.max(320, Math.min(720, w || 420)); } catch { return 420; } })(),
+          },
         },
+        connectElapsed: 0,
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
           // The non-"mine" tab ("Active PRs") shows every open PR in the watched
@@ -16157,8 +16237,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const source = new EventSource('/api/events');
             this.sseStatus = 'connecting';
-            source.onopen = () => { this.sseStatus = 'connected'; };
-            source.onerror = () => { this.sseStatus = 'reconnecting'; };
+            source.onopen = () => { this.sseStatus = 'connected'; this._markSseHealthy(); };
+            source.onerror = () => { this.sseStatus = 'reconnecting'; this._markSseReconnecting(); };
             source.onmessage = () => { this.scheduleRefresh(); };
             ['agent-status', 'manager-status', 'run-started', 'chat-message'].forEach((eventName) => {
               source.addEventListener(eventName, (event) => {
@@ -16349,6 +16429,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
           } catch {
             this.sseStatus = 'unavailable';
+            this._markSseReconnecting();
           }
         },
 
@@ -19843,57 +19924,180 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.connect.generating = false;
           }
         },
-        async connectDraftChat() {
+        // ---- Connect AI assistant (mirrors Board AI: propose → confirm) ----
+        // Send a message to the Connect assistant. The server auto-runs read-only
+        // searches (find_entries) and returns a reply plus any *mutating* actions
+        // as proposals — nothing changes until the user confirms each one.
+        async connectAssistantSend() {
           const c = this.connect.chat;
           const msg = (c.input || '').trim();
           if (!msg || c.busy) return;
           c.messages.push({ role: 'user', content: msg });
           c.input = '';
           c.busy = true;
-          this.$nextTick(() => { const el = this.$refs.connectChatLog; if (el) el.scrollTop = el.scrollHeight; });
+          this._connectStartActivity('Thinking');
+          this._connectScroll();
           try {
-            const r = await this.request('/api/connect/draft/chat', {
+            const r = await this.request('/api/connect/assistant', {
               method: 'POST',
               body: JSON.stringify({
                 message: msg,
                 history: c.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
-                draft: this.connect.draftText,
               }),
-              timeoutMs: 120000,
+              timeoutMs: 180000,
             });
             const reply = (r && r.reply) || '…';
-            const applied = !!(r && r.draft);
-            c.messages.push({ role: 'assistant', content: reply, appliedDraft: applied });
-            if (applied) {
-              this.connect.draftText = r.draft;
-              this.connect.draftDirty = true;
-              this.connect._preview = true;
-            }
-            // If the user asked to save/keep the draft, run the save-with-memory
-            // path so the AI can distill a guiding memory from the conversation.
-            if (r && r.saveRequested) {
-              this.$nextTick(() => this.saveConnectDraft());
-            }
+            const actions = Array.isArray(r && r.actions) ? r.actions.map(a => ({ ...a, _applied: false, _dismissed: false, _running: false })) : [];
+            c.messages.push({ role: 'assistant', content: reply, actions });
           } catch (e) {
-            c.messages.push({ role: 'assistant', content: 'Sorry — that failed: ' + (e.message || e) });
+            c.messages.push({ role: 'assistant', content: 'Sorry — that failed: ' + (e.message || e), actions: [] });
           } finally {
             c.busy = false;
-            this.$nextTick(() => { const el = this.$refs.connectChatLog; if (el) el.scrollTop = el.scrollHeight; });
+            this._connectStopActivity();
+            this._connectScroll();
           }
         },
-        connectOpenChat() {
-          if (!this.connect.chat.open) {
-            try { const w = parseInt(localStorage.getItem('connect-chat-width'), 10); if (w) this.connect.chat.width = Math.max(320, Math.min(720, w)); } catch {}
+        // Apply a single confirmed action via the existing Connect CRUD endpoints,
+        // then refresh the relevant slice of state so the page reflects the change.
+        async applyConnectAction(a) {
+          if (!a || a._applied || a._running) return;
+          a._running = true;
+          try {
+            switch (a.type) {
+              case 'edit_draft': {
+                const r = await this.request('/api/connect/draft', { method: 'PUT', body: JSON.stringify({ markdown: a.markdown, source: 'ai' }) });
+                if (r && r.state) this.connect.state = r.state;
+                this.connect.draftText = a.markdown;
+                this.connect.draftDirty = false;
+                this.connect._preview = true;
+                break;
+              }
+              case 'create_entry': {
+                const e = a.entry || {};
+                await this.request('/api/connect/evidence', { method: 'POST', body: JSON.stringify({
+                  date: e.date, source: e.source, title: e.title, detail: e.detail, impact: e.impact,
+                  tags: Array.isArray(e.tags) ? e.tags : [], links: [],
+                }) });
+                await this.loadConnect();
+                break;
+              }
+              case 'edit_entry': {
+                await this.request('/api/connect/evidence/' + encodeURIComponent(a.id), { method: 'PUT', body: JSON.stringify(a.patch || {}) });
+                await this.loadConnect();
+                break;
+              }
+              case 'delete_entry': {
+                await this.request('/api/connect/evidence/' + encodeURIComponent(a.id), { method: 'DELETE' });
+                await this.loadConnect();
+                break;
+              }
+              case 'update_guidance': {
+                const cur = (this.connect.state && this.connect.state.guidance) || {};
+                const g = { ...cur, ...(a.patch || {}) };
+                const payload = {
+                  tone: g.tone || '',
+                  positivity: g.positivity || 'balanced',
+                  instructions: g.instructions || '',
+                  focusAreas: Array.isArray(g.focusAreas) ? g.focusAreas : String(g.focusAreas || '').split(',').map(s => s.trim()).filter(Boolean),
+                };
+                const r = await this.request('/api/connect/guidance', { method: 'PUT', body: JSON.stringify(payload) });
+                if (r && r.state) this.connect.state = r.state;
+                break;
+              }
+              case 'update_profile': {
+                const cur = (this.connect.state && this.connect.state.profile) || {};
+                const p = { ...cur, ...(a.patch || {}) };
+                const r = await this.request('/api/connect/profile', { method: 'PUT', body: JSON.stringify(p) });
+                if (r && r.state) this.connect.state = r.state;
+                break;
+              }
+              case 'add_memory': {
+                const r = await this.request('/api/connect/memories', { method: 'POST', body: JSON.stringify({ text: a.text }) });
+                if (r && Array.isArray(r.memories)) this.connect.memories = r.memories;
+                break;
+              }
+              case 'generate_draft': {
+                const r = await this.request('/api/connect/generate', { method: 'POST', body: '{}' });
+                if (r && r.state) {
+                  this.connect.state = r.state;
+                  this.connect.draftText = (r.state.draft && r.state.draft.markdown) || '';
+                  this.connect.draftDirty = false;
+                  this.connect._preview = true;
+                }
+                this.connectLoadVersions();
+                break;
+              }
+              default:
+                throw new Error('Unknown action: ' + a.type);
+            }
+            a._applied = true;
+            this.toast(this.connectActionDoneLabel(a).replace(/^✓ /, '').replace(/^\w/, m => m.toUpperCase()), 'success');
+          } catch (e) {
+            this.toast('Could not apply: ' + (e.message || e), 'error');
+          } finally {
+            a._running = false;
           }
-          this.connect.chat.open = !this.connect.chat.open;
+        },
+        connectActionConfirmLabel(a) {
+          if (!a) return 'Apply';
+          if (a.destructive) return '🗑 Delete';
+          if (a.type === 'generate_draft') return '✨ Regenerate';
+          return 'Apply';
+        },
+        connectActionDoneLabel(a) {
+          switch (a && a.type) {
+            case 'delete_entry': return '✓ deleted';
+            case 'create_entry': return '✓ added';
+            case 'add_memory': return '✓ remembered';
+            case 'generate_draft': return '✓ regenerated';
+            case 'edit_draft': return '✓ applied';
+            default: return '✓ updated';
+          }
+        },
+        // Open/close, dock, resize, scroll & activity — all mirror the Board AI.
+        connectOpenChat() {
+          const c = this.connect.chat;
+          if (!c.open) {
+            try { const w = parseInt(localStorage.getItem('connect-chat-width'), 10); if (w) c.width = this._connectClampWidth(w); } catch {}
+          }
+          c.open = !c.open;
+          if (c.open) { this.syncConnectDock(); this._connectScroll(); }
+          else this.syncConnectDock();
+        },
+        closeConnectChat() { this.connect.chat.open = false; this.syncConnectDock(); },
+        toggleConnectDock() {
+          const c = this.connect.chat;
+          c.docked = !c.docked;
+          try { localStorage.setItem('connect-ai-docked', c.docked ? '1' : '0'); } catch {}
+          if (c.docked && !c.open) this.connectOpenChat();
+          this.syncConnectDock();
+        },
+        // Keep the docked layout in sync. Driven by x-effect on .app-shell alongside
+        // syncBaDock(). Uses a DISTINCT body class (connect-ai-docked) + var so it
+        // never collides with the board dock, and releases padding off-route.
+        syncConnectDock() {
+          const c = this.connect.chat;
+          const onConnect = this.route === 'connect';
+          const docked = !!c.docked;
+          const w = c.width || 420;
+          if (docked && onConnect && !c.open) c.open = true;
+          const active = docked && onConnect && c.open;
+          try {
+            document.body.classList.toggle('connect-ai-docked', active);
+            if (active) document.body.style.setProperty('--connect-dock-width', w + 'px');
+            else document.body.style.removeProperty('--connect-dock-width');
+          } catch {}
+        },
+        _connectClampWidth(w) { return Math.max(320, Math.min(Math.round(w), 720, Math.round(window.innerWidth * 0.92))); },
+        _connectScroll() {
+          this.$nextTick(() => { try { const el = this.$refs.connectChatLog; if (el) el.scrollTop = el.scrollHeight; } catch {} });
         },
         connectChatResizeStart(e) {
           const startX = e.clientX;
           const startW = this.connect.chat.width || 420;
-          const clamp = (w) => Math.max(320, Math.min(720, Math.round(w)));
           this.connect.chat.resizing = true;
           document.body.style.userSelect = 'none';
-          const onMove = (ev) => { this.connect.chat.width = clamp(startW + (startX - ev.clientX)); };
+          const onMove = (ev) => { this.connect.chat.width = this._connectClampWidth(startW + (startX - ev.clientX)); if (this.connect.chat.docked) this.syncConnectDock(); };
           const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
@@ -19903,6 +20107,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
           window.addEventListener('mousemove', onMove);
           window.addEventListener('mouseup', onUp);
+        },
+        _connectStartActivity(label, kind) {
+          this.connect.chat.activity = { label, kind: kind || 'think', startedAt: Date.now() };
+          this.connectElapsed = 0;
+          if (this._connectTimer) clearInterval(this._connectTimer);
+          this._connectTimer = setInterval(() => {
+            const a = this.connect.chat.activity;
+            if (!a) return;
+            this.connectElapsed = Math.floor((Date.now() - a.startedAt) / 1000);
+          }, 1000);
+        },
+        _connectStopActivity() {
+          if (this._connectTimer) { clearInterval(this._connectTimer); this._connectTimer = null; }
+          this.connect.chat.activity = null;
+          this.connectElapsed = 0;
+        },
+        connectElapsedText() {
+          const s = this.connectElapsed || 0;
+          const m = Math.floor(s / 60), r = s % 60;
+          return m + ':' + String(r).padStart(2, '0');
         },
         async connectLoadVersions() {
           try {
@@ -26588,18 +26812,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!d) return;
           const cur = this.devRepoDraft[d.id];
           if (cur && cur.open) { this.devRepoDraft[d.id] = { open: false }; return; }
-          this.devRepoDraft[d.id] = { open: true, org: d.org || '', project: d.project || '', repo: '', baseBranch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false };
-          if (d.org && d.project) this.devDraftLoadRepos(d);
+          const provider = (d.provider === 'github') ? 'github' : 'azdo';
+          this.devRepoDraft[d.id] = { open: true, provider, org: d.org || '', project: d.project || '', repo: '', baseBranch: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false };
+          if (d.org && (provider === 'github' || d.project)) this.devDraftLoadRepos(d);
+        },
+        // Switching host clears the repo/branch selection and re-lists for the new
+        // provider (GitHub has no "project", so that field is hidden in the markup).
+        devDraftProviderChange(d) {
+          const draft = this.devRepoDraft[d.id];
+          if (!draft) return;
+          draft.repo = ''; draft.baseBranch = ''; draft.repos = []; draft.branches = [];
+          if (draft.provider === 'github') draft.project = '';
+          this.devDraftLoadRepos(d);
         },
         async devDraftLoadRepos(d) {
           const draft = this.devRepoDraft[d.id];
           if (!draft || !draft.open) return;
+          const provider = (draft.provider === 'github') ? 'github' : 'azdo';
           const org = (draft.org || '').trim(), project = (draft.project || '').trim();
           draft.repos = []; draft.branches = []; draft.baseBranch = '';
-          if (!org || !project) return;
+          if (!org || (provider === 'azdo' && !project)) return;
           draft.loadingRepos = true;
           try {
-            const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
+            const qs = 'provider=' + provider + '&org=' + encodeURIComponent(org) +
+                       (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '');
+            const data = await this.request('/api/forge/repos?' + qs);
             // Guard against a stale response after the draft was closed/replaced.
             if (this.devRepoDraft[d.id] !== draft) return;
             draft.repos = data.repos || [];
@@ -26620,10 +26857,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async devDraftLoadBranches(d, preserve) {
           const draft = this.devRepoDraft[d.id];
           if (!draft || !draft.repo) return;
+          const provider = (draft.provider === 'github') ? 'github' : 'azdo';
           const org = (draft.org || '').trim(), project = (draft.project || '').trim();
           draft.loadingBranches = true;
           try {
-            const data = await this.request('/api/azdo/branches?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project) + '&repo=' + encodeURIComponent(draft.repo));
+            const qs = 'provider=' + provider + '&org=' + encodeURIComponent(org) +
+                       (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '') +
+                       '&repo=' + encodeURIComponent(draft.repo);
+            const data = await this.request('/api/forge/branches?' + qs);
             if (this.devRepoDraft[d.id] !== draft) return;
             draft.branches = data.branches || [];
             const meta = draft.repos.find(x => x.name === draft.repo);
@@ -26640,10 +26881,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async addDevRepo(d) {
           if (!d || this.devBusy[d.id]) return;
           const draft = this.devRepoDraft[d.id] || {};
-          if (!draft.org || !draft.project || !draft.repo) { this.showToast('Dev card', 'org / project / repo are required.', 'error'); return; }
+          const provider = (draft.provider === 'github') ? 'github' : 'azdo';
+          if (!draft.org || !draft.repo || (provider === 'azdo' && !draft.project)) {
+            this.showToast('Dev card', provider === 'github' ? 'owner / repo are required.' : 'org / project / repo are required.', 'error');
+            return;
+          }
           this.devBusy[d.id] = 'addrepo';
           try {
-            const r = await this.request(this._devUrl(d, 'repos'), { method: 'POST', body: JSON.stringify({ org: draft.org.trim(), project: draft.project.trim(), repo: draft.repo.trim(), baseBranch: (draft.baseBranch || '').trim() }) });
+            const r = await this.request(this._devUrl(d, 'repos'), { method: 'POST', body: JSON.stringify({ provider, org: draft.org.trim(), project: provider === 'github' ? '' : draft.project.trim(), repo: draft.repo.trim(), baseBranch: (draft.baseBranch || '').trim() }) });
             if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
             this.devRepoDraft[d.id] = { open: false };
             this.showToast('Dev card', '🗃 Repo added.', 'success');
@@ -30046,15 +30291,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.update.available = !!r.updateAvailable;
             this.update.latest = r.latest || '';
             this.update.current = r.current || '';
+            this.update.deltaAvailable = !!r.deltaAvailable;
             // If a download is already staged/in-flight, reflect it.
             await this.pollUpdateStatus();
           } catch { /* leave state as-is */ }
         },
         async downloadUpdate() {
           if (!this.update.supported || !this.update.available) return;
+          const delta = !!this.update.deltaAvailable;
           const ok = await this.uiConfirm({
             title: `Update to v${this.update.latest}?`,
-            message: 'The update downloads in the background. It installs automatically when you close the app, then reopens on the new version. You can keep working until then.',
+            message: delta
+              ? 'The update downloads in the background. It installs the next time you open the app — a small, quick update. You can keep working until then.'
+              : 'The update downloads in the background. It installs automatically when you close the app, then reopens on the new version. You can keep working until then.',
             confirmLabel: 'Download update'
           });
           if (!ok) return;
@@ -30086,6 +30335,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.update.phase = s.phase || 'idle';
             this.update.progress = s.progress || 0;
             this.update.error = s.error || '';
+            if (typeof s.delta === 'boolean') this.update.delta = s.delta;
+            if (s.applyOn) this.update.applyOn = s.applyOn;
             if (s.phase === 'downloading' || s.phase === 'verifying') {
               this._startUpdatePolling();
             } else {
@@ -30104,13 +30355,55 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const u = this.update;
           if (u.phase === 'downloading') return `Downloading v${u.latest}… ${u.progress || 0}%`;
           if (u.phase === 'verifying') return `Verifying v${u.latest}…`;
-          if (u.phase === 'ready') return `Update ready — installs when you close the app`;
+          if (u.phase === 'ready') {
+            return (u.delta || u.applyOn === 'launch')
+              ? `Update ready — installs next time you open the app`
+              : `Update ready — installs when you close the app`;
+          }
           if (u.phase === 'error') return `Update failed: ${u.error || 'unknown error'}`;
           return '';
         },
 
         sseStatusLabel() {
           return `Realtime: ${this.sseStatus}`;
+        },
+
+        // Track how long the realtime stream has been reconnecting; after a short
+        // grace period surface a manual "Restart service" button (desktop only).
+        _markSseReconnecting() {
+          if (this._sseReconnectSince) return;
+          this._sseReconnectSince = Date.now();
+          if (this._sseStuckTimer) clearTimeout(this._sseStuckTimer);
+          this._sseStuckTimer = setTimeout(() => {
+            if (this.sseStatus === 'reconnecting' || this.sseStatus === 'unavailable') this.sseStuck = true;
+          }, 9000);
+        },
+        _markSseHealthy() {
+          this._sseReconnectSince = 0;
+          this.sseStuck = false;
+          if (this._sseStuckTimer) { clearTimeout(this._sseStuckTimer); this._sseStuckTimer = null; }
+        },
+        // Desktop only: ask the Tauri shell to restart the wedged Node sidecar.
+        // In a plain browser (no __TAURI__) fall back to a full reload.
+        async restartService() {
+          if (this.restarting) return;
+          this.restarting = true;
+          try {
+            const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+            if (invoke) {
+              await invoke('restart_sidecar');
+              this.toast('Restarting service…');
+              setTimeout(() => location.reload(), 4000);
+            } else {
+              location.reload();
+            }
+          } catch (err) {
+            console.error('restart_sidecar failed:', err);
+            this.toast('Could not restart the service; reloading…', 'error');
+            setTimeout(() => location.reload(), 1500);
+          } finally {
+            setTimeout(() => { this.restarting = false; }, 6000);
+          }
         },
 
         statusLabel(status) {

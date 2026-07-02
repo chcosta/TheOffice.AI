@@ -8122,6 +8122,224 @@ async function runConnectProfileAutofill() {
   return { state, suggestion: obj, applied: Object.keys(patch) };
 }
 
+// --- Connect assistant (Board-AI-style propose→confirm agent) -----------------
+// A conversational assistant with full read access to the Connect workspace (draft,
+// diary evidence, guidance, profile, remembered preferences) that PROPOSES concrete,
+// user-confirmable actions. It never mutates on its own — the client applies a
+// confirmed action through the existing /api/connect/* CRUD endpoints. Read-only
+// diary searches (find_entries) auto-run server-side and fold back into the context
+// so the model can propose precise edits against real entry ids.
+const CONNECT_ASSISTANT_MAX_SEARCH_DEPTH = 3;
+async function runConnectAssistant({ message, history, extraContext, allowSearch = true, depth = 0 } = {}) {
+  const msg = String(message || '').trim();
+  if (!msg && !extraContext) throw new Error('Ask a question or say what you would like to change.');
+
+  const st = connect.getState();
+  const g = st.guidance || {};
+  const p = st.profile || {};
+  const draft = String((st.draft && st.draft.markdown) || '').trim();
+  const evidence = connect.listEvidence({ includeHidden: true });
+  const validIds = new Set(evidence.map(e => e.id));
+  const evById = new Map(evidence.map(e => [e.id, e]));
+  const memLines = _connectMemoryLines();
+
+  const clip = (s, n) => { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  const multiline = (s, n) => { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; };
+
+  // --- context blocks ---------------------------------------------------------
+  const blocks = [];
+  blocks.push('## CURRENT DRAFT\n' + (draft ? multiline(draft, 6000) : '(the draft is empty)'));
+  blocks.push('## PROFILE\n' +
+    `Role: ${p.role || '(unspecified)'}${p.level ? ' (level ' + p.level + ')' : ''}\n` +
+    `Responsibilities: ${p.responsibilities || '(unspecified)'}\n` +
+    `Priorities: ${p.priorities || '(unspecified)'}`);
+  blocks.push('## GUIDANCE\n' +
+    `Tone: ${g.tone || 'professional'}\n` +
+    `Framing: ${g.positivity || 'balanced'}\n` +
+    `Focus areas: ${(g.focusAreas || []).join(', ') || '(none specified)'}\n` +
+    `Extra instructions: ${g.instructions || '(none)'}`);
+  if (memLines) blocks.push('## REMEMBERED PREFERENCES (durable guidance — honor these)\n' + memLines);
+  const recent = evidence.slice(0, 60);
+  const evLines = recent.map(e => {
+    const flags = [];
+    if (e.hidden) flags.push('hidden');
+    if (e.pinned) flags.push('pinned');
+    const meta = flags.length ? ' [' + flags.join(', ') + ']' : '';
+    return `- (${e.id}) [${e.date || '?'}] (${e.source || 'manual'})${meta} ${clip(e.title, 120)}` +
+      `${e.detail ? ' — ' + clip(e.detail, 220) : ''}${e.impact ? ' | Impact: ' + clip(e.impact, 160) : ''}`;
+  }).join('\n') || '(no diary entries yet)';
+  blocks.push(`## DIARY ENTRIES (${recent.length} most recent of ${evidence.length}; reference an entry by its (id))\n` + evLines);
+  if (extraContext) blocks.push(String(extraContext));
+
+  const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
+    const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${clip((h && h.content) || '', 500)}`;
+  }).filter(Boolean).join('\n') || '(none)';
+
+  const sys = [
+    'You are the Connect assistant embedded in a personal Microsoft "Connect" (self-review) workspace.',
+    'You help the user manage every part of their Connect: the draft, the diary of evidence entries,',
+    'drafting guidance, their role profile, and durable remembered preferences.',
+    'You ALWAYS propose changes for the user to confirm — you NEVER claim a change was already made.',
+    '',
+    'Respond with ONLY a single JSON object (no prose outside it, no markdown code fence):',
+    '{ "reply": "<a short, friendly message to the user>", "actions": [ <zero or more action objects> ] }',
+    '',
+    'Action objects (propose only the ones the user actually needs):',
+    '- Find diary entries (read-only; runs immediately, results come back to you): {"type":"find_entries","query":"<what to search for>"}',
+    '- Edit the whole draft: {"type":"edit_draft","markdown":"<COMPLETE new draft markdown>","summary":"<one-line description>"}',
+    '- Create a diary entry: {"type":"create_entry","date":"YYYY-MM-DD","source":"<teams|email|meeting|ado|manual>","title":"...","detail":"...","impact":"...","tags":["..."]}',
+    '- Edit a diary entry: {"type":"edit_entry","id":"<entry id>", ...any of date, source, title, detail, impact, tags, hidden}',
+    '- Delete a diary entry: {"type":"delete_entry","id":"<entry id>"}',
+    '- Update drafting guidance: {"type":"update_guidance", ...any of tone, positivity, instructions, focusAreas (array)}',
+    '- Update role profile: {"type":"update_profile", ...any of role, level, responsibilities, priorities}',
+    '- Remember a durable preference: {"type":"add_memory","text":"..."}',
+    '- Regenerate the draft from the diary evidence: {"type":"generate_draft"}',
+    '',
+    'Rules:',
+    '- Reference diary entries ONLY by the (id) shown in ## DIARY ENTRIES. Never invent ids.',
+    '- If you need entries you cannot see in the list, propose a find_entries action FIRST; its',
+    '  results are returned to you and you can then propose concrete create/edit/delete actions.',
+    '- For edit_draft, output the COMPLETE new markdown body — not a diff or a fragment.',
+    '- Keep "reply" concise and in the user\'s voice. If no change is needed, return "actions": [] and just answer.',
+    '- Propose at most a handful of actions per turn.',
+    '',
+    blocks.join('\n\n'),
+    '',
+    '## CONVERSATION',
+    histLines,
+    '',
+    '## USER MESSAGE',
+    msg || '(continuing from the search results above)',
+  ].join('\n');
+
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null, prompt: sys, sessionId: require('crypto').randomUUID(),
+    resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+  });
+  let raw = (acc.trim() || (result && result.output) || '').trim();
+
+  // --- parse the model's JSON envelope ---------------------------------------
+  const parseModel = (text) => {
+    let t = String(text || '').trim();
+    t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
+  };
+  const parsed = parseModel(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return { reply: raw || 'Sorry, I could not put together a response — try rephrasing.', actions: [] };
+  }
+
+  const proposed = Array.isArray(parsed.actions) ? parsed.actions : [];
+
+  // --- auto-run a read-only find_entries and recurse -------------------------
+  if (allowSearch && depth < CONNECT_ASSISTANT_MAX_SEARCH_DEPTH) {
+    const search = proposed.find(a => a && a.type === 'find_entries' && String(a.query || '').trim());
+    if (search) {
+      let found = { ids: [] };
+      try { found = await runConnectSearch(search.query); } catch (e) { console.warn('[connect] assistant search failed:', e.message); }
+      const matched = (found.ids || []).map(id => evById.get(id)).filter(Boolean);
+      const resultLines = matched.length
+        ? matched.map(e => `- (${e.id}) [${e.date || '?'}] (${e.source || 'manual'}) ${clip(e.title, 120)}` +
+            `${e.detail ? ' — ' + clip(e.detail, 220) : ''}${e.impact ? ' | Impact: ' + clip(e.impact, 160) : ''}`).join('\n')
+        : '(no diary entries matched)';
+      const searchBlock = `## SEARCH RESULT for "${clip(search.query, 120)}"\n` + resultLines;
+      const foldedHistory = (Array.isArray(history) ? history.slice() : []);
+      foldedHistory.push({ role: 'user', content: msg });
+      foldedHistory.push({ role: 'assistant', content: String(parsed.reply || 'Searching your diary…') });
+      return runConnectAssistant({
+        message: '', history: foldedHistory,
+        extraContext: searchBlock, allowSearch: true, depth: depth + 1,
+      });
+    }
+  }
+
+  // --- validate + normalize proposed mutating actions ------------------------
+  const resolveAction = (a) => {
+    if (!a || typeof a !== 'object') return null;
+    const type = String(a.type || '').trim();
+    switch (type) {
+      case 'edit_draft': {
+        const md = String(a.markdown || '').trim();
+        if (!md) return null;
+        return { type, markdown: md, summary: clip(a.summary || 'Rewrite the draft', 140),
+          label: 'Edit draft', preview: clip(a.summary || 'Replace the draft with a revised version', 160) };
+      }
+      case 'create_entry': {
+        const title = String(a.title || '').trim();
+        const detail = String(a.detail || '').trim();
+        if (!title && !detail) return null;
+        const tags = Array.isArray(a.tags) ? a.tags.map(t => String(t).trim()).filter(Boolean).slice(0, 12) : [];
+        const entry = { date: String(a.date || '').trim() || new Date().toISOString().slice(0, 10),
+          source: String(a.source || 'manual').trim() || 'manual', title, detail,
+          impact: String(a.impact || '').trim(), tags };
+        return { type, entry, label: 'New diary entry',
+          preview: clip(`[${entry.date}] ${entry.title || entry.detail}`, 160) };
+      }
+      case 'edit_entry': {
+        const id = String(a.id || '').trim();
+        if (!validIds.has(id)) return null;
+        const patch = {};
+        for (const k of ['date', 'source', 'title', 'detail', 'impact']) {
+          if (a[k] != null) patch[k] = String(a[k]).trim();
+        }
+        if (Array.isArray(a.tags)) patch.tags = a.tags.map(t => String(t).trim()).filter(Boolean).slice(0, 12);
+        if (typeof a.hidden === 'boolean') patch.hidden = a.hidden;
+        if (!Object.keys(patch).length) return null;
+        const cur = evById.get(id);
+        return { type, id, patch, label: 'Edit entry',
+          preview: clip((cur && cur.title) || id, 120) + ' — ' + Object.keys(patch).join(', ') };
+      }
+      case 'delete_entry': {
+        const id = String(a.id || '').trim();
+        if (!validIds.has(id)) return null;
+        const cur = evById.get(id);
+        return { type, id, destructive: true, label: 'Delete entry',
+          preview: clip((cur && cur.title) || id, 140) };
+      }
+      case 'update_guidance': {
+        const patch = {};
+        for (const k of ['tone', 'positivity', 'instructions']) {
+          if (a[k] != null) patch[k] = String(a[k]).trim();
+        }
+        if (Array.isArray(a.focusAreas)) patch.focusAreas = a.focusAreas.map(t => String(t).trim()).filter(Boolean).slice(0, 20);
+        if (!Object.keys(patch).length) return null;
+        return { type, patch, label: 'Update guidance', preview: clip(Object.keys(patch).join(', '), 140) };
+      }
+      case 'update_profile': {
+        const patch = {};
+        for (const k of ['role', 'level', 'responsibilities', 'priorities']) {
+          if (a[k] != null) patch[k] = String(a[k]).trim();
+        }
+        if (!Object.keys(patch).length) return null;
+        return { type, patch, label: 'Update profile', preview: clip(Object.keys(patch).join(', '), 140) };
+      }
+      case 'add_memory': {
+        const text = String(a.text || '').trim();
+        if (!text) return null;
+        return { type, text, label: 'Remember preference', preview: clip(text, 160) };
+      }
+      case 'generate_draft':
+        return { type, label: 'Regenerate draft', preview: 'Draft a fresh Connect from your diary evidence' };
+      default:
+        return null;
+    }
+  };
+
+  const actions = proposed
+    .filter(a => a && a.type !== 'find_entries')
+    .map(resolveAction)
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((a, i) => ({ id: 'cact-' + Date.now().toString(36) + '-' + i, ...a }));
+
+  const reply = String(parsed.reply || '').trim() || (actions.length ? 'Here is what I can do — review and confirm below.' : 'Done.');
+  return { reply, actions };
+}
+
 function scheduleConnectCollection() {
   if (connectCollectJob) { try { connectCollectJob.stop(); } catch {} connectCollectJob = null; }
   const s = settings.getSettings();
@@ -8559,6 +8777,19 @@ app.post('/api/connect/profile/autofill', async (req, res) => {
     res.json({ ok: true, ...r });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Connect assistant — Board-AI-style propose→confirm agent with full Connect access.
+// Returns { reply, actions[] }; the client applies confirmed actions via the
+// existing /api/connect/* CRUD endpoints. Never mutates here.
+app.post('/api/connect/assistant', async (req, res) => {
+  try {
+    const { message, history } = req.body || {};
+    const out = await runConnectAssistant({ message, history });
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    res.status(err.message && /Ask a question/.test(err.message) ? 400 : 500).json({ error: err.message });
   }
 });
 
@@ -15058,7 +15289,7 @@ bindPort(PORT, SIDECAR);
 // Graceful shutdown — single path for every trigger so we always stop the
 // scheduler, flush the DB and release the port.
 let _shuttingDown = false;
-function shutdown(reason) {
+function shutdown(reason, code = 0) {
   if (_shuttingDown) return;
   _shuttingDown = true;
   console.log(`[supervisor] Shutting down (${reason})...`);
@@ -15066,10 +15297,33 @@ function shutdown(reason) {
   try { supervisor.stopAll(); } catch { /* best effort */ }
   try { db.close(); } catch { /* best effort */ }
   try { server.close(); } catch { /* best effort */ }
-  process.exit(0);
+  process.exit(code);
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// Crash guards. Node makes an unhandled promise rejection fatal by default, and
+// a single uncaught exception anywhere would otherwise take the whole server
+// down — which, in the desktop app, strands the WebView on "reconnecting"
+// forever (the sidecar has no built-in restarter besides the new Rust monitor).
+//
+// - unhandledRejection: log and keep running. A stray rejection from a
+//   background run/fetch should never kill the HTTP server.
+// - uncaughtException: the process is now in an unknown state, so we shut down
+//   cleanly with a NON-ZERO code. The desktop shell's monitor treats a non-zero
+//   (or any unexpected) exit as a crash and respawns the sidecar with backoff;
+//   under a plain `npm start` you just get a clean exit + logged stack instead
+//   of a half-dead process.
+process.on('unhandledRejection', (reason) => {
+  try {
+    const msg = reason && reason.stack ? reason.stack : String(reason);
+    console.error('[supervisor] Unhandled promise rejection (continuing):', msg);
+  } catch { /* best effort */ }
+});
+process.on('uncaughtException', (err) => {
+  try { console.error('[supervisor] Uncaught exception — restarting:', err && err.stack ? err.stack : err); } catch { /* ignore */ }
+  shutdown('uncaughtException', 1);
+});
 // When launched as a desktop sidecar (SUPERVISOR_SIDECAR=1) the host keeps a
 // pipe open on our stdin; if it closes, the parent is gone, so exit instead of
 // orphaning child CLI/git processes. Gated so normal `npm start` is unaffected.

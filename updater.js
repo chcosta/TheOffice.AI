@@ -185,7 +185,7 @@ async function checkForUpdate(currentVersion, opts = {}) {
 
 // --- download + stage -------------------------------------------------------
 
-let _dl = { phase: 'idle', progress: 0, receivedBytes: 0, totalBytes: 0, version: '', error: '', installer: '' };
+let _dl = { phase: 'idle', progress: 0, receivedBytes: 0, totalBytes: 0, version: '', error: '', installer: '', delta: false, applyOn: '' };
 let _abort = null;
 
 function status() {
@@ -197,6 +197,10 @@ function status() {
     version: _dl.version,
     error: _dl.error,
     installer: _dl.installer,
+    // How the staged update applies: a small delta applies on the NEXT app
+    // launch (fast); a full installer applies when the app CLOSES (then reopens).
+    delta: !!_dl.delta,
+    applyOn: _dl.applyOn || '',
   };
 }
 
@@ -247,7 +251,7 @@ async function downloadTo(url, dest, onProgress) {
 }
 
 async function _run(best) {
-  _dl = { phase: 'downloading', progress: 0, receivedBytes: 0, totalBytes: 0, version: best.version, error: '', installer: '' };
+  _dl = { phase: 'downloading', progress: 0, receivedBytes: 0, totalBytes: 0, version: best.version, error: '', installer: '', delta: false, applyOn: 'exit' };
   try {
     fs.mkdirSync(UPDATE_DIR, { recursive: true });
     // Clear any stale installers so we don't accumulate versions on disk.
@@ -354,7 +358,7 @@ function _extractZip(zipPath, destDir) {
 // that apply-update.js consumes on the next sidecar launch. Much faster than the
 // full installer for small changes; only used when installed === delta.base.
 async function _runDelta(best) {
-  _dl = { phase: 'downloading', progress: 0, receivedBytes: 0, totalBytes: 0, version: best.version, error: '', installer: '' };
+  _dl = { phase: 'downloading', progress: 0, receivedBytes: 0, totalBytes: 0, version: best.version, error: '', installer: '', delta: true, applyOn: 'launch' };
   try {
     fs.mkdirSync(UPDATE_DIR, { recursive: true });
     const zipDest = path.join(UPDATE_DIR, `server-delta-${best.version}.zip`);
@@ -455,7 +459,7 @@ function cancel() {
       }
     }
   } catch { /* */ }
-  _dl = { phase: 'idle', progress: 0, receivedBytes: 0, totalBytes: 0, version: '', error: '', installer: '' };
+  _dl = { phase: 'idle', progress: 0, receivedBytes: 0, totalBytes: 0, version: '', error: '', installer: '', delta: false, applyOn: '' };
   return { ok: true };
 }
 

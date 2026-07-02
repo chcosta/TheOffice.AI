@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "Core permissions for the main window.",
   "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:3848",
+      "http://localhost:3848",
+      "http://127.0.0.1:3847",
+      "http://localhost:3847"
+    ]
+  },
   "permissions": ["core:default"]
 }

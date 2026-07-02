@@ -3,8 +3,10 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tauri::Manager;
 
@@ -55,8 +57,18 @@ fn run_pending_update() {
     let _ = cmd.spawn();
 }
 
-/// Holds the spawned Node sidecar so we can terminate it on app exit.
-struct SidecarState(Mutex<Option<Child>>);
+/// Shared sidecar supervision state.
+///
+/// - `pid`: the OS process id of the *current* Node sidecar, so the exit handler
+///   can force-terminate its whole tree without holding the `Child` (the monitor
+///   thread owns the `Child` and blocks on `wait()`).
+/// - `shutting_down`: set true right before we intentionally kill the sidecar on
+///   app exit, so the monitor thread can tell a deliberate teardown from a crash
+///   and NOT respawn.
+struct SidecarState {
+    pid: Mutex<Option<u32>>,
+    shutting_down: AtomicBool,
+}
 
 /// Strip a Windows extended-length (`\\?\`) prefix from a path.
 ///
@@ -133,9 +145,64 @@ fn resolve_server_js(app: &tauri::AppHandle) -> PathBuf {
     pb.join("server.js")
 }
 
-/// Spawn the Node server as a sidecar, stream its output, and navigate the main
-/// window to the localhost URL it reports via the `__READY__` line.
-fn start_sidecar(app: &tauri::AppHandle) {
+/// Start the Node sidecar under a **supervisor thread** that respawns it if it
+/// crashes. Each spawn streams the child's output and navigates the main window
+/// to the localhost URL reported via the `__READY__` line. If the child exits
+/// unexpectedly (not during app shutdown) the supervisor waits a backoff delay
+/// and spawns a fresh one; because the port is stable (3848) the WebView's
+/// `EventSource` reconnects on its own — and we also re-navigate as a belt-and-
+/// suspenders reload.
+fn start_sidecar(app: &tauri::AppHandle, state: Arc<SidecarState>) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        // Backoff between crash-restarts: start small, double up to a cap, and
+        // reset once a spawn has stayed up long enough to be considered healthy.
+        let mut delay_ms: u64 = 500;
+        let mut consecutive_fast: u32 = 0;
+
+        loop {
+            if state.shutting_down.load(Ordering::SeqCst) {
+                break;
+            }
+            let started = Instant::now();
+            spawn_sidecar_once(&handle, &state);
+            // spawn_sidecar_once blocks until the child exits (or returns
+            // immediately if it couldn't be spawned).
+            if state.shutting_down.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let uptime = started.elapsed();
+            if uptime >= Duration::from_secs(30) {
+                // Healthy run — reset backoff.
+                delay_ms = 500;
+                consecutive_fast = 0;
+            } else {
+                consecutive_fast += 1;
+                delay_ms = (delay_ms.saturating_mul(2)).min(10_000);
+            }
+            eprintln!(
+                "[desktop] sidecar exited after {:?} — restarting in {}ms (crash #{})",
+                uptime, delay_ms, consecutive_fast
+            );
+            // If it's crash-looping (dying almost instantly many times in a row),
+            // pause longer so we don't spin the CPU or hammer the machine.
+            if consecutive_fast >= 10 {
+                eprintln!("[desktop] sidecar crash-looping — backing off 30s");
+                std::thread::sleep(Duration::from_secs(30));
+                consecutive_fast = 0;
+                delay_ms = 500;
+            } else {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+        }
+    });
+}
+
+/// Spawn ONE Node sidecar, record its pid, stream stdout/stderr, navigate on
+/// `__READY__`, and block until it exits. Returns when the child has exited (or
+/// immediately if spawning failed).
+fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
     let handle = app.clone();
     let server_js = de_verbatim(resolve_server_js(&handle));
     let server_dir = server_js.parent().map(|p| p.to_path_buf());
@@ -190,27 +257,25 @@ fn start_sidecar(app: &tauri::AppHandle) {
         }
     };
 
+    // Record the pid so the exit handler can force-kill the whole tree.
+    if let Ok(mut guard) = state.pid.lock() {
+        *guard = Some(child.id());
+    }
+
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    // Keep the child so we can kill it on exit.
-    if let Some(state) = app.try_state::<SidecarState>() {
-        if let Ok(mut guard) = state.0.lock() {
-            *guard = Some(child);
-        }
-    }
-
-    if let Some(stderr) = stderr {
-        std::thread::spawn(move || {
+    let err_handle = std::thread::spawn(move || {
+        if let Some(stderr) = stderr {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 eprintln!("[sidecar:err] {line}");
             }
-        });
-    }
+        }
+    });
 
-    if let Some(stdout) = stdout {
-        let h = handle.clone();
-        std::thread::spawn(move || {
+    let out_app = handle.clone();
+    let out_handle = std::thread::spawn(move || {
+        if let Some(stdout) = stdout {
             const TOKEN: &str = "__READY__ ";
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 println!("[sidecar] {line}");
@@ -223,8 +288,8 @@ fn start_sidecar(app: &tauri::AppHandle) {
                     continue;
                 };
                 let url = url.to_string();
-                let h2 = h.clone();
-                let _ = h.run_on_main_thread(move || {
+                let h2 = out_app.clone();
+                let _ = out_app.run_on_main_thread(move || {
                     if let Some(win) = h2.get_webview_window("main") {
                         if let Ok(u) = tauri::Url::parse(&url) {
                             let _ = win.navigate(u);
@@ -232,8 +297,17 @@ fn start_sidecar(app: &tauri::AppHandle) {
                     }
                 });
             }
-        });
+        }
+    });
+
+    // Block until the sidecar exits, then let the reader threads drain.
+    let _ = child.wait();
+    // Clear the recorded pid; a new spawn will set it again.
+    if let Ok(mut guard) = state.pid.lock() {
+        *guard = None;
     }
+    let _ = out_handle.join();
+    let _ = err_handle.join();
 }
 
 /// Windows-only: force-terminate a process tree by PID. `/T` also kills
@@ -279,32 +353,36 @@ fn kill_node_under(dir: &std::path::Path) {
 /// probing it with an open-for-write reliably tells us when every process that was
 /// executing it has exited. This is the primary fix for upgrade failures like
 /// "Error opening file for writing: ...\node\node.exe".
-fn stop_sidecar_and_wait(app: &tauri::AppHandle) {
-    // 1. Terminate the tracked sidecar and its whole tree.
-    if let Some(state) = app.try_state::<SidecarState>() {
-        if let Ok(mut guard) = state.0.lock() {
-            if let Some(mut child) = guard.take() {
-                #[cfg(windows)]
-                taskkill_tree(child.id());
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+fn stop_sidecar_and_wait(state: &Arc<SidecarState>, node_bin: &std::path::Path) {
+    // Signal the supervisor thread that this teardown is intentional so it does
+    // NOT respawn the sidecar after we kill it.
+    state.shutting_down.store(true, Ordering::SeqCst);
+
+    // 1. Terminate the tracked sidecar and its whole tree by pid.
+    let pid = state.pid.lock().ok().and_then(|g| *g);
+    if let Some(pid) = pid {
+        #[cfg(windows)]
+        taskkill_tree(pid);
+        #[cfg(not(windows))]
+        {
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
         }
     }
 
     // 2. Clean up any stray node.exe still running from the bundled node dir.
-    let node_bin = resolve_node_bin(app);
     let node_dir = node_bin.parent().map(|p| p.to_path_buf());
     #[cfg(windows)]
     if let Some(dir) = &node_dir {
         kill_node_under(dir);
     }
+    #[cfg(not(windows))]
+    let _ = &node_dir;
 
     // 3. Wait (up to ~8s) for the image-file lock to release before the installer runs.
     if node_bin.exists() {
         use std::fs::OpenOptions;
         for _ in 0..40 {
-            if OpenOptions::new().write(true).open(&node_bin).is_ok() {
+            if OpenOptions::new().write(true).open(node_bin).is_ok() {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
@@ -312,21 +390,54 @@ fn stop_sidecar_and_wait(app: &tauri::AppHandle) {
     }
 }
 
+/// Manually restart the Node sidecar.
+///
+/// Invoked from the SPA (via `window.__TAURI__`) when the realtime connection is
+/// stuck "reconnecting" — typically because the sidecar is alive but wedged
+/// (unresponsive), a case the crash-only supervisor does NOT cover since it
+/// blocks on `child.wait()`. Killing the tracked pid tree makes that `wait()`
+/// return, and because `shutting_down` stays false the supervisor thread
+/// respawns a fresh sidecar automatically.
+#[tauri::command]
+fn restart_sidecar(state: tauri::State<'_, Arc<SidecarState>>) -> Result<(), String> {
+    let pid = state.pid.lock().ok().and_then(|g| *g);
+    match pid {
+        Some(pid) => {
+            #[cfg(windows)]
+            taskkill_tree(pid);
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            }
+            Ok(())
+        }
+        None => Err("Service is not currently running; it should relaunch automatically.".into()),
+    }
+}
+
 fn main() {
+    let state = Arc::new(SidecarState {
+        pid: Mutex::new(None),
+        shutting_down: AtomicBool::new(false),
+    });
+    let setup_state = state.clone();
+    let exit_state = state.clone();
     tauri::Builder::default()
-        .manage(SidecarState(Mutex::new(None)))
-        .setup(|app| {
-            start_sidecar(&app.handle().clone());
+        .manage(state.clone())
+        .invoke_handler(tauri::generate_handler![restart_sidecar])
+        .setup(move |app| {
+            start_sidecar(&app.handle().clone(), setup_state.clone());
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building TheOffice.AI desktop app")
-        .run(|app, event| {
+        .run(move |app, event| {
             if let tauri::RunEvent::Exit = event {
                 // Stop the sidecar tree and wait for the bundled node.exe lock to
                 // release, THEN apply a staged update — otherwise the installer
                 // races the still-running sidecar and fails to overwrite node.exe.
-                stop_sidecar_and_wait(app);
+                let node_bin = resolve_node_bin(app);
+                stop_sidecar_and_wait(&exit_state, &node_bin);
                 run_pending_update();
             }
         });
