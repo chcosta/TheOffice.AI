@@ -114,9 +114,9 @@ Interactive conversations with any agent or manager. Supports streaming response
 
 ### 📡 Events (not yet available)
 
-Azure Service Bus integration for event-driven automation is on the roadmap but is
-**disabled in current builds** while stronger outbound-access guardrails are designed.
-All external bridges are hard-locked off; agents run entirely locally.
+Event-driven automation (Azure Service Bus, mobile/relay bridges) is on the roadmap
+but **hard-locked off** in current builds while outbound-access guardrails are designed.
+Everything runs locally on your machine.
 
 ### 📊 Activity
 
@@ -192,15 +192,6 @@ Sync your configuration across multiple machines with only one running scheduled
 - SQLite database (run history)
 - Chat sessions
 - `sync-config.json` (per-machine)
-
----
-
-## Event-Driven Automation (not yet available)
-
-Azure Service Bus event listeners and the mobile/relay bridges are **hard-locked off**
-in current builds while outbound-access guardrails are designed. When enabled in a
-future release, they will let external systems trigger agents. Until then, everything
-runs locally on your machine.
 
 ---
 

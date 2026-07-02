@@ -486,20 +486,148 @@ async function getPrStatuses(owner, _project, repo, prId) {
   return out.sort((a, b) => `${a.genre}${a.name}`.localeCompare(`${b.genre}${b.name}`));
 }
 
-// Readiness signals (R4): discrete, never based on mergeable_state alone. Returns
-// a best-effort policy-evaluation-like array + a readiness verdict. Branch
-// protection may 403 → confidence 'unknown'.
+// Fetch branch protection, distinguishing "no protection" (404 → known, empty
+// requirements) from "cannot read" (403 → unknown; readiness must degrade to
+// null, never assert ready — R4). Returns { known, protection }.
+async function _branchProtection(owner, repo, branch) {
+  if (!branch) return { known: true, protection: null };
+  try {
+    const p = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(branch)}/protection`);
+    return { known: true, protection: p };
+  } catch (e) {
+    const msg = String(e && e.message || '');
+    // 404 = branch simply not protected → a KNOWN state (no required gates).
+    if (/\(404\)/.test(msg) || /not found/i.test(msg)) return { known: true, protection: null };
+    // 403 (or anything else) = we can't tell → unknown.
+    return { known: false, protection: null };
+  }
+}
+
+// Readiness signals (R4): NEVER derived from mergeable_state alone. Computes a
+// verdict from discrete signals — mergeable (retry on null), branch-protection
+// required contexts, combined check states, latest non-dismissed review per
+// reviewer (changes-requested / required approving count), draft, up-to-date,
+// conflicts. If branch protection can't be read (403) → ready = null (unknown),
+// never true. Returns the azdo-shaped { evaluations, ready, builds } so the
+// server's existing validation/readiness normalization works unchanged: the
+// Status-type evaluations carry statusGenre/statusName/blocking (feeding the
+// required-check marking) and the non-status gates surface as policy gates.
 async function getPrPolicyEvaluations(owner, _project, prId, repo) {
   // Note: repo is passed in the 4th slot to keep the azdo (org,project,prId,projectId)
   // arity; server dispatch supplies repo here for GitHub.
-  const evals = [];
+  const evaluations = [];
+  let pr;
+  try { pr = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}`); }
+  catch { return { evaluations, ready: null, builds: [] }; }
+
+  // mergeable is computed async by GitHub — retry once on null before trusting it.
+  let mergeable = pr.mergeable;
+  if (mergeable === null || mergeable === undefined) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const pr2 = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}`);
+      mergeable = pr2.mergeable;
+      if (pr2.mergeable_state) pr.mergeable_state = pr2.mergeable_state;
+    } catch {}
+  }
+  const mergeableState = String(pr.mergeable_state || '').toLowerCase();
+  const baseRef = (pr.base && pr.base.ref) || '';
+  const isDraft = !!pr.draft;
+
+  // Latest non-dismissed review per reviewer → approvals + changes-requested.
+  let approvals = 0, changesRequested = false;
   try {
-    const statuses = await getPrStatuses(owner, '', repo, prId);
-    for (const s of statuses) {
-      evals.push({ id: s.id, status: s.state, name: s.name, genre: s.genre, targetUrl: s.targetUrl });
+    const reviews = await apiAll(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}/reviews`, { cap: 200 });
+    const latest = new Map();
+    for (const rv of reviews) {
+      const login = (rv.user && rv.user.login) || '';
+      const st = String(rv.state || '').toUpperCase();
+      if (!login || st === 'PENDING' || st === 'COMMENTED') continue;
+      latest.set(login, st); // chronological → last meaningful wins
+    }
+    for (const st of latest.values()) {
+      if (st === 'APPROVED') approvals++;
+      else if (st === 'CHANGES_REQUESTED') changesRequested = true;
     }
   } catch {}
-  return evals;
+
+  // Branch protection → required contexts, required approving count, strict.
+  const { known: protectionKnown, protection } = await _branchProtection(owner, repo, baseRef);
+  const rsc = (protection && protection.required_status_checks) || null;
+  const requiredContexts = rsc
+    ? (Array.isArray(rsc.contexts) && rsc.contexts.length
+        ? rsc.contexts
+        : (Array.isArray(rsc.checks) ? rsc.checks.map(c => c.context).filter(Boolean) : []))
+    : [];
+  const strict = !!(rsc && rsc.strict);
+  const requiredApprovals = (protection && protection.required_pull_request_reviews
+    && Number(protection.required_pull_request_reviews.required_approving_review_count)) || 0;
+
+  // Required status contexts → Status-type evaluations (both possible genres, so
+  // the server marks the matching check-run OR commit status as Required). Their
+  // own status value is unused by the server (only `blocking` is read).
+  for (const ctx of requiredContexts) {
+    evaluations.push({ type: 'Status', statusGenre: 'check', statusName: ctx, blocking: true, status: 'notapplicable' });
+    evaluations.push({ type: 'Status', statusGenre: 'status', statusName: ctx, blocking: true, status: 'notapplicable' });
+  }
+
+  // Required approvals gate (visible policy gate).
+  if (requiredApprovals > 0) {
+    evaluations.push({
+      type: 'Minimum number of reviewers',
+      displayName: `Required approvals (${approvals}/${requiredApprovals})`,
+      blocking: true,
+      status: approvals >= requiredApprovals ? 'approved' : 'running'
+    });
+  }
+  // Changes requested → blocking rejected gate.
+  if (changesRequested) {
+    evaluations.push({ type: 'Code review', displayName: 'Changes requested', blocking: true, status: 'rejected' });
+  }
+  // Branch must be up to date with base (only when protection requires it).
+  if (strict && mergeableState === 'behind') {
+    evaluations.push({ type: 'Require branches up to date', displayName: 'Branch must be up to date', blocking: true, status: 'rejected' });
+  }
+  // Merge conflicts (independent of protection).
+  if (mergeable === false || mergeableState === 'dirty') {
+    evaluations.push({ type: 'Merge conflicts', displayName: 'Merge conflicts must be resolved', blocking: true, status: 'rejected' });
+  }
+
+  // Required check states (for the readiness verdict): match each required
+  // context to an actual check-run / commit status by name.
+  let requiredChecksOk = true, requiredChecksKnown = true;
+  if (requiredContexts.length) {
+    let statuses = [];
+    try { statuses = await getPrStatuses(owner, '', repo, prId); } catch { requiredChecksKnown = false; }
+    const byName = new Map();
+    for (const s of statuses) {
+      const prev = byName.get(s.name);
+      // worst-of when a context appears as both a check and a status
+      const rank = { failed: 3, error: 3, pending: 2, notSet: 1, notApplicable: 0, succeeded: 0 };
+      if (!prev || (rank[s.state] || 0) > (rank[prev] || 0)) byName.set(s.name, s.state);
+    }
+    for (const ctx of requiredContexts) {
+      const st = byName.get(ctx);
+      if (st === undefined) { requiredChecksOk = false; continue; } // required but not yet reported
+      if (st !== 'succeeded' && st !== 'notApplicable') requiredChecksOk = false;
+    }
+  }
+
+  // Readiness verdict (R4). Unknown (null) when protection unreadable (403) or
+  // mergeability is still indeterminate after retry — never assert ready then.
+  let ready;
+  if (!protectionKnown || mergeable === null || mergeable === undefined || !requiredChecksKnown) {
+    ready = null;
+  } else {
+    ready = !isDraft
+      && mergeable === true
+      && !changesRequested
+      && approvals >= requiredApprovals
+      && requiredChecksOk
+      && !(strict && mergeableState === 'behind');
+  }
+
+  return { evaluations, ready, builds: [] };
 }
 
 async function getPrChangedFiles(owner, _project, repo, prId, limit = 100) {
