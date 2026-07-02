@@ -7845,6 +7845,39 @@
                                         <button class="btn primary" type="button" style="font-size:11px;padding:3px 10px;white-space:nowrap" :disabled="devBusy[d.id]==='archive'" @click="archiveDevItem(d)" x-text="devBusy[d.id]==='archive' ? '…' : '🗄 Archive'"></button>
                                       </div>
 
+                                      <!-- Compact face: one-line AI summary + key-signal strip (PR-card scheme) -->
+                                      <div class="cf-ai-face">
+                                        <div class="cf-ai-inline" x-show="devFaceSummary(d)">
+                                          <span class="cf-ai-badge">🧠</span>
+                                          <span class="cf-ai-summary" x-text="devFaceSummary(d)"></span>
+                                        </div>
+                                        <div class="cf-stat-strip">
+                                          <template x-for="st in devFaceStats(d)" :key="st.k">
+                                            <span class="cf-stat" :class="'cf-tone-' + st.tone">
+                                              <span class="cf-stat-k" x-text="st.k"></span>
+                                              <span class="cf-stat-v" x-text="st.v"></span>
+                                            </span>
+                                          </template>
+                                          <span class="hint" x-show="!devFaceStats(d).length" style="font-size:12px">No status yet — ↻ to read work item, PR &amp; git.</span>
+                                        </div>
+                                      </div>
+
+                                      <!-- Details &amp; actions drawer (rail + panes) -->
+                                      <button class="cf-drawer-toggle" type="button" @click="devDrawerToggle(d)" x-text="(devDrawerIsOpen(d) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
+                                      <div class="cf-drawer" x-show="devDrawerIsOpen(d)">
+                                        <div class="cf-rail">
+                                          <template x-for="sec in devSections(d)" :key="sec.id">
+                                            <button class="cf-rail-btn" type="button" :class="{ active: devActivePane(d)===sec.id, attn: sec.attn }" @click="devSetPane(d, sec.id)">
+                                              <span class="cf-rail-lbl">
+                                                <span class="cf-rail-dot" x-show="sec.attn"></span>
+                                                <span x-text="sec.label"></span>
+                                              </span>
+                                              <span class="rc" x-show="sec.count" x-text="sec.count"></span>
+                                            </button>
+                                          </template>
+                                        </div>
+                                        <div class="cf-panes">
+                                          <div class="cf-pane" x-show="devActivePane(d)==='summary'">
                                       <!-- AI summary of the work item / PR / diff state -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
@@ -7873,7 +7906,8 @@
                                         </template>
                                         <span class="hint" x-show="!d.workItemId && !d.prId" style="font-size:11px">No work item / PR linked — ✎ to add.</span>
                                       </div>
-
+                                          </div>
+                                          <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <!-- Repos: primary + extra worktrees (one work item spanning one or more repos) -->
                                       <div style="border:1px solid var(--cp-border);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -8069,12 +8103,13 @@
                                           </div>
                                         </template>
                                       </div>
-
+                                          </div>
+                                          <div class="cf-pane" x-show="devActivePane(d)==='reports'">
                                       <!-- Status reports surfaced from the worktree. Cached reports
                                            persist after the worktree is removed (useful for audit), so
                                            this is gated on having reports, NOT on a live worktree. -->
                                       <template x-if="d.reports && d.reports.length">
-                                        <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                                        <div style="display:flex;flex-direction:column;gap:4px">
                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                             <span class="cal-caption">📊 Reports<span x-show="!d.worktreePath" class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
                                             <button class="board-act" type="button" data-tip="Re-scan the worktree for reports" x-show="d.worktreePath" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
@@ -8090,9 +8125,10 @@
                                           </div>
                                         </div>
                                       </template>
-
+                                          </div>
+                                          <div class="cf-pane" x-show="devActivePane(d)==='links'">
                                       <!-- Manually attached links (reports, docs, URLs) -->
-                                      <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                                      <div style="display:flex;flex-direction:column;gap:4px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                           <span class="cal-caption">🔗 Links</span>
                                           <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)" x-text="(devLinkDraft[d.id] && devLinkDraft[d.id].open) ? 'Cancel' : '＋ Add link'"></button>
@@ -8117,9 +8153,10 @@
                                           </div>
                                         </template>
                                       </div>
-
+                                          </div>
+                                          <div class="cf-pane" x-show="devActivePane(d)==='notes'">
                                       <!-- Freeform notes: where you're at / what matters -->
-                                      <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
+                                      <div style="display:flex;flex-direction:column;gap:4px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                                           <span class="cal-caption">📝 Notes<span class="note-count" x-show="d.notes && d.notes.length" x-text="' ' + d.notes.filter(n=>!n.done).length + '/' + d.notes.length"></span></span>
                                           <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevNoteDraft(d)" x-text="(devNoteDraft[d.id] && devNoteDraft[d.id].open) ? 'Cancel' : '＋ Add note'"></button>
@@ -8157,6 +8194,9 @@
                                             </div>
                                           </div>
                                         </template>
+                                      </div>
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </template>
@@ -14782,6 +14822,9 @@
         devLinkDraft: {},
         devNoteDraft: {},
         devNoteEdit: {},
+        // PR-card-style dev-card drawer: open flag + active pane, keyed by dev id.
+        devDrawer: {},
+        devPane: {},
         prNoteDraft: {},
         prNoteEdit: {},
         prNoteBusy: {},
@@ -26350,6 +26393,78 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const b = this.boards[idx];
           const items = (b.devItems || []).map(d => d.id === devId ? updated : d);
           this.boards[idx] = { ...b, devItems: items };
+        },
+        // ---- PR-card-style drawer: compact face + expandable rail/panes ----
+        devDrawerIsOpen(d) { return !!(d && this.devDrawer[d.id]); },
+        devDrawerToggle(d) { if (d) this.devDrawer[d.id] = !this.devDrawer[d.id]; },
+        // Rail sections, each with an optional count + attention flag.
+        devSections(d) {
+          const secs = [{ id: 'summary', label: '🧠 Summary', attn: this.devSuggestArchive(d) || this.devNeedsCleanup(d) }];
+          const slots = this.devSlots(d);
+          let repoAttn = false;
+          for (const s of slots) {
+            if (s.worktreeStatus === 'error') { repoAttn = true; break; }
+            if (s.worktreePath && this.devGitBadge(s).attention) { repoAttn = true; break; }
+          }
+          secs.push({ id: 'repos', label: '🗃 Repos', count: slots.length, attn: repoAttn });
+          if (d && d.reports && d.reports.length) secs.push({ id: 'reports', label: '📊 Reports', count: d.reports.length });
+          secs.push({ id: 'links', label: '🔗 Links', count: (d && d.links && d.links.length) || 0 });
+          const notes = (d && d.notes) || [];
+          const undone = notes.filter(n => !n.done).length;
+          secs.push({ id: 'notes', label: '📝 Notes', count: notes.length, attn: undone > 0 });
+          return secs;
+        },
+        devActivePane(d) {
+          if (!d) return 'summary';
+          const secs = this.devSections(d);
+          const cur = this.devPane[d.id];
+          if (cur && secs.some(s => s.id === cur)) return cur;
+          return secs[0].id;
+        },
+        devSetPane(d, id) { if (d) this.devPane[d.id] = id; },
+        // One-line, whitespace-collapsed summary for the compact face.
+        devFaceSummary(d) {
+          const raw = (d && d.summary && d.summary.text) || '';
+          const txt = this.cleanDevSummary(raw).replace(/[#*`>_]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (!txt) return '';
+          return txt.length > 160 ? txt.slice(0, 159).trim() + '…' : txt;
+        },
+        // Key-signal chips for the compact face: work item, repos, PR, git, notes.
+        devFaceStats(d) {
+          if (!d) return [];
+          const out = [];
+          if (d.workItemId) {
+            const done = this.devWorkItemDone(d);
+            const state = (d.workItem && d.workItem.state) || '';
+            out.push({ k: 'Work item', v: '#' + d.workItemId + (state ? ' · ' + state : ''), tone: done ? 'muted' : 'ok' });
+          }
+          const slots = this.devSlots(d);
+          if (slots.length) {
+            const ready = slots.filter(s => s.worktreePath && s.worktreeStatus !== 'error').length;
+            const errs = slots.filter(s => s.worktreeStatus === 'error').length;
+            if (slots.length === 1) {
+              const s = slots[0];
+              out.push({ k: 'Repo', v: s.repo || 'repo', tone: s.worktreeStatus === 'error' ? 'bad' : (s.worktreePath ? 'ok' : 'muted') });
+            } else {
+              out.push({ k: 'Repos', v: ready + '/' + slots.length + ' ready', tone: errs ? 'bad' : (ready ? 'ok' : 'muted') });
+            }
+          }
+          const prSlots = slots.filter(s => s.prId);
+          if (prSlots.length === 1) {
+            const p = prSlots[0].pr;
+            const st = (p && p.status) || 'open';
+            out.push({ k: 'PR', v: '!' + prSlots[0].prId + ' · ' + st, tone: st === 'completed' ? 'muted' : 'ok' });
+          } else if (prSlots.length > 1) {
+            out.push({ k: 'PRs', v: prSlots.length + ' open', tone: 'ok' });
+          }
+          const live = slots.filter(s => s.worktreePath);
+          if (live.length) {
+            const gitAttn = live.some(s => this.devGitBadge(s).attention);
+            out.push({ k: 'Git', v: gitAttn ? 'needs attention' : 'clean', tone: gitAttn ? 'warn' : 'ok' });
+          }
+          const undone = ((d.notes) || []).filter(n => !n.done).length;
+          if (undone) out.push({ k: 'Notes', v: undone + ' open', tone: 'warn' });
+          return out;
         },
         // ----- Create / edit modal -----
         // ---- Create Standup Agent ----------------------------------------
