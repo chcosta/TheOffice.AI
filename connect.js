@@ -413,10 +413,19 @@ function addEvidenceBatch(list, { origin = 'auto' } = {}) {
     if (ext && extIndex.has(ext)) {
       const idx = extIndex.get(ext);
       const existing = items[idx];
-      // Upgrade an invite-level meeting stub to its transcript recap.
-      const canEnrich = hasTag(norm, 'meeting:recap') && !hasTag(existing, 'meeting:recap') &&
-        existing.origin === 'auto' && existing.pinned !== true;
-      if (canEnrich) {
+      const isAutoEditable = existing.origin === 'auto' && existing.pinned !== true;
+      // Upgrade an invite-level meeting stub to its transcript recap (also flips tags).
+      const canEnrichMeeting = hasTag(norm, 'meeting:recap') && !hasTag(existing, 'meeting:recap') &&
+        isAutoEditable;
+      // Otherwise refresh the human-readable fields of an auto item when the collector
+      // now produces a better description (e.g. work-item created-vs-assigned relationship,
+      // a richer PR-review summary). Never clobbers pins, manual entries, or user edits;
+      // preserves id/createdAt/hidden/pinned and any existing tags.
+      const contentChanged = isAutoEditable && !canEnrichMeeting && (
+        norm.title !== existing.title || norm.detail !== existing.detail ||
+        norm.impact !== existing.impact
+      );
+      if (canEnrichMeeting) {
         items[idx] = _normalizeEvidence({
           ...norm,
           id: existing.id,
@@ -424,6 +433,16 @@ function addEvidenceBatch(list, { origin = 'auto' } = {}) {
           createdAt: existing.createdAt,
           pinned: existing.pinned,
           hidden: existing.hidden,
+        });
+        updated++;
+      } else if (contentChanged) {
+        items[idx] = _normalizeEvidence({
+          ...existing,
+          title: norm.title,
+          detail: norm.detail,
+          impact: norm.impact,
+          date: norm.date,
+          links: norm.links,
         });
         updated++;
       } else {
@@ -472,6 +491,38 @@ function markCollected() {
   return st.meta.lastCollectedAt;
 }
 
+// ---- Meeting backlog (self-healing) -----------------------------------------
+// Meeting slices that the (slow) transcript pass could not finish within its time
+// budget are parked here so a later collection retries them instead of dropping
+// them forever. Each entry is a { start, end } window. Capped so it can't grow
+// without bound. Idempotent by string window key.
+function getMeetingBacklog() {
+  try {
+    const st = getState();
+    const arr = st.meta && Array.isArray(st.meta.meetingBacklog) ? st.meta.meetingBacklog : [];
+    return arr.filter(w => w && w.start && w.end).map(w => ({ start: String(w.start).slice(0, 10), end: String(w.end).slice(0, 10) }));
+  } catch { return []; }
+}
+
+function setMeetingBacklog(windows) {
+  const st = getState();
+  const seen = new Set();
+  const clean = [];
+  for (const w of (Array.isArray(windows) ? windows : [])) {
+    if (!w || !w.start || !w.end) continue;
+    const start = String(w.start).slice(0, 10), end = String(w.end).slice(0, 10);
+    const key = `${start}..${end}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push({ start, end });
+  }
+  // Keep the most recent windows if the backlog is huge.
+  clean.sort((a, b) => (a.start < b.start ? 1 : -1));
+  st.meta.meetingBacklog = clean.slice(0, 60);
+  _writeJson(_statePath(), st);
+  return st.meta.meetingBacklog;
+}
+
 // ---- Export -----------------------------------------------------------------
 
 // Full backing-data export (state + evidence) for the "Export data" action.
@@ -508,5 +559,7 @@ module.exports = {
   updateEvidence,
   deleteEvidence,
   markCollected,
+  getMeetingBacklog,
+  setMeetingBacklog,
   exportAll,
 };

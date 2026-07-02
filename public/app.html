@@ -9173,9 +9173,13 @@
                   </select>
                 </div>
                 <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
-                <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" title="Pull recent Teams, email, and meeting activity into your diary" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
+                <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" title="Pull your recent work into your diary — Teams posts, email you sent, meetings (with transcripts), Azure DevOps work items, PRs you authored, and PR reviews & approvals you gave" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
                 <span class="hint" style="font-size:0.72rem;white-space:nowrap" x-show="connect.config && connect.config.lastCollectedAt" x-text="'Last collected ' + formatRelative(connect.config && connect.config.lastCollectedAt)" :title="(connect.config && connect.config.lastCollectedAt) ? new Date(connect.config.lastCollectedAt).toLocaleString() : ''"></span>
               </div>
+
+              <p class="hint" style="font-size:0.72rem;margin:-6px 0 12px;opacity:0.85">
+                Collects your own activity: Teams channel/group posts · email you sent · meetings you attended (with transcripts) · Azure DevOps work items · pull requests you authored · PR reviews &amp; approvals you gave. One-on-one private chats are never collected. Azure DevOps sources need an org/project set in <a href="#/settings" style="color:var(--cp-link)">Settings → Connect</a>.
+              </p>
 
               <!-- Date range + AI search -->
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
@@ -9245,8 +9249,16 @@
               </div>
               </template>
 
-              <div x-show="!connectFilteredEvidence().length && !connect.evForm" class="hint" style="padding:24px 0;text-align:center">
-                No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect.
+              <div x-show="!connectFilteredEvidence().length && !connect.evForm && !connect.filterFrom && !connect.filterTo && connect.aiMatchIds === null && !connect.filterSource" class="hint" style="padding:24px 0;text-align:center">
+                <div>No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect.</div>
+                <div x-show="connect.config && connect.config.consent" style="margin-top:14px">
+                  <button class="btn primary small" type="button" :disabled="connect.collecting" @click="connectWideBackfill()" x-text="connect.collecting ? 'Backfilling…' : '⟳ Backfill my last 45 days'"></button>
+                  <div class="hint" style="font-size:0.72rem;margin-top:6px;opacity:0.85">One-time deeper pull across all sources. Takes longer than a normal collect — meetings stream in the background while the rest lands right away.</div>
+                </div>
+              </div>
+
+              <div x-show="!connectFilteredEvidence().length && !connect.evForm && (connect.filterFrom || connect.filterTo || connect.aiMatchIds !== null || connect.filterSource)" class="hint" style="padding:24px 0;text-align:center">
+                No entries match the current filters.
               </div>
 
               <template x-for="day in connectEvidenceByDate()" :key="day.date">
@@ -11618,6 +11630,13 @@
                 <div class="card" style="margin-top:24px">
                   <h2 style="font-size:1rem;margin-bottom:6px">Automated collection</h2>
                   <p class="hint" style="margin:0 0 14px">When enabled, Connect gathers evidence of your work automatically (Teams channel/group posts, email you send, meetings) on your schedule — all processed locally on your machine.</p>
+                  <div style="margin:0 0 16px;padding:10px 12px;background:var(--cp-accent-soft, rgba(0,0,0,0.03));border-radius:8px;font-size:0.78rem;line-height:1.55">
+                    <strong style="font-size:0.8rem">What gets collected</strong> — the same sources for both automated and manual “Collect now”:
+                    <div style="margin-top:6px;color:var(--cp-text-muted, #666)">
+                      Teams channel &amp; group posts · email you sent · meetings you attended (with transcript recaps) · Azure DevOps work items assigned to or created by you · pull requests you authored · PR reviews &amp; approvals you gave.
+                    </div>
+                    <div style="margin-top:6px;color:var(--cp-text-muted, #666)">One-on-one private chats are never collected. Azure DevOps &amp; PR sources are collected only when the toggle below is on and an org/project is set.</div>
+                  </div>
                   <label style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;cursor:pointer">
                     <input type="checkbox" x-model="connect.config.consent" style="margin-top:3px">
                     <span>I understand automated collection reads my Teams, email, meeting, and work-item activity to build my private diary. Nothing leaves my machine.</span>
@@ -11649,6 +11668,9 @@
                       <input type="text" x-model="connect.config.adoProjects" placeholder="e.g. internal, public (comma-separated)">
                       <p class="hint" style="margin:5px 0 0">PRs are searched across all repos in each project. Leave blank to fall back to your configured dev/export project.</p>
                     </div>
+                    <p class="hint" x-show="!(connect.config.adoOrg && connect.config.adoOrg.trim()) && !(connect.config.adoProjects && connect.config.adoProjects.trim()) && !connectDevOrgFallback()" style="margin:10px 0 0;color:var(--cp-warning, #b45309)">
+                      ⚠ No organization or project is set here or in your dev/export defaults, so Azure DevOps work items &amp; PRs are <strong>skipped</strong> on both automated and manual collection. Set an org and project above to include them.
+                    </p>
                   </div>
                   <label style="display:flex;gap:10px;align-items:center;cursor:pointer;font-weight:400;margin-top:12px;margin-bottom:4px">
                     <input type="checkbox" x-model="connect.config.meetingsEnabled">
@@ -19395,6 +19417,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.connect.backfill && this.connect.backfill.running) this._pollConnectBackfill();
             this.connect.loaded = true;
             this.connectLoadVersions();
+            this.ensureDevSettings().catch(() => {});
           } catch (e) {
             this.toast('Failed to load Connect: ' + (e.message || e), 'error');
           } finally {
@@ -19860,6 +19883,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.connect.collecting = false;
           }
+        },
+        async connectWideBackfill() {
+          if (this.connect.collecting) return;
+          if (!(this.connect.config && this.connect.config.consent)) {
+            this.toast('Turn on collection consent in Settings first', 'error');
+            window.location.hash = '#/settings/connect';
+            return;
+          }
+          const okGo = await this.uiConfirm({ title: 'Backfill 45 days', message: 'Backfill your last 45 days across every source (Teams, email, meetings, Azure DevOps work items, PRs, PR reviews)? The fast sources land right away; meetings continue streaming in the background and can take several minutes.', confirmLabel: 'Backfill' });
+          if (!okGo) return;
+          this.connect.collecting = true;
+          try {
+            const r = await this.request('/api/connect/collect', { method: 'POST', body: JSON.stringify({ days: 45, bgMeetings: true }), timeoutMs: 360000 });
+            if (r && r.evidence) this.connect.evidence = r.evidence;
+            if (r && r.state) this.connect.state = r.state;
+            if (r && r.state && r.state.meta && r.state.meta.lastCollectedAt && this.connect.config) {
+              this.connect.config.lastCollectedAt = r.state.meta.lastCollectedAt;
+            }
+            const added = (r && r.added) || 0;
+            this.toast(added ? ('Backfilled ' + added + ' item' + (added === 1 ? '' : 's') + (r.meetingBackfillStarted ? ' — meetings still streaming in' : '')) : 'No activity found in the last 45 days', 'success');
+            if (r && r.meetingBackfillStarted) this._pollConnectBackfill();
+          } catch (e) {
+            this.toast('Backfill failed: ' + (e.message || e), 'error');
+          } finally {
+            this.connect.collecting = false;
+          }
+        },
+        connectDevOrgFallback() {
+          const org = ((this.devSettings && this.devSettings.devOrg) || (this.exportSettings && this.exportSettings.exportOrg) || '').trim();
+          const proj = ((this.devSettings && this.devSettings.devProject) || (this.exportSettings && this.exportSettings.exportProject) || '').trim();
+          return !!(org && proj);
         },
         async connectBackfill() {
           if (this.connect.backfill && this.connect.backfill.running) return;

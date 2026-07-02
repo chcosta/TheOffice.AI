@@ -7336,11 +7336,22 @@ async function runConnectAdoCollection({ days } = {}) {
       for (const w of wis) {
         const done = DONE.has(String(w.state || '').toLowerCase());
         const date = String((done && w.closedDate) || w.changedDate || w.createdDate || win.end).slice(0, 10);
+        // Explain WHY this item is in the diary: listMyWorkItems returns items
+        // assigned to me OR created by me, so make that relationship explicit
+        // (e.g. one I opened for someone else vs. one on my own plate).
+        const meId = String(creatorId || '');
+        const createdMine = !!meId && String(w.createdById || '') === meId;
+        const assignedMine = !!meId && String(w.assignedToId || '') === meId;
+        let rel;
+        if (assignedMine && createdMine) rel = 'created & assigned to you';
+        else if (assignedMine) rel = 'assigned to you';
+        else if (createdMine) rel = `created by you · ${w.assignedTo ? `assigned to ${w.assignedTo}` : 'unassigned'}`;
+        else rel = w.assignedTo ? `assigned to ${w.assignedTo}` : '';
         items.push({
           date,
           source: 'ado',
           title: `${done ? 'Completed ' : ''}${w.type || 'Work item'} #${w.id}: ${w.title}`.trim(),
-          detail: `${project} · state: ${w.state || 'unknown'}${w.assignedTo ? ` · assigned to ${w.assignedTo}` : ''}`,
+          detail: `${project} · state: ${w.state || 'unknown'}${rel ? ` · ${rel}` : ''}`,
           impact: '',
           links: w.url ? [w.url] : [],
           tags: [`ext:ado:${org}/${w.id}`, 'source:azdo']
@@ -7545,7 +7556,16 @@ async function runConnectMeetingCollection({ days, manual = false, onProgress } 
   const pol = manual
     ? { sliceDays: 5, hardCapMs: 12 * 60_000, stallMs: 150_000, maxRetries: 2, overallCapMs: 20 * 60_000 }
     : { sliceDays: 4, hardCapMs: 4 * 60_000, stallMs: 120_000, maxRetries: 1, overallCapMs: 9 * 60_000 };
-  const slices = _sliceWindow(full, pol.sliceDays);
+  // Self-healing: retry any windows a previous (time-boxed) run could not finish
+  // BEFORE the current window, then the current window's slices. Dedup by key so
+  // an overlapping parked window isn't processed twice.
+  const backlog = (() => { try { return connect.getMeetingBacklog(); } catch { return []; } })();
+  const baseSlices = _sliceWindow(full, pol.sliceDays);
+  const seenKey = new Set();
+  const slices = [];
+  const pushSlice = (w) => { const k = `${w.start}..${w.end}`; if (!w || !w.start || !w.end || seenKey.has(k)) return; seenKey.add(k); slices.push({ start: w.start, end: w.end }); };
+  for (const w of backlog) pushSlice(w);
+  for (const w of baseSlices) pushSlice(w);
   const items = [];
   const failedWindows = [];
   let ok = 0, retried = 0, failed = 0;
@@ -7579,6 +7599,11 @@ async function runConnectMeetingCollection({ days, manual = false, onProgress } 
       try { onProgress({ total: slices.length, done: i + 1, ok, retried, failed, added: items.length }); } catch (_) { /* */ }
     }
   }
+  // Persist the remaining backlog. failedWindows contains every window that did not
+  // complete this run — whether a freshly-sliced window that ran out of budget or a
+  // previously-parked one that failed again — so this both clears the healed windows
+  // and enrolls newly-starved ones for the next run. Nothing is ever silently dropped.
+  try { connect.setMeetingBacklog(failedWindows); } catch (_) { /* best-effort */ }
   return { items, window: full, slices: { total: slices.length, ok, retried, failed }, failedWindows };
 }
 
@@ -7626,7 +7651,7 @@ async function runConnectSearch(query) {
   return { ids: ids.filter(id => valid.has(id)) };
 }
 
-async function runConnectCollection({ manual = false, days } = {}) {
+async function runConnectCollection({ manual = false, days, bgMeetings = false } = {}) {
   const s = settings.getSettings();
   if (!s.connectConsent) return { skipped: 'no-consent' };
   if (!manual) {
@@ -7696,6 +7721,11 @@ async function runConnectCollection({ manual = false, days } = {}) {
   let meetingMeta = { slices: { total: 0, ok: 0, retried: 0, failed: 0 }, failedWindows: [] };
   const meetingTask = (async () => {
     if (!s.connectMeetingsEnabled) return [];
+    // For a wide manual backfill the caller can defer meetings to the async
+    // background sweep (startConnectMeetingBackfill, kicked below) so the HTTP
+    // request returns promptly with the fast M365+ADO evidence instead of
+    // blocking for the full (up to 20-min) synchronous meeting pass.
+    if (bgMeetings) return [];
     try {
       const r = await runConnectMeetingCollection({ days: effDays, manual });
       meetingMeta = { slices: r.slices, failedWindows: r.failedWindows };
@@ -7723,6 +7753,13 @@ async function runConnectCollection({ manual = false, days } = {}) {
     (async () => { let it = []; try { it = await meetingTask; } catch { it = []; } counts.meetings = persist(it); })(),
   ]);
   connect.markCollected();
+  // Wide manual backfill: hand the (slow) meeting sweep to the background poller
+  // so the diary's fast sources are already visible while meetings stream in.
+  let meetingBackfillStarted = false;
+  if (bgMeetings && s.connectMeetingsEnabled) {
+    try { startConnectMeetingBackfill(effDays); meetingBackfillStarted = true; }
+    catch (e) { console.warn('[connect] background meeting backfill failed to start:', e.message); }
+  }
   const sl = meetingMeta.slices;
   const slInfo = sl.total ? ` [meeting slices ${sl.ok}/${sl.total} ok, ${sl.retried} retried, ${sl.failed} failed]` : '';
   console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes, ${updated} enriched) — ${counts.m365} M365 + ${counts.ado} ADO + ${counts.meetings} meetings, ${win.start}..${win.end}${slInfo}`);
@@ -7730,7 +7767,7 @@ async function runConnectCollection({ manual = false, days } = {}) {
   if (!manual && s.connectGenerateDaily && (added > 0 || updated > 0)) {
     try { await runConnectGeneration(); generated = true; } catch (e) { console.warn('[connect] auto-generate failed:', e.message); }
   }
-  return { ran: true, added, skipped, updated, m365: counts.m365, ado: counts.ado, meetings: counts.meetings, window: win, generated, meetingSlices: meetingMeta.slices, meetingFailedWindows: meetingMeta.failedWindows };
+  return { ran: true, added, skipped, updated, m365: counts.m365, ado: counts.ado, meetings: counts.meetings, window: win, generated, meetingSlices: meetingMeta.slices, meetingFailedWindows: meetingMeta.failedWindows, meetingBackfillStarted };
 }
 
 // Format the user's guiding memories for prompt injection. Returns null when
@@ -8283,7 +8320,8 @@ function startConnectMeetingBackfill(days) {
 app.post('/api/connect/collect', async (req, res) => {
   try {
     const days = req.body && req.body.days != null ? Number(req.body.days) : undefined;
-    const r = await runConnectCollection({ manual: true, days });
+    const bgMeetings = !!(req.body && req.body.bgMeetings);
+    const r = await runConnectCollection({ manual: true, days, bgMeetings });
     if (r.error) return res.status(502).json(r);
     res.json({ ...r, state: connect.getState(), evidence: connect.listEvidence() });
   } catch (err) {

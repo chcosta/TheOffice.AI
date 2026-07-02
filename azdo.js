@@ -794,6 +794,7 @@ async function listMyWorkItems(org, project, { start, end, top = 200 } = {}) {
   });
   const order = new Map(ids.map((id, i) => [id, i]));
   const person = (v) => (v ? (v.displayName || v.uniqueName || '') : '');
+  const personId = (v) => (v ? (v.id || v.descriptor || '') : '');
   return (batch.value || [])
     .map(d => {
       const f = d.fields || {};
@@ -806,7 +807,9 @@ async function listMyWorkItems(org, project, { start, end, top = 200 } = {}) {
         createdDate: f['System.CreatedDate'] || '',
         closedDate: f['Microsoft.VSTS.Common.ClosedDate'] || '',
         assignedTo: person(f['System.AssignedTo']),
+        assignedToId: personId(f['System.AssignedTo']),
         createdBy: person(f['System.CreatedBy']),
+        createdById: personId(f['System.CreatedBy']),
         org, project,
         url: workItemUrl(org, project, d.id)
       };
