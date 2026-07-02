@@ -39,6 +39,8 @@ const DEFAULTS = {
   // New dev item dialog's org/project so users don't retype them every time.
   devOrg: '',
   devProject: '',
+  // Marketplace: auto-scan every added source daily + flag newly-discovered items.
+  marketplaceAutoScan: true,
   // GitHub source provider (Code Flow + Dev cards). Auth is secretless by
   // default via the `gh` CLI login store (githubAuthMode='cli'); 'env' uses
   // GH_TOKEN/GITHUB_TOKEN; 'pat' falls back to githubPat below. githubOwner is

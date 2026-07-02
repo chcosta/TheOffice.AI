@@ -3344,6 +3344,22 @@ app.get('/api/marketplace/catalog', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// What's new in the marketplace since the user last viewed it. Guarded so the
+// very first visit (no baseline) never flags the whole catalog as "new".
+app.get('/api/marketplace/updates', (req, res) => {
+  try {
+    const meta = marketplace.getMeta();
+    const upd = marketplace.newSince(meta.lastViewedAt);
+    res.json({ newCount: upd.count, byType: upd.byType, items: upd.items, lastViewedAt: meta.lastViewedAt, lastAutoScanAt: meta.lastAutoScanAt });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Clear the "new" indicator by stamping the marketplace as viewed now.
+app.post('/api/marketplace/seen', (req, res) => {
+  try { res.json({ ok: true, ...marketplace.markViewed() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Mark catalog entries with whether they're already part of our system:
 //  - agent|plugin  -> installed: true if a registered agent matches it
 //  - skill|mcp     -> inUse: true if the capability catalog already has it
@@ -8165,6 +8181,33 @@ function connectCatchUpCheck() {
 scheduleConnectCollection();
 // Give the app ~90s to settle (leader election, WorkIQ auth) before any catch-up.
 setTimeout(connectCatchUpCheck, 90_000);
+
+// --- Marketplace daily auto-scan ---------------------------------------------
+// Rescan every user-added marketplace source once a day so newly-published
+// agents/plugins/skills/MCPs are discovered without a manual rescan. Leader-gated
+// (only one node in a synced cluster scans) and honors the marketplaceAutoScan
+// setting. A startup catch-up fires if the last auto-scan is stale (> ~1 day).
+const MARKETPLACE_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+function marketplaceAutoScanEnabled() {
+  try { return settings.getSettings().marketplaceAutoScan !== false; } catch { return true; }
+}
+async function runMarketplaceAutoScan(reason) {
+  if (!marketplaceAutoScanEnabled()) return;
+  if (!leaderCheck()) return;
+  try {
+    const r = await marketplace.scanAllSources();
+    console.log(`[marketplace] auto-scan (${reason}): ${r.scanned} source(s), ${r.errors} error(s)`);
+  } catch (e) { console.warn('[marketplace] auto-scan error:', e.message); }
+}
+setInterval(() => { runMarketplaceAutoScan('interval'); }, MARKETPLACE_SCAN_INTERVAL_MS);
+setTimeout(() => {
+  try {
+    if (!marketplaceAutoScanEnabled()) return;
+    const meta = marketplace.getMeta();
+    const last = meta.lastAutoScanAt ? Date.parse(meta.lastAutoScanAt) : 0;
+    if (!last || (Date.now() - last) >= MARKETPLACE_SCAN_INTERVAL_MS) runMarketplaceAutoScan('startup catch-up');
+  } catch (e) { console.warn('[marketplace] startup scan check failed:', e.message); }
+}, 90_000);
 
 // --- Connect (living impact / performance diary) ------------------------------
 app.get('/api/connect', (req, res) => {

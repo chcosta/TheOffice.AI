@@ -33,6 +33,7 @@ const SUPERVISOR_DATA_DIR = process.env.SUPERVISOR_DATA_DIR
 
 const SOURCES_PATH = path.join(SUPERVISOR_DATA_DIR, 'marketplace-sources.json');
 const CATALOG_PATH = path.join(SUPERVISOR_DATA_DIR, 'marketplace-catalog.json');
+const META_PATH = path.join(SUPERVISOR_DATA_DIR, 'marketplace-meta.json');
 const CACHE_DIR = path.join(SUPERVISOR_DATA_DIR, 'marketplace-cache');
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.runtime', '.vs', 'bin', 'obj', 'dist', 'out']);
@@ -470,8 +471,15 @@ async function scanSource(id) {
   const counts = {};
   for (const e of entries) counts[e.type] = (counts[e.type] || 0) + 1;
 
+  const scannedAt = new Date().toISOString();
   const cat = readJson(CATALOG_PATH, {}) || {};
-  cat[id] = { scannedAt: new Date().toISOString(), entries };
+  // Carry forward firstSeenAt (by stable entry id) so "new since last visit" is
+  // stable across rescans; only genuinely-new entries get the fresh timestamp.
+  const prevEntries = (cat[id] && cat[id].entries) || [];
+  const prevSeen = new Map(prevEntries.map(e => [e.id, e.firstSeenAt || (cat[id] && cat[id].scannedAt) || scannedAt]));
+  for (const e of entries) e.firstSeenAt = prevSeen.get(e.id) || scannedAt;
+
+  cat[id] = { scannedAt, entries };
   writeJson(CATALOG_PATH, cat);
 
   const sources = listSources();
@@ -482,6 +490,54 @@ async function scanSource(id) {
     saveSources(sources);
   }
   return { source: sources[sIdx], counts, total: entries.length };
+}
+
+// ---- marketplace meta (last-viewed / last-auto-scan) ---------------------
+
+function getMeta() {
+  const m = readJson(META_PATH, {}) || {};
+  return { lastViewedAt: m.lastViewedAt || null, lastAutoScanAt: m.lastAutoScanAt || null };
+}
+
+function setMeta(patch) {
+  const next = Object.assign(getMeta(), patch || {});
+  writeJson(META_PATH, next);
+  return next;
+}
+
+function markViewed() { return setMeta({ lastViewedAt: new Date().toISOString() }); }
+
+// Count catalog entries (from user-added sources; the implicit "installed" view
+// is excluded since it has no firstSeenAt) whose firstSeenAt is newer than
+// `sinceIso`. With no baseline (falsy since) returns an empty result.
+function newSince(sinceIso) {
+  const since = sinceIso ? Date.parse(sinceIso) : 0;
+  const byType = {};
+  const items = [];
+  if (!since) return { count: 0, byType, items, since: null };
+  const cat = readJson(CATALOG_PATH, {}) || {};
+  for (const v of Object.values(cat)) {
+    for (const e of (v && v.entries) || []) {
+      const fs2 = e.firstSeenAt ? Date.parse(e.firstSeenAt) : 0;
+      if (fs2 && fs2 > since) {
+        byType[e.type] = (byType[e.type] || 0) + 1;
+        items.push({ id: e.id, type: e.type, name: e.displayName || e.name, sourceLabel: e.sourceLabel, firstSeenAt: e.firstSeenAt });
+      }
+    }
+  }
+  return { count: items.length, byType, items, since: sinceIso };
+}
+
+// Rescan every user-added source (best-effort; per-source errors are isolated).
+async function scanAllSources() {
+  const sources = listSources();
+  const results = [];
+  for (const s of sources) {
+    try { const r = await scanSource(s.id); results.push({ id: s.id, ok: true, total: r.total }); }
+    catch (e) { results.push({ id: s.id, ok: false, error: String((e && e.message) || e) }); }
+  }
+  setMeta({ lastAutoScanAt: new Date().toISOString() });
+  return { scanned: results.filter(r => r.ok).length, errors: results.filter(r => !r.ok).length, results };
 }
 
 // Merge every scanned source's entries with an implicit "installed" view so the
@@ -605,6 +661,7 @@ async function materializeForAttach(entry) {
 module.exports = {
   SOURCES_PATH,
   CATALOG_PATH,
+  META_PATH,
   CACHE_DIR,
   listSources,
   getSource,
@@ -615,6 +672,10 @@ module.exports = {
   scanAzdo,
   scanGithub,
   scanSource,
+  scanAllSources,
+  getMeta,
+  markViewed,
+  newSince,
   getCatalog,
   findEntry,
   resolveByTypeName,
