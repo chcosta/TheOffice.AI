@@ -18,6 +18,7 @@ const EventListener = require('./event-listener');
 const MobileHandler = require('./mobile-handler');
 const ConfigSync = require('./config-sync');
 const azdo = require('./azdo');
+const { forge, providerOf } = require('./forge');
 const devitems = require('./devitems');
 const capabilities = require('./capabilities');
 const mcpTest = require('./mcpTest');
@@ -60,10 +61,12 @@ const BUILTIN_PLUGINS_DIR = path.join(__dirname, 'builtin-plugins');
 
 const upload = multer({ dest: path.join(require('os').tmpdir(), 'agent-supervisor-uploads') });
 
-// Default to the well-known 3847 so browser users keep their bookmark. Set
-// PORT=0 to let the OS assign a free port (desktop/sidecar mode — avoids
-// collisions when the app is launched repeatedly). The actually-bound port is
-// resolved after listen() into RESOLVED_PORT.
+// Default to the well-known 3847 so browser users keep their bookmark. The
+// desktop shell pins PORT to a stable app port (3848) so the WebView origin —
+// and every localStorage-backed preference — survives restarts/upgrades; if
+// that port is busy the sidecar retries then falls back to an ephemeral port
+// (see bindPort below). Set PORT=0 to force an OS-assigned port. The
+// actually-bound port is resolved after listen() into RESOLVED_PORT.
 const PORT = (process.env.PORT !== undefined && process.env.PORT !== '')
   ? Number(process.env.PORT)
   : 3847;
@@ -177,12 +180,14 @@ function saveInsights(insights) {
 }
 
 // Code Flow: the list of Azure DevOps repos the user has chosen to monitor.
-// Each entry: { id, org, project, repo, repoId?, addedAt }.
+// Each entry: { id, provider?, org, project, repo, repoId?, addedAt }.
+// provider defaults to 'azdo' when absent (back-compat — no migration).
 function loadCodeflowRepos() {
   try {
     if (!fs.existsSync(CODEFLOW_PATH)) return [];
     const v = JSON.parse(fs.readFileSync(CODEFLOW_PATH, 'utf-8'));
-    return Array.isArray(v) ? v : [];
+    if (!Array.isArray(v)) return [];
+    return v.map(r => ({ ...r, provider: providerOf(r) }));
   } catch { return []; }
 }
 
@@ -1323,6 +1328,20 @@ app.get('/api/azdo/repos', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// Provider-aware repo listing for the Code Flow add-repo dropdown. GitHub has no
+// "project" — the owner lives in `org`.
+app.get('/api/forge/repos', async (req, res) => {
+  const provider = providerOf({ provider: req.query.provider });
+  const org = (req.query.org || '').trim();
+  const project = (req.query.project || '').trim();
+  if (!org || (provider === 'azdo' && !project)) {
+    return res.status(400).json({ error: provider === 'github' ? 'owner (org) is required' : 'org and project are required' });
+  }
+  try {
+    res.json({ repos: await forge({ provider, org }).listRepos(org, project) });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
 app.get('/api/azdo/branches', async (req, res) => {
   const { org, project, repo } = req.query;
   if (!org || !project || !repo) return res.status(400).json({ error: 'org, project and repo are required' });
@@ -1471,20 +1490,27 @@ app.get('/api/codeflow/repos', (req, res) => {
 });
 
 app.post('/api/codeflow/repos', (req, res) => {
+  const provider = providerOf(req.body || {});
   const org = (req.body && req.body.org || '').trim();
-  const project = (req.body && req.body.project || '').trim();
+  // GitHub has no "project" concept — the owner lives in `org`, project stays ''.
+  const project = provider === 'github' ? '' : (req.body && req.body.project || '').trim();
   const repo = (req.body && req.body.repo || '').trim();
-  if (!org || !project || !repo) return res.status(400).json({ error: 'org, project and repo are required' });
+  if (!org || !repo || (provider === 'azdo' && !project)) {
+    return res.status(400).json({ error: provider === 'github'
+      ? 'owner (org) and repo are required'
+      : 'org, project and repo are required' });
+  }
   try {
     const repos = loadCodeflowRepos();
     const dup = repos.find(r =>
+      providerOf(r) === provider &&
       r.org.toLowerCase() === org.toLowerCase() &&
-      r.project.toLowerCase() === project.toLowerCase() &&
+      (r.project || '').toLowerCase() === project.toLowerCase() &&
       r.repo.toLowerCase() === repo.toLowerCase());
     if (dup) return res.status(409).json({ error: 'That repo is already monitored', repo: dup });
     const entry = {
       id: 'cfr-' + require('crypto').randomBytes(5).toString('hex'),
-      org, project, repo,
+      provider, org, project, repo,
       addedAt: new Date().toISOString()
     };
     repos.push(entry);
@@ -1505,16 +1531,22 @@ app.delete('/api/codeflow/repos/:id', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// The signed-in Azure CLI identity (per org). Needed to scope my-PRs / reviews.
+// The signed-in identity (per org). Needed to scope my-PRs / reviews.
+// Provider is resolved from the matching monitored repo (defaults to azdo).
 app.get('/api/codeflow/me', async (req, res) => {
   try {
     let org = (req.query.org || '').trim();
+    const reqProvider = req.query.provider ? providerOf({ provider: req.query.provider }) : null;
+    const repos = loadCodeflowRepos();
     if (!org) {
-      const repos = loadCodeflowRepos();
-      org = repos[0] && repos[0].org;
+      const first = reqProvider ? repos.find(r => providerOf(r) === reqProvider) : repos[0];
+      org = first && first.org;
     }
     if (!org) return res.status(400).json({ error: 'No org available — add a repo first or pass ?org=' });
-    res.json({ org, user: await azdo.getCurrentUser(org) });
+    // Find the record matching org (+ provider hint) to pick the right provider.
+    const rec = repos.find(r => r.org.toLowerCase() === org.toLowerCase() && (!reqProvider || providerOf(r) === reqProvider))
+      || { provider: reqProvider || 'azdo', org };
+    res.json({ org, provider: providerOf(rec), user: await forge(rec).getCurrentUser(org) });
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
@@ -1611,14 +1643,16 @@ function _cfDirPrefixes(files, depth) {
 // suggestions: the best reviewer for a change is usually whoever has approved prior
 // changes in the same part of the repo — not whoever committed the most code.
 // Cached per repo (30 min); one changed-files call per completed PR, concurrency-capped.
-async function _cfApproverIndex(org, project, repo) {
-  const key = `${org}|${project}|${repo}`.toLowerCase();
+async function _cfApproverIndex(rec) {
+  const { org, project, repo } = rec;
+  const F = forge(rec);
+  const key = `${providerOf(rec)}|${org}|${project}|${repo}`.toLowerCase();
   const cached = _cfApproverCache.get(key);
   if (cached && (Date.now() - cached.at) < CF_APPROVER_TTL_MS) return cached.entries;
 
   let entries = [];
   try {
-    const prs = await azdo.listPullRequests(org, project, repo, { status: 'completed', top: 60 });
+    const prs = await F.listPullRequests(org, project, repo, { status: 'completed', top: 60 });
     // Keep only PRs that actually got an approving vote (others teach us nothing),
     // most-recent first, capped so the fan-out stays bounded.
     const withApprovers = [];
@@ -1641,7 +1675,7 @@ async function _cfApproverIndex(org, project, repo) {
     for (let i = 0; i < pick.length; i += CONC) {
       const chunk = pick.slice(i, i + CONC);
       const files = await Promise.all(chunk.map(x =>
-        azdo.getPrChangedFiles(org, project, repo, x.pr.id, 100).catch(() => [])));
+        F.getPrChangedFiles(org, project, repo, x.pr.id, 100).catch(() => [])));
       chunk.forEach((x, j) => results.push({ ...x, files: files[j] || [] }));
     }
     const now = Date.now();
@@ -1711,10 +1745,11 @@ function _buildDevCardIndex() {
 
 async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   const safe = (p) => p.catch(() => null);
+  const F = forge({ provider: opts.provider || pr.provider, org: pr.org });
   const [threads, statuses, policy] = await Promise.all([
-    safe(azdo.getPrThreads(pr.org, pr.project, pr.repo, pr.id)),
-    safe(azdo.getPrStatuses(pr.org, pr.project, pr.repo, pr.id)),
-    safe(azdo.getPrPolicyEvaluations(pr.org, pr.project, pr.id))
+    safe(F.getPrThreads(pr.org, pr.project, pr.repo, pr.id)),
+    safe(F.getPrStatuses(pr.org, pr.project, pr.repo, pr.id)),
+    safe(F.getPrPolicyEvaluations(pr.org, pr.project, pr.id, pr.repo))
   ]);
   const ageMs = pr.creationDate ? (Date.now() - new Date(pr.creationDate).getTime()) : 0;
   const ageHours = Math.max(0, Math.round(ageMs / 3600000));
@@ -2010,18 +2045,22 @@ async function _gatherCodeflow(view) {
   const repos = loadCodeflowRepos();
   if (!repos.length) return { view, repos: [], pullRequests: [], attentionCount: 0, errors: [] };
 
-  // Resolve identity once per distinct org.
-  const orgs = [...new Set(repos.map(r => r.org))];
-  const userByOrg = {};
-  await Promise.all(orgs.map(async (org) => {
-    try { userByOrg[org] = await azdo.getCurrentUser(org); }
-    catch { userByOrg[org] = null; }
+  // Resolve identity once per distinct provider+org (a github owner and an azdo
+  // org could collide on the bare name, so key on both).
+  const idKey = (r) => `${providerOf(r)}::${r.org}`;
+  const pairs = [...new Map(repos.map(r => [idKey(r), r])).values()];
+  const userByKey = {};
+  await Promise.all(pairs.map(async (r) => {
+    try { userByKey[idKey(r)] = await forge(r).getCurrentUser(r.org); }
+    catch { userByKey[idKey(r)] = null; }
   }));
 
   const errors = [];
   const devCardIndex = _buildDevCardIndex();
   const perRepo = await Promise.all(repos.map(async (r) => {
-    const me = userByOrg[r.org];
+    const provider = providerOf(r);
+    const F = forge(r);
+    const me = userByKey[idKey(r)];
     if (!me || !me.id) { errors.push({ repo: r.repo, error: 'identity unavailable' }); return []; }
     try {
       // 'mine' → PRs I authored; 'reviews' → PRs that list me as a reviewer;
@@ -2030,15 +2069,15 @@ async function _gatherCodeflow(view) {
                    : view === 'active' ? { top: 100 }
                    : { creatorId: me.id };
       const [prs, repoContributors, approverIndex] = await Promise.all([
-        azdo.listPullRequests(r.org, r.project, r.repo, filter),
-        azdo.getRepoContributors(r.org, r.project, r.repo).catch(() => []),
-        view === 'active' ? Promise.resolve([]) : _cfApproverIndex(r.org, r.project, r.repo)
+        F.listPullRequests(r.org, r.project, r.repo, filter),
+        F.getRepoContributors(r.org, r.project, r.repo).catch(() => []),
+        view === 'active' ? Promise.resolve([]) : _cfApproverIndex(r)
       ]);
-      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: view === 'active' };
+      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: view === 'active', provider };
       const enriched = await Promise.all(prs.map(async (pr) => {
         const e = await _enrichCodeflowPr(pr, me.id, opts);
         const a = _codeflowAttention(e, view);
-        return { ...e, attention: a.attention, attentionReason: a.reason, repoId: r.id };
+        return { ...e, provider, attention: a.attention, attentionReason: a.reason, repoId: r.id };
       }));
       return enriched;
     } catch (e) {
@@ -7252,6 +7291,22 @@ function _connectDateWindow(days) {
   return { start: iso(start), end: iso(end) };
 }
 
+// Turn objective review signals into a compact detail string + an impact phrase
+// (the "how useful was my feedback" read). Deterministic — no AI call.
+function _connectReviewSummary({ vlabel, myComments, myThreads, myThreadsResolved, merged, authorName }) {
+  const bits = [];
+  bits.push(vlabel === 'no-vote' ? 'reviewed' : vlabel);
+  if (myComments) bits.push(`${myComments} comment${myComments === 1 ? '' : 's'}`);
+  if (myThreads) bits.push(`${myThreadsResolved}/${myThreads} thread${myThreads === 1 ? '' : 's'} resolved`);
+  let impact = '';
+  if (myThreads && myThreadsResolved >= myThreads && merged) impact = 'Raised review feedback that was fully addressed; PR merged.';
+  else if (myThreads && myThreadsResolved > 0) impact = `Review feedback partly addressed (${myThreadsResolved}/${myThreads} threads resolved).`;
+  else if (myThreads) impact = 'Raised review feedback for the author to address.';
+  else if (vlabel === 'approved' || vlabel === 'approved-with-suggestions') impact = merged ? 'Approved and unblocked the author; PR merged.' : 'Approved to unblock the author.';
+  else if (vlabel === 'rejected' || vlabel === 'waiting-for-author') impact = 'Requested changes before merge.';
+  return { detail: bits.join(' · '), impact };
+}
+
 // Collect REAL Azure DevOps evidence (PRs authored + work items assigned/created)
 // for the given window, straight from the Azure DevOps REST API via the Azure CLI
 // token — not WorkIQ. Returns Connect-shaped evidence items with stable ext: tags.
@@ -7311,9 +7366,220 @@ async function runConnectAdoCollection({ days } = {}) {
         }
       } catch (e) { errors.push(`prs ${project}/${status}: ${e.message}`); }
     }
+
+    // --- Pull requests I REVIEWED for others (helping others flow code) ---
+    // PRs where I was a reviewer, not the author. We capture my vote and my
+    // comment/thread participation as the "usefulness" signal. One threads call
+    // per candidate PR, so cap the number we inspect per project.
+    let reviewedInspected = 0;
+    const REVIEW_INSPECT_CAP = 60;
+    for (const [status, dateField] of [['completed', 'closedDate'], ['active', 'creationDate']]) {
+      if (reviewedInspected >= REVIEW_INSPECT_CAP) break;
+      try {
+        const prs = await azdo.listProjectPullRequests(org, project, { reviewerId: creatorId, status, top: 100 });
+        for (const pr of prs) {
+          if (reviewedInspected >= REVIEW_INSPECT_CAP) break;
+          if (pr.createdBy && String(pr.createdBy.id) === String(creatorId)) continue; // my own PR — already captured as authored
+          const when = pr[dateField] || pr.creationDate;
+          if (!inWin(when)) continue;
+          const mine = (pr.reviewers || []).find(r => String(r.id) === String(creatorId));
+          const vote = mine ? Number(mine.vote) : 0;
+          const vlabel = azdo.voteLabel(vote);
+          reviewedInspected++;
+          let stats = { myComments: 0, myThreads: 0, myThreadsResolved: 0 };
+          try { stats = await azdo.getPrMyReview(org, project, pr.repo, pr.id, creatorId); } catch (_) { /* best-effort */ }
+          // I was listed as a reviewer but did nothing actionable — skip (no signal).
+          if (vote === 0 && stats.myComments === 0) continue;
+          const merged = status === 'completed';
+          const sum = _connectReviewSummary({
+            vlabel, myComments: stats.myComments, myThreads: stats.myThreads,
+            myThreadsResolved: stats.myThreadsResolved, merged,
+            authorName: pr.createdBy && pr.createdBy.name
+          });
+          items.push({
+            date: String(when).slice(0, 10),
+            source: 'pr-review',
+            title: `Reviewed PR !${pr.id}: ${pr.title}`,
+            detail: `${pr.repo || project}${pr.createdBy && pr.createdBy.name ? ` · by ${pr.createdBy.name}` : ''} · ${sum.detail}`,
+            impact: sum.impact,
+            links: pr.url ? [pr.url] : [],
+            tags: [`ext:pr-review:${org}/${project}/${pr.id}`, 'source:azdo']
+          });
+        }
+      } catch (e) { errors.push(`reviewed-prs ${project}/${status}: ${e.message}`); }
+    }
   }
   if (errors.length) console.warn('[connect] ADO collection partial errors:', errors.join('; '));
   return { items, org, projects, window: win, errors };
+}
+
+// Build the meeting-analyst prompt for one window. `now` lets the agent reliably
+// drop future/in-progress meetings (the date window alone is date-only). `skipIds`
+// are eventIds we already fully analyzed (have a transcript recap) — the agent
+// skips re-opening those transcripts, which makes backfill re-runs cheap.
+function _meetingPrompt(win, nowIso, skipIds) {
+  let p =
+    `Analyze the meetings I actually attended for the Connect diary, over the date range ` +
+    `${win.start} to ${win.end} (inclusive). The current datetime ("now") is ${nowIso} — ` +
+    `NEVER record a meeting whose end time is after "now" (future or in-progress). ` +
+    `For each past meeting, read the transcript recap and record my real contributions and ` +
+    `action items; if there is no recap, record a light "attended — no recap" entry only when ` +
+    `I organized or accepted the meeting. Return only the JSON array of evidence items exactly ` +
+    `as specified.`;
+  if (Array.isArray(skipIds) && skipIds.length) {
+    p += ` These meeting eventIds are already fully recorded with a transcript recap — do NOT ` +
+      `re-open their transcripts or re-emit them: ${skipIds.slice(0, 200).join(', ')}.`;
+  }
+  return p;
+}
+
+// Split a date-only window {start,end} into newest-first slices of at most
+// `sliceDays` days each. Small slices keep each meeting-analyst pass short enough
+// to finish reliably, and let one slow slice fail without sinking the rest.
+function _sliceWindow({ start, end }, sliceDays) {
+  const out = [];
+  const s = new Date(`${start}T00:00:00Z`);
+  let cur = new Date(`${end}T00:00:00Z`);
+  const span = Math.max(1, Number(sliceDays) || 1);
+  let guard = 0;
+  while (cur >= s && guard++ < 1000) {
+    const wEnd = new Date(cur);
+    const wStart = new Date(cur);
+    wStart.setUTCDate(wStart.getUTCDate() - (span - 1));
+    if (wStart < s) wStart.setTime(s.getTime());
+    out.push({ start: wStart.toISOString().slice(0, 10), end: wEnd.toISOString().slice(0, 10) });
+    cur = new Date(wStart);
+    cur.setUTCDate(cur.getUTCDate() - 1);
+  }
+  return out;
+}
+
+// eventIds of meetings we already captured WITH a transcript recap (so we can tell
+// the analyst to skip them). Parsed from evidence tags: ext:meeting:<eventId> paired
+// with a meeting:recap classification tag.
+function _connectRecordedMeetingIds() {
+  try {
+    const ids = [];
+    for (const e of connect.listEvidence({ includeHidden: true })) {
+      if (e.source !== 'meeting') continue;
+      const tags = Array.isArray(e.tags) ? e.tags : [];
+      if (!tags.some(t => t === 'meeting:recap')) continue; // only skip fully-analyzed ones
+      const ext = tags.find(t => typeof t === 'string' && t.startsWith('ext:meeting:'));
+      if (ext) ids.push(ext.slice('ext:meeting:'.length));
+    }
+    return ids;
+  } catch { return []; }
+}
+
+// Run ONE meeting-analyst pass over [win] with adaptive, progress-aware timing.
+// The SDK has no cancel, so instead of a hard race that abandons a healthy run we
+// watch agent activity (streamed deltas + tool/step events). If the agent goes
+// silent for `stallMs` we treat the pass as stalled; while activity keeps flowing
+// we let it run up to `hardCapMs`. Returns {status:'ok'|'stalled'|'capped', items,
+// producedOutput}. A stalled/capped run is left to finish unawaited (with a no-op
+// catch) rather than killed.
+async function _runMeetingSlice(win, nowIso, skipIds, { hardCapMs, stallMs }) {
+  let acc = '';
+  let lastActivity = Date.now();
+  const startedAt = Date.now();
+  const bump = () => { lastActivity = Date.now(); };
+  const prompt = _meetingPrompt(win, nowIso, skipIds);
+
+  const runP = (async () => {
+    if (!connectPluginDir || !fs.existsSync(connectPluginDir)) {
+      throw new Error('Connect plugin is not available yet — restart the server.');
+    }
+    const result = await sdkRunner.runChat({
+      config: { pluginDir: connectPluginDir, agent: 'meeting-analyst', cwd: __dirname },
+      prompt,
+      sessionId: require('crypto').randomUUID(),
+      resume: false,
+      cwd: __dirname,
+      onChunk: (c) => { acc += c; bump(); },
+      onStep: () => { bump(); },
+    });
+    if (result && result.fallback) throw new Error(result.error || 'Connect agent runtime unavailable');
+    return acc.trim() ? acc : ((result && result.output) || '');
+  })();
+  // Prevent an unhandledRejection if we stop awaiting a slow/failed run.
+  runP.catch(() => {});
+
+  let watchdogTimer = null;
+  const watchdog = new Promise((resolve) => {
+    const tick = () => {
+      const silent = Date.now() - lastActivity;
+      const total = Date.now() - startedAt;
+      if (silent >= stallMs) return resolve({ __end: 'stalled' });
+      if (total >= hardCapMs) return resolve({ __end: 'capped' });
+      watchdogTimer = setTimeout(tick, 4000);
+    };
+    watchdogTimer = setTimeout(tick, 4000);
+  });
+
+  try {
+    const res = await Promise.race([runP.then(t => ({ __text: t })), watchdog]);
+    if (res && res.__text != null) {
+      const arr = _connectExtractJson(res.__text);
+      return { status: 'ok', items: Array.isArray(arr) ? arr : [], producedOutput: String(res.__text).trim().length > 0 };
+    }
+    return { status: res.__end, items: [], producedOutput: acc.trim().length > 0 };
+  } finally {
+    if (watchdogTimer) clearTimeout(watchdogTimer);
+  }
+}
+
+// Collect REAL meeting evidence via the WorkIQ-driven meeting-analyst agent, over
+// the whole window — but sliced for reliability. Each slice is retried with a
+// larger budget when it stalls WHILE STILL PRODUCING OUTPUT ("working but slow"),
+// and surfaced (never silently dropped) when it stalls with nothing. Manual runs
+// get a generous budget; scheduled runs stay bounded so the leader isn't hogged.
+// `onProgress(state)` (optional) is called after each slice for live UI updates.
+async function runConnectMeetingCollection({ days, manual = false, onProgress } = {}) {
+  const s = settings.getSettings();
+  const full = _connectDateWindow(days);
+  if (s.connectMeetingsEnabled === false) {
+    return { items: [], window: full, slices: { total: 0, ok: 0, retried: 0, failed: 0 }, failedWindows: [] };
+  }
+  const nowIso = new Date().toISOString();
+  const skipIds = _connectRecordedMeetingIds();
+  const pol = manual
+    ? { sliceDays: 5, hardCapMs: 12 * 60_000, stallMs: 150_000, maxRetries: 2, overallCapMs: 20 * 60_000 }
+    : { sliceDays: 4, hardCapMs: 4 * 60_000, stallMs: 120_000, maxRetries: 1, overallCapMs: 9 * 60_000 };
+  const slices = _sliceWindow(full, pol.sliceDays);
+  const items = [];
+  const failedWindows = [];
+  let ok = 0, retried = 0, failed = 0;
+  const runStart = Date.now();
+
+  for (let i = 0; i < slices.length; i++) {
+    const win = slices[i];
+    if (Date.now() - runStart >= pol.overallCapMs) {
+      // Out of overall budget — surface the rest as not-yet-gathered so a later
+      // (idempotent) run can finish the backfill; do not silently omit.
+      for (let j = i; j < slices.length; j++) { failedWindows.push({ ...slices[j], reason: 'overall-cap' }); failed++; }
+      break;
+    }
+    let attempt = 0, cap = pol.hardCapMs, done = false;
+    while (!done) {
+      const r = await _runMeetingSlice(win, nowIso, skipIds, { hardCapMs: cap, stallMs: pol.stallMs });
+      if (r.status === 'ok') {
+        for (const it of r.items) items.push(it);
+        ok++; done = true;
+      } else if (r.producedOutput && attempt < pol.maxRetries) {
+        // Working but slow — give the SAME slice more time rather than drop it.
+        retried++; attempt++; cap = Math.round(cap * 1.75);
+        console.log(`[connect] meeting slice ${win.start}..${win.end} ${r.status} but producing output — retrying with a larger budget (attempt ${attempt + 1})`);
+      } else {
+        failedWindows.push({ ...win, reason: r.status });
+        failed++; done = true;
+        console.warn(`[connect] meeting slice ${win.start}..${win.end} gave up (${r.status}${r.producedOutput ? ', partial output' : ', no output'})`);
+      }
+    }
+    if (typeof onProgress === 'function') {
+      try { onProgress({ total: slices.length, done: i + 1, ok, retried, failed, added: items.length }); } catch (_) { /* */ }
+    }
+  }
+  return { items, window: full, slices: { total: slices.length, ok, retried, failed }, failedWindows };
 }
 
 // Collect recent M365 activity into diary evidence. Scheduled runs are leader-,
@@ -7388,11 +7654,11 @@ async function runConnectCollection({ manual = false, days } = {}) {
   const win = _connectDateWindow(effDays);
   const prompt =
     `Collect my Connect diary evidence for the date range ${win.start} to ${win.end} (inclusive). ` +
-    `Gather MY OWN activity across Teams channel/group posts, email I sent, and meetings I organized or ` +
-    `actively participated in — never one-on-one private chats. ` +
+    `Gather MY OWN activity across Teams channel/group posts and email I sent — ` +
+    `never one-on-one private chats, and do NOT collect meetings (those are handled separately). ` +
     `Return only the JSON array of evidence items exactly as specified.`;
 
-  // Source 1: M365 (Teams/email/meetings) via the WorkIQ-driven collector agent.
+  // Source 1: M365 (Teams/email) via the WorkIQ-driven collector agent.
   // Wrapped in a timeout so a WorkIQ stall (auth prompt, hung MCP) can never block
   // the ADO source or the request. Runs CONCURRENTLY with ADO below.
   const m365Task = (async () => {
@@ -7422,17 +7688,36 @@ async function runConnectCollection({ manual = false, days } = {}) {
     } catch (e) { console.warn('[connect] ADO collection failed:', e.message); return []; }
   })();
 
-  const [m365, ado] = await Promise.all([m365Task, adoTask]);
+  // Source 3: Meetings via the WorkIQ-driven meeting-analyst agent (transcript-driven,
+  // records only meetings that have already ended). Uses the sliced, progress-aware
+  // engine: no single hard timeout — slow-but-working slices are retried with a larger
+  // budget, truly-stalled slices are surfaced (never silently omitted), and the whole
+  // pass is bounded by an overall wall-clock cap. Manual runs get a generous budget.
+  let meetingMeta = { slices: { total: 0, ok: 0, retried: 0, failed: 0 }, failedWindows: [] };
+  const meetingTask = (async () => {
+    if (!s.connectMeetingsEnabled) return [];
+    try {
+      const r = await runConnectMeetingCollection({ days: effDays, manual });
+      meetingMeta = { slices: r.slices, failedWindows: r.failedWindows };
+      return (r && Array.isArray(r.items)) ? r.items : [];
+    } catch (e) { console.warn('[connect] meeting collection failed:', e.message); return []; }
+  })();
 
-  const all = m365.concat(ado);
-  const { added, skipped } = all.length ? connect.addEvidenceBatch(all, { origin: 'auto' }) : { added: 0, skipped: 0 };
+  const [m365, ado, meetings] = await Promise.all([m365Task, adoTask, meetingTask]);
+
+  const all = m365.concat(ado).concat(meetings);
+  const { added, skipped, updated } = all.length
+    ? connect.addEvidenceBatch(all, { origin: 'auto' })
+    : { added: 0, skipped: 0, updated: 0 };
   connect.markCollected();
-  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes) — ${m365.length} M365 + ${ado.length} ADO, ${win.start}..${win.end}`);
+  const sl = meetingMeta.slices;
+  const slInfo = sl.total ? ` [meeting slices ${sl.ok}/${sl.total} ok, ${sl.retried} retried, ${sl.failed} failed]` : '';
+  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes, ${updated} enriched) — ${m365.length} M365 + ${ado.length} ADO + ${meetings.length} meetings, ${win.start}..${win.end}${slInfo}`);
   let generated = false;
-  if (!manual && s.connectGenerateDaily && added > 0) {
+  if (!manual && s.connectGenerateDaily && (added > 0 || updated > 0)) {
     try { await runConnectGeneration(); generated = true; } catch (e) { console.warn('[connect] auto-generate failed:', e.message); }
   }
-  return { ran: true, added, skipped, m365: m365.length, ado: ado.length, window: win, generated };
+  return { ran: true, added, skipped, updated, m365: m365.length, ado: ado.length, meetings: meetings.length, window: win, generated, meetingSlices: meetingMeta.slices, meetingFailedWindows: meetingMeta.failedWindows };
 }
 
 // Format the user's guiding memories for prompt injection. Returns null when
@@ -7715,8 +8000,10 @@ app.get('/api/connect', (req, res) => {
         adoEnabled: s.connectAdoEnabled === true,
         adoOrg: s.connectAdoOrg || '',
         adoProjects: s.connectAdoProjects || '',
+        meetingsEnabled: s.connectMeetingsEnabled !== false,
         lastCollectedAt: (connect.getState().meta || {}).lastCollectedAt || null,
       },
+      backfill: connectBackfillState,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -7937,12 +8224,67 @@ app.get('/api/connect/export', (req, res) => {
 });
 
 // Phase 2 — collect recent M365 activity into diary evidence (manual trigger).
+// --- Background meeting backfill --------------------------------------------
+// A deliberate, resumable sweep of a large window that runs ONLY the (slow) meeting
+// engine in the background so the regular incremental collect stays fast. Progress
+// is mirrored into GET /api/connect for the UI to poll. One at a time.
+let connectBackfillState = { running: false, startedAt: null, finishedAt: null, days: 0, total: 0, done: 0, ok: 0, retried: 0, failed: 0, added: 0, updated: 0, error: null, failedWindows: [] };
+
+function startConnectMeetingBackfill(days) {
+  if (connectBackfillState.running) return { started: false, reason: 'A backfill is already running.' };
+  const s = settings.getSettings();
+  if (s.connectMeetingsEnabled === false) return { started: false, reason: 'Meeting analysis is disabled.' };
+  connectBackfillState = { running: true, startedAt: new Date().toISOString(), finishedAt: null, days, total: 0, done: 0, ok: 0, retried: 0, failed: 0, added: 0, updated: 0, error: null, failedWindows: [] };
+  // Fire-and-forget; the endpoint returns immediately and the UI polls progress.
+  (async () => {
+    try {
+      const r = await runConnectMeetingCollection({
+        days, manual: true,
+        onProgress: (p) => {
+          connectBackfillState.total = p.total;
+          connectBackfillState.done = p.done;
+          connectBackfillState.ok = p.ok;
+          connectBackfillState.retried = p.retried;
+          connectBackfillState.failed = p.failed;
+        },
+      });
+      const batch = (r.items && r.items.length)
+        ? connect.addEvidenceBatch(r.items, { origin: 'auto' })
+        : { added: 0, skipped: 0, updated: 0 };
+      connect.markCollected();
+      connectBackfillState.added = batch.added;
+      connectBackfillState.updated = batch.updated;
+      connectBackfillState.failedWindows = r.failedWindows || [];
+      console.log(`[connect] backfill done: +${batch.added} (${batch.updated} enriched) over ${days}d — slices ${r.slices.ok}/${r.slices.total} ok, ${r.slices.retried} retried, ${r.slices.failed} failed`);
+    } catch (e) {
+      connectBackfillState.error = e.message;
+      console.warn('[connect] backfill failed:', e.message);
+    } finally {
+      connectBackfillState.running = false;
+      connectBackfillState.finishedAt = new Date().toISOString();
+    }
+  })();
+  return { started: true };
+}
+
 app.post('/api/connect/collect', async (req, res) => {
   try {
     const days = req.body && req.body.days != null ? Number(req.body.days) : undefined;
     const r = await runConnectCollection({ manual: true, days });
     if (r.error) return res.status(502).json(r);
     res.json({ ...r, state: connect.getState(), evidence: connect.listEvidence() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Kick off a background meeting backfill over a large window; returns immediately (202).
+app.post('/api/connect/backfill', (req, res) => {
+  try {
+    const days = req.body && req.body.days != null ? Math.max(1, Math.min(400, Number(req.body.days) || 0)) : 90;
+    const r = startConnectMeetingBackfill(days);
+    if (!r.started) return res.status(409).json({ error: r.reason, backfill: connectBackfillState });
+    res.status(202).json({ ok: true, backfill: connectBackfillState });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -14397,15 +14739,40 @@ const onListen = () => {
     console.log(`[supervisor] SDK modes — read: env=${envRead} effective=${_rdr.mode} | run: env=${envRun} effective=${_rnr.mode}${runAgents ? ' agents=[' + runAgents + ']' : ''} | node=${process.version} COPILOT_HOME=${process.env.COPILOT_HOME || '(default)'}`);
   } catch (e) { console.warn('[supervisor] could not log SDK modes:', e.message); }
 };
-const server = HOST ? app.listen(PORT, HOST, onListen) : app.listen(PORT, onListen);
-
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.log(`[supervisor] Port ${PORT} already in use — another instance is running. Exiting.`);
-    process.exit(0);
-  }
-  throw err;
-});
+// In sidecar (desktop) mode we prefer a STABLE port so the WebView origin — and
+// thus every localStorage-backed preference (theme, icon set, experience level,
+// basic features) — survives restarts and upgrades. A transient conflict during
+// a fast restart (prior sidecar still releasing the port) is retried briefly;
+// only then do we fall back to an ephemeral port so the window still opens
+// instead of hanging on the splash. Browser mode keeps the original behavior:
+// a port already in use means another instance is running, so we exit.
+const SIDECAR = process.env.SUPERVISOR_SIDECAR === '1';
+const MAX_BIND_RETRIES = 24; // ~6s at 250ms
+let server;
+let _bindRetries = 0;
+function bindPort(portToTry, allowFallback) {
+  const s = HOST ? app.listen(portToTry, HOST, onListen) : app.listen(portToTry, onListen);
+  server = s;
+  s.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      try { s.close(); } catch { /* best effort */ }
+      if (SIDECAR && portToTry !== 0 && _bindRetries < MAX_BIND_RETRIES) {
+        _bindRetries++;
+        setTimeout(() => bindPort(portToTry, allowFallback), 250);
+        return;
+      }
+      if (SIDECAR && allowFallback && portToTry !== 0) {
+        console.log(`[supervisor] Port ${portToTry} busy after ${_bindRetries} retries — falling back to an ephemeral port (preferences may reset this session).`);
+        bindPort(0, false);
+        return;
+      }
+      console.log(`[supervisor] Port ${portToTry} already in use — another instance is running. Exiting.`);
+      process.exit(0);
+    }
+    throw err;
+  });
+}
+bindPort(PORT, SIDECAR);
 
 // Graceful shutdown — single path for every trigger so we always stop the
 // scheduler, flush the DB and release the port.

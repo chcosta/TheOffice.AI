@@ -388,24 +388,55 @@ function addEvidence(raw, { origin } = {}) {
 
 // Bulk-append (used by the collector). De-dupes against an optional externalId
 // carried in tags as `ext:<id>` to avoid re-adding the same signal each run.
+//
+// Enrichment (meetings): a meeting item that was first captured before the
+// meeting occurred (or before a transcript existed) carries only invite-level
+// info. When a later run returns a transcript-informed version of the SAME
+// meeting (same `ext:meeting:<id>` tag) carrying a `meeting:recap` tag, we do
+// not skip it as a dup — we REPLACE the existing entry's content in place so the
+// diary upgrades from "scheduled/attended" to the real recap (contributions +
+// action items). We only enrich auto-collected, non-pinned entries so we never
+// clobber something the user pinned or hand-edited. Returns {added,skipped,updated}.
 function addEvidenceBatch(list, { origin = 'auto' } = {}) {
-  if (!Array.isArray(list) || !list.length) return { added: 0, skipped: 0 };
+  if (!Array.isArray(list) || !list.length) return { added: 0, skipped: 0, updated: 0 };
   const items = _readEvidence();
-  const seen = new Set();
-  for (const it of items) {
-    for (const t of (it.tags || [])) if (String(t).startsWith('ext:')) seen.add(String(t));
-  }
-  let added = 0, skipped = 0;
+  // Map every existing ext tag → its index so we can enrich (not just skip) it.
+  const extIndex = new Map();
+  items.forEach((it, i) => {
+    for (const t of (it.tags || [])) if (String(t).startsWith('ext:')) extIndex.set(String(t), i);
+  });
+  const hasTag = (it, tag) => (it.tags || []).some(t => String(t) === tag);
+  let added = 0, skipped = 0, updated = 0;
   for (const raw of list) {
     const norm = _normalizeEvidence(raw, { origin });
     const ext = (norm.tags || []).find(t => String(t).startsWith('ext:'));
-    if (ext && seen.has(ext)) { skipped++; continue; }
-    if (ext) seen.add(ext);
+    if (ext && extIndex.has(ext)) {
+      const idx = extIndex.get(ext);
+      const existing = items[idx];
+      // Upgrade an invite-level meeting stub to its transcript recap.
+      const canEnrich = hasTag(norm, 'meeting:recap') && !hasTag(existing, 'meeting:recap') &&
+        existing.origin === 'auto' && existing.pinned !== true;
+      if (canEnrich) {
+        items[idx] = _normalizeEvidence({
+          ...norm,
+          id: existing.id,
+          origin: existing.origin,
+          createdAt: existing.createdAt,
+          pinned: existing.pinned,
+          hidden: existing.hidden,
+        });
+        updated++;
+      } else {
+        skipped++;
+      }
+      continue;
+    }
+    if (ext) extIndex.set(ext, items.length);
     items.push(norm);
     added++;
   }
-  if (added) _writeEvidence(items);
-  return { added, skipped };
+  if (added || updated) _writeEvidence(items);
+  return { added, skipped, updated };
 }
 
 function updateEvidence(id, patch) {

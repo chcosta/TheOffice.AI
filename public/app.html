@@ -85,7 +85,14 @@
         try {
           const xhr = new XMLHttpRequest();
           xhr.open('GET', '/api/ui-prefs', false);
-          xhr.timeout = 800;
+          // NOTE: do NOT set xhr.timeout here — Chromium/WebView2 throws
+          // InvalidAccessError ("Timeouts cannot be set for synchronous requests
+          // made from a document") for a synchronous XHR in a Window, which would
+          // abort this whole synchronous hydrate every boot and silently fall
+          // through to the async path (letting Alpine render default prefs first —
+          // the "settings reset on upgrade" symptom). The sidecar has already
+          // emitted __READY__ before the WebView navigates here, so this request
+          // resolves effectively instantly on localhost.
           xhr.send(null);
           if (xhr.status >= 200 && xhr.status < 300) {
             applyPrefs((JSON.parse(xhr.responseText) || {}).prefs || {});
@@ -111,6 +118,21 @@
             .then((d) => {
               const applied = applyPrefs((d || {}).prefs || {});
               mirrorOn = true;
+              // The synchronous hydrate failed, so Alpine + the theme/iconset boot
+              // already ran against DEFAULT prefs. Writing to localStorage now does
+              // NOT re-render the live app, so the user would still see a reset until
+              // a manual reload. If we actually restored any server prefs, reload once
+              // (guarded so we can never loop) — the sync hydrate will succeed on the
+              // reload (server is up by now) and the app comes up correctly skinned.
+              if (applied > 0) {
+                try {
+                  if (!sessionStorage.getItem('durable-prefs-reloaded')) {
+                    sessionStorage.setItem('durable-prefs-reloaded', '1');
+                    location.reload();
+                    return;
+                  }
+                } catch {}
+              }
               try { window.dispatchEvent(new CustomEvent('durable-prefs-hydrated', { detail: { applied } })); } catch {}
             })
             .catch(() => { if (tries < 30) setTimeout(retry, 500); });
@@ -1905,6 +1927,7 @@
     .cf-m-id { color:var(--cp-text-muted); font-weight:600; text-decoration:none; }
     .cf-m-id:hover { text-decoration:underline; }
     .cf-m-muted { color:var(--cp-text-muted); }
+    .cf-m-provider { color:var(--cp-text-soft); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; font-weight:600; }
     .cf-m-ok { color:var(--cp-success); font-weight:600; }
     .cf-m-bad { color:var(--cp-danger); font-weight:700; }
     .cf-m-warn { color:var(--cp-warning); font-weight:600; }
@@ -2018,6 +2041,7 @@
     .cf-check-group.cf-grp-required .cf-check-name { font-weight:700; }
     .cf-repo-manager { border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-bg-elevated); padding:14px 16px; margin-bottom:18px; }
     .cf-repo-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--cp-border); }
+    .cf-repo-provider { color:var(--cp-text-soft); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em; font-weight:600; min-width:80px; }
     .cf-repo-row:last-child { border-bottom:none; }
     .cf-repo-input { font:inherit; font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); }
     .cf-wt { margin-top:10px; border-top:1px dashed var(--cp-border); padding-top:8px; font-size:12.5px; }
@@ -9142,6 +9166,7 @@
                     <option value="meeting">📅 Meetings</option>
                     <option value="ado">📋 Work items</option>
                     <option value="pr">🔀 Pull requests</option>
+                    <option value="pr-review">👀 PR reviews</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
@@ -9371,24 +9396,34 @@
             <div x-show="codeflowManageOpen" class="cf-repo-manager" x-transition.opacity.duration.150ms>
               <div class="cf-validation-title" style="margin-bottom:10px">Watched repositories</div>
               <template x-if="!codeflow.repos.length">
-                <div class="hint" style="padding:6px 0 12px">No repos monitored yet. Add an Azure DevOps org / project / repo below.</div>
+                <div class="hint" style="padding:6px 0 12px">No repos monitored yet. Add an Azure DevOps or GitHub repo below.</div>
               </template>
               <template x-for="r in codeflow.repos" :key="r.id">
                 <div class="cf-repo-row">
+                  <span class="cf-repo-provider" x-text="(r.provider==='github') ? 'GitHub' : 'Azure DevOps'"
+                        :title="(r.provider==='github') ? 'GitHub' : 'Azure DevOps'"></span>
                   <span class="cf-pill cf-repo" x-text="r.repo"></span>
-                  <span class="hint" style="flex:1" x-text="r.org + ' / ' + r.project"></span>
+                  <span class="hint" style="flex:1" x-text="(r.provider==='github') ? r.org : (r.org + ' / ' + r.project)"></span>
                   <button class="btn ghost danger" type="button" :disabled="codeflowReposBusy[r.id]"
                           @click="removeCodeflowRepo(r)" x-text="codeflowReposBusy[r.id] ? '…' : '🗑 Remove'"></button>
                 </div>
               </template>
               <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:14px">
-                <div style="flex:1;min-width:130px">
-                  <label class="field-label">Org</label>
-                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.org"
-                         placeholder="e.g. dnceng"
-                         @input.debounce.500ms="codeflowLoadRepos()" @change="codeflowLoadRepos()">
+                <div style="min-width:120px">
+                  <label class="field-label">Provider</label>
+                  <select class="cf-repo-input" style="width:100%" x-model="codeflowRepoForm.provider"
+                          @change="codeflowRepoForm.repos=[]; codeflowRepoForm.repo=''; codeflowRepoForm.repoQuery=''; codeflowLoadRepos()">
+                    <option value="azdo">Azure DevOps</option>
+                    <option value="github">GitHub</option>
+                  </select>
                 </div>
                 <div style="flex:1;min-width:130px">
+                  <label class="field-label" x-text="codeflowRepoForm.provider==='github' ? 'Owner' : 'Org'"></label>
+                  <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.org"
+                         :placeholder="codeflowRepoForm.provider==='github' ? 'e.g. costahome' : 'e.g. dnceng'"
+                         @input.debounce.500ms="codeflowLoadRepos()" @change="codeflowLoadRepos()">
+                </div>
+                <div style="flex:1;min-width:130px" x-show="codeflowRepoForm.provider!=='github'">
                   <label class="field-label">Project</label>
                   <input class="cf-repo-input" style="width:100%" type="text" x-model="codeflowRepoForm.project"
                          placeholder="e.g. internal"
@@ -9397,9 +9432,9 @@
                 <div style="flex:1.4;min-width:160px;position:relative">
                   <label class="field-label">Repository</label>
                   <input class="cf-repo-input" style="width:100%" type="text"
-                         :placeholder="codeflowRepoForm.loadingRepos ? 'Loading repositories…' : (codeflowRepoForm.repos.length ? 'Search repositories…' : 'Enter org + project first')"
+                         :placeholder="codeflowRepoForm.loadingRepos ? 'Loading repositories…' : (codeflowRepoForm.repos.length ? 'Search repositories…' : (codeflowRepoForm.provider==='github' ? 'Enter owner first' : 'Enter org + project first'))"
                          x-model="codeflowRepoForm.repoQuery"
-                         @focus="codeflowRepoForm.repoOpen=true; if(!codeflowRepoForm.repos.length && codeflowRepoForm.org.trim() && codeflowRepoForm.project.trim() && !codeflowRepoForm.loadingRepos) codeflowLoadRepos()"
+                         @focus="codeflowRepoForm.repoOpen=true; if(!codeflowRepoForm.repos.length && codeflowRepoForm.org.trim() && (codeflowRepoForm.provider==='github' || codeflowRepoForm.project.trim()) && !codeflowRepoForm.loadingRepos) codeflowLoadRepos()"
                          @blur="codeflowRepoBlur()"
                          @input="codeflowRepoForm.repoOpen=true; codeflowRepoForm.repo=''"
                          @keydown.enter.prevent="addCodeflowRepo()"
@@ -9410,7 +9445,7 @@
                       <div class="hint" style="padding:8px 12px">Loading repositories…</div>
                     </template>
                     <template x-if="!codeflowRepoForm.loadingRepos && !codeflowRepoForm.repos.length">
-                      <div class="hint" style="padding:8px 12px">Enter an org + project to list repositories.</div>
+                      <div class="hint" style="padding:8px 12px" x-text="codeflowRepoForm.provider==='github' ? 'Enter an owner to list repositories.' : 'Enter an org + project to list repositories.'"></div>
                     </template>
                     <template x-for="r in codeflowReposFiltered()" :key="r.name">
                       <div @mousedown.prevent="codeflowPickRepo(r.name)"
@@ -9520,6 +9555,7 @@
                     <div style="flex:1;min-width:0">
                       <a class="cf-pr-title" :href="pr.url" target="_blank" rel="noopener" x-text="pr.title"></a>
                       <div class="cf-meta-line">
+                        <span class="cf-m-provider" x-show="pr.provider==='github'" title="GitHub">GitHub</span>
                         <span class="cf-m-repo" x-text="pr.repo"></span>
                         <a class="cf-m-id" :href="pr.url" target="_blank" rel="noopener" x-text="'#' + pr.id"></a>
                         <span class="cf-m-muted" x-show="pr.isDraft">Draft</span>
@@ -11606,6 +11642,27 @@
                       <label>Project(s)</label>
                       <input type="text" x-model="connect.config.adoProjects" placeholder="e.g. internal, public (comma-separated)">
                       <p class="hint" style="margin:5px 0 0">PRs are searched across all repos in each project. Leave blank to fall back to your configured dev/export project.</p>
+                    </div>
+                  </div>
+                  <label style="display:flex;gap:10px;align-items:center;cursor:pointer;font-weight:400;margin-top:12px;margin-bottom:4px">
+                    <input type="checkbox" x-model="connect.config.meetingsEnabled">
+                    <span>Deep meeting analysis (transcript-driven, after meetings end)</span>
+                  </label>
+                  <div x-show="connect.config.meetingsEnabled" x-transition.opacity.duration.120ms style="margin-top:10px;padding-left:24px;border-left:2px solid var(--cp-border, #e5e5e5)">
+                    <p class="hint" style="margin:0">Records only meetings that have <strong>already ended</strong>. Reads the Teams transcript recap to capture what you actually contributed and any action items assigned to you; meetings without a recap get a light "attended — no recap" entry when you organized or accepted them. Future meetings are never recorded.</p>
+                    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                      <span style="font-size:0.82rem">Backfill past</span>
+                      <input type="number" min="1" max="400" x-model.number="connect.backfillDays" style="width:70px" :disabled="connect.backfill && connect.backfill.running">
+                      <span style="font-size:0.82rem">days of meetings</span>
+                      <button class="btn ghost" type="button" :disabled="(connect.backfill && connect.backfill.running) || !connect.config.consent" @click="connectBackfill()" x-text="(connect.backfill && connect.backfill.running) ? 'Backfilling…' : '⤓ Backfill meetings'"></button>
+                    </div>
+                    <div x-show="connect.backfill && (connect.backfill.running || connect.backfill.finishedAt)" x-transition.opacity style="margin-top:8px;font-size:0.78rem;color:var(--cp-text-muted, #666)">
+                      <template x-if="connect.backfill && connect.backfill.running">
+                        <span x-text="'Working… slice ' + (connect.backfill.done || 0) + '/' + (connect.backfill.total || '?') + ' (' + (connect.backfill.ok||0) + ' ok, ' + (connect.backfill.retried||0) + ' retried, ' + (connect.backfill.failed||0) + ' failed)'"></span>
+                      </template>
+                      <template x-if="connect.backfill && !connect.backfill.running && connect.backfill.finishedAt">
+                        <span x-text="connect.backfill.error ? ('Backfill failed: ' + connect.backfill.error) : ('Backfill done — +' + (connect.backfill.added||0) + ' entries (' + (connect.backfill.updated||0) + ' enriched), ' + (connect.backfill.ok||0) + '/' + (connect.backfill.total||0) + ' slices ok' + ((connect.backfill.failedWindows&&connect.backfill.failedWindows.length) ? (', ' + connect.backfill.failedWindows.length + ' window(s) need a retry') : ''))"></span>
+                      </template>
                     </div>
                   </div>
                 </div>
@@ -14411,6 +14468,8 @@
           state: null,           // { profile, draft, guidance, meta }
           evidence: [],          // diary items (newest-first)
           config: null,          // { collectionEnabled, consent, schedule, ... }
+          backfill: null,        // background meeting-backfill progress ({running, done, total, ...})
+          backfillDays: 90,      // window for the meeting backfill control
           tab: 'draft',          // 'draft' | 'diary' | 'guidance' | 'settings'
           draftText: '',         // editable buffer for the draft body
           draftDirty: false,
@@ -14476,7 +14535,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Lightweight copy of the user's own active PRs for the Home page card.
         // Kept separate from codeflow.pullRequests (which may hold a different view).
         homePrs: { loading: false, items: [], fetchedAt: null },
-        codeflowRepoForm: { org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
+        codeflowRepoForm: { provider: 'azdo', org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
         // Review-comments preview/selection modal: opened from a PR card's
@@ -19326,6 +19385,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.connect.draftText = (r.state && r.state.draft && r.state.draft.markdown) || '';
             this.connect.draftDirty = false;
             this.connect.memories = Array.isArray(r.memories) ? r.memories : [];
+            this.connect.backfill = r.backfill || null;
+            if (this.connect.backfill && this.connect.backfill.running) this._pollConnectBackfill();
             this.connect.loaded = true;
             this.connectLoadVersions();
           } catch (e) {
@@ -19572,6 +19633,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             meeting: { icon: '📅', label: 'Meeting' },
             ado: { icon: '📋', label: 'Work item' },
             pr: { icon: '🔀', label: 'Pull request' },
+            'pr-review': { icon: '👀', label: 'PR review' },
             manual: { icon: '✍', label: 'Manual' },
             other: { icon: '•', label: 'Other' },
           };
@@ -19793,7 +19855,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.connect.collecting = false;
           }
         },
-        async connectAutofillProfile() {
+        async connectBackfill() {
+          if (this.connect.backfill && this.connect.backfill.running) return;
+          if (!(this.connect.config && this.connect.config.consent)) {
+            this.toast('Turn on collection consent first', 'error');
+            return;
+          }
+          const days = Math.max(1, Math.min(400, Number(this.connect.backfillDays) || 90));
+          try {
+            const r = await this.request('/api/connect/backfill', { method: 'POST', body: JSON.stringify({ days }) });
+            if (r && r.backfill) this.connect.backfill = r.backfill;
+            this.toast('Meeting backfill started over ' + days + ' days', 'info');
+            this._pollConnectBackfill();
+          } catch (e) {
+            this.toast('Backfill failed to start: ' + (e.message || e), 'error');
+          }
+        },
+        _pollConnectBackfill() {
+          if (this._connectBackfillTimer) clearTimeout(this._connectBackfillTimer);
+          const tick = async () => {
+            try {
+              const r = await this.request('/api/connect');
+              this.connect.backfill = r.backfill || null;
+              if (r.evidence) this.connect.evidence = r.evidence;
+              if (this.connect.backfill && this.connect.backfill.running) {
+                this._connectBackfillTimer = setTimeout(tick, 4000);
+              } else {
+                this._connectBackfillTimer = null;
+                if (this.connect.backfill && this.connect.backfill.added) {
+                  this.toast('Backfill added ' + this.connect.backfill.added + ' meeting entr' + (this.connect.backfill.added === 1 ? 'y' : 'ies'), 'success');
+                }
+              }
+            } catch (_) { this._connectBackfillTimer = setTimeout(tick, 6000); }
+          };
+          this._connectBackfillTimer = setTimeout(tick, 4000);
+        },
           if (this.connect.autofilling) return;
           if (!(this.connect.config && this.connect.config.consent)) {
             this.toast('Auto-fill needs collection consent (Settings tab)', 'error');
@@ -19825,6 +19921,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 connectStorageDir: c.storageDir || '',
                 connectEmailTo: c.emailTo || '',
                 connectAdoEnabled: !!c.adoEnabled,
+                connectMeetingsEnabled: !!c.meetingsEnabled,
                 connectAdoOrg: (c.adoOrg || '').trim(),
                 connectAdoProjects: (c.adoProjects || '').trim(),
               }),
@@ -20051,7 +20148,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async addCodeflowRepo() {
           const f = this.codeflowRepoForm;
-          const org = (f.org || '').trim(), project = (f.project || '').trim();
+          const provider = f.provider === 'github' ? 'github' : 'azdo';
+          const org = (f.org || '').trim(), project = provider === 'github' ? '' : (f.project || '').trim();
           // Resolve the repo: prefer an explicit pick, else an exact (case-insensitive)
           // match against the loaded list, else fall back to the typed text (so it still
           // works when listing failed / no access to enumerate repos).
@@ -20061,12 +20159,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const hit = (f.repos || []).find(r => (r.name || '').toLowerCase() === typed.toLowerCase());
             repo = hit ? hit.name : typed;
           }
-          if (!org || !project || !repo) { f.error = 'Org, project and repo are all required.'; return; }
+          if (!org || !repo || (provider === 'azdo' && !project)) {
+            f.error = provider === 'github' ? 'Owner and repo are required.' : 'Org, project and repo are all required.';
+            return;
+          }
           f.busy = true; f.error = '';
           try {
-            await this.request('/api/codeflow/repos', { method: 'POST', body: JSON.stringify({ org, project, repo }) });
-            // Keep org/project so adding several repos from the same project is quick;
-            // just clear the repo selection.
+            await this.request('/api/codeflow/repos', { method: 'POST', body: JSON.stringify({ provider, org, project, repo }) });
+            // Keep provider/org/project so adding several repos from the same project is
+            // quick; just clear the repo selection.
             f.repo = ''; f.repoQuery = ''; f.repoOpen = false;
             this.showToast('Code Flow', 'Now monitoring ' + repo, 'success');
             await this.loadCodeFlow();
@@ -20098,12 +20199,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async codeflowLoadRepos() {
           const f = this.codeflowRepoForm;
+          const provider = f.provider === 'github' ? 'github' : 'azdo';
           const org = (f.org || '').trim(), project = (f.project || '').trim();
           f.repos = []; f.repo = '';
-          if (!org || !project) return;
+          if (!org || (provider === 'azdo' && !project)) return;
           f.loadingRepos = true;
           try {
-            const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
+            const qs = 'provider=' + provider + '&org=' + encodeURIComponent(org) +
+                       (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '');
+            const data = await this.request('/api/forge/repos?' + qs);
             f.repos = Array.isArray(data.repos) ? data.repos : [];
           } catch (e) {
             // Non-fatal: user can still type a repo name by hand.
@@ -20114,11 +20218,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         codeflowReposFiltered() {
           const f = this.codeflowRepoForm;
+          const provider = f.provider === 'github' ? 'github' : 'azdo';
           const q = (f.repoQuery || '').trim().toLowerCase();
-          // Exclude repos already being watched for this exact org/project.
+          // Exclude repos already being watched for this exact provider/org/project.
           const org = (f.org || '').trim().toLowerCase(), project = (f.project || '').trim().toLowerCase();
           const watched = new Set((this.codeflow.repos || [])
-            .filter(r => (r.org || '').toLowerCase() === org && (r.project || '').toLowerCase() === project)
+            .filter(r => ((r.provider === 'github' ? 'github' : 'azdo') === provider)
+              && (r.org || '').toLowerCase() === org
+              && (provider === 'github' || (r.project || '').toLowerCase() === project))
             .map(r => (r.repo || '').toLowerCase()));
           let list = (f.repos || []).filter(r => !watched.has((r.name || '').toLowerCase()));
           if (q) list = list.filter(r => (r.name || '').toLowerCase().includes(q));

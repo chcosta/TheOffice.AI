@@ -16,6 +16,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const azdo = require('./azdo');
+const { forge } = require('./forge');
 
 let SUPERVISOR_DATA_DIR;
 try {
@@ -54,7 +55,12 @@ function _safe(s) {
   return String(s || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
 }
 
-function clonePath(org, project, repo) {
+function clonePath(org, project, repo, provider) {
+  // GitHub sources live under a dedicated github/<owner>/<repo> subtree (GitHub
+  // has no "project"); Azure DevOps keeps its <org>/<project>/<repo> layout.
+  if (String(provider || '').toLowerCase() === 'github') {
+    return path.join(DEV_REPOS, 'github', _safe(org), _safe(repo));
+  }
   return path.join(DEV_REPOS, _safe(org), _safe(project), _safe(repo));
 }
 
@@ -62,8 +68,18 @@ function worktreePath(repo, devId) {
   return path.join(worktreeRoot(), _safe(repo) + '__' + _safe(devId));
 }
 
-function _authArgs() {
-  // git -c http.extraheader="AUTHORIZATION: bearer <token>" ...
+// Build host-scoped git auth args for the record's provider (R10 — the
+// credential header only applies to that host so a mixed-provider environment
+// can't leak one provider's token to another). AzDo uses a bearer token; GitHub
+// uses HTTP basic with x-access-token (the gh/OAuth token as the password).
+// `desc` is a {provider, org/owner, project, repo} record; null/true => azdo.
+function _authArgs(desc) {
+  const provider = String((desc && desc.provider) || 'azdo').toLowerCase();
+  if (provider === 'github') {
+    const token = forge(desc).getToken();
+    const basic = Buffer.from('x-access-token:' + token).toString('base64');
+    return ['-c', 'http.https://github.com/.extraheader=AUTHORIZATION: basic ' + basic];
+  }
   return ['-c', 'http.extraheader=AUTHORIZATION: bearer ' + azdo.getToken()];
 }
 
@@ -72,7 +88,9 @@ function _git(args, cwd, { auth = false, timeout = 240_000 } = {}) {
   // core.longpaths=true makes git use the \\?\ prefix so deep repo paths
   // (e.g. dotnet-helix-machines) don't exceed the Windows MAX_PATH (260) limit
   // during clone + worktree checkout.
-  const full = ['-c', 'core.longpaths=true'].concat(auth ? _authArgs() : []).concat(args);
+  // `auth` may be false, true (=> azdo default), or a provider descriptor.
+  const authArgs = auth ? _authArgs(auth === true ? null : auth) : [];
+  const full = ['-c', 'core.longpaths=true'].concat(authArgs).concat(args);
   try {
     return execFileSync('git', full, {
       cwd: cwd || undefined,
@@ -102,21 +120,27 @@ function _isRepo(dir) {
 }
 
 // Ensure the managed clone exists and is fetched. Returns the clone path.
-function ensureClone(org, project, repo) {
-  const dir = clonePath(org, project, repo);
+// `desc` (optional) carries {provider, org/owner, project, repo}; when absent
+// the record is treated as Azure DevOps (back-compat with positional callers).
+function ensureClone(org, project, repo, desc) {
+  const provider = String((desc && desc.provider) || 'azdo').toLowerCase();
+  const auth = desc || true;
+  const dir = clonePath(org, project, repo, provider);
   if (_isRepo(dir)) {
-    _gitTry(['fetch', '--prune', 'origin'], dir, { auth: true });
+    _gitTry(['fetch', '--prune', 'origin'], dir, { auth });
     return dir;
   }
   fs.mkdirSync(path.dirname(dir), { recursive: true });
-  const url = azdo.cloneUrl(org, project, repo);
-  _git(['clone', url, dir], path.dirname(dir), { auth: true });
+  // Both providers expose cloneUrl(org/owner, project, repo) (GitHub ignores project).
+  const url = forge(desc).cloneUrl(org, project, repo);
+  _git(['clone', url, dir], path.dirname(dir), { auth });
   return dir;
 }
 
 // Create (or reuse) a worktree for a Dev item. Returns { worktreePath, branch, reused }.
-function createWorktree({ org, project, repo, baseBranch, branch, devId, detach }) {
-  const clone = ensureClone(org, project, repo);
+function createWorktree({ org, project, repo, baseBranch, branch, devId, detach, provider }) {
+  const desc = provider ? { provider, org, project, repo } : null;
+  const clone = ensureClone(org, project, repo, desc);
   const base = (baseBranch || '').trim() || 'main';
   const br = (branch || '').trim() || ('dev/' + _safe(devId));
   const wt = worktreePath(repo, devId);

@@ -833,6 +833,33 @@ async function getPrThreads(org, project, repo, prId) {
   return { activeComments: active, resolvedComments: resolved, totalThreads: total };
 }
 
+// Per-reviewer participation stats on a PR, for gauging how a person helped the
+// author flow their code. Returns how many comments THIS person authored, how many
+// discussion threads they STARTED (root comment), and of those, how many ended up
+// resolved (fixed/closed/wontfix/bydesign) — a proxy for "feedback that was acted
+// on". System/status-only threads are ignored. Best-effort; never throws on empty.
+async function getPrMyReview(org, project, repo, prId, personId) {
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}/threads?api-version=${API_VERSION}`
+  );
+  const pid = String(personId || '');
+  let myComments = 0, myThreads = 0, myThreadsResolved = 0;
+  for (const t of (d.value || [])) {
+    const comments = (t.comments || []).filter(c => !c.isDeleted && (c.commentType || 'text') === 'text');
+    if (!comments.length) continue;
+    const mineHere = comments.filter(c => c.author && String(c.author.id) === pid);
+    myComments += mineHere.length;
+    const root = comments[0];
+    if (root && root.author && String(root.author.id) === pid) {
+      myThreads++;
+      const st = (t.status || '').toLowerCase();
+      if (st === 'fixed' || st === 'closed' || st === 'wontfix' || st === 'bydesign') myThreadsResolved++;
+    }
+  }
+  return { myComments, myThreads, myThreadsResolved };
+}
+
 // Detailed ACTIVE (unresolved) comment threads on a PR, for an agent that must
 // respond to and fix reviewer feedback. Returns up to `max` threads, each with
 // its file/line anchor, status, and the ordered human comments (author + text).
@@ -1095,6 +1122,7 @@ module.exports = {
   getPrChangedFiles,
   listPullRequests,
   getPrThreads,
+  getPrMyReview,
   getPrActiveThreads,
   createPrThread,
   getPrStatuses,

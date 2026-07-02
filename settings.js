@@ -39,6 +39,13 @@ const DEFAULTS = {
   // New dev item dialog's org/project so users don't retype them every time.
   devOrg: '',
   devProject: '',
+  // GitHub source provider (Code Flow + Dev cards). Auth is secretless by
+  // default via the `gh` CLI login store (githubAuthMode='cli'); 'env' uses
+  // GH_TOKEN/GITHUB_TOKEN; 'pat' falls back to githubPat below. githubOwner is
+  // the default org/user to list repos from.
+  githubOwner: '',
+  githubPat: '',
+  githubAuthMode: 'cli',
   // Filesystem root under which dev-card AND code-flow review worktrees are
   // created. Empty = a short auto-chosen default (e.g. C:\a) to maximize Windows
   // MAX_PATH headroom. Set to any short directory to relocate all new worktrees.
@@ -90,6 +97,15 @@ const DEFAULTS = {
   // Default recipient for the "Email my Connect" action. Empty = leave the .eml
   // To: blank for the user to fill in their mail client.
   connectEmailTo: '',
+  // Deep meeting analysis. When on (default), meetings are handled by the
+  // dedicated meeting-analyst agent instead of the generic collector: it only
+  // records a meeting AFTER it has ended, drives the entry from the Teams
+  // transcript recap (your actual contributions + action items) via M365
+  // Copilot, and falls back to a light "attended — no recap" entry for meetings
+  // you RSVP-accepted that were not transcribed. Future meetings are never
+  // recorded, so the diary can no longer assert attendance before a meeting
+  // happens. Turn off to skip meeting collection entirely.
+  connectMeetingsEnabled: true,
   // Whether to also collect Azure DevOps evidence (work items + PRs) alongside
   // the M365 signals. Off by default so Connect works with M365 access alone.
   // When on, collection queries Azure DevOps DIRECTLY (via the Azure CLI token),

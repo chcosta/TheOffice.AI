@@ -143,9 +143,17 @@ fn start_sidecar(app: &tauri::AppHandle) {
     let node_dir = node_bin.parent().map(|p| p.to_path_buf());
     println!("[desktop] sidecar: {} {}", node_bin.display(), server_js.display());
 
+    // Bind a STABLE port (not an ephemeral one) so the WebView origin stays
+    // constant across restarts and upgrades. localStorage is partitioned by
+    // origin (scheme+host+PORT), so a random port every launch would silently
+    // drop all localStorage-backed preferences — theme, icon set, experience
+    // level, basic features — which is exactly the "settings reset on upgrade"
+    // bug. 3848 sits next to the browser-dev default (3847) to avoid colliding
+    // with a developer's `npm start`. If it's busy, server.js retries briefly
+    // then falls back to an ephemeral port so the window still opens.
     let mut cmd = Command::new(&node_bin);
     cmd.arg(&server_js)
-        .env("PORT", "0")
+        .env("PORT", "3848")
         .env("SUPERVISOR_SIDECAR", "1")
         .env("SUPERVISOR_HOST", "127.0.0.1")
         .stdin(Stdio::piped())
