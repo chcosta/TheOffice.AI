@@ -38,6 +38,18 @@ Key contract points (in `../server.js`, added in "Desktop migration Phase 0"):
 On window close, `RunEvent::Exit` in `src-tauri/src/main.rs` kills the Node child, so
 no orphaned server is left behind.
 
+### Crash recovery
+
+The sidecar runs under a supervisor loop with exponential backoff. If it exits
+unexpectedly (crash, restart-for-update), the loop respawns it and the Rust side
+**navigates the WebView back to the bundled recovery page** (`dist/index.html` with
+`?state=recovering`) instead of leaving it on a raw `ERR_CONNECTION_REFUSED`. That
+page polls the sidecar and self-heals to the live app on the next `__READY__`; it
+also offers **Restart service**, **Open logs folder**, and **Copy details** buttons.
+If the sidecar never starts at launch, the same page shows the recovery view after a
+short grace period. The SPA's reconnect banner additionally exposes a **View logs**
+link (desktop only) that invokes the `open_logs_dir` command.
+
 ---
 
 ## Prerequisites
@@ -88,7 +100,7 @@ desktop/
 ├── package.json            # tauri CLI scripts + devDep
 ├── generate-icon.js        # no-dep PNG encoder -> icon-source.png (gitignored)
 ├── dist/
-│   └── index.html          # themed loading splash shown until the sidecar is ready
+│   └── index.html          # themed splash + crash-recovery page (self-heals + Restart/Open logs/Copy details)
 └── src-tauri/
     ├── Cargo.toml          # tauri 2 + serde_json; release profile (lto/strip)
     ├── Cargo.lock          # committed (binary app)
@@ -197,3 +209,20 @@ resolves to the newest one.
 - **"Another machine is leader / standby"** — harmless: the sidecar shares the same
   data store as any other running server instance and they negotiate a config-sync
   lease. Only one writes config; both serve the UI.
+
+### Logs & recovery
+
+The Rust shell writes a persistent log (spawn/exit/crash events + the sidecar's own
+stdout/stderr) to:
+
+```
+%LOCALAPPDATA%\TheOffice.AI\logs\desktop.log
+```
+
+(rotated to `desktop.log.1` at ~2 MB). This is the first place to look when the
+desktop app won't load — GUI builds have no console, so this file is the only capture
+of what the sidecar printed. Open it quickly from the app: the recovery screen's
+**Open logs folder** button, or the reconnect banner's **View logs** link (both call
+the `open_logs_dir` Tauri command). **Copy details** on the recovery screen dumps
+diagnostics (version, port, resolved `server.js`/`node` paths, crash count, last exit
+reason, sidecar PID) via the `get_diagnostics` command for pasting into a bug report.

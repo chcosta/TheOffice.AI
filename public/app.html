@@ -1759,6 +1759,18 @@
       opacity: 0.6;
       cursor: default;
     }
+    .svc-logs-link {
+      display: block;
+      margin-top: 4px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--cp-text-muted);
+      text-decoration: none;
+    }
+    .svc-logs-link:hover {
+      color: var(--cp-text);
+      text-decoration: underline;
+    }
     .content {
       min-height: 0;
       min-width: 0;
@@ -5074,6 +5086,10 @@
               <button class="svc-restart-btn" @click="restartService()" :disabled="restarting"
                 x-text="restarting ? 'Restarting…' : '↻ Restart service'"
                 title="The realtime connection is stuck. Restart the background service."></button>
+            </template>
+            <template x-if="sseStuck && update.supported">
+              <a href="#" class="svc-logs-link" @click.prevent="openLogs()"
+                title="Open the desktop log folder to see what went wrong.">View logs</a>
             </template>
           </div>
         </div>
@@ -30533,6 +30549,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             setTimeout(() => location.reload(), 1500);
           } finally {
             setTimeout(() => { this.restarting = false; }, 6000);
+          }
+        },
+
+        // Desktop only: open the log folder so the user can inspect what happened.
+        // No-op (with a hint) in a plain browser where there's no Tauri shell.
+        async openLogs() {
+          try {
+            const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+            if (invoke) {
+              await invoke('open_logs_dir');
+            } else {
+              this.toast('Logs are only available in the desktop app.', 'info');
+            }
+          } catch (err) {
+            console.error('open_logs_dir failed:', err);
+            this.toast('Could not open the logs folder.', 'error');
           }
         },
 

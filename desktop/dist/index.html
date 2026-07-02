@@ -17,19 +17,29 @@
       color-scheme: light;
       --cp-bg: #f7f4ef;
       --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
       --cp-border: #dedede;
       --cp-text: #242424;
       --cp-text-muted: #5c5c5c;
       --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-fg: #ffffff;
+      --cp-danger: #dc2626;
+      --cp-success: #16a34a;
     }
     html[data-theme="dark"] {
       color-scheme: dark;
       --cp-bg: #3d3b3a;
       --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
       --cp-border: #474747;
       --cp-text: #dedede;
       --cp-text-muted: #919191;
       --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-fg: #1a1a1a;
+      --cp-danger: #f87171;
+      --cp-success: #4ade80;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
@@ -47,9 +57,11 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 18px;
-      padding: 40px 56px;
+      gap: 16px;
+      padding: 40px 48px;
       text-align: center;
+      max-width: 560px;
+      width: 100%;
     }
     .spinner {
       width: 44px;
@@ -61,14 +73,216 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .title { font-size: 20px; font-weight: 600; letter-spacing: 0.2px; }
-    .sub { font-size: 13px; color: var(--cp-text-muted); }
+    .sub { font-size: 13px; color: var(--cp-text-muted); line-height: 1.55; }
+    .status {
+      font-size: 12.5px;
+      color: var(--cp-text-muted);
+      min-height: 18px;
+    }
+    .status.is-back { color: var(--cp-success); }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 4px;
+    }
+    button {
+      font-family: inherit;
+      font-size: 13px;
+      border-radius: 8px;
+      padding: 9px 16px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    button:hover { background: var(--cp-surface-soft); }
+    button:disabled { opacity: 0.55; cursor: default; }
+    button.primary {
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      border-color: var(--cp-accent);
+    }
+    button.primary:hover { background: var(--cp-accent-hover); }
+    .logbox {
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px 12px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface-soft);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 11.5px;
+      color: var(--cp-text-muted);
+      text-align: left;
+      word-break: break-all;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    .logbox .label { color: var(--cp-text); font-weight: 600; display: block; margin-bottom: 2px; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div class="card">
+  <!-- Starting: shown on first launch while the local service boots. -->
+  <div class="card" id="starting">
     <div class="spinner" aria-hidden="true"></div>
     <div class="title">TheOffice.AI</div>
     <div class="sub">Starting local service…</div>
   </div>
+
+  <!-- Recovery: shown when the service stopped or is taking too long. -->
+  <div class="card hidden" id="recovery">
+    <div class="title" id="rTitle">The background service stopped</div>
+    <div class="sub" id="rSub">
+      TheOffice.AI runs a small local service in the background. It just stopped
+      unexpectedly. It usually restarts on its own within a few seconds — you can
+      also restart it manually below.
+    </div>
+    <div class="status" id="rStatus">Checking the service…</div>
+    <div class="actions">
+      <button type="button" class="primary" id="btnRestart">↻ Restart service</button>
+      <button type="button" id="btnLogs">Open logs folder</button>
+      <button type="button" id="btnCopy">Copy details</button>
+    </div>
+    <div class="logbox" id="rDiag">
+      <span class="label">Log file</span>
+      <span id="rLogPath">Loading…</span>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const HOST = "http://127.0.0.1:3848";
+      const params = new URLSearchParams(location.search);
+      const startedInRecovery = params.get("state") === "recovering";
+      const crashes = parseInt(params.get("crashes") || "0", 10) || 0;
+      const GRACE_MS = 15000; // how long "Starting…" shows before offering recovery
+
+      const el = (id) => document.getElementById(id);
+      const startingView = el("starting");
+      const recoveryView = el("recovery");
+      const rStatus = el("rStatus");
+      const rTitle = el("rTitle");
+      const rSub = el("rSub");
+      const rLogPath = el("rLogPath");
+
+      const invoke = () =>
+        (window.__TAURI__ && (window.__TAURI__.core?.invoke || window.__TAURI__.invoke)) || null;
+
+      const startTs = Date.now();
+      let navigating = false;
+      let inRecovery = startedInRecovery;
+
+      function showRecovery() {
+        if (!recoveryView.classList.contains("hidden")) return;
+        inRecovery = true;
+        startingView.classList.add("hidden");
+        recoveryView.classList.remove("hidden");
+        if (crashes > 1) {
+          rTitle.textContent = "The background service keeps stopping";
+          rSub.textContent =
+            "The local service has restarted " + crashes + " times. If this keeps " +
+            "happening, open the logs to see why, then restart the service or the app.";
+        } else if (!startedInRecovery) {
+          rTitle.textContent = "This is taking longer than usual";
+          rSub.textContent =
+            "The local service hasn't responded yet. You can wait a little longer, " +
+            "restart it, or open the logs to see what's happening.";
+        }
+        loadDiagnostics();
+      }
+
+      async function loadDiagnostics() {
+        const inv = invoke();
+        if (!inv) { rLogPath.textContent = "Available in the desktop app only."; return; }
+        try {
+          const d = await inv("get_diagnostics");
+          rLogPath.textContent = d.logPath || "(unknown)";
+          window.__diag = d;
+        } catch (e) {
+          rLogPath.textContent = "(unable to read log path)";
+        }
+      }
+
+      // Poll the local service. On a healthy response it's safe to load it —
+      // we only ever navigate to the port we just confirmed is serving, so an
+      // ephemeral-port fallback can never send us to a dead URL (the Rust shell
+      // navigates us there via __READY__ instead).
+      async function poll() {
+        if (navigating) return;
+        try {
+          const r = await fetch(HOST + "/api/settings", { cache: "no-store" });
+          if (r.ok) {
+            navigating = true;
+            if (inRecovery) {
+              rStatus.textContent = "Service is back — loading…";
+              rStatus.classList.add("is-back");
+            }
+            location.replace(HOST + "/");
+            return;
+          }
+        } catch (_) { /* service still down */ }
+
+        if (inRecovery) {
+          rStatus.textContent = "Service is not responding yet — retrying…";
+          rStatus.classList.remove("is-back");
+        } else if (Date.now() - startTs > GRACE_MS) {
+          showRecovery();
+        }
+      }
+
+      el("btnRestart").addEventListener("click", async () => {
+        const btn = el("btnRestart");
+        const inv = invoke();
+        rStatus.textContent = "Restarting the service…";
+        rStatus.classList.remove("is-back");
+        btn.disabled = true;
+        try {
+          if (inv) await inv("restart_sidecar");
+          else location.reload();
+        } catch (e) {
+          rStatus.textContent = "Couldn't restart automatically — try closing and reopening the app.";
+        }
+        setTimeout(() => { btn.disabled = false; }, 5000);
+      });
+
+      el("btnLogs").addEventListener("click", async () => {
+        const inv = invoke();
+        try { if (inv) await inv("open_logs_dir"); } catch (_) {}
+      });
+
+      el("btnCopy").addEventListener("click", async () => {
+        const inv = invoke();
+        let d = window.__diag;
+        try { if (inv && !d) d = await inv("get_diagnostics"); } catch (_) {}
+        const lines = [
+          "TheOffice.AI diagnostics",
+          "version: " + (d?.version ?? "?"),
+          "port: " + (d?.port ?? "?"),
+          "running: " + (d?.running ?? "?"),
+          "sidecarPid: " + (d?.sidecarPid ?? "-"),
+          "crashCount: " + (d?.crashCount ?? "?"),
+          "lastReason: " + (d?.lastReason ?? ""),
+          "logPath: " + (d?.logPath ?? ""),
+          "serverJs: " + (d?.serverJs ?? ""),
+          "nodeBin: " + (d?.nodeBin ?? ""),
+        ].join("\n");
+        try {
+          await navigator.clipboard.writeText(lines);
+          const btn = el("btnCopy");
+          const prev = btn.textContent;
+          btn.textContent = "Copied ✓";
+          setTimeout(() => { btn.textContent = prev; }, 1800);
+        } catch (_) {}
+      });
+
+      if (startedInRecovery) showRecovery();
+      poll();
+      setInterval(poll, 1500);
+    })();
+  </script>
 </body>
 </html>

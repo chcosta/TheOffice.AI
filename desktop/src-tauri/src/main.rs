@@ -1,11 +1,11 @@
 // Prevent an extra console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -57,6 +57,79 @@ fn run_pending_update() {
     let _ = cmd.spawn();
 }
 
+/// Directory where the desktop shell writes its rolling log
+/// (`%LOCALAPPDATA%\TheOffice.AI\logs`). This is the single place we point users
+/// to when the service crashes — see the recovery screen in `dist/index.html`.
+fn log_base() -> Option<PathBuf> {
+    std::env::var("LOCALAPPDATA")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| PathBuf::from(v).join("TheOffice.AI").join("logs"))
+}
+
+fn desktop_log_path() -> Option<PathBuf> {
+    log_base().map(|d| d.join("desktop.log"))
+}
+
+/// UTC timestamp `YYYY-MM-DD HH:MM:SS.mmmZ` computed without a date crate
+/// (civil-from-days, per Howard Hinnant). Keeps the dependency footprint tiny.
+fn now_stamp() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = dur.as_secs() as i64;
+    let millis = dur.subsec_millis();
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02} {h:02}:{mi:02}:{s:02}.{millis:03}Z")
+}
+
+/// Append one timestamped line to the desktop log, rotating once it passes ~2 MB
+/// (one backup kept as `desktop.log.1`). Also echoes to stderr so `tauri dev`
+/// still shows it. Best effort — logging must never crash the shell.
+fn log_line(msg: &str) {
+    eprintln!("{msg}");
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock();
+    let Some(path) = desktop_log_path() else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() > 2_000_000 {
+            let _ = std::fs::rename(&path, path.with_extension("log.1"));
+        }
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{} {}", now_stamp(), msg);
+    }
+}
+
+/// Navigate the main WebView window to `url` on the UI thread.
+fn navigate_main(app: &tauri::AppHandle, url: String) {
+    let h = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(win) = h.get_webview_window("main") {
+            if let Ok(u) = tauri::Url::parse(&url) {
+                let _ = win.navigate(u);
+            }
+        }
+    });
+}
+
 /// Shared sidecar supervision state.
 ///
 /// - `pid`: the OS process id of the *current* Node sidecar, so the exit handler
@@ -68,6 +141,14 @@ fn run_pending_update() {
 struct SidecarState {
     pid: Mutex<Option<u32>>,
     shutting_down: AtomicBool,
+    /// URL of the bundled splash/recovery page captured at startup, so we can
+    /// navigate back to it (instead of a raw ERR_CONNECTION_REFUSED) whenever the
+    /// sidecar is down and we're respawning it.
+    splash_url: Mutex<Option<String>>,
+    /// Count of unexpected sidecar exits this session (shown in diagnostics).
+    crash_count: AtomicU32,
+    /// Human-readable summary of the most recent unexpected exit.
+    last_reason: Mutex<String>,
 }
 
 /// Strip a Windows extended-length (`\\?\`) prefix from a path.
@@ -181,14 +262,25 @@ fn start_sidecar(app: &tauri::AppHandle, state: Arc<SidecarState>) {
                 consecutive_fast += 1;
                 delay_ms = (delay_ms.saturating_mul(2)).min(10_000);
             }
-            eprintln!(
-                "[desktop] sidecar exited after {:?} — restarting in {}ms (crash #{})",
-                uptime, delay_ms, consecutive_fast
-            );
+            let total = state.crash_count.fetch_add(1, Ordering::SeqCst) + 1;
+            let reason = format!("service stopped after {:.1}s", uptime.as_secs_f64());
+            if let Ok(mut g) = state.last_reason.lock() {
+                *g = reason.clone();
+            }
+            log_line(&format!(
+                "[desktop] {reason} — restarting in {delay_ms}ms (exit #{total}, fast-streak {consecutive_fast})"
+            ));
+            // Show the friendly recovery screen instead of leaving the WebView on a
+            // raw ERR_CONNECTION_REFUSED while we respawn. On the next __READY__ the
+            // stdout reader thread navigates back to the live app automatically.
+            if let Some(base) = state.splash_url.lock().ok().and_then(|g| g.clone()) {
+                let sep = if base.contains('?') { '&' } else { '?' };
+                navigate_main(&handle, format!("{base}{sep}state=recovering&crashes={total}"));
+            }
             // If it's crash-looping (dying almost instantly many times in a row),
             // pause longer so we don't spin the CPU or hammer the machine.
             if consecutive_fast >= 10 {
-                eprintln!("[desktop] sidecar crash-looping — backing off 30s");
+                log_line("[desktop] sidecar crash-looping — backing off 30s");
                 std::thread::sleep(Duration::from_secs(30));
                 consecutive_fast = 0;
                 delay_ms = 500;
@@ -208,7 +300,7 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
     let server_dir = server_js.parent().map(|p| p.to_path_buf());
     let node_bin = de_verbatim(resolve_node_bin(&handle));
     let node_dir = node_bin.parent().map(|p| p.to_path_buf());
-    println!("[desktop] sidecar: {} {}", node_bin.display(), server_js.display());
+    log_line(&format!("[desktop] sidecar: {} {}", node_bin.display(), server_js.display()));
 
     // Bind a STABLE port (not an ephemeral one) so the WebView origin stays
     // constant across restarts and upgrades. localStorage is partitioned by
@@ -252,7 +344,7 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[desktop] failed to spawn node sidecar: {e}");
+            log_line(&format!("[desktop] failed to spawn node sidecar: {e}"));
             return;
         }
     };
@@ -275,7 +367,7 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
     let err_handle = std::thread::spawn(move || {
         if let Some(stderr) = stderr {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                eprintln!("[sidecar:err] {line}");
+                log_line(&format!("[sidecar:err] {line}"));
             }
         }
     });
@@ -285,7 +377,7 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
         if let Some(stdout) = stdout {
             const TOKEN: &str = "__READY__ ";
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                println!("[sidecar] {line}");
+                log_line(&format!("[sidecar] {line}"));
                 let Some(pos) = line.find(TOKEN) else { continue };
                 let json = &line[pos + TOKEN.len()..];
                 let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
@@ -420,6 +512,7 @@ fn restart_sidecar(state: tauri::State<'_, Arc<SidecarState>>) -> Result<(), Str
     let pid = state.pid.lock().ok().and_then(|g| *g);
     match pid {
         Some(pid) => {
+            log_line(&format!("[desktop] manual service restart requested (pid {pid})"));
             #[cfg(windows)]
             taskkill_tree(pid);
             #[cfg(not(windows))]
@@ -432,17 +525,92 @@ fn restart_sidecar(state: tauri::State<'_, Arc<SidecarState>>) -> Result<(), Str
     }
 }
 
+/// Open the desktop log folder in the OS file manager. Invoked from the recovery
+/// screen and the in-app "View logs" affordance.
+#[tauri::command]
+fn open_logs_dir() -> Result<(), String> {
+    let dir = log_base().ok_or_else(|| "Log directory is unavailable.".to_string())?;
+    let _ = std::fs::create_dir_all(&dir);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        // explorer.exe returns a non-zero exit code even on success, so spawn
+        // and ignore rather than checking status.
+        Command::new("explorer")
+            .arg(&dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("xdg-open").arg(&dir).spawn().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Return diagnostics for the recovery screen and its "Copy details" button.
+#[tauri::command]
+fn get_diagnostics(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<SidecarState>>,
+) -> serde_json::Value {
+    let pid = state.pid.lock().ok().and_then(|g| *g);
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "port": 3848,
+        "logPath": desktop_log_path().map(|p| p.display().to_string()).unwrap_or_default(),
+        "logDir": log_base().map(|p| p.display().to_string()).unwrap_or_default(),
+        "serverJs": de_verbatim(resolve_server_js(&app)).display().to_string(),
+        "nodeBin": de_verbatim(resolve_node_bin(&app)).display().to_string(),
+        "crashCount": state.crash_count.load(Ordering::SeqCst),
+        "lastReason": state.last_reason.lock().ok().map(|g| g.clone()).unwrap_or_default(),
+        "sidecarPid": pid,
+        "running": pid.is_some(),
+    })
+}
+
+/// Return the last `lines` (default 200) of the desktop log for inline display.
+#[tauri::command]
+fn read_log_tail(lines: Option<usize>) -> Result<String, String> {
+    let path = desktop_log_path().ok_or_else(|| "Log path is unavailable.".to_string())?;
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let n = lines.unwrap_or(200);
+    let all: Vec<&str> = content.lines().collect();
+    let start = all.len().saturating_sub(n);
+    Ok(all[start..].join("\n"))
+}
+
 fn main() {
     let state = Arc::new(SidecarState {
         pid: Mutex::new(None),
         shutting_down: AtomicBool::new(false),
+        splash_url: Mutex::new(None),
+        crash_count: AtomicU32::new(0),
+        last_reason: Mutex::new(String::new()),
     });
     let setup_state = state.clone();
     let exit_state = state.clone();
     tauri::Builder::default()
         .manage(state.clone())
-        .invoke_handler(tauri::generate_handler![restart_sidecar])
+        .invoke_handler(tauri::generate_handler![
+            restart_sidecar,
+            open_logs_dir,
+            get_diagnostics,
+            read_log_tail
+        ])
         .setup(move |app| {
+            log_line("[desktop] --- session start ---");
+            // Capture the bundled splash/recovery page URL so the supervisor can
+            // navigate back to it whenever the sidecar is down.
+            if let Some(win) = app.get_webview_window("main") {
+                if let Ok(u) = win.url() {
+                    if let Ok(mut g) = setup_state.splash_url.lock() {
+                        *g = Some(u.to_string());
+                    }
+                }
+            }
             start_sidecar(&app.handle().clone(), setup_state.clone());
             Ok(())
         })
