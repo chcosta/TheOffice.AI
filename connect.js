@@ -333,7 +333,7 @@ function _pick(obj, keys) {
 
 // ---- Evidence (the diary) ---------------------------------------------------
 
-const EVIDENCE_SOURCES = ['teams', 'email', 'meeting', 'ado', 'pr', 'manual', 'other'];
+const EVIDENCE_SOURCES = ['teams', 'email', 'meeting', 'ado', 'pr', 'pr-review', 'manual', 'other'];
 
 function _readEvidence() {
   const obj = _readJson(_evidencePath(), { items: [] });

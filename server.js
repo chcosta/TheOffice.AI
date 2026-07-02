@@ -7703,21 +7703,34 @@ async function runConnectCollection({ manual = false, days } = {}) {
     } catch (e) { console.warn('[connect] meeting collection failed:', e.message); return []; }
   })();
 
-  const [m365, ado, meetings] = await Promise.all([m365Task, adoTask, meetingTask]);
-
-  const all = m365.concat(ado).concat(meetings);
-  const { added, skipped, updated } = all.length
-    ? connect.addEvidenceBatch(all, { origin: 'auto' })
-    : { added: 0, skipped: 0, updated: 0 };
+  // Persist each source's evidence AS SOON AS it resolves rather than waiting for
+  // all three. A slow/stuck source (typically the sliced meeting-analyst pass) must
+  // never starve an already-gathered source — e.g. ADO PR reviews or M365 activity —
+  // from landing in the diary. addEvidenceBatch is synchronous and idempotent (by
+  // ext: tag), so these sequential per-source writes are safe and dedupe cleanly.
+  let added = 0, skipped = 0, updated = 0;
+  const counts = { m365: 0, ado: 0, meetings: 0 };
+  const persist = (items) => {
+    const arr = Array.isArray(items) ? items : [];
+    if (!arr.length) return 0;
+    const r = connect.addEvidenceBatch(arr, { origin: 'auto' });
+    added += r.added; skipped += r.skipped; updated += r.updated;
+    return arr.length;
+  };
+  await Promise.all([
+    (async () => { let it = []; try { it = await m365Task; } catch { it = []; } counts.m365 = persist(it); })(),
+    (async () => { let it = []; try { it = await adoTask; } catch { it = []; } counts.ado = persist(it); })(),
+    (async () => { let it = []; try { it = await meetingTask; } catch { it = []; } counts.meetings = persist(it); })(),
+  ]);
   connect.markCollected();
   const sl = meetingMeta.slices;
   const slInfo = sl.total ? ` [meeting slices ${sl.ok}/${sl.total} ok, ${sl.retried} retried, ${sl.failed} failed]` : '';
-  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes, ${updated} enriched) — ${m365.length} M365 + ${ado.length} ADO + ${meetings.length} meetings, ${win.start}..${win.end}${slInfo}`);
+  console.log(`[connect] collection ran: +${added} evidence (${skipped} dupes, ${updated} enriched) — ${counts.m365} M365 + ${counts.ado} ADO + ${counts.meetings} meetings, ${win.start}..${win.end}${slInfo}`);
   let generated = false;
   if (!manual && s.connectGenerateDaily && (added > 0 || updated > 0)) {
     try { await runConnectGeneration(); generated = true; } catch (e) { console.warn('[connect] auto-generate failed:', e.message); }
   }
-  return { ran: true, added, skipped, updated, m365: m365.length, ado: ado.length, meetings: meetings.length, window: win, generated, meetingSlices: meetingMeta.slices, meetingFailedWindows: meetingMeta.failedWindows };
+  return { ran: true, added, skipped, updated, m365: counts.m365, ado: counts.ado, meetings: counts.meetings, window: win, generated, meetingSlices: meetingMeta.slices, meetingFailedWindows: meetingMeta.failedWindows };
 }
 
 // Format the user's guiding memories for prompt injection. Returns null when
