@@ -2451,6 +2451,58 @@ function _cfAgentPresence(rec) {
   return { agentKind: kind, agentName: slug, agentPresent: present };
 }
 
+// Head-repository verification protocol shared by BOTH the reviewer and steward
+// personas. Cross-repository (fork) PRs are the DEFAULT assumption here: the PR's
+// head can live in a fork while `origin` points only at the base repo, and a
+// same-named branch on the base repo can silently mask a wrong target. This block
+// forces the agent to resolve the head repo/branch/OID up front, prove the
+// checkout matches by SHA (never by branch name), and treat a green `git push` as
+// unproven until re-verified. Guardrail added after a cross-repo PR was edited on
+// the wrong (base-repo) branch mirror. Returns an array of markdown lines.
+function _cfHeadFactsBlock(pr) {
+  const provider = String(pr.provider || '').toLowerCase();
+  const isGh = provider === 'github';
+  const cross = !!pr.isCrossRepo;
+  const headRepoFull = pr.headRepoFullName || (isGh ? '(resolve it — see below)' : '');
+  const baseRepoFull = pr.baseRepoFullName || [pr.org, pr.project, pr.repo].filter(Boolean).join('/');
+  const headRef = pr.headRef || pr.sourceBranch || '';
+  const headSha = pr.headSha || '';
+  const headOwner = pr.headOwner || (headRepoFull.split('/')[0] || '');
+  const headRepoName = pr.headRepo || (headRepoFull.split('/')[1] || pr.repo || '');
+  const L = [];
+  L.push('## Head repository & branch — VERIFY before you touch git');
+  L.push('Treat this as a **cross-repository (fork) PR by default** and confirm the facts before trusting *any* remote. The single most damaging mistake here is editing/pushing the wrong branch because you assumed `origin/<branch>` was the PR head.');
+  L.push('');
+  L.push('- Base (target) repo: `' + (baseRepoFull || '(unknown)') + '`  ·  base branch: `' + (pr.targetBranch || 'main') + '`');
+  L.push('- Head (source) repo: `' + (headRepoFull || '(unknown)') + '`  ·  head branch: `' + (headRef || '(unknown)') + '`');
+  if (headSha) L.push('- Head commit (the PR\'s TRUE tip): `' + headSha + '`');
+  L.push('- Cross-repository: **' + (cross ? 'YES — the head lives in a FORK, not the base repo' : (pr.isCrossRepo === false ? 'no (same repo)' : 'UNKNOWN — assume YES until you prove otherwise')) + '**');
+  L.push('');
+  L.push('**Do these first, every time — in order:**');
+  L.push('1. **Resolve the head up front; do not assume.** Re-confirm the head repo/branch/OID from the forge itself:');
+  if (isGh) {
+    L.push('   ```');
+    L.push('   gh pr view ' + pr.id + ' --json headRepository,headRepositoryOwner,headRefName,headRefOid,isCrossRepository');
+    L.push('   ```');
+  } else {
+    L.push('   - Azure DevOps: read the PR\'s `sourceRefName` and its last source commit id from the PR API (`az repos pr show --id ' + pr.id + '`), and note whether the fork repo differs from the target repo.');
+  }
+  L.push('2. **Prove the checkout matches the PR — by SHA, not by name.** This worktree should already sit at the head commit; verify it: `git rev-parse HEAD` must equal the resolved head OID' + (headSha ? ' (`' + headSha + '`)' : '') + '. If they diverge, **STOP and warn** — do not analyze, edit, build, or commit against a mismatched checkout.');
+  L.push('3. **Never assume `origin/<branch>` is the PR head.** `origin` may point only at the **base** repo. For a fork PR, add the fork as an explicit remote and work against it:');
+  if (isGh && headOwner && headRepoName) {
+    L.push('   ```');
+    L.push('   git remote add prhead https://github.com/' + headOwner + '/' + headRepoName + '.git 2>/dev/null; git fetch prhead ' + (headRef || '<headRef>'));
+    L.push('   git rev-parse prhead/' + (headRef || '<headRef>') + '   # must equal the head OID above');
+    L.push('   ```');
+  } else {
+    L.push('   Add the head/fork repo as a distinct remote, fetch the head branch from *that* remote, and confirm its tip equals the head OID above.');
+  }
+  L.push('4. **Same-named branches are a hazard.** A branch with the SAME name can exist on the base repo at a DIFFERENT commit (a stale/sandbox mirror) and silently mask a wrong-target fetch or push. Always match by **commit SHA**, never by branch name alone.');
+  L.push('5. **A green `git push` is NOT proof.** If you (or the human) push, treat it as unverified until you re-read the PR\'s `headRefOid` and file list and confirm the tip equals the SHA you pushed AND the expected files changed. If the PR didn\'t move, you pushed to the wrong repo/branch — surface it loudly.');
+  L.push('');
+  return L;
+}
+
 // The review agent persona. Read-only by design: it analyzes and reports, it
 // does NOT change the PR's code or push anything.
 function _buildReviewAgentMd({ agentName, pr, workItems, worktreePath, reportName, commentsName }) {
@@ -2485,6 +2537,7 @@ function _reviewPersonaBody({ pr, workItems, reportName, commentsName = CODEFLOW
     ctx.push('- No linked work item was detected automatically. **Look for one yourself** — check the PR description, commit messages, and branch name for a work-item id (e.g. `AB#12345`) and reason about the original intent before reviewing.');
     ctx.push('');
   }
+  for (const l of _cfHeadFactsBlock(pr)) ctx.push(l);
   ctx.push('## This worktree');
   ctx.push('- This worktree is checked out to the PR\'s source branch `' + (pr.sourceBranch || '') +
     '`, so the changes are already present. Diff against the target branch to see exactly what this PR proposes:');
@@ -2591,6 +2644,7 @@ function _stewardPersonaBody({ pr, workItems, threads = [], reportName, comments
     ctx.push('- No unresolved review comments were detected automatically. **Still check yourself** (`git log`, the PR page) and treat your own self-review findings as the feedback to resolve.');
     ctx.push('');
   }
+  for (const l of _cfHeadFactsBlock(pr)) ctx.push(l);
   ctx.push('## This worktree');
   ctx.push('- This worktree is checked out to **your PR\'s source branch** `' + (pr.sourceBranch || '') +
     '`, so your changes are already present and you may edit, build, test, and commit here.');
