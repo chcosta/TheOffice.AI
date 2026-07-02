@@ -265,6 +265,13 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
+    // Keep the child's stdin write handle alive for the process lifetime. Do NOT
+    // call `child.wait()` — Rust's std closes stdin before waiting (deadlock
+    // avoidance), and an older server build treated that close as "parent gone"
+    // and shut the sidecar down seconds after startup. Holding this handle +
+    // polling with try_wait() below guarantees stdin stays open the whole time.
+    let _child_stdin = child.stdin.take();
+
     let err_handle = std::thread::spawn(move || {
         if let Some(stderr) = stderr {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
@@ -300,8 +307,18 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
         }
     });
 
-    // Block until the sidecar exits, then let the reader threads drain.
-    let _ = child.wait();
+    // Block until the sidecar exits, then let the reader threads drain. We poll
+    // with try_wait() instead of the blocking wait() specifically so we never
+    // close the child's stdin handle (wait() would) — `_child_stdin` above is
+    // held open for the whole run. When the child exits, drop stdin and return.
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(250)),
+            Err(_) => break,
+        }
+    }
+    drop(_child_stdin);
     // Clear the recorded pid; a new spawn will set it again.
     if let Ok(mut guard) = state.pid.lock() {
         *guard = None;

@@ -15380,14 +15380,19 @@ process.on('uncaughtException', (err) => {
   try { console.error('[supervisor] Uncaught exception — restarting:', err && err.stack ? err.stack : err); } catch { /* ignore */ }
   shutdown('uncaughtException', 1);
 });
-// When launched as a desktop sidecar (SUPERVISOR_SIDECAR=1) the host keeps a
-// pipe open on our stdin; if it closes, the parent is gone, so exit instead of
-// orphaning child CLI/git processes. Gated so normal `npm start` is unaffected.
+// When launched as a desktop sidecar (SUPERVISOR_SIDECAR=1) we resume stdin so
+// the OS pipe buffer can never fill and stall the parent — but we DO NOT treat
+// stdin end/close as a shutdown signal. The Rust supervisor blocks on
+// `child.wait()`, and Rust's std closes the child's stdin handle the instant
+// wait() is called (to avoid deadlock), so an stdin-close gate here fires on
+// EVERY normal spawn and kills the sidecar seconds after it prints __READY__ —
+// which stranded the desktop WebView on ERR_CONNECTION_REFUSED. Sidecar
+// lifecycle + orphan cleanup are owned by the Rust monitor (taskkill_tree on
+// respawn/exit), not by this stdin pipe. Gated so normal `npm start` is unaffected.
 if (process.env.SUPERVISOR_SIDECAR === '1') {
   try {
     process.stdin.resume();
-    process.stdin.on('end', () => shutdown('stdin-end'));
-    process.stdin.on('close', () => shutdown('stdin-close'));
+    process.stdin.on('error', () => { /* ignore — never fatal */ });
   } catch { /* best effort */ }
 }
 
