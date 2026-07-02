@@ -8288,16 +8288,31 @@
 
                   <div x-show="standupModal.loading" class="hint" style="margin:0">Searching…</div>
 
-                  <div x-show="standupModal.results.length" style="display:flex;flex-direction:column;gap:2px;max-height:240px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;padding:4px">
-                    <template x-for="ep in standupModal.results" :key="ep.id">
-                      <button type="button"
-                        @click="selectStandupEpic(ep)"
-                        style="display:flex;flex-direction:column;gap:2px;text-align:left;padding:8px 10px;border:0;border-radius:6px;background:transparent;cursor:pointer"
-                        :style="standupModal.selected && standupModal.selected.id===ep.id ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : ''">
-                        <span style="font-weight:600;color:var(--cp-text)"><span style="color:var(--cp-text-muted)">#<span x-text="ep.id"></span></span> <span x-text="ep.title"></span></span>
-                        <span class="hint" style="margin:0"><span x-text="ep.type"></span> · <span x-text="ep.state"></span><template x-if="ep.assignedTo"> · <span x-text="ep.assignedTo"></span></template></span>
-                      </button>
-                    </template>
+                  <div x-show="standupModal.results.length" style="max-height:260px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px">
+                    <table style="width:100%;border-collapse:collapse;font-size:13px">
+                      <thead>
+                        <tr style="position:sticky;top:0;background:var(--cp-surface);z-index:1">
+                          <th @click="standupSortBy('id')" title="Sort by ID" style="text-align:right;font-weight:600;color:var(--cp-text-muted);padding:7px 8px 7px 10px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">#<span x-text="standupSortIndicator('id')"></span></th>
+                          <th @click="standupSortBy('title')" title="Sort by title" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 8px;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">Title<span x-text="standupSortIndicator('title')"></span></th>
+                          <th @click="standupSortBy('state')" title="Sort by state" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 8px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">State<span x-text="standupSortIndicator('state')"></span></th>
+                          <th @click="standupSortBy('assignedTo')" title="Sort by assignee" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 10px 7px 8px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">Assigned<span x-text="standupSortIndicator('assignedTo')"></span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="ep in standupSortedEpics()" :key="ep.id">
+                          <tr @click="selectStandupEpic(ep)" style="cursor:pointer"
+                            :style="standupModal.selected && standupModal.selected.id===ep.id ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : ''">
+                            <td style="text-align:right;color:var(--cp-text-muted);padding:6px 8px 6px 10px;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--cp-border)"><span x-text="ep.id"></span></td>
+                            <td style="padding:6px 8px;vertical-align:top;color:var(--cp-text);font-weight:600;border-bottom:1px solid var(--cp-border)">
+                              <span x-text="ep.title"></span>
+                              <span class="hint" style="margin:0;font-weight:400;display:block" x-text="ep.type"></span>
+                            </td>
+                            <td style="padding:6px 8px;vertical-align:top;color:var(--cp-text-muted);white-space:nowrap;border-bottom:1px solid var(--cp-border)" x-text="ep.state"></td>
+                            <td style="padding:6px 10px 6px 8px;vertical-align:top;color:var(--cp-text-muted);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--cp-border)" :title="ep.assignedTo || ''" x-text="ep.assignedTo || '—'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
                   </div>
 
                   <details>
@@ -14618,7 +14633,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
-        standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '' },
+        standupModal: { open: false, org: '', project: '', q: '', results: [], loading: false, selected: null, manualId: '', creating: false, error: '', sortKey: 'id', sortDir: 'asc' },
         externalAccessDisabled: false,
         externalAccessLocked: false,
         externalAccessBusy: false,
@@ -25534,6 +25549,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           m.project = ds.devProject || es.exportProject || '';
           m.q = ''; m.results = []; m.loading = false; m.selected = null;
           m.manualId = ''; m.creating = false; m.error = '';
+          m.sortKey = 'id'; m.sortDir = 'asc';
           m.open = true;
           if (m.org && m.project) this.searchStandupEpics();
         },
@@ -25559,6 +25575,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         selectStandupEpic(epic) {
           this.standupModal.selected = epic;
           this.standupModal.error = '';
+        },
+        standupSortBy(key) {
+          const m = this.standupModal;
+          if (m.sortKey === key) m.sortDir = (m.sortDir === 'asc' ? 'desc' : 'asc');
+          else { m.sortKey = key; m.sortDir = 'asc'; }
+        },
+        standupSortIndicator(key) {
+          const m = this.standupModal;
+          if (m.sortKey !== key) return '';
+          return m.sortDir === 'asc' ? ' ▲' : ' ▼';
+        },
+        standupSortedEpics() {
+          const m = this.standupModal;
+          const arr = (m.results || []).slice();
+          const key = m.sortKey || 'id';
+          const dir = (m.sortDir === 'desc') ? -1 : 1;
+          const val = (o) => (key === 'id')
+            ? (Number(o.id) || 0)
+            : (o[key] == null ? '' : String(o[key]).toLowerCase());
+          arr.sort((a, b) => {
+            const av = val(a), bv = val(b);
+            if (key === 'id') return (av - bv) * dir;
+            if (av === '' && bv !== '') return 1;
+            if (bv === '' && av !== '') return -1;
+            if (av < bv) return -1 * dir;
+            if (av > bv) return 1 * dir;
+            return (Number(a.id) || 0) - (Number(b.id) || 0);
+          });
+          return arr;
         },
         async fetchStandupEpicById() {
           const m = this.standupModal;
