@@ -1930,11 +1930,67 @@
     .cf-people-v { color:var(--cp-text); }
     .cf-devcard { color:var(--cp-link); text-decoration:none; cursor:pointer; }
     .cf-devcard:hover { text-decoration:underline; }
-    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:8px; }
-    .cf-validation-summary { display:flex; align-items:center; gap:7px; cursor:pointer; list-style:none; }
+    /* Summary stat strip (always-on face) + summary-pane stat grid + tones */
+    .cf-tone-ok { color:var(--cp-success); }
+    .cf-tone-warn { color:var(--cp-warning); }
+    .cf-tone-bad { color:var(--cp-danger); }
+    .cf-tone-muted { color:var(--cp-text-muted); }
+    .cf-ai-inline { margin-top:0; display:flex; align-items:flex-start; gap:8px; padding:2px 0 2px 11px; border-left:2px solid var(--cp-accent); font-size:12.5px; line-height:1.45; }
+    .cf-stat-strip { display:flex; flex-wrap:wrap; align-items:center; row-gap:3px; margin-top:8px; font-size:12.5px; color:var(--cp-text); }
+    .cf-stat:not(:first-child)::before { content:"·"; margin:0 8px; color:var(--cp-text-soft); }
+    .cf-stat-k { font-weight:600; color:var(--cp-text-soft); }
+    .cf-stat-k::after { content:":"; }
+    .cf-stat-v { color:var(--cp-text); }
+    .cf-stat.cf-tone-ok .cf-stat-v { color:var(--cp-success); font-weight:600; }
+    .cf-stat.cf-tone-warn .cf-stat-v { color:var(--cp-warning); font-weight:600; }
+    .cf-stat.cf-tone-bad .cf-stat-v { color:var(--cp-danger); font-weight:700; }
+    .cf-stat.cf-tone-muted .cf-stat-v { color:var(--cp-text-muted); }
+    .cf-sum-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:8px; margin-bottom:10px; }
+    .cf-sum-cell { display:flex; flex-direction:column; gap:2px; padding:7px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); }
+    .cf-sum-k { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-text-soft); }
+    .cf-sum-v { font-size:13px; color:var(--cp-text); font-weight:600; }
+    .cf-sum-cell.cf-tone-ok .cf-sum-v { color:var(--cp-success); }
+    .cf-sum-cell.cf-tone-warn .cf-sum-v { color:var(--cp-warning); }
+    .cf-sum-cell.cf-tone-bad .cf-sum-v { color:var(--cp-danger); }
+    .cf-sum-cell.cf-tone-muted .cf-sum-v { color:var(--cp-text-muted); }
+    /* Reviewers pane — required / optional groups */
+    .cf-revs { display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+    .cf-rev-group { display:flex; flex-direction:column; gap:4px; }
+    .cf-rev-hdr { display:flex; align-items:center; gap:6px; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-text-soft); }
+    .cf-rev-hdr .cf-grp-count { font-weight:600; color:var(--cp-text-muted); }
+    .cf-rev { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; }
+    .cf-rev-name { color:var(--cp-text); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-rev-vote { flex:0 0 auto; font-size:11.5px; font-weight:600; }
+    .cf-rev.cf-tone-ok .cf-rev-vote { color:var(--cp-success); }
+    .cf-rev.cf-tone-warn .cf-rev-vote { color:var(--cp-warning); }
+    .cf-rev.cf-tone-bad .cf-rev-vote { color:var(--cp-danger); }
+    .cf-rev.cf-tone-muted .cf-rev-vote { color:var(--cp-text-muted); }
+        /* PR-card details drawer (Variant B) */
+    .cf-drawer-toggle { margin-top:10px; background:none; border:0; color:var(--cp-text-muted); font-size:12px; font-weight:600; cursor:pointer; padding:4px 0; letter-spacing:.02em; }
+    .cf-drawer-toggle:hover { color:var(--cp-text); }
+    .cf-drawer { margin-top:8px; display:grid; grid-template-columns:150px 1fr; gap:16px; border-top:1px solid var(--cp-border); padding-top:12px; }
+    .cf-rail { display:flex; flex-direction:column; gap:2px; }
+    .cf-rail-btn { display:flex; align-items:center; justify-content:space-between; gap:8px; text-align:left; background:none; border:0; border-left:2px solid transparent; color:var(--cp-text-muted); font-size:12.5px; padding:6px 10px; border-radius:6px; cursor:pointer; }
+    .cf-rail-btn:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+    .cf-rail-btn.active { background:var(--cp-accent-soft); border-left-color:var(--cp-accent); color:var(--cp-text); font-weight:600; }
+    .cf-rail-btn .rc { font-size:11px; color:var(--cp-text-soft); font-weight:600; }
+    .cf-rail-btn.active .rc { color:var(--cp-accent); }
+    .cf-rail-lbl { display:flex; align-items:center; gap:6px; min-width:0; }
+    .cf-rail-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
+    .cf-rail-btn.attn { color:var(--cp-text); }
+    .cf-ai-face { margin-top:8px; display:flex; flex-direction:column; gap:6px; border-left:0; padding:0; }
+    .cf-ai-detail { display:flex; flex-direction:column; gap:6px; }
+    .cf-ai-reason { font-size:12px; color:var(--cp-text-muted); line-height:1.45; padding-left:11px; border-left:2px solid var(--cp-border); }
+    .cf-ai-meta { display:flex; align-items:center; gap:12px; font-size:11px; color:var(--cp-text-soft); }
+    .cf-ai-refresh { background:none; border:0; padding:0; color:var(--cp-link); font-size:11px; cursor:pointer; }
+    .cf-ai-refresh:hover:not(:disabled) { text-decoration:underline; }
+    .cf-ai-refresh:disabled { color:var(--cp-text-soft); cursor:default; }
+    .cf-wt-envs { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+    .cf-panes { min-width:0; }
+    .cf-pane { min-width:0; }
+    @media (max-width:640px){ .cf-drawer { grid-template-columns:1fr; } .cf-rail { flex-direction:row; flex-wrap:wrap; } }    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:8px; }
+    .cf-validation-summary { display:flex; align-items:center; gap:7px; list-style:none; }
     .cf-validation-summary::-webkit-details-marker { display:none; }
-    .cf-validation-summary::before { content:"▸"; color:var(--cp-text-soft); font-size:10px; }
-    details[open] > .cf-validation-summary::before { content:"▾"; }
     .cf-validation-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--cp-text-soft); }
     .cf-validation-count { font-size:12px; color:var(--cp-text-muted); font-weight:600; }
     .cf-checks { display:flex; flex-direction:column; gap:5px; margin-top:8px; }
@@ -7511,6 +7567,41 @@
                                                       <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
                                                     </div>
                                                   </template>
+                                                  <!-- At-a-glance PR stats (parity with Code Flow Summary). -->
+                                                  <template x-if="boardPrFull(item)">
+                                                    <div class="cf-stat-strip" style="margin-top:6px">
+                                                      <template x-for="(st, i) in cfSummaryStats(pr)" :key="i">
+                                                        <span class="cf-stat" :class="'cf-tone-' + st.tone"><template x-if="st.k"><span class="cf-stat-k" x-text="st.k"></span></template><span class="cf-stat-v" x-text="st.v"></span></span>
+                                                      </template>
+                                                    </div>
+                                                  </template>
+                                                  <!-- Actual PR reviewers, split Required vs Optional. -->
+                                                  <template x-if="boardPrFull(item) && (cfReviewerGroups(pr).required.length || cfReviewerGroups(pr).optional.length)">
+                                                    <div class="cf-revs" style="margin-top:6px">
+                                                      <template x-if="cfReviewerGroups(pr).required.length">
+                                                        <div class="cf-rev-group">
+                                                          <div class="cf-rev-hdr">Required <span class="cf-grp-count" x-text="'· ' + cfReviewerGroups(pr).required.length"></span></div>
+                                                          <template x-for="r in cfReviewerGroups(pr).required" :key="r.id || r.name">
+                                                            <span class="cf-rev" :class="'cf-tone-' + cfVoteTone(r.vote)" :title="(r.name || '') + (r.voteLabel ? ' — ' + r.voteLabel : '')">
+                                                              <span class="cf-rev-name" x-text="r.name"></span>
+                                                              <span class="cf-rev-vote" x-show="r.voteLabel" x-text="r.voteLabel"></span>
+                                                            </span>
+                                                          </template>
+                                                        </div>
+                                                      </template>
+                                                      <template x-if="cfReviewerGroups(pr).optional.length">
+                                                        <div class="cf-rev-group">
+                                                          <div class="cf-rev-hdr">Optional <span class="cf-grp-count" x-text="'· ' + cfReviewerGroups(pr).optional.length"></span></div>
+                                                          <template x-for="r in cfReviewerGroups(pr).optional" :key="r.id || r.name">
+                                                            <span class="cf-rev" :class="'cf-tone-' + cfVoteTone(r.vote)" :title="(r.name || '') + (r.voteLabel ? ' — ' + r.voteLabel : '')">
+                                                              <span class="cf-rev-name" x-text="r.name"></span>
+                                                              <span class="cf-rev-vote" x-show="r.voteLabel" x-text="r.voteLabel"></span>
+                                                            </span>
+                                                          </template>
+                                                        </div>
+                                                      </template>
+                                                    </div>
+                                                  </template>
                                                   <!-- Reviewers, area expert, dev-card link. -->
                                                   <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
                                                     <div class="cf-people">
@@ -7533,17 +7624,17 @@
                                                       </template>
                                                     </div>
                                                   </template>
-                                                  <!-- Validation: collapsed, with a count + status summary. -->
+                                                  <!-- Validation: always visible, with a count + status summary. -->
                                                   <template x-if="pr.validation && pr.validation.length">
-                                                    <details class="cf-validation" :open="cfValIsOpen(pr)" @toggle="cfValToggle(pr, $event.target.open)">
-                                                      <summary class="cf-validation-summary">
+                                                    <div class="cf-validation">
+                                                      <div class="cf-validation-summary">
                                                         <span class="cf-validation-title">Validation</span>
                                                         <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
                                                         <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
                                                         <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'· ' + pr.pendingChecks + ' pending'"></span>
                                                         <span class="cf-m-warn" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' optional failing'"></span>
                                                         <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0 && !(pr.failedOptionalChecks > 0)">· all passing</span>
-                                                      </summary>
+                                                      </div>
                                                       <div class="cf-checks">
                                                         <template x-if="pr.validation.some(c => c.required !== false)">
                                                           <div class="cf-check-group cf-grp-required">
@@ -7590,7 +7681,7 @@
                                                           </div>
                                                         </template>
                                                       </div>
-                                                    </details>
+                                                    </div>
                                                   </template>
                                                   <!-- Worktree actions — identical to the Code Flow PR card. Persona depends on view (own PR → steward, else reviewer). -->
                                                   <div class="cf-wt">
@@ -9662,17 +9753,99 @@
                     </div>
                   </div>
 
+                  <div class="cf-ai cf-ai-face">
+                    <template x-if="codeflowAi(pr)">
+                      <span class="cf-ai-inline">
+                        <span class="cf-ai-badge">✨</span>
+                        <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
+                              :title="codeflowAi(pr).urgencyReason"
+                              x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
+                        <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
+                      </span>
+                    </template>
+                    <span class="cf-stat-strip">
+                      <template x-for="(st, i) in cfSummaryStats(pr)" :key="i">
+                        <span class="cf-stat" :class="'cf-tone-' + st.tone"><template x-if="st.k"><span class="cf-stat-k" x-text="st.k"></span></template><span class="cf-stat-v" x-text="st.v"></span></span>
+                      </template>
+                    </span>
+                  </div>
+
+                  <button type="button" class="cf-drawer-toggle" @click="cfDrawerToggle(pr)" x-text="(cfDrawerIsOpen(pr) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
+                  <div class="cf-drawer" x-show="cfDrawerIsOpen(pr)">
+                    <div class="cf-rail">
+                      <template x-for="s in cfSections(pr)" :key="s.id">
+                        <button type="button" class="cf-rail-btn" :class="{ active: cfActivePane(pr) === s.id, attn: s.attn && cfActivePane(pr) !== s.id }" @click="cfSetPane(pr, s.id)">
+                          <span class="cf-rail-lbl"><span class="cf-rail-dot" x-show="s.attn" title="Needs attention"></span><span x-text="s.label"></span></span>
+                          <span class="rc" x-show="s.count" x-text="s.count"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <div class="cf-panes">
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'summary'">
+                  <!-- Summary: AI review + at-a-glance PR stats in one place -->
+                  <div class="cf-sum-grid">
+                    <template x-for="(st, i) in cfSummaryStats(pr)" :key="i">
+                      <div class="cf-sum-cell" :class="'cf-tone-' + st.tone">
+                        <div class="cf-sum-k" x-text="st.k || 'Status'"></div>
+                        <div class="cf-sum-v" x-text="st.v"></div>
+                      </div>
+                    </template>
+                  </div>
                   <!-- AI insight: summary + urgency -->
                   <template x-if="codeflowAi(pr)">
-                    <div class="cf-ai">
-                      <span class="cf-ai-badge">✨</span>
-                      <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
-                            :title="codeflowAi(pr).urgencyReason"
-                            x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
-                      <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
+                    <div class="cf-ai-detail">
+                      <div class="cf-ai">
+                        <span class="cf-ai-badge">✨</span>
+                        <span class="cf-ai-urg" :class="codeflowUrgencyCls(codeflowAi(pr).urgency)"
+                              :title="codeflowAi(pr).urgencyReason"
+                              x-text="'Urgency ' + codeflowAi(pr).urgency"></span>
+                        <span class="cf-ai-summary" x-text="codeflowAi(pr).summary"></span>
+                      </div>
+                      <div class="cf-ai-reason" x-show="codeflowAi(pr).urgencyReason" x-text="codeflowAi(pr).urgencyReason"></div>
+                      <div class="cf-ai-meta">
+                        <span x-show="codeflow.aiGeneratedAt" x-text="'Analyzed ' + formatRelative(codeflow.aiGeneratedAt)"></span>
+                        <button type="button" class="cf-ai-refresh" @click="loadCodeflowAi(true)" :disabled="codeflow.aiBusy"
+                                x-text="codeflow.aiBusy ? 'Refreshing…' : '↻ Refresh AI'"></button>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!codeflowAi(pr)">
+                    <div class="cf-ai-meta">
+                      <span class="cf-m-muted" x-text="codeflow.aiBusy ? 'Analyzing…' : 'No AI analysis yet.'"></span>
+                      <button type="button" class="cf-ai-refresh" @click="loadCodeflowAi(true)" :disabled="codeflow.aiBusy"
+                              x-text="codeflow.aiBusy ? 'Refreshing…' : '✨ Analyze'"></button>
                     </div>
                   </template>
 
+                  </div>
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'reviewers'">
+                  <!-- Actual PR reviewers, split Required vs Optional, showing each vote -->
+                  <template x-if="cfReviewerGroups(pr).required.length || cfReviewerGroups(pr).optional.length">
+                    <div class="cf-revs">
+                      <template x-if="cfReviewerGroups(pr).required.length">
+                        <div class="cf-rev-group">
+                          <div class="cf-rev-hdr">Required <span class="cf-grp-count" x-text="'· ' + cfReviewerGroups(pr).required.length"></span></div>
+                          <template x-for="r in cfReviewerGroups(pr).required" :key="r.id || r.name">
+                            <span class="cf-rev" :class="'cf-tone-' + cfVoteTone(r.vote)" :title="(r.name || '') + (r.voteLabel ? ' — ' + r.voteLabel : '')">
+                              <span class="cf-rev-name" x-text="r.name"></span>
+                              <span class="cf-rev-vote" x-show="r.voteLabel" x-text="r.voteLabel"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </template>
+                      <template x-if="cfReviewerGroups(pr).optional.length">
+                        <div class="cf-rev-group">
+                          <div class="cf-rev-hdr">Optional <span class="cf-grp-count" x-text="'· ' + cfReviewerGroups(pr).optional.length"></span></div>
+                          <template x-for="r in cfReviewerGroups(pr).optional" :key="r.id || r.name">
+                            <span class="cf-rev" :class="'cf-tone-' + cfVoteTone(r.vote)" :title="(r.name || '') + (r.voteLabel ? ' — ' + r.voteLabel : '')">
+                              <span class="cf-rev-name" x-text="r.name"></span>
+                              <span class="cf-rev-vote" x-show="r.voteLabel" x-text="r.voteLabel"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
                   <!-- Reviewers, area expert, dev-card link (calm inline text) -->
                   <template x-if="(pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard">
                     <div class="cf-people">
@@ -9696,17 +9869,19 @@
                     </div>
                   </template>
 
-                  <!-- Validation: collapsed, with a count + status summary -->
+                  </div>
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'validation'">
+                  <!-- Validation: always visible, with a count + status summary -->
                   <template x-if="pr.validation && pr.validation.length">
-                    <details class="cf-validation" :open="cfValIsOpen(pr)" @toggle="cfValToggle(pr, $event.target.open)">
-                      <summary class="cf-validation-summary">
+                    <div class="cf-validation">
+                      <div class="cf-validation-summary">
                         <span class="cf-validation-title">Validation</span>
                         <span class="cf-validation-count" x-text="pr.validation.length + (pr.validation.length === 1 ? ' check' : ' checks')"></span>
                         <span class="cf-m-bad" x-show="pr.failedChecks > 0" x-text="'· ' + pr.failedChecks + ' failing'"></span>
                         <span class="cf-m-warn" x-show="pr.pendingChecks > 0" x-text="'· ' + pr.pendingChecks + ' pending'"></span>
                         <span class="cf-m-warn" x-show="pr.failedOptionalChecks > 0" x-text="'· ' + pr.failedOptionalChecks + ' optional failing'"></span>
                         <span class="cf-m-ok" x-show="pr.failedChecks === 0 && pr.pendingChecks === 0 && !(pr.failedOptionalChecks > 0)">· all passing</span>
-                      </summary>
+                      </div>
                       <div class="cf-checks">
                         <!-- Required checks (blocking policy / build gates) -->
                         <template x-if="pr.validation.some(c => c.required !== false)">
@@ -9755,9 +9930,11 @@
                           </div>
                         </template>
                       </div>
-                    </details>
+                    </div>
                   </template>
 
+                  </div>
+                      <div class="cf-pane" x-show="['agent','git','worktree'].includes(cfActivePane(pr))">
                   <!-- Worktree: create a worktree against the PR branch + the right agent (own PR → steward; else read-only reviewer) -->
                   <div class="cf-wt">
                     <template x-if="!cfWt(pr)">
@@ -9786,7 +9963,7 @@
                     </template>
                     <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready'">
                       <div class="cf-wt-ready">
-                        <div class="cf-wt-ready-main">
+                        <div class="cf-wt-ready-main" x-show="cfActivePane(pr) === 'agent'">
                           <button class="cf-wt-btn cf-wt-review" :disabled="!!cfBusy(pr) || cfReviewing(pr)" @click="reviewWithAi(pr)"
                                   :title="cfIsSteward(pr) ? 'Run the AI steward in this worktree: review, fix feedback, harden & validate, then (re)generate the report' : 'Run the AI reviewer in this worktree and (re)generate the report'">
                             <span x-text="cfRunLabel(pr)"></span>
@@ -9802,14 +9979,6 @@
                             <span class="cf-wt-agent" :title="(cfWt(pr).agentKind === 'steward' ? 'Steward agent: ' : 'Review agent: ') + cfWt(pr).agentName"
                                   x-text="'🤖 ' + cfWt(pr).agentName"></span>
                           </template>
-                          <span class="cf-wt-open">
-                            <span class="cf-wt-open-k">Open</span>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
-                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
-                          </span>
                           <template x-for="r in (cfWt(pr).reports || [])" :key="r.rel">
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
                                x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
@@ -9823,7 +9992,7 @@
                                 x-text="cfWt(pr).reviewError"></span>
                         </div>
                         <template x-if="cfHistOpen(pr) && (cfWt(pr).reportHistory || []).length">
-                          <div class="cf-wt-history">
+                          <div class="cf-wt-history" x-show="cfActivePane(pr) === 'agent'">
                             <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
                               <div class="cf-wt-history-row">
                                 <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
@@ -9833,7 +10002,7 @@
                             </template>
                           </div>
                         </template>
-                        <div class="cf-wt-ready-util">
+                        <div class="cf-wt-ready-util" x-show="cfActivePane(pr) === 'git'">
                           <!-- Drift vs the PR branch: local checkout out of sync with origin/<sourceBranch> -->
                           <template x-if="cfWt(pr).drift && cfWt(pr).drift.comparable && !cfWt(pr).drift.inSync">
                             <span class="cf-wt-drift" :title="cfDriftTip(pr)">
@@ -9864,11 +10033,21 @@
                           <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
                                   title="Re-scan the worktree for report files — use after running the review manually in VS Code/CLI. Does not re-run the AI."
                                   x-text="cfBusy(pr) === 'refresh' ? 'Re-scanning…' : 'Re-scan report'"></button>
+                        </div>
+                        <div class="cf-wt-envs" x-show="cfActivePane(pr) === 'worktree'">
+                          <span class="cf-wt-open">
+                            <span class="cf-wt-open-k">Open</span>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'editor')">VS Code</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'cli')">CLI</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'devcmd')" title="Open a Visual Studio Developer Command Prompt in the worktree">Dev Cmd</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'diff')">Diff</button>
+                            <button class="cf-wt-link" @click="openCfWorktree(pr, 'explorer')" title="Open the worktree folder in File Explorer">Explorer</button>
+                          </span>
                           <button class="cf-wt-link cf-wt-danger" :disabled="!!cfBusy(pr)" @click="removeCfWorktree(pr)"
                                   title="Delete this PR's review worktree and its cached report">Remove worktree</button>
                         </div>
                         <template x-if="cfChangeState(pr) && cfChangeState(pr).open">
-                          <div class="cf-wt-changes">
+                          <div class="cf-wt-changes" x-show="cfActivePane(pr) === 'git'">
                             <div class="cf-wt-changes-head" x-show="!cfChangeState(pr).loading">
                               <span x-show="(cfChangeState(pr).changed || []).length" x-text="(cfChangeState(pr).changed || []).length + ' uncommitted change' + ((cfChangeState(pr).changed || []).length === 1 ? '' : 's')"></span>
                               <span x-show="!(cfChangeState(pr).changed || []).length" class="cf-wt-history-ts">No committable changes.</span>
@@ -9890,8 +10069,9 @@
                         </template>
                       </div>
                     </template>
+                  </div>
                       </div>
-                    </template>
+                    </div>
                   </div>
                 </article>
                     </template>
@@ -14455,7 +14635,9 @@
           boardPrsLoading: false,
           boardPrsLoadedFor: '',  // boardId the boardPrs map was last loaded for (one fetch per board view)
           valOpen: (() => { try { return JSON.parse(localStorage.getItem('cfValOpen') || '{}') || {}; } catch { return {}; } })(),
-          grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })(),
+                    drawerOpen: (() => { try { return JSON.parse(localStorage.getItem('cfDrawerOpen') || '{}') || {}; } catch { return {}; } })(),
+          pane: {},              // prKey -> active drawer pane id
+grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollapsed') || '{}') || {}; } catch { return {}; } })(),
           changes: {},           // prKey -> { open, loading, dirty, changed[], ignored[] } uncommitted-change breakdown
           histOpen: {},          // prKey -> bool: report-history list expanded
           changeBanner: null     // {added,removed,changed,at,view,examples} when the auto-poller sees significant changes; dismissable
@@ -19846,6 +20028,7 @@
         },
         async loadCodeFlow(silent) {
           if (!silent) this.codeflow.loading = true;
+          if (!Object.keys(this.codeflow.ai || {}).length) this._cfAiLoadCache(this.codeflow.view);
           try {
             // Load watched repos and PRs for the current view together.
             const [reposResp, prResp] = await Promise.all([
@@ -19881,8 +20064,6 @@
             this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
             this.codeflow.attentionCount = prResp.attentionCount || 0;
             this.codeflow.fetchedAt = prResp.fetchedAt || null;
-            this.codeflow.ai = {};
-            this.codeflow.aiGeneratedAt = null;
             this.loadCodeflowAttention(true);
             // Re-generate AI summaries for any PRs that changed since last analysis.
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
@@ -19971,17 +20152,24 @@
             if (!silent) this.showToast('Code Flow', 'No pull requests to analyze.', 'info');
             return;
           }
+          const view = this.codeflow.view;
           this.codeflow.aiBusy = true;
           try {
             const r = await this.request('/api/codeflow/ai', {
               method: 'POST',
-              body: JSON.stringify({ view: this.codeflow.view, refresh: !!refresh }),
+              body: JSON.stringify({ view, refresh: !!refresh }),
               timeoutMs: 180000
             });
             const map = {};
             for (const ins of (r.insights || [])) map[ins.id] = ins;
-            this.codeflow.ai = map;
-            this.codeflow.aiGeneratedAt = r.generatedAt || null;
+            // Only apply to live state if the user is still on the same view (it can
+            // change mid-flight); always persist to the per-view cache so a later
+            // return/refresh can hydrate instantly instead of blanking.
+            if (this.codeflow.view === view) {
+              this.codeflow.ai = map;
+              this.codeflow.aiGeneratedAt = r.generatedAt || null;
+            }
+            this._cfAiSaveCacheFor(view, map, r.generatedAt || null);
             if (!silent && !(r.insights || []).length) this.showToast('Code Flow', 'No AI insights returned.', 'info');
           } catch (e) {
             if (!silent) this.showToast('Code Flow AI', e.message, 'error');
@@ -19993,8 +20181,7 @@
           if (view !== 'mine' && view !== 'reviews' && view !== 'active') return;
           if (this.codeflow.view === view) return;
           this.codeflow.view = view;
-          this.codeflow.ai = {};
-          this.codeflow.aiGeneratedAt = null;
+          this._cfAiLoadCache(view);
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
         },
@@ -20006,8 +20193,7 @@
           try { localStorage.setItem('cfReviewsOnly', JSON.stringify(this.codeflow.reviewsOnly)); } catch {}
           if (this.codeflow.view === 'mine') return; // only affects the Active PRs tab
           this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
-          this.codeflow.ai = {};
-          this.codeflow.aiGeneratedAt = null;
+          this._cfAiLoadCache(this.codeflow.view);
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
         },
@@ -20242,6 +20428,22 @@
         codeflowAi(pr) {
           return (this.codeflow.ai || {})[pr.id] || null;
         },
+        _cfAiCacheKey(view) { return 'cfAiCache:' + (view || (this.codeflow && this.codeflow.view) || 'mine'); },
+        _cfAiSaveCacheFor(view, ai, generatedAt) {
+          try { localStorage.setItem(this._cfAiCacheKey(view), JSON.stringify({ ai: ai || {}, generatedAt: generatedAt || null, at: Date.now() })); } catch { /* ignore */ }
+        },
+        // Hydrate codeflow.ai from the per-view localStorage cache so insights show
+        // instantly on return/refresh instead of blanking while the network refetch runs.
+        _cfAiLoadCache(view) {
+          try {
+            const raw = localStorage.getItem(this._cfAiCacheKey(view));
+            if (!raw) { this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null; return false; }
+            const c = JSON.parse(raw) || {};
+            this.codeflow.ai = c.ai || {};
+            this.codeflow.aiGeneratedAt = c.generatedAt || null;
+            return !!(c.ai && Object.keys(c.ai).length);
+          } catch { this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null; return false; }
+        },
         // ---- Code Flow review worktrees ----
         cfPrKey(pr) {
           return [pr.org, pr.project, pr.repo, pr.id].join('|').toLowerCase();
@@ -20263,7 +20465,7 @@
             // Not one of my PRs — switch to the Active PRs tab (honoring the
             // reviews-only toggle) to find a PR I review or any open PR.
             this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
-            this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null;
+            this._cfAiLoadCache(this.codeflow.view);
             if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
             try { await this.loadCodeFlow(); } catch {}
           }
@@ -20271,7 +20473,7 @@
             // Still not found and we were narrowing to my reviews — widen to all
             // active PRs once before giving up and falling back to AzDO.
             this.codeflow.view = 'active';
-            this.codeflow.ai = {}; this.codeflow.aiGeneratedAt = null;
+            this._cfAiLoadCache(this.codeflow.view);
             try { await this.loadCodeFlow(); } catch {}
           }
           // The PR isn't on the Code Flows page (e.g. it's closed/completed, so
@@ -20380,7 +20582,86 @@
           else delete this.codeflow.valOpen[key];
           try { localStorage.setItem('cfValOpen', JSON.stringify(this.codeflow.valOpen)); } catch { /* ignore */ }
         },
-        cfGrpKey(grp) {
+        cfSections(pr) {
+          const s = [];
+          // Summary is always first — AI review + PR stats live together here.
+          s.push({ id: 'summary', label: 'Summary', attn: this.cfSummaryAttn(pr) });
+          const revs = (pr.reviewers && pr.reviewers.length) || 0;
+          const hasPeople = revs || (pr.suggestedReviewers && pr.suggestedReviewers.length) || pr.areaExpert || pr.devCard;
+          if (hasPeople) s.push({ id: 'reviewers', label: 'Reviewers', count: revs || undefined });
+          const v = (pr.validation && pr.validation.length) || 0;
+          if (v) s.push({ id: 'validation', label: 'Validation', count: v, attn: (pr.failedChecks || 0) > 0 || (pr.pendingChecks || 0) > 0 });
+          const wt = this.cfWt(pr);
+          const reviews = this.codeflow && this.codeflow.view === 'reviews';
+          if (wt && wt.worktreeStatus === 'ready') {
+            s.push({ id: 'agent', label: 'Review agent', attn: wt.agentPresent === false || wt.reviewStatus === 'error' });
+            s.push({ id: 'git', label: 'Git', attn: !!(wt.drift && wt.drift.comparable && !wt.drift.inSync) || (wt.changeCount || 0) > 0 });
+            s.push({ id: 'worktree', label: reviews ? 'Review env' : 'Worktree', attn: false });
+          } else {
+            // Even before a worktree exists, surface an Agent tab so the user sees which
+            // agent would run and can create the worktree from there.
+            s.push({ id: 'agent', label: 'Review agent', attn: !!(wt && wt.worktreeStatus === 'error') });
+            s.push({ id: 'worktree', label: reviews ? 'Review' : 'Worktree', attn: !!(wt && wt.worktreeStatus === 'error') });
+          }
+          return s;
+        },
+        cfSummaryAttn(pr) {
+          const ai = this.codeflowAi && this.codeflowAi(pr);
+          if (ai && typeof ai.urgency === 'number' && ai.urgency >= 70) return true;
+          if ((pr.failedChecks || 0) > 0) return true;
+          return !!pr.attention;
+        },
+        // Calm inline stat segments for the Summary strip/pane. No pills — { k, v, tone }.
+        cfSummaryStats(pr) {
+          const out = [];
+          const st = (pr.status || '').toLowerCase();
+          if (st) out.push({ k: 'State', v: pr.isDraft ? 'Draft' : (st.charAt(0).toUpperCase() + st.slice(1)), tone: pr.isDraft ? 'muted' : (st === 'active' ? 'ok' : 'muted') });
+          const age = this.codeflowAgeLabel ? this.codeflowAgeLabel(pr) : '';
+          if (age) out.push({ k: 'Age', v: age, tone: 'muted' });
+          const ac = (pr.comments && pr.comments.activeComments) || 0;
+          if (ac) out.push({ k: 'Comments', v: ac + ' active', tone: 'warn' });
+          const g = this.cfReviewerGroups(pr);
+          if (g.required.length || g.optional.length) out.push({ k: 'Reviewers', v: g.required.length + ' req · ' + g.optional.length + ' opt', tone: 'muted' });
+          const v = (pr.validation && pr.validation.length) || 0;
+          if (v) {
+            const fail = (pr.failedChecks || 0), pend = (pr.pendingChecks || 0);
+            out.push({ k: 'Checks', v: fail ? (fail + ' failing') : (pend ? (pend + ' pending') : 'all passing'), tone: fail ? 'bad' : (pend ? 'warn' : 'ok') });
+          }
+          if (pr.readyToMerge) out.push({ k: '', v: '✅ Ready to merge', tone: 'ok' });
+          return out;
+        },
+        // Split the PR's actual reviewers into Required vs Optional (from AzDo isRequired).
+        cfReviewerGroups(pr) {
+          const rs = Array.isArray(pr.reviewers) ? pr.reviewers : [];
+          return { required: rs.filter(r => r && r.isRequired), optional: rs.filter(r => r && !r.isRequired) };
+        },
+        // AzDo vote → tone: 10/5 approved, 0 none, -5 waiting, -10 rejected.
+        cfVoteTone(vote) {
+          const v = Number(vote);
+          if (v >= 5) return 'ok';
+          if (v === 0 || Number.isNaN(v)) return 'muted';
+          if (v === -5) return 'warn';
+          return 'bad';
+        },
+        cfDrawerIsOpen(pr) {
+          return !!(this.codeflow.drawerOpen || {})[this.cfPrKey(pr)];
+        },
+        cfDrawerToggle(pr) {
+          const key = this.cfPrKey(pr);
+          if (this.codeflow.drawerOpen[key]) delete this.codeflow.drawerOpen[key];
+          else this.codeflow.drawerOpen[key] = true;
+          try { localStorage.setItem('cfDrawerOpen', JSON.stringify(this.codeflow.drawerOpen)); } catch { /* ignore */ }
+        },
+        cfActivePane(pr) {
+          const key = this.cfPrKey(pr);
+          const secs = this.cfSections(pr);
+          const cur = (this.codeflow.pane || {})[key];
+          if (cur && secs.some(x => x.id === cur)) return cur;
+          return secs.length ? secs[0].id : 'worktree';
+        },
+        cfSetPane(pr, id) {
+          this.codeflow.pane[this.cfPrKey(pr)] = id;
+        },        cfGrpKey(grp) {
           return (this.codeflow.groupBy || 'none') + ':' + (grp && grp.key != null ? grp.key : '');
         },
         cfPersistGroupBy() {

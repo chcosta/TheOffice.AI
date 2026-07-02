@@ -1498,6 +1498,70 @@ const CODEFLOW_AI_TTL_MS = 600000; // 10 min
 const _cfApproverCache = new Map(); // "org|project|repo" -> { at, entries }
 const CF_APPROVER_TTL_MS = 1800000; // 30 min — PR history changes slowly
 
+// Live PR "pieces" for the briefing + board-assistant context, pulled ONLY from the
+// in-memory codeflow caches (no AzDo fetch, so it's cheap and never blocks). Given a
+// pinned PR's identity meta, finds its cached record across views and returns a rich
+// set of human-readable lines: state/draft, ready, age, comments, required/optional
+// reviewers with votes, validation/check counts, attention reason, and the cached AI
+// urgency + summary. Returns null when the PR isn't in any warm cache.
+function _cfPrLive(m) {
+  if (!m || m.prId == null) return null;
+  const wantId = String(m.prId);
+  const idKey = p => (p && p.org && p.project && p.repo && p.id != null)
+    ? [p.org, p.project, p.repo, p.id].join('|').toLowerCase() : null;
+  const wantKey = idKey({ org: m.org, project: m.project, repo: m.repo, id: m.prId });
+  let pr = null, foundView = null;
+  for (const view of ['mine', 'reviews', 'active']) {
+    const cached = _codeflowCache.get(view);
+    const list = cached && cached.data && Array.isArray(cached.data.pullRequests) ? cached.data.pullRequests : null;
+    if (!list) continue;
+    const hit = list.find(p => p && (wantKey ? idKey(p) === wantKey : String(p.id) === wantId));
+    if (hit) { pr = hit; foundView = view; break; }
+  }
+  if (!pr) return null;
+  const lines = [];
+  const st = pr.isDraft ? 'draft' : (pr.status || 'active');
+  lines.push('state: ' + st + (pr.readyToMerge ? ' · ready to merge' : ''));
+  if (pr.ageDays != null || pr.ageHours != null) {
+    const age = (pr.ageDays != null && pr.ageDays >= 1)
+      ? Math.round(pr.ageDays) + 'd'
+      : Math.max(1, Math.round(pr.ageHours || 0)) + 'h';
+    lines.push('age: ' + age);
+  }
+  const c = pr.comments || {};
+  if (c.activeComments || c.totalThreads) {
+    lines.push('comments: ' + (c.activeComments || 0) + ' active / ' + (c.totalThreads || 0) + ' threads');
+  }
+  const rs = Array.isArray(pr.reviewers) ? pr.reviewers : [];
+  if (rs.length) {
+    const fmt = r => (r.name || r.id || '?') + (r.voteLabel ? ' (' + r.voteLabel + ')' : '');
+    const req = rs.filter(r => r && r.isRequired), opt = rs.filter(r => r && !r.isRequired);
+    if (req.length) lines.push('required reviewers: ' + req.map(fmt).join(', '));
+    if (opt.length) lines.push('optional reviewers: ' + opt.map(fmt).join(', '));
+  }
+  const val = Array.isArray(pr.validation) ? pr.validation : [];
+  if (val.length) {
+    const fail = pr.failedChecks || 0, pend = pr.pendingChecks || 0;
+    lines.push('checks: ' + (fail ? fail + ' failing' : (pend ? pend + ' pending' : 'all ' + val.length + ' passing')));
+  }
+  if (pr.attentionReason) lines.push('attention: ' + pr.attentionReason);
+  let urgency = null, summary = '';
+  try {
+    const store = _codeflowAiCache.get(foundView);
+    const ins = store && store.get(String(pr.id));
+    if (ins && ins.insight) {
+      urgency = ins.insight.urgency;
+      summary = ins.insight.summary || '';
+      if (summary) {
+        lines.push('AI: ' + summary + (urgency != null
+          ? ' (urgency ' + urgency + (ins.insight.urgencyReason ? ' — ' + ins.insight.urgencyReason : '') + ')'
+          : ''));
+      }
+    }
+  } catch { /* AI cache optional */ }
+  return { lines, urgency, summary, view: foundView };
+}
+
 // Directory prefixes (truncated to `depth` path segments) for a set of changed
 // file paths. e.g. depth 2 of "src/hive/tools/x.ps1" -> "src/hive". Used to gauge
 // whether two PRs touched the "same space" of the repo.
@@ -9895,11 +9959,17 @@ function _resolveBoardItems(b, opts = {}) {
         if (wt && wt.updatedAt) when = wt.updatedAt;
         status = wt ? (wt.reviewStatus || wt.worktreeStatus || 'pr') : 'pr';
         const head = `${m.repo || ''} #${m.prId || '?'} [${m.view || 'mine'}]`;
-        detail = clip(head + ' — ' + bits.join(', '), 240);
-        const lines = [head, 'state: ' + bits.join(', ')];
+        const live = _cfPrLive(m);
+        const detailBits = live ? live.lines.slice(0, 2).join(', ') : bits.join(', ');
+        detail = clip(head + ' — ' + detailBits, 240);
+        const lines = [head];
         if (m.title) lines.unshift('title: ' + clip(m.title, 200));
+        // Live PR pieces (state/age/comments/reviewers/checks/AI) from the codeflow
+        // cache so the briefing can "see all the pieces", not just the worktree state.
+        if (live && live.lines.length) lines.push(...live.lines);
+        lines.push('worktree: ' + bits.join(', '));
         if (m.url) lines.push('url: ' + m.url);
-        if (wt && wt.worktreePath) lines.push('worktree: ' + wt.worktreePath);
+        if (wt && wt.worktreePath) lines.push('worktree path: ' + wt.worktreePath);
         if (wt && wt.reviewError) lines.push('review error: ' + clip(wt.reviewError, 200));
         context = clip(lines.join('\n'), CTX_CLIP);
       } else if (it.kind === 'session') {
@@ -11575,7 +11645,10 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const m = p.meta || {};
       const wt = wtMap[_cfWtKey({ org: m.org, project: m.project, repo: m.repo, prId: m.prId })];
       const bits = _cfWtBits(wt);
-      return `- (pr:${p.refId}) "${clip(p.label || m.title || p.refId, 120)}" — ${clip(m.repo || '', 60)} #${m.prId || '?'} [${m.view || 'mine'}] (${bits.join(', ')})`;
+      const live = _cfPrLive(m);
+      const head = `- (pr:${p.refId}) "${clip(p.label || m.title || p.refId, 120)}" — ${clip(m.repo || '', 60)} #${m.prId || '?'} [${m.view || 'mine'}] (worktree: ${bits.join(', ')})`;
+      if (live && live.lines.length) return head + '\n' + live.lines.map(l => '    · ' + clip(l, 180)).join('\n');
+      return head;
     }).join('\n'));
   }
   // AVAILABLE PULL REQUESTS catalog — built ONLY from the codeflow cache (no forced
