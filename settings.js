@@ -118,6 +118,12 @@ const DEFAULTS = {
   // devProject, then exportProject. PRs are searched across ALL repos in each
   // project; work items via WIQL (@Me, assigned-or-created in the window).
   connectAdoProjects: '',
+  // Multiple Azure DevOps org/project targets for Connect collection. Each entry
+  // is { org: 'name', projects: 'proj1, proj2' }. When non-empty this is
+  // authoritative and supersedes the single connectAdoOrg/connectAdoProjects
+  // (which are kept in sync with the first entry for backward compatibility and
+  // as the fallback when this list is empty).
+  connectAdoOrgs: [],
   // The command + args used to launch the WorkIQ MCP server for the collector
   // agent. Defaults to the public npm launcher; override for an air-gapped or
   // pinned install. Args are space-separated.
@@ -152,7 +158,9 @@ function updateSettings(patch) {
   const next = { ...cur };
   for (const k of Object.keys(DEFAULTS)) {
     if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-      if (typeof DEFAULTS[k] === 'boolean') {
+      if (Array.isArray(DEFAULTS[k])) {
+        next[k] = Array.isArray(patch[k]) ? patch[k] : DEFAULTS[k];
+      } else if (typeof DEFAULTS[k] === 'boolean') {
         next[k] = typeof patch[k] === 'boolean' ? patch[k] : (patch[k] === 'true' || patch[k] === 1 || patch[k] === '1');
       } else if (typeof DEFAULTS[k] === 'number') {
         const n = Number(patch[k]);

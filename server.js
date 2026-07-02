@@ -7311,25 +7311,55 @@ function _connectReviewSummary({ vlabel, myComments, myThreads, myThreadsResolve
 // for the given window, straight from the Azure DevOps REST API via the Azure CLI
 // token — not WorkIQ. Returns Connect-shaped evidence items with stable ext: tags.
 // Best-effort per project: one project's failure never sinks the rest.
+// Build the normalized list of Azure DevOps collection targets. Prefers the
+// multi-org list (connectAdoOrgs: [{org, projects}]); when that is empty, falls
+// back to the single connectAdoOrg/connectAdoProjects, then the dev/export org.
+// Each returned target is { org, projects: [names] } with everything trimmed and
+// empties dropped, so an incompletely-filled row never reaches the API.
+function _connectAdoTargets(s) {
+  const targets = [];
+  const seen = new Set();
+  const add = (org, projStr) => {
+    org = String(org || '').trim();
+    const projects = String(projStr || '').split(',').map(p => p.trim()).filter(Boolean);
+    if (!org || !projects.length) return;
+    const key = org.toLowerCase();
+    if (seen.has(key)) return; // one entry per org — merge duplicates
+    seen.add(key);
+    targets.push({ org, projects });
+  };
+  const list = Array.isArray(s.connectAdoOrgs) ? s.connectAdoOrgs : [];
+  for (const entry of list) add(entry && entry.org, entry && entry.projects);
+  if (!targets.length) {
+    add(s.connectAdoOrg || s.devOrg || s.exportOrg, s.connectAdoProjects || s.devProject || s.exportProject);
+  }
+  return targets;
+}
+
 async function runConnectAdoCollection({ days } = {}) {
   const s = settings.getSettings();
-  const org = (s.connectAdoOrg || s.devOrg || s.exportOrg || '').trim();
-  const projects = String(s.connectAdoProjects || s.devProject || s.exportProject || '')
-    .split(',').map(p => p.trim()).filter(Boolean);
-  if (!org || !projects.length) return { skipped: 'no-ado-config', items: [] };
-
-  let me;
-  try { me = await azdo.getCurrentUser(org); }
-  catch (e) { return { error: `Azure DevOps auth failed (run "az login"): ${e.message}`, items: [] }; }
-  const creatorId = me && me.id;
+  const targets = _connectAdoTargets(s);
+  if (!targets.length) return { skipped: 'no-ado-config', items: [] };
 
   const win = _connectDateWindow(days);
   const inWin = (iso) => { const d = String(iso || '').slice(0, 10); return d && d >= win.start && d <= win.end; };
   const DONE = new Set(['closed', 'done', 'resolved', 'completed']);
   const items = [];
   const errors = [];
+  const orgsSeen = [];
+  const projectsSeen = [];
 
-  for (const project of projects) {
+  for (const { org, projects } of targets) {
+    // Identity is per-org (AAD vs MSA can differ across orgs), so resolve the
+    // caller for each org. A failed org is skipped, never sinking the others.
+    let me;
+    try { me = await azdo.getCurrentUser(org); }
+    catch (e) { errors.push(`auth ${org}: ${e.message}`); continue; }
+    const creatorId = me && me.id;
+    orgsSeen.push(org);
+
+    for (const project of projects) {
+    projectsSeen.push(`${org}/${project}`);
     // --- Work items (assigned-or-created by me, changed in window) ---
     try {
       const wis = await azdo.listMyWorkItems(org, project, { start: win.start, end: win.end });
@@ -7357,7 +7387,7 @@ async function runConnectAdoCollection({ days } = {}) {
           tags: [`ext:ado:${org}/${w.id}`, 'source:azdo']
         });
       }
-    } catch (e) { errors.push(`workitems ${project}: ${e.message}`); }
+    } catch (e) { errors.push(`workitems ${org}/${project}: ${e.message}`); }
 
     // --- Pull requests I authored (completed in window + opened in window) ---
     for (const [status, verb, dateField] of [['completed', 'Merged', 'closedDate'], ['active', 'Opened', 'creationDate']]) {
@@ -7375,7 +7405,7 @@ async function runConnectAdoCollection({ days } = {}) {
             tags: [`ext:pr:${org}/${project}/${pr.id}`, 'source:azdo']
           });
         }
-      } catch (e) { errors.push(`prs ${project}/${status}: ${e.message}`); }
+      } catch (e) { errors.push(`prs ${org}/${project}/${status}: ${e.message}`); }
     }
 
     // --- Pull requests I REVIEWED for others (helping others flow code) ---
@@ -7417,11 +7447,12 @@ async function runConnectAdoCollection({ days } = {}) {
             tags: [`ext:pr-review:${org}/${project}/${pr.id}`, 'source:azdo']
           });
         }
-      } catch (e) { errors.push(`reviewed-prs ${project}/${status}: ${e.message}`); }
+      } catch (e) { errors.push(`reviewed-prs ${org}/${project}/${status}: ${e.message}`); }
+    }
     }
   }
   if (errors.length) console.warn('[connect] ADO collection partial errors:', errors.join('; '));
-  return { items, org, projects, window: win, errors };
+  return { items, orgs: orgsSeen, projects: projectsSeen, window: win, errors };
 }
 
 // Build the meeting-analyst prompt for one window. `now` lets the agent reliably
@@ -8050,6 +8081,7 @@ app.get('/api/connect', (req, res) => {
         adoEnabled: s.connectAdoEnabled === true,
         adoOrg: s.connectAdoOrg || '',
         adoProjects: s.connectAdoProjects || '',
+        adoOrgs: Array.isArray(s.connectAdoOrgs) ? s.connectAdoOrgs.map(o => ({ org: (o && o.org) || '', projects: (o && o.projects) || '' })) : [],
         meetingsEnabled: s.connectMeetingsEnabled !== false,
         lastCollectedAt: (connect.getState().meta || {}).lastCollectedAt || null,
       },

@@ -9157,7 +9157,7 @@
 
             <!-- ===== Diary tab ===== -->
             <div x-show="!connect.loading && connect.tab === 'diary'" x-transition.opacity.duration.120ms>
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap" x-data="{ collectInfo: false }">
                 <div style="display:flex;align-items:center;gap:8px">
                   <label class="hint" style="margin:0">Filter</label>
                   <select x-model="connect.filterSource" style="width:auto">
@@ -9172,14 +9172,20 @@
                     <option value="other">Other</option>
                   </select>
                 </div>
-                <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
-                <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" title="Pull your recent work into your diary — Teams posts, email you sent, meetings (with transcripts), Azure DevOps work items, PRs you authored, and PR reviews & approvals you gave" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
-                <span class="hint" style="font-size:0.72rem;white-space:nowrap" x-show="connect.config && connect.config.lastCollectedAt" x-text="'Last collected ' + formatRelative(connect.config && connect.config.lastCollectedAt)" :title="(connect.config && connect.config.lastCollectedAt) ? new Date(connect.config.lastCollectedAt).toLocaleString() : ''"></span>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
+                    <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
+                  </div>
+                  <div class="hint" style="font-size:0.72rem;text-align:right;opacity:0.85;line-height:1.5">
+                    <span x-show="connect.config && connect.config.lastCollectedAt" x-text="'Last collected ' + formatRelative(connect.config && connect.config.lastCollectedAt) + ' · '" :title="(connect.config && connect.config.lastCollectedAt) ? new Date(connect.config.lastCollectedAt).toLocaleString() : ''"></span><span>Collect now pulls your Teams, email, meetings, work items &amp; PRs.</span>
+                    <a href="#" @click.prevent="collectInfo = !collectInfo" style="color:var(--cp-link)" x-text="collectInfo ? 'Hide details' : 'What gets collected?'"></a>
+                  </div>
+                  <div x-show="collectInfo" x-transition.opacity.duration.120ms class="hint" style="font-size:0.72rem;text-align:left;max-width:440px;background:var(--cp-accent-soft);border-radius:8px;padding:9px 11px;line-height:1.55">
+                    Collects <strong>your own</strong> activity only — Teams channel/group posts · email you sent · meetings you attended (with transcripts) · Azure DevOps work items · pull requests you authored · PR reviews &amp; approvals you gave. One-on-one private chats are never collected. Azure DevOps sources need an org/project set in <a href="#/settings/connect" style="color:var(--cp-link)">Settings → Connect</a>.
+                  </div>
+                </div>
               </div>
-
-              <p class="hint" style="font-size:0.72rem;margin:-6px 0 12px;opacity:0.85">
-                Collects your own activity: Teams channel/group posts · email you sent · meetings you attended (with transcripts) · Azure DevOps work items · pull requests you authored · PR reviews &amp; approvals you gave. One-on-one private chats are never collected. Azure DevOps sources need an org/project set in <a href="#/settings" style="color:var(--cp-link)">Settings → Connect</a>.
-              </p>
 
               <!-- Date range + AI search -->
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
@@ -11658,18 +11664,24 @@
                     <span>Also collect Azure DevOps work items &amp; pull requests</span>
                   </label>
                   <div x-show="connect.config.adoEnabled" x-transition.opacity.duration.120ms style="margin-top:10px;padding-left:24px;border-left:2px solid var(--cp-border, #e5e5e5)">
-                    <p class="hint" style="margin:0 0 10px">Collected <strong>directly from Azure DevOps</strong> (using your <code>az login</code> session) — real PRs you authored and work items assigned to or created by you in the window. Not WorkIQ.</p>
-                    <div class="connect-field" style="margin-bottom:10px;max-width:360px">
-                      <label>Organization</label>
-                      <input type="text" x-model="connect.config.adoOrg" placeholder="e.g. dnceng (blank = use your dev/export org)">
-                    </div>
-                    <div class="connect-field" style="max-width:360px">
-                      <label>Project(s)</label>
-                      <input type="text" x-model="connect.config.adoProjects" placeholder="e.g. internal, public (comma-separated)">
-                      <p class="hint" style="margin:5px 0 0">PRs are searched across all repos in each project. Leave blank to fall back to your configured dev/export project.</p>
-                    </div>
-                    <p class="hint" x-show="!(connect.config.adoOrg && connect.config.adoOrg.trim()) && !(connect.config.adoProjects && connect.config.adoProjects.trim()) && !connectDevOrgFallback()" style="margin:10px 0 0;color:var(--cp-warning, #b45309)">
-                      ⚠ No organization or project is set here or in your dev/export defaults, so Azure DevOps work items &amp; PRs are <strong>skipped</strong> on both automated and manual collection. Set an org and project above to include them.
+                    <p class="hint" style="margin:0 0 10px">Collected <strong>directly from Azure DevOps</strong> (using your <code>az login</code> session) — real PRs you authored, PRs you reviewed, and work items assigned to or created by you in the window. Not WorkIQ.</p>
+                    <template x-for="(o, idx) in (connect.config.adoOrgs || [])" :key="idx">
+                      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
+                        <div class="connect-field" style="margin:0;width:180px">
+                          <label x-show="idx === 0" style="font-size:0.72rem">Organization</label>
+                          <input type="text" x-model="o.org" placeholder="e.g. dnceng">
+                        </div>
+                        <div class="connect-field" style="margin:0;flex:1;min-width:200px">
+                          <label x-show="idx === 0" style="font-size:0.72rem">Project(s) — comma-separated</label>
+                          <input type="text" x-model="o.projects" placeholder="e.g. internal, public">
+                        </div>
+                        <button class="btn ghost small" type="button" @click="connectRemoveAdoOrg(idx)" title="Remove this organization" style="margin-bottom:1px">✕</button>
+                      </div>
+                    </template>
+                    <button class="btn ghost small" type="button" @click="connectAddAdoOrg()">+ Add organization</button>
+                    <p class="hint" style="margin:8px 0 0">PRs are searched across all repos in each project. Add a row per Azure DevOps organization; leave the list empty to fall back to your configured dev/export org &amp; project.</p>
+                    <p class="hint" x-show="!connectAdoConfigured() && !connectDevOrgFallback()" style="margin:10px 0 0;color:var(--cp-warning, #b45309)">
+                      ⚠ No organization/project is set here or in your dev/export defaults, so Azure DevOps work items &amp; PRs are <strong>skipped</strong> on both automated and manual collection. Add an org and project above to include them.
                     </p>
                   </div>
                   <label style="display:flex;gap:10px;align-items:center;cursor:pointer;font-weight:400;margin-top:12px;margin-bottom:4px">
@@ -19410,6 +19422,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.connect.state = r.state || null;
             this.connect.evidence = Array.isArray(r.evidence) ? r.evidence : [];
             this.connect.config = r.config || null;
+            if (this.connect.config) {
+              // Normalize the multi-org ADO list; seed one row from the legacy
+              // single org/project when the list is empty so existing setups show up.
+              let orgs = Array.isArray(this.connect.config.adoOrgs) ? this.connect.config.adoOrgs : [];
+              orgs = orgs.map(o => ({ org: (o && o.org) || '', projects: (o && o.projects) || '' }));
+              if (!orgs.length && (((this.connect.config.adoOrg || '').trim()) || ((this.connect.config.adoProjects || '').trim()))) {
+                orgs = [{ org: this.connect.config.adoOrg || '', projects: this.connect.config.adoProjects || '' }];
+              }
+              this.connect.config.adoOrgs = orgs;
+            }
             this.connect.draftText = (r.state && r.state.draft && r.state.draft.markdown) || '';
             this.connect.draftDirty = false;
             this.connect.memories = Array.isArray(r.memories) ? r.memories : [];
@@ -19915,6 +19937,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const proj = ((this.devSettings && this.devSettings.devProject) || (this.exportSettings && this.exportSettings.exportProject) || '').trim();
           return !!(org && proj);
         },
+        connectAdoConfigured() {
+          const list = (this.connect.config && this.connect.config.adoOrgs) || [];
+          return list.some(o => ((o.org || '').trim()) && ((o.projects || '').trim()));
+        },
+        connectAddAdoOrg() {
+          if (!this.connect.config) return;
+          if (!Array.isArray(this.connect.config.adoOrgs)) this.connect.config.adoOrgs = [];
+          this.connect.config.adoOrgs.push({ org: '', projects: '' });
+        },
+        connectRemoveAdoOrg(idx) {
+          if (this.connect.config && Array.isArray(this.connect.config.adoOrgs)) this.connect.config.adoOrgs.splice(idx, 1);
+        },
         async connectBackfill() {
           if (this.connect.backfill && this.connect.backfill.running) return;
           if (!(this.connect.config && this.connect.config.consent)) {
@@ -19970,6 +20004,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async saveConnectConfig() {
           const c = this.connect.config || {};
+          const orgs = (Array.isArray(c.adoOrgs) ? c.adoOrgs : [])
+            .map(o => ({ org: ((o && o.org) || '').trim(), projects: ((o && o.projects) || '').trim() }))
+            .filter(o => o.org && o.projects);
           this.connect.busy = true;
           try {
             await this.request('/api/settings', {
@@ -19983,8 +20020,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 connectEmailTo: c.emailTo || '',
                 connectAdoEnabled: !!c.adoEnabled,
                 connectMeetingsEnabled: !!c.meetingsEnabled,
-                connectAdoOrg: (c.adoOrg || '').trim(),
-                connectAdoProjects: (c.adoProjects || '').trim(),
+                connectAdoOrgs: orgs,
+                // Keep the legacy single fields in sync with the first target so
+                // anything still reading them (and the empty-list fallback) works.
+                connectAdoOrg: orgs[0] ? orgs[0].org : (c.adoOrg || '').trim(),
+                connectAdoProjects: orgs[0] ? orgs[0].projects : (c.adoProjects || '').trim(),
               }),
             });
             await this.loadConnect();
