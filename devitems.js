@@ -192,9 +192,12 @@ function createWorktree({ org, project, repo, baseBranch, branch, devId, detach,
 }
 
 // Compute ahead/behind/dirty for a worktree. Optionally fetch first.
-function worktreeStatus(wt, { fetch = true, baseBranch = 'main' } = {}) {
+// `desc` (optional) is a provider descriptor ({provider, org/owner, project, repo});
+// when present its host-scoped auth is used for the remote fetch (GitHub HTTP-basic
+// vs AzDO bearer). Omitted ⇒ auth:true ⇒ the AzDO default (byte-identical, no change).
+function worktreeStatus(wt, { fetch = true, baseBranch = 'main', desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return null;
-  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
 
   const branch = _gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], wt).out || '';
   const up = _gitTry(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], wt);
@@ -234,9 +237,9 @@ function worktreeStatus(wt, { fetch = true, baseBranch = 'main' } = {}) {
 // each commit tagged pushed/local. For a branch with an open PR the upstream IS
 // the PR's source branch, so this doubles as "local worktree vs PR branch".
 // Never throws; returns null when the path is not a repo.
-function branchCommits(wt, { baseBranch = 'main', limit = 40, fetch = false } = {}) {
+function branchCommits(wt, { baseBranch = 'main', limit = 40, fetch = false, desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return null;
-  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
   const branch = _gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], wt).out || '';
   const up = _gitTry(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], wt);
   const hasUpstream = up.ok && !!up.out;
@@ -266,19 +269,19 @@ function branchCommits(wt, { baseBranch = 'main', limit = 40, fetch = false } = 
 }
 
 // Fetch + fast-forward the worktree. Returns { ok, message, status }.
-function syncWorktree(wt, { baseBranch = 'main' } = {}) {
+function syncWorktree(wt, { baseBranch = 'main', desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to sync.' };
-  _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
 
   const up = _gitTry(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], wt);
   let res;
   if (up.ok && up.out) {
-    res = _gitTry(['pull', '--ff-only'], wt, { auth: true });
+    res = _gitTry(['pull', '--ff-only'], wt, { auth: desc || true });
   } else {
     // No upstream: fast-forward onto the base branch instead.
     res = _gitTry(['merge', '--ff-only', 'origin/' + (baseBranch || 'main')], wt);
   }
-  const status = worktreeStatus(wt, { fetch: false, baseBranch });
+  const status = worktreeStatus(wt, { fetch: false, baseBranch, desc });
   if (!res.ok) {
     const diverged = /non-fast-forward|not possible to fast-forward|diverging|diverge/i.test(res.err);
     return {
@@ -372,7 +375,7 @@ function diffSummary(wt, { baseBranch = 'main', maxLines = 40, maxDiffChars = 90
 
 // Push the worktree's current branch (or a given branch) to origin, with auth.
 // Returns { ok, branch, message }.
-function pushBranch(wt, { branch } = {}) {
+function pushBranch(wt, { branch, desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, branch: '', message: 'No worktree to push.' };
   let br = String(branch || '').trim();
   if (!br) {
@@ -380,7 +383,7 @@ function pushBranch(wt, { branch } = {}) {
     br = cur.ok ? cur.out.trim() : '';
   }
   if (!br || br === 'HEAD') return { ok: false, branch: '', message: 'Could not determine the branch to push.' };
-  const res = _gitTry(['push', '-u', 'origin', br], wt, { auth: true });
+  const res = _gitTry(['push', '-u', 'origin', br], wt, { auth: desc || true });
   return {
     ok: res.ok,
     branch: br,
@@ -451,10 +454,10 @@ function commitAll(wt, { message } = {}) {
 // compares the local HEAD to the PR's own source branch on origin — the right
 // signal for "does my local checkout match the PR branch?". Optionally fetches.
 // Returns { sourceBranch, localHead, remoteHead, ahead, behind, dirty, comparable, inSync, lastChecked } or null.
-function prDrift(wt, sourceBranch, { fetch = true } = {}) {
+function prDrift(wt, sourceBranch, { fetch = true, desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return null;
   const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
-  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
   const localHead = _gitTry(['rev-parse', 'HEAD'], wt).out || '';
   const remoteRef = src ? 'origin/' + src : '';
   const remoteHead = src ? (_gitTry(['rev-parse', '--verify', '--quiet', remoteRef], wt).out || '') : '';
@@ -483,7 +486,7 @@ function prDrift(wt, sourceBranch, { fetch = true } = {}) {
 // even when the worktree is on a detached HEAD (review worktrees) by pushing
 // `HEAD:refs/heads/<sourceBranch>`. Commits any uncommitted changes first so the
 // user's full local state lands on the PR. Returns { ok, committed, files, message, drift }.
-function pushPrBranch(wt, { sourceBranch, message } = {}) {
+function pushPrBranch(wt, { sourceBranch, message, desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to push.' };
   const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
   if (!src) return { ok: false, message: 'No PR source branch to push to.' };
@@ -491,7 +494,7 @@ function pushPrBranch(wt, { sourceBranch, message } = {}) {
   const c = commitAll(wt, { message: message || ('Update ' + src) });
   if (!c.ok) return { ok: false, message: c.message };
   committed = c.committed; files = c.files;
-  const res = _gitTry(['push', 'origin', 'HEAD:refs/heads/' + src], wt, { auth: true });
+  const res = _gitTry(['push', 'origin', 'HEAD:refs/heads/' + src], wt, { auth: desc || true });
   if (!res.ok) {
     const nonff = /non-fast-forward|fetch first|rejected/i.test(res.err);
     return {
@@ -501,7 +504,7 @@ function pushPrBranch(wt, { sourceBranch, message } = {}) {
         : (res.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Push failed.')
     };
   }
-  const drift = prDrift(wt, src, { fetch: true });
+  const drift = prDrift(wt, src, { fetch: true, desc });
   return {
     ok: true, committed, files, drift,
     message: (committed ? ('Committed ' + files + ' change' + (files === 1 ? '' : 's') + ' and pushed.') : 'Pushed.')
@@ -513,11 +516,11 @@ function pushPrBranch(wt, { sourceBranch, message } = {}) {
 // Refuses when the local checkout has its own unpushed commits or uncommitted
 // edits unless force=true, so a user's work is never silently discarded.
 // Returns { ok, message, drift }.
-function syncToPrBranch(wt, { sourceBranch, force = false } = {}) {
+function syncToPrBranch(wt, { sourceBranch, force = false, desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to sync.' };
   const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
   if (!src) return { ok: false, message: 'No PR source branch to sync to.' };
-  const pre = prDrift(wt, src, { fetch: true });
+  const pre = prDrift(wt, src, { fetch: true, desc });
   if (!pre || !pre.remoteHead) return { ok: false, message: 'The PR source branch was not found on origin.', drift: pre };
   if (!force && (pre.ahead > 0 || pre.dirty)) {
     return {
@@ -530,7 +533,7 @@ function syncToPrBranch(wt, { sourceBranch, force = false } = {}) {
   if (pre.inSync) return { ok: true, message: 'Already up to date with the PR branch.', drift: pre };
   const res = _gitTry(['reset', '--hard', 'origin/' + src], wt);
   if (!res.ok) return { ok: false, message: res.err.split('\n').slice(-2).join(' ').slice(0, 300) || 'Sync failed.', drift: pre };
-  const drift = prDrift(wt, src, { fetch: false });
+  const drift = prDrift(wt, src, { fetch: false, desc });
   return { ok: true, message: 'Synced to the PR branch.', drift };
 }
 
@@ -544,7 +547,7 @@ function syncToPrBranch(wt, { sourceBranch, force = false } = {}) {
 // On conflict it aborts cleanly (leaving the worktree usable) and returns
 // { ok:false, conflict:true, strategy } so the UI can offer the other strategy or
 // manual resolution. Returns { ok, message, drift, conflict?, needsClean?, noop? }.
-function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'merge' } = {}) {
+function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'merge', desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to update.' };
   const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
   const tgt = String(targetBranch || '').replace(/^refs\/heads\//, '').trim();
@@ -557,7 +560,7 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
     return { ok: false, needsClean: true, message: 'Commit or discard your uncommitted changes before updating from ' + tgt + '.' };
   }
 
-  _gitTry(['fetch', '--prune', 'origin'], wt, { auth: true });
+  _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
   const tgtRef = 'origin/' + tgt;
   if (!_gitTry(['rev-parse', '--verify', '--quiet', tgtRef], wt).ok) {
     return { ok: false, message: 'The target branch ' + tgt + ' was not found on origin.' };
@@ -565,7 +568,7 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
 
   // Already contains the target tip (target is an ancestor of HEAD) — nothing to do.
   if (_gitTry(['merge-base', '--is-ancestor', tgtRef, 'HEAD'], wt).ok) {
-    const drift = src ? prDrift(wt, src, { fetch: false }) : null;
+    const drift = src ? prDrift(wt, src, { fetch: false, desc }) : null;
     return { ok: true, noop: true, message: 'Already up to date with ' + tgt + '.', drift };
   }
 
@@ -583,14 +586,14 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
         : (res.err.split('\n').slice(-2).join(' ').slice(0, 300) || (mode + ' failed.'))
     };
   }
-  const drift = src ? prDrift(wt, src, { fetch: false }) : null;
+  const drift = src ? prDrift(wt, src, { fetch: false, desc }) : null;
   return { ok: true, message: (mode === 'rebase' ? 'Rebased onto ' : 'Merged in ') + tgt + '.', drift };
 }
 
 // List the managed clone's registered worktrees as
 // [{ path, branch|null, detached }]. Empty on any problem.
-function listWorktrees(org, project, repo) {
-  const clone = clonePath(org, project, repo);
+function listWorktrees(org, project, repo, provider) {
+  const clone = clonePath(org, project, repo, provider);
   if (!_isRepo(clone)) return [];
   const r = _gitTry(['worktree', 'list', '--porcelain'], clone);
   if (!r.ok) return [];
@@ -622,13 +625,13 @@ function listWorktrees(org, project, repo) {
 //     review checkout sitting exactly at the branch tip → attach it onto the
 //     branch (no commits lost) so it becomes usable.
 // Otherwise fall back to `current`. Returns { dir, branch, reused, attached }.
-function resolveUsableWorktree({ org, project, repo, sourceBranch, current } = {}) {
+function resolveUsableWorktree({ org, project, repo, provider, sourceBranch, current } = {}) {
   const br = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
   const fallback = { dir: current || '', branch: br, reused: false, attached: false };
   if (!br) return fallback;
   const norm = (p) => { try { return path.resolve(String(p || '')).toLowerCase(); } catch { return String(p || '').toLowerCase(); } };
   let wts;
-  try { wts = listWorktrees(org, project, repo); } catch { return fallback; }
+  try { wts = listWorktrees(org, project, repo, provider); } catch { return fallback; }
   const curN = norm(current);
 
   // 1. Current worktree already on the branch.
@@ -1091,7 +1094,8 @@ try {
     try {
       const r = createWorktree(job);
       let git = null;
-      try { git = worktreeStatus(r.worktreePath, { baseBranch: job.baseBranch }); } catch {}
+      const _desc = { provider: job.provider || 'azdo', org: job.org, project: job.project, repo: job.repo };
+      try { git = worktreeStatus(r.worktreePath, { baseBranch: job.baseBranch, desc: _desc }); } catch {}
       parentPort.postMessage({ ok: true, result: { ...r, git } });
     } catch (e) {
       parentPort.postMessage({ ok: false, error: (e && e.message) || 'Worktree failed' });

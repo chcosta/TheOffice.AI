@@ -8446,11 +8446,18 @@
                     <input class="field-input" type="text" x-model="devModal.title" placeholder="e.g. Autoscaler retry fix" />
                   </label>
                   <div style="display:flex;gap:10px">
-                    <label style="flex:1">
-                      <div class="field-label">Azure DevOps org</div>
-                      <input class="field-input" type="text" x-model="devModal.org" placeholder="dnceng" @input.debounce.600ms="devLoadRepos()" @change="devLoadRepos()" />
+                    <label style="flex:0 0 160px">
+                      <div class="field-label">Provider</div>
+                      <select class="field-input" x-model="devModal.provider" @change="devModal.repos=[]; devModal.repo=''; devModal.repoQuery=''; devModal.branches=[]; devModal.baseBranch=''; devLoadRepos()">
+                        <option value="azdo">Azure DevOps</option>
+                        <option value="github">GitHub</option>
+                      </select>
                     </label>
                     <label style="flex:1">
+                      <div class="field-label" x-text="devModal.provider === 'github' ? 'Owner' : 'Azure DevOps org'"></div>
+                      <input class="field-input" type="text" x-model="devModal.org" :placeholder="devModal.provider === 'github' ? 'costahome' : 'dnceng'" @input.debounce.600ms="devLoadRepos()" @change="devLoadRepos()" />
+                    </label>
+                    <label style="flex:1" x-show="devModal.provider !== 'github'">
                       <div class="field-label">Project</div>
                       <input class="field-input" type="text" x-model="devModal.project" placeholder="internal" @input.debounce.600ms="devLoadRepos()" @change="devLoadRepos()" />
                     </label>
@@ -8462,7 +8469,7 @@
                         <input class="field-input" type="text"
                           :placeholder="devModal.loadingRepos ? 'Loading repositories…' : (devModal.repos.length ? 'Search repositories…' : 'Enter org + project, then Load')"
                           x-model="devModal.repoQuery"
-                          @focus="devModal.repoOpen=true; if(!devModal.repos.length && devModal.org.trim() && devModal.project.trim() && !devModal.loadingRepos) devLoadRepos()"
+                          @focus="devModal.repoOpen=true; if(!devModal.repos.length && devModal.org.trim() && (devModal.provider==='github' || devModal.project.trim()) && !devModal.loadingRepos) devLoadRepos()"
                           @blur="devRepoBlur()"
                           @input="devModal.repoOpen=true"
                           @keydown.escape.stop="devModal.repoOpen=false; $el.blur()" />
@@ -8487,7 +8494,7 @@
                           </template>
                         </div>
                       </div>
-                      <button class="btn" type="button" :disabled="devModal.loadingRepos || !devModal.org.trim() || !devModal.project.trim()" @click="devLoadRepos()" x-text="devModal.loadingRepos ? '…' : 'Load'"></button>
+                      <button class="btn" type="button" :disabled="devModal.loadingRepos || !devModal.org.trim() || (devModal.provider!=='github' && !devModal.project.trim())" @click="devLoadRepos()" x-text="devModal.loadingRepos ? '…' : 'Load'"></button>
                     </div>
                   </label>
                   <div style="display:flex;gap:10px">
@@ -8507,7 +8514,7 @@
                   </div>
                   <div style="display:flex;gap:10px">
                     <label style="flex:1">
-                      <div class="field-label">Work item #</div>
+                      <div class="field-label" x-text="devModal.provider === 'github' ? 'Issue #' : 'Work item #'"></div>
                       <input class="field-input" type="text" inputmode="numeric" x-model="devModal.workItemId" placeholder="optional" />
                     </label>
                     <label style="flex:1">
@@ -14478,7 +14485,7 @@
         devLinkDraft: {},
         devRepoDraft: {},
         reportPreview: { open: false, title: '', url: '', mode: 'html', html: '', loading: false, error: '' },
-        devModal: { open: false, id: null, title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
+        devModal: { open: false, id: null, provider: 'azdo', title: '', org: '', project: '', repo: '', baseBranch: '', branch: '', workItemId: '', prId: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, error: '', busy: false, repoOpen: false, repoQuery: '' },
         // Insights — read-only AI-generated cross-board views.
         insights: [],
         activeInsightId: '',
@@ -22973,8 +22980,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (p.type === 'dev' && p.dev) {
             const d = p.dev, bits = [];
             if (d.repo) bits.push('Repo: ' + d.repo + (d.branch ? ' @ ' + d.branch : ''));
-            if (d.workItemId) bits.push('Work item #' + d.workItemId + (d.workItem && d.workItem.state ? ' · ' + d.workItem.state : ''));
-            if (d.prId) bits.push('PR !' + d.prId + (d.pr && d.pr.status ? ' · ' + d.pr.status : ''));
+            if (d.workItemId) bits.push((d.provider === 'github' ? 'Issue #' : 'Work item #') + d.workItemId + (d.workItem && d.workItem.state ? ' · ' + d.workItem.state : ''));
+            if (d.prId) bits.push('PR ' + (d.provider === 'github' ? '#' : '!') + d.prId + (d.pr && d.pr.status ? ' · ' + d.pr.status : ''));
             const g = this.devGitBadge(d);
             if (g && g.text) bits.push('Git: ' + g.text);
             if (d.summary && d.summary.text) bits.push('\n' + String(d.summary.text).trim().slice(0, 220));
@@ -25705,12 +25712,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devWorkItemUrl(d) {
           if (!d) return '#';
           if (d.workItem && d.workItem.url) return d.workItem.url;
+          if ((d.provider || 'azdo') === 'github') {
+            if (!d.org || !d.repo || !d.workItemId) return '#';
+            return 'https://github.com/' + encodeURIComponent(d.org) + '/' + encodeURIComponent(d.repo) + '/issues/' + encodeURIComponent(d.workItemId);
+          }
           if (!d.org || !d.project || !d.workItemId) return '#';
           return 'https://dev.azure.com/' + encodeURIComponent(d.org) + '/' + encodeURIComponent(d.project) + '/_workitems/edit/' + encodeURIComponent(d.workItemId);
         },
         devPrUrl(d) {
           if (!d) return '#';
           if (d.pr && d.pr.url) return d.pr.url;
+          if ((d.provider || 'azdo') === 'github') {
+            if (!d.org || !d.repo || !d.prId) return '#';
+            return 'https://github.com/' + encodeURIComponent(d.org) + '/' + encodeURIComponent(d.repo) + '/pull/' + encodeURIComponent(d.prId);
+          }
           if (!d.org || !d.project || !d.repo || !d.prId) return '#';
           return 'https://dev.azure.com/' + encodeURIComponent(d.org) + '/' + encodeURIComponent(d.project) + '/_git/' + encodeURIComponent(d.repo) + '/pullrequest/' + encodeURIComponent(d.prId);
         },
@@ -25864,7 +25879,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async openDevModal(d) {
           const m = this.devModal;
           if (d) {
-            m.id = d.id; m.title = d.title || ''; m.org = d.org || ''; m.project = d.project || '';
+            m.id = d.id; m.provider = d.provider || 'azdo'; m.title = d.title || ''; m.org = d.org || ''; m.project = d.project || '';
             m.repo = d.repo || ''; m.baseBranch = d.baseBranch || ''; m.branch = d.branch || '';
             m.workItemId = d.workItemId ? String(d.workItemId) : ''; m.prId = d.prId ? String(d.prId) : '';
             m.repos = d.repo ? [{ name: d.repo }] : []; m.branches = d.baseBranch ? [d.baseBranch] : [];
@@ -25874,7 +25889,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // the saved Dev card default → the Export default (same AzDO coords).
             const prior = (this.activeBoard() && (this.activeBoard().devItems || [])[0]) || {};
             const ds = this.devSettings || {}, es = this.exportSettings || {};
-            m.id = null; m.title = '';
+            m.id = null; m.provider = prior.provider || 'azdo'; m.title = '';
             m.org = prior.org || ds.devOrg || es.exportOrg || '';
             m.project = prior.project || ds.devProject || es.exportProject || '';
             m.repo = ''; m.baseBranch = ''; m.branch = ''; m.workItemId = ''; m.prId = '';
@@ -25883,16 +25898,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           m.error = ''; m.busy = false; m.loadingRepos = false; m.loadingBranches = false;
           m.repoOpen = false; m.repoQuery = m.repo || '';
           m.open = true;
-          if (m.org && m.project) this.devLoadRepos();
+          if (m.org && (m.provider === 'github' || m.project)) this.devLoadRepos();
         },
         async devLoadRepos() {
           const m = this.devModal;
+          const provider = m.provider === 'github' ? 'github' : 'azdo';
           const org = (m.org || '').trim(), project = (m.project || '').trim();
           m.error = ''; m.repos = [];
-          if (!org || !project) return;
+          if (!org || (provider === 'azdo' && !project)) return;
           m.loadingRepos = true;
           try {
-            const data = await this.request('/api/azdo/repos?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project));
+            const url = '/api/forge/repos?provider=' + provider + '&org=' + encodeURIComponent(org)
+              + (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '');
+            const data = await this.request(url);
             m.repos = data.repos || [];
             if (!m.repos.length) { m.error = 'No repositories found (or no access).'; return; }
             if (m.repo && m.repos.some(r => r.name === m.repo)) { m.repoQuery = m.repo; await this.devLoadBranches(true); }
@@ -25945,11 +25963,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async devLoadBranches(preserve) {
           const m = this.devModal;
+          const provider = m.provider === 'github' ? 'github' : 'azdo';
           const org = (m.org || '').trim(), project = (m.project || '').trim();
           if (!m.repo) return;
           m.loadingBranches = true;
           try {
-            const data = await this.request('/api/azdo/branches?org=' + encodeURIComponent(org) + '&project=' + encodeURIComponent(project) + '&repo=' + encodeURIComponent(m.repo));
+            const url = '/api/forge/branches?provider=' + provider + '&org=' + encodeURIComponent(org)
+              + (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '')
+              + '&repo=' + encodeURIComponent(m.repo);
+            const data = await this.request(url);
             m.branches = data.branches || [];
             const r = m.repos.find(x => x.name === m.repo);
             if (preserve && m.baseBranch && m.branches.includes(m.baseBranch)) { /* keep */ }
@@ -25972,6 +25994,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const now = new Date().toISOString();
             const fields = {
               title: (m.title || '').trim() || m.repo,
+              provider: m.provider === 'github' ? 'github' : 'azdo',
               org: (m.org || '').trim(), project: (m.project || '').trim(), repo: m.repo,
               baseBranch: (m.baseBranch || '').trim(), branch: (m.branch || '').trim(),
               workItemId: (m.workItemId || '').toString().trim(),

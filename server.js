@@ -1360,6 +1360,21 @@ app.get('/api/azdo/branches', async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// Provider-aware branch listing (mirrors /api/forge/repos). GitHub ignores the
+// middle "project" slot (owner lives in `org`); azdo requires it.
+app.get('/api/forge/branches', async (req, res) => {
+  const provider = providerOf({ provider: req.query.provider });
+  const org = (req.query.org || '').trim();
+  const project = (req.query.project || '').trim();
+  const repo = (req.query.repo || '').trim();
+  if (!org || !repo || (provider === 'azdo' && !project)) {
+    return res.status(400).json({ error: provider === 'github' ? 'owner (org) and repo are required' : 'org, project and repo are required' });
+  }
+  try {
+    res.json({ branches: await forge({ provider, org }).listBranches(org, project, repo) });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
 app.get('/api/azdo/discover', async (req, res) => {
   const { org, project, repo, branch } = req.query;
   if (!org || !project || !repo || !branch) return res.status(400).json({ error: 'org, project, repo and branch are required' });
@@ -10731,13 +10746,14 @@ function _devRepoSlots(d) {
   const slots = [];
   if (d.org && d.project && d.repo) {
     slots.push({
-      id: 'primary', primary: true, org: d.org, project: d.project, repo: d.repo,
+      id: 'primary', primary: true, provider: d.provider || 'azdo',
+      org: d.org, project: d.project, repo: d.repo,
       branch: d.branch, baseBranch: d.baseBranch,
       worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
       worktreeError: d.worktreeError || null, git: d.git || null
     });
   }
-  for (const r of _devExtraRepos(d)) if (r && r.id) slots.push({ ...r, primary: false });
+  for (const r of _devExtraRepos(d)) if (r && r.id) slots.push({ ...r, provider: r.provider || 'azdo', primary: false });
   return slots;
 }
 // Find a repo slot by id ('primary' or an extra's id), or by org/project/repo.
@@ -10755,6 +10771,48 @@ function _saveRepoSlot(ctx, slotId, partial) {
   if (slotId === 'primary') return ctx.save(partial);
   const repos = _devExtraRepos(ctx.dev).map(r => (r && r.id === slotId) ? { ...r, ...partial } : r);
   return ctx.save({ repos });
+}
+
+// ---- Provider dispatch for dev cards -------------------------------------
+// A dev card (or repo slot) may target Azure DevOps (default) or GitHub. These
+// helpers build a provider descriptor and dispatch the work-item / PR calls that
+// diverge by provider signature. Missing provider ⇒ azdo, so existing AzDo dev
+// cards behave byte-identically (no provider field on legacy records).
+function _devDesc(x) {
+  if (!x) return { provider: 'azdo' };
+  return { provider: x.provider || 'azdo', org: x.org, project: x.project, repo: x.repo };
+}
+// Work items diverge: azdo.getWorkItem(org, project, id) vs
+// github.getWorkItem(owner, repo, number) — position 2 differs (project vs repo).
+async function _devWorkItem(desc, id) {
+  const f = forge(desc);
+  return desc.provider === 'github'
+    ? f.getWorkItem(desc.org, desc.repo, id)
+    : f.getWorkItem(desc.org, desc.project, id);
+}
+async function _devWorkItemComments(desc, id, opts) {
+  const f = forge(desc);
+  return desc.provider === 'github'
+    ? f.getWorkItemComments(desc.org, desc.repo, id, opts)
+    : f.getWorkItemComments(desc.org, desc.project, id, opts);
+}
+async function _devUpdateWorkItemState(desc, id, state) {
+  const f = forge(desc);
+  return desc.provider === 'github'
+    ? f.updateWorkItemState(desc.org, desc.repo, id, state)
+    : f.updateWorkItemState(desc.org, desc.project, id, state);
+}
+// PR create/get are positionally clean across providers (github ignores the
+// middle project slot), so a single positional dispatch works for both.
+async function _devPullRequest(desc, prId) {
+  return forge(desc).getPullRequest(desc.org, desc.project, desc.repo, prId);
+}
+async function _devCreatePullRequest(desc, body) {
+  const pr = await forge(desc).createPullRequest(desc.org, desc.project, desc.repo, body);
+  // Normalize the id field: azdo returns { pullRequestId }, github returns { id }.
+  // Downstream server code reads pr.pullRequestId, so guarantee it for both.
+  if (pr && pr.pullRequestId == null && pr.id != null) pr.pullRequestId = pr.id;
+  return pr;
 }
 
 // Create (or reuse) the worktree for a dev card repo slot. Runs in the background
@@ -10780,7 +10838,7 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
     let pr = slot.primary ? d.pr : slot.pr;
     const prId = slot.primary ? d.prId : slot.prId;
     if ((!pr || !pr.sourceBranch) && prId) {
-      try { pr = await azdo.getPullRequest(slot.org, slot.project, slot.repo, prId); } catch (e) { pr = null; }
+      try { pr = await _devPullRequest(_devDesc(slot), prId); } catch (e) { pr = null; }
     }
     if (pr && pr.sourceBranch && String(pr.status || '').toLowerCase() === 'active') {
       branch = pr.sourceBranch;
@@ -10795,7 +10853,7 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
   (async () => {
     try {
       const r = await devitems.createWorktreeAsync({
-        org: slot.org, project: slot.project, repo: slot.repo,
+        org: slot.org, project: slot.project, repo: slot.repo, provider: slot.provider || 'azdo',
         baseBranch: slot.baseBranch, branch, devId: d.id
       });
       const fresh = _devItemCtx(req.params.id, req.params.devId);
@@ -10815,7 +10873,7 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
         const after = _devItemCtx(req.params.id, req.params.devId);
         if (after && after.dev && after.dev.devAgentName) {
           let wi = after.dev.workItem;
-          try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi = await azdo.getWorkItem(after.dev.org, after.dev.project, after.dev.workItemId); } catch {}
+          try { if (after.dev.workItemId && after.dev.org && after.dev.project) wi = await _devWorkItem(_devDesc(after.dev), after.dev.workItemId); } catch {}
           const written = _writeDevAgentFiles(after.dev, wi);
           if (written) _persistDevAgentNames(after, written);
         }
@@ -10835,24 +10893,24 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   const partial = {};
   // Git status (only if a worktree exists).
   if (d.worktreePath) {
-    try { partial.git = devitems.worktreeStatus(d.worktreePath, { baseBranch: d.baseBranch }); } catch (e) { partial.gitError = (e && e.message) || 'git failed'; }
+    try { partial.git = devitems.worktreeStatus(d.worktreePath, { baseBranch: d.baseBranch, desc: _devDesc(d) }); } catch (e) { partial.gitError = (e && e.message) || 'git failed'; }
     try { partial.reports = devitems.findAndCacheReports(req.params.id, req.params.devId, d.worktreePath); } catch {}
   }
   // Work item.
   if (d.workItemId && d.org && d.project) {
-    try { partial.workItem = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch (e) { partial.workItemError = (e && e.message) || 'work item failed'; }
+    try { partial.workItem = await _devWorkItem(_devDesc(d), d.workItemId); } catch (e) { partial.workItemError = (e && e.message) || 'work item failed'; }
   }
   // Pull request (primary repo — tracked at the top level).
   if (d.prId && d.org && d.project && d.repo) {
-    try { partial.pr = await azdo.getPullRequest(d.org, d.project, d.repo, d.prId); } catch (e) { partial.prError = (e && e.message) || 'PR failed'; }
+    try { partial.pr = await _devPullRequest(_devDesc(d), d.prId); } catch (e) { partial.prError = (e && e.message) || 'PR failed'; }
   }
   // Extra repos: refresh each slot's git status + its own PR (PRs are per repo).
   const extras = _devExtraRepos(d);
   if (extras.length) {
     partial.repos = await Promise.all(extras.map(async (r) => {
       const out = { ...r };
-      if (r.worktreePath) { try { out.git = devitems.worktreeStatus(r.worktreePath, { baseBranch: r.baseBranch }); } catch {} }
-      if (r.prId && r.org && r.project && r.repo) { try { out.pr = await azdo.getPullRequest(r.org, r.project, r.repo, r.prId); } catch {} }
+      if (r.worktreePath) { try { out.git = devitems.worktreeStatus(r.worktreePath, { baseBranch: r.baseBranch, desc: _devDesc(r) }); } catch {} }
+      if (r.prId && r.org && r.project && r.repo) { try { out.pr = await _devPullRequest(_devDesc(r), r.prId); } catch {} }
       return out;
     }));
   }
@@ -10869,7 +10927,7 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   const slot = _findRepoSlot(d, slotId);
   if (!slot || !slot.worktreePath) return res.status(400).json({ error: 'No worktree to sync — create one first.' });
   let r;
-  try { r = devitems.syncWorktree(slot.worktreePath, { baseBranch: slot.baseBranch }); }
+  try { r = devitems.syncWorktree(slot.worktreePath, { baseBranch: slot.baseBranch, desc: _devDesc(slot) }); }
   catch (e) { return res.status(500).json({ ok: false, error: (e && e.message) || 'Sync failed' }); }
   const updated = _saveRepoSlot(ctx, slot.id, { git: r.status || slot.git });
   res.json({ ok: r.ok, message: r.message, dev: updated });
@@ -10895,11 +10953,11 @@ app.post('/api/boards/:id/dev-items/:devId/push', async (req, res) => {
     if (c.committed) committed = c.files;
   } catch (e) { return res.status(500).json({ ok: false, error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
   let push;
-  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch }); }
+  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch, desc: _devDesc(slot) }); }
   catch (e) { return res.status(500).json({ ok: false, error: 'Failed to push: ' + ((e && e.message) || e) }); }
   if (!push.ok) return res.status(500).json({ ok: false, error: 'Failed to push: ' + push.message });
   let git = slot.git;
-  try { git = devitems.worktreeStatus(slot.worktreePath, { fetch: true, baseBranch: slot.baseBranch }); } catch {}
+  try { git = devitems.worktreeStatus(slot.worktreePath, { fetch: true, baseBranch: slot.baseBranch, desc: _devDesc(slot) }); } catch {}
   const updated = _saveRepoSlot(ctx, slot.id, { git });
   const message = committed
     ? ('Committed ' + committed + ' change' + (committed === 1 ? '' : 's') + ' and pushed to ' + (push.branch || slot.branch) + '.')
@@ -10920,7 +10978,7 @@ app.get('/api/boards/:id/dev-items/:devId/commits', (req, res) => {
     return res.status(400).json({ error: 'No worktree for this repo yet.' });
   }
   let commits;
-  try { commits = devitems.branchCommits(slot.worktreePath, { baseBranch: slot.baseBranch, fetch: req.query.fetch === '1' }); }
+  try { commits = devitems.branchCommits(slot.worktreePath, { baseBranch: slot.baseBranch, fetch: req.query.fetch === '1', desc: _devDesc(slot) }); }
   catch (e) { return res.status(500).json({ error: (e && e.message) || 'git failed' }); }
   res.json({ ok: true, commits, slot: { id: slot.id, repo: slot.repo, branch: slot.branch, prId: slot.prId || ctx.dev.prId || '' } });
 });
@@ -11040,18 +11098,18 @@ function _devFingerprint({ wi, wiComments, repos } = {}) {
 async function _devRepoMeta(d, { fresh = false } = {}) {
   let wi = d.workItem;
   let wiComments = null;
-  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
   // The work-item fields are only the headline; the live status (decisions, blockers,
   // "moved to X because…") lives in the discussion thread, so pull recent comments to
   // ground the summary. Best-effort — never let a comment fetch fail the meta gather.
-  try { if (d.workItemId && d.org && d.project) wiComments = await azdo.getWorkItemComments(d.org, d.project, d.workItemId, { top: 12 }); } catch {}
+  try { if (d.workItemId && d.org && d.project) wiComments = await _devWorkItemComments(_devDesc(d), d.workItemId, { top: 12 }); } catch {}
   const slots = _devRepoSlots(d).filter(s => s && s.org && s.project && s.repo);
   const repos = await Promise.all(slots.map(async (s) => {
     let pr = s.primary ? d.pr : s.pr;
     const prId = s.primary ? d.prId : s.prId;
-    try { if (prId && s.org && s.project && s.repo) { const p = await azdo.getPullRequest(s.org, s.project, s.repo, prId); if (p) pr = p; } } catch {}
+    try { if (prId && s.org && s.project && s.repo) { const p = await _devPullRequest(_devDesc(s), prId); if (p) pr = p; } } catch {}
     let git = s.primary ? d.git : s.git;
-    try { if (s.worktreePath) { const g = devitems.worktreeStatus(s.worktreePath, { fetch: !!fresh, baseBranch: s.baseBranch }); if (g) git = g; } } catch {}
+    try { if (s.worktreePath) { const g = devitems.worktreeStatus(s.worktreePath, { fetch: !!fresh, baseBranch: s.baseBranch, desc: _devDesc(s) }); if (g) git = g; } } catch {}
     return { slot: s, pr: pr || null, git: git || null };
   }));
   return { wi: wi || null, wiComments: wiComments || null, repos };
@@ -11232,7 +11290,7 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   const d = ctx.dev;
   const slot = _findRepoSlot(d, req.body && req.body.repoId ? req.body.repoId : 'primary');
   if (!slot) return res.status(404).json({ error: 'Repo not found' });
-  try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath); } catch {}
+  try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath, slot.provider); } catch {}
   if (slot.primary) {
     // Keep any reports that have a durable cached copy so the card's Reports row
     // (and previews) survive worktree deletion; drop ones that were never cached.
@@ -11254,10 +11312,14 @@ app.post('/api/boards/:id/dev-items/:devId/repos', async (req, res) => {
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const d = ctx.dev;
   const b = req.body || {};
+  const provider = (b.provider === 'github') ? 'github' : 'azdo';
   const org = String(b.org || '').trim();
   const project = String(b.project || '').trim();
   const repo = String(b.repo || '').trim();
-  if (!org || !project || !repo) return res.status(400).json({ error: 'org, project and repo are required' });
+  // Project is required only for Azure DevOps; GitHub is (owner, repo) scoped.
+  if (!org || !repo || (provider !== 'github' && !project)) {
+    return res.status(400).json({ error: provider === 'github' ? 'org and repo are required' : 'org, project and repo are required' });
+  }
   const baseBranch = String(b.baseBranch || 'main').trim() || 'main';
   const branch = String(b.branch || `dev/${d.id}`).trim() || `dev/${d.id}`;
   // Dedupe against the primary repo and any existing extra repo.
@@ -11268,7 +11330,7 @@ app.post('/api/boards/:id/dev-items/:devId/repos', async (req, res) => {
   }
   const id = 'repo-' + Math.random().toString(36).slice(2, 9);
   const repos = _devExtraRepos(d).slice();
-  repos.push({ id, org, project, repo, branch, baseBranch, worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
+  repos.push({ id, provider, org, project, repo, branch, baseBranch, worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
   const updated = ctx.save({ repos });
   res.json({ ok: true, dev: updated, repoId: id });
 });
@@ -11281,7 +11343,7 @@ app.post('/api/boards/:id/dev-items/:devId/repos/remove', async (req, res) => {
   const d = ctx.dev;
   const slot = _findRepoSlot(d, (req.body && (req.body.repoId || req.body)) || null);
   if (!slot || slot.primary) return res.status(400).json({ error: 'Specify an extra repo to remove' });
-  try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath); } catch {}
+  try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath, slot.provider); } catch {}
   const repos = _devExtraRepos(d).filter(r => r && r.id !== slot.id);
   const updated = ctx.save({ repos });
   res.json({ ok: true, dev: updated });
@@ -11546,7 +11608,7 @@ app.post('/api/boards/:id/dev-items/:devId/dev-agent', async (req, res) => {
   }
   // Freshest work item for the persona (best-effort).
   let wi = d.workItem;
-  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
   let written;
   try {
     written = _writeDevAgentFiles(d, wi);
@@ -11595,7 +11657,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
     if (c.committed) committedCount = c.files;
   } catch (e) { return res.status(500).json({ error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
   let push;
-  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch }); }
+  try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch, desc: _devDesc(slot) }); }
   catch (e) { return res.status(500).json({ error: 'Failed to push branch: ' + ((e && e.message) || e) }); }
   if (!push.ok) return res.status(500).json({ error: 'Failed to push branch: ' + push.message });
   const sourceBranch = push.branch || slot.branch;
@@ -11605,7 +11667,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
 
   // 2) Gather context for the AI. The work item is shared across the whole card.
   let wi = d.workItem;
-  try { if (d.workItemId && d.org && d.project) wi = await azdo.getWorkItem(d.org, d.project, d.workItemId); } catch {}
+  try { if (d.workItemId && d.org && d.project) wi = await _devWorkItem(_devDesc(d), d.workItemId); } catch {}
   let diff = '';
   try { diff = devitems.diffSummary(slot.worktreePath, { baseBranch: base }); } catch {}
 
@@ -11641,7 +11703,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   // 4) Open the PR on this slot's repo (links the work item best-effort).
   let pr;
   try {
-    pr = await azdo.createPullRequest(slot.org, slot.project, slot.repo, {
+    pr = await _devCreatePullRequest(_devDesc(slot), {
       sourceBranch, targetBranch: base, title, description, workItemId: d.workItemId || null
     });
   } catch (e) {
@@ -11650,7 +11712,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
 
   // 5) Persist on the dev card.
   let prFull = null;
-  try { prFull = await azdo.getPullRequest(slot.org, slot.project, slot.repo, pr.pullRequestId); } catch {}
+  try { prFull = await _devPullRequest(_devDesc(slot), pr.pullRequestId); } catch {}
 
   // 6) Best-effort: move the linked work item into the "In PR" state — but only on
   //    the FIRST PR across all repos (the work item is shared by the whole card, so
@@ -11660,7 +11722,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   const hadPrAlready = _devRepoSlots(d).some(s => (s.primary ? d.prId : s.prId));
   if (wi && d.workItemId && !hadPrAlready) {
     try {
-      const moved = await azdo.updateWorkItemState(d.org, d.project, d.workItemId, 'In PR');
+      const moved = await _devUpdateWorkItemState(_devDesc(d), d.workItemId, 'In PR');
       wi = moved;
     } catch (e) {
       stateWarning = 'PR created, but the work item could not be moved to "In PR": ' + ((e && e.message) || e);
