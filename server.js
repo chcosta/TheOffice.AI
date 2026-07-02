@@ -239,6 +239,51 @@ function _deleteCfWt(key) {
   const map = loadCodeflowWorktrees();
   if (map[key]) { delete map[key]; saveCodeflowWorktrees(map); }
 }
+
+// Code Flow: per-PR freeform notes. A map keyed by the same prKey as worktrees
+// (_cfWtKey) → an array of { id, text, done, createdAt, updatedAt }. Lets you jot
+// down where you're at / what matters on a PR, independent of the live provider
+// data (which is fetched fresh + cached, so it can't hold user annotations).
+const CODEFLOW_NOTES_PATH = dataPath('codeflow-pr-notes.json');
+function loadCodeflowNotes() {
+  try {
+    if (!fs.existsSync(CODEFLOW_NOTES_PATH)) return {};
+    const v = JSON.parse(fs.readFileSync(CODEFLOW_NOTES_PATH, 'utf-8'));
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch { return {}; }
+}
+function saveCodeflowNotes(map) {
+  fs.writeFileSync(CODEFLOW_NOTES_PATH, JSON.stringify(map || {}, null, 2));
+}
+function _getCfNotes(key) {
+  const map = loadCodeflowNotes();
+  return Array.isArray(map[key]) ? map[key] : [];
+}
+// Read-modify-write the notes array for one PR. `fn` receives the current array
+// (a copy) and returns the next array. Empty arrays are pruned to keep the map lean.
+function _mutateCfNotes(key, fn) {
+  const map = loadCodeflowNotes();
+  const cur = Array.isArray(map[key]) ? map[key].slice() : [];
+  const next = fn(cur) || [];
+  if (next.length) map[key] = next; else delete map[key];
+  saveCodeflowNotes(map);
+  return next;
+}
+// Patch the notes onto any cached Code Flow PR objects so an open tab reflects a
+// note change immediately without waiting out the codeflow cache TTL / a refresh.
+function _patchCodeflowCacheNotes(key, notes) {
+  try {
+    for (const entry of _codeflowCache.values()) {
+      const prs = entry && entry.data && Array.isArray(entry.data.pullRequests) ? entry.data.pullRequests : [];
+      for (const pr of prs) {
+        if (_cfWtKey({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider }) === key) {
+          pr.notes = notes;
+        }
+      }
+    }
+  } catch { /* cache patch is best-effort */ }
+}
+
 // Summarize a PR worktree record into a short, human/LLM-readable status bits array
 // (worktree state, branch drift, review state, ready-to-post comments, report count).
 // Shared by the Board AI PR context and the "Where was I?" briefing so both describe
@@ -2159,6 +2204,7 @@ async function _gatherCodeflow(view) {
 
   const errors = [];
   const devCardIndex = _buildDevCardIndex();
+  const notesMap = loadCodeflowNotes();
   const perRepo = await Promise.all(repos.map(async (r) => {
     const provider = providerOf(r);
     const F = forge(r);
@@ -2179,7 +2225,8 @@ async function _gatherCodeflow(view) {
       const enriched = await Promise.all(prs.map(async (pr) => {
         const e = await _enrichCodeflowPr(pr, me.id, opts);
         const a = _codeflowAttention(e, view);
-        return { ...e, provider, attention: a.attention, attentionReason: a.reason, repoId: r.id };
+        const notes = notesMap[_cfWtKey({ org: pr.org || r.org, project: pr.project || r.project, repo: pr.repo || r.repo, prId: pr.pullRequestId || pr.id, provider })];
+        return { ...e, provider, attention: a.attention, attentionReason: a.reason, repoId: r.id, notes: Array.isArray(notes) ? notes : [] };
       }));
       return enriched;
     } catch (e) {
@@ -2806,6 +2853,71 @@ app.post('/api/codeflow/pr/worktree/open-dir', (req, res) => {
     });
   } catch { r = { dir: current, branch: rec.sourceBranch || '', reused: false, attached: false }; }
   res.json({ dir: (r && r.dir) || current, branch: r && r.branch, reused: !!(r && r.reused), attached: !!(r && r.attached) });
+});
+
+// ---- Code Flow PR notes --------------------------------------------------
+// Freeform per-PR notes (add / list / edit / toggle done / delete). Keyed by the
+// same prKey as worktrees so a note survives cache refreshes and worktree churn.
+// Body for all: { org, project, repo, prId, provider, ... }.
+app.get('/api/codeflow/pr/notes', (req, res) => {
+  const q = req.query || {};
+  const o = { org: q.org, project: q.project, repo: q.repo, prId: q.prId, provider: q.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  res.json({ ok: true, notes: _getCfNotes(_cfWtKey(o)) });
+});
+
+app.post('/api/codeflow/pr/notes', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const text = String(b.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Note text is required.' });
+  const key = _cfWtKey(o);
+  const now = new Date().toISOString();
+  const notes = _mutateCfNotes(key, arr => {
+    arr.push({ id: 'note-' + Math.random().toString(36).slice(2, 9), text, done: false, createdAt: now, updatedAt: now });
+    return arr;
+  });
+  _patchCodeflowCacheNotes(key, notes);
+  res.json({ ok: true, notes });
+});
+
+app.post('/api/codeflow/pr/notes/update', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const id = String(b.id || '');
+  if (!id) return res.status(400).json({ error: 'A note id is required.' });
+  let notFound = false, empty = false;
+  const key = _cfWtKey(o);
+  const notes = _mutateCfNotes(key, arr => {
+    const i = arr.findIndex(n => n && n.id === id);
+    if (i < 0) { notFound = true; return arr; }
+    const patch = { updatedAt: new Date().toISOString() };
+    if (typeof b.text === 'string') {
+      const t = b.text.trim();
+      if (!t) { empty = true; return arr; }
+      patch.text = t;
+    }
+    if (typeof b.done === 'boolean') patch.done = b.done;
+    arr[i] = { ...arr[i], ...patch };
+    return arr;
+  });
+  if (notFound) return res.status(404).json({ error: 'Note not found' });
+  if (empty) return res.status(400).json({ error: 'Note text cannot be empty.' });
+  _patchCodeflowCacheNotes(key, notes);
+  res.json({ ok: true, notes });
+});
+
+app.post('/api/codeflow/pr/notes/delete', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const id = String(b.id || '');
+  const key = _cfWtKey(o);
+  const notes = _mutateCfNotes(key, arr => arr.filter(n => n && n.id !== id));
+  _patchCodeflowCacheNotes(key, notes);
+  res.json({ ok: true, notes });
 });
 
 // Create (or re-attach) a review worktree for a PR. Fire-and-forget like the
@@ -11847,6 +11959,52 @@ app.post('/api/boards/:id/dev-items/:devId/links/delete', (req, res) => {
   const url = (req.body && req.body.url) || '';
   const links = (Array.isArray(ctx.dev.links) ? ctx.dev.links : []).filter(l => !(id && l.id === id) && !(url && l.url === url));
   const updated = ctx.save({ links });
+  res.json({ ok: true, dev: updated });
+});
+
+// ---- Dev-card notes ------------------------------------------------------
+// Freeform notes let you jot down where you're at / what matters on a dev card.
+// Each note: { id, text, done, createdAt, updatedAt }. Stored on d.notes[].
+app.post('/api/boards/:id/dev-items/:devId/notes', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const text = String((req.body && req.body.text) || '').trim();
+  if (!text) return res.status(400).json({ error: 'Note text is required.' });
+  const notes = Array.isArray(ctx.dev.notes) ? ctx.dev.notes.slice() : [];
+  const now = new Date().toISOString();
+  notes.push({ id: 'note-' + Math.random().toString(36).slice(2, 9), text, done: false, createdAt: now, updatedAt: now });
+  const updated = ctx.save({ notes });
+  res.json({ ok: true, dev: updated });
+});
+
+// Update one note: edit its text and/or toggle its done state. Body: { id, text?, done? }.
+app.post('/api/boards/:id/dev-items/:devId/notes/update', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const id = String((req.body && req.body.id) || '');
+  if (!id) return res.status(400).json({ error: 'A note id is required.' });
+  const notes = (Array.isArray(ctx.dev.notes) ? ctx.dev.notes : []).slice();
+  const i = notes.findIndex(n => n && n.id === id);
+  if (i < 0) return res.status(404).json({ error: 'Note not found' });
+  const patch = { updatedAt: new Date().toISOString() };
+  if (req.body && typeof req.body.text === 'string') {
+    const t = req.body.text.trim();
+    if (!t) return res.status(400).json({ error: 'Note text cannot be empty.' });
+    patch.text = t;
+  }
+  if (req.body && typeof req.body.done === 'boolean') patch.done = req.body.done;
+  notes[i] = { ...notes[i], ...patch };
+  const updated = ctx.save({ notes });
+  res.json({ ok: true, dev: updated });
+});
+
+// Delete one note by id. Body: { id }.
+app.post('/api/boards/:id/dev-items/:devId/notes/delete', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const id = String((req.body && req.body.id) || '');
+  const notes = (Array.isArray(ctx.dev.notes) ? ctx.dev.notes : []).filter(n => n && n.id !== id);
+  const updated = ctx.save({ notes });
   res.json({ ok: true, dev: updated });
 });
 
