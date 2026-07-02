@@ -9027,7 +9027,7 @@
                     <p class="hint" style="margin:0">
                       <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.source === 'ai'">✨ AI-drafted — review &amp; personalize below</span>
                       <span class="connect-src-badge" x-show="!(connect.state && connect.state.draft && connect.state.draft.source === 'ai')">✍ Your draft</span>
-                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="' · updated ' + formatRelative(connect.state.draft.updatedAt)"></span>
+                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="(connect.state && connect.state.draft && connect.state.draft.updatedAt) ? (' · updated ' + formatRelative(connect.state.draft.updatedAt)) : ''"></span>
                     </p>
                   </div>
                   <div style="display:flex;gap:8px">
@@ -9125,7 +9125,8 @@
 
             <!-- ===== Profile tab ===== -->
             <div x-show="!connect.loading && connect.tab === 'profile'" x-transition.opacity.duration.120ms>
-              <div class="connect-card" x-show="connect.state">
+              <template x-if="connect.state">
+              <div class="connect-card">
                 <h3>My current role</h3>
                 <p class="hint">A little context so your Connect draft (and the AI) understands your scope. Optional, but it makes generated drafts sharper.</p>
                 <div class="connect-grid2" x-show="connect.state">
@@ -9151,6 +9152,7 @@
                   <button class="btn ghost" type="button" :disabled="connect.autofilling" @click="connectAutofillProfile()" title="Infer your role from recent Teams, email, and meeting activity" x-text="connect.autofilling ? 'Reading your work…' : '✨ Auto-fill from my work'"></button>
                 </div>
               </div>
+              </template>
             </div>
 
             <!-- ===== Diary tab ===== -->
@@ -9190,10 +9192,11 @@
                 </div>
                 <button class="btn ghost small" type="button" x-show="connect.filterFrom || connect.filterTo || connect.aiMatchIds !== null || connect.filterSource" @click="connectClearDiaryFilters()">Clear</button>
               </div>
-              <p class="hint" x-show="connect.aiMatchIds !== null" style="margin:-6px 0 12px" x-text="'✨ AI search — showing ' + connect.aiMatchIds.length + ' matching ' + (connect.aiMatchIds.length === 1 ? 'entry' : 'entries') + ' for “' + connect.aiQuery + '”'"></p>
+              <p class="hint" x-show="connect.aiMatchIds !== null" style="margin:-6px 0 12px" x-text="connect.aiMatchIds ? ('✨ AI search — showing ' + connect.aiMatchIds.length + ' matching ' + (connect.aiMatchIds.length === 1 ? 'entry' : 'entries') + ' for “' + connect.aiQuery + '”') : ''"></p>
 
               <!-- Inline add/edit form -->
-              <div class="connect-card" x-show="connect.evForm" x-transition.opacity.duration.120ms>
+              <template x-if="connect.evForm">
+              <div class="connect-card" x-transition.opacity.duration.120ms>
                 <h3 x-text="connect.evForm && connect.evForm.id ? 'Edit entry' : 'New diary entry'"></h3>
                 <div class="connect-grid2" x-show="connect.evForm">
                   <div class="connect-field">
@@ -9240,6 +9243,7 @@
                   <button class="btn ghost" type="button" @click="closeConnectEvidence()">Cancel</button>
                 </div>
               </div>
+              </template>
 
               <div x-show="!connectFilteredEvidence().length && !connect.evForm" class="hint" style="padding:24px 0;text-align:center">
                 No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect.
@@ -9279,6 +9283,7 @@
 
             <!-- ===== Guidance tab ===== -->
             <div x-show="!connect.loading && connect.tab === 'guidance' && connect.state" x-transition.opacity.duration.120ms>
+              <template x-if="connect.state">
               <div class="connect-card">
                 <h3>Steer your Connect</h3>
                 <p class="hint">Tell the AI how you want your Connect to read. It's a drafting assistant only — you always have the final word.</p>
@@ -9308,6 +9313,7 @@
                 </div>
                 <button class="btn primary" type="button" @click="saveConnectGuidance()">Save guidance</button>
               </div>
+              </template>
               <div class="connect-card">
                 <h3>Remembered preferences <span class="hint" style="font-weight:400" x-show="connect.memories.length" x-text="connect.memories.length"></span></h3>
                 <p class="hint">Durable guidance the AI distills when you save a draft from Ask AI. These steer future revisions and "Generate from diary." Edit or delete any you no longer want.</p>
@@ -9797,8 +9803,8 @@
                                   title="Delete this worktree and recreate it fresh on the next run">↻ Recreate</button>
                         </div>
                         <span class="cf-wt-status" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'" x-text="cfWtStatusText(pr)"></span>
-                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="cfWt(pr).error || 'Worktree failed'"></span>
-                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr).reviewError"></span>
+                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="(cfWt(pr) && cfWt(pr).error) || 'Worktree failed'"></span>
+                        <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr) && cfWt(pr).reviewError"></span>
                         <div class="cf-agent-reports" x-show="cfWt(pr) && ((cfWt(pr).reports || []).length || (cfWt(pr).reportHistory || []).length)">
                           <template x-for="r in (cfWt(pr) ? (cfWt(pr).reports || []) : [])" :key="r.rel">
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
