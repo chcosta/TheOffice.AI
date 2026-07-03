@@ -621,6 +621,7 @@ let newsletterPluginDir = null;
 })();
 
 const PROCESS_PID = process.pid;
+const PROCESS_START = new Date().toISOString();
 
 // In the packaged desktop app the server runs from resources/server (no git),
 // so we bake a build-info.json at build time as the authoritative version/commit.
@@ -2818,10 +2819,11 @@ Write a **self-contained** HTML review named \`${reportName}\` at the root of th
   1. **Overview** — the PR (id + link), the author, the associated work item (id + link), and your one-paragraph verdict (approve / approve-with-suggestions / needs-work / blocked) with a short justification.
   2. **Goals** — what the PR set out to do, and whether the change appears to meet them.
   3. **Summary of changes** — what changed across the diff, concise but specific (files/areas, approach).
-  4. **Code quality findings** — a **table** of findings with columns: *file/area · severity (blocker/major/minor/nit) · issue · suggested fix*. Color severities for fast scanning.
-  5. **Suggested validations** — concrete tests/gates/measurements to raise confidence.
-  6. **Suggested additional changes** — improvements to better meet the PR/work-item goals (must-fix vs nice-to-have).
-  7. **Concerns & risks** — blocking or ambiguous items a human must weigh in on.
+  4. **File diff (by file)** — include the **complete diff this PR proposes** (from \`git diff origin/${pr.targetBranch || 'main'}...HEAD\`), **split per file**: for each changed file a \`<h3>\` heading with the repo-relative path, followed by that file's unified hunks in a \`<pre class="diff">\`. Wrap added lines in \`<span class="diff-add">\`, removed lines in \`<span class="diff-del">\`, and hunk headers (\`@@ ... @@\`) in \`<span class="diff-hunk">\`, and **HTML-escape** the code so it renders literally. Include **every** changed file; you may elide only very large generated/lock/binary files, noting the omission and the line count.
+  5. **Code quality findings** — a **table** of findings with columns: *file/area · severity (blocker/major/minor/nit) · issue · suggested fix*. Color severities for fast scanning.
+  6. **Suggested validations** — concrete tests/gates/measurements to raise confidence.
+  7. **Suggested additional changes** — improvements to better meet the PR/work-item goals (must-fix vs nice-to-have).
+  8. **Concerns & risks** — blocking or ambiguous items a human must weigh in on.
 - **Lead with the verdict.** Make the bottom line obvious at the top; keep the layout calm, professional, timestamped, with the PR id/link.
 
 ## Machine-readable findings (JSON)
@@ -2929,9 +2931,10 @@ Write a **self-contained** HTML report named \`${reportName}\` at the root of th
   2. **Goals** — what the PR set out to do, and whether it now meets them.
   3. **Feedback addressed** — a **table** with columns: *thread (file·line or "general") · reviewer comment · what you did · status (resolved-by-change / replied / deferred)*. One row per active thread above.
   4. **Changes made** — what you changed and why, concise but specific (files/areas, approach), and the commit message(s) you created.
-  5. **Hardening & regression guards** — the above-and-beyond improvements: tests added, validation/error-handling added, edge cases covered, regression risks identified and how you guarded them.
-  6. **Validations run** — the exact build/lint/test commands you ran and their results (pass/fail), in a \`<pre>\` or table.
-  7. **Remaining risks & follow-ups** — anything still risky, deferred, or needing a human decision before merge.
+  5. **File diff (by file)** — include the **complete diff** of the PR as it now stands after your commits (from \`git diff origin/${pr.targetBranch || 'main'}...HEAD\`), **split per file**: for each changed file a \`<h3>\` heading with the repo-relative path, followed by that file's unified hunks in a \`<pre class="diff">\`. Wrap added lines in \`<span class="diff-add">\`, removed lines in \`<span class="diff-del">\`, and hunk headers (\`@@ ... @@\`) in \`<span class="diff-hunk">\`, and **HTML-escape** the code so it renders literally. Include **every** changed file; you may elide only very large generated/lock/binary files, noting the omission and the line count.
+  6. **Hardening & regression guards** — the above-and-beyond improvements: tests added, validation/error-handling added, edge cases covered, regression risks identified and how you guarded them.
+  7. **Validations run** — the exact build/lint/test commands you ran and their results (pass/fail), in a \`<pre>\` or table.
+  8. **Remaining risks & follow-ups** — anything still risky, deferred, or needing a human decision before merge.
 - **Lead with the bottom line.** Make "ready to push?" obvious at the top; keep the layout calm, professional, timestamped, with the PR id/link.
 
 ## Machine-readable findings (JSON)
@@ -3664,6 +3667,10 @@ html[data-theme="dark"] .sev-blocker{color:#f87171;}
 html[data-theme="dark"] .sev-major{color:#fbbf24;}
 html[data-theme="dark"] .sev-minor{color:#60a5fa;}
 html[data-theme="dark"] .sev-nit{color:#a0a0a0;}
+html[data-theme="dark"] pre.diff,html[data-theme="dark"] .diff pre{background:#232323;color:#dcdcdc;}
+html[data-theme="dark"] .diff-add{background:#0f2e22;color:#8ff0c0;display:block;}
+html[data-theme="dark"] .diff-del{background:#3a1d1d;color:#f7a8a8;display:block;}
+html[data-theme="dark"] .diff-hunk{color:#7cb7ff;display:block;}
 </style>`;
   let out = html.replace(/<head([^>]*)>/i, (m) => m + detect);
   if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, darkCss + '</head>');
@@ -9339,8 +9346,8 @@ async function runNewsletterGeneration() {
     'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing. Follow the newsletter-standards skill and output only the newsletter Markdown body (inline HTML/SVG allowed).',
     '',
     '## Newsletter config',
-    `Title (masthead): ${cfg.title || 'My Impact Digest'}`,
-    `Subtitle: ${cfg.subtitle || '(none)'}`,
+    `Title (masthead): ${cfg.title || '(none provided — invent a compelling, specific title from the content and use it as the H1)'}`,
+    `Subtitle: ${cfg.subtitle || '(none — add a short fitting subtitle only if it improves the masthead)'}`,
     `Template style: ${cfg.template || 'digest'}`,
     `Accent color: ${cfg.accent || '(theme default)'}`,
     `Cadence: ${cfg.cadence || 'weekly'}`,

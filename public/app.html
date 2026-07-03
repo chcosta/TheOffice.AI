@@ -9759,13 +9759,61 @@
               <button class="connect-tab" :class="{ active: newsletter.tab === 'compose' }" @click="newsletterSetTab('compose')">✍ Compose</button>
               <button class="connect-tab" :class="{ active: newsletter.tab === 'preview' }" @click="newsletterSetTab('preview')">👁 Preview</button>
               <button class="connect-tab" :class="{ active: newsletter.tab === 'history' }" @click="newsletterSetTab('history')" x-text="'🕘 History (' + (newsletter.versions ? newsletter.versions.length : 0) + ')'"></button>
-              <button class="connect-tab" :class="{ active: newsletter.tab === 'settings' }" @click="newsletterSetTab('settings')">⚙ Settings</button>
             </div>
 
             <div x-show="newsletter.loading" class="hint">Loading…</div>
 
             <!-- ===== Compose tab ===== -->
             <div x-show="!newsletter.loading && newsletter.tab === 'compose'" x-transition.opacity.duration.120ms>
+              <div class="connect-card" x-show="newsletter.config">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+                  <div>
+                    <h3 style="margin:0">Compose</h3>
+                    <p class="hint" style="margin:2px 0 0">Title and subtitle are optional — leave them blank and AI will craft a title from your content.</p>
+                  </div>
+                  <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="saveNewsletterConfig()" x-text="newsletter.busy ? 'Saving…' : 'Save settings'"></button>
+                </div>
+                <div class="connect-grid2">
+                  <div class="connect-field">
+                    <label>Title <span class="hint" style="font-weight:400">(optional)</span></label>
+                    <input class="field-input" type="text" x-model="newsletter.config.title" placeholder="AI will generate one if blank" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Subtitle <span class="hint" style="font-weight:400">(optional)</span></label>
+                    <input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="e.g. What shipped and why it matters" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Timeframe (days)</label>
+                    <input class="field-input" type="number" min="1" max="400" x-model.number="newsletter.config.timeframeDays" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Cadence</label>
+                    <select class="field-input" x-model="newsletter.config.cadence">
+                      <option value="weekly">Weekly</option>
+                      <option value="biweekly">Every two weeks</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="adhoc">Ad-hoc</option>
+                    </select>
+                  </div>
+                  <div class="connect-field">
+                    <label>Template</label>
+                    <select class="field-input" x-model="newsletter.config.template">
+                      <option value="digest">Digest</option>
+                      <option value="highlights">Highlights</option>
+                      <option value="executive">Executive summary</option>
+                    </select>
+                  </div>
+                  <div class="connect-field">
+                    <label>Accent color</label>
+                    <input class="field-input" type="text" x-model="newsletter.config.accent" placeholder="#0078d4" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Email to (default recipient)</label>
+                    <input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" />
+                  </div>
+                </div>
+              </div>
+
               <div class="connect-card">
                 <div class="nl-summary">
                   <div class="nl-stat">
@@ -9876,57 +9924,6 @@
                     <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === v.id" x-html="renderMarkdown(v.markdown || '')"></div>
                   </div>
                 </template>
-              </div>
-            </div>
-
-            <!-- ===== Settings tab ===== -->
-            <div x-show="!newsletter.loading && newsletter.tab === 'settings' && newsletter.config" x-transition.opacity.duration.120ms>
-              <div class="connect-card">
-                <h3>Newsletter settings</h3>
-                <p class="hint">Controls the title, look, and timeframe used when generating your newsletter.</p>
-                <div class="connect-grid2">
-                  <div class="connect-field">
-                    <label>Title</label>
-                    <input class="field-input" type="text" x-model="newsletter.config.title" placeholder="e.g. The Weekly Impact" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Subtitle</label>
-                    <input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="e.g. What shipped and why it matters" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Timeframe (days)</label>
-                    <input class="field-input" type="number" min="1" max="400" x-model.number="newsletter.config.timeframeDays" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Cadence</label>
-                    <select class="field-input" x-model="newsletter.config.cadence">
-                      <option value="weekly">Weekly</option>
-                      <option value="biweekly">Every two weeks</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="adhoc">Ad-hoc</option>
-                    </select>
-                  </div>
-                  <div class="connect-field">
-                    <label>Template</label>
-                    <select class="field-input" x-model="newsletter.config.template">
-                      <option value="digest">Digest</option>
-                      <option value="highlights">Highlights</option>
-                      <option value="executive">Executive summary</option>
-                    </select>
-                  </div>
-                  <div class="connect-field">
-                    <label>Accent color</label>
-                    <input class="field-input" type="text" x-model="newsletter.config.accent" placeholder="#0078d4" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Email to (default recipient)</label>
-                    <input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" />
-                  </div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-                  <button class="btn primary" type="button" :disabled="newsletter.busy" @click="saveNewsletterConfig()">Save settings</button>
-                  <span class="hint" x-show="newsletter.config.storageDir" x-text="'Stored in ' + newsletter.config.storageDir"></span>
-                </div>
               </div>
             </div>
 
@@ -10318,6 +10315,37 @@
                   </template>
 
                   </div>
+                      <!-- Links: generated review/steward reports (HTML + findings) and past reports -->
+                      <div class="cf-pane" x-show="cfActivePane(pr) === 'links'">
+                        <div class="cf-subsec">
+                        <div class="cf-subhead">🔗 Links</div>
+                        <template x-if="!cfWt(pr) || (!(cfWt(pr).reports || []).length && !(cfWt(pr).reportHistory || []).length)">
+                          <span class="cf-wt-history-ts">No report has been generated yet. Run the review agent from the Worktree tab.</span>
+                        </template>
+                        <div class="cf-agent-reports" x-show="cfWt(pr) && ((cfWt(pr).reports || []).length || (cfWt(pr).reportHistory || []).length)">
+                          <template x-for="r in (cfWt(pr) ? (cfWt(pr).reports || []) : [])" :key="r.rel">
+                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
+                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
+                          </template>
+                          <template x-if="cfWt(pr) && (cfWt(pr).reportHistory || []).length">
+                            <button class="cf-wt-link" @click="cfToggleHist(pr)"
+                                    :title="'Previously generated review reports, cached for comparison'"
+                                    x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
+                          </template>
+                          <template x-if="cfHistOpen(pr) && cfWt(pr) && (cfWt(pr).reportHistory || []).length">
+                            <div class="cf-wt-history">
+                              <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
+                                <div class="cf-wt-history-row">
+                                  <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
+                                     x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
+                                  <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                        </div>
+                      </div>
                       <!-- Worktree: Review agent + Git + Worktree rolled into ONE section (stacked sub-headers) -->
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'worktree'">
                         <div class="cf-subsec">
@@ -10354,28 +10382,6 @@
                         <span class="cf-wt-status" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'" x-text="cfWtStatusText(pr)"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="(cfWt(pr) && cfWt(pr).error) || 'Worktree failed'"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr) && cfWt(pr).reviewError"></span>
-                        <div class="cf-agent-reports" x-show="cfWt(pr) && ((cfWt(pr).reports || []).length || (cfWt(pr).reportHistory || []).length)">
-                          <template x-for="r in (cfWt(pr) ? (cfWt(pr).reports || []) : [])" :key="r.rel">
-                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
-                               x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
-                          </template>
-                          <template x-if="cfWt(pr) && (cfWt(pr).reportHistory || []).length">
-                            <button class="cf-wt-link" @click="cfToggleHist(pr)"
-                                    :title="'Previously generated review reports, cached for comparison'"
-                                    x-text="(cfHistOpen(pr) ? '▾ ' : '▸ ') + 'Past reports ' + (cfWt(pr).reportHistory || []).length"></button>
-                          </template>
-                          <template x-if="cfHistOpen(pr) && cfWt(pr) && (cfWt(pr).reportHistory || []).length">
-                            <div class="cf-wt-history">
-                              <template x-for="h in (cfWt(pr).reportHistory || [])" :key="h.rel">
-                                <div class="cf-wt-history-row">
-                                  <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
-                                     x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.name || h.rel)"></a>
-                                  <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
-                                </div>
-                              </template>
-                            </div>
-                          </template>
-                        </div>
                         </div>
                         <div class="cf-subsec">
                         <div class="cf-subhead">🌿 Git</div>
@@ -20821,7 +20827,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const nl = this.newsletter;
           nl.busy = true;
           try {
-            const r = await this.request('/api/newsletter/config', { method: 'PUT', body: this._newsletterConfigPayload() });
+            const r = await this.request('/api/newsletter/config', { method: 'PUT', body: JSON.stringify(this._newsletterConfigPayload()) });
             if (r && r.state) { nl.state = r.state; nl.config = r.state.config; }
             if (r && r.window) nl.window = r.window;
             this.toast('Newsletter settings saved', 'success');
@@ -20840,8 +20846,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           nl.notice = 'Investigating your diary and composing…';
           try {
             // Persist config first so the timeframe/title used matches what's on screen.
-            await this.request('/api/newsletter/config', { method: 'PUT', body: this._newsletterConfigPayload() });
-            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: {} });
+            await this.request('/api/newsletter/config', { method: 'PUT', body: JSON.stringify(this._newsletterConfigPayload()) });
+            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: JSON.stringify({}) });
             if (r && r.state) { nl.state = r.state; nl.config = r.state.config; }
             const d = (r && r.state && r.state.draft) || (r && r.draft) || null;
             nl.draftText = (d && d.markdown) || nl.draftText;
@@ -20859,7 +20865,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const nl = this.newsletter;
           nl.savingDraft = true;
           try {
-            const r = await this.request('/api/newsletter/draft', { method: 'PUT', body: { markdown: nl.draftText, title: nl.draftTitle } });
+            const r = await this.request('/api/newsletter/draft', { method: 'PUT', body: JSON.stringify({ markdown: nl.draftText, title: nl.draftTitle }) });
             if (r && r.state) { nl.state = r.state; }
             nl.draftDirty = false;
             this.newsletterLoadVersions();
@@ -20909,7 +20915,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.$nextTick(() => this._newsletterChatScroll());
           try {
             const history = c.messages.slice(-12).map(m => ({ role: m.role, content: m.text }));
-            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', body: { message: msg, history, draft: nl.draftText } });
+            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', body: JSON.stringify({ message: msg, history, draft: nl.draftText }) });
             const reply = (r && r.reply) || 'Done.';
             c.messages.push({ role: 'assistant', text: reply });
             if (r && typeof r.draft === 'string' && r.draft.trim() && r.draft !== nl.draftText) {
@@ -20933,7 +20939,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!(nl.draftText || '').trim()) { this.toast('Nothing to email yet — generate or write a draft first.', 'info'); return; }
           nl.busy = true;
           try {
-            const r = await this.request('/api/newsletter/email', { method: 'POST', body: { to: (nl.config && nl.config.emailTo) || '' } });
+            const r = await this.request('/api/newsletter/email', { method: 'POST', body: JSON.stringify({ to: (nl.config && nl.config.emailTo) || '' }) });
             this.toast((r && r.message) || 'Opened your mail client with the newsletter.', 'success');
           } catch (e) {
             this.toast('Email failed: ' + (e.message || e), 'error');
@@ -22310,6 +22316,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             wtAttn = !!(wt && wt.worktreeStatus === 'error');
           }
           s.push({ id: 'worktree', label: reviews ? 'Review env' : 'Worktree', attn: wtAttn });
+          if (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) {
+            s.push({ id: 'links', label: 'Links', count: (wt.reports || []).length || undefined });
+          }
           return s;
         },
         cfSummaryAttn(pr) {
