@@ -669,6 +669,7 @@ const settings = require('./settings');
 const uiPrefs = require('./ui-prefs');
 const connect = require('./connect');
 const newsletter = require('./newsletter');
+const newsletterCapture = require('./newsletter-capture');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
 // disk only on session disconnect, so disk reads lag the live stream — live
@@ -9393,6 +9394,56 @@ function _newsletterContext() {
   const items = (win.items || []).slice(0, 120);
   return { st, cfg, win, items };
 }
+
+// Process `shot:` image directives the writer leaves in the draft, e.g.
+//   ![Arcade PR review](shot:https://github.com/dotnet/arcade/pull/17018)
+//   ![Build board](shot:https://example.com/board|selector=.board&fullPage=1)
+// Each is captured with a real headless browser and rewritten to the saved
+// asset path (assets/<file>). Public pages capture cleanly; authenticated pages
+// may hit a login wall — those are dropped with a note rather than left broken.
+// `emit` is an optional (icon, text) progress reporter.
+async function _newsletterProcessShots(md, emit) {
+  const cap = newsletterCapture.capabilities();
+  const re = /!\[([^\]]*)\]\(\s*shot:([^)]+?)\s*\)/gi;
+  const jobs = [];
+  let m;
+  while ((m = re.exec(md)) !== null) jobs.push({ full: m[0], alt: m[1], spec: m[2] });
+  if (!jobs.length) return md;
+  if (!cap.available) {
+    if (emit) emit('🖼️', 'Headless capture unavailable — skipping ' + jobs.length + ' screenshot(s)');
+    // Strip the unusable directives so no broken image renders.
+    for (const j of jobs) md = md.split(j.full).join('');
+    return md;
+  }
+  let idx = 0;
+  for (const j of jobs) {
+    idx++;
+    // spec = URL optionally followed by |key=value&key=value options.
+    const barAt = j.spec.indexOf('|');
+    const url = (barAt >= 0 ? j.spec.slice(0, barAt) : j.spec).trim();
+    const optStr = barAt >= 0 ? j.spec.slice(barAt + 1) : '';
+    const o = {};
+    optStr.split('&').forEach(p => { const i = p.indexOf('='); if (i > 0) o[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
+    const opts = {
+      name: newsletterCapture.slugify(j.alt || ('shot-' + idx), 'shot-' + idx),
+      selector: o.selector || o.sel || undefined,
+      fullPage: /^(1|true|yes)$/i.test(o.fullPage || o.full || ''),
+      width: o.width, height: o.height,
+    };
+    let host = url; try { host = new URL(url).host; } catch (_) { /* ignore */ }
+    if (emit) emit('📸', `Capturing screenshot ${idx}/${jobs.length}: ${host}`);
+    let res;
+    try { res = await newsletterCapture.captureUrl(url, newsletter.assetsDir(), opts); }
+    catch (e) { res = { ok: false, error: (e && e.message) || String(e) }; }
+    if (res && res.ok) {
+      md = md.split(j.full).join(`![${j.alt || host}](${res.file})`);
+    } else {
+      if (emit) emit('⚠️', `Screenshot skipped (${host}): ${(res && res.error) || 'unknown error'}`);
+      md = md.split(j.full).join(''); // drop the broken reference
+    }
+  }
+  return md;
+}
 
 // Generate a fresh newsletter draft from the diary evidence in the timeframe.
 // Streams live progress over SSE (`newsletter-progress`) so the UI can show what the
@@ -9402,14 +9453,20 @@ async function runNewsletterGeneration(runId) {
   if (!items.length) {
     throw new Error(`No diary evidence in the last ${cfg.timeframeDays} day(s) to build a newsletter from. Add Connect diary entries or widen the timeframe.`);
   }
+  let _nlSeq = 0;
   const emitProgress = (icon, text) => {
     if (!text) return;
-    try { broadcastSSE('newsletter-progress', { runId: runId || null, icon, text, at: Date.now() }); } catch (_) { /* ignore */ }
+    try { broadcastSSE('newsletter-progress', { runId: runId || null, icon, text, at: Date.now(), seq: ++_nlSeq }); } catch (_) { /* ignore */ }
   };
   emitProgress('📖', `Reading ${items.length} diary ${items.length === 1 ? 'entry' : 'entries'} from ${win.since} → ${win.until}`);
   const evLines = _newsletterEvidenceLines(items);
+  const _cap = (() => { try { return newsletterCapture.capabilities(); } catch (_) { return { available: false }; } })();
+  const _shotLine = _cap && _cap.available
+    ? 'REAL SCREENSHOTS: request a headless capture with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1&width=1400) — and the app screenshots the page and swaps in the saved image. Works best on public pages; authenticated/internal pages may be dropped. Deep-dive PRs/builds/dashboards and capture the telling view.'
+    : 'SCREENSHOTS: headless capture is unavailable on this machine, so do not use shot: directives — lean on inline SVG charts/illustrations and clearly-marked screenshot suggestions instead.';
   const prompt = [
-    'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing, and capture real screenshots/visuals where they strengthen a story. Follow the newsletter-standards skill.',
+    'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing, and use rich imagery — real screenshots, inline SVG charts/stat cards, and at least one clever on-theme cartoon/illustration you draw yourself as inline SVG. Follow the newsletter-standards skill.',
+    _shotLine,
     '',
     'OUTPUT PROTOCOL — STRICT: You may think and use tools freely, but emit the finished newsletter exactly once, wrapped between these two sentinel lines, each alone on its own line:',
     '===NEWSLETTER-START===',
@@ -9463,6 +9520,8 @@ async function runNewsletterGeneration(runId) {
   // Drop any stray sentinel lines that survived.
   md = md.replace(/^===NEWSLETTER-(?:START|END)===\s*$/gim, '').trim();
   if (!md) throw new Error('The newsletter writer returned an empty draft. Try again.');
+  // Turn any `shot:` directives into real captured screenshots (headless browser).
+  try { md = await _newsletterProcessShots(md, emitProgress); } catch (_) { /* non-fatal */ }
   // Derive a display title from the first H1 if present.
   const h1 = md.match(/^#\s+(.+)$/m);
   const title = h1 ? h1[1].trim() : (cfg.title || '');
@@ -9485,6 +9544,7 @@ async function runNewsletterDraftChat({ message, history, draft }) {
   }).filter(Boolean).join('\n') || '(none)';
   const prompt = [
     'You are revising my newsletter draft through conversation. Follow your output protocol exactly.',
+    ((() => { try { const c = newsletterCapture.capabilities(); return c && c.available ? 'You can request real screenshots with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1) — and the app captures and swaps in the image. Public pages work best. Also draw clever on-theme SVG cartoons/illustrations to keep it enjoyable.' : 'Headless screenshot capture is unavailable — do not use shot: directives; use inline SVG charts/illustrations instead.'; } catch (_) { return ''; } })()),
     '',
     '## Newsletter config',
     `Title (masthead): ${cfg.title || 'My Impact Digest'}`,
@@ -9585,6 +9645,28 @@ app.get('/api/newsletter/asset/:file', (req, res) => {
     res.setHeader('Content-Type', mimes[ext] || 'application/octet-stream');
     res.setHeader('Cache-Control', 'no-cache');
     fs.createReadStream(file).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Report headless-capture capability (is a Chrome/Edge available to screenshot with).
+app.get('/api/newsletter/capture-capabilities', (req, res) => {
+  try { res.json(newsletterCapture.capabilities()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Capture a real screenshot of a public URL with a headless browser and save it
+// into the newsletter assets dir. Body: { url, name?, selector?, fullPage?, width?, height? }.
+app.post('/api/newsletter/screenshot', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.url) return res.status(400).json({ error: 'url is required' });
+    const result = await newsletterCapture.captureUrl(b.url, newsletter.assetsDir(), {
+      name: b.name, selector: b.selector, fullPage: b.fullPage, width: b.width, height: b.height,
+    });
+    if (!result.ok) return res.status(502).json(result);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

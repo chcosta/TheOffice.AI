@@ -17408,6 +17408,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 // Ignore stray events from a different/previous run.
                 if (nl.runId && d.runId && d.runId !== nl.runId) return;
                 if (d.text) {
+                  // Dedup duplicate SSE deliveries (a stale reconnected client or a
+                  // second tab makes broadcastSSE write the identical event twice —
+                  // same `at` timestamp). Genuine repeats carry a different `at`.
+                  const key = (d.seq != null) ? ('s' + d.seq) : ((d.at || '') + '|' + (d.icon || '') + '|' + d.text);
+                  if (!nl._seen) nl._seen = new Set();
+                  if (nl._seen.has(key)) return;
+                  nl._seen.add(key);
                   nl.progress.push({ icon: d.icon || '•', text: d.text, at: d.at || Date.now() });
                   if (nl.progress.length > 60) nl.progress.splice(0, nl.progress.length - 60);
                   nl.notice = d.text;
@@ -20903,6 +20910,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           nl.generating = true;
           nl.runId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
           nl.progress = [];
+          nl._seen = new Set(); // dedup guard for duplicate SSE deliveries (stale/2nd client)
           nl.notice = 'Investigating your diary and composing…';
           try {
             // Persist config first so the timeframe/title used matches what's on screen.

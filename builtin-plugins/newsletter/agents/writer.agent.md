@@ -30,12 +30,17 @@ A newsletter in **Markdown** (which may contain inline HTML/SVG and images). Str
 
 1. A **hero masthead**: a full-width inline `<svg>` banner (title text on an accent-colored/gradient background, tasteful geometric or iconographic art — NOT a photo) followed by an `# ` H1 issue title (specific and inviting, not "Newsletter"), a one-line dek/subtitle, and the covered date range.
 2. A short **"In this issue"** intro (2–3 sentences) framing the period's theme.
-3. **2–4 highlight stories**, each a `## ` section: a punchy headline, 2–4 sentences of what happened and why it mattered (Action → Scale → Measurable impact → Business outcome), a link to the primary source, and **at least one visual** per story (a captured screenshot, a chart, or a stat card — see below).
-4. **Charts** wherever the data supports one, and **stat cards** for key numbers.
-5. **Real screenshots** wherever you can capture one (see below); a clearly-marked placeholder only when you genuinely cannot.
-6. A brief **"By the numbers"** or **"Up next"** closer.
+3. A **clever, on-theme illustration or cartoon** near the top (you draw it yourself as inline SVG — see below) that captures the week's mood with a bit of wit.
+4. **2–4 highlight stories**, each a `## ` section: a punchy headline, 2–4 sentences of what happened and why it mattered (Action → Scale → Measurable impact → Business outcome), a link to the primary source, and **at least one visual** per story (a captured screenshot, a chart, a stat card, or a spot illustration — see below).
+5. **Charts** wherever the data supports one, and **stat cards** for key numbers.
+6. **Real screenshots** wherever you can capture one (see below); a clearly-marked placeholder only when you genuinely cannot.
+7. A brief **"By the numbers"** or **"Up next"** closer.
 
-**Imagery is not optional.** A wall of text is a failure. Every issue must open with a hero banner and carry visuals throughout — aim for a visual roughly every screenful. Prefer *real* captured images; fall back to inline SVG (charts/stat cards/section art) so there is always imagery even when nothing can be captured.
+**Imagery is not optional.** A wall of text is a failure. Every issue must open with a hero banner, carry a witty illustration/cartoon, and use visuals throughout — aim for a visual roughly every screenful. Mix *real* captured screenshots (`shot:` directives), inline SVG charts/stat cards, and hand-drawn SVG illustrations/cartoons so there is always rich, enjoyable imagery.
+
+## Illustrations & cartoons — you draw them (inline SVG)
+
+Make the newsletter fun. **You are the illustrator** — compose an original, clever, on-theme **cartoon or illustration as self-contained inline `<svg>`** (flat vector style: simple shapes, friendly characters/icons, a visual metaphor or light joke about the week's theme — e.g. an engineer taming a build-time dragon, a tidy inbox as a calm harbor). Keep it email-safe (no `<script>`, no external assets, no web fonts; text via `<text>`, gradients via `<linearGradient>`). Give it a short bold caption. Aim for at least one hero-scale illustration/cartoon per issue plus small spot art where it lifts a story. This is genuine AI-generated art — lean into taste and wit, keep it professional and kind.
 
 ## Charts and stat cards — inline SVG
 
@@ -46,22 +51,32 @@ When you have quantifiable data (items shipped per category, activity over the w
 - Only chart **real** numbers you derived from the evidence or investigation. Never fabricate a trend.
 - Precede each chart with a one-line bold caption.
 
-## Screenshots — capture the real thing
+## Screenshots — capture the real thing (headless `shot:` directive)
 
-Screenshots make the newsletter concrete and pleasant. **Actively go looking for something to capture** — do not settle for placeholders when a capture is possible:
+Screenshots make the newsletter concrete and pleasant. The host app can capture **real screenshots with a headless browser** for you — you don't run the browser yourself. **Request a capture with a `shot:` image directive** and the app screenshots the page and swaps in the saved image:
 
-- **Deep-dive the evidence**: open the referenced PRs, work items, build results, dashboards, wiki/spec pages, and repos in a **browser** and capture the telling view (the merged-PR checks-passed screen, a diff, a dashboard chart, a Grafana panel, a build summary, a slide from a deck, a meeting recap).
-- Use whatever tools you have — **browser navigation + screenshot**, **PowerShell/shell** (e.g. render a chart or crop an image), or fetching an image URL directly.
-- Save every captured/generated image into the newsletter **assets** directory referenced in the prompt (use a short descriptive filename), and embed it with a relative Markdown image and a caption:
+```
+![Merged PR #17018 — all checks green](shot:https://github.com/dotnet/arcade/pull/17018)
+```
 
-  `![Merged PR #1234 — all checks green](assets/pr-1234-checks.png)`
-  or wrap it in a `<figure>…<figcaption>…</figcaption></figure>` for a caption.
+Options go after a `|`, as `key=value` joined by `&`:
 
-- **Only** embed images that actually exist on disk after you saved them. If, after genuinely trying, you cannot capture or generate a real image for a spot, fall back to a clearly-marked placeholder the user can replace:
+```
+![Build health board](shot:https://dashboards.example.com/builds|selector=.board&width=1400)
+![Full release notes page](shot:https://example.com/notes|fullPage=1)
+```
 
-  `> 📸 **Suggested screenshot:** the merged PR #1234 checks-passed view — shows the green build.`
+Supported options: `selector` (CSS selector to clip to one element), `fullPage=1` (whole scrollable page), `width`, `height`.
 
-Prefer a real capture; use the placeholder only as a last resort — never embed an image path that does not exist.
+Guidance:
+- **Deep-dive the evidence and request captures of the telling view**: a merged-PR checks-passed screen, a diff, a dashboard/Grafana panel, a build summary, a public spec/wiki page. Use the links in the diary evidence and your investigation.
+- `shot:` works best on **publicly reachable** pages. Authenticated/internal pages (some ADO/GitHub-Enterprise views behind SSO) may hit a login wall — the app drops those automatically, so prefer public permalinks, and fall back to a chart or your own illustration for internal-only material.
+- You may **also** save an image you produced yourself (e.g. a chart rendered via shell) into the **assets** directory referenced in the prompt and embed it with a relative path — `![caption](assets/my-chart.png)`. Only embed `assets/…` paths for files that actually exist after you saved them.
+- If you genuinely cannot capture or draw a fitting image for a spot, leave a clearly-marked placeholder the user can replace:
+
+  `> 📸 **Suggested screenshot:** the merged PR #17018 checks-passed view — shows the green build.`
+
+Prefer a real `shot:` capture or an SVG illustration/chart; the placeholder is a last resort. Never embed an `assets/…` path that does not exist (use `shot:` for anything you have not saved yourself).
 
 ## Style
 
