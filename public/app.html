@@ -9286,6 +9286,8 @@
               .connect-draft-preview.md-output { max-height:none; overflow:visible; }
               /* Studio stage: center the draft as a readable "sheet" (mirrors the Newsletter hero). */
               .connect-draft-preview.connect-paper { max-width:840px; margin:0 auto; }
+              .connect-draft-preview .connect-lock-badge { font-size:0.72em; margin-right:6px; vertical-align:middle; opacity:0.85; cursor:help; }
+              .connect-draft-preview :is(h1,h2,h3,h4,h5,h6)[data-locked] { opacity:0.92; }
               .connect-history { border:1px solid var(--cp-border); border-radius:10px; padding:14px; background:var(--cp-bg-elevated); margin:12px 0 4px; }
               .connect-version-row { border:1px solid var(--cp-border); border-radius:8px; padding:10px 12px; background:var(--cp-surface); }
               .connect-version-preview { font-size:12.5px; color:var(--cp-text-muted); margin-top:5px; line-height:1.45; }
@@ -22760,7 +22762,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         connectRenderDraft() {
           const md = this.connect.draftText || '';
           if (!md.trim()) return '';
-          try { return this.renderMarkdown(md); } catch { return md; }
+          let html;
+          try { html = this.renderMarkdown(md); } catch { return md; }
+          // Mark locked section headings with a small lock indicator.
+          const locked = Array.isArray(this.connect.lockedSections) ? this.connect.lockedSections : [];
+          if (!locked.length) return html;
+          try {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const lockedSet = new Set(locked.map(k => this.connectSectionKey(k)));
+            doc.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(h => {
+              if (lockedSet.has(this.connectSectionKey(h.textContent || ''))) {
+                h.setAttribute('data-locked', '1');
+                const badge = doc.createElement('span');
+                badge.className = 'connect-lock-badge';
+                badge.setAttribute('title', 'Locked — preserved on regenerate');
+                badge.textContent = '🔒';
+                h.insertBefore(badge, h.firstChild);
+              }
+            });
+            return doc.body.innerHTML;
+          } catch { return html; }
         },
         // Load the user's own active PRs for the Home page card (warm cache; no forced refresh).
         async loadHomePrs() {
