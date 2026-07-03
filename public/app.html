@@ -10088,6 +10088,8 @@
                         <div class="connect-mem-actions">
                           <a href="#" @click.prevent="newsletterViewVersion(v.id)" x-text="newsletter._viewVersionId === v.id ? 'Hide' : 'View'"></a>
                           <span class="dot">·</span>
+                          <a href="#" @click.prevent="newsletterRenameVersion(v)">Rename</a>
+                          <span class="dot">·</span>
                           <a href="#" @click.prevent="newsletterRestoreVersion(v)">Restore</a>
                           <span class="dot">·</span>
                           <a href="#" @click.prevent="newsletterDeleteVersion(v.id)" style="color:var(--cp-danger)">Delete</a>
@@ -12513,6 +12515,7 @@
                   <a href="#" @click.prevent="goTo(s.hash)" class="settings-rail-link" :class="{ active: settingsCatActive(s.id) }">
                     <span class="settings-rail-ico" x-text="s.ico"></span>
                     <span x-text="s.label"></span>
+                    <span x-show="s.id === 'dependencies' && agentDepsNeedAttention()" style="margin-left:auto;width:8px;height:8px;border-radius:50%;flex:none;background:var(--cp-warning)" title="An agent tool needs attention"></span>
                   </a>
                 </template>
               </nav>
@@ -12850,6 +12853,7 @@
                   <a href="#" @click.prevent="goTo(s.hash)" class="settings-rail-link" :class="{ active: settingsCatActive(s.id) }">
                     <span class="settings-rail-ico" x-text="s.ico"></span>
                     <span x-text="s.label"></span>
+                    <span x-show="s.id === 'dependencies' && agentDepsNeedAttention()" style="margin-left:auto;width:8px;height:8px;border-radius:50%;flex:none;background:var(--cp-warning)" title="An agent tool needs attention"></span>
                   </a>
                 </template>
               </nav>
@@ -13334,7 +13338,65 @@
               </template>
             </div>
 
+            <!-- Agent tools & MCP servers -->
+            <div class="card" style="margin-bottom:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+                <h3 style="margin:0">🔌 Agent tools &amp; MCP servers</h3>
+                <button class="btn ghost" type="button" @click="checkAgentDeps()" :disabled="adeps.checking" style="font-size:0.82rem">
+                  <span x-show="!adeps.checking">↻ Recheck</span>
+                  <span x-show="adeps.checking">Checking…</span>
+                </button>
+              </div>
+              <p class="hint" style="margin-bottom:0">External tools and MCP servers our system agents (standup, Board, Connect, ops assistants) rely on. If one is missing the agent silently loses that capability — install it here.</p>
+              <div x-show="adeps.error" style="margin-top:10px;font-size:0.85rem;color:var(--cp-danger)" x-text="adeps.error"></div>
+
+              <!-- Attention banner -->
+              <div x-show="adeps.summary && adeps.summary.needsAttention > 0"
+                   style="margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--cp-warning-soft, rgba(240,180,40,0.12));border:1px solid var(--cp-warning);font-size:0.84rem">
+                <span x-text="adeps.summary.needsAttention + (adeps.summary.needsAttention === 1 ? ' required tool needs attention' : ' required tools need attention') + ' — full agent operations may be degraded until resolved.'"></span>
+              </div>
+
+              <div x-show="adeps.loading" class="hint" style="margin-top:12px;font-size:0.8rem">Loading…</div>
+
+              <div style="margin-top:14px">
+                <template x-for="d in adeps.items" :key="d.id">
+                  <div style="border:1px solid var(--cp-border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                      <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (d.status === 'ok' ? 'var(--cp-success)' : (d.status === 'missing' ? 'var(--cp-danger)' : (d.status === 'degraded' ? 'var(--cp-warning)' : 'var(--cp-text-muted)')))"
+                        :title="d.status"></span>
+                      <div style="min-width:0;flex:1">
+                        <div style="font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                          <span x-text="d.name"></span>
+                          <span x-show="d.source === 'discovered'" class="hint" style="font-size:0.7rem" title="Auto-discovered from an installed plugin — not in the curated requirements list">discovered</span>
+                        </div>
+                        <div class="hint mono" style="font-size:0.76rem">
+                          <span x-text="d.command"></span><span x-show="d.version" x-text="' · v' + d.version"></span><span x-show="!d.version && d.status==='ok'"> · available</span>
+                        </div>
+                        <div x-show="d.detail" class="hint" style="font-size:0.75rem;margin-top:2px" x-text="d.detail"></div>
+                        <div x-show="d.usedBy && d.usedBy.length" class="hint" style="font-size:0.73rem;margin-top:2px" x-text="'Used by ' + (d.usedBy || []).join(', ')"></div>
+                        <div x-show="d.error" class="hint" style="font-size:0.75rem;margin-top:3px;color:var(--cp-danger)" x-text="d.error"></div>
+                        <div x-show="d.status !== 'ok' && d.installHint" class="hint" style="font-size:0.74rem;margin-top:3px" x-text="d.installHint"></div>
+                        <div x-show="d.status !== 'ok' && d.installCommand" class="hint mono" style="font-size:0.73rem;margin-top:3px" x-text="d.installCommand"></div>
+                        <div x-show="adeps.result[d.id]" class="hint mono" style="font-size:0.72rem;margin-top:4px;white-space:pre-wrap;max-height:120px;overflow:auto" x-text="adeps.result[d.id]"></div>
+                      </div>
+                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <span x-show="d.status === 'ok'" class="hint" style="font-size:0.76rem;color:var(--cp-success)">Ready</span>
+                        <button x-show="d.status !== 'ok' && d.installable" class="btn" type="button" @click="installAgentDep(d.id)" :disabled="adeps.busy[d.id]" style="font-size:0.8rem">
+                          <span x-show="!adeps.busy[d.id]">⬇ Try install</span>
+                          <span x-show="adeps.busy[d.id]">Installing…</span>
+                        </button>
+                        <a x-show="d.docs" :href="d.docs" target="_blank" rel="noopener" class="btn ghost" style="font-size:0.8rem;text-decoration:none">Docs</a>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <div x-show="!adeps.loading && adeps.items.length === 0" class="hint" style="font-size:0.82rem">No agent tools detected.</div>
+              </div>
+              <div x-show="adeps.summary && adeps.summary.lastChecked" class="hint" style="font-size:0.72rem;margin-top:6px" x-text="'Last checked ' + formatRelative(adeps.summary.lastChecked)"></div>
+            </div>
+
             </div><!-- /dependencies category -->
+
 
             <!-- ===== Connect category ===== -->
             <div x-show="settingsCat === 'connect'">
@@ -14183,7 +14245,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>📊 Reports</h1>
-                <p>Usage and cost analytics across agents, tasks, managers, flows, and chats.</p>
+                <p x-text="reportView === 'productivity' ? 'The developer time this system saves you — measured across every AI-assisted activity.' : 'Usage and cost analytics across agents, tasks, managers, flows, and chats.'"></p>
               </div>
               <div class="toolbar">
                 <div class="filter-pills">
@@ -14195,10 +14257,16 @@
               </div>
             </div>
 
+            <div class="cli-view-toggle" role="tablist" style="margin-bottom:16px" title="Switch report">
+              <button type="button" :class="{ active: reportView === 'usage' }" @click="setReportView('usage')">🔌 AI Usage</button>
+              <button type="button" :class="{ active: reportView === 'productivity' }" @click="setReportView('productivity')">⚡ Productivity</button>
+            </div>
+
             <div class="empty-state" x-show="reportsLoading">Loading usage…</div>
 
             <template x-if="!reportsLoading && reports">
               <div>
+                <div x-show="reportView === 'usage'">
                 <!-- Headline stat cards -->
                 <div class="report-grid" style="margin-bottom:20px">
                   <div class="card report-stat">
@@ -14258,13 +14326,13 @@
                   <div class="empty-state" x-show="!reports.daily.length" style="padding:24px">No usage recorded in this window yet.</div>
                 </div>
 
-                <!-- Productivity: time & cost by activity -->
+                <!-- By activity: API time & cost -->
                 <div class="card" style="margin-bottom:20px">
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
-                    <h3 style="margin:0">Productivity</h3>
-                    <span class="hint">Where AI effort went</span>
+                    <h3 style="margin:0">By activity</h3>
+                    <span class="hint">API time &amp; cost per activity</span>
                   </div>
-                  <p class="hint" style="margin:0 0 14px">API time and cost grouped by what the work was — pull requests, dev cards, newsletters, Connect, insights and more. Every AI run in the system is counted, not just your agents and tasks.</p>
+                  <p class="hint" style="margin:0 0 14px">Grouped by what the work was — pull requests, dev cards, newsletters, Connect, insights and more. Every AI run in the system is counted, not just your agents and tasks.</p>
                   <div class="table-wrap">
                     <table class="report-table">
                       <thead>
@@ -14350,6 +14418,89 @@
                     <input class="field-input" type="number" step="0.001" min="0" style="max-width:140px" x-model.number="reportRate" />
                     <span class="hint">per premium request</span>
                     <button class="btn primary" type="button" @click="saveReportRate()" :disabled="reportsLoading">Save</button>
+                  </div>
+                </div>
+                </div>
+
+                <!-- ===== Productivity report: time saved vs. doing it by hand ===== -->
+                <div x-show="reportView === 'productivity'">
+                  <!-- Value hero -->
+                  <div class="card" style="margin-bottom:20px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+                      <h3 style="margin:0">Time saved</h3>
+                      <label style="display:inline-flex;align-items:center;gap:8px;font-size:0.82rem;color:var(--cp-text-muted)">
+                        <span>Baseline</span>
+                        <select class="field-input" style="max-width:180px" x-model="prodAggressiveness" @change="setProdAggressiveness(prodAggressiveness)">
+                          <option value="conservative">Conservative</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="optimistic">Optimistic</option>
+                        </select>
+                      </label>
+                    </div>
+                    <p class="hint" style="margin:0 0 16px">Estimated developer time this system saved versus doing the same work by hand — across every AI-assisted activity we tracked. Tune the manual baseline on the right; the estimate updates live.</p>
+                    <div class="report-grid">
+                      <div class="card report-stat">
+                        <div class="report-stat-label">⏳ Time saved</div>
+                        <div class="report-stat-value" x-text="formatMinutes(prodTotals().savedMin)"></div>
+                        <div class="hint" x-text="'≈ ' + prodWorkingDays(prodTotals().savedMin) + ' working days reclaimed'"></div>
+                      </div>
+                      <div class="card report-stat">
+                        <div class="report-stat-label">✋ Your hands-on time</div>
+                        <div class="report-stat-value" x-text="formatMinutes(prodTotals().activeMin)"></div>
+                        <div class="hint">prompting, supervising &amp; reviewing</div>
+                      </div>
+                      <div class="card report-stat">
+                        <div class="report-stat-label">🧑‍💻 Manual equivalent</div>
+                        <div class="report-stat-value" x-text="formatMinutes(prodTotals().manualMin)"></div>
+                        <div class="hint">the same work done by hand</div>
+                      </div>
+                      <div class="card report-stat">
+                        <div class="report-stat-label">🚀 Effort multiplier</div>
+                        <div class="report-stat-value" x-text="prodMultiplierLabel()"></div>
+                        <div class="hint">manual time ÷ hands-on time</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Per-activity savings breakdown -->
+                  <div class="card" style="margin-bottom:20px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">By activity</h3>
+                      <span class="hint">Where the time went — and where it was saved</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">Ranked by time saved. Hands-on is your estimated effort with the system; manual is what the same work would take unaided.</p>
+                    <div class="table-wrap">
+                      <table class="report-table">
+                        <thead>
+                          <tr><th>Activity</th><th style="width:26%">Time saved</th><th class="num">Runs</th><th class="num">Hands-on</th><th class="num">Manual est.</th><th class="num">Saved</th></tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="row in prodRows()" :key="row.category">
+                            <tr>
+                              <td><span class="type-badge" x-text="reportCategoryLabel(row.category)"></span></td>
+                              <td>
+                                <div style="height:8px;border-radius:6px;background:var(--cp-surface-soft,#e5e7eb);overflow:hidden">
+                                  <div :style="`width:${prodSavedShare(row)}%;height:100%;background:var(--cp-accent,#6366f1);border-radius:6px`"></div>
+                                </div>
+                              </td>
+                              <td class="num" x-text="formatNumber(row.runs)"></td>
+                              <td class="num" x-text="formatMinutes(row.activeMin)"></td>
+                              <td class="num" x-text="formatMinutes(row.manualMin)"></td>
+                              <td class="num" x-text="formatMinutes(row.savedMin)"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                      <div class="empty-state" x-show="!(prodRows().length)" style="padding:18px">No activity recorded yet. As you use agents, PRs, newsletters, Connect and more, your time savings will appear here.</div>
+                    </div>
+                  </div>
+
+                  <!-- Methodology -->
+                  <div class="card">
+                    <h3 style="margin-bottom:10px">How this is estimated</h3>
+                    <p class="hint" style="margin:0 0 10px">These are estimates, not stopwatch measurements. For each kind of AI activity we assume a typical <strong>manual baseline</strong> — how long a developer would spend doing it by hand — and a smaller <strong>hands-on</strong> cost for the time you spend prompting, supervising and reviewing. Time saved is the difference, summed across every tracked run. Big deliverables like a <strong>newsletter</strong>, <strong>Connect write-up</strong> or a newly <strong>authored agent</strong> fan out into many AI runs, so their manual baseline is charged once per finished artifact — the full multi-hour effort of sourcing, formatting, adding images, proof-reading and editing — rather than diluted across each run.</p>
+                    <p class="hint" style="margin:0 0 10px">Use the <strong>Baseline</strong> control to dial the manual estimate up or down. <strong>Conservative</strong> assumes developers are fast and the savings are modest; <strong>Optimistic</strong> assumes the manual path is slower and more error-prone. Internal system calls are excluded so the number reflects real developer work.</p>
+                    <p class="hint" style="margin:0">New kinds of AI work are picked up automatically — anything the system tracks gets a sensible default baseline and starts showing savings here with no extra setup.</p>
                   </div>
                 </div>
               </div>
@@ -15861,6 +16012,8 @@
         reportsLoading: false,
         reportRange: 30,
         reportMetric: 'cost',
+        reportView: (() => { try { return localStorage.getItem('report-view') || 'usage'; } catch (_) { return 'usage'; } })(),
+        prodAggressiveness: (() => { try { return localStorage.getItem('prod-aggr') || 'balanced'; } catch (_) { return 'balanced'; } })(),
         reportRate: 0.04,
         scheduleTypeFilter: 'all',
         scheduleHideDisabled: false,
@@ -16290,6 +16443,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         externalAccessBusy: false,
         settingsCat: 'appearance',
         deps: { items: [], settings: { autoUpdate: false, channel: 'stable', schedule: 'daily at 3am', offlineMode: false, consent: false }, loading: false, checking: false, busy: {}, busyAll: false, error: '', _loaded: false },
+        adeps: { items: [], summary: null, loading: false, checking: false, busy: {}, result: {}, error: '', _loaded: false },
         exportSettingsRepos: [],
         exportSettingsBranches: [],
         exportSettingsLoadingRepos: false,
@@ -16409,6 +16563,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // auto-generation may have run while the app was closed).
           setTimeout(() => this.loadNewsletterStatus(), 6000);
           this._newsletterStatusTimer = setInterval(() => this.loadNewsletterStatus(), 300000);
+          // Agent tool / MCP-server health — lazy probe so the Settings "needs
+          // attention" dot is populated before the user ever opens the pane.
+          setTimeout(() => this.loadAgentDeps().catch(() => {}), 8000);
           // Code Flow auto-refresh: establish a change-detection baseline shortly
           // after startup (cache-friendly), then poll every 15 minutes for new /
           // merged / materially-changed PRs and raise a dismissable banner.
@@ -17124,7 +17281,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.loadSyncStatus();
             this.loadModels();
             this.loadModelSettings();
-            if (this.settingsCat === 'dependencies') this.loadDependencies();
+            if (this.settingsCat === 'dependencies') { this.loadDependencies(); this.loadAgentDeps(); }
             if (this.settingsCat === 'storage') { this.loadDataLocation(); this.ensureConnectConfig(); this.ensureDevSettings(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
           } else if (this.route === 'chains') {
@@ -19758,6 +19915,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.route === 'events') return id === 'external';
           return this.route === 'settings' && this.settingsCat === id;
         },
+        agentDepsNeedAttention() {
+          return !!(this.adeps && this.adeps.summary && this.adeps.summary.needsAttention > 0);
+        },
         depVersionLine(d) {
           if (!d) return '';
           const parts = [];
@@ -19801,6 +19961,61 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.deps.error = 'Check failed: ' + err.message;
           } finally {
             this.deps.checking = false;
+          }
+        },
+        _applyAgentDepsResponse(r) {
+          if (!r) return;
+          if (Array.isArray(r.items)) this.adeps.items = r.items;
+          if (r.summary) this.adeps.summary = r.summary;
+        },
+        async loadAgentDeps(force) {
+          if (this.adeps._loaded && !force) return;
+          this.adeps.loading = true;
+          this.adeps.error = '';
+          try {
+            const r = await this.request('/api/agent-deps');
+            this._applyAgentDepsResponse(r);
+            this.adeps._loaded = true;
+          } catch (err) {
+            this.adeps.error = 'Could not load agent tools: ' + err.message;
+          } finally {
+            this.adeps.loading = false;
+          }
+        },
+        async checkAgentDeps() {
+          this.adeps.checking = true;
+          this.adeps.error = '';
+          try {
+            const r = await this.request('/api/agent-deps/check', { method: 'POST', body: '{}' });
+            this._applyAgentDepsResponse(r);
+            this.adeps._loaded = true;
+          } catch (err) {
+            this.adeps.error = 'Check failed: ' + err.message;
+          } finally {
+            this.adeps.checking = false;
+          }
+        },
+        async installAgentDep(id) {
+          if (this.adeps.busy[id]) return;
+          this.adeps.busy = Object.assign({}, this.adeps.busy, { [id]: true });
+          this.adeps.error = '';
+          const res = Object.assign({}, this.adeps.result); delete res[id]; this.adeps.result = res;
+          try {
+            const r = await this.request('/api/agent-deps/' + encodeURIComponent(id) + '/install', { method: 'POST', body: '{}' });
+            this._applyAgentDepsResponse(r);
+            if (r && r.ok) {
+              if (r.output) this.adeps.result = Object.assign({}, this.adeps.result, { [id]: r.output });
+              this.showToast('Agent tools', 'Installed successfully', 'success');
+            } else {
+              const msg = (r && (r.error || r.installHint)) || 'Install failed';
+              this.adeps.result = Object.assign({}, this.adeps.result, { [id]: msg });
+              this.showToast('Agent tools', msg, 'error');
+            }
+          } catch (err) {
+            this.adeps.result = Object.assign({}, this.adeps.result, { [id]: err.message });
+            this.showToast('Agent tools', 'Install failed: ' + err.message, 'error');
+          } finally {
+            const b = Object.assign({}, this.adeps.busy); delete b[id]; this.adeps.busy = b;
           }
         },
         async updateDependency(id) {
@@ -21463,6 +21678,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             await this.request('/api/newsletter/versions/' + encodeURIComponent(id), { method: 'DELETE' });
             this.newsletterLoadVersions();
           } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+        },
+        async newsletterRenameVersion(v) {
+          if (!v) return;
+          const next = await this.uiPrompt({ title: 'Rename version', label: 'Title for this version', value: v.title || '', placeholder: 'e.g. The AutoScaler Is Live', confirmLabel: 'Save' });
+          if (next == null) return;
+          const title = String(next).trim();
+          try {
+            await this.request('/api/newsletter/versions/' + encodeURIComponent(v.id), { method: 'PATCH', body: JSON.stringify({ title }) });
+            await this.newsletterLoadVersions();
+          } catch (e) { this.toast('Rename failed: ' + (e.message || e), 'error'); }
         },
         newsletterToggleChat() {
           const c = this.newsletter.chat;
@@ -34321,6 +34546,119 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const rows = (this.reports && this.reports.byCategory) || [];
           const max = Math.max(...rows.map(r => Number(r.apiDurationMs || 0)), 1);
           return (Number(row.apiDurationMs || 0) / max * 100).toFixed(1);
+        },
+
+        // ===== Productivity report (time-savings model) =====
+        // Per-activity minutes. `active` = the hands-on prompting/review cost with
+        // the system (always scales per AI run). Manual baseline is modelled two ways:
+        //   • Simple activities use `manual` = per-run minutes doing it by hand.
+        //   • Deliverable activities (newsletter, Connect, agent authoring) fan out
+        //     into MANY AI runs per finished artifact, so a flat per-run manual number
+        //     badly undercounts them. They instead use `perUnit` (the real hours to
+        //     produce ONE artifact by hand — sourcing, formatting, images, proof-reading,
+        //     editing) charged once per estimated deliverable, where a deliverable is
+        //     ~`unitRuns` AI runs (a generate plus a couple of revisions).
+        // `_default` catches any future category for free.
+        prodBaselineModel() {
+          return {
+            pull_requests:   { manual: 12,  active: 2.5 },
+            dev_cards:       { manual: 20,  active: 4   },
+            // A hand-built newsletter is a 3+ hour job: tracking down sources, deciding
+            // a format, sourcing/placing images, proof-reading and editing.
+            newsletter:      { active: 6,   perUnit: 190, unitRuns: 3 },
+            // A polished Connect / impact write-up is a couple of hours of recall,
+            // drafting and evidence-gathering by hand.
+            connect:         { active: 5,   perUnit: 110, unitRuns: 3 },
+            // Authoring a good agent by hand — writing the prompt, picking skills,
+            // testing behaviour — is the better part of an hour.
+            agent_authoring: { active: 2,   perUnit: 45,  unitRuns: 2 },
+            insights:        { manual: 6,   active: 0.6 },
+            feedback:        { manual: 8,   active: 1   },
+            release_notes:   { manual: 10,  active: 0.5 },
+            chat:            { manual: 5,   active: 1   },
+            agents_tasks:    { manual: 10,  active: 0.3 },
+            system:          { manual: 0.5, active: 0.1 },
+            _default:        { manual: 5,   active: 1   }
+          };
+        },
+
+        prodAggrMultiplier() {
+          return this.prodAggressiveness === 'conservative' ? 0.6
+            : this.prodAggressiveness === 'optimistic' ? 1.4 : 1.0;
+        },
+
+        prodRows() {
+          const cats = (this.reports && this.reports.byCategory) || [];
+          const model = this.prodBaselineModel();
+          const mult = this.prodAggrMultiplier();
+          const rows = cats
+            // Internal system/plumbing calls aren't developer work being replaced —
+            // keep them out of the savings story so the number stays honest.
+            .filter(c => c.category !== 'system')
+            .map(c => {
+            const runs = Number(c.runs || 0);
+            const m = model[c.category] || model._default;
+            const activeMin = runs * (m.active || 0);
+            // Deliverable activities: charge the full manual cost once per estimated
+            // artifact (runs ÷ typical runs-per-deliverable, min 1 when any runs exist).
+            let manualMin;
+            if (m.perUnit) {
+              const per = Math.max(1, m.unitRuns || 1);
+              const units = runs > 0 ? Math.max(1, Math.round(runs / per)) : 0;
+              manualMin = units * m.perUnit * mult;
+            } else {
+              manualMin = runs * (m.manual || 0) * mult;
+            }
+            const savedMin = Math.max(0, manualMin - activeMin);
+            return { category: c.category, runs, activeMin, manualMin, savedMin };
+          });
+          rows.sort((a, b) => b.savedMin - a.savedMin);
+          return rows;
+        },
+
+        prodTotals() {
+          return this.prodRows().reduce((t, r) => {
+            t.activeMin += r.activeMin; t.manualMin += r.manualMin; t.savedMin += r.savedMin; return t;
+          }, { activeMin: 0, manualMin: 0, savedMin: 0 });
+        },
+
+        prodSavedShare(row) {
+          const rows = this.prodRows();
+          const max = Math.max(...rows.map(r => Number(r.savedMin || 0)), 1);
+          return (Number(row.savedMin || 0) / max * 100).toFixed(1);
+        },
+
+        prodMultiplierLabel() {
+          const t = this.prodTotals();
+          if (t.activeMin <= 0) return '—';
+          const x = t.manualMin / t.activeMin;
+          return (x >= 10 ? x.toFixed(0) : x.toFixed(1)) + '×';
+        },
+
+        prodWorkingDays(min) {
+          const days = Number(min || 0) / 60 / 8;
+          if (days < 0.1) return '0';
+          return days.toFixed(days < 10 ? 1 : 0);
+        },
+
+        formatMinutes(min) {
+          const m = Math.round(Number(min || 0));
+          if (m <= 0) return '0m';
+          if (m < 60) return m + 'm';
+          const h = Math.floor(m / 60), r = m % 60;
+          if (h < 24) return r ? (h + 'h ' + r + 'm') : (h + 'h');
+          const d = Math.floor(h / 24), rh = h % 24;
+          return rh ? (d + 'd ' + rh + 'h') : (d + 'd');
+        },
+
+        setReportView(v) {
+          this.reportView = v;
+          try { localStorage.setItem('report-view', v); } catch (_) {}
+        },
+
+        setProdAggressiveness(v) {
+          this.prodAggressiveness = v;
+          try { localStorage.setItem('prod-aggr', v); } catch (_) {}
         },
 
         formatNumber(n) {

@@ -255,6 +255,29 @@ function _writeVersions(items) {
   return _writeJson(_versionsPath(), { items });
 }
 
+// Pull the issue title from the body the reader actually sees — the first ATX
+// `# Heading` or inline <h1>. The stored draft.title goes stale (a regeneration
+// or edit rewrites the markdown but not that field), so the H1 is the reliable
+// source of truth for the version-history label and email subject. Returns ''.
+function extractTitle(md) {
+  const src = String(md || '');
+  if (!src.trim()) return '';
+  const clean = (s) => String(s)
+    .replace(/<[^>]+>/g, '')                 // strip any inline tags
+    .replace(/[*_`]/g, '')                   // strip markdown emphasis marks
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const atx = lines[i].match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/);   // H1 only (not ##)
+    if (atx) { const t = clean(atx[1]); if (t) return t; }
+  }
+  const h1 = src.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1) { const t = clean(h1[1]); if (t) return t; }
+  return '';
+}
+
 function _pushDraftVersion(draft, { reason } = {}) {
   const body = (draft && draft.markdown || '');
   if (!body.trim()) return null;
@@ -263,7 +286,8 @@ function _pushDraftVersion(draft, { reason } = {}) {
   const entry = {
     id: _id('nv'),
     markdown: body,
-    title: (draft && draft.title) || '',
+    // Prefer the visible H1 over the (often stale) draft.title.
+    title: extractTitle(body) || (draft && draft.title) || '',
     source: draft && draft.source === 'ai' ? 'ai' : 'manual',
     reason: reason || 'edited',
     createdAt: (draft && (draft.updatedAt || draft.generatedAt)) || new Date().toISOString(),
@@ -275,8 +299,34 @@ function _pushDraftVersion(draft, { reason } = {}) {
   return entry;
 }
 
+// Return versions with a display title derived from the body H1 unless the user
+// has manually renamed the entry (titleEdited). This keeps legacy snapshots —
+// stored with a stale draft.title — showing the correct heading on read, without
+// rewriting the file.
 function listDraftVersions() {
-  return _readVersions();
+  return _readVersions().map(v => {
+    if (v && v.titleEdited) return v;
+    const t = extractTitle(v && v.markdown || '');
+    return t ? { ...v, title: t } : v;
+  });
+}
+
+// Manually override a version's title. An empty title resets to auto-derivation
+// (clears titleEdited) so the entry falls back to the body H1; a non-empty title
+// marks titleEdited so the derived-title logic never clobbers the user's choice.
+function renameDraftVersion(id, title) {
+  const items = _readVersions();
+  const idx = items.findIndex(v => v.id === id);
+  if (idx < 0) return null;
+  const clean = String(title == null ? '' : title).replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!clean) {
+    const { titleEdited, ...rest } = items[idx];
+    items[idx] = { ...rest, title: extractTitle(rest.markdown || '') || '' };
+  } else {
+    items[idx] = { ...items[idx], title: clean, titleEdited: true };
+  }
+  _writeVersions(items);
+  return items[idx];
 }
 
 function getDraftVersion(id) {
@@ -339,6 +389,8 @@ module.exports = {
   listDraftVersions,
   getDraftVersion,
   deleteDraftVersion,
+  renameDraftVersion,
+  extractTitle,
   sinceForDays,
   evidenceForTimeframe,
   exportAll,

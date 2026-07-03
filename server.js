@@ -28,6 +28,7 @@ const marketplace = require('./marketplace');
 const marketplaceDesign = require('./marketplace-design');
 const standupAgent = require('./standupAgent');
 const dependencies = require('./dependencies');
+const agentDeps = require('./agentDeps');
 const updater = require('./updater');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
@@ -10174,6 +10175,13 @@ async function _newsletterRasterizeSvgs(html, { bg, maxWidth, cssVars } = {}) {
 // given, renders as a highlighted strip above the masthead (e.g. "Your weekly
 // newsletter is ready — review below, then forward to publish").
 // Async because it rasterizes inline SVG to PNG for mail-client compatibility.
+// Pull the real issue title out of the body being emailed. Delegates to the
+// newsletter module's shared extractor (H1 → the title the reader actually sees)
+// so the email subject and the version-history label stay in lockstep.
+function _newsletterExtractTitle(md) {
+  return newsletter.extractTitle(md);
+}
+
 async function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
   const st = newsletter.getState();
   const cfg = st.config || {};
@@ -10193,7 +10201,10 @@ async function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
   const scale = Math.max(0.85, Math.min(1.3, parseFloat(cfg.fontScale) || 1));
   const width = Math.max(600, Math.min(900, parseInt(cfg.width, 10) || 680));
   const px = (n) => Math.round(n * scale) + 'px';
-  const issueTitle = (st.draft && st.draft.title) || cfg.title || 'My Impact Digest';
+  // Subject/title precedence: an explicit subject wins; otherwise use the title
+  // the reader actually sees (the body's H1), then the stored draft/config title.
+  const bodyTitle = _newsletterExtractTitle(md);
+  const issueTitle = bodyTitle || (st.draft && st.draft.title) || cfg.title || 'My Impact Digest';
   const subj = subject || issueTitle;
   const toAddr = to || cfg.emailTo || s.newsletterEmailTo || '';
 
@@ -10494,6 +10505,15 @@ app.delete('/api/newsletter/versions/:id', (req, res) => {
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// Manually rename a saved version's title.
+app.patch('/api/newsletter/versions/:id', (req, res) => {
+  try {
+    const title = req.body && typeof req.body.title === 'string' ? req.body.title : '';
+    const updated = newsletter.renameDraftVersion(req.params.id, title);
+    if (!updated) return res.status(404).json({ error: 'Version not found.' });
+    res.json({ ok: true, version: updated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // Compose a styled, self-contained HTML newsletter and open it as a draft email.
 app.post('/api/newsletter/email', async (req, res) => {
@@ -10739,6 +10759,46 @@ function _depsGlobalConfig() {
     consent: !!s.depsConsent,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Agent tool & MCP-server dependencies — the external tools our SYSTEM agents
+// (standup, Board, Connect, ops assistants) require. Distinct from the runtime
+// floor above: this reports what's installed/missing and can install the
+// dotnet global tools we know how to install. Backed by agentDeps.js.
+// ---------------------------------------------------------------------------
+
+// Cached view (fast) — probes on demand if never checked.
+app.get('/api/agent-deps', (req, res) => {
+  try {
+    res.json(agentDeps.list());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Force a fresh probe of every agent dependency.
+app.post('/api/agent-deps/check', (req, res) => {
+  try {
+    res.json({ ok: true, ...agentDeps.check() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Try to install a known-installable dependency (dotnet global tools).
+app.post('/api/agent-deps/:id/install', async (req, res) => {
+  try {
+    const s = settings.getSettings();
+    if (s.depsOfflineMode) return res.status(409).json({ error: 'Offline mode is enabled — installs are disabled.' });
+    const result = await agentDeps.install(String(req.params.id));
+    if (result && result.ok === false) {
+      return res.status(400).json({ ...result, ...agentDeps.list() });
+    }
+    res.json({ ...result, ...agentDeps.list() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 // Exhaustive usage + cost reporting backed by the canonical usage_events ledger.
