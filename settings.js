@@ -141,6 +141,14 @@ const DEFAULTS = {
   // Default recipient for the "Email newsletter" action. Empty = leave the .eml
   // To: blank for the user to fill in their mail client.
   newsletterEmailTo: '',
+  // When true, the newsletter is generated automatically on `newsletterSchedule`
+  // (leader-gated) and the user is notified for review/publishing. `scheduler.js`
+  // has no bare "weekly" token — use e.g. "monday at 8am" / "friday at 4pm".
+  newsletterAutoGenerate: false,
+  newsletterSchedule: 'monday at 8am',
+  // When true (default), a review-ready draft .eml is opened in the mail client on
+  // each scheduled run. The in-app "review pending" flag is always set regardless.
+  newsletterNotifyEmail: true,
 };
 
 let cache = null;
