@@ -516,8 +516,110 @@ let connectPluginDir = null;
 })();
 
 
-// Get git version info and process identity at startup
-const PROCESS_START = new Date().toISOString();
+// Runtime dir of the seeded Newsletter plugin (set by ensureNewsletterPlugin).
+// Newsletter runs point config.pluginDir here so the SDK loads its writer/editor
+// agents + newsletter-standards skill + WorkIQ .mcp.json.
+let newsletterPluginDir = null;
+
+// Seed the built-in Newsletter plugin into the runtime store, register it, and
+// (re)generate its WorkIQ .mcp.json from settings. Mirrors ensureConnectPlugin —
+// the newsletter writer/editor investigate diary references (WorkIQ + ADO/GitHub
+// links + browser + shell), so they need the WorkIQ MCP server available.
+(function ensureNewsletterPlugin() {
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const configPath = path.join(homeDir, '.copilot', 'config.json');
+  const installedDir = path.join(homeDir, '.copilot', 'installed-plugins', '_direct');
+  const builtinNewsletter = path.join(BUILTIN_PLUGINS_DIR, 'newsletter');
+  const runtimeNewsletter = path.join(PLUGINS_DIR, 'newsletter');
+  const targetDir = path.join(installedDir, 'newsletter');
+
+  try {
+    if (fs.existsSync(builtinNewsletter) && !fs.existsSync(runtimeNewsletter)) {
+      fs.mkdirSync(PLUGINS_DIR, { recursive: true });
+      fs.cpSync(builtinNewsletter, runtimeNewsletter, { recursive: true });
+      console.log('[supervisor] Seeded newsletter plugin into runtime store');
+    } else if (fs.existsSync(builtinNewsletter) && fs.existsSync(runtimeNewsletter)) {
+      // Upgrade path: copy any agent/skill files added to the builtin plugin
+      // that aren't yet in the runtime store (never clobber the generated .mcp.json).
+      for (const sub of ['agents', 'skills']) {
+        const src = path.join(builtinNewsletter, sub);
+        const dst = path.join(runtimeNewsletter, sub);
+        if (!fs.existsSync(src)) continue;
+        try { fs.mkdirSync(dst, { recursive: true }); } catch { /* ignore */ }
+        // Skills can be nested (skills/<name>/SKILL.md); walk recursively.
+        const walk = (s, d) => {
+          for (const f of fs.readdirSync(s)) {
+            const sf = path.join(s, f);
+            const df = path.join(d, f);
+            try {
+              const stat = fs.statSync(sf);
+              if (stat.isDirectory()) { fs.mkdirSync(df, { recursive: true }); walk(sf, df); }
+              else if (stat.isFile() && !fs.existsSync(df)) {
+                fs.copyFileSync(sf, df);
+                console.log(`[supervisor] Synced newsletter ${sub}/${f} into runtime store`);
+              }
+            } catch { /* best-effort */ }
+          }
+        };
+        walk(src, dst);
+      }
+    }
+  } catch (e) { console.warn('[supervisor] Could not seed newsletter plugin:', e.message); }
+
+  if (!fs.existsSync(runtimeNewsletter)) return;
+  newsletterPluginDir = runtimeNewsletter;
+
+  // Generate the WorkIQ .mcp.json so the writer/editor can investigate the user's
+  // M365 activity behind the diary references. Reuses the Connect WorkIQ settings.
+  try {
+    let cmd = 'npx';
+    let argsRaw = '-y @microsoft/workiq@latest mcp';
+    try {
+      const s = require('./settings').getSettings();
+      if (s.connectWorkIqCommand) cmd = s.connectWorkIqCommand;
+      if (s.connectWorkIqArgs) argsRaw = s.connectWorkIqArgs;
+    } catch { /* settings not ready — use defaults */ }
+    const desired = {
+      mcpServers: {
+        workiq: { command: cmd, args: String(argsRaw).split(/\s+/).filter(Boolean) },
+      },
+    };
+    const mcpJsonPath = path.join(runtimeNewsletter, '.mcp.json');
+    let current = null;
+    try { current = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8')); } catch { current = null; }
+    if (JSON.stringify(current) !== JSON.stringify(desired)) {
+      fs.writeFileSync(mcpJsonPath, JSON.stringify(desired, null, 2));
+      console.log('[supervisor] Generated newsletter WorkIQ MCP config (.mcp.json)');
+    }
+  } catch (e) { console.warn('[supervisor] Could not generate newsletter MCP config:', e.message); }
+
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(installedDir, { recursive: true });
+      require('child_process').execSync(`mklink /J "${targetDir}" "${runtimeNewsletter}"`, { shell: true });
+      console.log('[supervisor] Created newsletter plugin junction');
+    } catch (e) { console.warn('[supervisor] Could not create newsletter plugin junction:', e.message); }
+  }
+
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf-8').replace(/^\s*\/\/.*$/gm, '');
+      const config = JSON.parse(raw);
+      if (!config.installedPlugins) config.installedPlugins = [];
+      if (!config.installedPlugins.some(p => p.name === 'newsletter')) {
+        config.installedPlugins.push({
+          name: 'newsletter', marketplace: '', version: '1.0.0',
+          installed_at: new Date().toISOString(), enabled: true,
+          cache_path: targetDir,
+          source: { source: 'local', path: runtimeNewsletter },
+        });
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('[supervisor] Registered newsletter plugin in copilot config');
+      }
+    } catch (e) { console.warn('[supervisor] Could not register newsletter plugin:', e.message); }
+  }
+})();
+
 const PROCESS_PID = process.pid;
 
 // In the packaged desktop app the server runs from resources/server (no git),
@@ -565,6 +667,7 @@ const sdkRunner = require('./sdk-runner');
 const settings = require('./settings');
 const uiPrefs = require('./ui-prefs');
 const connect = require('./connect');
+const newsletter = require('./newsletter');
 const STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
 // In-memory live chat state, keyed by sessionId. The SDK flushes events.jsonl to
 // disk only on session disconnect, so disk reads lag the live stream — live
@@ -9178,6 +9281,330 @@ app.get('/api/connect/export', (req, res) => {
     const data = connect.exportAll();
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="connect-export-${new Date().toISOString().slice(0,10)}.json"`);
+    res.send(JSON.stringify(data, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===========================================================================
+// Newsletter — a polished, emailable digest synthesized from the Connect diary.
+// Companion to Connect (requires it): reads the shared diary evidence over a
+// timeframe and produces a nicely formatted newsletter with impact highlights,
+// inline SVG charts, and screenshot suggestions. Mirrors the Connect helpers.
+// ===========================================================================
+
+// Run a Newsletter plugin agent (writer|editor) and return its accumulated text.
+async function _newsletterRunAgent(agentName, prompt) {
+  if (!newsletterPluginDir || !fs.existsSync(newsletterPluginDir)) {
+    throw new Error('Newsletter plugin is not available yet — restart the server.');
+  }
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: { pluginDir: newsletterPluginDir, agent: agentName, cwd: __dirname },
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    onChunk: (c) => { acc += c; },
+  });
+  if (result && result.fallback) throw new Error(result.error || 'Newsletter agent runtime unavailable');
+  return acc.trim() ? acc : ((result && result.output) || '');
+}
+
+// Format diary evidence items into prompt lines (same shape Connect uses).
+function _newsletterEvidenceLines(items) {
+  return (items || []).map(e =>
+    `- [${e.date}] (${e.source}) ${e.title}${e.detail ? ' — ' + e.detail : ''}${e.impact ? ' | Impact: ' + e.impact : ''}${(e.links && e.links.length) ? ' | Links: ' + e.links.join(' ') : ''}`
+  ).join('\n');
+}
+
+// Build the shared config/evidence context block for both generate + chat.
+function _newsletterContext() {
+  const st = newsletter.getState();
+  const cfg = st.config || {};
+  const win = newsletter.evidenceForTimeframe(cfg.timeframeDays);
+  const items = (win.items || []).slice(0, 120);
+  return { st, cfg, win, items };
+}
+
+// Generate a fresh newsletter draft from the diary evidence in the timeframe.
+async function runNewsletterGeneration() {
+  const { cfg, win, items } = _newsletterContext();
+  if (!items.length) {
+    throw new Error(`No diary evidence in the last ${cfg.timeframeDays} day(s) to build a newsletter from. Add Connect diary entries or widen the timeframe.`);
+  }
+  const evLines = _newsletterEvidenceLines(items);
+  const prompt = [
+    'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing. Follow the newsletter-standards skill and output only the newsletter Markdown body (inline HTML/SVG allowed).',
+    '',
+    '## Newsletter config',
+    `Title (masthead): ${cfg.title || 'My Impact Digest'}`,
+    `Subtitle: ${cfg.subtitle || '(none)'}`,
+    `Template style: ${cfg.template || 'digest'}`,
+    `Accent color: ${cfg.accent || '(theme default)'}`,
+    `Cadence: ${cfg.cadence || 'weekly'}`,
+    `Timeframe: ${win.since} to ${win.until} (${cfg.timeframeDays} day window)`,
+    '',
+    `## Assets directory (save any captured charts/screenshots here, reference as assets/<file>)`,
+    newsletter.assetsDir(),
+    '',
+    `## Diary evidence (${items.length} item${items.length === 1 ? '' : 's'} in window, newest first)`,
+    evLines,
+  ].join('\n');
+  const text = await _newsletterRunAgent('writer', prompt);
+  let md = String(text || '').trim();
+  const fence = md.match(/```(?:markdown|md|html)?\s*([\s\S]*?)```\s*$/i);
+  if (fence && fence[1].trim() && /^```/.test(md)) md = fence[1].trim();
+  if (!md) throw new Error('The newsletter writer returned an empty draft. Try again.');
+  // Derive a display title from the first H1 if present.
+  const h1 = md.match(/^#\s+(.+)$/m);
+  const title = h1 ? h1[1].trim() : (cfg.title || '');
+  return newsletter.saveDraft({
+    markdown: md, title, coveredFrom: win.since, coveredTo: win.until, evidenceCount: items.length,
+  }, { source: 'ai' });
+}
+
+// Conversational revision of the current newsletter draft. Returns the reply plus
+// an OPTIONAL fully-revised draft (parsed from a sentinel block). Never saves.
+async function runNewsletterDraftChat({ message, history, draft }) {
+  const msg = String(message || '').trim();
+  if (!msg) throw new Error('Say what you would like to change or ask about the newsletter.');
+  const { st, cfg, win, items } = _newsletterContext();
+  const curDraft = String(draft != null ? draft : ((st.draft && st.draft.markdown) || '')).trim();
+  const evLines = _newsletterEvidenceLines(items.slice(0, 100)) || '(no diary evidence)';
+  const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
+    const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${String((h && h.content) || '').trim()}`;
+  }).filter(Boolean).join('\n') || '(none)';
+  const prompt = [
+    'You are revising my newsletter draft through conversation. Follow your output protocol exactly.',
+    '',
+    '## Newsletter config',
+    `Title (masthead): ${cfg.title || 'My Impact Digest'}`,
+    `Subtitle: ${cfg.subtitle || '(none)'}`,
+    `Template style: ${cfg.template || 'digest'}`,
+    `Accent color: ${cfg.accent || '(theme default)'}`,
+    `Timeframe: ${win.since} to ${win.until} (${cfg.timeframeDays} day window)`,
+    '',
+    `## Assets directory (save any captured charts/screenshots here, reference as assets/<file>)`,
+    newsletter.assetsDir(),
+    '',
+    `## Diary evidence (${items.length} item${items.length === 1 ? '' : 's'} in window)`,
+    evLines,
+    '',
+    '## Current draft',
+    curDraft || '(the draft is empty)',
+    '',
+    '## Conversation so far',
+    histLines,
+    '',
+    '## My latest message',
+    msg,
+  ].join('\n');
+  const text = await _newsletterRunAgent('editor', prompt);
+  const raw = String(text || '').trim();
+  let reply = raw;
+  let newDraft = null;
+  const m = raw.match(/===DRAFT===\s*([\s\S]*?)\s*===END DRAFT===/i);
+  if (m) {
+    reply = raw.slice(0, m.index).trim();
+    let d = m[1].trim();
+    const fence = d.match(/```(?:markdown|md|html)?\s*([\s\S]*?)```\s*$/i);
+    if (fence && fence[1].trim() && /^```/.test(d)) d = fence[1].trim();
+    if (d) newDraft = d;
+  }
+  if (!reply) reply = newDraft ? 'Updated the newsletter below — review the changes.' : 'Done.';
+  return { reply, draft: newDraft };
+}
+
+// Inline local asset image references (assets/<file>) as data URIs so the emailed
+// HTML is self-contained. Leaves http(s) and existing data: URIs untouched.
+function _newsletterInlineAssets(html) {
+  try {
+    const dir = newsletter.assetsDir();
+    return String(html).replace(/(<img\b[^>]*\bsrc=["'])(assets\/[^"']+)(["'][^>]*>)/gi, (full, pre, rel, post) => {
+      try {
+        const file = path.join(dir, path.basename(rel));
+        if (!fs.existsSync(file)) return full;
+        const ext = (path.extname(file).slice(1) || 'png').toLowerCase();
+        const mime = ext === 'jpg' ? 'jpeg' : ext;
+        const b64 = fs.readFileSync(file).toString('base64');
+        return `${pre}data:image/${mime};base64,${b64}${post}`;
+      } catch { return full; }
+    });
+  } catch { return html; }
+}
+
+// GET the newsletter state (config + current draft + diary window summary).
+app.get('/api/newsletter', (req, res) => {
+  try {
+    const s = settings.getSettings();
+    const st = newsletter.getState();
+    const cfg = st.config || {};
+    const win = newsletter.evidenceForTimeframe(cfg.timeframeDays);
+    res.json({
+      state: st,
+      config: {
+        storageDir: newsletter.storageDir(),
+        emailTo: cfg.emailTo || s.newsletterEmailTo || '',
+      },
+      // Whether the Connect diary has any evidence at all — the newsletter is
+      // built from it, so the client can nudge the user to add entries if empty.
+      diaryHasEvidence: (() => { try { return (connect.listEvidence({ includeHidden: false }) || []).length > 0; } catch { return false; } })(),
+      window: {
+        since: win.since,
+        until: win.until,
+        evidenceCount: (win.items || []).length,
+        timeframeDays: cfg.timeframeDays,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update the newsletter config (title, subtitle, timeframe, template, accent, recipient).
+app.put('/api/newsletter/config', (req, res) => {
+  try {
+    const st = newsletter.saveConfig(req.body || {});
+    const win = newsletter.evidenceForTimeframe(st.config.timeframeDays);
+    res.json({ ok: true, state: st, window: { since: win.since, until: win.until, evidenceCount: (win.items || []).length } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save the (user-edited or AI) newsletter draft body.
+app.put('/api/newsletter/draft', (req, res) => {
+  try {
+    const body = req.body || {};
+    const patch = { markdown: typeof body.markdown === 'string' ? body.markdown : '' };
+    if (typeof body.title === 'string') patch.title = body.title;
+    const st = newsletter.saveDraft(patch, { source: body.source === 'ai' ? 'ai' : 'manual' });
+    res.json({ ok: true, state: st });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate a fresh newsletter from the diary evidence in the timeframe.
+app.post('/api/newsletter/generate', async (req, res) => {
+  try {
+    const st = await runNewsletterGeneration();
+    res.json({ ok: true, state: st });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Conversationally revise the draft. Returns { reply, draft? } — never saves.
+app.post('/api/newsletter/draft/chat', async (req, res) => {
+  try {
+    const { message, history, draft } = req.body || {};
+    const out = await runNewsletterDraftChat({ message, history, draft });
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List / fetch / delete prior newsletter draft versions.
+app.get('/api/newsletter/versions', (req, res) => {
+  try { res.json({ versions: newsletter.listDraftVersions() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete('/api/newsletter/versions/:id', (req, res) => {
+  try {
+    const ok = newsletter.deleteDraftVersion(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Version not found.' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Compose a styled, self-contained HTML newsletter and open it as a draft email.
+app.post('/api/newsletter/email', (req, res) => {
+  try {
+    const st = newsletter.getState();
+    const cfg = st.config || {};
+    const body = (req.body && typeof req.body.content === 'string' && req.body.content)
+      ? req.body.content
+      : (st.draft.markdown || '');
+    if (!body.trim()) return res.status(400).json({ error: 'The newsletter draft is empty — nothing to email.' });
+    const s = settings.getSettings();
+    const to = (req.body && req.body.to) || cfg.emailTo || s.newsletterEmailTo || '';
+    const accent = (cfg.accent && /^#?[0-9a-fA-F]{3,8}$/.test(cfg.accent))
+      ? (cfg.accent.startsWith('#') ? cfg.accent : '#' + cfg.accent)
+      : '#0078d4';
+    const issueTitle = (st.draft && st.draft.title) || cfg.title || 'My Impact Digest';
+    const subject = (req.body && req.body.subject) || issueTitle;
+
+    const { marked } = require('marked');
+    let htmlBody = marked.parse(body);
+    htmlBody = _newsletterInlineAssets(htmlBody);
+
+    // A clean, mainstream-newsletter shell: centered column, accent masthead rule,
+    // readable type, styled blockquotes for screenshot suggestions. Email-safe CSS.
+    const htmlEmail = `<html><head><meta charset="utf-8"><style>
+body { margin:0; padding:0; background:#f4f5f7; }
+.wrap { max-width:680px; margin:0 auto; background:#ffffff; }
+.masthead { border-top:6px solid ${accent}; padding:24px 32px 8px; }
+.content { font-family:'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; line-height:1.6; color:#24292f; padding:8px 32px 32px; }
+.content h1 { font-size:26px; line-height:1.25; margin:8px 0 4px; color:#1b1f24; }
+.content h2 { font-size:19px; margin:26px 0 6px; color:#1b1f24; border-bottom:1px solid #eaecef; padding-bottom:4px; }
+.content h3 { font-size:16px; margin:18px 0 4px; }
+.content a { color:${accent}; }
+.content img { max-width:100%; height:auto; border-radius:8px; }
+.content svg { max-width:100%; height:auto; }
+.content blockquote { margin:14px 0; padding:10px 14px; background:#f6f8fa; border-left:4px solid ${accent}; color:#57606a; border-radius:0 6px 6px 0; }
+.content hr { border:none; border-top:1px solid #eaecef; margin:24px 0; }
+.content ul { padding-left:20px; }
+.footer { font-family:'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; color:#8b949e; text-align:center; padding:16px 32px 28px; }
+</style></head><body><div class="wrap"><div class="masthead"></div><div class="content">${htmlBody}</div><div class="footer">Drafted from your Connect impact diary · review before sending.</div></div></body></html>`;
+
+    const boundary = `----=_Part_${Date.now()}`;
+    const headers = [`Subject: ${subject}`];
+    if (to) headers.push(`To: ${to}`);
+    const eml = [
+      ...headers,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      `X-Unsent: 1`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      body,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/html; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      htmlEmail,
+      ``,
+      `--${boundary}--`,
+    ].join('\r\n');
+
+    const draftDir = path.join(__dirname, '.share-drafts');
+    fs.mkdirSync(draftDir, { recursive: true });
+    const emlPath = path.join(draftDir, `newsletter-${Date.now()}.eml`);
+    fs.writeFileSync(emlPath, eml, 'utf8');
+    const { exec } = require('child_process');
+    exec(`start "" "${emlPath}"`);
+    newsletter.markEmailed();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download the full newsletter backing data (state + versions) as JSON.
+app.get('/api/newsletter/export', (req, res) => {
+  try {
+    const data = newsletter.exportAll();
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="newsletter-export-${new Date().toISOString().slice(0,10)}.json"`);
     res.send(JSON.stringify(data, null, 2));
   } catch (err) {
     res.status(500).json({ error: err.message });

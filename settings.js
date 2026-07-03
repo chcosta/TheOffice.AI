@@ -131,6 +131,16 @@ const DEFAULTS = {
   // pinned install. Args are space-separated.
   connectWorkIqCommand: 'npx',
   connectWorkIqArgs: '-y @microsoft/workiq@latest mcp',
+
+  // ---- Newsletter -----------------------------------------------------------
+  // The Newsletter feature turns the Connect impact diary into a polished,
+  // emailable digest over a timeframe. It REQUIRES Connect (reads its diary) and
+  // stores its own draft/config. Like Connect, its data can be redirected to a
+  // OneDrive-synced folder; empty = the per-user data dir (newsletter/).
+  newsletterStorageDir: '',
+  // Default recipient for the "Email newsletter" action. Empty = leave the .eml
+  // To: blank for the user to fill in their mail client.
+  newsletterEmailTo: '',
 };
 
 let cache = null;

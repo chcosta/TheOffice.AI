@@ -9721,6 +9721,217 @@
 
           </section>
 
+          <!-- ===== Newsletter (Connect diary → polished, emailable digest) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'newsletter'" x-transition.opacity.duration.180ms>
+            <style>
+              .nl-summary { display:flex; gap:18px; flex-wrap:wrap; align-items:center; }
+              .nl-stat { display:flex; flex-direction:column; }
+              .nl-stat b { font-size:20px; color:var(--cp-text); line-height:1.1; }
+              .nl-stat span { font-size:12px; color:var(--cp-text-soft); }
+              .nl-preview.md-output { max-height:none; overflow:visible; }
+              .nl-preview :is(h1,h2,h3) { color:var(--cp-text); }
+              .nl-preview svg { max-width:100%; height:auto; }
+              .nl-preview blockquote { border-left:3px solid var(--cp-accent); background:var(--cp-accent-soft);
+                margin:12px 0; padding:8px 14px; border-radius:6px; color:var(--cp-text-muted); }
+            </style>
+
+            <div class="page-header">
+              <div class="page-title">
+                <h1>📰 Newsletter</h1>
+                <p>Turn your Connect impact diary into a polished, emailable digest. AI deeply investigates your diary entries over a timeframe, highlights impact, drafts charts, and suggests screenshots — nicely formatted and ready to send.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="exportNewsletter()" title="Download the newsletter backing data as JSON">⬇ Export data</button>
+                <button class="btn" type="button" :disabled="newsletter.busy || !newsletter.draftText.trim()" @click="emailNewsletter()">✉ Email newsletter</button>
+              </div>
+            </div>
+
+            <div class="connect-privacy" x-show="!newsletter.diaryHasEvidence && newsletter.loaded">
+              <span style="font-size:16px;line-height:1">📖</span>
+              <div>
+                <strong style="color:var(--cp-text)">Your Connect diary is empty.</strong>
+                The newsletter is built from your Connect diary entries. Add or collect some entries on the
+                <a href="#/connect" style="color:var(--cp-link)">Connect</a> page first, then come back to generate a digest.
+              </div>
+            </div>
+
+            <div class="connect-tabs">
+              <button class="connect-tab" :class="{ active: newsletter.tab === 'compose' }" @click="newsletterSetTab('compose')">✍ Compose</button>
+              <button class="connect-tab" :class="{ active: newsletter.tab === 'preview' }" @click="newsletterSetTab('preview')">👁 Preview</button>
+              <button class="connect-tab" :class="{ active: newsletter.tab === 'history' }" @click="newsletterSetTab('history')" x-text="'🕘 History (' + (newsletter.versions ? newsletter.versions.length : 0) + ')'"></button>
+              <button class="connect-tab" :class="{ active: newsletter.tab === 'settings' }" @click="newsletterSetTab('settings')">⚙ Settings</button>
+            </div>
+
+            <div x-show="newsletter.loading" class="hint">Loading…</div>
+
+            <!-- ===== Compose tab ===== -->
+            <div x-show="!newsletter.loading && newsletter.tab === 'compose'" x-transition.opacity.duration.120ms>
+              <div class="connect-card">
+                <div class="nl-summary">
+                  <div class="nl-stat">
+                    <b x-text="(newsletter.window && newsletter.window.evidenceCount != null) ? newsletter.window.evidenceCount : '—'"></b>
+                    <span>diary entries in window</span>
+                  </div>
+                  <div class="nl-stat">
+                    <b x-text="(newsletter.config && newsletter.config.timeframeDays) ? (newsletter.config.timeframeDays + 'd') : '7d'"></b>
+                    <span>timeframe</span>
+                  </div>
+                  <div class="nl-stat" x-show="newsletter.window && newsletter.window.since">
+                    <b style="font-size:14px" x-text="(newsletter.window ? (newsletter.window.since + ' → ' + newsletter.window.until) : '')"></b>
+                    <span>covering</span>
+                  </div>
+                  <div style="flex:1"></div>
+                  <button class="btn primary" type="button" :disabled="newsletter.generating" @click="newsletterGenerate()">
+                    <span x-show="!newsletter.generating">✨ Generate newsletter</span>
+                    <span x-show="newsletter.generating">Composing…</span>
+                  </button>
+                </div>
+                <p class="hint" style="margin:10px 0 0" x-show="newsletter.notice" x-text="newsletter.notice"></p>
+              </div>
+
+              <div class="connect-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+                  <div>
+                    <h3>Draft</h3>
+                    <p class="hint" style="margin:0">
+                      <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.source === 'ai'">✨ AI-drafted — review &amp; edit</span>
+                      <span class="connect-src-badge" x-show="!(newsletter.state && newsletter.state.draft && newsletter.state.draft.source === 'ai')">✍ Your draft</span>
+                      <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.updatedAt" x-text="(newsletter.state && newsletter.state.draft && newsletter.state.draft.updatedAt) ? (' · updated ' + formatRelative(newsletter.state.draft.updatedAt)) : ''"></span>
+                    </p>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <button class="btn ghost" type="button" @click="newsletter.preview = !newsletter.preview" x-text="newsletter.preview ? '✎ Edit' : '👁 Preview'"></button>
+                    <button class="btn" type="button" :disabled="newsletter.savingDraft || !newsletter.draftDirty" @click="saveNewsletterDraft()" x-text="newsletter.savingDraft ? 'Saving…' : (newsletter.draftDirty ? 'Save draft' : 'Saved')"></button>
+                    <button class="btn ghost" type="button" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Chat</button>
+                  </div>
+                </div>
+
+                <div x-show="!newsletter.draftText.trim() && !newsletter.generating" class="hint" style="padding:20px 0;text-align:center">
+                  No newsletter yet. Click <strong>✨ Generate newsletter</strong> above to draft one from your diary.
+                </div>
+
+                <textarea x-show="!newsletter.preview" class="field-input connect-draft-area" x-model="newsletter.draftText"
+                  @input="newsletter.draftDirty = true" placeholder="# Your newsletter…"></textarea>
+
+                <div x-show="newsletter.preview && newsletter.draftText.trim()" class="nl-preview connect-draft-preview md-output" x-html="newsletterRenderedDraft()"></div>
+              </div>
+
+              <!-- Chat panel: revise the draft conversationally -->
+              <div class="connect-chat" x-show="newsletter.chat.open" x-transition.opacity.duration.120ms>
+                <div class="connect-chat-head">
+                  <strong style="font-size:14px">💬 Newsletter assistant</strong>
+                  <span class="hint" style="margin:0">Ask for changes — “add a chart for PR throughput”, “punchier intro”, “shorten to 3 stories”.</span>
+                  <button class="btn ghost" type="button" style="margin-left:auto" @click="newsletterToggleChat()">✕ Close</button>
+                </div>
+                <div id="nlChatScroll" class="connect-chat-log">
+                  <template x-for="(m, i) in newsletter.chat.messages" :key="i">
+                    <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
+                      <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
+                      <div class="connect-chat-body md-output" x-html="renderMarkdown(m.text)"></div>
+                    </div>
+                  </template>
+                  <div class="connect-chat-msg" x-show="newsletter.chat.busy">
+                    <div class="connect-chat-role">Assistant</div>
+                    <div class="connect-chat-body"><span class="hint">Working…</span></div>
+                  </div>
+                </div>
+                <div class="connect-chat-input">
+                  <textarea class="field-input" rows="2" x-model="newsletter.chat.input" placeholder="Message the newsletter assistant…"
+                    :disabled="newsletter.chat.busy"
+                    @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); newsletterChatSend(); }"></textarea>
+                  <button class="btn primary" type="button" @click="newsletterChatSend()" :disabled="newsletter.chat.busy || !newsletter.chat.input.trim()">Send</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- ===== Preview tab ===== -->
+            <div x-show="!newsletter.loading && newsletter.tab === 'preview'" x-transition.opacity.duration.120ms>
+              <div class="connect-card" x-show="!newsletter.draftText.trim()">
+                <p class="hint" style="margin:0">Nothing to preview yet — generate or write a draft on the Compose tab.</p>
+              </div>
+              <div x-show="newsletter.draftText.trim()" class="nl-preview connect-draft-preview md-output" x-html="newsletterRenderedDraft()"></div>
+            </div>
+
+            <!-- ===== History tab ===== -->
+            <div x-show="!newsletter.loading && newsletter.tab === 'history'" x-transition.opacity.duration.120ms>
+              <div class="connect-card" x-show="!newsletter.versions.length">
+                <p class="hint" style="margin:0">No earlier versions yet. Each time you generate or save a draft, the previous one is snapshotted here.</p>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <template x-for="v in newsletter.versions" :key="v.id">
+                  <div class="connect-version-row">
+                    <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+                      <div style="min-width:0">
+                        <strong x-text="v.title || 'Untitled newsletter'"></strong>
+                        <span class="connect-src-badge" x-text="' · ' + (v.savedAt ? formatRelative(v.savedAt) : '') + (v.source === 'ai' ? ' · ✨ AI' : '')"></span>
+                      </div>
+                      <div class="connect-mem-actions">
+                        <a href="#" @click.prevent="newsletterViewVersion(v.id)" x-text="newsletter._viewVersionId === v.id ? 'Hide' : 'View'"></a>
+                        <span class="dot">·</span>
+                        <a href="#" @click.prevent="newsletterRestoreVersion(v)">Restore</a>
+                        <span class="dot">·</span>
+                        <a href="#" @click.prevent="newsletterDeleteVersion(v.id)" style="color:var(--cp-danger)">Delete</a>
+                      </div>
+                    </div>
+                    <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === v.id" x-html="renderMarkdown(v.markdown || '')"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- ===== Settings tab ===== -->
+            <div x-show="!newsletter.loading && newsletter.tab === 'settings' && newsletter.config" x-transition.opacity.duration.120ms>
+              <div class="connect-card">
+                <h3>Newsletter settings</h3>
+                <p class="hint">Controls the title, look, and timeframe used when generating your newsletter.</p>
+                <div class="connect-grid2">
+                  <div class="connect-field">
+                    <label>Title</label>
+                    <input class="field-input" type="text" x-model="newsletter.config.title" placeholder="e.g. The Weekly Impact" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Subtitle</label>
+                    <input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="e.g. What shipped and why it matters" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Timeframe (days)</label>
+                    <input class="field-input" type="number" min="1" max="400" x-model.number="newsletter.config.timeframeDays" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Cadence</label>
+                    <select class="field-input" x-model="newsletter.config.cadence">
+                      <option value="weekly">Weekly</option>
+                      <option value="biweekly">Every two weeks</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="adhoc">Ad-hoc</option>
+                    </select>
+                  </div>
+                  <div class="connect-field">
+                    <label>Template</label>
+                    <select class="field-input" x-model="newsletter.config.template">
+                      <option value="digest">Digest</option>
+                      <option value="highlights">Highlights</option>
+                      <option value="executive">Executive summary</option>
+                    </select>
+                  </div>
+                  <div class="connect-field">
+                    <label>Accent color</label>
+                    <input class="field-input" type="text" x-model="newsletter.config.accent" placeholder="#0078d4" />
+                  </div>
+                  <div class="connect-field">
+                    <label>Email to (default recipient)</label>
+                    <input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" />
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                  <button class="btn primary" type="button" :disabled="newsletter.busy" @click="saveNewsletterConfig()">Save settings</button>
+                  <span class="hint" x-show="newsletter.config.storageDir" x-text="'Stored in ' + newsletter.config.storageDir"></span>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
           <!-- ===== Code Flow ===== -->
           <section x-show="!loading && !errorMessage && route === 'codeflow'" x-transition.opacity.duration.180ms>
             <div class="page-header">
@@ -12440,14 +12651,14 @@
               <p class="hint" style="margin-bottom:14px" x-show="experienceLevel === 'advanced'">Every feature is already available in Advanced mode. Switch back to Basic to curate a simpler view.</p>
               <div style="display:flex;flex-direction:column;gap:2px">
                 <template x-for="f in basicFeatureCatalog()" :key="f.key">
-                  <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--cp-border)">
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--cp-border)" :style="(f.requires && !basicFeatures[f.requires]) ? 'opacity:.55' : ''">
                     <span style="font-size:18px;width:24px;text-align:center" x-text="f.icon"></span>
                     <div style="flex:1;min-width:0">
                       <div style="font-weight:600;color:var(--cp-text)" x-text="f.label"></div>
-                      <div class="hint" style="margin:1px 0 0" x-text="f.hint"></div>
+                      <div class="hint" style="margin:1px 0 0" x-text="(f.requires && !basicFeatures[f.requires]) ? ('Enable ' + f.requires.charAt(0).toUpperCase() + f.requires.slice(1) + ' first — ' + f.hint) : f.hint"></div>
                     </div>
-                    <label class="toggle-switch" :title="(basicFeatures[f.key] ? 'Hide ' : 'Show ') + f.label">
-                      <input type="checkbox" :checked="!!basicFeatures[f.key]" @change="toggleBasicFeature(f.key)" />
+                    <label class="toggle-switch" :title="(f.requires && !basicFeatures[f.requires]) ? ('Requires ' + f.requires) : ((basicFeatures[f.key] ? 'Hide ' : 'Show ') + f.label)">
+                      <input type="checkbox" :checked="!!basicFeatures[f.key]" :disabled="!!(f.requires && !basicFeatures[f.requires])" @change="toggleBasicFeature(f.key)" />
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
@@ -15100,7 +15311,7 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { insights: false, managers: false, tasks: true, flows: false, watercooler: false, teams: false, sessions: false, news: false };
+          const defaults = { insights: false, managers: false, tasks: true, flows: false, watercooler: false, teams: false, sessions: false, news: false, connect: false, newsletter: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -15443,6 +15654,32 @@
           },
         },
         connectElapsed: 0,
+        // ===== Newsletter (Connect diary → polished, emailable digest) =====
+        newsletter: {
+          loaded: false,
+          loading: false,
+          state: null,           // { config, draft, meta }
+          config: null,          // { title, subtitle, timeframeDays, template, cadence, accent, emailTo }
+          window: null,          // { since, until, evidenceCount, timeframeDays }
+          diaryHasEvidence: false,
+          tab: 'compose',        // 'compose' | 'preview' | 'history' | 'settings'
+          draftText: '',         // editable buffer for the draft markdown
+          draftTitle: '',
+          draftDirty: false,
+          savingDraft: false,
+          generating: false,
+          preview: true,         // compose tab: render Markdown vs edit textarea
+          versions: [],          // draft version history (newest-first)
+          _viewVersionId: null,
+          busy: false,
+          notice: '',
+          chat: {
+            open: (function(){ try { return localStorage.getItem('newsletter-chat-open') === '1'; } catch { return false; } })(),
+            busy: false,
+            input: '',
+            messages: [],        // { role:'user'|'assistant', text }
+          },
+        },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
           // The non-"mine" tab ("Active PRs") shows every open PR in the watched
@@ -16426,7 +16663,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect', 'newsletter'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -16519,6 +16756,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } else if (this.route === 'connect') {
             await this.loadConnect();
+          } else if (this.route === 'newsletter') {
+            await this.loadNewsletter();
           } else if (this.route === 'insights') {
             await this.loadInsights(this.app.routeParam);
           } else if (this.route === 'codeflow') {
@@ -17304,6 +17543,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const teams = { key: 'teams', label: 'Teams', title: 'Teams', icon: '🏢', href: '#/teams', routeGroup: 'teams', items: [], collapsible: false };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
             const connect = { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
+            const newsletter = { key: 'newsletter', label: 'Newsletter', title: 'Newsletter', icon: '📰', href: '#/newsletter', routeGroup: 'newsletter', items: [], collapsible: false };
             const news = { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
               { key: 'activity', title: 'Activity', icon: '📜', href: '#/activity', routeGroup: 'activity', items: [] },
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
@@ -17320,6 +17560,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (bf.sessions) out.push(sessions);
             if (bf.news) out.push(news);
             if (bf.connect) out.push(connect);
+            if (bf.connect && bf.newsletter) out.push(newsletter);
             return out;
           }
           if (this.appMode === 'workforce') {
@@ -17349,6 +17590,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
             { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false },
+            { key: 'newsletter', label: 'Newsletter', title: 'Newsletter', icon: '📰', href: '#/newsletter', routeGroup: 'newsletter', items: [], collapsible: false },
             watercooler,
             ...globalZone
           ];
@@ -17501,7 +17743,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow', 'connect'].includes(r)) return 'workspace';
+          if (['boards', 'insights', 'codeflow', 'connect', 'newsletter'].includes(r)) return 'workspace';
           if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
@@ -17539,6 +17781,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.' },
+            { key: 'newsletter', label: 'Newsletter', icon: '📰', hint: 'Turn your Connect diary into a polished, emailable digest.', requires: 'connect' },
           ];
         },
         setExperienceLevel(level) {
@@ -17561,12 +17804,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         toggleBasicFeature(key) {
           const cur = !!(this.basicFeatures || {})[key];
+          // Newsletter requires Connect (it reads the Connect diary). Don't let the
+          // user turn Newsletter on without Connect, and turn it off if Connect goes off.
+          if (key === 'newsletter' && !cur && !(this.basicFeatures || {}).connect) {
+            this.toast('Enable Connect first — Newsletter is built from your Connect diary.', 'info');
+            return;
+          }
           this.basicFeatures = Object.assign({}, this.basicFeatures, { [key]: !cur });
+          if (key === 'connect' && cur && this.basicFeatures.newsletter) {
+            // Turning Connect off cascades: Newsletter can't work without it.
+            this.basicFeatures = Object.assign({}, this.basicFeatures, { newsletter: false });
+          }
           try { localStorage.setItem('basic-features', JSON.stringify(this.basicFeatures)); } catch {}
           // Hiding the team selector while scoped to a team would strand the filter on.
           if (key === 'teams' && cur && this.experienceLevel === 'basic' && this.currentTeamId !== 'all') {
             this.setCurrentOrg('all');
           }
+          // If we just hid the page we're standing on, fall back to Home.
+          if (cur && this.experienceLevel === 'basic' && !this.basicRouteVisible(this.route)) this.goTo('#/home');
         },
         // Whether a route is reachable from the Basic flat sidebar (so we don't strand
         // the user on a hidden page after switching to Basic).
@@ -17585,6 +17840,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sessions: ['sessions'],
             news: ['activity', 'reports'],
             connect: ['connect'],
+            newsletter: ['newsletter'],
           };
           for (const [feat, routes] of Object.entries(gated)) {
             if (routes.includes(r)) return !!bf[feat];
@@ -20523,6 +20779,172 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         connectSetTab(t) { this.connect.tab = t; },
         ensureConnectConfig() { if (!this.connect.config) this.loadConnect(); },
+
+        // ===== Newsletter =====
+        async loadNewsletter() {
+          const nl = this.newsletter;
+          nl.loading = true;
+          try {
+            const r = await this.request('/api/newsletter');
+            nl.state = r.state || null;
+            nl.config = (r.state && r.state.config) || null;
+            if (nl.config && r.config) {
+              // Server surfaces the resolved storage dir + default recipient separately.
+              nl.config.storageDir = r.config.storageDir || '';
+              if (!nl.config.emailTo && r.config.emailTo) nl.config.emailTo = r.config.emailTo;
+            }
+            nl.window = r.window || null;
+            nl.diaryHasEvidence = !!r.diaryHasEvidence;
+            const d = (r.state && r.state.draft) || null;
+            nl.draftText = (d && d.markdown) || '';
+            nl.draftTitle = (d && d.title) || '';
+            nl.draftDirty = false;
+            nl.loaded = true;
+            this.newsletterLoadVersions();
+          } catch (e) {
+            this.toast('Failed to load Newsletter: ' + (e.message || e), 'error');
+          } finally {
+            nl.loading = false;
+          }
+        },
+        newsletterSetTab(t) { this.newsletter.tab = t; if (t === 'history') this.newsletterLoadVersions(); },
+        _newsletterConfigPayload() {
+          const c = this.newsletter.config || {};
+          return {
+            title: c.title || '', subtitle: c.subtitle || '',
+            timeframeDays: Math.max(1, Math.min(400, parseInt(c.timeframeDays, 10) || 7)),
+            template: c.template || 'digest', cadence: c.cadence || 'weekly',
+            accent: c.accent || '#0078d4', emailTo: c.emailTo || '',
+          };
+        },
+        async saveNewsletterConfig() {
+          const nl = this.newsletter;
+          nl.busy = true;
+          try {
+            const r = await this.request('/api/newsletter/config', { method: 'PUT', body: this._newsletterConfigPayload() });
+            if (r && r.state) { nl.state = r.state; nl.config = r.state.config; }
+            if (r && r.window) nl.window = r.window;
+            this.toast('Newsletter settings saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          } finally { nl.busy = false; }
+        },
+        async newsletterGenerate() {
+          const nl = this.newsletter;
+          if (nl.generating) return;
+          if (nl.draftDirty) {
+            const ok = await this.uiConfirm({ title: 'Regenerate newsletter', message: 'You have unsaved edits to the draft. Generating a new newsletter will replace them (the current draft is snapshotted to history first). Continue?', confirmLabel: 'Generate' });
+            if (!ok) return;
+          }
+          nl.generating = true;
+          nl.notice = 'Investigating your diary and composing…';
+          try {
+            // Persist config first so the timeframe/title used matches what's on screen.
+            await this.request('/api/newsletter/config', { method: 'PUT', body: this._newsletterConfigPayload() });
+            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: {} });
+            if (r && r.state) { nl.state = r.state; nl.config = r.state.config; }
+            const d = (r && r.state && r.state.draft) || (r && r.draft) || null;
+            nl.draftText = (d && d.markdown) || nl.draftText;
+            nl.draftTitle = (d && d.title) || nl.draftTitle;
+            nl.draftDirty = false;
+            nl.preview = true;
+            nl.tab = 'compose';
+            this.newsletterLoadVersions();
+            this.toast('Newsletter drafted', 'success');
+          } catch (e) {
+            this.toast('Generation failed: ' + (e.message || e), 'error');
+          } finally { nl.generating = false; nl.notice = ''; }
+        },
+        async saveNewsletterDraft() {
+          const nl = this.newsletter;
+          nl.savingDraft = true;
+          try {
+            const r = await this.request('/api/newsletter/draft', { method: 'PUT', body: { markdown: nl.draftText, title: nl.draftTitle } });
+            if (r && r.state) { nl.state = r.state; }
+            nl.draftDirty = false;
+            this.newsletterLoadVersions();
+            this.toast('Draft saved', 'success');
+          } catch (e) {
+            this.toast('Save failed: ' + (e.message || e), 'error');
+          } finally { nl.savingDraft = false; }
+        },
+        async newsletterLoadVersions() {
+          try {
+            const r = await this.request('/api/newsletter/versions');
+            this.newsletter.versions = Array.isArray(r && r.versions) ? r.versions : [];
+          } catch { this.newsletter.versions = []; }
+        },
+        newsletterViewVersion(id) {
+          this.newsletter._viewVersionId = (this.newsletter._viewVersionId === id) ? null : id;
+        },
+        async newsletterRestoreVersion(v) {
+          if (!v) return;
+          const ok = await this.uiConfirm({ title: 'Restore this version', message: 'Replace the current draft with this earlier version? The current draft is snapshotted to history first.', confirmLabel: 'Restore' });
+          if (!ok) return;
+          this.newsletter.draftText = v.markdown || '';
+          this.newsletter.draftTitle = v.title || '';
+          this.newsletter.draftDirty = true;
+          this.newsletter.tab = 'compose';
+          this.newsletter.preview = true;
+          await this.saveNewsletterDraft();
+        },
+        async newsletterDeleteVersion(id) {
+          try {
+            await this.request('/api/newsletter/versions/' + encodeURIComponent(id), { method: 'DELETE' });
+            this.newsletterLoadVersions();
+          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+        },
+        newsletterToggleChat() {
+          const c = this.newsletter.chat;
+          c.open = !c.open;
+          try { localStorage.setItem('newsletter-chat-open', c.open ? '1' : '0'); } catch {}
+        },
+        async newsletterChatSend() {
+          const nl = this.newsletter, c = nl.chat;
+          const msg = (c.input || '').trim();
+          if (!msg || c.busy) return;
+          c.messages.push({ role: 'user', text: msg });
+          c.input = '';
+          c.busy = true;
+          this.$nextTick(() => this._newsletterChatScroll());
+          try {
+            const history = c.messages.slice(-12).map(m => ({ role: m.role, content: m.text }));
+            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', body: { message: msg, history, draft: nl.draftText } });
+            const reply = (r && r.reply) || 'Done.';
+            c.messages.push({ role: 'assistant', text: reply });
+            if (r && typeof r.draft === 'string' && r.draft.trim() && r.draft !== nl.draftText) {
+              nl.draftText = r.draft;
+              nl.draftDirty = true;
+              // Persist the AI-revised draft so history + preview stay in sync.
+              this.saveNewsletterDraft();
+            }
+          } catch (e) {
+            c.messages.push({ role: 'assistant', text: '⚠️ ' + (e.message || e) });
+          } finally {
+            c.busy = false;
+            this.$nextTick(() => this._newsletterChatScroll());
+          }
+        },
+        _newsletterChatScroll() {
+          try { const el = document.getElementById('nlChatScroll'); if (el) el.scrollTop = el.scrollHeight; } catch {}
+        },
+        async emailNewsletter() {
+          const nl = this.newsletter;
+          if (!(nl.draftText || '').trim()) { this.toast('Nothing to email yet — generate or write a draft first.', 'info'); return; }
+          nl.busy = true;
+          try {
+            const r = await this.request('/api/newsletter/email', { method: 'POST', body: { to: (nl.config && nl.config.emailTo) || '' } });
+            this.toast((r && r.message) || 'Opened your mail client with the newsletter.', 'success');
+          } catch (e) {
+            this.toast('Email failed: ' + (e.message || e), 'error');
+          } finally { nl.busy = false; }
+        },
+        exportNewsletter() {
+          window.open('/api/newsletter/export', '_blank');
+        },
+        newsletterRenderedDraft() {
+          try { return this.renderMarkdown(this.newsletter.draftText || ''); } catch { return ''; }
+        },
         async loadDataLocation() {
           try {
             const r = await this.request('/api/data-location');

@@ -1,0 +1,7 @@
+{
+  "name": "newsletter",
+  "description": "Turns the user's Connect impact diary into a polished, emailable newsletter over a chosen timeframe. The writer deeply investigates diary references (WorkIQ, Azure DevOps, browser, shell) to understand what was accomplished, highlights impact, generates inline SVG charts, and suggests screenshots. AI drafts only — the user reviews before sending.",
+  "version": "1.0.0",
+  "agents": "agents/",
+  "skills": "skills/"
+}
