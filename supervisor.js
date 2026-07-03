@@ -87,7 +87,8 @@ class Supervisor extends EventEmitter {
         input_tokens INTEGER,
         output_tokens INTEGER,
         cache_read_tokens INTEGER,
-        cache_write_tokens INTEGER
+        cache_write_tokens INTEGER,
+        deliverable INTEGER DEFAULT 0
       );
     `);
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_ts ON usage_events(ts)'); } catch {}
@@ -99,6 +100,13 @@ class Supervisor extends EventEmitter {
       if (!cols.some(c => c.name === 'category')) {
         this.db.exec('ALTER TABLE usage_events ADD COLUMN category TEXT');
       }
+      // Migration: `deliverable` marks a "shipped artifact" signal (e.g. a
+      // newsletter emailed broadly) — the ground-truth unit the Productivity
+      // report credits, independent of how many AI runs produced it. Any future
+      // feature can record `deliverable:1` on its ship/publish action to opt in.
+      if (!cols.some(c => c.name === 'deliverable')) {
+        this.db.exec('ALTER TABLE usage_events ADD COLUMN deliverable INTEGER DEFAULT 0');
+      }
     } catch {}
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_category ON usage_events(category)'); } catch {}
   }
@@ -106,17 +114,21 @@ class Supervisor extends EventEmitter {
   /**
    * Append a row to the canonical usage ledger. Called once per billable run from
    * every run path so the Reports system can aggregate usage/cost exhaustively.
-   * ev: { ts, source, refId, label, model, status, usage:{premiumRequests,apiDurationMs,
+   * ev: { ts, source, refId, label, model, status, deliverable, usage:{premiumRequests,apiDurationMs,
    *       inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens} }
+   * Set `deliverable:1` for a shipped-artifact marker (e.g. a newsletter emailed
+   * broadly). Such rows carry no AI cost and are excluded from run/token counts;
+   * the Productivity report credits them as finished deliverables.
    */
   recordUsage(ev) {
     try {
       const u = (ev && ev.usage) || {};
       this.db.prepare(
-        'INSERT INTO usage_events (ts, source, category, ref_id, label, model, status, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO usage_events (ts, source, category, ref_id, label, model, status, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, deliverable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
         ev.ts || new Date().toISOString(), ev.source, ev.category || null, ev.refId || null, ev.label || null, ev.model || null, ev.status || null,
-        u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null
+        u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null,
+        ev.deliverable ? 1 : 0
       );
     } catch (e) {
       console.error('[usage] ledger write failed:', e.message);

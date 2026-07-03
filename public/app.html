@@ -14498,7 +14498,7 @@
                   <!-- Methodology -->
                   <div class="card">
                     <h3 style="margin-bottom:10px">How this is estimated</h3>
-                    <p class="hint" style="margin:0 0 10px">These are estimates, not stopwatch measurements. For each kind of AI activity we assume a typical <strong>manual baseline</strong> — how long a developer would spend doing it by hand — and a smaller <strong>hands-on</strong> cost for the time you spend prompting, supervising and reviewing. Time saved is the difference, summed across every tracked run. Big deliverables like a <strong>newsletter</strong>, <strong>Connect write-up</strong> or a newly <strong>authored agent</strong> fan out into many AI runs, so their manual baseline is charged once per finished artifact — the full multi-hour effort of sourcing, formatting, adding images, proof-reading and editing — rather than diluted across each run.</p>
+                    <p class="hint" style="margin:0 0 10px">These are estimates, not stopwatch measurements. For each kind of AI activity we assume a typical <strong>manual baseline</strong> — how long a developer would spend doing it by hand — and a smaller <strong>hands-on</strong> cost for the time you spend prompting, supervising and reviewing. Time saved is the difference, summed across every tracked run. Big deliverables like a <strong>newsletter</strong>, <strong>Connect write-up</strong> or a newly <strong>authored agent</strong> take many AI runs to shape, so their manual baseline is charged once per finished artifact — the full multi-hour effort of sourcing, formatting, adding images, proof-reading and editing — rather than diluted across each run. Where there's a clear "shipped" signal we count real deliverables (for example, each newsletter you <strong>email out broadly</strong> is one published issue); otherwise we estimate the count from how many runs it took.</p>
                     <p class="hint" style="margin:0 0 10px">Use the <strong>Baseline</strong> control to dial the manual estimate up or down. <strong>Conservative</strong> assumes developers are fast and the savings are modest; <strong>Optimistic</strong> assumes the manual path is slower and more error-prone. Internal system calls are excluded so the number reflects real developer work.</p>
                     <p class="hint" style="margin:0">New kinds of AI work are picked up automatically — anything the system tracks gets a sensible default baseline and starts showing savings here with no extra setup.</p>
                   </div>
@@ -34552,19 +34552,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Per-activity minutes. `active` = the hands-on prompting/review cost with
         // the system (always scales per AI run). Manual baseline is modelled two ways:
         //   • Simple activities use `manual` = per-run minutes doing it by hand.
-        //   • Deliverable activities (newsletter, Connect, agent authoring) fan out
-        //     into MANY AI runs per finished artifact, so a flat per-run manual number
-        //     badly undercounts them. They instead use `perUnit` (the real hours to
-        //     produce ONE artifact by hand — sourcing, formatting, images, proof-reading,
-        //     editing) charged once per estimated deliverable, where a deliverable is
-        //     ~`unitRuns` AI runs (a generate plus a couple of revisions).
+        //   • Deliverable activities (newsletter, Connect, agent authoring) are
+        //     charged the full manual cost (`perUnit`) once per FINISHED artifact —
+        //     many generate/chat runs can shape a single deliverable. The deliverable
+        //     count comes from a ground-truth ship signal when we have one (e.g. a
+        //     newsletter emailed broadly → `deliverables` from the ledger); otherwise
+        //     we estimate it as ~`unitRuns` AI runs per artifact.
         // `_default` catches any future category for free.
         prodBaselineModel() {
           return {
             pull_requests:   { manual: 12,  active: 2.5 },
             dev_cards:       { manual: 20,  active: 4   },
             // A hand-built newsletter is a 3+ hour job: tracking down sources, deciding
-            // a format, sourcing/placing images, proof-reading and editing.
+            // a format, sourcing/placing images, proof-reading and editing. One
+            // deliverable = one issue emailed broadly (the publish signal).
             newsletter:      { active: 6,   perUnit: 190, unitRuns: 3 },
             // A polished Connect / impact write-up is a couple of hours of recall,
             // drafting and evidence-gathering by hand.
@@ -34599,12 +34600,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const runs = Number(c.runs || 0);
             const m = model[c.category] || model._default;
             const activeMin = runs * (m.active || 0);
-            // Deliverable activities: charge the full manual cost once per estimated
-            // artifact (runs ÷ typical runs-per-deliverable, min 1 when any runs exist).
+            // Deliverable activities: charge the full manual cost once per finished
+            // artifact. Prefer the ground-truth ship count (e.g. newsletters emailed
+            // broadly) when the ledger has one; otherwise estimate from run volume
+            // (runs ÷ typical runs-per-deliverable, min 1 when any runs exist).
             let manualMin;
             if (m.perUnit) {
+              const shipped = Number(c.deliverables || 0);
               const per = Math.max(1, m.unitRuns || 1);
-              const units = runs > 0 ? Math.max(1, Math.round(runs / per)) : 0;
+              const units = shipped > 0
+                ? shipped
+                : (runs > 0 ? Math.max(1, Math.round(runs / per)) : 0);
               manualMin = units * m.perUnit * mult;
             } else {
               manualMin = runs * (m.manual || 0) * mult;

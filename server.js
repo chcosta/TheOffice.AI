@@ -10531,6 +10531,10 @@ app.post('/api/newsletter/email', async (req, res) => {
     const { exec } = require('child_process');
     exec(`start "" "${emlPath}"`);
     newsletter.markEmailed();
+    // The user explicitly publishing a newsletter is the ground-truth "deliverable"
+    // signal for the Productivity report — each broadly-sent issue is one finished
+    // ~3h artifact, regardless of how many generate/chat runs shaped it.
+    try { supervisor.recordUsage({ source: 'newsletter', category: 'newsletter', status: 'delivered', label: 'newsletter emailed', deliverable: 1 }); } catch (_) { /* non-fatal */ }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10816,7 +10820,8 @@ app.get('/api/reports', (req, res) => {
     const decorate = (rows) => rows.map(r => ({ ...r, cost: +(((r.premiumRequests || 0) * rate).toFixed(4)) }));
 
     const SUMS = `
-        COUNT(*) AS runs,
+        SUM(CASE WHEN COALESCE(deliverable,0)=1 THEN 0 ELSE 1 END) AS runs,
+        COALESCE(SUM(deliverable),0) AS deliverables,
         COALESCE(SUM(premium_requests),0) AS premiumRequests,
         COALESCE(SUM(api_duration_ms),0) AS apiDurationMs,
         COALESCE(SUM(input_tokens),0) AS inputTokens,
@@ -10857,12 +10862,13 @@ app.get('/api/reports', (req, res) => {
       filledDaily.push(dailyMap.get(key) || emptyDay(key));
     }
 
-    const dailyBySource = db.prepare(`SELECT substr(ts,1,10) AS day, source, COUNT(*) AS runs,
+    const dailyBySource = db.prepare(`SELECT substr(ts,1,10) AS day, source,
+        SUM(CASE WHEN COALESCE(deliverable,0)=1 THEN 0 ELSE 1 END) AS runs,
         COALESCE(SUM(premium_requests),0) AS premiumRequests
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day, source ORDER BY day ASC`).all(from, to);
 
     const dailyByCategory = db.prepare(`SELECT substr(ts,1,10) AS day, COALESCE(NULLIF(category,''),'system') AS category,
-        COUNT(*) AS runs, COALESCE(SUM(premium_requests),0) AS premiumRequests,
+        SUM(CASE WHEN COALESCE(deliverable,0)=1 THEN 0 ELSE 1 END) AS runs, COALESCE(SUM(premium_requests),0) AS premiumRequests,
         COALESCE(SUM(api_duration_ms),0) AS apiDurationMs,
         COALESCE(SUM(input_tokens),0) + COALESCE(SUM(output_tokens),0) AS totalTokens
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day, category ORDER BY day ASC`).all(from, to);
