@@ -9284,6 +9284,8 @@
               /* The draft extends to fit its content — no inner scrollbar (overrides the
                  shared .md-output max-height cap so the page is the only scroller). */
               .connect-draft-preview.md-output { max-height:none; overflow:visible; }
+              /* Studio stage: center the draft as a readable "sheet" (mirrors the Newsletter hero). */
+              .connect-draft-preview.connect-paper { max-width:840px; margin:0 auto; }
               .connect-history { border:1px solid var(--cp-border); border-radius:10px; padding:14px; background:var(--cp-bg-elevated); margin:12px 0 4px; }
               .connect-version-row { border:1px solid var(--cp-border); border-radius:8px; padding:10px 12px; background:var(--cp-surface); }
               .connect-version-preview { font-size:12.5px; color:var(--cp-text-muted); margin-top:5px; line-height:1.45; }
@@ -9340,27 +9342,81 @@
 
             <div x-show="connect.loading" class="hint">Loading…</div>
 
-            <!-- ===== Draft tab ===== -->
+            <!-- ===== Draft tab — "My Connect" studio (rail · stage), mirroring the Newsletter page.
+                 Reuses the shared .nlx-* studio layout classes from the Newsletter section's <style>
+                 (always in the DOM, so the rules apply here too). ===== -->
             <div x-show="!connect.loading && connect.tab === 'draft'" x-transition.opacity.duration.120ms>
-              <div class="connect-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-                  <div>
-                    <h3>My Connect draft</h3>
-                    <p class="hint" style="margin:0">
-                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.source === 'ai'">✨ AI-drafted — review &amp; personalize below</span>
-                      <span class="connect-src-badge" x-show="!(connect.state && connect.state.draft && connect.state.draft.source === 'ai')">✍ Your draft</span>
-                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="(connect.state && connect.state.draft && connect.state.draft.updatedAt) ? (' · updated ' + formatRelative(connect.state.draft.updatedAt)) : ''"></span>
-                    </p>
-                  </div>
-                  <div style="display:flex;gap:8px">
-                    <button class="btn ghost small" type="button" :disabled="connect.generating" @click="connectGenerate()" title="Draft a Connect from your diary evidence — your current draft is saved to history first" x-text="connect.generating ? 'Drafting…' : '✨ Generate from diary'"></button>
-                    <button class="btn ghost small" type="button" @click="connectToggleHistory()" x-text="'🕒 History' + (connect.versions && connect.versions.length ? ' (' + connect.versions.length + ')' : '')" title="View and restore earlier versions of this draft"></button>
-                    <button class="btn ghost small" type="button" @click="connect._preview = !connect._preview" x-text="connect._preview ? '✎ Edit' : '👁 Preview'"></button>
-                    <button class="btn primary small" type="button" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
-                  </div>
-                </div>
+              <div class="nlx-studio">
 
-                <!-- Version history -->
+                <!-- LEFT RAIL: generate + lookback window + coverage + live activity -->
+                <aside class="nlx-rail">
+                  <div class="nlx-card">
+                    <button class="btn primary nlx-gen" type="button" :disabled="connect.generating" @click="connectGenerate()">
+                      <span x-show="!connect.generating">✨ Generate from diary</span>
+                      <span x-show="connect.generating">Drafting…</span>
+                    </button>
+                    <label class="hint" style="display:block;margin:12px 0 5px;font-size:11.5px">Look back over</label>
+                    <div class="nlx-frame">
+                      <button type="button" :class="{ active: connect.lookbackDays == 30 }" @click="connectSetLookback(30)">30d</button>
+                      <button type="button" :class="{ active: connect.lookbackDays == 90 }" @click="connectSetLookback(90)">90d</button>
+                      <button type="button" :class="{ active: connect.lookbackDays == 180 }" @click="connectSetLookback(180)">6mo</button>
+                      <button type="button" :class="{ active: connect.lookbackDays == 365 }" @click="connectSetLookback(365)">1yr</button>
+                      <button type="button" :class="{ active: !connect.lookbackDays }" @click="connectSetLookback(0)">All</button>
+                    </div>
+                    <div class="nlx-win">
+                      <div>
+                        <b x-text="connectLookbackCount()"></b>
+                        <span>diary entries</span>
+                      </div>
+                      <div x-show="connect.lookbackDays">
+                        <b style="font-size:13px" x-text="connectLookbackRangeLabel()"></b>
+                        <span>covering</span>
+                      </div>
+                    </div>
+                    <p class="hint" style="margin:10px 0 0;font-size:11px" x-show="!connect.lookbackDays">Drafting from all your diary evidence (most recent 80 entries).</p>
+                  </div>
+
+                  <!-- Live activity while drafting -->
+                  <div class="nlx-activity" x-show="connect.generating" x-transition.opacity.duration.120ms>
+                    <div class="nlx-activity-head"><span class="nlx-spin"></span><span>Reading your diary &amp; drafting…</span></div>
+                    <p class="hint" style="margin:8px 0 0">The writer agent is turning your evidence into an honest, impact-led draft. Your previous draft is saved to History first.</p>
+                  </div>
+
+                  <!-- Quick tips -->
+                  <div class="nlx-card" x-show="!connect.generating">
+                    <div style="font-size:12.5px;font-weight:600;margin-bottom:6px">💡 Sharper drafts</div>
+                    <p class="hint" style="margin:0;font-size:11.5px;line-height:1.5">Set your <a href="#" @click.prevent="connectSetTab('profile')" style="color:var(--cp-link)">role</a> &amp; <a href="#" @click.prevent="connectSetTab('guidance')" style="color:var(--cp-link)">guidance</a>, and keep your <a href="#" @click.prevent="connectSetTab('diary')" style="color:var(--cp-link)">diary</a> current. Lead with impact, not activity.</p>
+                  </div>
+                </aside>
+
+                <!-- CENTER STAGE: the Connect draft is the hero -->
+                <main class="nlx-stage">
+                  <div class="nlx-stage-bar">
+                    <div class="nlx-seg">
+                      <button type="button" :class="{ active: connect._preview !== false }" @click="connect._preview = true">👁 Preview</button>
+                      <button type="button" :class="{ active: connect._preview === false }" @click="connect._preview = false">✎ Edit</button>
+                    </div>
+                    <span class="nlx-src">
+                      <span class="connect-src-badge" x-show="connect.state && connect.state.draft && connect.state.draft.source === 'ai'">✨ AI-drafted</span>
+                      <span class="connect-src-badge" x-show="!(connect.state && connect.state.draft && connect.state.draft.source === 'ai') && connect.draftText.trim()">✍ Your draft</span>
+                      <span x-show="connect.state && connect.state.draft && connect.state.draft.updatedAt" x-text="(connect.state && connect.state.draft && connect.state.draft.updatedAt) ? ('updated ' + formatRelative(connect.state.draft.updatedAt)) : ''"></span>
+                      <span x-show="connect.draftDirty">· unsaved</span>
+                      <span x-show="!connect.draftDirty && connect.draftText.trim()">· saved</span>
+                    </span>
+                    <div class="nlx-stage-actions">
+                      <div class="nlx-zoom" x-show="connect._preview !== false && connect.draftText.trim()" title="Zoom the preview">
+                        <button class="btn ghost" type="button" title="Zoom out" style="padding:5px 9px;font-size:14px;line-height:1" @click="connectZoom(-0.1)" :disabled="(connect.zoom||1) <= 0.5">−</button>
+                        <button class="btn ghost" type="button" title="Reset to 100%" style="padding:5px 6px;font-size:12px;min-width:46px" @click="connect.zoom = 1" x-text="Math.round((connect.zoom||1)*100) + '%'"></button>
+                        <button class="btn ghost" type="button" title="Zoom in" style="padding:5px 9px;font-size:14px;line-height:1" @click="connectZoom(0.1)" :disabled="(connect.zoom||1) >= 2">+</button>
+                      </div>
+                      <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
+                      <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: connect.showHistory }" @click="connectToggleHistory()" x-text="'🕘 History' + (connect.versions && connect.versions.length ? ' (' + connect.versions.length + ')' : '')"></button>
+                      <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: connect.chat.open }" @click="connectOpenChat()">💬 Revise</button>
+                    </div>
+                  </div>
+
+                  <div class="nlx-scroll">
+                    <!-- Version history -->
                 <div x-show="connect.showHistory" x-transition.opacity.duration.120ms class="connect-history">
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
                     <strong style="font-size:.92rem">Version history</strong>
@@ -9392,13 +9448,25 @@
                   </div>
                 </div>
 
-                <p class="hint" x-show="!connect.draftText.trim()">
-                  Write or paste your Connect here, or click <strong>✨ Generate from diary</strong>. Pull from your Diary
-                  entries for concrete, quantified examples of impact. It renders as Markdown — use <strong>✎ Edit</strong> to change it.
-                </p>
-                <textarea x-show="connect._preview === false || !connect.draftText.trim()" class="connect-draft-area" x-model="connect.draftText" @input="connectDraftChanged()"
-                          placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
-                <div x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output" x-html="connectRenderDraft()"></div>
+                    <!-- Empty state -->
+                    <div class="nlx-empty" x-show="!connect.draftText.trim() && connect._preview !== false && !connect.generating">
+                      <div class="big">🌟</div>
+                      <p>No Connect draft yet. Click <strong>✨ Generate from diary</strong> to draft one from your evidence — or switch to <strong>✎ Edit</strong> and write your own.</p>
+                    </div>
+                    <div class="nlx-empty" x-show="!connect.draftText.trim() && connect.generating">
+                      <div class="big">✨</div>
+                      <p>Reading your diary and drafting…</p>
+                      <p class="hint">Watch the live activity on the left.</p>
+                    </div>
+
+                    <!-- Edit -->
+                    <textarea x-show="connect._preview === false" class="nlx-edit" x-model="connect.draftText" @input="connectDraftChanged()"
+                              placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
+
+                    <!-- Preview -->
+                    <article x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output connect-paper" :style="{ zoom: connect.zoom || 1 }" x-html="connectRenderDraft()"></article>
+                  </div>
+                </main>
               </div>
             </div>
 
@@ -13281,63 +13349,6 @@
               <div class="hint" style="font-size:0.78rem;margin-top:12px">Updates are deferred while an agent or manager run is in flight, then applied once things are idle.</div>
             </div>
 
-            <!-- Per-dependency list -->
-            <div class="card" style="margin-bottom:20px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-                <h3 style="margin:0">Installed <span class="hint" style="font-weight:400" x-text="'· ' + (deps.items.length) + ' tracked'"></span></h3>
-                <span x-show="deps.loading" class="hint" style="font-size:0.8rem">Loading…</span>
-              </div>
-              <div x-show="!deps.loading && deps.items.length === 0" class="hint">No dependencies found.</div>
-              <template x-for="d in deps.items" :key="d.id">
-                <div style="border:1px solid var(--cp-border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
-                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                    <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (d.status === 'error' ? 'var(--cp-danger)' : (d.updateAvailable ? 'var(--cp-warning)' : 'var(--cp-success)'))"
-                      :title="d.status === 'error' ? 'Error' : (d.updateAvailable ? 'Update available' : 'Up to date')"></span>
-                    <div style="min-width:0;flex:1">
-                      <div style="font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span x-text="d.name || d.label || d.id"></span>
-                        <span x-show="d.managed" class="hint" style="font-size:0.7rem;color:var(--cp-accent)" title="Running an app-managed copy">managed</span>
-                        <span x-show="d.channel === 'pinned'" class="hint" style="font-size:0.7rem" title="Pinned to its current version — not auto-updated">pinned</span>
-                      </div>
-                      <div class="hint mono" style="font-size:0.76rem" x-text="depVersionLine(d)"></div>
-                      <div x-show="d.lastError" class="hint" style="font-size:0.74rem;color:var(--cp-danger)" x-text="d.lastError"></div>
-                    </div>
-                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                      <span x-show="d.updateAvailable" class="hint" style="font-size:0.76rem;color:var(--cp-warning)" x-text="'→ ' + (d.latestKnown || 'newer')"></span>
-                      <button x-show="d.manageable !== false" class="btn" type="button" @click="updateDependency(d.id)" :disabled="deps.busy[d.id] || deps.settings.offlineMode || !d.updateAvailable" style="font-size:0.8rem">
-                        <span x-show="deps.busy[d.id] !== 'update'">Update</span>
-                        <span x-show="deps.busy[d.id] === 'update'">…</span>
-                      </button>
-                      <button x-show="d.managed && d.previousVersion" class="btn ghost" type="button" @click="rollbackDependency(d.id)" :disabled="deps.busy[d.id]" style="font-size:0.8rem" :title="'Roll back to ' + d.previousVersion">
-                        <span x-show="deps.busy[d.id] !== 'rollback'">↩ Rollback</span>
-                        <span x-show="deps.busy[d.id] === 'rollback'">…</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div x-show="d.manageable !== false" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--cp-border)">
-                    <label x-show="d.kind === 'managed-npm'" style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem">
-                      <span class="field-label">Channel</span>
-                      <select class="input" style="font-size:0.8rem;padding:4px 8px" :value="d.channel || ''" @change="setDepConfig(d.id, { channel: $event.target.value || null })">
-                        <option value="">Inherit default</option>
-                        <option value="stable">Stable</option>
-                        <option value="latest">Latest / prerelease</option>
-                        <option value="pinned">Pinned</option>
-                      </select>
-                    </label>
-                    <label style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem">
-                      <span class="field-label">Auto-update</span>
-                      <select class="input" style="font-size:0.8rem;padding:4px 8px" :value="d.autoUpdate === null || d.autoUpdate === undefined ? '' : (d.autoUpdate ? 'on' : 'off')" @change="setDepConfig(d.id, { autoUpdate: $event.target.value === '' ? null : $event.target.value === 'on' })">
-                        <option value="">Inherit global</option>
-                        <option value="on">Always</option>
-                        <option value="off">Never</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div x-show="d.manageable === false" class="hint" style="font-size:0.74rem;margin-top:8px" x-text="d.reason || d.detail || 'Managed by your system; not updatable from here.'"></div>
-                </div>
-              </template>
-            </div>
-
             <!-- Agent tools & MCP servers -->
             <div class="card" style="margin-bottom:20px">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
@@ -13393,6 +13404,63 @@
                 <div x-show="!adeps.loading && adeps.items.length === 0" class="hint" style="font-size:0.82rem">No agent tools detected.</div>
               </div>
               <div x-show="adeps.summary && adeps.summary.lastChecked" class="hint" style="font-size:0.72rem;margin-top:6px" x-text="'Last checked ' + formatRelative(adeps.summary.lastChecked)"></div>
+            </div>
+
+            <!-- Per-dependency list -->
+            <div class="card" style="margin-bottom:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <h3 style="margin:0">Installed <span class="hint" style="font-weight:400" x-text="'· ' + (deps.items.length) + ' tracked'"></span></h3>
+                <span x-show="deps.loading" class="hint" style="font-size:0.8rem">Loading…</span>
+              </div>
+              <div x-show="!deps.loading && deps.items.length === 0" class="hint">No dependencies found.</div>
+              <template x-for="d in deps.items" :key="d.id">
+                <div style="border:1px solid var(--cp-border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <span :style="'width:9px;height:9px;border-radius:50%;flex:none;background:' + (d.status === 'error' ? 'var(--cp-danger)' : (d.updateAvailable ? 'var(--cp-warning)' : 'var(--cp-success)'))"
+                      :title="d.status === 'error' ? 'Error' : (d.updateAvailable ? 'Update available' : 'Up to date')"></span>
+                    <div style="min-width:0;flex:1">
+                      <div style="font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span x-text="d.name || d.label || d.id"></span>
+                        <span x-show="d.managed" class="hint" style="font-size:0.7rem;color:var(--cp-accent)" title="Running an app-managed copy">managed</span>
+                        <span x-show="d.channel === 'pinned'" class="hint" style="font-size:0.7rem" title="Pinned to its current version — not auto-updated">pinned</span>
+                      </div>
+                      <div class="hint mono" style="font-size:0.76rem" x-text="depVersionLine(d)"></div>
+                      <div x-show="d.lastError" class="hint" style="font-size:0.74rem;color:var(--cp-danger)" x-text="d.lastError"></div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                      <span x-show="d.updateAvailable" class="hint" style="font-size:0.76rem;color:var(--cp-warning)" x-text="'→ ' + (d.latestKnown || 'newer')"></span>
+                      <button x-show="d.manageable !== false" class="btn" type="button" @click="updateDependency(d.id)" :disabled="deps.busy[d.id] || deps.settings.offlineMode || !d.updateAvailable" style="font-size:0.8rem">
+                        <span x-show="deps.busy[d.id] !== 'update'">Update</span>
+                        <span x-show="deps.busy[d.id] === 'update'">…</span>
+                      </button>
+                      <button x-show="d.managed && d.previousVersion" class="btn ghost" type="button" @click="rollbackDependency(d.id)" :disabled="deps.busy[d.id]" style="font-size:0.8rem" :title="'Roll back to ' + d.previousVersion">
+                        <span x-show="deps.busy[d.id] !== 'rollback'">↩ Rollback</span>
+                        <span x-show="deps.busy[d.id] === 'rollback'">…</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div x-show="d.manageable !== false" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--cp-border)">
+                    <label x-show="d.kind === 'managed-npm'" style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem">
+                      <span class="field-label">Channel</span>
+                      <select class="input" style="font-size:0.8rem;padding:4px 8px" :value="d.channel || ''" @change="setDepConfig(d.id, { channel: $event.target.value || null })">
+                        <option value="">Inherit default</option>
+                        <option value="stable">Stable</option>
+                        <option value="latest">Latest / prerelease</option>
+                        <option value="pinned">Pinned</option>
+                      </select>
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem">
+                      <span class="field-label">Auto-update</span>
+                      <select class="input" style="font-size:0.8rem;padding:4px 8px" :value="d.autoUpdate === null || d.autoUpdate === undefined ? '' : (d.autoUpdate ? 'on' : 'off')" @change="setDepConfig(d.id, { autoUpdate: $event.target.value === '' ? null : $event.target.value === 'on' })">
+                        <option value="">Inherit global</option>
+                        <option value="on">Always</option>
+                        <option value="off">Never</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div x-show="d.manageable === false" class="hint" style="font-size:0.74rem;margin-top:8px" x-text="d.reason || d.detail || 'Managed by your system; not updatable from here.'"></div>
+                </div>
+              </template>
             </div>
 
             </div><!-- /dependencies category -->
@@ -16186,6 +16254,8 @@
           evBusy: false,
           busy: false,
           _preview: true,        // draft renders as Markdown by default; ✎ Edit toggles the textarea
+          lookbackDays: (function(){ try { const v = parseInt(localStorage.getItem('connect-lookback-days'), 10); return isNaN(v) ? 0 : v; } catch { return 0; } })(), // 0 = all-time
+          zoom: 1,               // preview zoom (studio stage)
           generating: false,
           collecting: false,
           autofilling: false,
@@ -21466,6 +21536,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
         connectSetTab(t) { this.connect.tab = t; },
+        connectSetLookback(d) {
+          this.connect.lookbackDays = d;
+          try { localStorage.setItem('connect-lookback-days', String(d)); } catch {}
+        },
+        connectZoom(delta) {
+          const cur = this.connect.zoom || 1;
+          let next = Math.round((cur + delta) * 100) / 100;
+          next = Math.min(2, Math.max(0.5, next));
+          this.connect.zoom = next;
+        },
+        // yyyy-mm-dd lower bound for the current lookback window ('' = all-time).
+        connectLookbackSince() {
+          const d = parseInt(this.connect.lookbackDays, 10) || 0;
+          if (!d) return '';
+          const dt = new Date(); dt.setDate(dt.getDate() - d);
+          return dt.toISOString().slice(0, 10);
+        },
+        // Non-hidden diary entries that fall within the lookback window.
+        connectLookbackCount() {
+          const since = this.connectLookbackSince();
+          const evs = (this.connect.evidence || []).filter(e => e && !e.hidden);
+          return since ? evs.filter(e => (e.date || '') >= since).length : evs.length;
+        },
+        connectLookbackRangeLabel() {
+          const since = this.connectLookbackSince();
+          if (!since) return '';
+          return since + ' → ' + new Date().toISOString().slice(0, 10);
+        },
         ensureConnectConfig() { if (!this.connect.config) this.loadConnect(); },
 
         // ===== Newsletter =====
@@ -22204,7 +22302,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }))) return;
           this.connect.generating = true;
           try {
-            const r = await this.request('/api/connect/generate', { method: 'POST', body: '{}' });
+            const r = await this.request('/api/connect/generate', { method: 'POST', body: JSON.stringify({ lookbackDays: parseInt(this.connect.lookbackDays, 10) || 0 }) });
             if (r && r.state) {
               this.connect.state = r.state;
               this.connect.draftText = (r.state.draft && r.state.draft.markdown) || '';
@@ -22313,7 +22411,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 break;
               }
               case 'generate_draft': {
-                const r = await this.request('/api/connect/generate', { method: 'POST', body: '{}' });
+                const r = await this.request('/api/connect/generate', { method: 'POST', body: JSON.stringify({ lookbackDays: parseInt(this.connect.lookbackDays, 10) || 0 }) });
                 if (r && r.state) {
                   this.connect.state = r.state;
                   this.connect.draftText = (r.state.draft && r.state.draft.markdown) || '';

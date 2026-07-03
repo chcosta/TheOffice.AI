@@ -8955,10 +8955,16 @@ function _connectMemoryLines() {
 
 // Draft an HR-standard Connect from the user's (non-hidden) evidence, role, and
 // guidance. Saved as source:'ai' — an editable draft the user personalizes.
-async function runConnectGeneration() {
+async function runConnectGeneration({ lookbackDays = 0 } = {}) {
   const st = connect.getState();
-  const evidence = connect.listEvidence({ includeHidden: false }).slice(0, 80);
-  if (!evidence.length) throw new Error('No diary evidence to draft from yet. Add entries or run a collection first.');
+  // Lookback window: 0 = all-time. Otherwise only draft from evidence on/after `since`.
+  let since = '';
+  const days = Math.max(0, parseInt(lookbackDays, 10) || 0);
+  if (days) { const d = new Date(); d.setDate(d.getDate() - days); since = d.toISOString().slice(0, 10); }
+  const evidence = connect.listEvidence({ includeHidden: false, since: since || undefined }).slice(0, 80);
+  if (!evidence.length) throw new Error(since
+    ? `No diary evidence in the last ${days} days to draft from. Widen the lookback window, add entries, or run a collection.`
+    : 'No diary evidence to draft from yet. Add entries or run a collection first.');
   const g = st.guidance || {};
   const p = st.profile || {};
   const evLines = evidence.map(e =>
@@ -8984,7 +8990,7 @@ async function runConnectGeneration() {
       memLines,
     ] : []),
     '',
-    '## Diary evidence',
+    '## Diary evidence' + (since ? ` (covering ${since} → today)` : ''),
     evLines,
   ].join('\n');
   const text = await _connectRunAgent('writer', prompt);
@@ -10624,7 +10630,8 @@ app.post('/api/connect/backfill', (req, res) => {
 // Phase 2 — draft an HR-standard Connect from evidence + role + guidance.
 app.post('/api/connect/generate', async (req, res) => {
   try {
-    const state = await runConnectGeneration();
+    const lookbackDays = Math.max(0, parseInt(req.body && req.body.lookbackDays, 10) || 0);
+    const state = await runConnectGeneration({ lookbackDays });
     res.json({ ok: true, state });
   } catch (err) {
     res.status(err.message && /No diary evidence/.test(err.message) ? 400 : 500).json({ error: err.message });
