@@ -2140,12 +2140,19 @@ function _buildDevCardIndex() {
 
 async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   const safe = (p) => p.catch(() => null);
-  const F = forge({ provider: opts.provider || pr.provider, org: pr.org });
-  const [threads, statuses, policy] = await Promise.all([
+  const provider = opts.provider || pr.provider;
+  const F = forge({ provider, org: pr.org });
+  // GitHub's PR LIST endpoint only returns still-requested reviewers, so anyone
+  // who already submitted a review is missing from pr.reviewers. Pull the full
+  // set (submitted + requested) so the card lists every reviewer with their vote.
+  const wantReviewers = provider === 'github' && typeof F.getReviewers === 'function';
+  const [threads, statuses, policy, fullReviewers] = await Promise.all([
     safe(F.getPrThreads(pr.org, pr.project, pr.repo, pr.id)),
     safe(F.getPrStatuses(pr.org, pr.project, pr.repo, pr.id)),
-    safe(F.getPrPolicyEvaluations(pr.org, pr.project, pr.id, pr.repo))
+    safe(F.getPrPolicyEvaluations(pr.org, pr.project, pr.id, pr.repo)),
+    wantReviewers ? safe(F.getReviewers(pr.org, pr.project, pr.repo, pr.id)) : Promise.resolve(null)
   ]);
+  if (Array.isArray(fullReviewers)) pr.reviewers = fullReviewers;
   const ageMs = pr.creationDate ? (Date.now() - new Date(pr.creationDate).getTime()) : 0;
   const ageHours = Math.max(0, Math.round(ageMs / 3600000));
   const ageDays = Math.floor(ageHours / 24);

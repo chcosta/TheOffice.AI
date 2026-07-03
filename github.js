@@ -256,11 +256,15 @@ function _compactPr(d, owner, repo, reviews) {
   const status = d.state === 'open' ? 'active' : (d.merged_at ? 'completed' : 'abandoned');
 
   // Reviewers: collapse latest non-pending review per user, plus still-requested.
+  // The PR author is excluded — their own review comments (COMMENTED) are not a
+  // reviewer relationship and GitHub never lists them in the Reviewers sidebar.
+  const authorLogin = ((d.user && d.user.login) || '').toLowerCase();
   const reviewerMap = new Map();
   if (Array.isArray(reviews)) {
     for (const rv of reviews) {
       const login = (rv.user && rv.user.login) || '';
-      if (!login || String(rv.state).toUpperCase() === 'PENDING') continue;
+      if (!login || login.toLowerCase() === authorLogin) continue;
+      if (String(rv.state).toUpperCase() === 'PENDING') continue;
       // reviews are chronological; keep the last meaningful one per user
       reviewerMap.set(login, { login, state: rv.state });
     }
@@ -357,6 +361,19 @@ async function getPullRequest(owner, _project, repo, prId) {
   let reviews = [];
   try { reviews = await apiAll(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}/reviews`, { cap: 200 }); } catch {}
   return _compactPr(d, owner, repo, reviews);
+}
+
+// Full reviewer set for a single PR: everyone who submitted a review (with their
+// vote) PLUS still-requested (pending) reviewers. The /pulls LIST endpoint only
+// carries `requested_reviewers`, so anyone who has already reviewed drops off the
+// board card — this merges in /reviews to restore them. Used by the codeflow
+// enrichment step. Returns the neutral reviewer array (never throws).
+async function getReviewers(owner, _project, repo, prId) {
+  const [d, reviews] = await Promise.all([
+    api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}`).catch(() => ({})),
+    apiAll(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}/reviews`, { cap: 200 }).catch(() => [])
+  ]);
+  return _compactPr(d || {}, owner, repo, reviews).reviewers;
 }
 
 // Thread counts. GitHub REST can't tell resolved vs unresolved reliably, so we
@@ -1008,6 +1025,7 @@ module.exports = {
   listPullRequests,
   listProjectPullRequests,
   getPrThreads,
+  getReviewers,
   getPrActiveThreads,
   createPrThread,
   createReview,
