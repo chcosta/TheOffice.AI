@@ -21027,6 +21027,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             sc.autoGenerate = !!r.autoGenerate;
           } catch (_) { /* non-fatal */ }
         },
+        async newsletterGenerate() {
           const nl = this.newsletter;
           if (nl.generating) return;
           if (nl.draftDirty) {
