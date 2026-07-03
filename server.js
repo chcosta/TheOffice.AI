@@ -4097,6 +4097,111 @@ app.delete('/api/marketplace/design/pin/:id', (req, res) => {
   res.json({ ok: true, pinned: next });
 });
 
+// ---- Guided "Create Agent" draft helpers (Agents page) --------------------
+// These power the interactive Create Agent flow: turn a name+description into a
+// solid system prompt, and recommend skills from the marketplace catalog. Both
+// are one-shot text generations (availableTools:[]) so the model just writes —
+// it can't wander off inspecting the filesystem and leak tool-planning prose.
+// The draft chat preview and the final create reuse the existing design test /
+// apply routes with a client-built { kind:'create', agent:{name,description,body} }
+// proposal, so nothing new is needed there.
+
+// Generate a good agent system prompt from a name + description.
+app.post('/api/agents/draft/generate-prompt', async (req, res) => {
+  const name = String((req.body && req.body.name) || '').trim();
+  const description = String((req.body && req.body.description) || '').trim();
+  if (!name && !description) return res.status(400).json({ error: 'name or description is required' });
+  const prompt = [
+    'You are an expert at authoring system prompts for autonomous AI agents.',
+    'Write the SYSTEM PROMPT / core instructions for a single agent described below.',
+    '',
+    'AGENT NAME: ' + (name || '(unnamed)'),
+    'WHAT IT SHOULD DO: ' + (description || '(no description provided)'),
+    '',
+    'Requirements for the prompt you write:',
+    '- Address the agent in the second person ("You are …").',
+    '- Give it a clear role, scope, and the outcomes it is responsible for.',
+    '- Include concise operating guidance: how it should approach tasks, any',
+    '  important do/don\'t rules, and how it should communicate results.',
+    '- Keep it practical and specific to this agent — no generic filler.',
+    '- Use short Markdown sections/bullets where helpful. Aim for 120-350 words.',
+    '',
+    'Output ONLY the prompt text itself (Markdown). Do NOT wrap it in code fences,',
+    'do NOT add a preamble like "Here is the prompt", and do NOT include commentary.',
+  ].join('\n');
+  try {
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false,
+      cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    });
+    let text = (acc.trim() ? acc : (result.output || '')).trim();
+    // Strip an accidental surrounding code fence if the model added one.
+    const fence = text.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/i);
+    if (fence) text = fence[1].trim();
+    if (!text) return res.status(502).json({ error: 'The model returned an empty prompt. Try again.' });
+    res.json({ prompt: text });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Prompt generation failed' });
+  }
+});
+
+// Recommend skills from the marketplace catalog for a draft agent.
+app.post('/api/agents/draft/recommend-skills', async (req, res) => {
+  const name = String((req.body && req.body.name) || '').trim();
+  const description = String((req.body && req.body.description) || '').trim();
+  const draftPrompt = String((req.body && req.body.prompt) || '').trim();
+  try {
+    const catalog = marketplaceDesign.compactCatalog();
+    const skills = catalog.skills || [];
+    if (!skills.length) return res.json({ recommended: [], reasons: {}, note: 'No skills in the catalog yet.' });
+    const valid = new Set(skills.map(s => s.name));
+    const prompt = [
+      'You help configure an AI agent by choosing which SKILLS to attach to it.',
+      'A skill is focused domain know-how (a SKILL.md doc) that teaches the agent HOW to do something.',
+      '',
+      'AGENT NAME: ' + (name || '(unnamed)'),
+      'DESCRIPTION: ' + (description || '(none)'),
+      draftPrompt ? ('SYSTEM PROMPT:\n' + draftPrompt.slice(0, 2000)) : '',
+      '',
+      'AVAILABLE SKILLS (choose ONLY from this list, by exact "name"):',
+      JSON.stringify(skills.map(s => ({ name: s.name, description: s.description })), null, 2),
+      '',
+      'Pick the skills that would genuinely make THIS agent more capable at its job.',
+      'Recommend only strong fits (typically 1-6). If none fit, return an empty array.',
+      '',
+      'Respond with ONLY a JSON object (no prose, no code fence) in this exact shape:',
+      '{ "recommended": [ { "name": "exact-skill-name", "why": "one short reason" } ] }',
+    ].filter(Boolean).join('\n');
+    let arr = null, text = '';
+    for (let attempt = 0; attempt < 2 && !arr; attempt++) {
+      let acc = '';
+      const result = await sdkRunner.runChat({
+        config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false,
+        cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      });
+      text = (acc.trim() ? acc : (result.output || '')).trim();
+      try {
+        const m = text.match(/\{[\s\S]*\}/);
+        const obj = JSON.parse(m ? m[0] : text);
+        arr = Array.isArray(obj.recommended) ? obj.recommended : [];
+      } catch (_) { arr = null; }
+    }
+    if (!arr) return res.status(502).json({ error: 'Could not parse recommendations. Try again.', raw: text.slice(0, 300) });
+    const recommended = [];
+    const reasons = {};
+    for (const r of arr) {
+      const nm = String((r && r.name) || '').trim();
+      if (!valid.has(nm) || recommended.includes(nm)) continue;
+      recommended.push(nm);
+      reasons[nm] = String((r && r.why) || '').trim();
+    }
+    res.json({ recommended, reasons });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Skill recommendation failed' });
+  }
+});
+
 // ---- Design proposal helpers (shared by apply + test) ----
 
 // Allocate an agent id that doesn't collide with an existing one.
