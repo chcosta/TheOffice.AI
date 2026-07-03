@@ -10604,6 +10604,9 @@
                               <button x-show="pr.targetBranch" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfUpdateFromTarget(pr)"
                                       :title="'Merge origin/' + pr.targetBranch + ' INTO the PR branch (catch this PR up with ' + pr.targetBranch + '). Does not push.'"
                                       x-text="cfBusy(pr) === 'update-target' ? 'Updating…' : ('⤵ Update from ' + pr.targetBranch)"></button>
+                              <button x-show="cfWt(pr).drift && cfWt(pr).drift.comparable && (cfWt(pr).drift.behind || 0) > 0" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfUpdateFromPr(pr)"
+                                      title="Merge the PR branch's new commits from origin INTO your local branch (keeps your local commits; does not push)"
+                                      x-text="cfBusy(pr) === 'update-pr' ? 'Updating…' : '⤵ Update from PR branch'"></button>
                               <button x-show="(cfWt(pr).changeCount || 0) > 0" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfToggleChanges(pr)"
                                       title="View, commit, or discard uncommitted changes in this worktree"
                                       x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
@@ -23260,6 +23263,44 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }
             }
             this.showToast('Update from ' + target, e.message, 'error');
+          } finally {
+            delete this.codeflow.wtBusy[key];
+          }
+        },
+        // Merge the PR branch's own new remote commits INTO the local branch,
+        // keeping local commits (non-destructive counterpart to cfSync/Reset).
+        // Same fetch + 409-conflict handling as cfUpdateFromTarget.
+        async cfUpdateFromPr(pr, strategy = 'merge') {
+          const key = this.cfPrKey(pr);
+          this.codeflow.wtBusy[key] = 'update-pr';
+          try {
+            const resp = await this.request('/api/codeflow/pr/worktree/update-from-pr', {
+              method: 'POST',
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider, strategy })
+            });
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            this.showToast('Update from PR branch',
+              (resp && resp.message) || (resp && resp.noop ? 'Already up to date.' : 'Updated from the PR branch.'), 'success');
+          } catch (e) {
+            if (e && e.status === 409) {
+              const body = e.body || {};
+              if (body.needsClean) {
+                this.showToast('Update from PR branch',
+                  'Commit or discard your uncommitted changes first (use the Changes list), then try again.', 'error');
+                return;
+              }
+              if (body.conflict) {
+                const other = strategy === 'rebase' ? 'merge' : 'rebase';
+                const ok = await this.uiConfirm('Update from PR branch',
+                  (strategy === 'rebase' ? 'Rebase' : 'Merge') +
+                  ' of the PR branch hit conflicts and was aborted (your worktree is unchanged). Try a ' + other + ' instead?');
+                if (ok) { await this.cfUpdateFromPr(pr, other); return; }
+                this.showToast('Update from PR branch',
+                  'Conflicts need manual resolution — open the worktree and ' + strategy + ' origin/' + (pr.sourceBranch || 'the PR branch') + ' yourself.', 'error');
+                return;
+              }
+            }
+            this.showToast('Update from PR branch', e.message, 'error');
           } finally {
             delete this.codeflow.wtBusy[key];
           }

@@ -618,7 +618,54 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
   return { ok: true, message: (mode === 'rebase' ? 'Rebased onto ' : 'Merged in ') + tgt + '.', drift };
 }
 
-// List the managed clone's registered worktrees as
+// Bring the local PR branch up to date with its OWN remote tip by merging (or
+// rebasing) origin/<sourceBranch> INTO the worktree's HEAD — the "the PR branch
+// moved on the server, pull those commits down while keeping my local commits"
+// operation. Unlike syncToPrBranch (a hard reset that DISCARDS local commits),
+// this preserves local work by integrating the two histories. Never pushes; the
+// caller pushes separately once satisfied. Needs a clean tree (refuses with
+// needsClean otherwise). On conflict it aborts cleanly and returns
+// { ok:false, conflict:true, strategy } so the UI can offer the other strategy or
+// manual resolution. Returns { ok, message, drift, conflict?, needsClean?, noop? }.
+function pullPrBranch(wt, { sourceBranch, strategy = 'merge', desc = null } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to update.' };
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  if (!src) return { ok: false, message: 'No PR source branch to update from.' };
+  const mode = strategy === 'rebase' ? 'rebase' : 'merge';
+
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
+  if (cls.dirty) {
+    return { ok: false, needsClean: true, message: 'Commit or discard your uncommitted changes before updating from the PR branch.' };
+  }
+
+  _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
+  const srcRef = 'origin/' + src;
+  if (!_gitTry(['rev-parse', '--verify', '--quiet', srcRef], wt).ok) {
+    return { ok: false, message: 'The PR branch ' + src + ' was not found on origin.' };
+  }
+
+  // Already contains the remote tip (remote is an ancestor of HEAD) — nothing to pull.
+  if (_gitTry(['merge-base', '--is-ancestor', srcRef, 'HEAD'], wt).ok) {
+    const drift = prDrift(wt, src, { fetch: false, desc });
+    return { ok: true, noop: true, message: 'Already up to date with the PR branch.', drift };
+  }
+
+  const res = mode === 'rebase'
+    ? _gitTry(['rebase', srcRef], wt)
+    : _gitTry(['merge', '--no-edit', srcRef], wt);
+  if (!res.ok) {
+    _gitTry([mode, '--abort'], wt);
+    const conflict = /conflict/i.test(res.err || '') || /CONFLICT/.test(res.err || '');
+    return {
+      ok: false, conflict, strategy: mode,
+      message: conflict
+        ? (mode === 'rebase' ? 'Rebase' : 'Merge') + ' of the PR branch hit conflicts and was aborted. Try the other strategy or resolve manually in the worktree.'
+        : (res.err.split('\n').slice(-2).join(' ').slice(0, 300) || (mode + ' failed.'))
+    };
+  }
+  const drift = prDrift(wt, src, { fetch: false, desc });
+  return { ok: true, message: (mode === 'rebase' ? 'Rebased onto the PR branch.' : 'Merged in the PR branch.'), drift };
+}
 // [{ path, branch|null, detached }]. Empty on any problem.
 function listWorktrees(org, project, repo, provider) {
   const clone = clonePath(org, project, repo, provider);
@@ -1113,6 +1160,7 @@ module.exports = {
   pushPrBranch,
   syncToPrBranch,
   updateFromTargetBranch,
+  pullPrBranch,
   listWorktrees,
   resolveUsableWorktree,
   diffSummary,

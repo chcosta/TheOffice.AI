@@ -3499,7 +3499,8 @@ app.post('/api/codeflow/pr/worktree/sync', (req, res) => {
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to sync.' });
   if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
   try {
-    const r = devitems.syncToPrBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, force: !!b.force });
+    const workDir = _cfUsableDir(rec) || rec.worktreePath;
+    const r = devitems.syncToPrBranch(workDir, { sourceBranch: rec.sourceBranch, force: !!b.force });
     if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Sync refused.', needsForce: !!(r && r.needsForce), drift: r && r.drift });
     const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
     res.json({ ok: true, message: r.message, drift: r.drift || null, worktree: { key, ...updated } });
@@ -3525,7 +3526,40 @@ app.post('/api/codeflow/pr/worktree/update-from-target', (req, res) => {
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to update.' });
   if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
   try {
-    const r = devitems.updateFromTargetBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, targetBranch, strategy });
+    const workDir = _cfUsableDir(rec) || rec.worktreePath;
+    const r = devitems.updateFromTargetBranch(workDir, { sourceBranch: rec.sourceBranch, targetBranch, strategy });
+    if (!r || r.ok === false) {
+      return res.status(409).json({
+        error: (r && r.message) || 'Update failed.',
+        conflict: !!(r && r.conflict), needsClean: !!(r && r.needsClean),
+        strategy: (r && r.strategy) || strategy, drift: r && r.drift
+      });
+    }
+    const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
+    res.json({ ok: true, message: r.message, noop: !!r.noop, drift: r.drift || null, worktree: { key, ...updated } });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Update failed' });
+  }
+});
+
+// Update the PR/source branch FROM its own remote tip — merge or rebase
+// origin/<sourceBranch> INTO the local worktree, keeping local commits ("the PR
+// branch moved on the server, pull those changes down"). The non-destructive
+// counterpart to /worktree/sync (which hard-resets and discards local work). Does
+// NOT push. On conflict returns 409 {conflict:true} so the client can offer the
+// other strategy or manual resolution.
+app.post('/api/codeflow/pr/worktree/update-from-pr', (req, res) => {
+  const b = req.body || {};
+  const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
+  if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
+  const strategy = b.strategy === 'rebase' ? 'rebase' : 'merge';
+  const key = _cfWtKey(o);
+  const rec = _getCfWt(key);
+  if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to update.' });
+  if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
+  try {
+    const workDir = _cfUsableDir(rec) || rec.worktreePath;
+    const r = devitems.pullPrBranch(workDir, { sourceBranch: rec.sourceBranch, strategy });
     if (!r || r.ok === false) {
       return res.status(409).json({
         error: (r && r.message) || 'Update failed.',
