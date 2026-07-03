@@ -2359,6 +2359,7 @@
     /* Larger flow builder modal */
     .modal-card.flow-modal { width:min(1480px,96vw); max-width:none; max-height:94vh; }
     .flow-modal .flow-canvas-shell { height:calc(94vh - 446px); min-height:480px; }
+    .chain-page .flow-canvas-shell { height:calc(100vh - 320px); min-height:480px; }
 
     /* Flow hover detail card */
     .flow-tip { position:fixed; z-index:80; width:280px; background:var(--cp-panel-strong); backdrop-filter:blur(8px); border:1px solid var(--cp-border-strong); border-radius:14px; box-shadow:var(--cp-shadow); padding:13px 14px; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity .1s, transform .1s; }
@@ -10845,6 +10846,522 @@
             </div>
           </section>
 
+          <section x-show="!loading && !errorMessage && route === 'export'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>⤴ Export to Azure DevOps</h1>
+                <p>Serialize an agent (definition, MCP servers, and skills) and push it to a new branch. Secret values are rewritten to <code>${VAR}</code> placeholders before anything leaves this machine.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="goTo('#/agents')" :disabled="exp.busy">Cancel</button>
+                <button class="btn accent" type="button" @click="expPush()"
+                  :disabled="exp.busy || !exp.preview || (exp.preview && exp.preview.secrets.length) || !exp.repo || !exp.branch">
+                  <span x-show="!exp.busy">⤴ Push to new branch</span>
+                  <span x-show="exp.busy">Pushing…</span>
+                </button>
+              </div>
+            </div>
+            <div class="card" style="margin-top:14px;padding:18px;overflow:auto">
+        <p class="hint" style="margin-bottom:14px">Serialize <strong x-text="exp.agentName"></strong> (agent definition, MCP servers, and skills) and push it to a new branch. Secret values in MCP env are rewritten to <code>${VAR}</code> placeholders before anything leaves this machine.</p>
+
+        <div class="field-label" style="margin-bottom:6px"><span>Layout</span></div>
+        <select class="field-input" x-model="exp.layout" @change="exp.preview=null">
+          <option value="plugin">Plugin package — .github/plugin/&lt;name&gt;/ (agent + MCP + skills)</option>
+          <option value="agent">Single agent file — .github/agents/&lt;slug&gt;.agent.md (no MCP/skills)</option>
+        </select>
+
+        <div class="field-label" style="margin:14px 0 6px"><span>Repository</span></div>
+        <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+          <input class="field-input" style="max-width:180px" type="text" placeholder="Organization (e.g. dnceng)" x-model="exp.org" @keydown.enter.prevent="expLoadRepos()" />
+          <input class="field-input" style="max-width:180px" type="text" placeholder="Project (e.g. internal)" x-model="exp.project" @keydown.enter.prevent="expLoadRepos()" />
+          <button class="btn primary" type="button" :disabled="exp.loadingRepos || !exp.org.trim() || !exp.project.trim()" @click="expLoadRepos()" x-text="exp.loadingRepos ? 'Connecting…' : 'Connect'"></button>
+        </div>
+        <div class="toolbar" style="gap:8px;margin-top:8px;flex-wrap:wrap" x-show="exp.repos.length">
+          <div x-data="repoCombo()" style="position:relative;max-width:280px;flex:1 1 220px">
+            <input class="field-input" type="text"
+              :placeholder="exp.repos.length ? 'Search repositories…' : 'Connect first'"
+              :value="open ? q : (exp.repo || '')"
+              @focus="open=true; q=''"
+              @input="q=$event.target.value; open=true"
+              @blur="closeSoon()"
+              @keydown.escape.stop="open=false; $el.blur()" />
+            <div x-show="open" x-transition.opacity.duration.120ms
+              style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+              <template x-for="r in comboFilterRepos(exp.repos, q)" :key="r.id || r.name">
+                <div @mousedown.prevent="exp.repo=r.name; expRepoChange(); open=false"
+                  style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                  :style="r.name===exp.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                  @mouseenter="if(r.name!==exp.repo) $el.style.background='var(--cp-surface-soft)'"
+                  @mouseleave="if(r.name!==exp.repo) $el.style.background=''"
+                  x-text="r.name"></div>
+              </template>
+              <template x-if="!comboFilterRepos(exp.repos, q).length">
+                <div class="hint" style="padding:8px 12px" x-text="exp.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
+              </template>
+            </div>
+          </div>
+          <select class="field-input" style="max-width:200px" x-model="exp.branch" :disabled="exp.loadingBranches || !exp.branch && !exp.branches.length">
+            <option value="">Base branch…</option>
+            <template x-for="b in exp.branches" :key="b"><option :value="b" x-text="b"></option></template>
+          </select>
+        </div>
+
+        <div class="field-label" style="margin:14px 0 6px"><span>Options</span></div>
+        <input class="field-input" type="text" placeholder="Subfolder in repo (optional, e.g. tools/agents)" x-model="exp.basePath" @input="exp.preview=null" />
+        <label class="toolbar" style="gap:8px;margin-top:10px;cursor:pointer;align-items:center">
+          <input type="checkbox" x-model="exp.createPr" /> <span>Open a pull request into the base branch after pushing</span>
+        </label>
+
+        <div class="toolbar" style="margin-top:16px">
+          <button class="btn" type="button" @click="expPreview()" :disabled="exp.busy">🔍 Preview</button>
+        </div>
+
+        <template x-if="exp.preview">
+          <div style="margin-top:14px;border:1px solid var(--cp-border);border-radius:10px;padding:12px;background:var(--cp-surface-soft)">
+            <div class="split-meta" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <span class="tiny-badge" x-text="exp.preview.layout + ' layout'"></span>
+              <span class="tiny-badge" x-text="exp.preview.files.length + ' file' + (exp.preview.files.length===1?'':'s')"></span>
+              <span class="tiny-badge" x-show="exp.preview.redactions.length" x-text="exp.preview.redactions.length + ' secret' + (exp.preview.redactions.length===1?'':'s') + ' redacted'"></span>
+            </div>
+            <div class="hint" style="margin-bottom:6px">Branch: <code x-text="exp.branchOverride || exp.preview.branchSuggestion"></code></div>
+            <template x-for="f in exp.preview.files" :key="f.path">
+              <div class="hint" style="font-family:var(--cp-mono,monospace);font-size:0.82em" x-text="'• ' + f.path + '  (' + f.bytes + ' B)'"></div>
+            </template>
+            <template x-if="exp.preview.warnings.length">
+              <div style="margin-top:8px">
+                <template x-for="w in exp.preview.warnings" :key="w"><div class="hint" style="color:var(--cp-warning)" x-text="'⚠ ' + w"></div></template>
+              </div>
+            </template>
+            <template x-if="exp.preview.secrets.length">
+              <div style="margin-top:8px;color:var(--cp-danger)">
+                <div class="hint" style="color:var(--cp-danger);font-weight:700">⛔ Secret-like content detected — push is blocked:</div>
+                <template x-for="s in exp.preview.secrets" :key="s.path+s.kind"><div class="hint" style="color:var(--cp-danger)" x-text="'• ' + s.kind + ' in ' + s.path"></div></template>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template x-if="exp.result">
+          <div style="margin-top:14px;border:1px solid var(--cp-success);border-radius:10px;padding:12px">
+            <div style="font-weight:700;color:var(--cp-success)">✓ Pushed to <span x-text="exp.result.branch"></span></div>
+            <div class="hint" style="margin-top:6px"><a :href="exp.result.branchUrl" target="_blank" rel="noopener">View branch in Azure DevOps ↗</a></div>
+            <div class="hint" style="margin-top:4px" x-show="exp.result.pr"><a :href="exp.result.pr ? exp.result.pr.url : '#'" target="_blank" rel="noopener">View pull request #<span x-text="exp.result.pr ? exp.result.pr.pullRequestId : ''"></span> ↗</a></div>
+          </div>
+        </template>
+
+        <div class="hint" style="color:var(--cp-danger);margin-top:10px" x-show="exp.error" x-text="exp.error"></div>
+            </div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'new-task'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1 x-text="itemModalTitle()"></h1>
+                <p x-text="newTaskForm.kind === 'assignment' ? 'A manager assignment orchestrates one or more agents from a saved prompt.' : 'A scheduled prompt that runs on a single agent.'"></p>
+              </div>
+              <div class="toolbar">
+                <button class="btn danger" type="button" x-show="newTaskForm.editingId" @click="deleteItemFromModal()">🗑 Delete</button>
+                <button class="btn" type="button" @click="closeItemModal()">Cancel</button>
+                <button class="btn primary" type="button" @click="submitNewTask()" x-text="newTaskForm.editingId ? 'Save' : 'Create'"></button>
+              </div>
+            </div>
+            <div class="card" style="margin-top:14px;padding:18px;overflow:auto">
+        <div class="filter-pills" x-show="!newTaskForm.editingId">
+          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'agent' }" @click="newTaskForm.kind = 'agent'">🤖 Agent</button>
+          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'assignment' }" @click="newTaskForm.kind = 'assignment'">👔 Manager</button>
+        </div>
+        <div class="config-grid">
+          <template x-if="newTaskForm.kind === 'agent'">
+            <div>
+              <div class="field-label"><span>Agent</span><span class="hint">Which agent runs this task</span></div>
+              <select class="field-input" x-model="newTaskForm.agentId" :disabled="!!newTaskForm.editingId" @change="onModalEmployeeChange()">
+                <option value="">Select agent…</option>
+                <template x-for="a in data.agents" :key="'tm-' + a.id">
+                  <option :value="a.id" x-text="a.name"></option>
+                </template>
+              </select>
+            </div>
+          </template>
+          <template x-if="newTaskForm.kind === 'assignment'">
+            <div>
+              <div class="field-label"><span>Manager</span><span class="hint">Which manager owns this assignment</span></div>
+              <select class="field-input" x-model="newTaskForm.managerId" :disabled="!!newTaskForm.editingId" @change="onModalEmployeeChange()">
+                <option value="">Select manager…</option>
+                <template x-for="manager in data.managers" :key="'mm-' + manager.id">
+                  <option :value="manager.id" x-text="manager.name"></option>
+                </template>
+              </select>
+            </div>
+          </template>
+          <div>
+            <div class="field-label"><span>Name</span></div>
+            <input class="field-input" type="text" x-model="newTaskForm.name" :placeholder="newTaskForm.kind === 'assignment' ? 'e.g. Monitor Azure Status' : 'e.g. Daily standup report'" />
+          </div>
+          <div>
+            <div class="field-label"><span>Team</span><span class="hint">This operation belongs to one team</span></div>
+            <select class="field-input" x-model="newTaskForm.teamId" :disabled="!(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId)">
+              <option value="">Unassigned</option>
+              <template x-for="o in modalOrgOptions()" :key="'tmo-' + o.id">
+                <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
+              </template>
+            </select>
+            <div class="hint" x-show="(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId) && !modalOrgOptions().length" style="margin-top:6px">This employee isn't in any team yet. Assign it on the Teams page first.</div>
+          </div>
+          <div>
+            <div class="field-label"><span>Prompt</span><span class="hint" x-text="newTaskForm.kind === 'assignment' ? 'What the manager should do' : 'What the agent should do'"></span></div>
+            <textarea class="field-input field-area" x-model="newTaskForm.prompt" placeholder="Describe the work…"></textarea>
+          </div>
+          <div>
+            <div class="field-label"><span>Schedule</span></div>
+            <div class="schedule-picker">
+              <select class="field-input" x-model="newTaskForm.schedulePreset" @change="applySchedulePresetTo(newTaskForm, $event.target.value)">
+                <option value="never">Manual only (no schedule)</option>
+                <option value="5m">Every 5 minutes</option>
+                <option value="15m">Every 15 minutes</option>
+                <option value="30m">Every 30 minutes</option>
+                <option value="1h">Every hour</option>
+                <option value="6h">Every 6 hours</option>
+                <option value="24h">Daily</option>
+                <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
+                <option value="custom">Advanced (cron / custom)…</option>
+              </select>
+              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, newTaskForm.kind === 'assignment' ? 'Assignment schedule' : 'Task schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
+              <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
+                <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
+              </div>
+            </div>
+          </div>
+          <div x-show="newTaskForm.kind === 'agent'">
+            <div class="field-label"><span>Resilience</span></div>
+            <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer">
+              <input type="checkbox" x-model="newTaskForm.resilient" style="margin-top:3px" />
+              <span>
+                <span style="font-weight:500">Auto-retry on transient failures</span>
+                <span class="hint" style="display:block; margin-top:2px">If a run fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the task itself), the AI decides whether and when to retry. Its reasoning is shown in Recent Runs.</span>
+              </span>
+            </label>
+            <div x-show="newTaskForm.resilient" x-transition style="margin-top:8px; display:flex; align-items:center; gap:8px">
+              <span class="hint">Max retries</span>
+              <input class="field-input" type="number" min="1" max="10" x-model.number="newTaskForm.maxRetries" style="width:80px" />
+            </div>
+          </div>
+        </div>
+            </div>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'agent-discovery'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>＋ Add Agent</h1>
+                <p>Discover installed plugins, marketplace plugins, repository agents, and managers.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="loadAgentDiscovery()">↻ Refresh</button>
+                <button class="btn" type="button" @click="goTo('#/agents')">Done</button>
+              </div>
+            </div>
+            <div class="card" style="margin-top:14px;padding:18px;overflow:auto">
+        <div class="discovery-paths">
+          <div class="split-meta">
+            <strong>Repository Paths</strong>
+            <span class="badge-count" x-text="agentDiscoveryPaths.length ? agentDiscoveryPaths.length + ' custom' : 'auto scan'"></span>
+          </div>
+          <div class="hint" style="margin-top:6px" x-text="agentDiscoveryPaths.length ? 'Custom paths override the default scan until removed.' : 'The parent of the server directory is scanned automatically when no custom paths are set.'"></div>
+          <div class="search-row" style="grid-template-columns:minmax(0,1fr) auto auto;margin-top:10px">
+            <input class="field-input mono" type="text" placeholder="C:\\repos\\my-repo" x-model="agentDiscoveryNewPath" @keydown.enter.prevent="addDiscoveryPath()" />
+            <button class="btn" type="button" @click="addDiscoveryPath()">Add</button>
+            <button class="btn" type="button" @click="$refs.dirPicker.click()" title="Browse for folder">📁</button>
+            <input type="file" x-ref="dirPicker" webkitdirectory style="display:none" @change="pickDirectory($event)" />
+          </div>
+          <div class="path-list">
+            <span class="path-tag" x-show="!agentDiscoveryPaths.length">Auto: parent of server directory</span>
+            <template x-for="(path, index) in agentDiscoveryPaths" :key="path + ':' + index">
+              <span class="path-tag">
+                <span x-text="path"></span>
+                <button type="button" @click="removeDiscoveryPath(index)" aria-label="Remove path">✕</button>
+              </span>
+            </template>
+          </div>
+        </div>
+
+        <div class="search-row" style="grid-template-columns:minmax(0,1fr) auto">
+          <input class="field-input" type="search" placeholder="Search by name, description, id, or source…" x-model="agentDiscoverySearch" />
+          <div class="hint" x-text="filteredDiscoveryCount() + ' shown'"></div>
+        </div>
+
+        <div class="discovery-tabs">
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'all' }" @click="agentDiscoveryTab = 'all'">All</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'installed' }" @click="agentDiscoveryTab = 'installed'">Installed</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'marketplace' }" @click="agentDiscoveryTab = 'marketplace'">Marketplace</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'repository' }" @click="agentDiscoveryTab = 'repository'">Repository</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'managers' }" @click="agentDiscoveryTab = 'managers'">Managers</button>
+          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'azdo' }" @click="agentDiscoveryTab = 'azdo'">Azure DevOps</button>
+        </div>
+
+        <div class="empty-state" x-show="agentDiscoveryLoading">Loading discovery results…</div>
+        <div class="empty-state" x-show="!agentDiscoveryLoading && agentDiscoveryError" x-text="agentDiscoveryError"></div>
+
+        <div class="discovery-groups" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab !== 'managers' && agentDiscoveryTab !== 'azdo' && filteredDiscoveryCount()">
+          <template x-for="group in discoveryGroups()" :key="group.source">
+            <section class="discovery-group" x-show="group.items.length">
+              <button class="discovery-group-header" type="button" @click="toggleDiscoveryGroup(group.source)">
+                <span class="chevron" :class="{ collapsed: agentDiscoveryCollapsed[group.source] }">▼</span>
+                <strong x-text="group.label"></strong>
+                <span class="badge-count" x-text="group.items.length"></span>
+              </button>
+              <div x-show="!agentDiscoveryCollapsed[group.source]" x-transition>
+                <template x-for="item in group.items" :key="group.source + ':' + item.id + ':' + (item.pluginDir || item.cwd || item.installCmd || '')">
+                  <article class="discovery-item" :class="{ registered: item.registered }">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong x-text="item.displayName || item.name || item.id"></strong>
+                        <span class="source-badge" :class="discoverySourceClass(item)" x-text="discoverySourceLabel(item)"></span>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-text="item.description || item.id"></div>
+                      <div class="hint mono" style="margin-top:8px" x-text="item.id"></div>
+                      <div class="hint mono" style="margin-top:6px" x-show="item.cwd || item.pluginDir" x-text="item.pluginDir || item.cwd"></div>
+                    </div>
+                    <div class="discovery-actions">
+                      <button class="btn primary" type="button" :disabled="discoveryActionState(item).disabled" @click="performDiscoveryAction(item)" x-text="discoveryActionState(item).text || discoveryActionLabel(item)"></button>
+                      <details x-show="!item.installed && !item.registered && item.source === 'repo-plugin' && item.pluginDir" style="width:100%">
+                        <summary class="hint" style="cursor:pointer;text-align:right">⚙ Options</summary>
+                        <label class="discovery-overlay-option">
+                          <input type="checkbox" :checked="!!agentDiscoveryOverlayFlags[discoveryActionKey(item)]" @change="toggleOverlayFlag(item)" />
+                          <span>Strip tools restriction (overlay mode)</span>
+                        </label>
+                      </details>
+                    </div>
+                  </article>
+                </template>
+              </div>
+            </section>
+          </template>
+        </div>
+
+        <div class="stack" x-show="!agentDiscoveryLoading && agentDiscoveryTab === 'azdo'">
+          <div class="discovery-group">
+            <div class="hint">Connect to an Azure DevOps organization and project, pick a repository and branch, then install agents and plugins discovered under any <span class="mono">.github</span> folder. Reinstall re-fetches from the same repo/branch. Auth uses your signed-in Azure CLI — no token to enter.</div>
+            <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:12px">
+              <input class="field-input" type="text" placeholder="Organization (e.g. dnceng)" x-model="azdo.org" @keydown.enter.prevent="loadAzdoRepos()" />
+              <input class="field-input" type="text" placeholder="Project (e.g. internal)" x-model="azdo.project" @keydown.enter.prevent="loadAzdoRepos()" />
+              <button class="btn primary" type="button" :disabled="azdo.loadingRepos || !azdo.org.trim() || !azdo.project.trim()" @click="loadAzdoRepos()" x-text="azdo.loadingRepos ? 'Connecting…' : 'Connect'"></button>
+            </div>
+            <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:10px" x-show="azdo.repos.length">
+              <div x-data="repoCombo()" style="position:relative">
+                <input class="field-input" type="text"
+                  :placeholder="azdo.repos.length ? 'Search repositories…' : 'Connect first'"
+                  :value="open ? q : (azdo.repo || '')"
+                  @focus="open=true; q=''"
+                  @input="q=$event.target.value; open=true"
+                  @blur="closeSoon()"
+                  @keydown.escape.stop="open=false; $el.blur()" />
+                <div x-show="open" x-transition.opacity.duration.120ms
+                  style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                  <template x-for="r in comboFilterRepos(azdo.repos, q)" :key="r.id || r.name">
+                    <div @mousedown.prevent="azdo.repo=r.name; onAzdoRepoChange(); open=false"
+                      style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                      :style="r.name===azdo.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                      @mouseenter="if(r.name!==azdo.repo) $el.style.background='var(--cp-surface-soft)'"
+                      @mouseleave="if(r.name!==azdo.repo) $el.style.background=''"
+                      x-text="r.name"></div>
+                  </template>
+                  <template x-if="!comboFilterRepos(azdo.repos, q).length">
+                    <div class="hint" style="padding:8px 12px" x-text="azdo.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
+                  </template>
+                </div>
+              </div>
+              <select class="field-input" x-model="azdo.branch" :disabled="azdo.loadingBranches || !azdo.branches.length">
+                <option value="" x-text="azdo.loadingBranches ? 'Loading branches…' : 'Select branch…'"></option>
+                <template x-for="b in azdo.branches" :key="b"><option :value="b" x-text="b"></option></template>
+              </select>
+              <button class="btn primary" type="button" :disabled="azdo.discovering || !azdo.repo || !azdo.branch" @click="discoverAzdo()" x-text="azdo.discovering ? 'Discovering…' : 'Discover'"></button>
+            </div>
+            <div class="empty-state" x-show="azdo.error" style="color:var(--cp-danger)" x-text="azdo.error"></div>
+          </div>
+
+          <div class="discovery-group" x-show="!azdo.discovering && azdo.discovered.length">
+            <div class="split-meta">
+              <strong>Discovered in <span class="mono" x-text="azdo.repo + ' @ ' + azdo.branch"></span></strong>
+              <span class="badge-count" x-text="azdo.discovered.length"></span>
+            </div>
+            <template x-for="item in azdo.discovered" :key="'azdo-' + item.kind + ':' + item.path">
+              <article class="discovery-item" :class="{ registered: item.registered }">
+                <div>
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <strong x-text="item.displayName || item.name || item.id"></strong>
+                    <span class="source-badge source-plugin" x-text="item.kind === 'plugin' ? 'AzDO Plugin' : 'AzDO Agent'"></span>
+                    <span class="source-badge" x-show="item.version" x-text="'v' + item.version"></span>
+                  </div>
+                  <div class="hint" style="margin-top:6px" x-text="item.description || item.id"></div>
+                  <div class="hint mono" style="margin-top:8px" x-text="item.path"></div>
+                </div>
+                <div class="discovery-actions">
+                  <button class="btn primary" type="button"
+                    :disabled="(azdo.actions[item.path] && azdo.actions[item.path].disabled) || item.registered"
+                    @click="installAzdo(item)"
+                    x-text="(azdo.actions[item.path] && azdo.actions[item.path].text) || (item.registered ? 'Installed' : 'Install')"></button>
+                </div>
+              </article>
+            </template>
+          </div>
+          <div class="empty-state" x-show="!azdo.discovering && azdo.repo && azdo.branch && azdo.attempted && !azdo.discovered.length && !azdo.error">No agents or plugins found under any .github folder on this branch.</div>
+        </div>
+
+        <div class="stack" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab === 'managers'">
+          <div class="discovery-group">
+            <div class="hint">Manager agents orchestrate other agents. They can monitor, analyze, and chain agent outputs.</div>
+            <div class="split-meta" style="margin-top:4px">
+              <span class="mono">Template: manager:manager</span>
+              <button class="btn primary" type="button" @click="agentDiscoveryManagerFormOpen = !agentDiscoveryManagerFormOpen">＋ Create Manager</button>
+            </div>
+            <div class="manager-create-form" x-show="agentDiscoveryManagerFormOpen" x-transition>
+              <input class="field-input" type="text" placeholder="Manager name" x-model="agentDiscoveryNewManager.name" />
+              <textarea class="field-input field-area" placeholder="Description (optional)" x-model="agentDiscoveryNewManager.description"></textarea>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="agentDiscoveryManagerFormOpen = false; agentDiscoveryNewManager = { name: '', description: '' }">Cancel</button>
+                <button class="btn primary" type="button" :disabled="agentDiscoveryCreatingManager" @click="createManager()" x-text="agentDiscoveryCreatingManager ? 'Saving…' : 'Save Manager'"></button>
+              </div>
+            </div>
+          </div>
+          <template x-for="manager in filteredDiscoveryManagers()" :key="'discovery-manager-' + manager.id">
+            <article class="discovery-item">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <strong x-text="manager.name || manager.id"></strong>
+                  <span class="source-badge source-plugin">Manager</span>
+                </div>
+                <div class="hint" style="margin-top:6px" x-text="manager.config?.description || manager.description || 'Manager orchestration agent'"></div>
+                <div class="hint mono" style="margin-top:8px" x-text="manager.id"></div>
+              </div>
+              <div class="discovery-actions">
+                <span class="badge-count" x-text="(manager.orgDetails || []).length + ' org'"></span>
+                <span class="badge-count" x-text="((manager.config && manager.config.assignments) || []).length + ' assignments'"></span>
+              </div>
+            </article>
+          </template>
+        </div>
+
+        <div class="empty-state" x-show="!agentDiscoveryLoading && !agentDiscoveryError && !filteredDiscoveryCount()" x-text="agentDiscoveryTab === 'managers' ? 'No matching managers found.' : 'No matching agents or plugins found.'"></div>
+            </div>
+          </section>
+
+          <section class="chain-page" x-show="!loading && !errorMessage && route === 'chain'" x-transition.opacity.duration.180ms>
+            <template x-if="chainDraft">
+              <div style="display:contents">
+                <div class="page-header">
+                  <div class="page-title">
+                    <h1 x-text="chainDraft._new ? '⚙ New Flow' : '⚙ Edit Flow'"></h1>
+                    <p>Wire tasks together into a conditional pipeline.</p>
+                  </div>
+                  <div class="toolbar">
+                    <button class="btn danger" type="button" x-show="!chainDraft._new" @click="deleteChain(chainDraft)">🗑 Delete</button>
+                    <button class="btn" type="button" @click="closeChainModal()">Cancel</button>
+                    <button class="btn primary" type="button" @click="saveChain()" x-text="chainDraft._new ? 'Create flow' : 'Save flow'"></button>
+                  </div>
+                </div>
+                <div class="card" style="margin-top:14px;padding:18px;overflow:auto">
+            <div style="display:flex;flex-direction:column;gap:16px">
+              <div class="config-grid">
+                <div>
+                  <div class="field-label"><span>Name</span></div>
+                  <input class="field-input" type="text" x-model="chainDraft.name" />
+                </div>
+                <div>
+                  <div class="field-label"><span>Schedule</span></div>
+                  <select class="field-input" x-model="chainDraft.schedule">
+                    <option value="never">Manual only</option>
+                    <option value="15m">Every 15 minutes</option>
+                    <option value="30m">Every 30 minutes</option>
+                    <option value="1h">Every hour</option>
+                    <option value="6h">Every 6 hours</option>
+                    <option value="24h">Daily</option>
+                    <option value="weekdays at 9am">Weekdays at 9 AM</option>
+                    <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
+                      <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
+                    </template>
+                  </select>
+                  <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
+                </div>
+              </div>
+              <div>
+                <div class="field-label"><span>Description</span></div>
+                <input class="field-input" type="text" x-model="chainDraft.description" />
+              </div>
+              <div>
+                <div class="field-label"><span>Team</span><span class="hint">Teams containing every agent this flow uses</span></div>
+                <select class="field-input" x-model="chainDraft.teamId">
+                  <option value="">Unassigned</option>
+                  <template x-for="o in chainOrgOptions(chainDraft)" :key="'cmo-' + o.id">
+                    <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
+                  </template>
+                </select>
+                <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No team contains all of this flow's agents yet.</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
+              <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.resilient" style="margin-top:2px" /> <span><span style="font-weight:500">Auto-retry on transient failures</span><span class="hint" style="display:block;margin-top:2px">If the flow fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the flow itself), the AI decides whether and when to re-run the whole flow. Its reasoning is shown in Recent Runs.</span></span></label>
+              <div x-show="chainDraft.resilient" x-transition style="display:flex;align-items:center;gap:8px;margin-left:24px"><span class="hint">Max retries</span><input class="field-input" type="number" min="1" max="10" x-model.number="chainDraft.maxRetries" style="width:80px" /></div>
+
+              <!-- Canvas builder -->
+              <div>
+                <div class="field-label"><span>Flow canvas</span><span class="hint">Drag agents or saved tasks onto the canvas, then drag from a node's right port to another node to connect them. Click a link to set its condition.</span></div>
+                <div class="flow-canvas-shell">
+                  <div class="flow-palette">
+                    <div class="fp-tabs">
+                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'agents' }" @click="flowPaletteTab = 'agents'">🤖 Agents</button>
+                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'tasks' }" @click="flowPaletteTab = 'tasks'">📋 Tasks</button>
+                    </div>
+                    <input class="fp-search" type="text" placeholder="Search…" x-model="flowPaletteFilter" />
+                    <div class="fp-list">
+                      <template x-if="flowPaletteTab === 'agents'">
+                        <div>
+                          <template x-for="a in flowPaletteAgents()" :key="'fpa-' + a.id">
+                            <div class="fp-item" draggable="true" @dragstart="flowDragStart($event, 'agent', a.id)" @mouseenter="flowTipShow($event, 'agent', a.id)" @mousemove="flowTipMove($event)" @mouseleave="flowTipHide()">
+                              <span class="fp-ic" x-text="a.plugin ? '🧩' : '🤖'"></span>
+                              <span class="fp-meta"><span class="fp-name" x-text="a.name"></span><span class="fp-sub" x-text="a.group || (a.plugin ? 'Plugin' : 'Agent')"></span></span>
+                            </div>
+                          </template>
+                          <div class="fp-empty" x-show="!flowPaletteAgents().length">No agents.</div>
+                        </div>
+                      </template>
+                      <template x-if="flowPaletteTab === 'tasks'">
+                        <div>
+                          <template x-for="t in flowPaletteTasks()" :key="'fpt-' + t.id">
+                            <div class="fp-item" draggable="true" @dragstart="flowDragStart($event, 'task', t.id)" @mouseenter="flowTipShow($event, 'task', t.id)" @mousemove="flowTipMove($event)" @mouseleave="flowTipHide()">
+                              <span class="fp-ic">📋</span>
+                              <span class="fp-meta"><span class="fp-name" x-text="t.name"></span><span class="fp-sub" x-text="'Saved task'"></span></span>
+                            </div>
+                          </template>
+                          <div class="fp-empty" x-show="!flowPaletteTasks().length">No saved tasks.</div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                  <div id="flow-canvas-wrap" class="flow-canvas-wrap" @dragover.prevent @drop="flowCanvasDrop($event)">
+                    <svg id="flow-wires" class="flow-wires"></svg>
+                    <div id="flow-canvas" class="flow-canvas"></div>
+                    <div id="flow-empty" class="flow-empty-hint">
+                      <div>🪄</div>
+                      <div>Drag an <b>agent</b> or <b>task</b> here to start your flow.</div>
+                      <div class="fch-sub">Connect nodes by dragging from the right port. Inline agent nodes take a prompt; <code>{{ trigger.output }}</code> injects the upstream node's output.</div>
+                    </div>
+                    <div class="flow-zoom" @pointerdown.stop>
+                      <button type="button" title="Zoom out" @click="flowZoom(-1)">–</button>
+                      <span class="fz-pct" title="Reset to 100%" @click="flowZoomReset()" x-text="Math.round(flowZoomLevel * 100) + '%'"></span>
+                      <button type="button" title="Zoom in" @click="flowZoom(1)">+</button>
+                      <span class="fz-sep"></span>
+                      <button type="button" class="fz-fit" title="Fit flow to view" @click="flowFit()">Fit</button>
+                    </div>
+                    <div class="flow-hint"><span>🖐</span><span><b>Drag</b> empty space to pan · <b>Scroll</b> to zoom</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+                </div>
+              </div>
+            </template>
+          </section>
+
           <section x-show="!loading && !errorMessage && route === 'design'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -13979,113 +14496,6 @@
     </div>
   </div>
 
-  <!-- Export agent to AzDO Modal -->
-  <div class="modal-backdrop modal-overlay" x-show="exp.open" x-transition.opacity @click.self="if(!exp.busy) exp.open=false" style="z-index:9999" x-cloak>
-    <div class="modal-card" style="max-width:620px">
-      <div class="modal-header">
-        <h2 class="modal-title">⤴ Export to Azure DevOps</h2>
-        <button class="icon-button" type="button" @click="exp.open=false" :disabled="exp.busy">✕</button>
-      </div>
-      <div style="padding:18px;max-height:70vh;overflow:auto">
-        <p class="hint" style="margin-bottom:14px">Serialize <strong x-text="exp.agentName"></strong> (agent definition, MCP servers, and skills) and push it to a new branch. Secret values in MCP env are rewritten to <code>${VAR}</code> placeholders before anything leaves this machine.</p>
-
-        <div class="field-label" style="margin-bottom:6px"><span>Layout</span></div>
-        <select class="field-input" x-model="exp.layout" @change="exp.preview=null">
-          <option value="plugin">Plugin package — .github/plugin/&lt;name&gt;/ (agent + MCP + skills)</option>
-          <option value="agent">Single agent file — .github/agents/&lt;slug&gt;.agent.md (no MCP/skills)</option>
-        </select>
-
-        <div class="field-label" style="margin:14px 0 6px"><span>Repository</span></div>
-        <div class="toolbar" style="gap:8px;flex-wrap:wrap">
-          <input class="field-input" style="max-width:180px" type="text" placeholder="Organization (e.g. dnceng)" x-model="exp.org" @keydown.enter.prevent="expLoadRepos()" />
-          <input class="field-input" style="max-width:180px" type="text" placeholder="Project (e.g. internal)" x-model="exp.project" @keydown.enter.prevent="expLoadRepos()" />
-          <button class="btn primary" type="button" :disabled="exp.loadingRepos || !exp.org.trim() || !exp.project.trim()" @click="expLoadRepos()" x-text="exp.loadingRepos ? 'Connecting…' : 'Connect'"></button>
-        </div>
-        <div class="toolbar" style="gap:8px;margin-top:8px;flex-wrap:wrap" x-show="exp.repos.length">
-          <div x-data="repoCombo()" style="position:relative;max-width:280px;flex:1 1 220px">
-            <input class="field-input" type="text"
-              :placeholder="exp.repos.length ? 'Search repositories…' : 'Connect first'"
-              :value="open ? q : (exp.repo || '')"
-              @focus="open=true; q=''"
-              @input="q=$event.target.value; open=true"
-              @blur="closeSoon()"
-              @keydown.escape.stop="open=false; $el.blur()" />
-            <div x-show="open" x-transition.opacity.duration.120ms
-              style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
-              <template x-for="r in comboFilterRepos(exp.repos, q)" :key="r.id || r.name">
-                <div @mousedown.prevent="exp.repo=r.name; expRepoChange(); open=false"
-                  style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
-                  :style="r.name===exp.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
-                  @mouseenter="if(r.name!==exp.repo) $el.style.background='var(--cp-surface-soft)'"
-                  @mouseleave="if(r.name!==exp.repo) $el.style.background=''"
-                  x-text="r.name"></div>
-              </template>
-              <template x-if="!comboFilterRepos(exp.repos, q).length">
-                <div class="hint" style="padding:8px 12px" x-text="exp.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
-              </template>
-            </div>
-          </div>
-          <select class="field-input" style="max-width:200px" x-model="exp.branch" :disabled="exp.loadingBranches || !exp.branch && !exp.branches.length">
-            <option value="">Base branch…</option>
-            <template x-for="b in exp.branches" :key="b"><option :value="b" x-text="b"></option></template>
-          </select>
-        </div>
-
-        <div class="field-label" style="margin:14px 0 6px"><span>Options</span></div>
-        <input class="field-input" type="text" placeholder="Subfolder in repo (optional, e.g. tools/agents)" x-model="exp.basePath" @input="exp.preview=null" />
-        <label class="toolbar" style="gap:8px;margin-top:10px;cursor:pointer;align-items:center">
-          <input type="checkbox" x-model="exp.createPr" /> <span>Open a pull request into the base branch after pushing</span>
-        </label>
-
-        <div class="toolbar" style="margin-top:16px">
-          <button class="btn" type="button" @click="expPreview()" :disabled="exp.busy">🔍 Preview</button>
-        </div>
-
-        <template x-if="exp.preview">
-          <div style="margin-top:14px;border:1px solid var(--cp-border);border-radius:10px;padding:12px;background:var(--cp-surface-soft)">
-            <div class="split-meta" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
-              <span class="tiny-badge" x-text="exp.preview.layout + ' layout'"></span>
-              <span class="tiny-badge" x-text="exp.preview.files.length + ' file' + (exp.preview.files.length===1?'':'s')"></span>
-              <span class="tiny-badge" x-show="exp.preview.redactions.length" x-text="exp.preview.redactions.length + ' secret' + (exp.preview.redactions.length===1?'':'s') + ' redacted'"></span>
-            </div>
-            <div class="hint" style="margin-bottom:6px">Branch: <code x-text="exp.branchOverride || exp.preview.branchSuggestion"></code></div>
-            <template x-for="f in exp.preview.files" :key="f.path">
-              <div class="hint" style="font-family:var(--cp-mono,monospace);font-size:0.82em" x-text="'• ' + f.path + '  (' + f.bytes + ' B)'"></div>
-            </template>
-            <template x-if="exp.preview.warnings.length">
-              <div style="margin-top:8px">
-                <template x-for="w in exp.preview.warnings" :key="w"><div class="hint" style="color:var(--cp-warning)" x-text="'⚠ ' + w"></div></template>
-              </div>
-            </template>
-            <template x-if="exp.preview.secrets.length">
-              <div style="margin-top:8px;color:var(--cp-danger)">
-                <div class="hint" style="color:var(--cp-danger);font-weight:700">⛔ Secret-like content detected — push is blocked:</div>
-                <template x-for="s in exp.preview.secrets" :key="s.path+s.kind"><div class="hint" style="color:var(--cp-danger)" x-text="'• ' + s.kind + ' in ' + s.path"></div></template>
-              </div>
-            </template>
-          </div>
-        </template>
-
-        <template x-if="exp.result">
-          <div style="margin-top:14px;border:1px solid var(--cp-success);border-radius:10px;padding:12px">
-            <div style="font-weight:700;color:var(--cp-success)">✓ Pushed to <span x-text="exp.result.branch"></span></div>
-            <div class="hint" style="margin-top:6px"><a :href="exp.result.branchUrl" target="_blank" rel="noopener">View branch in Azure DevOps ↗</a></div>
-            <div class="hint" style="margin-top:4px" x-show="exp.result.pr"><a :href="exp.result.pr ? exp.result.pr.url : '#'" target="_blank" rel="noopener">View pull request #<span x-text="exp.result.pr ? exp.result.pr.pullRequestId : ''"></span> ↗</a></div>
-          </div>
-        </template>
-
-        <div class="hint" style="color:var(--cp-danger);margin-top:10px" x-show="exp.error" x-text="exp.error"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn ghost" type="button" @click="exp.open=false" :disabled="exp.busy">Close</button>
-        <button class="btn accent" type="button" @click="expPush()"
-          :disabled="exp.busy || !exp.preview || (exp.preview && exp.preview.secrets.length) || !exp.repo || !exp.branch">
-          <span x-show="!exp.busy">⤴ Push to new branch</span>
-          <span x-show="exp.busy">Pushing…</span>
-        </button>
-      </div>
-    </div>
-  </div>
 
   <!-- Service Bus Config Modal (advanced) -->
   <div class="modal-backdrop modal-overlay" x-show="showServiceBusModal" x-transition.opacity @click.self="showServiceBusModal = false" style="z-index:9999" x-cloak>
@@ -14328,224 +14738,7 @@
 
 
 
-  <div class="modal-backdrop" x-show="newTaskOpen" x-transition.opacity.duration.150ms @click.self="closeItemModal()" x-cloak>
-    <section class="modal-card">
-      <div class="modal-header">
-        <div>
-          <strong x-text="itemModalTitle()"></strong>
-          <div class="hint" style="margin-top:6px" x-text="newTaskForm.kind === 'assignment' ? 'A manager assignment orchestrates one or more agents from a saved prompt.' : 'A scheduled prompt that runs on a single agent.'"></div>
-        </div>
-        <button class="icon-button" type="button" @click="closeItemModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="filter-pills" x-show="!newTaskForm.editingId">
-          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'agent' }" @click="newTaskForm.kind = 'agent'">🤖 Agent</button>
-          <button class="pill" type="button" :class="{ active: newTaskForm.kind === 'assignment' }" @click="newTaskForm.kind = 'assignment'">👔 Manager</button>
-        </div>
-        <div class="config-grid">
-          <template x-if="newTaskForm.kind === 'agent'">
-            <div>
-              <div class="field-label"><span>Agent</span><span class="hint">Which agent runs this task</span></div>
-              <select class="field-input" x-model="newTaskForm.agentId" :disabled="!!newTaskForm.editingId" @change="onModalEmployeeChange()">
-                <option value="">Select agent…</option>
-                <template x-for="a in data.agents" :key="'tm-' + a.id">
-                  <option :value="a.id" x-text="a.name"></option>
-                </template>
-              </select>
-            </div>
-          </template>
-          <template x-if="newTaskForm.kind === 'assignment'">
-            <div>
-              <div class="field-label"><span>Manager</span><span class="hint">Which manager owns this assignment</span></div>
-              <select class="field-input" x-model="newTaskForm.managerId" :disabled="!!newTaskForm.editingId" @change="onModalEmployeeChange()">
-                <option value="">Select manager…</option>
-                <template x-for="manager in data.managers" :key="'mm-' + manager.id">
-                  <option :value="manager.id" x-text="manager.name"></option>
-                </template>
-              </select>
-            </div>
-          </template>
-          <div>
-            <div class="field-label"><span>Name</span></div>
-            <input class="field-input" type="text" x-model="newTaskForm.name" :placeholder="newTaskForm.kind === 'assignment' ? 'e.g. Monitor Azure Status' : 'e.g. Daily standup report'" />
-          </div>
-          <div>
-            <div class="field-label"><span>Team</span><span class="hint">This operation belongs to one team</span></div>
-            <select class="field-input" x-model="newTaskForm.teamId" :disabled="!(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId)">
-              <option value="">Unassigned</option>
-              <template x-for="o in modalOrgOptions()" :key="'tmo-' + o.id">
-                <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
-              </template>
-            </select>
-            <div class="hint" x-show="(newTaskForm.kind === 'assignment' ? newTaskForm.managerId : newTaskForm.agentId) && !modalOrgOptions().length" style="margin-top:6px">This employee isn't in any team yet. Assign it on the Teams page first.</div>
-          </div>
-          <div>
-            <div class="field-label"><span>Prompt</span><span class="hint" x-text="newTaskForm.kind === 'assignment' ? 'What the manager should do' : 'What the agent should do'"></span></div>
-            <textarea class="field-input field-area" x-model="newTaskForm.prompt" placeholder="Describe the work…"></textarea>
-          </div>
-          <div>
-            <div class="field-label"><span>Schedule</span></div>
-            <div class="schedule-picker">
-              <select class="field-input" x-model="newTaskForm.schedulePreset" @change="applySchedulePresetTo(newTaskForm, $event.target.value)">
-                <option value="never">Manual only (no schedule)</option>
-                <option value="5m">Every 5 minutes</option>
-                <option value="15m">Every 15 minutes</option>
-                <option value="30m">Every 30 minutes</option>
-                <option value="1h">Every hour</option>
-                <option value="6h">Every 6 hours</option>
-                <option value="24h">Daily</option>
-                <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                <option value="weekdays at 9am and 5pm">Weekdays at 9 AM &amp; 5 PM</option>
-                <option value="custom">Advanced (cron / custom)…</option>
-              </select>
-              <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(newTaskForm.schedulePreset === 'custom' ? newTaskForm.schedule : newTaskForm.schedulePreset, newTaskForm.kind === 'assignment' ? 'Assignment schedule' : 'Task schedule', v => { newTaskForm.schedule = v; newTaskForm.schedulePreset = (v === 'never' ? 'never' : 'custom'); })">⚙ Customize schedule…</button>
-              <div x-show="newTaskForm.schedulePreset === 'custom'" x-transition style="margin-top:8px">
-                <input class="field-input mono" type="text" placeholder="e.g. */15 * * * *" x-model="newTaskForm.schedule" />
-              </div>
-            </div>
-          </div>
-          <div x-show="newTaskForm.kind === 'agent'">
-            <div class="field-label"><span>Resilience</span></div>
-            <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer">
-              <input type="checkbox" x-model="newTaskForm.resilient" style="margin-top:3px" />
-              <span>
-                <span style="font-weight:500">Auto-retry on transient failures</span>
-                <span class="hint" style="display:block; margin-top:2px">If a run fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the task itself), the AI decides whether and when to retry. Its reasoning is shown in Recent Runs.</span>
-              </span>
-            </label>
-            <div x-show="newTaskForm.resilient" x-transition style="margin-top:8px; display:flex; align-items:center; gap:8px">
-              <span class="hint">Max retries</span>
-              <input class="field-input" type="number" min="1" max="10" x-model.number="newTaskForm.maxRetries" style="width:80px" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn danger" type="button" x-show="newTaskForm.editingId" @click="deleteItemFromModal()" style="margin-right:auto">🗑 Delete</button>
-        <button class="btn" type="button" @click="closeItemModal()">Cancel</button>
-        <button class="btn primary" type="button" @click="submitNewTask()" x-text="newTaskForm.editingId ? 'Save' : 'Create'"></button>
-      </div>
-    </section>
-  </div>
 
-  <div class="modal-backdrop" x-show="chainModalOpen" x-transition.opacity.duration.150ms @click.self="closeChainModal()" x-cloak>
-    <section class="modal-card flow-modal" x-show="chainDraft">
-      <template x-if="chainDraft">
-        <div style="display:contents">
-          <div class="modal-header">
-            <div>
-              <strong x-text="chainDraft._new ? 'New Flow' : 'Edit Flow'"></strong>
-              <div class="hint" style="margin-top:6px">Wire tasks together into a conditional pipeline.</div>
-            </div>
-            <button class="icon-button" type="button" @click="closeChainModal()">✕</button>
-          </div>
-          <div class="modal-body">
-            <div style="display:flex;flex-direction:column;gap:16px">
-              <div class="config-grid">
-                <div>
-                  <div class="field-label"><span>Name</span></div>
-                  <input class="field-input" type="text" x-model="chainDraft.name" />
-                </div>
-                <div>
-                  <div class="field-label"><span>Schedule</span></div>
-                  <select class="field-input" x-model="chainDraft.schedule">
-                    <option value="never">Manual only</option>
-                    <option value="15m">Every 15 minutes</option>
-                    <option value="30m">Every 30 minutes</option>
-                    <option value="1h">Every hour</option>
-                    <option value="6h">Every 6 hours</option>
-                    <option value="24h">Daily</option>
-                    <option value="weekdays at 9am">Weekdays at 9 AM</option>
-                    <template x-if="chainDraft.schedule && !['never','15m','30m','1h','6h','24h','weekdays at 9am'].includes(chainDraft.schedule)">
-                      <option :value="chainDraft.schedule" x-text="describeScheduleHuman(chainDraft.schedule)" selected></option>
-                    </template>
-                  </select>
-                  <button class="btn" type="button" style="margin-top:8px" @click="openSchedule(chainDraft.schedule, 'Flow schedule', v => { chainDraft.schedule = v; })">⚙ Customize schedule…</button>
-                </div>
-              </div>
-              <div>
-                <div class="field-label"><span>Description</span></div>
-                <input class="field-input" type="text" x-model="chainDraft.description" />
-              </div>
-              <div>
-                <div class="field-label"><span>Team</span><span class="hint">Teams containing every agent this flow uses</span></div>
-                <select class="field-input" x-model="chainDraft.teamId">
-                  <option value="">Unassigned</option>
-                  <template x-for="o in chainOrgOptions(chainDraft)" :key="'cmo-' + o.id">
-                    <option :value="o.id" x-text="(o.emoji ? o.emoji + ' ' : '') + o.name"></option>
-                  </template>
-                </select>
-                <div class="hint" x-show="!chainOrgOptions(chainDraft).length" style="margin-top:6px">No team contains all of this flow's agents yet.</div>
-              </div>
-              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.enabled" /> <span>Enabled (scheduled runs active)</span></label>
-              <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.85rem"><input type="checkbox" x-model="chainDraft.resilient" style="margin-top:2px" /> <span><span style="font-weight:500">Auto-retry on transient failures</span><span class="hint" style="display:block;margin-top:2px">If the flow fails due to an external/transient error (server restart, network congestion, rate limit — not a problem with the flow itself), the AI decides whether and when to re-run the whole flow. Its reasoning is shown in Recent Runs.</span></span></label>
-              <div x-show="chainDraft.resilient" x-transition style="display:flex;align-items:center;gap:8px;margin-left:24px"><span class="hint">Max retries</span><input class="field-input" type="number" min="1" max="10" x-model.number="chainDraft.maxRetries" style="width:80px" /></div>
-
-              <!-- Canvas builder -->
-              <div>
-                <div class="field-label"><span>Flow canvas</span><span class="hint">Drag agents or saved tasks onto the canvas, then drag from a node's right port to another node to connect them. Click a link to set its condition.</span></div>
-                <div class="flow-canvas-shell">
-                  <div class="flow-palette">
-                    <div class="fp-tabs">
-                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'agents' }" @click="flowPaletteTab = 'agents'">🤖 Agents</button>
-                      <button type="button" class="fp-tab" :class="{ on: flowPaletteTab === 'tasks' }" @click="flowPaletteTab = 'tasks'">📋 Tasks</button>
-                    </div>
-                    <input class="fp-search" type="text" placeholder="Search…" x-model="flowPaletteFilter" />
-                    <div class="fp-list">
-                      <template x-if="flowPaletteTab === 'agents'">
-                        <div>
-                          <template x-for="a in flowPaletteAgents()" :key="'fpa-' + a.id">
-                            <div class="fp-item" draggable="true" @dragstart="flowDragStart($event, 'agent', a.id)" @mouseenter="flowTipShow($event, 'agent', a.id)" @mousemove="flowTipMove($event)" @mouseleave="flowTipHide()">
-                              <span class="fp-ic" x-text="a.plugin ? '🧩' : '🤖'"></span>
-                              <span class="fp-meta"><span class="fp-name" x-text="a.name"></span><span class="fp-sub" x-text="a.group || (a.plugin ? 'Plugin' : 'Agent')"></span></span>
-                            </div>
-                          </template>
-                          <div class="fp-empty" x-show="!flowPaletteAgents().length">No agents.</div>
-                        </div>
-                      </template>
-                      <template x-if="flowPaletteTab === 'tasks'">
-                        <div>
-                          <template x-for="t in flowPaletteTasks()" :key="'fpt-' + t.id">
-                            <div class="fp-item" draggable="true" @dragstart="flowDragStart($event, 'task', t.id)" @mouseenter="flowTipShow($event, 'task', t.id)" @mousemove="flowTipMove($event)" @mouseleave="flowTipHide()">
-                              <span class="fp-ic">📋</span>
-                              <span class="fp-meta"><span class="fp-name" x-text="t.name"></span><span class="fp-sub" x-text="'Saved task'"></span></span>
-                            </div>
-                          </template>
-                          <div class="fp-empty" x-show="!flowPaletteTasks().length">No saved tasks.</div>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                  <div id="flow-canvas-wrap" class="flow-canvas-wrap" @dragover.prevent @drop="flowCanvasDrop($event)">
-                    <svg id="flow-wires" class="flow-wires"></svg>
-                    <div id="flow-canvas" class="flow-canvas"></div>
-                    <div id="flow-empty" class="flow-empty-hint">
-                      <div>🪄</div>
-                      <div>Drag an <b>agent</b> or <b>task</b> here to start your flow.</div>
-                      <div class="fch-sub">Connect nodes by dragging from the right port. Inline agent nodes take a prompt; <code>{{ trigger.output }}</code> injects the upstream node's output.</div>
-                    </div>
-                    <div class="flow-zoom" @pointerdown.stop>
-                      <button type="button" title="Zoom out" @click="flowZoom(-1)">–</button>
-                      <span class="fz-pct" title="Reset to 100%" @click="flowZoomReset()" x-text="Math.round(flowZoomLevel * 100) + '%'"></span>
-                      <button type="button" title="Zoom in" @click="flowZoom(1)">+</button>
-                      <span class="fz-sep"></span>
-                      <button type="button" class="fz-fit" title="Fit flow to view" @click="flowFit()">Fit</button>
-                    </div>
-                    <div class="flow-hint"><span>🖐</span><span><b>Drag</b> empty space to pan · <b>Scroll</b> to zoom</span></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn danger" type="button" x-show="!chainDraft._new" @click="deleteChain(chainDraft)" style="margin-right:auto">🗑 Delete</button>
-            <button class="btn" type="button" @click="closeChainModal()">Cancel</button>
-            <button class="btn primary" type="button" @click="saveChain()" x-text="chainDraft._new ? 'Create flow' : 'Save flow'"></button>
-          </div>
-        </div>
-      </template>
-    </section>
-  </div>
 
   <div class="modal-backdrop" x-show="chatPickerOpen" x-transition.opacity.duration.150ms @click.self="chatPickerOpen = false" x-cloak>
     <section class="modal-card" style="max-width:760px">
@@ -14813,203 +15006,6 @@
 
   <!-- (Design with AI moved to its own page under Executions) -->
 
-  <div class="modal-backdrop modal-overlay" x-show="agentDiscoveryOpen" x-transition.opacity @click.self="agentDiscoveryOpen = false" style="z-index:9999" x-cloak>
-    <section class="modal-card" style="max-width:920px">
-      <div class="modal-header">
-        <div>
-          <strong>Add Agent</strong>
-          <div class="hint" style="margin-top:6px">Discover installed plugins, marketplace plugins, repository agents, and managers.</div>
-        </div>
-        <div class="toolbar">
-          <button class="btn" type="button" @click="loadAgentDiscovery()">↻ Refresh</button>
-          <button class="icon-button" type="button" @click="agentDiscoveryOpen = false">✕</button>
-        </div>
-      </div>
-      <div class="modal-body">
-        <div class="discovery-paths">
-          <div class="split-meta">
-            <strong>Repository Paths</strong>
-            <span class="badge-count" x-text="agentDiscoveryPaths.length ? agentDiscoveryPaths.length + ' custom' : 'auto scan'"></span>
-          </div>
-          <div class="hint" style="margin-top:6px" x-text="agentDiscoveryPaths.length ? 'Custom paths override the default scan until removed.' : 'The parent of the server directory is scanned automatically when no custom paths are set.'"></div>
-          <div class="search-row" style="grid-template-columns:minmax(0,1fr) auto auto;margin-top:10px">
-            <input class="field-input mono" type="text" placeholder="C:\\repos\\my-repo" x-model="agentDiscoveryNewPath" @keydown.enter.prevent="addDiscoveryPath()" />
-            <button class="btn" type="button" @click="addDiscoveryPath()">Add</button>
-            <button class="btn" type="button" @click="$refs.dirPicker.click()" title="Browse for folder">📁</button>
-            <input type="file" x-ref="dirPicker" webkitdirectory style="display:none" @change="pickDirectory($event)" />
-          </div>
-          <div class="path-list">
-            <span class="path-tag" x-show="!agentDiscoveryPaths.length">Auto: parent of server directory</span>
-            <template x-for="(path, index) in agentDiscoveryPaths" :key="path + ':' + index">
-              <span class="path-tag">
-                <span x-text="path"></span>
-                <button type="button" @click="removeDiscoveryPath(index)" aria-label="Remove path">✕</button>
-              </span>
-            </template>
-          </div>
-        </div>
-
-        <div class="search-row" style="grid-template-columns:minmax(0,1fr) auto">
-          <input class="field-input" type="search" placeholder="Search by name, description, id, or source…" x-model="agentDiscoverySearch" />
-          <div class="hint" x-text="filteredDiscoveryCount() + ' shown'"></div>
-        </div>
-
-        <div class="discovery-tabs">
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'all' }" @click="agentDiscoveryTab = 'all'">All</button>
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'installed' }" @click="agentDiscoveryTab = 'installed'">Installed</button>
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'marketplace' }" @click="agentDiscoveryTab = 'marketplace'">Marketplace</button>
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'repository' }" @click="agentDiscoveryTab = 'repository'">Repository</button>
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'managers' }" @click="agentDiscoveryTab = 'managers'">Managers</button>
-          <button class="discovery-tab" type="button" :class="{ active: agentDiscoveryTab === 'azdo' }" @click="agentDiscoveryTab = 'azdo'">Azure DevOps</button>
-        </div>
-
-        <div class="empty-state" x-show="agentDiscoveryLoading">Loading discovery results…</div>
-        <div class="empty-state" x-show="!agentDiscoveryLoading && agentDiscoveryError" x-text="agentDiscoveryError"></div>
-
-        <div class="discovery-groups" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab !== 'managers' && agentDiscoveryTab !== 'azdo' && filteredDiscoveryCount()">
-          <template x-for="group in discoveryGroups()" :key="group.source">
-            <section class="discovery-group" x-show="group.items.length">
-              <button class="discovery-group-header" type="button" @click="toggleDiscoveryGroup(group.source)">
-                <span class="chevron" :class="{ collapsed: agentDiscoveryCollapsed[group.source] }">▼</span>
-                <strong x-text="group.label"></strong>
-                <span class="badge-count" x-text="group.items.length"></span>
-              </button>
-              <div x-show="!agentDiscoveryCollapsed[group.source]" x-transition>
-                <template x-for="item in group.items" :key="group.source + ':' + item.id + ':' + (item.pluginDir || item.cwd || item.installCmd || '')">
-                  <article class="discovery-item" :class="{ registered: item.registered }">
-                    <div>
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <strong x-text="item.displayName || item.name || item.id"></strong>
-                        <span class="source-badge" :class="discoverySourceClass(item)" x-text="discoverySourceLabel(item)"></span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-text="item.description || item.id"></div>
-                      <div class="hint mono" style="margin-top:8px" x-text="item.id"></div>
-                      <div class="hint mono" style="margin-top:6px" x-show="item.cwd || item.pluginDir" x-text="item.pluginDir || item.cwd"></div>
-                    </div>
-                    <div class="discovery-actions">
-                      <button class="btn primary" type="button" :disabled="discoveryActionState(item).disabled" @click="performDiscoveryAction(item)" x-text="discoveryActionState(item).text || discoveryActionLabel(item)"></button>
-                      <details x-show="!item.installed && !item.registered && item.source === 'repo-plugin' && item.pluginDir" style="width:100%">
-                        <summary class="hint" style="cursor:pointer;text-align:right">⚙ Options</summary>
-                        <label class="discovery-overlay-option">
-                          <input type="checkbox" :checked="!!agentDiscoveryOverlayFlags[discoveryActionKey(item)]" @change="toggleOverlayFlag(item)" />
-                          <span>Strip tools restriction (overlay mode)</span>
-                        </label>
-                      </details>
-                    </div>
-                  </article>
-                </template>
-              </div>
-            </section>
-          </template>
-        </div>
-
-        <div class="stack" x-show="!agentDiscoveryLoading && agentDiscoveryTab === 'azdo'">
-          <div class="discovery-group">
-            <div class="hint">Connect to an Azure DevOps organization and project, pick a repository and branch, then install agents and plugins discovered under any <span class="mono">.github</span> folder. Reinstall re-fetches from the same repo/branch. Auth uses your signed-in Azure CLI — no token to enter.</div>
-            <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:12px">
-              <input class="field-input" type="text" placeholder="Organization (e.g. dnceng)" x-model="azdo.org" @keydown.enter.prevent="loadAzdoRepos()" />
-              <input class="field-input" type="text" placeholder="Project (e.g. internal)" x-model="azdo.project" @keydown.enter.prevent="loadAzdoRepos()" />
-              <button class="btn primary" type="button" :disabled="azdo.loadingRepos || !azdo.org.trim() || !azdo.project.trim()" @click="loadAzdoRepos()" x-text="azdo.loadingRepos ? 'Connecting…' : 'Connect'"></button>
-            </div>
-            <div class="search-row" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;margin-top:10px" x-show="azdo.repos.length">
-              <div x-data="repoCombo()" style="position:relative">
-                <input class="field-input" type="text"
-                  :placeholder="azdo.repos.length ? 'Search repositories…' : 'Connect first'"
-                  :value="open ? q : (azdo.repo || '')"
-                  @focus="open=true; q=''"
-                  @input="q=$event.target.value; open=true"
-                  @blur="closeSoon()"
-                  @keydown.escape.stop="open=false; $el.blur()" />
-                <div x-show="open" x-transition.opacity.duration.120ms
-                  style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:240px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
-                  <template x-for="r in comboFilterRepos(azdo.repos, q)" :key="r.id || r.name">
-                    <div @mousedown.prevent="azdo.repo=r.name; onAzdoRepoChange(); open=false"
-                      style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
-                      :style="r.name===azdo.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
-                      @mouseenter="if(r.name!==azdo.repo) $el.style.background='var(--cp-surface-soft)'"
-                      @mouseleave="if(r.name!==azdo.repo) $el.style.background=''"
-                      x-text="r.name"></div>
-                  </template>
-                  <template x-if="!comboFilterRepos(azdo.repos, q).length">
-                    <div class="hint" style="padding:8px 12px" x-text="azdo.repos.length ? 'No repositories match your search.' : 'No repositories loaded.'"></div>
-                  </template>
-                </div>
-              </div>
-              <select class="field-input" x-model="azdo.branch" :disabled="azdo.loadingBranches || !azdo.branches.length">
-                <option value="" x-text="azdo.loadingBranches ? 'Loading branches…' : 'Select branch…'"></option>
-                <template x-for="b in azdo.branches" :key="b"><option :value="b" x-text="b"></option></template>
-              </select>
-              <button class="btn primary" type="button" :disabled="azdo.discovering || !azdo.repo || !azdo.branch" @click="discoverAzdo()" x-text="azdo.discovering ? 'Discovering…' : 'Discover'"></button>
-            </div>
-            <div class="empty-state" x-show="azdo.error" style="color:var(--cp-danger)" x-text="azdo.error"></div>
-          </div>
-
-          <div class="discovery-group" x-show="!azdo.discovering && azdo.discovered.length">
-            <div class="split-meta">
-              <strong>Discovered in <span class="mono" x-text="azdo.repo + ' @ ' + azdo.branch"></span></strong>
-              <span class="badge-count" x-text="azdo.discovered.length"></span>
-            </div>
-            <template x-for="item in azdo.discovered" :key="'azdo-' + item.kind + ':' + item.path">
-              <article class="discovery-item" :class="{ registered: item.registered }">
-                <div>
-                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    <strong x-text="item.displayName || item.name || item.id"></strong>
-                    <span class="source-badge source-plugin" x-text="item.kind === 'plugin' ? 'AzDO Plugin' : 'AzDO Agent'"></span>
-                    <span class="source-badge" x-show="item.version" x-text="'v' + item.version"></span>
-                  </div>
-                  <div class="hint" style="margin-top:6px" x-text="item.description || item.id"></div>
-                  <div class="hint mono" style="margin-top:8px" x-text="item.path"></div>
-                </div>
-                <div class="discovery-actions">
-                  <button class="btn primary" type="button"
-                    :disabled="(azdo.actions[item.path] && azdo.actions[item.path].disabled) || item.registered"
-                    @click="installAzdo(item)"
-                    x-text="(azdo.actions[item.path] && azdo.actions[item.path].text) || (item.registered ? 'Installed' : 'Install')"></button>
-                </div>
-              </article>
-            </template>
-          </div>
-          <div class="empty-state" x-show="!azdo.discovering && azdo.repo && azdo.branch && azdo.attempted && !azdo.discovered.length && !azdo.error">No agents or plugins found under any .github folder on this branch.</div>
-        </div>
-
-        <div class="stack" x-show="!agentDiscoveryLoading && !agentDiscoveryError && agentDiscoveryTab === 'managers'">
-          <div class="discovery-group">
-            <div class="hint">Manager agents orchestrate other agents. They can monitor, analyze, and chain agent outputs.</div>
-            <div class="split-meta" style="margin-top:4px">
-              <span class="mono">Template: manager:manager</span>
-              <button class="btn primary" type="button" @click="agentDiscoveryManagerFormOpen = !agentDiscoveryManagerFormOpen">＋ Create Manager</button>
-            </div>
-            <div class="manager-create-form" x-show="agentDiscoveryManagerFormOpen" x-transition>
-              <input class="field-input" type="text" placeholder="Manager name" x-model="agentDiscoveryNewManager.name" />
-              <textarea class="field-input field-area" placeholder="Description (optional)" x-model="agentDiscoveryNewManager.description"></textarea>
-              <div class="toolbar">
-                <button class="btn" type="button" @click="agentDiscoveryManagerFormOpen = false; agentDiscoveryNewManager = { name: '', description: '' }">Cancel</button>
-                <button class="btn primary" type="button" :disabled="agentDiscoveryCreatingManager" @click="createManager()" x-text="agentDiscoveryCreatingManager ? 'Saving…' : 'Save Manager'"></button>
-              </div>
-            </div>
-          </div>
-          <template x-for="manager in filteredDiscoveryManagers()" :key="'discovery-manager-' + manager.id">
-            <article class="discovery-item">
-              <div>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                  <strong x-text="manager.name || manager.id"></strong>
-                  <span class="source-badge source-plugin">Manager</span>
-                </div>
-                <div class="hint" style="margin-top:6px" x-text="manager.config?.description || manager.description || 'Manager orchestration agent'"></div>
-                <div class="hint mono" style="margin-top:8px" x-text="manager.id"></div>
-              </div>
-              <div class="discovery-actions">
-                <span class="badge-count" x-text="(manager.orgDetails || []).length + ' org'"></span>
-                <span class="badge-count" x-text="((manager.config && manager.config.assignments) || []).length + ' assignments'"></span>
-              </div>
-            </article>
-          </template>
-        </div>
-
-        <div class="empty-state" x-show="!agentDiscoveryLoading && !agentDiscoveryError && !filteredDiscoveryCount()" x-text="agentDiscoveryTab === 'managers' ? 'No matching managers found.' : 'No matching agents or plugins found.'"></div>
-      </div>
-    </section>
-  </div>
 
   <div class="toast-stack">
     <template x-for="toast in toasts" :key="toast.id">
@@ -16037,6 +16033,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.agentDiscoveryNewPath = '';
           this.agentDiscoveryNewManager = { name: '', description: '' };
           this.agentDiscoveryManagerFormOpen = false;
+          this.goTo('#/agent-discovery');
           await this.loadAgentDiscovery();
         },
 
@@ -16432,7 +16429,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -16442,6 +16439,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Resilient deep-link: make sure the skills toolbox is populated even
             // if the user landed here without going through openCreateAgent().
             if (!this.createAgent.skills.length && !this.createAgent.skillsLoading) this.caLoadSkills();
+          }
+          if (this.route === 'export' && !this.exp.agentId) {
+            // Deep-linked without an agent context — nothing to export.
+            this.goTo('#/agents'); return;
+          }
+          if (this.route === 'agent-discovery') {
+            // Resilient deep-link: populate discovery data if landed here directly.
+            this.agentDiscoveryOpen = true;
+            if (!this.agentDiscoveryItems.length && !this.agentDiscoveryLoading) await this.loadAgentDiscovery();
+          }
+          if (this.route === 'chain') {
+            // Deep-linked without a draft — nothing to build.
+            if (!this.chainDraft) { this.goTo('#/chains'); return; }
+            // Mount the flow canvas now that the page section is visible.
+            this.$nextTick(() => this.mountFlowCanvas());
           }
           if (this.route === 'agent-detail' && this.app.routeParam) {
             await this.loadAgentDetail(this.app.routeParam);
@@ -16839,6 +16851,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             layout: 'plugin', org: d.exportOrg || '', project: d.exportProject || '', repo: '', branch: '', repos: [], branches: [],
             basePath: '', createPr: false, loadingRepos: false, loadingBranches: false,
             busy: false, error: '', preview: null, result: null, branchOverride: '' };
+          this.goTo('#/export');
           // Auto-connect when a default org/project is configured, then preselect
           // the default repo + branch so the dialog is ready to push.
           if (this.exp.org.trim() && this.exp.project.trim()) {
@@ -17345,11 +17358,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         isRouteGroup(group) {
-          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent';
+          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent' || this.route === 'export' || this.route === 'agent-discovery';
           if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
-          if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail';
-          if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail';
+          if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail' || this.route === 'new-task';
+          if (group === 'chains') return this.route === 'chains' || this.route === 'chain-detail' || this.route === 'chain';
           if (group === 'events') return this.route === 'events';
           return this.route === group;
         },
@@ -17488,8 +17501,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         routeMode(route) {
           const r = route || this.route;
           if (['boards', 'insights', 'codeflow', 'connect'].includes(r)) return 'workspace';
-          if (['agents', 'agent-detail', 'create-agent', 'managers', 'manager-detail', 'executions',
-               'tasks', 'task-detail', 'chains', 'chain-detail', 'assignments',
+          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'managers', 'manager-detail', 'executions',
+               'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
           return null;
         },
@@ -17559,13 +17572,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes.
-          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'create-agent', 'marketplace', 'settings', 'events'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'marketplace', 'settings', 'events'].includes(r)) return true;
           const bf = this.basicFeatures || {};
           const gated = {
             insights: ['insights'],
             managers: ['managers', 'manager-detail'],
-            tasks: ['tasks', 'task-detail', 'assignments', 'assignment-detail'],
-            flows: ['chains', 'chain-detail'],
+            tasks: ['tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task'],
+            flows: ['chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
             teams: ['teams'],
             sessions: ['sessions'],
@@ -30349,10 +30362,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           this.chainModalOpen = true;
           this.flowPaletteFilter = '';
-          this.$nextTick(() => this.mountFlowCanvas());
+          this.goTo('#/chain');
         },
 
-        closeChainModal() { this.unmountFlowCanvas(); this.chainModalOpen = false; this.chainDraft = null; },
+        closeChainModal() { this.unmountFlowCanvas(); this.chainModalOpen = false; this.chainDraft = null; if (this.route === 'chain') this.goTo('#/chains'); },
 
         // ===================== Flow canvas (drag-and-drop builder) =====================
         _esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
@@ -30831,8 +30844,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               await this.request('/api/chains/' + encodeURIComponent(payload.id), { method: 'PUT', body: JSON.stringify(payload) });
             }
             this.showToast('Flow saved', `"${payload.name}" saved.`, 'info');
+            this.unmountFlowCanvas();
             this.chainModalOpen = false;
             this.chainDraft = null;
+            if (this.route === 'chain') this.goTo('#/chains');
             await this.loadChains();
           } catch (e) {
             this.showToast('Save failed', e.message, 'error');
@@ -30844,9 +30859,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             if (!chain._new) await this.request('/api/chains/' + encodeURIComponent(chain.id), { method: 'DELETE' });
             this.data.chains = this.data.chains.filter(c => c.id !== chain.id);
+            this.unmountFlowCanvas();
             this.chainModalOpen = false;
             this.selectedChainId = null;
             this.chainDraft = null;
+            if (this.route === 'chain') this.goTo('#/chains');
             this.showToast('Flow deleted', '', 'info');
           } catch (e) { this.showToast('Delete failed', e.message, 'error'); }
         },
@@ -30986,6 +31003,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         closeItemModal() {
           this.newTaskOpen = false;
           this.resetItemForm();
+          const back = this._newTaskReturn || '#/tasks';
+          this._newTaskReturn = null;
+          if (this.route === 'new-task') this.goTo(back);
         },
 
         itemModalTitle() {
@@ -31012,7 +31032,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (!task) this.newTaskForm.teamId = this.currentTeamId !== 'all' ? this.currentTeamId : '';
           this.onModalEmployeeChange();
+          this._newTaskReturn = (this.route === 'new-task') ? (this._newTaskReturn || '#/tasks') : (window.location.hash || '#/tasks');
           this.newTaskOpen = true;
+          this.goTo('#/new-task');
         },
 
         openAssignmentModal(assignment = null, presetManagerId = null) {
@@ -31032,7 +31054,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (!assignment) this.newTaskForm.teamId = this.currentTeamId !== 'all' ? this.currentTeamId : '';
           this.onModalEmployeeChange();
+          this._newTaskReturn = (this.route === 'new-task') ? (this._newTaskReturn || '#/tasks') : (window.location.hash || '#/tasks');
           this.newTaskOpen = true;
+          this.goTo('#/new-task');
         },
 
         deleteItemFromModal() {
@@ -31403,6 +31427,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.closeCommandPalette();
             this.settingsOpen = false;
             this.shareModalOpen = false;
+            if (this.route === 'new-task') this.closeItemModal();
             this.newTaskOpen = false;
             this.chatPickerOpen = false;
             this.orgPickerOpen = false;
