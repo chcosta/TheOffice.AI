@@ -752,6 +752,14 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
       buf.running = false;
       buf.finishedAt = Date.now();
       buf.usedModel = res.model || buf.requestedModel || '';
+      // Make the live buffer authoritative for the finished turn. Some models
+      // (and tool-only turns) don't emit assistant.message_delta events, so
+      // buf.acc can be empty even on a successful run — the full text only
+      // arrives in res.output. Persist it so the completion poll always has the
+      // response, independent of when events.jsonl flushes to disk.
+      if (res.ok && res.output && res.output.length > (buf.acc || '').length) {
+        buf.acc = res.output;
+      }
       if (!res.ok) {
         buf.error = res.error || 'chat failed';
         chatErrors.set(sessionId, { error: buf.error, code: res.code, time: Date.now() });
@@ -6601,47 +6609,76 @@ app.get('/api/sessions/:id/poll', (req, res) => {
     });
   }
 
+  // A finished chat turn. Prefer the flushed events.jsonl, which carries the rich
+  // step shape (including the 'comment' preamble steps the agent-chat retry
+  // heuristic depends on). But treat the completed live buffer as authoritative
+  // for done-ness, final text, and errors: force isActive:false (don't wait out
+  // the 30s mtime window that leaves the UI spinning), backfill the response from
+  // buf.acc when the parser found none (tool-only turns emit no assistant.message),
+  // and surface buf.error. Fall back to a buffer-only turn when the SDK never
+  // flushed a file (crash / no-disk case). The one-shot buffer is reaped here.
   const sessionDir = path.join(SESSION_STATE_DIR, sessionId);
-  if (!fs.existsSync(sessionDir)) {
-    // A brand-new session whose turn failed before any disk flush.
-    if (buf) {
-      const turns = [...(buf.priorTurns || []), { content: buf.userPrompt || '', assistant: null, steps: verbose ? [] : undefined }];
-      const response = { turnCount: turns.length, lastAssistant: '', isActive: false, lastModified: new Date(buf.finishedAt || Date.now()).toISOString(), turns };
+  const eventsPath = path.join(sessionDir, 'events.jsonl');
+  const haveEvents = fs.existsSync(sessionDir) && fs.existsSync(eventsPath);
+
+  if (!haveEvents) {
+    if (buf && !buf.running) {
+      const turns = [...(buf.priorTurns || [])];
+      turns.push({
+        content: buf.userPrompt || '',
+        assistant: buf.acc || null,
+        model: buf.usedModel || buf.requestedModel || undefined,
+        steps: verbose ? (buf.steps || []) : undefined,
+      });
+      const response = {
+        turnCount: turns.length,
+        lastAssistant: buf.acc || '',
+        isActive: false,
+        lastModified: new Date(buf.finishedAt || Date.now()).toISOString(),
+        turns,
+      };
       if (buf.error) response.chatError = buf.error;
       liveChatBuffers.delete(sessionId);
       return res.json(response);
     }
-    return res.status(404).json({ error: 'Session not found' });
+    if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
+    return res.json({ turnCount: 0, lastAssistant: '', isActive: false, turns: [] });
   }
-  const eventsPath = path.join(sessionDir, 'events.jsonl');
-  if (!fs.existsSync(eventsPath)) return res.json({ turnCount: 0, lastAssistant: '', isActive: false, turns: [] });
 
   const stat = fs.statSync(eventsPath);
   const lines = fs.readFileSync(eventsPath, 'utf-8').split('\n').filter(Boolean);
   const parsed = buildPollTurns(lines, verbose);
 
-  // A just-finished chat turn: the file is now flushed and complete, so report
-  // completion deterministically (don't wait out the mtime window) and clear
-  // the one-shot live buffer.
   let isActive = (Date.now() - stat.mtime.getTime()) < 30000;
-  if (buf && !buf.running) isActive = false;
+  let lastAssistant = parsed.lastAssistant;
+  const turns = parsed.turns;
+  if (buf && !buf.running) {
+    isActive = false;
+    if (!lastAssistant && buf.acc) {
+      lastAssistant = buf.acc;
+      if (turns && turns.length) {
+        const lt = turns[turns.length - 1];
+        if (lt && !lt.assistant) lt.assistant = buf.acc;
+      }
+    }
+  }
 
   const response = {
     turnCount: parsed.turnCount,
-    lastAssistant: parsed.lastAssistant,
+    lastAssistant,
     isActive,
     lastModified: stat.mtime.toISOString(),
-    turns: parsed.turns,
+    turns,
   };
   if (verbose) {
     if (parsed.sessionMeta) response.sessionMeta = parsed.sessionMeta;
     if (parsed.tokenStats) response.tokenStats = parsed.tokenStats;
   }
+  let chatErrMsg = null;
   const chatErr = chatErrors.get(sessionId);
-  if (chatErr) {
-    response.chatError = chatErr.error;
-    chatErrors.delete(sessionId);
-  }
+  if (chatErr) { chatErrMsg = chatErr.error; chatErrors.delete(sessionId); }
+  if (buf && !buf.running && buf.error && !chatErrMsg) chatErrMsg = buf.error;
+  if (chatErrMsg) response.chatError = chatErrMsg;
   if (buf && !buf.running) liveChatBuffers.delete(sessionId);
   res.json(response);
 });

@@ -8725,227 +8725,6 @@
             </div>
             </template>
 
-            <!-- Guided Create Agent: name + AI-drafted prompt + skills toolbox + live draft chat -->
-            <template x-teleport="body">
-            <div class="modal-backdrop modal-overlay" x-show="createAgent.open" x-transition.opacity.duration.150ms @click.self="createAgent.open=false" x-cloak style="z-index:9999">
-              <div class="modal-card" style="max-width:1080px;width:94vw">
-                <div class="modal-header">
-                  <h2 class="modal-title">Create Agent</h2>
-                  <button class="icon-button" type="button" @click="createAgent.open=false">✕</button>
-                </div>
-                <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;max-height:78vh;min-height:520px;overflow:hidden">
-                  <!-- LEFT: configuration -->
-                  <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:auto;border-right:1px solid var(--cp-border)">
-                    <p class="hint" style="margin:0">Name your agent and describe what it should do. Let AI draft its prompt, attach skills, then chat with the draft below. Create it when you're happy — it becomes available to teams and the marketplace like any other agent.</p>
-
-                    <div style="display:flex;gap:10px">
-                      <label style="flex:1">
-                        <div class="field-label">Name</div>
-                        <input class="field-input" type="text" x-model="createAgent.name" placeholder="e.g. Release Notes Writer" maxlength="80" />
-                      </label>
-                    </div>
-                    <label>
-                      <div class="field-label">Description</div>
-                      <textarea class="field-input" x-model="createAgent.description" rows="2" placeholder="What is this agent responsible for? What should it be good at?" style="resize:vertical"></textarea>
-                    </label>
-
-                    <div>
-                      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
-                        <div class="field-label" style="margin:0">Agent prompt</div>
-                        <button class="btn" type="button" @click="caGeneratePrompt()" :disabled="createAgent.genBusy"
-                          x-text="createAgent.genBusy ? 'Generating…' : (createAgent.prompt ? '✨ Regenerate' : '✨ Generate with AI')"></button>
-                      </div>
-                      <textarea class="field-input" x-model="createAgent.prompt" rows="14"
-                        placeholder="The agent's system prompt. Generate one with AI, then refine it here."
-                        style="resize:vertical;font-family:var(--cp-mono, ui-monospace, monospace);font-size:12.5px;line-height:1.5"></textarea>
-                    </div>
-
-                    <div x-show="createAgent.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.error"></div>
-                  </div>
-
-                  <!-- RIGHT: skills marketplace (default) + live draft chat -->
-                  <div style="padding:14px 18px 16px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden">
-                    <!-- Tabs: Skills is the always-visible default; Chat is one click away -->
-                    <div style="display:flex;gap:18px;border-bottom:1px solid var(--cp-border)">
-                      <button type="button" @click="createAgent.tab='skills'"
-                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='skills' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
-                        Skills <span style="font-weight:400" x-text="caAttachedCount()"></span>
-                      </button>
-                      <button type="button" @click="createAgent.tab='other'"
-                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='other' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
-                        Other source<span x-show="caTempList().length" style="font-weight:400"> · <span x-text="caTempList().length"></span></span>
-                      </button>
-                      <button type="button" @click="createAgent.tab='chat'"
-                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='chat' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
-                        Chat with draft
-                      </button>
-                    </div>
-
-                    <!-- SKILLS TAB: browse & attach marketplace skills inline -->
-                    <div x-show="createAgent.tab==='skills'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
-                      <!-- Skills attached from a temporary "other source" (not in the marketplace list below) -->
-                      <div x-show="caTempList().length" style="border:1px solid var(--cp-accent);border-radius:8px;background:var(--cp-accent-soft);padding:8px 10px">
-                        <div class="hint" style="margin:0 0 6px;font-weight:600;color:var(--cp-text)">From other sources <span style="font-weight:400" x-text="caTempList().length"></span></div>
-                        <template x-for="t in caTempList()" :key="t.entry.id">
-                          <div style="display:flex;align-items:flex-start;gap:8px;padding:3px 0">
-                            <span style="flex:1;min-width:0">
-                              <span style="font-weight:600;color:var(--cp-text)" x-text="t.entry.name"></span>
-                              <span class="hint" style="margin:0;color:var(--cp-text-muted)"> · <span x-text="(t.source && t.source.label) || 'temporary'"></span></span>
-                              <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="t.entry.description || ''"></span>
-                            </span>
-                            <a href="#" @click.prevent="caRemoveTemp(t.entry.id)" class="hint" style="margin:0;color:var(--cp-text-muted);white-space:nowrap">Remove</a>
-                          </div>
-                        </template>
-                        <div class="hint" style="margin:6px 0 0;color:var(--cp-text-muted)">These come from a temporary source. You'll be asked to add it to your marketplace sources when you create the agent.</div>
-                      </div>
-                      <div style="display:flex;gap:8px;align-items:center">
-                        <input class="field-input" type="text" x-model="createAgent.skillQ" placeholder="Search marketplace skills by name, description, or source…" style="flex:1" />
-                        <button class="btn" type="button" @click="caRecommendSkills()" :disabled="createAgent.recBusy"
-                          x-text="createAgent.recBusy ? 'Thinking…' : '💡 Recommend'"></button>
-                      </div>
-                      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-                        <span class="hint" style="margin:0"><span x-text="caAttachedCount()"></span> attached</span>
-                        <label x-show="Object.keys(createAgent.recommended).length" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--cp-text)">
-                          <input type="checkbox" x-model="createAgent.recOnly" />
-                          <span>Recommended only (<span x-text="Object.keys(createAgent.recommended).length"></span>)</span>
-                        </label>
-                        <a x-show="caSelectedNames().length" href="#" @click.prevent="caClearSkills()" class="hint" style="margin:0;color:var(--cp-text-muted)">Clear</a>
-                      </div>
-
-                      <div style="flex:1;min-height:220px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:6px 8px">
-                        <div x-show="createAgent.skillsLoading" class="hint" style="margin:8px 4px">Loading skills…</div>
-                        <div x-show="!createAgent.skillsLoading && !createAgent.skills.length" class="hint" style="margin:8px 4px">No skills in the catalog yet. Add sources from the marketplace to build a toolbox.</div>
-                        <div x-show="!createAgent.skillsLoading && createAgent.skills.length && !caGroupedSkills().length" class="hint" style="margin:8px 4px">No skills match your search.</div>
-                        <template x-for="grp in caGroupedSkills()" :key="grp.source">
-                          <div style="margin-top:8px">
-                            <button type="button" @click="caToggleGroup(grp.source)"
-                              style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;cursor:pointer;padding:2px 0;text-align:left;color:var(--cp-text)">
-                              <span style="display:inline-block;width:12px;color:var(--cp-text-muted);transition:transform .12s" :style="caGroupOpen(grp.source) ? 'transform:rotate(90deg)' : ''">›</span>
-                              <span style="font-weight:600;font-size:12.5px" x-text="grp.source"></span>
-                              <span class="hint" style="margin:0;color:var(--cp-text-muted)" x-text="grp.items.length"></span>
-                              <span x-show="grp.selectedCount" class="hint" style="margin:0;color:var(--cp-accent)" x-text="'· ' + grp.selectedCount + ' on'"></span>
-                            </button>
-                            <div x-show="caGroupOpen(grp.source)" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface);margin-top:4px">
-                              <template x-for="(sk, ski) in grp.items" :key="sk.name">
-                                <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
-                                  :style="(ski < grp.items.length-1 ? 'border-bottom:1px solid var(--cp-border);' : '') + (createAgent.recommended[sk.name] !== undefined ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : '')">
-                                  <input type="checkbox" :checked="!!createAgent.selected[sk.name]" @change="caToggleSkill(sk.name)" style="margin-top:2px" />
-                                  <span style="flex:1;min-width:0">
-                                    <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
-                                    <span x-show="createAgent.recommended[sk.name] !== undefined" class="hint" style="margin:0;color:var(--cp-accent);font-weight:600"> · recommended</span>
-                                    <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="createAgent.recommended[sk.name] || sk.description || ''"></span>
-                                  </span>
-                                </label>
-                              </template>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
-
-                    <!-- OTHER SOURCE TAB: browse a temporary ADO/GitHub repo and attach its skills -->
-                    <div x-show="createAgent.tab==='other'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
-                      <p class="hint" style="margin:0">Point at any Azure DevOps or GitHub repo/branch to browse its skills. Skills you attach here are used to build and test the agent right away — you'll be asked to add the source to your marketplace when you create the agent.</p>
-                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                        <select class="field-input" x-model="createAgent.other.kind" style="width:auto">
-                          <option value="github">GitHub</option>
-                          <option value="azdo">Azure DevOps</option>
-                        </select>
-                        <input class="field-input" type="text" x-model="createAgent.other.org" :placeholder="createAgent.other.kind==='azdo' ? 'Organization' : 'Owner'" style="flex:1;min-width:120px" />
-                        <input x-show="createAgent.other.kind==='azdo'" class="field-input" type="text" x-model="createAgent.other.project" placeholder="Project" style="flex:1;min-width:110px" />
-                        <input class="field-input" type="text" x-model="createAgent.other.repo" placeholder="Repo" style="flex:1;min-width:110px" />
-                        <input class="field-input" type="text" x-model="createAgent.other.branch" placeholder="Branch" style="width:120px" />
-                        <button class="btn primary" type="button" @click="caBrowseOtherSource()" :disabled="createAgent.other.busy"
-                          x-text="createAgent.other.busy ? 'Browsing…' : 'Browse'"></button>
-                      </div>
-                      <div x-show="createAgent.other.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.other.error"></div>
-
-                      <div x-show="createAgent.other.source" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                        <span class="hint" style="margin:0;color:var(--cp-text)"><span x-text="createAgent.other.source && createAgent.other.source.label"></span> <span style="color:var(--cp-text-muted)" x-text="caOtherSkills().length + ' skill' + (caOtherSkills().length===1?'':'s')"></span></span>
-                        <span x-show="createAgent.other.exists" class="hint" style="margin:0;color:var(--cp-accent)">already a marketplace source</span>
-                        <span x-show="!createAgent.other.exists && createAgent.other.source" class="hint" style="margin:0;color:var(--cp-text-muted)">temporary — not yet added</span>
-                        <input x-show="caOtherSkills().length || createAgent.other.q" class="field-input" type="text" x-model="createAgent.other.q" placeholder="Filter skills…" style="flex:1;min-width:140px" />
-                      </div>
-
-                      <div x-show="createAgent.other.source" style="flex:1;min-height:180px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:6px 8px">
-                        <div x-show="!caOtherSkills().length" class="hint" style="margin:8px 4px">No skills match.</div>
-                        <div x-show="caOtherSkills().length" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface)">
-                          <template x-for="(sk, ski) in caOtherSkills()" :key="sk.id">
-                            <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
-                              :style="ski < caOtherSkills().length-1 ? 'border-bottom:1px solid var(--cp-border)' : ''">
-                              <input type="checkbox" :checked="caIsTempSelected(sk)" @change="caToggleTempSkill(sk)" style="margin-top:2px" />
-                              <span style="flex:1;min-width:0">
-                                <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
-                                <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="sk.description || ''"></span>
-                              </span>
-                            </label>
-                          </template>
-                        </div>
-                      </div>
-                      <div x-show="!createAgent.other.source && !createAgent.other.busy" class="hint" style="margin:0;flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--cp-text-muted)">Enter a repo and branch, then Browse to see its skills.</div>
-                    </div>
-
-                    <!-- CHAT TAB: live draft chat -->
-                    <div x-show="createAgent.tab==='chat'" style="display:flex;flex-direction:column;gap:10px;min-height:0;flex:1">
-                      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-                        <p class="hint" style="margin:0;flex:1">Test the agent live before creating it. You'll see its thinking, tool calls, and response. Editing the prompt or skills starts a fresh draft session on your next message.</p>
-                        <span class="hint" style="margin:0;white-space:nowrap" x-show="createAgent.chat.status" x-text="createAgent.chat.status"></span>
-                      </div>
-
-                    <div style="flex:1;min-height:220px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;padding:12px;background:var(--cp-surface-soft);display:flex;flex-direction:column;gap:12px">
-                      <div x-show="!createAgent.chat.transcript.length" class="hint" style="margin:auto;text-align:center">Say hello to your draft agent to see how it behaves.</div>
-                      <template x-for="(m, mi) in createAgent.chat.transcript" :key="mi">
-                        <div>
-                          <!-- user -->
-                          <div x-show="m.role === 'user'" style="display:flex;justify-content:flex-end">
-                            <div style="max-width:88%;background:var(--cp-accent);color:var(--cp-accent-fg, #fff);padding:8px 11px;border-radius:10px 10px 2px 10px;font-size:13px;white-space:pre-wrap" x-text="m.text"></div>
-                          </div>
-                          <!-- agent -->
-                          <div x-show="m.role === 'agent'" style="display:flex;flex-direction:column;gap:6px">
-                            <template x-if="m.steps && m.steps.length">
-                              <details style="border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface)" :open="m.active">
-                                <summary class="hint" style="cursor:pointer;padding:6px 10px;margin:0"><span x-text="m.steps.length"></span> reasoning step<span x-show="m.steps.length !== 1">s</span></summary>
-                                <div style="padding:4px 10px 8px;display:flex;flex-direction:column;gap:6px">
-                                  <template x-for="(s, si) in m.steps" :key="si">
-                                    <div style="font-size:12px">
-                                      <div style="font-weight:600;color:var(--cp-text)" x-text="mktStepLabel(s)"></div>
-                                      <div class="hint" style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere" x-show="mktStepText(s)" x-text="mktStepText(s)"></div>
-                                    </div>
-                                  </template>
-                                </div>
-                              </details>
-                            </template>
-                            <div x-show="m.text" class="markdown-body" style="font-size:13px" x-html="renderMarkdown(m.text)"></div>
-                            <div x-show="m.status && !m.text" class="hint" style="margin:0;display:flex;align-items:center;gap:7px">
-                              <span class="ca-thinking-dot"></span>
-                              <span x-text="m.status"></span>
-                              <span x-show="m.steps && m.steps.length" style="color:var(--cp-text-muted)" x-text="'· ' + mktStepLabel(m.steps[m.steps.length-1])"></span>
-                            </div>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-
-                    <div x-show="createAgent.chat.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.chat.error"></div>
-
-                    <div style="display:flex;gap:6px">
-                      <input class="field-input" type="text" x-model="createAgent.chat.input" placeholder="Message your draft agent…" style="flex:1"
-                        :disabled="createAgent.chat.running" @keydown.enter.prevent="caSend()" />
-                      <button class="btn primary" type="button" @click="caSend()" :disabled="createAgent.chat.running || !createAgent.chat.input.trim()"
-                        x-text="createAgent.chat.running ? '…' : 'Send'"></button>
-                    </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="modal-footer">
-                  <button class="btn" type="button" @click="createAgent.open=false">Cancel</button>
-                  <button class="btn primary" type="button" @click="caCreate()" :disabled="createAgent.creating || !createAgent.name.trim() || !createAgent.prompt.trim()"
-                    x-text="createAgent.creating ? 'Creating…' : 'Create agent'"></button>
-                </div>
-              </div>
-            </div>
-            </template>
-
             <!-- Confirm adding temporary sources before creating the agent -->
             <template x-teleport="body">
             <div class="modal-backdrop modal-overlay" x-show="createAgent.confirmSources.open" x-transition.opacity.duration.150ms @click.self="createAgent.confirmSources.open=false" x-cloak style="z-index:10001">
@@ -10765,6 +10544,307 @@
           </section>
 
           <!-- ===================== Design with AI ===================== -->
+          <section x-show="!loading && !errorMessage && route === 'create-agent'" x-transition.opacity.duration.180ms style="display:flex;flex-direction:column;height:calc(100dvh - 140px);min-height:0;overflow:hidden">
+            <div class="page-header" style="flex:0 0 auto">
+              <div class="page-title">
+                <h1>🛠️ Create Agent</h1>
+                <p>Name your agent, let AI draft its prompt, attach skills, and chat with the draft before creating it — then it's available to teams and the marketplace like any other agent.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="goTo('#/agents')">Cancel</button>
+                <button class="btn primary" type="button" @click="caCreate()" :disabled="createAgent.creating || !createAgent.name.trim() || !createAgent.prompt.trim()" x-text="createAgent.creating ? 'Creating…' : 'Create agent'"></button>
+              </div>
+            </div>
+            <div class="card" style="padding:0;overflow:hidden;flex:1;min-height:0;margin-top:14px;display:flex;flex-direction:column">
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;min-height:0;overflow:hidden;flex:1">
+                  <!-- LEFT: configuration -->
+                  <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:hidden;border-right:1px solid var(--cp-border)">
+                    <p class="hint" style="margin:0">Name your agent and describe what it should do. Let AI draft its prompt, attach skills, then chat with the draft below. Create it when you're happy — it becomes available to teams and the marketplace like any other agent.</p>
+
+                    <div style="display:flex;gap:10px">
+                      <label style="flex:1">
+                        <div class="field-label">Name</div>
+                        <input class="field-input" type="text" x-model="createAgent.name" placeholder="e.g. Release Notes Writer" maxlength="80" />
+                      </label>
+                    </div>
+                    <label>
+                      <div class="field-label">Description</div>
+                      <textarea class="field-input" x-model="createAgent.description" rows="2" placeholder="What is this agent responsible for? What should it be good at?" style="resize:vertical"></textarea>
+                    </label>
+
+                    <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+                        <div class="field-label" style="margin:0">Agent prompt</div>
+                        <button class="btn" type="button" @click="caGeneratePrompt()" :disabled="createAgent.genBusy"
+                          x-text="createAgent.genBusy ? 'Generating…' : (createAgent.prompt ? '✨ Regenerate' : '✨ Generate with AI')"></button>
+                      </div>
+                      <textarea class="field-input" x-model="createAgent.prompt"
+                        placeholder="The agent's system prompt. Generate one with AI, then refine it here."
+                        style="flex:1;min-height:140px;resize:none;font-family:var(--cp-mono, ui-monospace, monospace);font-size:12.5px;line-height:1.5"></textarea>
+                    </div>
+
+                    <div x-show="createAgent.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.error"></div>
+                  </div>
+
+                  <!-- RIGHT: skills marketplace (default) + live draft chat -->
+                  <div style="padding:14px 18px 16px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden">
+                    <!-- Tabs: Skills is the always-visible default; Chat is one click away -->
+                    <div style="display:flex;gap:18px;border-bottom:1px solid var(--cp-border)">
+                      <button type="button" @click="createAgent.tab='skills'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='skills' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Skills <span style="font-weight:400" x-text="caAttachedCount()"></span>
+                      </button>
+                      <button type="button" @click="createAgent.tab='other'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='other' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Other source<span x-show="caTempList().length" style="font-weight:400"> · <span x-text="caTempList().length"></span></span>
+                      </button>
+                      <button type="button" @click="createAgent.tab='chat'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='chat' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Chat with draft
+                      </button>
+                    </div>
+
+                    <!-- SKILLS TAB: browse & attach marketplace skills inline -->
+                    <div x-show="createAgent.tab==='skills'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
+                      <!-- Skills attached from a temporary "other source" (not in the marketplace list below) -->
+                      <div x-show="caTempList().length" style="border:1px solid var(--cp-accent);border-radius:8px;background:var(--cp-accent-soft);padding:8px 10px">
+                        <div class="hint" style="margin:0 0 6px;font-weight:600;color:var(--cp-text)">From other sources <span style="font-weight:400" x-text="caTempList().length"></span></div>
+                        <template x-for="t in caTempList()" :key="t.entry.id">
+                          <div style="display:flex;align-items:flex-start;gap:8px;padding:3px 0">
+                            <span style="flex:1;min-width:0">
+                              <span style="font-weight:600;color:var(--cp-text)" x-text="t.entry.name"></span>
+                              <span class="hint" style="margin:0;color:var(--cp-text-muted)"> · <span x-text="(t.source && t.source.label) || 'temporary'"></span></span>
+                              <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="t.entry.description || ''"></span>
+                            </span>
+                            <a href="#" @click.prevent="caRemoveTemp(t.entry.id)" class="hint" style="margin:0;color:var(--cp-text-muted);white-space:nowrap">Remove</a>
+                          </div>
+                        </template>
+                        <div class="hint" style="margin:6px 0 0;color:var(--cp-text-muted)">These come from a temporary source. You'll be asked to add it to your marketplace sources when you create the agent.</div>
+                      </div>
+                      <div style="display:flex;gap:8px;align-items:center">
+                        <input class="field-input" type="text" x-model="createAgent.skillQ" placeholder="Search marketplace skills by name, description, or source…" style="flex:1" />
+                        <button class="btn" type="button" @click="caRecommendSkills()" :disabled="createAgent.recBusy"
+                          x-text="createAgent.recBusy ? 'Thinking…' : '💡 Recommend'"></button>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+                        <span class="hint" style="margin:0"><span x-text="caAttachedCount()"></span> attached</span>
+                        <label x-show="Object.keys(createAgent.recommended).length" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--cp-text)">
+                          <input type="checkbox" x-model="createAgent.recOnly" />
+                          <span>Recommended only (<span x-text="Object.keys(createAgent.recommended).length"></span>)</span>
+                        </label>
+                        <a x-show="caSelectedNames().length" href="#" @click.prevent="caClearSkills()" class="hint" style="margin:0;color:var(--cp-text-muted)">Clear</a>
+                      </div>
+
+                      <div style="flex:1;min-height:0;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:6px 8px">
+                        <div x-show="createAgent.skillsLoading" class="hint" style="margin:8px 4px">Loading skills…</div>
+                        <div x-show="!createAgent.skillsLoading && !createAgent.skills.length" class="hint" style="margin:8px 4px">No skills in the catalog yet. Add sources from the marketplace to build a toolbox.</div>
+                        <div x-show="!createAgent.skillsLoading && createAgent.skills.length && !caGroupedSkills().length" class="hint" style="margin:8px 4px">No skills match your search.</div>
+                        <template x-for="grp in caGroupedSkills()" :key="grp.source">
+                          <div style="margin-top:8px">
+                            <button type="button" @click="caToggleGroup(grp.source)"
+                              style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;cursor:pointer;padding:2px 0;text-align:left;color:var(--cp-text)">
+                              <span style="display:inline-block;width:12px;color:var(--cp-text-muted);transition:transform .12s" :style="caGroupOpen(grp.source) ? 'transform:rotate(90deg)' : ''">›</span>
+                              <span style="font-weight:600;font-size:12.5px" x-text="grp.source"></span>
+                              <span class="hint" style="margin:0;color:var(--cp-text-muted)" x-text="grp.items.length"></span>
+                              <span x-show="grp.selectedCount" class="hint" style="margin:0;color:var(--cp-accent)" x-text="'· ' + grp.selectedCount + ' on'"></span>
+                            </button>
+                            <div x-show="caGroupOpen(grp.source)" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface);margin-top:4px">
+                              <template x-for="(sk, ski) in grp.items" :key="sk.name">
+                                <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
+                                  :style="(ski < grp.items.length-1 ? 'border-bottom:1px solid var(--cp-border);' : '') + (createAgent.recommended[sk.name] !== undefined ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : '')">
+                                  <input type="checkbox" :checked="!!createAgent.selected[sk.name]" @change="caToggleSkill(sk.name)" style="margin-top:2px" />
+                                  <span style="flex:1;min-width:0">
+                                    <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
+                                    <span x-show="createAgent.recommended[sk.name] !== undefined" class="hint" style="margin:0;color:var(--cp-accent);font-weight:600"> · recommended</span>
+                                    <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="createAgent.recommended[sk.name] || sk.description || ''"></span>
+                                  </span>
+                                </label>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
+                    <!-- OTHER SOURCE TAB: browse a temporary ADO/GitHub repo and attach its skills -->
+                    <div x-show="createAgent.tab==='other'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
+                      <p class="hint" style="margin:0">Point at any Azure DevOps or GitHub repo/branch to browse its skills. Skills you attach here are used to build and test the agent right away — you'll be asked to add the source to your marketplace when you create the agent.</p>
+                      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+                        <label style="flex:0 0 130px">
+                          <div class="field-label">Provider</div>
+                          <select class="field-input" x-model="createAgent.other.kind" @change="createAgent.other.repos=[]; createAgent.other.repo=''; createAgent.other.repoQuery=''; createAgent.other.branches=[]; createAgent.other.branch=''; caOtherLoadRepos()">
+                            <option value="github">GitHub</option>
+                            <option value="azdo">Azure DevOps</option>
+                          </select>
+                        </label>
+                        <label style="flex:1;min-width:120px">
+                          <div class="field-label" x-text="createAgent.other.kind==='github' ? 'Owner' : 'Azure DevOps org'"></div>
+                          <input class="field-input" type="text" x-model="createAgent.other.org" :placeholder="createAgent.other.kind==='github' ? 'costahome' : 'dnceng'" @input.debounce.600ms="caOtherLoadRepos()" @change="caOtherLoadRepos()" />
+                        </label>
+                        <label style="flex:1;min-width:110px" x-show="createAgent.other.kind==='azdo'">
+                          <div class="field-label">Project</div>
+                          <input class="field-input" type="text" x-model="createAgent.other.project" placeholder="internal" @input.debounce.600ms="caOtherLoadRepos()" @change="caOtherLoadRepos()" />
+                        </label>
+                      </div>
+                      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+                        <label style="flex:1;min-width:150px">
+                          <div class="field-label">Repository</div>
+                          <div style="position:relative">
+                            <input class="field-input" type="text"
+                              :placeholder="createAgent.other.loadingRepos ? 'Loading repositories…' : (createAgent.other.repos.length ? 'Search repositories…' : 'Enter owner/org first')"
+                              x-model="createAgent.other.repoQuery"
+                              @focus="createAgent.other.repoOpen=true; if(!createAgent.other.repos.length && createAgent.other.org.trim() && (createAgent.other.kind==='github' || createAgent.other.project.trim()) && !createAgent.other.loadingRepos) caOtherLoadRepos()"
+                              @blur="caOtherRepoBlur()"
+                              @input="createAgent.other.repoOpen=true"
+                              @keydown.escape.stop="createAgent.other.repoOpen=false; $el.blur()" />
+                            <div x-show="createAgent.other.repoOpen" x-transition.opacity.duration.120ms
+                              style="position:absolute;left:0;right:0;top:100%;margin-top:4px;max-height:220px;overflow-y:auto;z-index:60;background:var(--cp-surface);border:1px solid var(--cp-border);border-radius:8px;box-shadow:var(--cp-shadow)">
+                              <template x-if="createAgent.other.loadingRepos">
+                                <div class="hint" style="padding:8px 12px">Loading repositories…</div>
+                              </template>
+                              <template x-if="!createAgent.other.loadingRepos && !createAgent.other.repos.length">
+                                <div class="hint" style="padding:8px 12px">Enter an owner/org (and project) above to load repos.</div>
+                              </template>
+                              <template x-for="r in caOtherReposFiltered()" :key="r.name">
+                                <div @mousedown.prevent="caOtherPickRepo(r.name)"
+                                  style="padding:7px 12px;cursor:pointer;font-size:13px;border-radius:6px"
+                                  :style="r.name===createAgent.other.repo ? 'background:var(--cp-accent-soft);color:var(--cp-accent);font-weight:600' : ''"
+                                  @mouseenter="if(r.name!==createAgent.other.repo) $el.style.background='var(--cp-surface-soft)'"
+                                  @mouseleave="if(r.name!==createAgent.other.repo) $el.style.background=''"
+                                  x-text="r.name"></div>
+                              </template>
+                              <template x-if="!createAgent.other.loadingRepos && createAgent.other.repos.length && !caOtherReposFiltered().length">
+                                <div class="hint" style="padding:8px 12px">No repositories match your search.</div>
+                              </template>
+                            </div>
+                          </div>
+                        </label>
+                        <label style="flex:0 0 150px">
+                          <div class="field-label">Branch</div>
+                          <select class="field-input" x-model="createAgent.other.branch" :disabled="!createAgent.other.branches.length">
+                            <option value="" x-text="createAgent.other.loadingBranches ? 'Loading…' : (createAgent.other.branches.length ? 'Select…' : 'Pick a repo')"></option>
+                            <template x-for="b in createAgent.other.branches" :key="b">
+                              <option :value="b" x-text="b"></option>
+                            </template>
+                          </select>
+                        </label>
+                        <button class="btn primary" type="button" @click="caBrowseOtherSource()" :disabled="createAgent.other.busy || !createAgent.other.repo || !createAgent.other.branch"
+                          x-text="createAgent.other.busy ? 'Loading…' : 'Load skills'"></button>
+                      </div>
+                      <div x-show="createAgent.other.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.other.error"></div>
+
+                      <div x-show="createAgent.other.source" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                        <span class="hint" style="margin:0;color:var(--cp-text)"><span x-text="createAgent.other.source && createAgent.other.source.label"></span> <span style="color:var(--cp-text-muted)" x-text="caOtherSkills().length + ' skill' + (caOtherSkills().length===1?'':'s')"></span></span>
+                        <span x-show="createAgent.other.exists" class="hint" style="margin:0;color:var(--cp-accent)">already a marketplace source</span>
+                        <span x-show="!createAgent.other.exists && createAgent.other.source" class="hint" style="margin:0;color:var(--cp-text-muted)">temporary — not yet added</span>
+                        <input x-show="caOtherSkills().length || createAgent.other.q" class="field-input" type="text" x-model="createAgent.other.q" placeholder="Filter skills…" style="flex:1;min-width:140px" />
+                      </div>
+
+                      <div x-show="createAgent.other.source" style="flex:1;min-height:0;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:6px 8px">
+                        <div x-show="!caOtherSkills().length" class="hint" style="margin:8px 4px">No skills match.</div>
+                        <div x-show="caOtherSkills().length" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface)">
+                          <template x-for="(sk, ski) in caOtherSkills()" :key="sk.id">
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
+                              :style="ski < caOtherSkills().length-1 ? 'border-bottom:1px solid var(--cp-border)' : ''">
+                              <input type="checkbox" :checked="caIsTempSelected(sk)" @change="caToggleTempSkill(sk)" style="margin-top:2px" />
+                              <span style="flex:1;min-width:0">
+                                <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
+                                <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="sk.description || ''"></span>
+                              </span>
+                            </label>
+                          </template>
+                        </div>
+                      </div>
+                      <div x-show="!createAgent.other.source && !createAgent.other.busy" class="hint" style="margin:0;flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--cp-text-muted)">Enter a repo and branch, then Browse to see its skills.</div>
+                    </div>
+
+                    <!-- CHAT TAB: live draft chat -->
+                    <div x-show="createAgent.tab==='chat'" style="display:flex;flex-direction:column;gap:10px;min-height:0;flex:1">
+                      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                        <p class="hint" style="margin:0;flex:1">Test the agent live before creating it. You'll see its thinking, tool calls, and response. Editing the prompt or skills starts a fresh draft session on your next message.</p>
+                        <span class="hint" style="margin:0;white-space:nowrap" x-show="createAgent.chat.status" x-text="createAgent.chat.status"></span>
+                      </div>
+
+                      <!-- Draft chat rendered with the SAME message/activity/live markup + CSS as the main agent chat -->
+                      <div class="chat-main-messages" style="flex:1;min-height:0;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft)">
+                        <div class="messages-stack">
+                          <div x-show="!createAgent.chat.messages.length && !createAgent.chat.live" class="hint" style="margin:auto;text-align:center;padding:24px">Say hello to your draft agent to see how it behaves.</div>
+                          <template x-for="(message, index) in createAgent.chat.messages" :key="message.timestamp + '-' + index">
+                            <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
+                              <div class="message-bubble-wrap">
+                                <div class="message-bubble">
+                                  <div x-html="renderMessageContent(message)"></div>
+                                  <template x-if="message.role !== 'user' && message.activity && message.activity.length">
+                                    <details class="msg-activity">
+                                      <summary>🔎 Reasoning &amp; steps (<span x-text="message.activity.length"></span>)</summary>
+                                      <div class="msg-activity-body">
+                                        <template x-for="(st, ai) in message.activity" :key="'act-' + ai">
+                                          <div class="msg-activity-step" :class="st.type">
+                                            <template x-if="st.text">
+                                              <details class="msg-activity-substep">
+                                                <summary x-text="st.label"></summary>
+                                                <pre class="live-stream-pre" x-text="st.text"></pre>
+                                              </details>
+                                            </template>
+                                            <template x-if="!st.text">
+                                              <div class="msg-activity-label" x-text="st.label"></div>
+                                            </template>
+                                          </div>
+                                        </template>
+                                      </div>
+                                    </details>
+                                  </template>
+                                  <div class="message-meta">
+                                    <span x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></span>
+                                    <template x-if="message.role !== 'user' && message.model">
+                                      <span class="model-badge" :title="'Model: ' + message.model" x-text="'🧠 ' + formatModelName(message.model)"></span>
+                                    </template>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                        <!-- Live activity stream while the draft agent is running -->
+                        <div class="agent-activity" x-show="createAgent.chat.live" style="margin:10px">
+                          <div class="activity-header">
+                            <span class="activity-pulse"></span>
+                            <strong x-text="createAgent.chat.live?.status || 'Running...'"></strong>
+                          </div>
+                          <template x-for="(step, si) in (createAgent.chat.live?.steps || [])" :key="'castep-' + si">
+                            <div class="activity-step" :class="step.type">
+                              <template x-if="step.type === 'tool'">
+                                <div class="tool-step">
+                                  <span class="tool-icon">🔧</span>
+                                  <span class="tool-name" x-text="step.tool"></span>
+                                  <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                                </div>
+                              </template>
+                              <template x-if="step.type === 'thinking'">
+                                <div class="thinking-step">
+                                  <span>💭</span>
+                                  <span class="thinking-text" x-text="step.content"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+
+                      <div x-show="createAgent.chat.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.chat.error"></div>
+
+                      <div style="display:flex;gap:6px">
+                        <input class="field-input" type="text" x-model="createAgent.chat.input" placeholder="Message your draft agent…" style="flex:1"
+                          :disabled="createAgent.chat.running" @keydown.enter.prevent="caSend()" />
+                        <button class="btn primary" type="button" @click="caSend()" :disabled="createAgent.chat.running || !createAgent.chat.input.trim()"
+                          x-text="createAgent.chat.running ? '…' : 'Send'"></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+            </div>
+          </section>
+
           <section x-show="!loading && !errorMessage && route === 'design'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
@@ -15163,6 +15243,9 @@
             exists: false,        // already a marketplace source?
             entries: [],          // skill entries from the temp source
             q: '',
+            repos: [], branches: [],        // auto-loaded from the provider
+            loadingRepos: false, loadingBranches: false,
+            repoOpen: false, repoQuery: '',
           },
           tempSelected: {},      // { entryId: { entry, source } } skills from temp sources
           confirmSources: { open: false, busy: false, error: '', sources: [] },
@@ -16349,12 +16432,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
         async handleRouteChange(opts = {}) {
           if (this.route === 'assignments') { this.goTo('#/tasks'); return; }
+          if (this.route === 'create-agent') {
+            // Resilient deep-link: make sure the skills toolbox is populated even
+            // if the user landed here without going through openCreateAgent().
+            if (!this.createAgent.skills.length && !this.createAgent.skillsLoading) this.caLoadSkills();
+          }
           if (this.route === 'agent-detail' && this.app.routeParam) {
             await this.loadAgentDetail(this.app.routeParam);
           } else if (this.route === 'manager-detail' && this.app.routeParam) {
@@ -17257,7 +17345,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         isRouteGroup(group) {
-          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail';
+          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent';
           if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
           if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail';
@@ -17400,7 +17488,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         routeMode(route) {
           const r = route || this.route;
           if (['boards', 'insights', 'codeflow', 'connect'].includes(r)) return 'workspace';
-          if (['agents', 'agent-detail', 'managers', 'manager-detail', 'executions',
+          if (['agents', 'agent-detail', 'create-agent', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'chains', 'chain-detail', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
           return null;
@@ -17471,7 +17559,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes.
-          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'marketplace', 'settings', 'events'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'create-agent', 'marketplace', 'settings', 'events'].includes(r)) return true;
           const bf = this.basicFeatures || {};
           const gated = {
             insights: ['insights'],
@@ -29102,6 +29190,69 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
 
+        // ── Shared chat-turn poller ────────────────────────────────────────
+        // The ONE place that knows how to watch a session's chat turn stream.
+        // Polls /api/sessions/:id/poll?verbose=1 until the turn settles (goes
+        // inactive with a completed turn), an idle/hard timeout trips, a chatError
+        // surfaces, or the connection is lost. It owns the mature mechanics —
+        // activity-signature tracking, idle-timeout, hard cap, connection-loss cap
+        // — so every chat surface (persistent agent chat, ephemeral draft chat, …)
+        // gets identical robustness instead of a hand-rolled loop. Callers render
+        // via callbacks into whatever surface they own; this helper knows nothing
+        // about chats, agents, or drafts.
+        //   onActivity({ steps, isActive, elapsed, idleSec, stalled, lastAssistant, lastTurn, poll })
+        //   onDone({ response, steps, lastTurn, model, poll })
+        //   onError(message)
+        // Options: { live } forces the fast/slow cadence (defaults to this.chatLive).
+        async pollSessionTurn(sessionId, { onActivity, onDone, onError, live = null } = {}) {
+          const IDLE_TIMEOUT_MS = 3 * 60 * 1000;   // give up after 3 min of NO activity
+          const HARD_CAP_MS = 30 * 60 * 1000;       // absolute safety ceiling
+          const startTs = Date.now();
+          let lastActivityTs = Date.now();
+          let lastActivitySig = '';
+          let errs = 0;
+          const fast = () => (live == null ? this.chatLive : live);
+          for (;;) {
+            await new Promise(r => setTimeout(r, fast() ? 700 : 1500));
+            let poll;
+            try {
+              poll = await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/poll?verbose=1`);
+              errs = 0;
+            } catch (_) {
+              if (++errs >= 10) { if (onError) await onError('Lost connection to the agent. Please try again.'); return; }
+              continue;
+            }
+            if (poll && poll.chatError) { if (onError) await onError(poll.chatError); return; }
+
+            const ct = poll.turns && poll.turns.length ? poll.turns[poll.turns.length - 1] : null;
+            const steps = ct && Array.isArray(ct.steps) ? ct.steps : [];
+            const lastStep = steps.length ? steps[steps.length - 1] : null;
+            const partialLen = lastStep && lastStep.partial ? lastStep.partial.length : 0;
+            // Activity signature — bump the idle clock whenever the agent is active
+            // or anything advances (new turn, new step, or growing partial output).
+            const sig = `${poll.turnCount || 0}:${steps.length}:${partialLen}`;
+            if (poll.isActive || sig !== lastActivitySig) { lastActivityTs = Date.now(); lastActivitySig = sig; }
+
+            const elapsed = Math.round((Date.now() - startTs) / 1000);
+            const idleSec = Math.round((Date.now() - lastActivityTs) / 1000);
+
+            // Still running: turn active, or no completed turn has landed yet.
+            if (poll.isActive || (poll.turnCount || 0) === 0) {
+              if (onActivity) onActivity({
+                steps, isActive: !!poll.isActive, elapsed, idleSec, stalled: idleSec >= 12,
+                lastAssistant: poll.lastAssistant || (ct && ct.assistant) || '', lastTurn: ct, poll,
+              });
+              if (Date.now() - lastActivityTs > IDLE_TIMEOUT_MS) { if (onError) await onError('The agent stopped responding — no activity for 3 minutes. It may still be running in the background.'); return; }
+              if (Date.now() - startTs > HARD_CAP_MS) { if (onError) await onError('The agent run exceeded the 30-minute time limit.'); return; }
+              continue;
+            }
+
+            // Settled: !isActive && turnCount > 0.
+            if (onDone) await onDone({ response: (ct && ct.assistant) || poll.lastAssistant || '', steps, lastTurn: ct, model: (ct && ct.model) || '', poll });
+            return;
+          }
+        },
+
         async pollAgentChat(agentId, chatId, retryCount = 0, knownSessionId = null) {
           const MAX_RETRIES = 2;
 
@@ -29137,143 +29288,98 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const sessionId = sessionInfo.sessionId;
           this.chatSessions[chatId] = sessionId;
           this.chatActivity[chatId] = { status: retryCount > 0 ? `Retrying (attempt ${retryCount + 1})...` : 'Agent is thinking...', steps: [] };
-          
-          // Poll the session for live activity. We only give up after a stretch of
-          // genuine INACTIVITY — as long as the session reports active or shows new
-          // reasoning/tool steps, we keep waiting (no matter how long the turn runs).
-          const IDLE_TIMEOUT_MS = 3 * 60 * 1000;   // give up after 3 min of NO activity
-          const HARD_CAP_MS = 30 * 60 * 1000;       // absolute safety ceiling
-          const pollStartTs = Date.now();
-          let lastActivityTs = Date.now();
-          let lastActivitySig = '';
-          let timedOut = false;
-          for (let attempt = 0; ; attempt++) {
-            await new Promise(r => setTimeout(r, this.chatLive ? 700 : 1500));
-            try {
-              const poll = await this.request(`/api/sessions/${sessionId}/poll?verbose=1`);
 
-              // Activity signature — bump the idle clock whenever the agent is active
-              // or anything advanced (new turn, new step, or growing partial output).
-              const _ct = poll.turns && poll.turns.length ? poll.turns[poll.turns.length - 1] : null;
-              const _stepCount = _ct && _ct.steps ? _ct.steps.length : 0;
-              const _lastStep = _stepCount ? _ct.steps[_stepCount - 1] : null;
-              const _partialLen = _lastStep && _lastStep.partial ? _lastStep.partial.length : 0;
-              const _sig = `${poll.turnCount || 0}:${_stepCount}:${_partialLen}`;
-              if (poll.isActive || _sig !== lastActivitySig) { lastActivityTs = Date.now(); lastActivitySig = _sig; }
-              
-              // Update activity display
-              const currentTurn = poll.turns && poll.turns.length > 0 ? poll.turns[poll.turns.length - 1] : null;
-              if (currentTurn && currentTurn.steps && currentTurn.steps.length > 0) {
+          // Watch the turn via the shared poller — it owns the idle-timeout /
+          // activity-signature / connection-loss mechanics. We only supply what to
+          // render (onActivity) and what to do when the turn settles or errors.
+          await this.pollSessionTurn(sessionId, {
+            onActivity: ({ steps, isActive }) => {
+              if (steps && steps.length > 0) {
                 this.chatActivity[chatId] = {
-                  status: poll.isActive ? (retryCount > 0 ? `Retry ${retryCount + 1}: Working...` : 'Agent is working...') : 'Finishing up...',
-                  steps: currentTurn.steps.map(s => ({
+                  status: isActive ? (retryCount > 0 ? `Retry ${retryCount + 1}: Working...` : 'Agent is working...') : 'Finishing up...',
+                  steps: steps.map(s => ({
                     type: s.type === 'tool' || s.type === 'tool_start' ? 'tool' : 'thinking',
                     tool: s.tool || '',
                     content: s.content || '',
                     success: s.success
                   })).slice(-8)
                 };
-              } else if (poll.isActive) {
+              } else {
                 this.chatActivity[chatId] = { status: retryCount > 0 ? `Retry ${retryCount + 1}: Thinking...` : 'Agent is thinking...', steps: [] };
               }
-              
-              // Check if done
-              if (!poll.isActive && poll.turnCount > 0) {
-                const lastTurn = poll.turns[poll.turns.length - 1];
-                const response = lastTurn?.assistant || poll.lastAssistant || '';
-                
-                // Detect an incomplete turn:
-                //  (a) crash — tools ran but the agent produced no response text
-                //      at all, or
-                //  (b) preamble-only — the agent's text was an interstitial
-                //      ("…now let me compute and summarize") emitted BEFORE its
-                //      last tool, and the turn ended on that tool with no
-                //      concluding summary. In the step trace such preamble text
-                //      survives as a 'comment' step with tool steps AFTER it (a
-                //      genuinely finished turn's final message is deduped off the
-                //      tail by the server parser, so it won't match).
-                const steps = lastTurn?.steps || [];
-                const toolCount = steps.filter(s => s.type === 'tool').length;
-                let _preIdx = -1;
-                for (let i = 0; i < steps.length; i++) {
-                  if (steps[i].type === 'comment' && steps[i].content === response) _preIdx = i;
-                }
-                const endedOnToolAfterText = _preIdx >= 0 && steps.slice(_preIdx + 1).some(s => s.type === 'tool' || s.type === 'tool_start');
-                const isCrash = !response && toolCount > 0;
-                const isIncomplete = !!response && endedOnToolAfterText;
+            },
+            onError: async (msg) => {
+              this.typingChats[chatId] = false;
+              delete this.chatActivity[chatId];
+              await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'assistant', content: msg })
+              });
+              if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+            },
+            onDone: async ({ response, steps, lastTurn }) => {
+              // Detect an incomplete turn:
+              //  (a) crash — tools ran but the agent produced no response text at
+              //      all, or
+              //  (b) preamble-only — the agent's text was an interstitial emitted
+              //      BEFORE its last tool, and the turn ended on that tool with no
+              //      concluding summary. Such preamble text survives as a 'comment'
+              //      step with tool steps AFTER it (a genuinely finished turn's final
+              //      message is deduped off the tail by the server parser).
+              const toolCount = steps.filter(s => s.type === 'tool').length;
+              let _preIdx = -1;
+              for (let i = 0; i < steps.length; i++) {
+                if (steps[i].type === 'comment' && steps[i].content === response) _preIdx = i;
+              }
+              const endedOnToolAfterText = _preIdx >= 0 && steps.slice(_preIdx + 1).some(s => s.type === 'tool' || s.type === 'tool_start');
+              const isCrash = !response && toolCount > 0;
+              const isIncomplete = !!response && endedOnToolAfterText;
 
-                if ((isCrash || isIncomplete) && retryCount < MAX_RETRIES) {
-                  // Auto-retry: send a continuation message
-                  const reason = isCrash
-                    ? `Agent terminated mid-execution (${toolCount} tools ran)`
-                    : `Agent stopped after a tool call without summarizing`;
-                  const retryNote = `⚠️ ${reason}. Auto-continuing… (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`;
-                  await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
-                    method: 'POST',
-                    body: JSON.stringify({ role: 'assistant', content: retryNote })
-                  });
-                  if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
-                  
-                  // Send continuation prompt to the agent
-                  this.chatActivity[chatId] = { status: `Auto-continuing (${retryCount + 2}/${MAX_RETRIES + 1})...`, steps: [] };
-                  await this.request(`/api/agents/${encodeURIComponent(agentId)}/chat`, {
-                    method: 'POST',
-                    body: JSON.stringify({ message: 'Continue where you left off and finish your response — summarize the result for me.', sessionId })
-                  });
-                  
-                  // Recurse with incremented retry
-                  await this.pollAgentChat(agentId, chatId, retryCount + 1);
-                  return;
-                }
-                
-                // Build final response — attach a structured activity trace so
-                // agent chat gets the same "Reasoning & steps" drill-down managers
-                // have, instead of an inline "Tools used:" line.
-                this.typingChats[chatId] = false;
-                delete this.chatActivity[chatId];
-
-                const activity = this.mapAgentSteps(lastTurn?.steps);
-                let richResponse = '';
-                if (response && !isIncomplete) {
-                  richResponse = response;
-                } else if (response && isIncomplete) {
-                  // Retries exhausted but we still have the partial preamble.
-                  richResponse = response + '\n\n_⚠️ The agent stopped after its last tool without finishing the summary. Click **Continue** to have it pick up where it left off._';
-                  this.chatContinueInfo = { chatId, agentId };
-                } else if (isCrash) {
-                  // All retries exhausted
-                  richResponse = `⚠️ Agent terminated after ${toolCount} tool call(s) and ${MAX_RETRIES + 1} attempts. The task may be too large for a single session.`;
-                  // Store continue info for the button
-                  this.chatContinueInfo = { chatId, agentId };
-                } else {
-                  richResponse = '⚠️ Agent completed without producing a response.';
-                }
-
+              if ((isCrash || isIncomplete) && retryCount < MAX_RETRIES) {
+                // Auto-retry: send a continuation message.
+                const reason = isCrash
+                  ? `Agent terminated mid-execution (${toolCount} tools ran)`
+                  : `Agent stopped after a tool call without summarizing`;
+                const retryNote = `⚠️ ${reason}. Auto-continuing… (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`;
                 await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
                   method: 'POST',
-                  body: JSON.stringify({ role: 'assistant', content: richResponse, activity, model: lastTurn?.model || '' })
+                  body: JSON.stringify({ role: 'assistant', content: retryNote })
                 });
                 if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
-                this.scheduleRefresh();
+                this.chatActivity[chatId] = { status: `Auto-continuing (${retryCount + 2}/${MAX_RETRIES + 1})...`, steps: [] };
+                await this.request(`/api/agents/${encodeURIComponent(agentId)}/chat`, {
+                  method: 'POST',
+                  body: JSON.stringify({ message: 'Continue where you left off and finish your response — summarize the result for me.', sessionId })
+                });
+                await this.pollAgentChat(agentId, chatId, retryCount + 1);
                 return;
               }
-            } catch {
-              // keep polling
+
+              // Build final response — attach a structured activity trace so agent
+              // chat gets the same "Reasoning & steps" drill-down managers have.
+              this.typingChats[chatId] = false;
+              delete this.chatActivity[chatId];
+              const activity = this.mapAgentSteps(lastTurn?.steps);
+              let richResponse = '';
+              if (response && !isIncomplete) {
+                richResponse = response;
+              } else if (response && isIncomplete) {
+                richResponse = response + '\n\n_⚠️ The agent stopped after its last tool without finishing the summary. Click **Continue** to have it pick up where it left off._';
+                this.chatContinueInfo = { chatId, agentId };
+              } else if (isCrash) {
+                richResponse = `⚠️ Agent terminated after ${toolCount} tool call(s) and ${MAX_RETRIES + 1} attempts. The task may be too large for a single session.`;
+                this.chatContinueInfo = { chatId, agentId };
+              } else {
+                richResponse = '⚠️ Agent completed without producing a response.';
+              }
+              await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ role: 'assistant', content: richResponse, activity, model: lastTurn?.model || '' })
+              });
+              if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
+              this.scheduleRefresh();
             }
-            // Only bail out after sustained inactivity (or the absolute safety cap).
-            const _now = Date.now();
-            if (_now - lastActivityTs > IDLE_TIMEOUT_MS) { timedOut = true; break; }
-            if (_now - pollStartTs > HARD_CAP_MS) { timedOut = true; break; }
-          }
-          
-          // Timeout
-          this.typingChats[chatId] = false;
-          delete this.chatActivity[chatId];
-          await this.request(`/api/chats/${encodeURIComponent(chatId)}/messages`, {
-            method: 'POST',
-            body: JSON.stringify({ role: 'assistant', content: 'Agent response timed out after 3 minutes with no activity. It may still be running in the background.' })
           });
-          if (this.activeChat && this.activeChat.id === chatId) await this.openChat(chatId, false);
         },
 
         async pollManagerRun(managerId, runId, chatId) {
@@ -32386,17 +32492,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // ---- Guided Create Agent flow ----
         openCreateAgent() {
           this.caReset();
-          this.createAgent.open = true;
           this.caLoadSkills();
+          this.goTo('#/create-agent');
         },
         caReset() {
           this.createAgent = {
             open: false, name: '', description: '', prompt: '',
             genBusy: false, recBusy: false,
             skills: [], skillsLoading: false, selected: {}, recommended: {}, skillQ: '', recOnly: false, skillGroups: {}, tab: 'skills',
-            other: { kind: 'github', org: '', project: '', repo: '', branch: '', busy: false, error: '', source: null, exists: false, entries: [], q: '' },
+            other: { kind: 'github', org: '', project: '', repo: '', branch: '', busy: false, error: '', source: null, exists: false, entries: [], q: '', repos: [], branches: [], loadingRepos: false, loadingBranches: false, repoOpen: false, repoQuery: '' },
             tempSelected: {}, confirmSources: { open: false, busy: false, error: '', sources: [] },
-            chat: { input: '', transcript: [], sessionId: null, configSig: '', running: false, status: '', error: '' },
+            chat: { input: '', messages: [], live: null, sessionId: null, configSig: '', running: false, status: '', error: '' },
             creating: false, error: '',
           };
         },
@@ -32523,6 +32629,64 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             o.error = e.message || 'Could not browse that source.';
           } finally { o.busy = false; }
         },
+        // Auto-load repos/branches for the "Other source" tab (mirrors the Code Flow
+        // dev picker) so the user selects instead of hand-typing repo + branch names.
+        async caOtherLoadRepos() {
+          const o = this.createAgent.other;
+          const provider = o.kind === 'github' ? 'github' : 'azdo';
+          const org = (o.org || '').trim(), project = (o.project || '').trim();
+          o.error = ''; o.repos = [];
+          if (!org || (provider === 'azdo' && !project)) return;
+          o.loadingRepos = true;
+          try {
+            const url = '/api/forge/repos?provider=' + provider + '&org=' + encodeURIComponent(org)
+              + (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '');
+            const data = await this.request(url);
+            o.repos = data.repos || [];
+            if (!o.repos.length) { o.error = 'No repositories found (or no access).'; return; }
+            if (o.repo && o.repos.some(r => r.name === o.repo)) { o.repoQuery = o.repo; await this.caOtherLoadBranches(true); }
+            else { o.repo = ''; o.repoQuery = ''; o.branch = ''; o.branches = []; }
+          } catch (e) {
+            o.error = e.message || 'Could not list repositories';
+          } finally { o.loadingRepos = false; }
+        },
+        caOtherReposFiltered() {
+          const o = this.createAgent.other;
+          const q = (o.repoQuery || '').trim().toLowerCase();
+          const list = q ? o.repos.filter(r => (r.name || '').toLowerCase().includes(q)) : o.repos;
+          return list.slice(0, 200);
+        },
+        caOtherPickRepo(name) {
+          const o = this.createAgent.other;
+          o.repo = name; o.repoQuery = name; o.repoOpen = false;
+          o.branch = ''; o.branches = [];
+          this.caOtherLoadBranches(false);
+        },
+        caOtherRepoBlur() {
+          setTimeout(() => { this.createAgent.other.repoOpen = false; }, 150);
+        },
+        async caOtherLoadBranches(preserve) {
+          const o = this.createAgent.other;
+          const provider = o.kind === 'github' ? 'github' : 'azdo';
+          const org = (o.org || '').trim(), project = (o.project || '').trim();
+          if (!o.repo) return;
+          o.loadingBranches = true;
+          try {
+            const url = '/api/forge/branches?provider=' + provider + '&org=' + encodeURIComponent(org)
+              + (provider === 'azdo' ? '&project=' + encodeURIComponent(project) : '')
+              + '&repo=' + encodeURIComponent(o.repo);
+            const data = await this.request(url);
+            o.branches = data.branches || [];
+            const r = o.repos.find(x => x.name === o.repo);
+            if (preserve && o.branch && o.branches.includes(o.branch)) { /* keep current */ }
+            else if (r && r.defaultBranch && o.branches.includes(r.defaultBranch)) { o.branch = r.defaultBranch; }
+            else if (o.branches.includes('main')) { o.branch = 'main'; }
+            else if (o.branches.includes('master')) { o.branch = 'master'; }
+            else { o.branch = o.branches[0] || ''; }
+          } catch (e) {
+            o.error = e.message || 'Could not list branches';
+          } finally { o.loadingBranches = false; }
+        },
         async caRecommendSkills() {
           const c = this.createAgent;
           c.recBusy = true; c.error = '';
@@ -32564,53 +32728,67 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           c.chat.error = ''; c.chat.input = '';
           const sig = this.caConfigSig();
           const dirty = !c.chat.sessionId || sig !== c.chat.configSig;
-          if (dirty && c.chat.transcript.length) {
+          if (dirty && c.chat.messages.length) {
             // Prompt/skills changed → the draft agent is different. Start fresh so
             // the visible conversation matches the (re-staged) server session.
-            c.chat.transcript = [];
+            c.chat.messages = [];
           }
-          c.chat.transcript.push({ role: 'user', text: msg });
-          const agentTurn = { role: 'agent', text: '', steps: [], status: 'Thinking…', active: true };
-          c.chat.transcript.push(agentTurn);
+          c.chat.messages.push({ role: 'user', content: msg, activity: [], timestamp: Date.now() });
           c.chat.running = true; c.chat.status = 'Thinking…';
+          c.chat.live = { status: 'Thinking…', steps: [] };
+          let warn = '';
           try {
             if (dirty) {
               const r = await this.request('/api/marketplace/design/test', { method: 'POST', body: JSON.stringify({ proposal: this.caProposal(), prompt: msg }) });
               c.chat.sessionId = r.sessionId;
               c.chat.configSig = sig;
-              if (r.failed && r.failed.length) agentTurn.text = `⚠ ${r.failed.length} skill(s) could not be attached for this preview.\n\n`;
+              if (r.failed && r.failed.length) warn = `⚠ ${r.failed.length} skill(s) could not be attached for this preview.\n\n`;
             } else {
               await this.request(`/api/sessions/${c.chat.sessionId}/chat`, { method: 'POST', body: JSON.stringify({ message: msg }) });
             }
-            this.caPoll(agentTurn);
+            this.caPoll(warn);
           } catch (e) {
-            agentTurn.status = ''; agentTurn.active = false; c.chat.running = false; c.chat.status = '';
+            c.chat.live = null; c.chat.running = false; c.chat.status = '';
             c.chat.error = e.message || 'Chat failed';
           }
         },
-        async caPoll(agentTurn) {
+        // Map raw poll steps → the live activity-step shape the main chat uses
+        // ({type:'tool'|'thinking', tool, content, success}) so the draft chat's
+        // running stream renders with the exact same markup/CSS.
+        caLiveSteps(steps) {
+          return (steps || []).map((s) => {
+            const isTool = s.type === 'tool' || s.type === 'tool_start';
+            if (isTool) return { type: 'tool', tool: s.tool || 'tool', success: s.success, content: (s.result || s.content || '') };
+            const content = (s.content || s.reasoning || '').trim();
+            return content ? { type: 'thinking', content } : null;
+          }).filter(Boolean);
+        },
+        caPoll(warn) {
           const c = this.createAgent;
-          if (!c.chat.sessionId) { c.chat.running = false; c.chat.status = ''; if (agentTurn) { agentTurn.status = ''; agentTurn.active = false; } return; }
-          const base = agentTurn.text && agentTurn.text.startsWith('⚠') ? agentTurn.text.split('\n\n')[0] + '\n\n' : '';
-          try {
-            const r = await fetch(`/api/sessions/${c.chat.sessionId}/poll?verbose=1`);
-            if (r.ok) {
-              const data = await r.json();
-              const lastTurn = (data.turns && data.turns.length) ? data.turns[data.turns.length - 1] : null;
-              if (lastTurn && Array.isArray(lastTurn.steps)) agentTurn.steps = lastTurn.steps;
-              if (data.lastAssistant) agentTurn.text = base + data.lastAssistant;
-              if (data.chatError) { c.chat.error = data.chatError; c.chat.running = false; c.chat.status = ''; agentTurn.status = ''; agentTurn.active = false; return; }
-              if (data.isActive) {
-                const n = agentTurn.steps ? agentTurn.steps.length : 0;
-                agentTurn.status = data.lastAssistant ? 'Responding…' : (n ? 'Working…' : 'Thinking…');
-                c.chat.status = agentTurn.status;
-                setTimeout(() => this.caPoll(agentTurn), 900); return;
-              }
-            }
-          } catch (_) {
-            setTimeout(() => this.caPoll(agentTurn), 1500); return;
-          }
-          agentTurn.status = ''; agentTurn.active = false; c.chat.running = false; c.chat.status = '';
+          warn = warn || '';
+          if (!c.chat.sessionId) { c.chat.live = null; c.chat.running = false; c.chat.status = ''; return; }
+          // Drive the ephemeral draft chat through the SAME shared poller the
+          // persistent agent chat uses, and render its output through the SAME
+          // message/activity mechanism (mapAgentSteps + live agent-activity).
+          return this.pollSessionTurn(c.chat.sessionId, {
+            onActivity: ({ steps, elapsed, lastAssistant }) => {
+              const live = this.caLiveSteps(steps);
+              const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
+              const status = `${phase}… ${elapsed}s`;
+              c.chat.live = { status, steps: live };
+              c.chat.status = status;
+            },
+            onError: (msg) => {
+              c.chat.live = null; c.chat.running = false; c.chat.status = '';
+              c.chat.error = msg || 'Chat failed';
+            },
+            onDone: ({ response, steps, model }) => {
+              const activity = this.mapAgentSteps(steps);
+              const body = warn + (response || '_(The agent finished without a text response. Try rephrasing, or adjust the prompt or skills.)_');
+              c.chat.messages.push({ role: 'agent', content: body, activity, model: model || '', timestamp: Date.now() });
+              c.chat.live = null; c.chat.running = false; c.chat.status = '';
+            },
+          });
         },
         async caCreate() {
           const c = this.createAgent;
@@ -32656,8 +32834,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const nm = (r.created && r.created.name) || c.name.trim();
             const nAttached = (r.attached && r.attached.length) || 0;
             this.showToast('Agent created', `${nm}${nAttached ? ` · ${nAttached} skill${nAttached === 1 ? '' : 's'}` : ''} is ready to assign or use from the marketplace.`, 'info');
-            this.createAgent.open = false;
             if (typeof this.refreshAll === 'function') { try { await this.refreshAll(false); } catch (_) {} }
+            this.goTo('#/agents');
           } catch (e) {
             c.error = e.message || 'Create failed';
             this.showToast('Create failed', c.error, 'error');

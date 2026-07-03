@@ -24,9 +24,38 @@ const crypto = require('crypto');
 const { Readable } = require('stream');
 
 const REPO = process.env.THEOFFICE_UPDATE_REPO || 'chcosta/TheOffice.AI';
-const CHECK_CACHE_MS = 15 * 60 * 1000; // don't hammer the unauthenticated GitHub API
+const CHECK_CACHE_MS = 15 * 60 * 1000; // cache release lookups; avoid needless GitHub traffic
 const DOWNLOAD_IDLE_MS = 90 * 1000;    // abort a stalled read; we retry
 const DOWNLOAD_RETRIES = 3;
+
+// Optional GitHub auth for update checks/downloads. Unauthenticated github.com is
+// capped at ~60 requests/hour PER IP — shared across everyone behind a corporate
+// NAT — and serves an HTML "you're scraping GitHub" rate-limit page rather than a
+// JSON error. Attaching a token (best-effort, via the same gh/env/PAT resolution
+// as the rest of the app) lifts this to 5,000/hour and authenticates the initial
+// github.com hit for asset downloads. A packaged desktop may legitimately have NO
+// token (fresh install, no `gh`) — in that case we fall back to unauthenticated.
+// Node's fetch strips the Authorization header on the cross-origin redirect from
+// github.com to the asset CDN, so signed download URLs keep working.
+let _ghProvider; // undefined = not yet resolved; null = unavailable
+function _ghToken() {
+  try {
+    if (_ghProvider === undefined) {
+      try { _ghProvider = require('./github'); } catch { _ghProvider = null; }
+    }
+    if (_ghProvider && typeof _ghProvider.getToken === 'function') {
+      const t = _ghProvider.getToken();
+      return (typeof t === 'string' && t.trim()) ? t.trim() : '';
+    }
+  } catch { /* no token available (fresh install / no gh) — unauthenticated fallback */ }
+  return '';
+}
+function _authHeaders(extra) {
+  const h = Object.assign({ 'User-Agent': 'TheOffice.AI-Updater' }, extra || {});
+  const t = _ghToken();
+  if (t) h.Authorization = 'Bearer ' + t;
+  return h;
+}
 
 // A local (never OneDrive-synced) staging area + a marker the Rust shell reads.
 const BASE_DIR = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'TheOffice.AI');
@@ -98,11 +127,10 @@ let _checkCache = { at: 0, current: '', result: null };
 
 async function fetchJson(url) {
   const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'TheOffice.AI-Updater',
+    headers: _authHeaders({
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
-    },
+    }),
   });
   if (!res.ok) throw new Error(`GitHub API ${res.status} ${res.statusText}`);
   return res.json();
@@ -224,7 +252,7 @@ async function downloadTo(url, dest, onProgress) {
   try {
     const res = await fetch(url, {
       redirect: 'follow',
-      headers: { 'User-Agent': 'TheOffice.AI-Updater' },
+      headers: _authHeaders(),
       signal: controller.signal,
     });
     if (!res.ok || !res.body) throw new Error(`download ${res.status} ${res.statusText}`);
@@ -267,7 +295,7 @@ async function _run(best) {
     let expected = '';
     if (best.shaUrl) {
       try {
-        const res = await fetch(best.shaUrl, { headers: { 'User-Agent': 'TheOffice.AI-Updater' } });
+        const res = await fetch(best.shaUrl, { headers: _authHeaders() });
         if (res.ok) expected = (await res.text()).trim().split(/\s+/)[0].toLowerCase();
       } catch { /* verification is best-effort if the sidecar is unreachable */ }
     }
@@ -367,7 +395,7 @@ async function _runDelta(best) {
     let expected = '';
     if (best.deltaShaUrl) {
       try {
-        const res = await fetch(best.deltaShaUrl, { headers: { 'User-Agent': 'TheOffice.AI-Updater' } });
+        const res = await fetch(best.deltaShaUrl, { headers: _authHeaders() });
         if (res.ok) expected = (await res.text()).trim().split(/\s+/)[0].toLowerCase();
       } catch { /* best effort */ }
     }
