@@ -78,40 +78,38 @@ function getSource(id) {
 }
 
 // input: { kind:'local', path } | { kind:'azdo', org, project, repo, branch, label? }
-function addSource(input) {
+//      | { kind:'github', org|owner, repo, branch, label? }
+// Build the normalized source object (id/kind/label/fields) WITHOUT touching
+// persisted state. Shared by addSource (persists) and previewSource (ephemeral)
+// so a temporary preview derives the SAME id a real add would — keeping catalog
+// ids, materialization cache dirs, and "new since" stable if it's added later.
+function normalizeSource(input) {
   if (!input || !input.kind) throw new Error('kind is required');
-  const sources = listSources();
-  let source;
   if (input.kind === 'local') {
     const dir = String(input.path || '').trim();
     if (!dir) throw new Error('path is required for a local source');
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
       throw new Error(`Not a directory: ${dir}`);
     }
-    const id = 'local-' + shortHash(path.resolve(dir).toLowerCase());
-    if (sources.some(s => s.id === id)) throw new Error('That folder is already a source');
-    source = {
-      id, kind: 'local',
+    return {
+      id: 'local-' + shortHash(path.resolve(dir).toLowerCase()), kind: 'local',
       label: input.label || path.basename(dir.replace(/[\\/]+$/, '')) || dir,
       local: { path: path.resolve(dir) },
-      addedAt: new Date().toISOString(),
-      lastScannedAt: null,
-      counts: {},
+      addedAt: new Date().toISOString(), lastScannedAt: null, counts: {},
     };
   } else if (input.kind === 'azdo') {
-    const { org, project, repo, branch } = input;
+    const org = String(input.org || '').trim();
+    const project = String(input.project || '').trim();
+    const repo = String(input.repo || '').trim();
+    const branch = String(input.branch || '').trim();
     if (!org || !project || !repo || !branch) {
       throw new Error('org, project, repo and branch are required for an azdo source');
     }
-    const id = 'azdo-' + shortHash([org, project, repo, branch].join('/').toLowerCase());
-    if (sources.some(s => s.id === id)) throw new Error('That AzDO repo/branch is already a source');
-    source = {
-      id, kind: 'azdo',
+    return {
+      id: 'azdo-' + shortHash([org, project, repo, branch].join('/').toLowerCase()), kind: 'azdo',
       label: input.label || `${repo}@${branch}`,
       azdo: { org, project, repo, branch },
-      addedAt: new Date().toISOString(),
-      lastScannedAt: null,
-      counts: {},
+      addedAt: new Date().toISOString(), lastScannedAt: null, counts: {},
     };
   } else if (input.kind === 'github') {
     // GitHub has no "project" — the owner lives in `org`. Mirrors the azdo shape
@@ -122,22 +120,45 @@ function addSource(input) {
     if (!org || !repo || !branch) {
       throw new Error('owner (org), repo and branch are required for a github source');
     }
-    const id = 'github-' + shortHash([org, repo, branch].join('/').toLowerCase());
-    if (sources.some(s => s.id === id)) throw new Error('That GitHub repo/branch is already a source');
-    source = {
-      id, kind: 'github',
+    return {
+      id: 'github-' + shortHash([org, repo, branch].join('/').toLowerCase()), kind: 'github',
       label: input.label || `${repo}@${branch}`,
       github: { org, project: '', repo, branch },
-      addedAt: new Date().toISOString(),
-      lastScannedAt: null,
-      counts: {},
+      addedAt: new Date().toISOString(), lastScannedAt: null, counts: {},
     };
-  } else {
-    throw new Error(`Unknown source kind: ${input.kind}`);
+  }
+  throw new Error(`Unknown source kind: ${input.kind}`);
+}
+
+function addSource(input) {
+  const sources = listSources();
+  const source = normalizeSource(input);
+  if (sources.some(s => s.id === source.id)) {
+    throw new Error(source.kind === 'local' ? 'That folder is already a source'
+      : source.kind === 'azdo' ? 'That AzDO repo/branch is already a source'
+      : 'That GitHub repo/branch is already a source');
   }
   sources.push(source);
   saveSources(sources);
   return source;
+}
+
+// Scan a repo/branch WITHOUT adding it as a permanent source. Used by the
+// "browse other source" step of Create Agent: the returned entries carry the
+// same azdo/github + repoPath fields as a real scan, so they can be attached to
+// a draft agent (materializeForAttach downloads on demand) even though the
+// source isn't persisted. `exists` tells the caller whether the source is
+// already added (so it can skip the add-source prompt on create).
+async function previewSource(input) {
+  const source = normalizeSource(input);
+  const exists = listSources().some(s => s.id === source.id);
+  let entries;
+  if (source.kind === 'local') entries = scanLocal(source);
+  else if (source.kind === 'github') entries = await scanGithub(source);
+  else entries = await scanAzdo(source);
+  const counts = {};
+  for (const e of entries) counts[e.type] = (counts[e.type] || 0) + 1;
+  return { source, exists, entries, counts };
 }
 
 function removeSource(id) {
@@ -666,6 +687,8 @@ module.exports = {
   listSources,
   getSource,
   addSource,
+  normalizeSource,
+  previewSource,
   removeSource,
   suggestSources,
   scanLocal,

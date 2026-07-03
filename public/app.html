@@ -4869,6 +4869,10 @@
       0%, 100% { transform: scale(1); opacity: 0.75; }
       50% { transform: scale(1.14); opacity: 1; }
     }
+    .ca-thinking-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--cp-accent); animation: pulseDot 1s ease-in-out infinite; flex: 0 0 auto;
+    }
     @keyframes bounceDots {
       0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
       40% { transform: translateY(-4px); opacity: 1; }
@@ -8729,7 +8733,7 @@
                   <h2 class="modal-title">Create Agent</h2>
                   <button class="icon-button" type="button" @click="createAgent.open=false">✕</button>
                 </div>
-                <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;max-height:78vh;min-height:520px">
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;max-height:78vh;min-height:520px;overflow:hidden">
                   <!-- LEFT: configuration -->
                   <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:auto;border-right:1px solid var(--cp-border)">
                     <p class="hint" style="margin:0">Name your agent and describe what it should do. Let AI draft its prompt, attach skills, then chat with the draft below. Create it when you're happy — it becomes available to teams and the marketplace like any other agent.</p>
@@ -8751,47 +8755,142 @@
                         <button class="btn" type="button" @click="caGeneratePrompt()" :disabled="createAgent.genBusy"
                           x-text="createAgent.genBusy ? 'Generating…' : (createAgent.prompt ? '✨ Regenerate' : '✨ Generate with AI')"></button>
                       </div>
-                      <textarea class="field-input" x-model="createAgent.prompt" rows="9"
+                      <textarea class="field-input" x-model="createAgent.prompt" rows="14"
                         placeholder="The agent's system prompt. Generate one with AI, then refine it here."
                         style="resize:vertical;font-family:var(--cp-mono, ui-monospace, monospace);font-size:12.5px;line-height:1.5"></textarea>
-                    </div>
-
-                    <div>
-                      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
-                        <div class="field-label" style="margin:0">Skills
-                          <span class="hint" style="margin:0;font-weight:400"><span x-text="caSelectedNames().length"></span> selected</span>
-                        </div>
-                        <button class="btn" type="button" @click="caRecommendSkills()" :disabled="createAgent.recBusy"
-                          x-text="createAgent.recBusy ? 'Thinking…' : '💡 Recommend skills'"></button>
-                      </div>
-                      <input class="field-input" type="text" x-model="createAgent.skillQ" placeholder="Filter skills…" style="margin-bottom:6px" />
-                      <div x-show="createAgent.skillsLoading" class="hint" style="margin:0">Loading skills…</div>
-                      <div x-show="!createAgent.skillsLoading && !createAgent.skills.length" class="hint" style="margin:0">No skills in the catalog yet. Add sources from the marketplace to build a toolbox.</div>
-                      <div x-show="!createAgent.skillsLoading && createAgent.skills.length" style="max-height:220px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px">
-                        <template x-for="sk in caFilteredSkills()" :key="sk.name">
-                          <label style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--cp-border)"
-                            :style="createAgent.recommended[sk.name] !== undefined ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : ''">
-                            <input type="checkbox" :checked="!!createAgent.selected[sk.name]" @change="caToggleSkill(sk.name)" style="margin-top:2px" />
-                            <span style="flex:1;min-width:0">
-                              <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
-                              <span x-show="createAgent.recommended[sk.name] !== undefined" class="hint" style="margin:0;color:var(--cp-accent);font-weight:600"> · recommended</span>
-                              <span class="hint" style="margin:0;display:block;overflow:hidden;text-overflow:ellipsis" x-text="createAgent.recommended[sk.name] || sk.description || ''"></span>
-                            </span>
-                          </label>
-                        </template>
-                      </div>
                     </div>
 
                     <div x-show="createAgent.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.error"></div>
                   </div>
 
-                  <!-- RIGHT: live draft chat -->
-                  <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-height:0">
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                      <div class="field-label" style="margin:0">Chat with the draft</div>
-                      <span class="hint" style="margin:0" x-show="createAgent.chat.status" x-text="createAgent.chat.status"></span>
+                  <!-- RIGHT: skills marketplace (default) + live draft chat -->
+                  <div style="padding:14px 18px 16px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden">
+                    <!-- Tabs: Skills is the always-visible default; Chat is one click away -->
+                    <div style="display:flex;gap:18px;border-bottom:1px solid var(--cp-border)">
+                      <button type="button" @click="createAgent.tab='skills'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='skills' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Skills <span style="font-weight:400" x-text="caAttachedCount()"></span>
+                      </button>
+                      <button type="button" @click="createAgent.tab='other'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='other' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Other source<span x-show="caTempList().length" style="font-weight:400"> · <span x-text="caTempList().length"></span></span>
+                      </button>
+                      <button type="button" @click="createAgent.tab='chat'"
+                        :style="'background:none;border:none;cursor:pointer;padding:4px 2px 8px;font-size:14px;font-weight:600;' + (createAgent.tab==='chat' ? 'color:var(--cp-text);box-shadow:inset 0 -2px 0 var(--cp-accent)' : 'color:var(--cp-text-muted)')">
+                        Chat with draft
+                      </button>
                     </div>
-                    <p class="hint" style="margin:0">Test the agent live before creating it. You'll see its thinking, tool calls, and response. Editing the prompt or skills starts a fresh draft session on your next message.</p>
+
+                    <!-- SKILLS TAB: browse & attach marketplace skills inline -->
+                    <div x-show="createAgent.tab==='skills'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
+                      <!-- Skills attached from a temporary "other source" (not in the marketplace list below) -->
+                      <div x-show="caTempList().length" style="border:1px solid var(--cp-accent);border-radius:8px;background:var(--cp-accent-soft);padding:8px 10px">
+                        <div class="hint" style="margin:0 0 6px;font-weight:600;color:var(--cp-text)">From other sources <span style="font-weight:400" x-text="caTempList().length"></span></div>
+                        <template x-for="t in caTempList()" :key="t.entry.id">
+                          <div style="display:flex;align-items:flex-start;gap:8px;padding:3px 0">
+                            <span style="flex:1;min-width:0">
+                              <span style="font-weight:600;color:var(--cp-text)" x-text="t.entry.name"></span>
+                              <span class="hint" style="margin:0;color:var(--cp-text-muted)"> · <span x-text="(t.source && t.source.label) || 'temporary'"></span></span>
+                              <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="t.entry.description || ''"></span>
+                            </span>
+                            <a href="#" @click.prevent="caRemoveTemp(t.entry.id)" class="hint" style="margin:0;color:var(--cp-text-muted);white-space:nowrap">Remove</a>
+                          </div>
+                        </template>
+                        <div class="hint" style="margin:6px 0 0;color:var(--cp-text-muted)">These come from a temporary source. You'll be asked to add it to your marketplace sources when you create the agent.</div>
+                      </div>
+                      <div style="display:flex;gap:8px;align-items:center">
+                        <input class="field-input" type="text" x-model="createAgent.skillQ" placeholder="Search marketplace skills by name, description, or source…" style="flex:1" />
+                        <button class="btn" type="button" @click="caRecommendSkills()" :disabled="createAgent.recBusy"
+                          x-text="createAgent.recBusy ? 'Thinking…' : '💡 Recommend'"></button>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+                        <span class="hint" style="margin:0"><span x-text="caAttachedCount()"></span> attached</span>
+                        <label x-show="Object.keys(createAgent.recommended).length" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--cp-text)">
+                          <input type="checkbox" x-model="createAgent.recOnly" />
+                          <span>Recommended only (<span x-text="Object.keys(createAgent.recommended).length"></span>)</span>
+                        </label>
+                        <a x-show="caSelectedNames().length" href="#" @click.prevent="caClearSkills()" class="hint" style="margin:0;color:var(--cp-text-muted)">Clear</a>
+                      </div>
+
+                      <div style="flex:1;min-height:220px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:6px 8px">
+                        <div x-show="createAgent.skillsLoading" class="hint" style="margin:8px 4px">Loading skills…</div>
+                        <div x-show="!createAgent.skillsLoading && !createAgent.skills.length" class="hint" style="margin:8px 4px">No skills in the catalog yet. Add sources from the marketplace to build a toolbox.</div>
+                        <div x-show="!createAgent.skillsLoading && createAgent.skills.length && !caGroupedSkills().length" class="hint" style="margin:8px 4px">No skills match your search.</div>
+                        <template x-for="grp in caGroupedSkills()" :key="grp.source">
+                          <div style="margin-top:8px">
+                            <button type="button" @click="caToggleGroup(grp.source)"
+                              style="display:flex;align-items:center;gap:6px;width:100%;background:none;border:none;cursor:pointer;padding:2px 0;text-align:left;color:var(--cp-text)">
+                              <span style="display:inline-block;width:12px;color:var(--cp-text-muted);transition:transform .12s" :style="caGroupOpen(grp.source) ? 'transform:rotate(90deg)' : ''">›</span>
+                              <span style="font-weight:600;font-size:12.5px" x-text="grp.source"></span>
+                              <span class="hint" style="margin:0;color:var(--cp-text-muted)" x-text="grp.items.length"></span>
+                              <span x-show="grp.selectedCount" class="hint" style="margin:0;color:var(--cp-accent)" x-text="'· ' + grp.selectedCount + ' on'"></span>
+                            </button>
+                            <div x-show="caGroupOpen(grp.source)" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface);margin-top:4px">
+                              <template x-for="(sk, ski) in grp.items" :key="sk.name">
+                                <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
+                                  :style="(ski < grp.items.length-1 ? 'border-bottom:1px solid var(--cp-border);' : '') + (createAgent.recommended[sk.name] !== undefined ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : '')">
+                                  <input type="checkbox" :checked="!!createAgent.selected[sk.name]" @change="caToggleSkill(sk.name)" style="margin-top:2px" />
+                                  <span style="flex:1;min-width:0">
+                                    <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
+                                    <span x-show="createAgent.recommended[sk.name] !== undefined" class="hint" style="margin:0;color:var(--cp-accent);font-weight:600"> · recommended</span>
+                                    <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="createAgent.recommended[sk.name] || sk.description || ''"></span>
+                                  </span>
+                                </label>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
+                    <!-- OTHER SOURCE TAB: browse a temporary ADO/GitHub repo and attach its skills -->
+                    <div x-show="createAgent.tab==='other'" style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
+                      <p class="hint" style="margin:0">Point at any Azure DevOps or GitHub repo/branch to browse its skills. Skills you attach here are used to build and test the agent right away — you'll be asked to add the source to your marketplace when you create the agent.</p>
+                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <select class="field-input" x-model="createAgent.other.kind" style="width:auto">
+                          <option value="github">GitHub</option>
+                          <option value="azdo">Azure DevOps</option>
+                        </select>
+                        <input class="field-input" type="text" x-model="createAgent.other.org" :placeholder="createAgent.other.kind==='azdo' ? 'Organization' : 'Owner'" style="flex:1;min-width:120px" />
+                        <input x-show="createAgent.other.kind==='azdo'" class="field-input" type="text" x-model="createAgent.other.project" placeholder="Project" style="flex:1;min-width:110px" />
+                        <input class="field-input" type="text" x-model="createAgent.other.repo" placeholder="Repo" style="flex:1;min-width:110px" />
+                        <input class="field-input" type="text" x-model="createAgent.other.branch" placeholder="Branch" style="width:120px" />
+                        <button class="btn primary" type="button" @click="caBrowseOtherSource()" :disabled="createAgent.other.busy"
+                          x-text="createAgent.other.busy ? 'Browsing…' : 'Browse'"></button>
+                      </div>
+                      <div x-show="createAgent.other.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.other.error"></div>
+
+                      <div x-show="createAgent.other.source" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                        <span class="hint" style="margin:0;color:var(--cp-text)"><span x-text="createAgent.other.source && createAgent.other.source.label"></span> <span style="color:var(--cp-text-muted)" x-text="caOtherSkills().length + ' skill' + (caOtherSkills().length===1?'':'s')"></span></span>
+                        <span x-show="createAgent.other.exists" class="hint" style="margin:0;color:var(--cp-accent)">already a marketplace source</span>
+                        <span x-show="!createAgent.other.exists && createAgent.other.source" class="hint" style="margin:0;color:var(--cp-text-muted)">temporary — not yet added</span>
+                        <input x-show="caOtherSkills().length || createAgent.other.q" class="field-input" type="text" x-model="createAgent.other.q" placeholder="Filter skills…" style="flex:1;min-width:140px" />
+                      </div>
+
+                      <div x-show="createAgent.other.source" style="flex:1;min-height:180px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface-soft);padding:6px 8px">
+                        <div x-show="!caOtherSkills().length" class="hint" style="margin:8px 4px">No skills match.</div>
+                        <div x-show="caOtherSkills().length" style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface)">
+                          <template x-for="(sk, ski) in caOtherSkills()" :key="sk.id">
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 11px;cursor:pointer"
+                              :style="ski < caOtherSkills().length-1 ? 'border-bottom:1px solid var(--cp-border)' : ''">
+                              <input type="checkbox" :checked="caIsTempSelected(sk)" @change="caToggleTempSkill(sk)" style="margin-top:2px" />
+                              <span style="flex:1;min-width:0">
+                                <span style="font-weight:600;color:var(--cp-text)" x-text="sk.name"></span>
+                                <span class="hint" style="margin:0;display:block;overflow-wrap:anywhere" x-text="sk.description || ''"></span>
+                              </span>
+                            </label>
+                          </template>
+                        </div>
+                      </div>
+                      <div x-show="!createAgent.other.source && !createAgent.other.busy" class="hint" style="margin:0;flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--cp-text-muted)">Enter a repo and branch, then Browse to see its skills.</div>
+                    </div>
+
+                    <!-- CHAT TAB: live draft chat -->
+                    <div x-show="createAgent.tab==='chat'" style="display:flex;flex-direction:column;gap:10px;min-height:0;flex:1">
+                      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                        <p class="hint" style="margin:0;flex:1">Test the agent live before creating it. You'll see its thinking, tool calls, and response. Editing the prompt or skills starts a fresh draft session on your next message.</p>
+                        <span class="hint" style="margin:0;white-space:nowrap" x-show="createAgent.chat.status" x-text="createAgent.chat.status"></span>
+                      </div>
 
                     <div style="flex:1;min-height:220px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px;padding:12px;background:var(--cp-surface-soft);display:flex;flex-direction:column;gap:12px">
                       <div x-show="!createAgent.chat.transcript.length" class="hint" style="margin:auto;text-align:center">Say hello to your draft agent to see how it behaves.</div>
@@ -8799,12 +8898,12 @@
                         <div>
                           <!-- user -->
                           <div x-show="m.role === 'user'" style="display:flex;justify-content:flex-end">
-                            <div style="max-width:88%;background:var(--cp-accent);color:#fff;padding:8px 11px;border-radius:10px 10px 2px 10px;font-size:13px;white-space:pre-wrap" x-text="m.text"></div>
+                            <div style="max-width:88%;background:var(--cp-accent);color:var(--cp-accent-fg, #fff);padding:8px 11px;border-radius:10px 10px 2px 10px;font-size:13px;white-space:pre-wrap" x-text="m.text"></div>
                           </div>
                           <!-- agent -->
                           <div x-show="m.role === 'agent'" style="display:flex;flex-direction:column;gap:6px">
                             <template x-if="m.steps && m.steps.length">
-                              <details style="border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface)">
+                              <details style="border:1px solid var(--cp-border);border-radius:8px;background:var(--cp-surface)" :open="m.active">
                                 <summary class="hint" style="cursor:pointer;padding:6px 10px;margin:0"><span x-text="m.steps.length"></span> reasoning step<span x-show="m.steps.length !== 1">s</span></summary>
                                 <div style="padding:4px 10px 8px;display:flex;flex-direction:column;gap:6px">
                                   <template x-for="(s, si) in m.steps" :key="si">
@@ -8817,7 +8916,11 @@
                               </details>
                             </template>
                             <div x-show="m.text" class="markdown-body" style="font-size:13px" x-html="renderMarkdown(m.text)"></div>
-                            <div x-show="m.status && !m.text" class="hint" style="margin:0" x-text="m.status"></div>
+                            <div x-show="m.status && !m.text" class="hint" style="margin:0;display:flex;align-items:center;gap:7px">
+                              <span class="ca-thinking-dot"></span>
+                              <span x-text="m.status"></span>
+                              <span x-show="m.steps && m.steps.length" style="color:var(--cp-text-muted)" x-text="'· ' + mktStepLabel(m.steps[m.steps.length-1])"></span>
+                            </div>
                           </div>
                         </div>
                       </template>
@@ -8831,12 +8934,42 @@
                       <button class="btn primary" type="button" @click="caSend()" :disabled="createAgent.chat.running || !createAgent.chat.input.trim()"
                         x-text="createAgent.chat.running ? '…' : 'Send'"></button>
                     </div>
+                    </div>
                   </div>
                 </div>
                 <div class="modal-footer">
                   <button class="btn" type="button" @click="createAgent.open=false">Cancel</button>
                   <button class="btn primary" type="button" @click="caCreate()" :disabled="createAgent.creating || !createAgent.name.trim() || !createAgent.prompt.trim()"
                     x-text="createAgent.creating ? 'Creating…' : 'Create agent'"></button>
+                </div>
+              </div>
+            </div>
+            </template>
+
+            <!-- Confirm adding temporary sources before creating the agent -->
+            <template x-teleport="body">
+            <div class="modal-backdrop modal-overlay" x-show="createAgent.confirmSources.open" x-transition.opacity.duration.150ms @click.self="createAgent.confirmSources.open=false" x-cloak style="z-index:10001">
+              <div class="modal-card" style="max-width:520px;width:92vw">
+                <div class="modal-header">
+                  <h2 class="modal-title">Add source to marketplace?</h2>
+                  <button class="icon-button" type="button" @click="createAgent.confirmSources.open=false">✕</button>
+                </div>
+                <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+                  <p class="hint" style="margin:0">This agent uses skills from a temporary source that isn't in your marketplace yet. To create the agent, the following source will be added to your marketplace sources and scanned:</p>
+                  <div style="border:1px solid var(--cp-border);border-radius:8px;overflow:hidden;background:var(--cp-surface)">
+                    <template x-for="(s, si) in createAgent.confirmSources.sources" :key="s.id">
+                      <div style="padding:9px 11px" :style="si < createAgent.confirmSources.sources.length-1 ? 'border-bottom:1px solid var(--cp-border)' : ''">
+                        <span style="font-weight:600;color:var(--cp-text)" x-text="s.label"></span>
+                        <span class="hint" style="margin:0;color:var(--cp-text-muted)"> · <span x-text="s.kind==='azdo' ? 'Azure DevOps' : 'GitHub'"></span></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div x-show="createAgent.confirmSources.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.confirmSources.error"></div>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn" type="button" @click="createAgent.confirmSources.open=false" :disabled="createAgent.confirmSources.busy">Cancel</button>
+                  <button class="btn primary" type="button" @click="caConfirmSources()" :disabled="createAgent.confirmSources.busy"
+                    x-text="createAgent.confirmSources.busy ? 'Adding…' : 'Add source &amp; create'"></button>
                 </div>
               </div>
             </div>
@@ -15013,11 +15146,26 @@
           prompt: '',
           genBusy: false,       // generating prompt
           recBusy: false,       // recommending skills
-          skills: [],           // catalog skill entries [{name,description,...}]
+          skills: [],           // catalog skill entries [{name,description,sourceLabel,...}]
           skillsLoading: false,
           selected: {},          // { skillName: true }
           recommended: {},       // { skillName: 'why' } highlighted suggestions
           skillQ: '',
+          recOnly: false,        // skills filter: only recommended
+          skillGroups: {},       // { sourceLabel: true } expanded source groups (collapsed by default)
+          tab: 'skills',         // right pane: 'skills' | 'chat' | 'other'
+          // "Browse other source": preview a temporary ADO/GitHub repo's skills
+          other: {
+            kind: 'github',       // 'github' | 'azdo'
+            org: '', project: '', repo: '', branch: '',
+            busy: false, error: '',
+            source: null,         // normalized source returned by preview
+            exists: false,        // already a marketplace source?
+            entries: [],          // skill entries from the temp source
+            q: '',
+          },
+          tempSelected: {},      // { entryId: { entry, source } } skills from temp sources
+          confirmSources: { open: false, busy: false, error: '', sources: [] },
           // Live draft chat
           chat: {
             input: '',
@@ -32245,7 +32393,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.createAgent = {
             open: false, name: '', description: '', prompt: '',
             genBusy: false, recBusy: false,
-            skills: [], skillsLoading: false, selected: {}, recommended: {}, skillQ: '',
+            skills: [], skillsLoading: false, selected: {}, recommended: {}, skillQ: '', recOnly: false, skillGroups: {}, tab: 'skills',
+            other: { kind: 'github', org: '', project: '', repo: '', branch: '', busy: false, error: '', source: null, exists: false, entries: [], q: '' },
+            tempSelected: {}, confirmSources: { open: false, busy: false, error: '', sources: [] },
             chat: { input: '', transcript: [], sessionId: null, configSig: '', running: false, status: '', error: '' },
             creating: false, error: '',
           };
@@ -32276,8 +32426,42 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         caFilteredSkills() {
           const c = this.createAgent;
           const q = c.skillQ.trim().toLowerCase();
-          if (!q) return c.skills;
-          return c.skills.filter(s => (String(s.name) + ' ' + String(s.description || '')).toLowerCase().includes(q));
+          let list = c.skills;
+          if (c.recOnly) list = list.filter(s => c.recommended[s.name] !== undefined);
+          if (!q) return list;
+          return list.filter(s => (String(s.name) + ' ' + String(s.description || '') + ' ' + String(s.sourceLabel || '')).toLowerCase().includes(q));
+        },
+        caGroupedSkills() {
+          const c = this.createAgent;
+          const groups = {};
+          for (const s of this.caFilteredSkills()) {
+            const src = s.sourceLabel || s.sourceId || 'Other';
+            (groups[src] = groups[src] || []).push(s);
+          }
+          return Object.keys(groups).sort((a, b) => a.localeCompare(b)).map(src => {
+            const items = groups[src].sort((a, b) => {
+              const ra = c.recommended[a.name] !== undefined, rb = c.recommended[b.name] !== undefined;
+              if (ra !== rb) return ra ? -1 : 1;
+              return String(a.name).localeCompare(String(b.name));
+            });
+            return { source: src, items, selectedCount: items.filter(s => c.selected[s.name]).length };
+          });
+        },
+        caGroupOpen(src) {
+          const c = this.createAgent;
+          if (c.skillQ.trim()) return true; // auto-expand while searching
+          return !!c.skillGroups[src];
+        },
+        caToggleGroup(src) {
+          const g = this.createAgent.skillGroups;
+          if (g[src]) delete g[src]; else g[src] = true;
+        },
+        caSelectedSkillEntries() {
+          return this.caSelectedNames().map(n => this.createAgent.skills.find(s => s.name === n) || { name: n });
+        },
+        caClearSkills() {
+          this.createAgent.selected = {};
+          this.createAgent.recOnly = false;
         },
         caToggleSkill(name) {
           const sel = this.createAgent.selected;
@@ -32285,6 +32469,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         caSelectedNames() {
           return Object.keys(this.createAgent.selected).filter(k => this.createAgent.selected[k]);
+        },
+        // ---- temporary "other source" skills ----
+        caTempList() {
+          return Object.values(this.createAgent.tempSelected);
+        },
+        caTempSources() {
+          const seen = {}, out = [];
+          for (const t of this.caTempList()) {
+            if (t.source && !seen[t.source.id]) { seen[t.source.id] = true; out.push({ ...t.source, _exists: !!t.exists }); }
+          }
+          return out;
+        },
+        // Temp sources that still need adding to the marketplace on create.
+        caTempSourcesToAdd() {
+          return this.caTempSources().filter(s => !s._exists);
+        },
+        caAttachedCount() {
+          return this.caSelectedNames().length + this.caTempList().length;
+        },
+        caIsTempSelected(entry) {
+          return !!(entry && this.createAgent.tempSelected[entry.id]);
+        },
+        caToggleTempSkill(entry) {
+          const t = this.createAgent.tempSelected;
+          if (t[entry.id]) delete t[entry.id];
+          else t[entry.id] = { entry, source: this.createAgent.other.source, exists: this.createAgent.other.exists };
+        },
+        caRemoveTemp(id) { delete this.createAgent.tempSelected[id]; },
+        caOtherSkills() {
+          const o = this.createAgent.other;
+          const skills = (o.entries || []).filter(e => e.type === 'skill');
+          const q = o.q.trim().toLowerCase();
+          if (!q) return skills;
+          return skills.filter(s => (String(s.name) + ' ' + String(s.description || '')).toLowerCase().includes(q));
+        },
+        async caBrowseOtherSource() {
+          const o = this.createAgent.other;
+          o.error = ''; o.source = null; o.entries = [];
+          const input = { kind: o.kind, org: o.org.trim(), repo: o.repo.trim(), branch: o.branch.trim() };
+          if (o.kind === 'azdo') input.project = o.project.trim();
+          if (!input.org || !input.repo || !input.branch || (o.kind === 'azdo' && !input.project)) {
+            o.error = o.kind === 'azdo' ? 'Org, project, repo and branch are required.' : 'Owner, repo and branch are required.';
+            return;
+          }
+          o.busy = true;
+          try {
+            const r = await this.request('/api/marketplace/sources/preview', { method: 'POST', body: JSON.stringify(input) });
+            o.source = r.source; o.exists = !!r.exists; o.entries = r.entries || [];
+            const n = this.caOtherSkills().length;
+            if (!n) this.showToast('No skills found', 'This repo/branch has no SKILL.md files to add.', 'info');
+          } catch (e) {
+            o.error = e.message || 'Could not browse that source.';
+          } finally { o.busy = false; }
         },
         async caRecommendSkills() {
           const c = this.createAgent;
@@ -32296,7 +32533,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             c.recommended = map;
             const n = Object.keys(map).length;
             if (!n) this.showToast('No strong matches', 'AI did not find clearly useful skills for this agent yet.', 'info');
-            else this.showToast('Skills recommended', `${n} skill${n === 1 ? '' : 's'} highlighted below.`, 'info');
+            else { this.showToast('Skills recommended', `${n} skill${n === 1 ? '' : 's'} highlighted.`, 'info'); c.tab = 'skills'; c.recOnly = true; }
           } catch (e) {
             c.error = e.message || 'Recommendation failed';
             this.showToast('Recommend failed', c.error, 'error');
@@ -32304,7 +32541,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         caConfigSig() {
           const c = this.createAgent;
-          return JSON.stringify({ p: c.prompt.trim(), s: this.caSelectedNames().sort() });
+          return JSON.stringify({ p: c.prompt.trim(), s: this.caSelectedNames().sort(), t: this.caTempList().map(x => x.entry.id).sort() });
         },
         caProposal() {
           const c = this.createAgent;
@@ -32312,7 +32549,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             kind: 'create',
             agent: { name: c.name.trim() || 'New Agent', description: c.description.trim(), body: c.prompt.trim() },
             newName: c.name.trim() || 'New Agent',
-            attach: this.caSelectedNames().map(name => ({ type: 'skill', name })),
+            attach: [
+              ...this.caSelectedNames().map(name => ({ type: 'skill', name })),
+              ...this.caTempList().map(t => ({ type: 'skill', name: t.entry.name, entry: t.entry, temp: true, sourceId: t.source && t.source.id })),
+            ],
           };
         },
         async caSend() {
@@ -32330,7 +32570,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             c.chat.transcript = [];
           }
           c.chat.transcript.push({ role: 'user', text: msg });
-          const agentTurn = { role: 'agent', text: '', steps: [], status: 'Thinking…' };
+          const agentTurn = { role: 'agent', text: '', steps: [], status: 'Thinking…', active: true };
           c.chat.transcript.push(agentTurn);
           c.chat.running = true; c.chat.status = 'Thinking…';
           try {
@@ -32344,13 +32584,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
             this.caPoll(agentTurn);
           } catch (e) {
-            agentTurn.status = ''; c.chat.running = false; c.chat.status = '';
+            agentTurn.status = ''; agentTurn.active = false; c.chat.running = false; c.chat.status = '';
             c.chat.error = e.message || 'Chat failed';
           }
         },
         async caPoll(agentTurn) {
           const c = this.createAgent;
-          if (!c.chat.sessionId) { c.chat.running = false; c.chat.status = ''; if (agentTurn) agentTurn.status = ''; return; }
+          if (!c.chat.sessionId) { c.chat.running = false; c.chat.status = ''; if (agentTurn) { agentTurn.status = ''; agentTurn.active = false; } return; }
           const base = agentTurn.text && agentTurn.text.startsWith('⚠') ? agentTurn.text.split('\n\n')[0] + '\n\n' : '';
           try {
             const r = await fetch(`/api/sessions/${c.chat.sessionId}/poll?verbose=1`);
@@ -32359,7 +32599,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const lastTurn = (data.turns && data.turns.length) ? data.turns[data.turns.length - 1] : null;
               if (lastTurn && Array.isArray(lastTurn.steps)) agentTurn.steps = lastTurn.steps;
               if (data.lastAssistant) agentTurn.text = base + data.lastAssistant;
-              if (data.chatError) { c.chat.error = data.chatError; c.chat.running = false; c.chat.status = ''; agentTurn.status = ''; return; }
+              if (data.chatError) { c.chat.error = data.chatError; c.chat.running = false; c.chat.status = ''; agentTurn.status = ''; agentTurn.active = false; return; }
               if (data.isActive) {
                 const n = agentTurn.steps ? agentTurn.steps.length : 0;
                 agentTurn.status = data.lastAssistant ? 'Responding…' : (n ? 'Working…' : 'Thinking…');
@@ -32370,12 +32610,46 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (_) {
             setTimeout(() => this.caPoll(agentTurn), 1500); return;
           }
-          agentTurn.status = ''; c.chat.running = false; c.chat.status = '';
+          agentTurn.status = ''; agentTurn.active = false; c.chat.running = false; c.chat.status = '';
         },
         async caCreate() {
           const c = this.createAgent;
           if (!c.name.trim()) { this.showToast('Name required', 'Give your agent a name before creating it.', 'info'); return; }
           if (!c.prompt.trim()) { this.showToast('Prompt required', 'Generate or write the agent prompt first.', 'info'); return; }
+          // If any attached skill came from a temporary source not yet in the
+          // marketplace, gate creation behind an approval that adds the source.
+          const temps = this.caTempSourcesToAdd();
+          if (temps.length) {
+            c.confirmSources = { open: true, busy: false, error: '', sources: temps };
+            return;
+          }
+          await this.caApply();
+        },
+        async caConfirmSources() {
+          const c = this.createAgent;
+          c.confirmSources.busy = true; c.confirmSources.error = '';
+          try {
+            // Add each temporary source to the marketplace (idempotent — ignore
+            // "already a source"), then scan so its skills join the catalog.
+            for (const s of c.confirmSources.sources) {
+              const input = s.kind === 'azdo'
+                ? { kind: 'azdo', ...s.azdo }
+                : { kind: 'github', org: s.github.org, repo: s.github.repo, branch: s.github.branch };
+              try {
+                await this.request('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(input) });
+              } catch (e) {
+                if (!/already a source/i.test(e.message || '')) throw e;
+              }
+              try { await this.request(`/api/marketplace/sources/${s.id}/scan`, { method: 'POST' }); } catch (_) {}
+            }
+            c.confirmSources.open = false;
+            await this.caApply();
+          } catch (e) {
+            c.confirmSources.error = e.message || 'Could not add the source.';
+          } finally { c.confirmSources.busy = false; }
+        },
+        async caApply() {
+          const c = this.createAgent;
           c.creating = true; c.error = '';
           try {
             const r = await this.request('/api/marketplace/design/apply', { method: 'POST', body: JSON.stringify({ proposal: this.caProposal(), name: c.name.trim() }) });

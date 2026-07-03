@@ -36,8 +36,13 @@
     FileWrite $R1 "try { $$base = $$InstallDir.TrimEnd('\').ToLowerInvariant() } catch { $$base = $$InstallDir }$\r$\n"
     FileWrite $R1 "$$deadline = (Get-Date).AddSeconds(20)$\r$\n"
     FileWrite $R1 "do {$\r$\n"
-    FileWrite $R1 "  $$procs = @(Get-CimInstance Win32_Process -Filter $\"Name='node.exe' OR Name='TheOffice.AI.exe'$\" -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLowerInvariant().StartsWith($$base) })$\r$\n"
-    FileWrite $R1 "  foreach ($$p in $$procs) { try { Stop-Process -Id $$p.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }$\r$\n"
+    FileWrite $R1 "  $$all = @(Get-CimInstance Win32_Process -Filter $\"Name='node.exe' OR Name='TheOffice.AI.exe'$\" -ErrorAction SilentlyContinue)$\r$\n"
+    FileWrite $R1 "  $$procs = @($$all | Where-Object {$\r$\n"
+    FileWrite $R1 "    ($$_.ExecutablePath -and $$_.ExecutablePath.ToLowerInvariant().StartsWith($$base)) -or$\r$\n"
+    FileWrite $R1 "    ($$_.CommandLine -and $$_.CommandLine.ToLowerInvariant().Contains($$base)) })$\r$\n"
+    FileWrite $R1 "  foreach ($$p in $$procs) {$\r$\n"
+    FileWrite $R1 "    try { & taskkill.exe /F /T /PID $$p.ProcessId 2>$$null | Out-Null } catch {}$\r$\n"
+    FileWrite $R1 "    try { Stop-Process -Id $$p.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }$\r$\n"
     FileWrite $R1 "  if ($$procs.Count -gt 0) { Start-Sleep -Milliseconds 400 }$\r$\n"
     FileWrite $R1 "} while ($$procs.Count -gt 0 -and (Get-Date) -lt $$deadline)$\r$\n"
     FileClose $R1
@@ -46,7 +51,7 @@
   ${EndIf}
 
   ; 3. Small settle so any remaining image-file handles finish releasing.
-  Sleep 700
+  Sleep 1200
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

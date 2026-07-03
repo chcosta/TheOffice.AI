@@ -3597,6 +3597,19 @@ app.post('/api/marketplace/sources', (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Preview a repo/branch's skills WITHOUT adding it as a permanent source. Used
+// by the "browse other source" step of Create Agent. Returns entries carrying
+// the same azdo/github + repoPath fields as a real scan, so the client can
+// attach them to a draft agent; on create the client prompts to add the source.
+app.post('/api/marketplace/sources/preview', async (req, res) => {
+  try { res.json({ ok: true, ...(await marketplace.previewSource(req.body || {})) }); }
+  catch (e) {
+    const msg = e.message || 'Preview failed';
+    const code = /required|unknown|not a directory/i.test(msg) ? 400 : 502;
+    res.status(code).json({ error: msg });
+  }
+});
+
 // Suggest marketplace sources derived from the source locations of installed
 // agents/plugins (azdo repos + local folders). Preview only — nothing is added.
 app.get('/api/marketplace/sources/suggested', (req, res) => {
@@ -4229,7 +4242,10 @@ async function attachCapsToAgent(agentId, attachArr) {
   const failed = [];
   for (const a of Array.isArray(attachArr) ? attachArr : []) {
     try {
-      const entry = marketplace.resolveByTypeName(a.type, a.name);
+      // Temp-source skills (from the "browse other source" step) carry their full
+      // catalog entry inline because they're NOT in the persisted catalog, so
+      // resolveByTypeName can't find them. Fall back to it for normal caps.
+      const entry = a.entry || marketplace.resolveByTypeName(a.type, a.name);
       if (!entry) { failed.push({ ...a, error: 'not found in catalog' }); continue; }
       const mat = await marketplace.materializeForAttach(entry);
       if (mat.kind === 'mcp') {
