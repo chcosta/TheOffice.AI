@@ -465,11 +465,15 @@ function discardWorktreeChanges(wt) {
 
 function commitAll(wt, { message } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, committed: false, files: 0, message: 'No worktree to commit.' };
-  const before = (_gitTry(['status', '--porcelain'], wt).out || '');
-  const files = before ? before.split(/\r?\n/).filter(Boolean).length : 0;
+  // Only committable paths — build output, generated reports and agent artifacts
+  // are classified as ignorable and must never be swept into the user's PR, even
+  // though git itself would happily stage them under `git add -A`.
+  const wc = worktreeChanges(wt);
+  const files = wc.changed.length;
   if (!files) return { ok: true, committed: false, files: 0, message: 'Nothing to commit.' };
   _ensureGitIdentity(wt);
-  const add = _gitTry(['add', '-A'], wt);
+  const paths = wc.changed.map(c => c.path);
+  const add = _gitTry(['add', '--', ...paths], wt);   // stages edits, adds and deletions
   if (!add.ok) return { ok: false, committed: false, files, message: add.err.slice(0, 300) || 'git add failed.' };
   const msg = String(message || '').trim() || 'Commit local changes';
   const res = _gitTry(['commit', '-m', msg], wt);
@@ -824,10 +828,29 @@ function isIgnorableAgentArtifact(rel) {
   return false;
 }
 
-// A worktree change is ignorable when it's a generated report OR a Copilot/agent
-// tooling artifact — both are surfaced/managed by us but never committed.
+// Build-output directories that land in a worktree as a side-effect of compiling
+// (arcade `artifacts/`, per-project `bin/`/`obj/`, node deps, VS/test junk). These
+// are not source and must never flip a worktree to "dirty", inflate the change
+// count, or get swept into a PR commit — even when the repo's .gitignore misses
+// them (e.g. dotnet-helix-machines ignores `.artifacts` but not `artifacts/`). We
+// match on any *directory* segment of the path so nested `src/Foo/bin/Debug/x.dll`
+// is caught too, while a real file literally named `bin` at the root is not.
+const BUILD_OUTPUT_SEGMENTS = new Set([
+  'bin', 'obj', 'artifacts', '.artifacts', 'node_modules', '.vs', 'testresults'
+]);
+function isIgnorableBuildOutput(rel) {
+  if (!rel) return false;
+  const parts = String(rel).replace(/\\/g, '/').split('/').filter(Boolean);
+  for (let i = 0; i < parts.length - 1; i++) {   // dir segments only (skip filename)
+    if (BUILD_OUTPUT_SEGMENTS.has(parts[i].toLowerCase())) return true;
+  }
+  return false;
+}
+
+// A worktree change is ignorable when it's a generated report, a Copilot/agent
+// tooling artifact, OR build output — all surfaced/managed by us but never committed.
 function isIgnorableWorktreePath(rel) {
-  return isIgnorableReportPath(rel) || isIgnorableAgentArtifact(rel);
+  return isIgnorableReportPath(rel) || isIgnorableAgentArtifact(rel) || isIgnorableBuildOutput(rel);
 }
 
 // Split `git status --porcelain` output into committable changes vs ignorable
