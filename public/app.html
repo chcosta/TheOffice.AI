@@ -9724,49 +9724,127 @@
           <!-- ===== Newsletter (Connect diary → polished, emailable digest) ===== -->
           <section x-show="!loading && !errorMessage && route === 'newsletter'" x-transition.opacity.duration.180ms>
             <style>
-              .nl-summary { display:flex; gap:18px; flex-wrap:wrap; align-items:center; }
-              .nl-stat { display:flex; flex-direction:column; }
-              .nl-stat b { font-size:20px; color:var(--cp-text); line-height:1.1; }
-              .nl-stat span { font-size:12px; color:var(--cp-text-soft); }
-              .nl-preview.md-output { max-height:none; overflow:visible; }
-              .nl-preview :is(h1,h2,h3) { color:var(--cp-text); }
-              .nl-preview svg { max-width:100%; height:auto; }
-              .nl-preview img.md-img, .nl-preview figure img, .nl-preview img {
-                max-width:100%; height:auto; border-radius:8px; display:block; margin:10px 0;
-                border:1px solid var(--cp-border); }
-              .nl-preview figure { margin:14px 0; }
-              .nl-preview figcaption { font-size:12px; color:var(--cp-text-soft); margin-top:6px; text-align:center; }
-              .nl-preview blockquote { border-left:3px solid var(--cp-accent); background:var(--cp-accent-soft);
-                margin:12px 0; padding:8px 14px; border-radius:6px; color:var(--cp-text-muted); }
-              .nl-activity { margin-top:14px; padding:12px 14px; border:1px solid var(--cp-border);
-                border-radius:10px; background:var(--cp-surface-2, var(--cp-surface)); }
-              .nl-activity-head { display:flex; align-items:center; gap:9px; color:var(--cp-text); font-size:13px; }
-              .nl-activity-head strong { font-weight:600; }
-              .nl-activity-spin { width:13px; height:13px; border-radius:50%; flex:0 0 auto;
-                border:2px solid var(--cp-accent-soft); border-top-color:var(--cp-accent);
-                animation:nlspin 0.8s linear infinite; }
+              /* ===== Newsletter studio ===== */
+              .nlx-top { display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+              .nlx-top .page-title h1 { margin:0; }
+              .nlx-top .page-title p { margin:4px 0 0; max-width:660px; }
+              .nlx-actions { display:flex; gap:8px; margin-left:auto; align-items:center; flex-wrap:wrap; }
+              .nlx-status { display:flex; align-items:center; gap:8px; background:var(--cp-surface); border:1px solid var(--cp-border);
+                border-radius:999px; padding:5px 12px; font-size:12px; color:var(--cp-text-soft); white-space:nowrap; }
+              .nlx-status .dotp { width:7px; height:7px; border-radius:50%; background:var(--cp-success); flex:0 0 auto;
+                box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-success) 25%, transparent); }
+              .nlx-status.off .dotp { background:var(--cp-text-muted); box-shadow:none; }
+
+              .nlx-studio { display:grid; grid-template-columns:300px minmax(0,1fr); gap:18px; align-items:start; }
+              .nlx-studio.chat-open { grid-template-columns:300px minmax(0,1fr) 340px; }
+
+              .nlx-rail { display:flex; flex-direction:column; gap:14px; position:sticky; top:12px; }
+              .nlx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:14px; }
+              .nlx-gen { width:100%; justify-content:center; padding:12px; font-size:14px; }
+              .nlx-frame { display:inline-flex; border:1px solid var(--cp-border); border-radius:8px; overflow:hidden; margin-top:12px; width:100%; }
+              .nlx-frame button { flex:1; border:0; background:transparent; color:var(--cp-text-soft); padding:6px 0; font-size:12px; cursor:pointer; border-left:1px solid var(--cp-border); }
+              .nlx-frame button:first-child { border-left:0; }
+              .nlx-frame button.active { background:var(--cp-accent-soft); color:var(--cp-text); font-weight:600; }
+              .nlx-win { display:flex; gap:18px; margin-top:12px; }
+              .nlx-win b { display:block; font-size:20px; line-height:1.05; color:var(--cp-text); }
+              .nlx-win span { font-size:11.5px; color:var(--cp-text-soft); }
+
+              .nlx-acc { border-top:1px solid var(--cp-border); }
+              .nlx-acc:first-child { border-top:0; }
+              .nlx-acc-head { display:flex; align-items:center; gap:8px; padding:11px 2px; cursor:pointer; user-select:none; font-weight:600; font-size:13px; color:var(--cp-text); }
+              .nlx-acc-head .chev { margin-left:auto; color:var(--cp-text-soft); transition:transform .15s; }
+              .nlx-acc.open .chev { transform:rotate(90deg); }
+              .nlx-acc-body { display:none; padding:0 2px 12px; }
+              .nlx-acc.open .nlx-acc-body { display:block; }
+              .nlx-fld { margin-bottom:10px; }
+              .nlx-fld label { display:block; font-size:11.5px; color:var(--cp-text-soft); margin-bottom:4px; }
+              .nlx-fld .field-input { padding:7px 9px; font-size:12.5px; }
+              .nlx-fld2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+              /* live activity */
+              .nlx-activity { background:var(--cp-surface-2, var(--cp-surface)); border:1px solid var(--cp-border); border-radius:12px; padding:12px; }
+              .nlx-activity-head { display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600; color:var(--cp-text); }
+              .nlx-spin { width:13px; height:13px; border-radius:50%; border:2px solid var(--cp-accent-soft); border-top-color:var(--cp-accent); animation:nlspin .8s linear infinite; flex:0 0 auto; }
               @keyframes nlspin { to { transform:rotate(360deg); } }
-              .nl-activity-log { margin-top:10px; max-height:220px; overflow-y:auto; display:flex;
-                flex-direction:column; gap:6px; }
-              .nl-activity-row { display:flex; align-items:flex-start; gap:8px; font-size:12.5px;
-                line-height:1.45; color:var(--cp-text-soft); animation:nlfade 0.25s ease; }
+              .nlx-log { margin-top:10px; display:flex; flex-direction:column; gap:7px; max-height:230px; overflow:auto; }
+              .nlx-log-row { display:flex; gap:8px; font-size:12px; color:var(--cp-text-soft); line-height:1.4; animation:nlfade .25s ease; }
               @keyframes nlfade { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
-              .nl-activity-icon { flex:0 0 auto; }
-              .nl-activity-text { min-width:0; word-break:break-word; }
+              .nlx-log-row .ic { flex:0 0 auto; }
+              .nlx-log-row .tx { min-width:0; word-break:break-word; }
+
+              /* center stage */
+              .nlx-stage { background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); border-radius:14px; overflow:hidden; }
+              .nlx-stage-bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--cp-border);
+                background:var(--cp-surface); position:sticky; top:0; z-index:2; flex-wrap:wrap; }
+              .nlx-seg { display:inline-flex; border:1px solid var(--cp-border); border-radius:9px; overflow:hidden; }
+              .nlx-seg button { border:0; background:transparent; color:var(--cp-text-soft); padding:6px 13px; font-size:12.5px; cursor:pointer; border-left:1px solid var(--cp-border); }
+              .nlx-seg button:first-child { border-left:0; }
+              .nlx-seg button.active { background:var(--cp-accent-soft); color:var(--cp-text); }
+              .nlx-src { font-size:12px; color:var(--cp-text-soft); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+              .nlx-stage-actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+              .nlx-scroll { max-height:calc(100vh - 240px); overflow:auto; padding:24px 18px 40px; }
+              .nlx-edit { width:100%; min-height:calc(100vh - 300px); background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border);
+                color:var(--cp-text); border-radius:10px; padding:14px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; line-height:1.55; resize:vertical; }
+              .nlx-empty { max-width:520px; margin:40px auto; text-align:center; color:var(--cp-text-soft); }
+              .nlx-empty .big { font-size:34px; }
+
+              /* the paper: newsletter renders as a real light "email" sheet on both themes */
+              .nlx-paper { max-width:760px; margin:0 auto; background:#ffffff; color:#1f2430; border-radius:12px;
+                box-shadow:0 20px 60px rgba(0,0,0,.35); border:1px solid rgba(0,0,0,.06); overflow:hidden; }
+              html[data-theme="light"] .nlx-paper { box-shadow:0 12px 40px rgba(0,0,0,.12); }
+              .nlx-paper .nl-preview { padding:26px 30px 24px; max-height:none; overflow:visible; }
+              .nlx-paper .nl-preview :is(h1,h2,h3,h4,p,li,td,th,figcaption) { color:#1f2430; }
+              .nlx-paper .nl-preview h1 { font-size:30px; line-height:1.15; margin:6px 0 6px; letter-spacing:-.01em; }
+              .nlx-paper .nl-preview h2 { font-size:20px; margin:26px 0 8px; border-bottom:2px solid #eef1f5; padding-bottom:6px; }
+              .nlx-paper .nl-preview h3 { font-size:16px; margin:18px 0 4px; }
+              .nlx-paper .nl-preview a { color:#1d4ed8; }
+              .nlx-paper .nl-preview img { max-width:100%; height:auto; border-radius:8px; display:block; margin:10px 0; border:1px solid #e6e9ef; }
+              .nlx-paper .nl-preview figure { margin:14px 0; }
+              .nlx-paper .nl-preview figcaption { font-size:12px; color:#6b7280; margin-top:6px; text-align:center; }
+              .nlx-paper .nl-preview blockquote { border-left:4px solid var(--cp-accent, #3b82f6); background:#eff6ff; color:#334155; margin:14px 0; padding:10px 16px; border-radius:0 8px 8px 0; }
+              .nlx-paper .nl-preview svg { max-width:100%; height:auto; }
+
+              /* right chat drawer */
+              .nlx-chat { display:flex; flex-direction:column; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px;
+                position:sticky; top:12px; max-height:calc(100vh - 120px); overflow:hidden; }
+              .nlx-chat-head { padding:12px 14px; border-bottom:1px solid var(--cp-border); display:flex; align-items:center; gap:8px; }
+              .nlx-chat-log { flex:1; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
+              .nlx-chat-in { border-top:1px solid var(--cp-border); padding:10px; display:flex; gap:8px; }
+              .nlx-chat-in textarea { flex:1; resize:none; background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border); color:var(--cp-text); border-radius:8px; padding:8px; font-size:12.5px; font-family:inherit; }
+
+              /* history list */
+              .nlx-hist { padding:18px; display:flex; flex-direction:column; gap:10px; }
+
+              @media (max-width:1100px) {
+                .nlx-studio, .nlx-studio.chat-open { grid-template-columns:1fr; }
+                .nlx-rail, .nlx-chat { position:static; max-height:none; }
+              }
             </style>
 
-            <div class="page-header">
+            <!-- Top action bar -->
+            <div class="nlx-top">
               <div class="page-title">
                 <h1>📰 Newsletter</h1>
-                <p>Turn your Connect impact diary into a polished, emailable digest. AI deeply investigates your diary entries over a timeframe, highlights impact, drafts charts, and suggests screenshots — nicely formatted and ready to send.</p>
+                <p>Turn your Connect impact diary into a polished, emailable digest — AI investigates your entries, highlights impact, and drafts charts &amp; screenshots.</p>
               </div>
-              <div class="toolbar">
-                <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="exportNewsletter()" title="Download the newsletter backing data as JSON">⬇ Export data</button>
-                <button class="btn" type="button" :disabled="newsletter.busy || !newsletter.draftText.trim()" @click="emailNewsletter()">✉ Email newsletter</button>
+              <div class="nlx-actions">
+                <span class="nlx-status" :class="{ off: !newsletter.sched.autoGenerate }">
+                  <span class="dotp"></span>
+                  <span x-show="newsletter.sched.autoGenerate"
+                        x-text="'Auto · ' + (newsletter.sched.scheduleDescription || newsletter.sched.schedule || 'scheduled') + (newsletter.sched.nextRunAt ? (' · next ' + formatRelative(newsletter.sched.nextRunAt)) : '')"></span>
+                  <span x-show="!newsletter.sched.autoGenerate">Manual — no schedule</span>
+                </span>
+                <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="exportNewsletter()" title="Download the newsletter backing data as JSON">⬇ Export</button>
+                <button class="btn ghost" type="button" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Chat</button>
+                <button class="btn" type="button" :disabled="newsletter.busy || !newsletter.draftText.trim()" @click="emailNewsletter()">✉ Email</button>
+                <button class="btn primary" type="button" :disabled="newsletter.generating" @click="newsletterGenerate()">
+                  <span x-show="!newsletter.generating">✨ Generate</span>
+                  <span x-show="newsletter.generating">Composing…</span>
+                </button>
               </div>
             </div>
 
-            <div class="connect-privacy" x-show="!newsletter.diaryHasEvidence && newsletter.loaded">
+            <div class="connect-privacy" x-show="!newsletter.diaryHasEvidence && newsletter.loaded" style="margin-bottom:14px">
               <span style="font-size:16px;line-height:1">📖</span>
               <div>
                 <strong style="color:var(--cp-text)">Your Connect diary is empty.</strong>
@@ -9776,244 +9854,174 @@
             </div>
 
             <div class="connect-privacy" x-show="newsletter.sched.reviewPending && newsletter.loaded"
-                 style="border-color:var(--cp-accent);background:var(--cp-accent-soft,rgba(0,120,212,.08))">
+                 style="margin-bottom:14px;border-color:var(--cp-accent);background:var(--cp-accent-soft,rgba(0,120,212,.08))">
               <span style="font-size:16px;line-height:1">📰</span>
               <div style="flex:1">
                 <strong style="color:var(--cp-text)">A new newsletter is ready for review.</strong>
                 It was generated automatically on your schedule<span x-show="newsletter.sched.lastAutoGeneratedAt" x-text="' (' + formatRelative(newsletter.sched.lastAutoGeneratedAt) + ')'"></span>. Review it, then email to publish.
               </div>
-              <button class="btn ghost" type="button" @click="newsletterSetTab('preview'); newsletterMarkReviewed()">Review draft →</button>
+              <button class="btn ghost" type="button" @click="newsletter.tab='compose'; newsletter.preview=true; newsletterMarkReviewed()">Review draft →</button>
               <button class="btn ghost" type="button" @click="newsletterMarkReviewed()" title="Dismiss">✕</button>
             </div>
 
-            <div class="connect-tabs">
-              <button class="connect-tab" :class="{ active: newsletter.tab === 'compose' }" @click="newsletterSetTab('compose')">✍ Compose</button>
-              <button class="connect-tab" :class="{ active: newsletter.tab === 'preview' }" @click="newsletterSetTab('preview')">👁 Preview</button>
-              <button class="connect-tab" :class="{ active: newsletter.tab === 'history' }" @click="newsletterSetTab('history')" x-text="'🕘 History (' + (newsletter.versions ? newsletter.versions.length : 0) + ')'"></button>
-            </div>
+            <div x-show="newsletter.loading" class="hint" style="padding:20px 0">Loading…</div>
 
-            <div x-show="newsletter.loading" class="hint">Loading…</div>
+            <!-- ===== Studio: rail · stage · chat ===== -->
+            <div class="nlx-studio" :class="{ 'chat-open': newsletter.chat.open }" x-show="!newsletter.loading">
 
-            <!-- ===== Compose tab ===== -->
-            <div x-show="!newsletter.loading && newsletter.tab === 'compose'" x-transition.opacity.duration.120ms>
-              <div class="connect-card" x-show="newsletter.config">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-                  <div>
-                    <h3 style="margin:0">Compose</h3>
-                    <p class="hint" style="margin:2px 0 0">Title and subtitle are optional — leave them blank and AI will craft a title from your content.</p>
-                  </div>
-                  <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="saveNewsletterConfig()" x-text="newsletter.busy ? 'Saving…' : 'Save settings'"></button>
-                </div>
-                <div class="connect-grid2">
-                  <div class="connect-field">
-                    <label>Title <span class="hint" style="font-weight:400">(optional)</span></label>
-                    <input class="field-input" type="text" x-model="newsletter.config.title" placeholder="AI will generate one if blank" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Subtitle <span class="hint" style="font-weight:400">(optional)</span></label>
-                    <input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="e.g. What shipped and why it matters" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Timeframe (days)</label>
-                    <input class="field-input" type="number" min="1" max="400" x-model.number="newsletter.config.timeframeDays" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Cadence</label>
-                    <select class="field-input" x-model="newsletter.config.cadence">
-                      <option value="weekly">Weekly</option>
-                      <option value="biweekly">Every two weeks</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="adhoc">Ad-hoc</option>
-                    </select>
-                  </div>
-                  <div class="connect-field">
-                    <label>Template</label>
-                    <select class="field-input" x-model="newsletter.config.template">
-                      <option value="digest">Digest</option>
-                      <option value="highlights">Highlights</option>
-                      <option value="executive">Executive summary</option>
-                    </select>
-                  </div>
-                  <div class="connect-field">
-                    <label>Accent color</label>
-                    <input class="field-input" type="text" x-model="newsletter.config.accent" placeholder="#0078d4" />
-                  </div>
-                  <div class="connect-field">
-                    <label>Email to (default recipient)</label>
-                    <input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Automatic schedule: generate on a cadence + notify for review -->
-              <div class="connect-card" x-show="newsletter.config">
-                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-                  <div>
-                    <h3 style="margin:0">Automatic schedule</h3>
-                    <p class="hint" style="margin:2px 0 0">Generate a fresh newsletter on a cadence and get notified when it's ready to review or publish. Needs Connect diary entries in the window — runs with no evidence are skipped.</p>
-                  </div>
-                  <label class="toggle-switch" style="flex:0 0 auto">
-                    <input type="checkbox" x-model="newsletter.sched.autoGenerate" @change="saveNewsletterSchedule()" />
-                    <span class="toggle-slider"></span>
-                  </label>
-                </div>
-                <div class="connect-grid2" x-show="newsletter.sched.autoGenerate" x-transition.opacity.duration.120ms>
-                  <div class="connect-field">
-                    <label>Schedule</label>
-                    <input class="field-input" type="text" list="nlSchedulePresets" x-model="newsletter.sched.schedule"
-                           @change="saveNewsletterSchedule()" placeholder="monday at 8am" />
-                    <datalist id="nlSchedulePresets">
-                      <option value="monday at 8am"></option>
-                      <option value="friday at 4pm"></option>
-                      <option value="weekdays at 9am"></option>
-                      <option value="1 of the month at 8am"></option>
-                    </datalist>
-                    <p class="hint" style="margin:6px 0 0">
-                      <span x-show="newsletter.sched.scheduleDescription" x-text="newsletter.sched.scheduleDescription"></span>
-                      <span x-show="newsletter.sched.nextRunAt" x-text="' · next run ' + formatRelative(newsletter.sched.nextRunAt)"></span>
-                    </p>
-                  </div>
-                  <div class="connect-field">
-                    <label>Notify</label>
-                    <label class="hint" style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:6px;cursor:pointer">
-                      <input type="checkbox" x-model="newsletter.sched.notifyEmail" @change="saveNewsletterSchedule()" />
-                      Open a review-ready email draft when a newsletter is generated
-                    </label>
-                    <p class="hint" style="margin:6px 0 0">The in-app "ready for review" banner always appears. Email opens a draft in your mail client (nothing is sent automatically).</p>
-                  </div>
-                </div>
-                <p class="hint" style="margin:8px 0 0" x-show="newsletter.sched.autoGenerate && newsletter.sched.lastAutoGeneratedAt"
-                   x-text="'Last auto-generated ' + formatRelative(newsletter.sched.lastAutoGeneratedAt)"></p>
-              </div>
-
-              <div class="connect-card">
-                <div class="nl-summary">
-                  <div class="nl-stat">
-                    <b x-text="(newsletter.window && newsletter.window.evidenceCount != null) ? newsletter.window.evidenceCount : '—'"></b>
-                    <span>diary entries in window</span>
-                  </div>
-                  <div class="nl-stat">
-                    <b x-text="(newsletter.config && newsletter.config.timeframeDays) ? (newsletter.config.timeframeDays + 'd') : '7d'"></b>
-                    <span>timeframe</span>
-                  </div>
-                  <div class="nl-stat" x-show="newsletter.window && newsletter.window.since">
-                    <b style="font-size:14px" x-text="(newsletter.window ? (newsletter.window.since + ' → ' + newsletter.window.until) : '')"></b>
-                    <span>covering</span>
-                  </div>
-                  <div style="flex:1"></div>
-                  <button class="btn primary" type="button" :disabled="newsletter.generating" @click="newsletterGenerate()">
+              <!-- LEFT RAIL: config lives here, out of the content's way -->
+              <aside class="nlx-rail">
+                <div class="nlx-card">
+                  <button class="btn primary nlx-gen" type="button" :disabled="newsletter.generating" @click="newsletterGenerate()">
                     <span x-show="!newsletter.generating">✨ Generate newsletter</span>
                     <span x-show="newsletter.generating">Composing…</span>
                   </button>
+                  <div class="nlx-frame" x-show="newsletter.config">
+                    <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 7 }" @click="newsletterSetTimeframe(7)">7d</button>
+                    <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 14 }" @click="newsletterSetTimeframe(14)">14d</button>
+                    <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 30 }" @click="newsletterSetTimeframe(30)">30d</button>
+                    <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 90 }" @click="newsletterSetTimeframe(90)">Qtr</button>
+                  </div>
+                  <div class="nlx-win">
+                    <div>
+                      <b x-text="(newsletter.window && newsletter.window.evidenceCount != null) ? newsletter.window.evidenceCount : '—'"></b>
+                      <span>diary entries</span>
+                    </div>
+                    <div x-show="newsletter.window && newsletter.window.since">
+                      <b style="font-size:13px" x-text="newsletter.window ? (newsletter.window.since + ' → ' + newsletter.window.until) : ''"></b>
+                      <span>covering</span>
+                    </div>
+                  </div>
                 </div>
-                <p class="hint" style="margin:10px 0 0" x-show="newsletter.notice && !newsletter.generating" x-text="newsletter.notice"></p>
 
                 <!-- Live activity feed: what the AI is investigating right now -->
-                <div class="nl-activity" x-show="newsletter.generating" x-transition.opacity.duration.120ms>
-                  <div class="nl-activity-head">
-                    <span class="nl-activity-spin"></span>
-                    <strong x-text="newsletter.notice || 'Working…'"></strong>
-                  </div>
-                  <div id="nlProgressScroll" class="nl-activity-log" x-show="newsletter.progress.length">
+                <div class="nlx-activity" x-show="newsletter.generating" x-transition.opacity.duration.120ms>
+                  <div class="nlx-activity-head"><span class="nlx-spin"></span><span x-text="newsletter.notice || 'Investigating your work…'"></span></div>
+                  <div id="nlProgressScroll" class="nlx-log" x-show="newsletter.progress.length">
                     <template x-for="(p, i) in newsletter.progress" :key="i">
-                      <div class="nl-activity-row">
-                        <span class="nl-activity-icon" x-text="p.icon"></span>
-                        <span class="nl-activity-text" x-text="p.text"></span>
-                      </div>
+                      <div class="nlx-log-row"><span class="ic" x-text="p.icon"></span><span class="tx" x-text="p.text"></span></div>
                     </template>
                   </div>
                   <p class="hint" style="margin:8px 0 0" x-show="!newsletter.progress.length">Warming up the writer agent…</p>
                 </div>
-              </div>
 
-              <div class="connect-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-                  <div>
-                    <h3>Draft</h3>
-                    <p class="hint" style="margin:0">
-                      <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.source === 'ai'">✨ AI-drafted — review &amp; edit</span>
-                      <span class="connect-src-badge" x-show="!(newsletter.state && newsletter.state.draft && newsletter.state.draft.source === 'ai')">✍ Your draft</span>
-                      <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.updatedAt" x-text="(newsletter.state && newsletter.state.draft && newsletter.state.draft.updatedAt) ? (' · updated ' + formatRelative(newsletter.state.draft.updatedAt)) : ''"></span>
-                    </p>
+                <!-- Settings + schedule accordions -->
+                <div class="nlx-card" style="padding:2px 14px" x-show="newsletter.config">
+                  <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
+                    <div class="nlx-acc-head" @click="o=!o">⚙️ Newsletter settings <span class="chev">›</span></div>
+                    <div class="nlx-acc-body">
+                      <div class="nlx-fld"><label>Title <span class="hint" style="font-weight:400">(optional — AI writes one if blank)</span></label><input class="field-input" type="text" x-model="newsletter.config.title" placeholder="Leave blank to auto-title" /></div>
+                      <div class="nlx-fld"><label>Subtitle <span class="hint" style="font-weight:400">(optional)</span></label><input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="What shipped and why it matters" /></div>
+                      <div class="nlx-fld"><label>Timeframe (days)</label><input class="field-input" type="number" min="1" max="400" x-model.number="newsletter.config.timeframeDays" /></div>
+                      <div class="nlx-fld2">
+                        <div class="nlx-fld"><label>Cadence</label><select class="field-input" x-model="newsletter.config.cadence"><option value="weekly">Weekly</option><option value="biweekly">Every two weeks</option><option value="monthly">Monthly</option><option value="adhoc">Ad-hoc</option></select></div>
+                        <div class="nlx-fld"><label>Template</label><select class="field-input" x-model="newsletter.config.template"><option value="digest">Digest</option><option value="highlights">Highlights</option><option value="executive">Executive</option></select></div>
+                      </div>
+                      <div class="nlx-fld2">
+                        <div class="nlx-fld"><label>Accent</label><input class="field-input" type="text" x-model="newsletter.config.accent" placeholder="#0078d4" /></div>
+                        <div class="nlx-fld"><label>Email to</label><input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" /></div>
+                      </div>
+                      <button class="btn ghost" type="button" style="width:100%;justify-content:center" :disabled="newsletter.busy" @click="saveNewsletterConfig()" x-text="newsletter.busy ? 'Saving…' : 'Save settings'"></button>
+                    </div>
                   </div>
-                  <div style="display:flex;gap:8px;align-items:center">
-                    <button class="btn ghost" type="button" @click="newsletter.preview = !newsletter.preview" x-text="newsletter.preview ? '✎ Edit' : '👁 Preview'"></button>
-                    <button class="btn" type="button" :disabled="newsletter.savingDraft || !newsletter.draftDirty" @click="saveNewsletterDraft()" x-text="newsletter.savingDraft ? 'Saving…' : (newsletter.draftDirty ? 'Save draft' : 'Saved')"></button>
-                    <button class="btn ghost" type="button" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Chat</button>
+                  <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
+                    <div class="nlx-acc-head" @click="o=!o">🗓️ Automatic schedule <span class="chev">›</span></div>
+                    <div class="nlx-acc-body">
+                      <label class="hint" style="display:flex;align-items:center;gap:9px;font-weight:400;margin:2px 0 10px;cursor:pointer">
+                        <span class="toggle-switch" style="flex:0 0 auto"><input type="checkbox" x-model="newsletter.sched.autoGenerate" @change="saveNewsletterSchedule()" /><span class="toggle-slider"></span></span>
+                        Generate on a cadence &amp; notify me
+                      </label>
+                      <div x-show="newsletter.sched.autoGenerate" x-transition.opacity.duration.120ms>
+                        <div class="nlx-fld"><label>Schedule</label><input class="field-input" type="text" list="nlSchedulePresets" x-model="newsletter.sched.schedule" @change="saveNewsletterSchedule()" placeholder="friday at 4pm" />
+                          <datalist id="nlSchedulePresets"><option value="monday at 8am"></option><option value="friday at 4pm"></option><option value="weekdays at 9am"></option><option value="1 of the month at 8am"></option></datalist>
+                          <p class="hint" style="margin:6px 0 0"><span x-show="newsletter.sched.scheduleDescription" x-text="newsletter.sched.scheduleDescription"></span><span x-show="newsletter.sched.nextRunAt" x-text="' · next run ' + formatRelative(newsletter.sched.nextRunAt)"></span></p>
+                        </div>
+                        <label class="hint" style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer"><input type="checkbox" x-model="newsletter.sched.notifyEmail" @change="saveNewsletterSchedule()" /> Open a review-ready email draft</label>
+                        <p class="hint" style="margin:6px 0 0" x-show="newsletter.sched.lastAutoGeneratedAt" x-text="'Last auto-generated ' + formatRelative(newsletter.sched.lastAutoGeneratedAt)"></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+
+              <!-- CENTER STAGE: the newsletter is the hero -->
+              <main class="nlx-stage">
+                <div class="nlx-stage-bar">
+                  <div class="nlx-seg" x-show="newsletter.tab !== 'history'">
+                    <button type="button" :class="{ active: newsletter.preview }" @click="newsletter.preview = true">👁 Preview</button>
+                    <button type="button" :class="{ active: !newsletter.preview }" @click="newsletter.preview = false">✎ Edit</button>
+                  </div>
+                  <span class="nlx-src" x-show="newsletter.tab !== 'history'">
+                    <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.source === 'ai'">✨ AI-drafted</span>
+                    <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.source !== 'ai' && newsletter.draftText.trim()">✍ Your draft</span>
+                    <span x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.updatedAt" x-text="(newsletter.state && newsletter.state.draft && newsletter.state.draft.updatedAt) ? ('updated ' + formatRelative(newsletter.state.draft.updatedAt)) : ''"></span>
+                    <span x-show="newsletter.draftDirty">· unsaved</span>
+                    <span x-show="!newsletter.draftDirty && newsletter.draftText.trim()">· saved</span>
+                  </span>
+                  <span class="nlx-src" x-show="newsletter.tab === 'history'"><strong>🕘 Version history</strong></span>
+                  <div class="nlx-stage-actions">
+                    <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="newsletter.tab !== 'history' && (!newsletter.preview || newsletter.draftDirty)" :disabled="newsletter.savingDraft || !newsletter.draftDirty" @click="saveNewsletterDraft()" x-text="newsletter.savingDraft ? 'Saving…' : (newsletter.draftDirty ? 'Save' : 'Saved')"></button>
+                    <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: newsletter.tab === 'history' }" @click="newsletterSetTab(newsletter.tab === 'history' ? 'compose' : 'history')" x-text="(newsletter.tab === 'history' ? '← Back' : ('🕘 History (' + (newsletter.versions ? newsletter.versions.length : 0) + ')'))"></button>
+                    <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Revise</button>
                   </div>
                 </div>
 
-                <div x-show="!newsletter.draftText.trim() && !newsletter.generating" class="hint" style="padding:20px 0;text-align:center">
-                  No newsletter yet. Click <strong>✨ Generate newsletter</strong> above to draft one from your diary.
+                <!-- Newsletter stage (compose/preview) -->
+                <div class="nlx-scroll" x-show="newsletter.tab !== 'history'">
+                  <div class="nlx-empty" x-show="!newsletter.draftText.trim() && !newsletter.generating">
+                    <div class="big">📰</div>
+                    <p>No newsletter yet. Click <strong>✨ Generate newsletter</strong> to draft one from your Connect diary — or switch to <strong>Edit</strong> and write your own.</p>
+                  </div>
+                  <div class="nlx-empty" x-show="!newsletter.draftText.trim() && newsletter.generating">
+                    <div class="big">✨</div>
+                    <p x-text="newsletter.notice || 'Investigating your diary and composing…'"></p>
+                    <p class="hint">Watch the live activity feed on the left to see what AI is investigating.</p>
+                  </div>
+                  <template x-if="newsletter.draftText.trim() && newsletter.preview">
+                    <article class="nlx-paper"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
+                  </template>
+                  <textarea x-show="newsletter.draftText.trim() && !newsletter.preview" class="nlx-edit" x-model="newsletter.draftText" @input="newsletter.draftDirty = true" placeholder="# Your newsletter…"></textarea>
                 </div>
 
-                <textarea x-show="!newsletter.preview" class="field-input connect-draft-area" x-model="newsletter.draftText"
-                  @input="newsletter.draftDirty = true" placeholder="# Your newsletter…"></textarea>
-
-                <div x-show="newsletter.preview && newsletter.draftText.trim()" class="nl-preview connect-draft-preview md-output" x-html="newsletterRenderedDraft()"></div>
-              </div>
-
-              <!-- Chat panel: revise the draft conversationally -->
-              <div class="connect-chat" x-show="newsletter.chat.open" x-transition.opacity.duration.120ms>
-                <div class="connect-chat-head">
-                  <strong style="font-size:14px">💬 Newsletter assistant</strong>
-                  <span class="hint" style="margin:0">Ask for changes — “add a chart for PR throughput”, “punchier intro”, “shorten to 3 stories”.</span>
-                  <button class="btn ghost" type="button" style="margin-left:auto" @click="newsletterToggleChat()">✕ Close</button>
+                <!-- History stage -->
+                <div class="nlx-hist" x-show="newsletter.tab === 'history'">
+                  <p class="hint" x-show="!newsletter.versions.length" style="margin:0">No earlier versions yet. Each time you generate or save a draft, the previous one is snapshotted here.</p>
+                  <template x-for="v in newsletter.versions" :key="v.id">
+                    <div class="connect-version-row">
+                      <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+                        <div style="min-width:0"><strong x-text="v.title || 'Untitled newsletter'"></strong><span class="connect-src-badge" x-text="' · ' + (v.savedAt ? formatRelative(v.savedAt) : '') + (v.source === 'ai' ? ' · ✨ AI' : '')"></span></div>
+                        <div class="connect-mem-actions">
+                          <a href="#" @click.prevent="newsletterViewVersion(v.id)" x-text="newsletter._viewVersionId === v.id ? 'Hide' : 'View'"></a>
+                          <span class="dot">·</span>
+                          <a href="#" @click.prevent="newsletterRestoreVersion(v)">Restore</a>
+                          <span class="dot">·</span>
+                          <a href="#" @click.prevent="newsletterDeleteVersion(v.id)" style="color:var(--cp-danger)">Delete</a>
+                        </div>
+                      </div>
+                      <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === v.id" x-html="newsletterRenderHtml(v.markdown || '')"></div>
+                    </div>
+                  </template>
                 </div>
-                <div id="nlChatScroll" class="connect-chat-log">
+              </main>
+
+              <!-- RIGHT: chat drawer -->
+              <aside class="nlx-chat" x-show="newsletter.chat.open" x-transition.opacity.duration.120ms>
+                <div class="nlx-chat-head"><strong style="font-size:13px">💬 Newsletter assistant</strong><button class="btn ghost" type="button" style="margin-left:auto;padding:4px 8px;font-size:12px" @click="newsletterToggleChat()">✕</button></div>
+                <div id="nlChatScroll" class="nlx-chat-log">
+                  <p class="hint" x-show="!newsletter.chat.messages.length" style="margin:0">Ask for changes — “punchier intro”, “add a chart for PR throughput”, “shorten to 3 stories”.</p>
                   <template x-for="(m, i) in newsletter.chat.messages" :key="i">
                     <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
                       <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
                       <div class="connect-chat-body md-output" x-html="renderMarkdown(m.text)"></div>
                     </div>
                   </template>
-                  <div class="connect-chat-msg" x-show="newsletter.chat.busy">
-                    <div class="connect-chat-role">Assistant</div>
-                    <div class="connect-chat-body"><span class="hint">Working…</span></div>
-                  </div>
+                  <div class="connect-chat-msg" x-show="newsletter.chat.busy"><div class="connect-chat-role">Assistant</div><div class="connect-chat-body"><span class="hint">Working…</span></div></div>
                 </div>
-                <div class="connect-chat-input">
-                  <textarea class="field-input" rows="2" x-model="newsletter.chat.input" placeholder="Message the newsletter assistant…"
-                    :disabled="newsletter.chat.busy"
-                    @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); newsletterChatSend(); }"></textarea>
+                <div class="nlx-chat-in">
+                  <textarea rows="2" x-model="newsletter.chat.input" placeholder="Message the assistant…" :disabled="newsletter.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); newsletterChatSend(); }"></textarea>
                   <button class="btn primary" type="button" @click="newsletterChatSend()" :disabled="newsletter.chat.busy || !newsletter.chat.input.trim()">Send</button>
                 </div>
-              </div>
-            </div>
-
-            <!-- ===== Preview tab ===== -->
-            <div x-show="!newsletter.loading && newsletter.tab === 'preview'" x-transition.opacity.duration.120ms>
-              <div class="connect-card" x-show="!newsletter.draftText.trim()">
-                <p class="hint" style="margin:0">Nothing to preview yet — generate or write a draft on the Compose tab.</p>
-              </div>
-              <div x-show="newsletter.draftText.trim()" class="nl-preview connect-draft-preview md-output" x-html="newsletterRenderedDraft()"></div>
-            </div>
-
-            <!-- ===== History tab ===== -->
-            <div x-show="!newsletter.loading && newsletter.tab === 'history'" x-transition.opacity.duration.120ms>
-              <div class="connect-card" x-show="!newsletter.versions.length">
-                <p class="hint" style="margin:0">No earlier versions yet. Each time you generate or save a draft, the previous one is snapshotted here.</p>
-              </div>
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <template x-for="v in newsletter.versions" :key="v.id">
-                  <div class="connect-version-row">
-                    <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
-                      <div style="min-width:0">
-                        <strong x-text="v.title || 'Untitled newsletter'"></strong>
-                        <span class="connect-src-badge" x-text="' · ' + (v.savedAt ? formatRelative(v.savedAt) : '') + (v.source === 'ai' ? ' · ✨ AI' : '')"></span>
-                      </div>
-                      <div class="connect-mem-actions">
-                        <a href="#" @click.prevent="newsletterViewVersion(v.id)" x-text="newsletter._viewVersionId === v.id ? 'Hide' : 'View'"></a>
-                        <span class="dot">·</span>
-                        <a href="#" @click.prevent="newsletterRestoreVersion(v)">Restore</a>
-                        <span class="dot">·</span>
-                        <a href="#" @click.prevent="newsletterDeleteVersion(v.id)" style="color:var(--cp-danger)">Delete</a>
-                      </div>
-                    </div>
-                    <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === v.id" x-html="newsletterRenderHtml(v.markdown || '')"></div>
-                  </div>
-                </template>
-              </div>
+              </aside>
             </div>
 
           </section>
@@ -20983,6 +20991,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.toast('Save failed: ' + (e.message || e), 'error');
           } finally { nl.busy = false; }
+        },
+        async newsletterSetTimeframe(days) {
+          const nl = this.newsletter;
+          if (!nl.config) return;
+          nl.config.timeframeDays = days;
+          try {
+            const r = await this.request('/api/newsletter/config', { method: 'PUT', body: JSON.stringify(this._newsletterConfigPayload()) });
+            if (r && r.state) { nl.state = r.state; nl.config = r.state.config; }
+            if (r && r.window) nl.window = r.window;
+          } catch (e) { /* quiet — timeframe quick-select */ }
         },
         async saveNewsletterSchedule() {
           const nl = this.newsletter, sc = nl.sched;

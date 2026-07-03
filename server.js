@@ -9565,6 +9565,7 @@ async function runNewsletterGeneration(runId) {
     : 'SCREENSHOTS: headless capture is unavailable on this machine, so do not use shot: directives — lean on inline SVG charts/illustrations and clearly-marked screenshot suggestions instead.';
   const prompt = [
     'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing, and use rich imagery — real screenshots, inline SVG charts/stat cards, and at least one clever on-theme cartoon/illustration you draw yourself as inline SVG. Follow the newsletter-standards skill.',
+    'REQUIRED STRUCTURE: (1) hero masthead SVG + H1 title + one-line dek; (2) a dateline right under the dek with the covered date range, an estimated read time (⏱ N min read), and a byline; (3) a top 3–4-up stat strip of headline figures; then the intro, highlight stories with visuals, and (last) a "## Sources" footer with a one-line count summary and a markdown list of the real links you investigated. Only use figures and sources the evidence substantiates.',
     _shotLine,
     '',
     'OUTPUT PROTOCOL — STRICT: You may think and use tools freely, but emit the finished newsletter exactly once, wrapped between these two sentinel lines, each alone on its own line:',
