@@ -8643,88 +8643,6 @@
               </div>
             </div>
 
-            <template x-teleport="body">
-            <div class="modal-backdrop modal-overlay" x-show="standupModal.open" x-transition.opacity.duration.150ms @click.self="standupModal.open=false" x-cloak style="z-index:9999">
-              <div class="modal-card" style="max-width:580px">
-                <div class="modal-header">
-                  <h2 class="modal-title">Create Standup Agent</h2>
-                  <button class="icon-button" type="button" @click="standupModal.open=false">✕</button>
-                </div>
-                <div style="padding:18px;display:flex;flex-direction:column;gap:12px;max-height:74vh;overflow:auto">
-                  <p class="hint" style="margin:0">Pick an Epic (or DNCEng Epic). A standup facilitator agent is generated for that epic and its descendants — review flow, surface blockers, check status, and manage work items. You can export it to Azure DevOps afterward.</p>
-                  <div style="display:flex;gap:10px">
-                    <label style="flex:1">
-                      <div class="field-label">Azure DevOps org</div>
-                      <input class="field-input" type="text" x-model="standupModal.org" placeholder="dnceng" @change="searchStandupEpics()" />
-                    </label>
-                    <label style="flex:1">
-                      <div class="field-label">Project</div>
-                      <input class="field-input" type="text" x-model="standupModal.project" placeholder="internal" @change="searchStandupEpics()" />
-                    </label>
-                  </div>
-                  <label>
-                    <div class="field-label">Search Epics by title</div>
-                    <div style="display:flex;gap:6px">
-                      <input class="field-input" type="text" x-model="standupModal.q" placeholder="e.g. Helix UX" style="flex:1"
-                        @keydown.enter.prevent="searchStandupEpics()" />
-                      <button class="btn" type="button" @click="searchStandupEpics()" :disabled="standupModal.loading">Search</button>
-                    </div>
-                  </label>
-
-                  <div x-show="standupModal.loading" class="hint" style="margin:0">Searching…</div>
-
-                  <div x-show="standupModal.results.length" style="max-height:260px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px">
-                    <table style="width:100%;border-collapse:collapse;font-size:13px">
-                      <thead>
-                        <tr style="position:sticky;top:0;background:var(--cp-surface);z-index:1">
-                          <th @click="standupSortBy('id')" title="Sort by ID" style="text-align:right;font-weight:600;color:var(--cp-text-muted);padding:7px 8px 7px 10px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">#<span x-text="standupSortIndicator('id')"></span></th>
-                          <th @click="standupSortBy('title')" title="Sort by title" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 8px;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">Title<span x-text="standupSortIndicator('title')"></span></th>
-                          <th @click="standupSortBy('state')" title="Sort by state" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 8px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">State<span x-text="standupSortIndicator('state')"></span></th>
-                          <th @click="standupSortBy('assignedTo')" title="Sort by assignee" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 10px 7px 8px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">Assigned<span x-text="standupSortIndicator('assignedTo')"></span></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="ep in standupSortedEpics()" :key="ep.id">
-                          <tr @click="selectStandupEpic(ep)" style="cursor:pointer"
-                            :style="standupModal.selected && standupModal.selected.id===ep.id ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : ''">
-                            <td style="text-align:right;color:var(--cp-text-muted);padding:6px 8px 6px 10px;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--cp-border)"><span x-text="ep.id"></span></td>
-                            <td style="padding:6px 8px;vertical-align:top;color:var(--cp-text);font-weight:600;border-bottom:1px solid var(--cp-border)">
-                              <span x-text="ep.title"></span>
-                              <span class="hint" style="margin:0;font-weight:400;display:block" x-text="ep.type"></span>
-                            </td>
-                            <td style="padding:6px 8px;vertical-align:top;color:var(--cp-text-muted);white-space:nowrap;border-bottom:1px solid var(--cp-border)" x-text="ep.state"></td>
-                            <td style="padding:6px 10px 6px 8px;vertical-align:top;color:var(--cp-text-muted);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--cp-border)" :title="ep.assignedTo || ''" x-text="ep.assignedTo || '—'"></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <details>
-                    <summary class="hint" style="cursor:pointer">Or enter an Epic ID directly</summary>
-                    <div style="display:flex;gap:6px;margin-top:8px">
-                      <input class="field-input" type="text" x-model="standupModal.manualId" placeholder="e.g. 10503" style="flex:1"
-                        @keydown.enter.prevent="fetchStandupEpicById()" />
-                      <button class="btn" type="button" @click="fetchStandupEpicById()" :disabled="standupModal.loading">Look up</button>
-                    </div>
-                  </details>
-
-                  <div x-show="standupModal.selected" style="border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px;background:var(--cp-surface-soft)">
-                    <div class="field-label" style="margin-bottom:4px">Selected Epic</div>
-                    <div style="font-weight:600;color:var(--cp-text)"><span style="color:var(--cp-text-muted)">#<span x-text="standupModal.selected && standupModal.selected.id"></span></span> <span x-text="standupModal.selected && standupModal.selected.title"></span></div>
-                    <div class="hint" style="margin:2px 0 0"><span x-text="standupModal.selected && standupModal.selected.type"></span> · <span x-text="standupModal.selected && standupModal.selected.state"></span></div>
-                  </div>
-
-                  <div x-show="standupModal.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="standupModal.error"></div>
-                </div>
-                <div class="modal-footer">
-                  <button class="btn" type="button" @click="standupModal.open=false">Cancel</button>
-                  <button class="btn primary" type="button" @click="createStandupAgent()" :disabled="!standupModal.selected || standupModal.creating"
-                    x-text="standupModal.creating ? 'Creating…' : 'Create Standup Agent'"></button>
-                </div>
-              </div>
-            </div>
-            </template>
 
             <!-- Confirm adding temporary sources before creating the agent -->
             <template x-teleport="body">
@@ -11360,6 +11278,85 @@
                 </div>
               </div>
             </template>
+          </section>
+
+          <section x-show="!loading && !errorMessage && route === 'standup'" x-transition.opacity.duration.180ms>
+            <div class="page-header">
+              <div class="page-title">
+                <h1>🧍 Create Standup Agent</h1>
+                <p>Pick an Epic (or DNCEng Epic). A standup facilitator agent is generated for that epic and its descendants — review flow, surface blockers, check status, and manage work items. Export it to Azure DevOps afterward.</p>
+              </div>
+              <div class="toolbar">
+                <button class="btn" type="button" @click="closeStandupModal()">Cancel</button>
+                <button class="btn primary" type="button" @click="createStandupAgent()" :disabled="!standupModal.selected || standupModal.creating" x-text="standupModal.creating ? 'Creating…' : 'Create Standup Agent'"></button>
+              </div>
+            </div>
+            <div class="card" style="margin-top:14px;padding:18px;display:flex;flex-direction:column;gap:12px;overflow:auto">
+                  <div style="display:flex;gap:10px">
+                    <label style="flex:1">
+                      <div class="field-label">Azure DevOps org</div>
+                      <input class="field-input" type="text" x-model="standupModal.org" placeholder="dnceng" @change="searchStandupEpics()" />
+                    </label>
+                    <label style="flex:1">
+                      <div class="field-label">Project</div>
+                      <input class="field-input" type="text" x-model="standupModal.project" placeholder="internal" @change="searchStandupEpics()" />
+                    </label>
+                  </div>
+                  <label>
+                    <div class="field-label">Search Epics by title</div>
+                    <div style="display:flex;gap:6px">
+                      <input class="field-input" type="text" x-model="standupModal.q" placeholder="e.g. Helix UX" style="flex:1"
+                        @keydown.enter.prevent="searchStandupEpics()" />
+                      <button class="btn" type="button" @click="searchStandupEpics()" :disabled="standupModal.loading">Search</button>
+                    </div>
+                  </label>
+
+                  <div x-show="standupModal.loading" class="hint" style="margin:0">Searching…</div>
+
+                  <div x-show="standupModal.results.length" style="max-height:260px;overflow:auto;border:1px solid var(--cp-border);border-radius:8px">
+                    <table style="width:100%;border-collapse:collapse;font-size:13px">
+                      <thead>
+                        <tr style="position:sticky;top:0;background:var(--cp-surface);z-index:1">
+                          <th @click="standupSortBy('id')" title="Sort by ID" style="text-align:right;font-weight:600;color:var(--cp-text-muted);padding:7px 8px 7px 10px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">#<span x-text="standupSortIndicator('id')"></span></th>
+                          <th @click="standupSortBy('title')" title="Sort by title" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 8px;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">Title<span x-text="standupSortIndicator('title')"></span></th>
+                          <th @click="standupSortBy('state')" title="Sort by state" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 8px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">State<span x-text="standupSortIndicator('state')"></span></th>
+                          <th @click="standupSortBy('assignedTo')" title="Sort by assignee" style="text-align:left;font-weight:600;color:var(--cp-text-muted);padding:7px 10px 7px 8px;white-space:nowrap;border-bottom:1px solid var(--cp-border);cursor:pointer;user-select:none">Assigned<span x-text="standupSortIndicator('assignedTo')"></span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="ep in standupSortedEpics()" :key="ep.id">
+                          <tr @click="selectStandupEpic(ep)" style="cursor:pointer"
+                            :style="standupModal.selected && standupModal.selected.id===ep.id ? 'background:var(--cp-accent-soft);box-shadow:inset 2px 0 0 var(--cp-accent)' : ''">
+                            <td style="text-align:right;color:var(--cp-text-muted);padding:6px 8px 6px 10px;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--cp-border)"><span x-text="ep.id"></span></td>
+                            <td style="padding:6px 8px;vertical-align:top;color:var(--cp-text);font-weight:600;border-bottom:1px solid var(--cp-border)">
+                              <span x-text="ep.title"></span>
+                              <span class="hint" style="margin:0;font-weight:400;display:block" x-text="ep.type"></span>
+                            </td>
+                            <td style="padding:6px 8px;vertical-align:top;color:var(--cp-text-muted);white-space:nowrap;border-bottom:1px solid var(--cp-border)" x-text="ep.state"></td>
+                            <td style="padding:6px 10px 6px 8px;vertical-align:top;color:var(--cp-text-muted);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--cp-border)" :title="ep.assignedTo || ''" x-text="ep.assignedTo || '—'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <details>
+                    <summary class="hint" style="cursor:pointer">Or enter an Epic ID directly</summary>
+                    <div style="display:flex;gap:6px;margin-top:8px">
+                      <input class="field-input" type="text" x-model="standupModal.manualId" placeholder="e.g. 10503" style="flex:1"
+                        @keydown.enter.prevent="fetchStandupEpicById()" />
+                      <button class="btn" type="button" @click="fetchStandupEpicById()" :disabled="standupModal.loading">Look up</button>
+                    </div>
+                  </details>
+
+                  <div x-show="standupModal.selected" style="border:1px solid var(--cp-border);border-radius:8px;padding:10px 12px;background:var(--cp-surface-soft)">
+                    <div class="field-label" style="margin-bottom:4px">Selected Epic</div>
+                    <div style="font-weight:600;color:var(--cp-text)"><span style="color:var(--cp-text-muted)">#<span x-text="standupModal.selected && standupModal.selected.id"></span></span> <span x-text="standupModal.selected && standupModal.selected.title"></span></div>
+                    <div class="hint" style="margin:2px 0 0"><span x-text="standupModal.selected && standupModal.selected.type"></span> · <span x-text="standupModal.selected && standupModal.selected.state"></span></div>
+                  </div>
+
+                  <div x-show="standupModal.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="standupModal.error"></div>
+            </div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'design'" x-transition.opacity.duration.180ms>
@@ -16429,7 +16426,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev-archive', 'connect'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -16454,6 +16451,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!this.chainDraft) { this.goTo('#/chains'); return; }
             // Mount the flow canvas now that the page section is visible.
             this.$nextTick(() => this.mountFlowCanvas());
+          }
+          if (this.route === 'standup' && !this.standupModal.open) {
+            // Resilient deep-link: initialize the epic picker if landed here directly.
+            await this.openStandupModal();
           }
           if (this.route === 'agent-detail' && this.app.routeParam) {
             await this.loadAgentDetail(this.app.routeParam);
@@ -17358,7 +17359,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         isRouteGroup(group) {
-          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent' || this.route === 'export' || this.route === 'agent-discovery';
+          if (group === 'agents') return this.route === 'agents' || this.route === 'agent-detail' || this.route === 'create-agent' || this.route === 'export' || this.route === 'agent-discovery' || this.route === 'standup';
           if (group === 'managers') return this.route === 'managers' || this.route === 'manager-detail';
           if (group === 'chat') return this.route === 'chat' || this.route === 'chat-detail';
           if (group === 'tasks') return this.route === 'tasks' || this.route === 'task-detail' || this.route === 'assignments' || this.route === 'assignment-detail' || this.route === 'new-task';
@@ -17501,7 +17502,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         routeMode(route) {
           const r = route || this.route;
           if (['boards', 'insights', 'codeflow', 'connect'].includes(r)) return 'workspace';
-          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'managers', 'manager-detail', 'executions',
+          if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
           return null;
@@ -17572,7 +17573,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes.
-          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'marketplace', 'settings', 'events'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events'].includes(r)) return true;
           const bf = this.basicFeatures || {};
           const gated = {
             insights: ['insights'],
@@ -27147,6 +27148,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // ---- Create Standup Agent ----------------------------------------
         async openStandupModal() {
           const m = this.standupModal;
+          this._standupReturn = (this.route === 'standup') ? (this._standupReturn || '#/agents') : (window.location.hash || '#/agents');
           await this.ensureDevSettings();
           const ds = this.devSettings || {}, es = this.exportSettings || {};
           m.org = ds.devOrg || es.exportOrg || '';
@@ -27155,9 +27157,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           m.manualId = ''; m.creating = false; m.error = '';
           m.sortKey = 'id'; m.sortDir = 'asc';
           m.open = true;
+          this.goTo('#/standup');
           if (m.org && m.project) this.searchStandupEpics();
         },
-        closeStandupModal() { this.standupModal.open = false; },
+        closeStandupModal() {
+          const back = this._standupReturn || '#/agents';
+          this._standupReturn = null;
+          this.standupModal.open = false;
+          if (this.route === 'standup') this.goTo(back);
+        },
         async searchStandupEpics() {
           const m = this.standupModal;
           const org = (m.org || '').trim(), project = (m.project || '').trim();
@@ -27240,6 +27248,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const name = (data && data.agent && data.agent.name) || 'Standup agent';
             const newId = data && data.agent && data.agent.id;
             m.open = false;
+            this._standupReturn = null;
             await this.refreshAll(false);
             this.showToast('Standup agent created', `${name} is ready. Export it to AzDO from its detail page.`, 'info');
             if (newId) this.goTo('#/agents/' + encodeURIComponent(newId));
