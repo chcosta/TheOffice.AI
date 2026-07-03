@@ -1579,6 +1579,11 @@
       backdrop-filter: blur(16px);
       padding: 16px 12px 12px;
       position: relative;
+      /* backdrop-filter makes this its own stacking context; board panels use
+         position:absolute + z-index up to 45 in the ROOT context, so without an
+         explicit z-index here the sidebar (and its upward .conn-pop flyouts)
+         would paint behind board items. Sit above panels, below drawers(70+). */
+      z-index: 50;
     }
     .sidebar-scroll {
       min-height: 0;
