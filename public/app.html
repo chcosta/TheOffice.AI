@@ -9881,10 +9881,6 @@
                 </span>
                 <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="exportNewsletter()" title="Download the newsletter backing data as JSON">⬇ Export</button>
                 <button class="btn" type="button" :disabled="newsletter.busy || !newsletter.draftText.trim()" @click="emailNewsletter()">✉ Email</button>
-                <button class="btn primary" type="button" :disabled="newsletter.generating" @click="newsletterGenerate()">
-                  <span x-show="!newsletter.generating">✨ Generate</span>
-                  <span x-show="newsletter.generating">Composing…</span>
-                </button>
               </div>
             </div>
 
