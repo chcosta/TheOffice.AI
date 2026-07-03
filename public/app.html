@@ -9733,6 +9733,21 @@
               .nl-preview svg { max-width:100%; height:auto; }
               .nl-preview blockquote { border-left:3px solid var(--cp-accent); background:var(--cp-accent-soft);
                 margin:12px 0; padding:8px 14px; border-radius:6px; color:var(--cp-text-muted); }
+              .nl-activity { margin-top:14px; padding:12px 14px; border:1px solid var(--cp-border);
+                border-radius:10px; background:var(--cp-surface-2, var(--cp-surface)); }
+              .nl-activity-head { display:flex; align-items:center; gap:9px; color:var(--cp-text); font-size:13px; }
+              .nl-activity-head strong { font-weight:600; }
+              .nl-activity-spin { width:13px; height:13px; border-radius:50%; flex:0 0 auto;
+                border:2px solid var(--cp-accent-soft); border-top-color:var(--cp-accent);
+                animation:nlspin 0.8s linear infinite; }
+              @keyframes nlspin { to { transform:rotate(360deg); } }
+              .nl-activity-log { margin-top:10px; max-height:220px; overflow-y:auto; display:flex;
+                flex-direction:column; gap:6px; }
+              .nl-activity-row { display:flex; align-items:flex-start; gap:8px; font-size:12.5px;
+                line-height:1.45; color:var(--cp-text-soft); animation:nlfade 0.25s ease; }
+              @keyframes nlfade { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+              .nl-activity-icon { flex:0 0 auto; }
+              .nl-activity-text { min-width:0; word-break:break-word; }
             </style>
 
             <div class="page-header">
@@ -9834,7 +9849,24 @@
                     <span x-show="newsletter.generating">Composing…</span>
                   </button>
                 </div>
-                <p class="hint" style="margin:10px 0 0" x-show="newsletter.notice" x-text="newsletter.notice"></p>
+                <p class="hint" style="margin:10px 0 0" x-show="newsletter.notice && !newsletter.generating" x-text="newsletter.notice"></p>
+
+                <!-- Live activity feed: what the AI is investigating right now -->
+                <div class="nl-activity" x-show="newsletter.generating" x-transition.opacity.duration.120ms>
+                  <div class="nl-activity-head">
+                    <span class="nl-activity-spin"></span>
+                    <strong x-text="newsletter.notice || 'Working…'"></strong>
+                  </div>
+                  <div id="nlProgressScroll" class="nl-activity-log" x-show="newsletter.progress.length">
+                    <template x-for="(p, i) in newsletter.progress" :key="i">
+                      <div class="nl-activity-row">
+                        <span class="nl-activity-icon" x-text="p.icon"></span>
+                        <span class="nl-activity-text" x-text="p.text"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <p class="hint" style="margin:8px 0 0" x-show="!newsletter.progress.length">Warming up the writer agent…</p>
+                </div>
               </div>
 
               <div class="connect-card">
@@ -15674,6 +15706,8 @@
           draftDirty: false,
           savingDraft: false,
           generating: false,
+          runId: null,           // current generation run id (matches SSE progress events)
+          progress: [],          // live activity log during generation: { icon, text, at }
           preview: true,         // compose tab: render Markdown vs edit textarea
           versions: [],          // draft version history (newest-first)
           _viewVersionId: null,
@@ -17359,6 +17393,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Insights regenerated/changed elsewhere → refresh while on the page.
             source.addEventListener('insights-changed', () => {
               if (this.route === 'insights') this.loadInsights(this.activeInsightId, true);
+            });
+            // Newsletter generation progress → live activity feed during ✨ Generate.
+            source.addEventListener('newsletter-progress', (event) => {
+              try {
+                const d = JSON.parse(event.data || '{}');
+                const nl = this.newsletter;
+                if (!nl || !nl.generating) return;
+                // Ignore stray events from a different/previous run.
+                if (nl.runId && d.runId && d.runId !== nl.runId) return;
+                if (d.text) {
+                  nl.progress.push({ icon: d.icon || '•', text: d.text, at: d.at || Date.now() });
+                  if (nl.progress.length > 60) nl.progress.splice(0, nl.progress.length - 60);
+                  nl.notice = d.text;
+                  this.$nextTick(() => {
+                    const el = document.getElementById('nlProgressScroll');
+                    if (el) el.scrollTop = el.scrollHeight;
+                  });
+                }
+              } catch {}
             });
             // Resilience (AI auto-retry) decisions → refresh the reasoning display live.
             const _resilienceRefresh = (event) => {
@@ -20843,11 +20896,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!ok) return;
           }
           nl.generating = true;
+          nl.runId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+          nl.progress = [];
           nl.notice = 'Investigating your diary and composing…';
           try {
             // Persist config first so the timeframe/title used matches what's on screen.
             await this.request('/api/newsletter/config', { method: 'PUT', body: JSON.stringify(this._newsletterConfigPayload()) });
-            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: JSON.stringify({}) });
+            const r = await this.request('/api/newsletter/generate', { method: 'POST', body: JSON.stringify({ runId: nl.runId }) });
             if (r && r.state) { nl.state = r.state; nl.config = r.state.config; }
             const d = (r && r.state && r.state.draft) || (r && r.draft) || null;
             nl.draftText = (d && d.markdown) || nl.draftText;
@@ -20859,7 +20914,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.toast('Newsletter drafted', 'success');
           } catch (e) {
             this.toast('Generation failed: ' + (e.message || e), 'error');
-          } finally { nl.generating = false; nl.notice = ''; }
+          } finally { nl.generating = false; nl.notice = ''; nl.runId = null; }
         },
         async saveNewsletterDraft() {
           const nl = this.newsletter;

@@ -9302,7 +9302,7 @@ app.get('/api/connect/export', (req, res) => {
 // ===========================================================================
 
 // Run a Newsletter plugin agent (writer|editor) and return its accumulated text.
-async function _newsletterRunAgent(agentName, prompt) {
+async function _newsletterRunAgent(agentName, prompt, onStep) {
   if (!newsletterPluginDir || !fs.existsSync(newsletterPluginDir)) {
     throw new Error('Newsletter plugin is not available yet — restart the server.');
   }
@@ -9314,9 +9314,68 @@ async function _newsletterRunAgent(agentName, prompt) {
     resume: false,
     cwd: __dirname,
     onChunk: (c) => { acc += c; },
+    onStep: typeof onStep === 'function' ? onStep : undefined,
   });
   if (result && result.fallback) throw new Error(result.error || 'Newsletter agent runtime unavailable');
   return acc.trim() ? acc : ((result && result.output) || '');
+}
+
+// Turn a raw sdk-runner step into a short, human-friendly progress line describing
+// what the newsletter agent is doing right now (which meeting / work item / page it
+// is investigating). Returns null for steps not worth surfacing.
+function _newsletterStepMessage(step) {
+  if (!step || !step.kind) return null;
+  const clip = (s, n = 140) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+  const argOf = (args, ...keys) => {
+    let a = args;
+    if (typeof a === 'string') { try { a = JSON.parse(a); } catch (_) { return ''; } }
+    if (!a || typeof a !== 'object') return '';
+    for (const k of keys) { if (a[k] != null && a[k] !== '') return Array.isArray(a[k]) ? a[k].join(', ') : String(a[k]); }
+    return '';
+  };
+  if (step.kind === 'thinking') {
+    const line = clip(String(step.content || '').split('\n').find(Boolean) || '', 160);
+    return line ? { icon: '💭', text: line } : null;
+  }
+  if (step.kind === 'agent') return { icon: '🤝', text: `Bringing in ${step.name}` };
+  if (step.kind === 'tool_complete') return null; // avoid noise; starts carry the intent
+  if (step.kind === 'tool_start') {
+    const tool = String(step.tool || 'tool');
+    const t = tool.toLowerCase();
+    // WorkIQ (M365 — meetings, mail, work items, files)
+    if (t.includes('workiq') || t.includes('m365') || t.includes('graph')) {
+      const target = argOf(step.args, 'entityUrls', 'entityUrl', 'question', 'functionUrl', 'query');
+      return { icon: '📇', text: 'Investigating M365' + (target ? ': ' + clip(target) : ' work') };
+    }
+    // Azure DevOps
+    if (t.includes('azdo') || t.includes('ado') || t.includes('devops') || t.includes('workitem')) {
+      const target = argOf(step.args, 'workItemId', 'id', 'url', 'query', 'wiql');
+      return { icon: '📋', text: 'Checking Azure DevOps' + (target ? ' #' + clip(target, 60) : '') };
+    }
+    // GitHub
+    if (t.includes('github') || t.includes('gh_') || t.includes('pull') || t.includes('issue')) {
+      const target = argOf(step.args, 'url', 'query', 'prId', 'number', 'repo');
+      return { icon: '🐙', text: 'Checking GitHub' + (target ? ': ' + clip(target, 80) : '') };
+    }
+    // Browser
+    if (t.includes('browser') || t.includes('fetch') || t.includes('web') || t.includes('navigate') || t.includes('http')) {
+      const url = argOf(step.args, 'url', 'href', 'query');
+      return { icon: '🌐', text: url ? 'Browsing ' + clip(url, 90) : 'Browsing the web' };
+    }
+    // Shell / PowerShell (charts, screenshots, data)
+    if (t.includes('shell') || t.includes('powershell') || t.includes('bash') || t.includes('exec') || t.includes('command')) {
+      const cmd = argOf(step.args, 'command', 'script', 'cmd');
+      return { icon: '⚙️', text: cmd ? 'Running ' + clip(cmd, 90) : 'Running a command' };
+    }
+    // Files / assets (screenshots, charts written to assets dir)
+    if (t.includes('write') || t.includes('file') || t.includes('image') || t.includes('screenshot') || t.includes('chart')) {
+      const p = argOf(step.args, 'path', 'file', 'name');
+      return { icon: '🖼️', text: p ? 'Preparing ' + clip(p, 80) : 'Preparing an asset' };
+    }
+    const generic = argOf(step.args, 'query', 'url', 'path', 'command', 'question');
+    return { icon: '🔧', text: clip(tool) + (generic ? ': ' + clip(generic, 90) : '') };
+  }
+  return null;
 }
 
 // Format diary evidence items into prompt lines (same shape Connect uses).
@@ -9336,11 +9395,18 @@ function _newsletterContext() {
 }
 
 // Generate a fresh newsletter draft from the diary evidence in the timeframe.
-async function runNewsletterGeneration() {
+// Streams live progress over SSE (`newsletter-progress`) so the UI can show what the
+// agent is investigating instead of a static spinner.
+async function runNewsletterGeneration(runId) {
   const { cfg, win, items } = _newsletterContext();
   if (!items.length) {
     throw new Error(`No diary evidence in the last ${cfg.timeframeDays} day(s) to build a newsletter from. Add Connect diary entries or widen the timeframe.`);
   }
+  const emitProgress = (icon, text) => {
+    if (!text) return;
+    try { broadcastSSE('newsletter-progress', { runId: runId || null, icon, text, at: Date.now() }); } catch (_) { /* ignore */ }
+  };
+  emitProgress('📖', `Reading ${items.length} diary ${items.length === 1 ? 'entry' : 'entries'} from ${win.since} → ${win.until}`);
   const evLines = _newsletterEvidenceLines(items);
   const prompt = [
     'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing. Follow the newsletter-standards skill and output only the newsletter Markdown body (inline HTML/SVG allowed).',
@@ -9359,7 +9425,14 @@ async function runNewsletterGeneration() {
     `## Diary evidence (${items.length} item${items.length === 1 ? '' : 's'} in window, newest first)`,
     evLines,
   ].join('\n');
-  const text = await _newsletterRunAgent('writer', prompt);
+  let sawWriting = false;
+  const onStep = (step) => {
+    const m = _newsletterStepMessage(step);
+    if (m) emitProgress(m.icon, m.text);
+    if (!sawWriting && step && step.kind === 'thinking') { /* keep thoughts flowing */ }
+  };
+  const text = await _newsletterRunAgent('writer', prompt, onStep);
+  emitProgress('✍️', 'Composing the newsletter…');
   let md = String(text || '').trim();
   const fence = md.match(/```(?:markdown|md|html)?\s*([\s\S]*?)```\s*$/i);
   if (fence && fence[1].trim() && /^```/.test(md)) md = fence[1].trim();
@@ -9497,10 +9570,13 @@ app.put('/api/newsletter/draft', (req, res) => {
 
 // Generate a fresh newsletter from the diary evidence in the timeframe.
 app.post('/api/newsletter/generate', async (req, res) => {
+  const runId = (req.body && req.body.runId) || require('crypto').randomUUID();
   try {
-    const st = await runNewsletterGeneration();
-    res.json({ ok: true, state: st });
+    const st = await runNewsletterGeneration(runId);
+    try { broadcastSSE('newsletter-progress', { runId, icon: '✅', text: 'Newsletter ready', done: true, at: Date.now() }); } catch (_) { /* ignore */ }
+    res.json({ ok: true, runId, state: st });
   } catch (err) {
+    try { broadcastSSE('newsletter-progress', { runId, icon: '⚠️', text: 'Generation failed: ' + err.message, done: true, error: true, at: Date.now() }); } catch (_) { /* ignore */ }
     res.status(500).json({ error: err.message });
   }
 });
