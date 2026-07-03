@@ -1064,7 +1064,7 @@ if (fs.existsSync(MANAGERS_PATH)) {
 
 // Express app
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '16mb' }));
 
 // Serve static SPA files
 app.use('/public', express.static(path.join(__dirname, 'public')));
@@ -9059,7 +9059,7 @@ async function runScheduledNewsletter() {
     try { broadcastSSE('newsletter-ready', { at: Date.now() }); } catch (_) { /* ignore */ }
     if (s.newsletterNotifyEmail !== false) {
       try {
-        const { emlPath } = _newsletterBuildEml({
+        const { emlPath } = await _newsletterBuildEml({
           bannerNote: 'Your newsletter is ready — review below, then forward to publish.',
         });
         require('child_process').exec(`start "" "${emlPath}"`);
@@ -9632,9 +9632,10 @@ async function runNewsletterGeneration(runId) {
 
 // Conversational revision of the current newsletter draft. Returns the reply plus
 // an OPTIONAL fully-revised draft (parsed from a sentinel block). Never saves.
-async function runNewsletterDraftChat({ message, history, draft }) {
+async function runNewsletterDraftChat({ message, history, draft, attachments }) {
   const msg = String(message || '').trim();
-  if (!msg) throw new Error('Say what you would like to change or ask about the newsletter.');
+  const atts = Array.isArray(attachments) ? attachments.filter(a => a && (a.ref || a.file)) : [];
+  if (!msg && !atts.length) throw new Error('Say what you would like to change or ask about the newsletter.');
   const { st, cfg, win, items } = _newsletterContext();
   const curDraft = String(draft != null ? draft : ((st.draft && st.draft.markdown) || '')).trim();
   const evLines = _newsletterEvidenceLines(items.slice(0, 100)) || '(no diary evidence)';
@@ -9642,6 +9643,9 @@ async function runNewsletterDraftChat({ message, history, draft }) {
     const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
     return `${role}: ${String((h && h.content) || '').trim()}`;
   }).filter(Boolean).join('\n') || '(none)';
+  const attBlock = atts.length
+    ? atts.map(a => `- ${a.ref || ('assets/' + a.file)}${a.name ? ` (original: ${a.name})` : ''}`).join('\n')
+    : '';
   const prompt = [
     'You are revising my newsletter draft through conversation. Follow your output protocol exactly.',
     ((() => { try { const c = newsletterCapture.capabilities(); return c && c.available ? 'You can request real screenshots with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1) — and the app captures and swaps in the image. Public pages work best. Also draw clever on-theme SVG cartoons/illustrations to keep it enjoyable.' : 'Headless screenshot capture is unavailable — do not use shot: directives; use inline SVG charts/illustrations instead.'; } catch (_) { return ''; } })()),
@@ -9656,6 +9660,12 @@ async function runNewsletterDraftChat({ message, history, draft }) {
     `## Assets directory (save any captured charts/screenshots here, reference as assets/<file>)`,
     newsletter.assetsDir(),
     '',
+    ...(atts.length ? [
+      '## Images I just attached (already saved in the assets dir)',
+      attBlock,
+      'Embed the attached image(s) into the newsletter where they fit best using Markdown — ![short caption](' + (atts[0].ref || ('assets/' + atts[0].file)) + ') — give each a relevant caption, place them near related content, and reflow the surrounding layout so it reads well. Do not drop any attached image unless I ask you to.',
+      '',
+    ] : []),
     `## Diary evidence (${items.length} item${items.length === 1 ? '' : 's'} in window)`,
     evLines,
     '',
@@ -9666,7 +9676,7 @@ async function runNewsletterDraftChat({ message, history, draft }) {
     histLines,
     '',
     '## My latest message',
-    msg,
+    msg || '(no text — just embed the attached image(s) nicely and reflow the layout)',
   ].join('\n');
   const text = await _newsletterRunAgent('editor', prompt);
   const raw = String(text || '').trim();
@@ -9702,20 +9712,52 @@ function _newsletterInlineAssets(html) {
   } catch { return html; }
 }
 
+// Turn inline <svg> blocks (charts, hero, stat strips) into base64 PNG <img> tags
+// so mail clients that strip SVG (Outlook et al.) still show the visuals. Falls
+// back to leaving the SVG untouched when no headless browser is available.
+async function _newsletterRasterizeSvgs(html, { bg, maxWidth } = {}) {
+  const src = String(html || '');
+  if (!/<svg\b/i.test(src)) return src;
+  try { if (!newsletterCapture.capabilities().available) return src; } catch { return src; }
+  const blocks = src.match(/<svg\b[\s\S]*?<\/svg>/gi) || [];
+  let out = src;
+  for (const svg of blocks) {
+    try {
+      const r = await newsletterCapture.rasterizeHtml(svg, { bg: bg || '#ffffff', maxWidth: maxWidth || 680 });
+      if (r && r.ok && r.buffer) {
+        const dataUri = `data:image/png;base64,${r.buffer.toString('base64')}`;
+        out = out.replace(svg, `<img src="${dataUri}" alt="" style="max-width:100%;height:auto;display:block;margin:12px auto;border-radius:8px" />`);
+      }
+    } catch (_) { /* leave this svg as-is */ }
+  }
+  return out;
+}
+
 // Build a self-contained, mainstream-newsletter HTML email (.eml, RFC 2822) from
 // the newsletter draft (or a supplied body). Shared by the manual "Email
 // newsletter" action and the scheduled auto-generate notifier. `bannerNote`, when
 // given, renders as a highlighted strip above the masthead (e.g. "Your weekly
 // newsletter is ready — review below, then forward to publish").
-function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
+// Async because it rasterizes inline SVG to PNG for mail-client compatibility.
+async function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
   const st = newsletter.getState();
   const cfg = st.config || {};
   const s = settings.getSettings();
   const md = String(body != null ? body : ((st.draft && st.draft.markdown) || '')).trim();
   if (!md) throw new Error('The newsletter draft is empty — nothing to email.');
-  const accent = (cfg.accent && /^#?[0-9a-fA-F]{3,8}$/.test(cfg.accent))
-    ? (cfg.accent.startsWith('#') ? cfg.accent : '#' + cfg.accent)
-    : '#0078d4';
+  const hex = (v, dflt) => (v && /^#?[0-9a-fA-F]{3,8}$/.test(String(v)))
+    ? (String(v).startsWith('#') ? String(v) : '#' + v) : dflt;
+  const accent = hex(cfg.accent, '#0078d4');
+  // Appearance controls — mirror the preview "paper" so email ≈ preview.
+  const bg = hex(cfg.bg, '#ffffff');
+  const textColor = hex(cfg.textColor, '#24292f');
+  const headColor = hex(cfg.headingColor, '#1b1f24');
+  const linkColor = hex(cfg.linkColor, accent);
+  const fontFamily = (typeof cfg.fontFamily === 'string' && cfg.fontFamily.trim())
+    ? cfg.fontFamily : "'Segoe UI', Helvetica, Arial, sans-serif";
+  const scale = Math.max(0.85, Math.min(1.3, parseFloat(cfg.fontScale) || 1));
+  const width = Math.max(600, Math.min(900, parseInt(cfg.width, 10) || 680));
+  const px = (n) => Math.round(n * scale) + 'px';
   const issueTitle = (st.draft && st.draft.title) || cfg.title || 'My Impact Digest';
   const subj = subject || issueTitle;
   const toAddr = to || cfg.emailTo || s.newsletterEmailTo || '';
@@ -9723,6 +9765,8 @@ function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
   const { marked } = require('marked');
   let htmlBody = marked.parse(md);
   htmlBody = _newsletterInlineAssets(htmlBody);
+  // Rasterize inline SVG → PNG data URIs so Outlook & friends show charts/hero.
+  htmlBody = await _newsletterRasterizeSvgs(htmlBody, { bg, maxWidth: width - 64 });
 
   const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const bannerHtml = bannerNote
@@ -9731,20 +9775,20 @@ function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
 
   const htmlEmail = `<html><head><meta charset="utf-8"><style>
 body { margin:0; padding:0; background:#f4f5f7; }
-.wrap { max-width:680px; margin:0 auto; background:#ffffff; }
-.nl-banner { font-family:'Segoe UI', Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; background:${accent}; color:#ffffff; padding:12px 32px; }
+.wrap { max-width:${width}px; margin:0 auto; background:${bg}; }
+.nl-banner { font-family:${fontFamily}; font-size:14px; font-weight:600; background:${accent}; color:#ffffff; padding:12px 32px; }
 .masthead { border-top:6px solid ${accent}; padding:24px 32px 8px; }
-.content { font-family:'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; line-height:1.6; color:#24292f; padding:8px 32px 32px; }
-.content h1 { font-size:26px; line-height:1.25; margin:8px 0 4px; color:#1b1f24; }
-.content h2 { font-size:19px; margin:26px 0 6px; color:#1b1f24; border-bottom:1px solid #eaecef; padding-bottom:4px; }
-.content h3 { font-size:16px; margin:18px 0 4px; }
-.content a { color:${accent}; }
+.content { font-family:${fontFamily}; font-size:${px(15)}; line-height:1.6; color:${textColor}; padding:8px 32px 32px; }
+.content h1 { font-size:${px(26)}; line-height:1.25; margin:8px 0 4px; color:${headColor}; }
+.content h2 { font-size:${px(19)}; margin:26px 0 6px; color:${headColor}; border-bottom:1px solid #eaecef; padding-bottom:4px; }
+.content h3 { font-size:${px(16)}; margin:18px 0 4px; color:${headColor}; }
+.content a { color:${linkColor}; }
 .content img { max-width:100%; height:auto; border-radius:8px; }
 .content svg { max-width:100%; height:auto; }
 .content blockquote { margin:14px 0; padding:10px 14px; background:#f6f8fa; border-left:4px solid ${accent}; color:#57606a; border-radius:0 6px 6px 0; }
 .content hr { border:none; border-top:1px solid #eaecef; margin:24px 0; }
 .content ul { padding-left:20px; }
-.footer { font-family:'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; color:#8b949e; text-align:center; padding:16px 32px 28px; }
+.footer { font-family:${fontFamily}; font-size:12px; color:#8b949e; text-align:center; padding:16px 32px 28px; }
 </style></head><body><div class="wrap">${bannerHtml}<div class="masthead"></div><div class="content">${htmlBody}</div><div class="footer">Drafted from your Connect impact diary · review before sending.</div></div></body></html>`;
 
   const boundary = `----=_Part_${Date.now()}`;
@@ -9822,6 +9866,33 @@ app.get('/api/newsletter/asset/:file', (req, res) => {
     res.setHeader('Content-Type', mimes[ext] || 'application/octet-stream');
     res.setHeader('Cache-Control', 'no-cache');
     fs.createReadStream(file).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Accept an image the user pasted / dropped into the newsletter chat and save it
+// into the assets dir so the assistant can embed it as ![](assets/<file>). Body:
+// { name?, dataUrl } where dataUrl is a base64 data URI. No multer dependency —
+// the payload is small JSON. Returns { ok, file, ref, bytes }.
+app.post('/api/newsletter/asset/upload', (req, res) => {
+  try {
+    const b = req.body || {};
+    const dataUrl = String(b.dataUrl || '');
+    const m = dataUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'dataUrl must be a base64 image data URI.' });
+    const extMap = { jpeg: 'jpg', 'svg+xml': 'svg' };
+    let ext = m[1].toLowerCase();
+    ext = extMap[ext] || ext.replace(/[^a-z0-9]/g, '') || 'png';
+    const buffer = Buffer.from(m[2], 'base64');
+    if (!buffer.length) return res.status(400).json({ error: 'Empty image.' });
+    if (buffer.length > 12 * 1024 * 1024) return res.status(413).json({ error: 'Image too large (max 12 MB).' });
+    const dir = newsletter.assetsDir();
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { /* exists */ }
+    const base = (newsletterCapture.slugify(String(b.name || 'upload').replace(/\.[^.]+$/, '')) || 'upload').slice(0, 48);
+    const file = `${base}-${Date.now().toString(36)}.${ext}`;
+    fs.writeFileSync(path.join(dir, file), buffer);
+    res.json({ ok: true, file, ref: `assets/${file}`, bytes: buffer.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -9961,8 +10032,8 @@ app.post('/api/newsletter/generate', async (req, res) => {
 // Conversationally revise the draft. Returns { reply, draft? } — never saves.
 app.post('/api/newsletter/draft/chat', async (req, res) => {
   try {
-    const { message, history, draft } = req.body || {};
-    const out = await runNewsletterDraftChat({ message, history, draft });
+    const { message, history, draft, attachments } = req.body || {};
+    const out = await runNewsletterDraftChat({ message, history, draft, attachments });
     res.json({ ok: true, ...out });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -9983,7 +10054,7 @@ app.delete('/api/newsletter/versions/:id', (req, res) => {
 });
 
 // Compose a styled, self-contained HTML newsletter and open it as a draft email.
-app.post('/api/newsletter/email', (req, res) => {
+app.post('/api/newsletter/email', async (req, res) => {
   try {
     const st = newsletter.getState();
     const cfg = st.config || {};
@@ -9994,7 +10065,7 @@ app.post('/api/newsletter/email', (req, res) => {
     if (!body.trim()) return res.status(400).json({ error: 'The newsletter draft is empty — nothing to email.' });
     const to = (req.body && req.body.to) || cfg.emailTo || s.newsletterEmailTo || '';
     const subject = (req.body && req.body.subject) || undefined;
-    const { emlPath } = _newsletterBuildEml({ body, to, subject });
+    const { emlPath } = await _newsletterBuildEml({ body, to, subject });
     const { exec } = require('child_process');
     exec(`start "" "${emlPath}"`);
     newsletter.markEmailed();

@@ -9788,21 +9788,41 @@
               .nlx-empty { max-width:520px; margin:40px auto; text-align:center; color:var(--cp-text-soft); }
               .nlx-empty .big { font-size:34px; }
 
-              /* the paper: newsletter renders as a real light "email" sheet on both themes */
-              .nlx-paper { max-width:760px; margin:0 auto; background:#ffffff; color:#1f2430; border-radius:12px;
+              /* the paper: newsletter renders as a real "email" sheet, driven by design vars
+                 (--nlp-*) so it looks identical on both app themes and matches the sent email.
+                 Light defaults are baked in so a freshly generated digest is always readable. */
+              .nlx-paper { --nlp-bg:#ffffff; --nlp-text:#1f2430; --nlp-head:#111827; --nlp-link:#1d4ed8;
+                --nlp-accent:#0078d4; --nlp-font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+                --nlp-scale:1; --nlp-width:760px;
+                max-width:var(--nlp-width); margin:0 auto; background:var(--nlp-bg); color:var(--nlp-text);
+                font-family:var(--nlp-font); border-radius:12px;
                 box-shadow:0 20px 60px rgba(0,0,0,.35); border:1px solid rgba(0,0,0,.06); overflow:hidden; }
               html[data-theme="light"] .nlx-paper { box-shadow:0 12px 40px rgba(0,0,0,.12); }
-              .nlx-paper .nl-preview { padding:26px 30px 24px; max-height:none; overflow:visible; }
-              .nlx-paper .nl-preview :is(h1,h2,h3,h4,p,li,td,th,figcaption) { color:#1f2430; }
-              .nlx-paper .nl-preview h1 { font-size:30px; line-height:1.15; margin:6px 0 6px; letter-spacing:-.01em; }
-              .nlx-paper .nl-preview h2 { font-size:20px; margin:26px 0 8px; border-bottom:2px solid #eef1f5; padding-bottom:6px; }
-              .nlx-paper .nl-preview h3 { font-size:16px; margin:18px 0 4px; }
-              .nlx-paper .nl-preview a { color:#1d4ed8; }
-              .nlx-paper .nl-preview img { max-width:100%; height:auto; border-radius:8px; display:block; margin:10px 0; border:1px solid #e6e9ef; }
+              /* neutralize the global .md-output rule (dark surface bg / inner scroll / border) inside the sheet */
+              .nlx-paper .nl-preview.md-output,
+              .nlx-paper .nl-preview { background:var(--nlp-bg) !important; color:var(--nlp-text);
+                font-family:var(--nlp-font); font-size:calc(15px * var(--nlp-scale)); line-height:1.62;
+                max-height:none !important; overflow:visible !important; border:0 !important; border-radius:0 !important;
+                padding:26px 30px 24px; }
+              .nlx-paper .nl-preview :is(p,li,td,th,figcaption,strong,em,span) { color:inherit; }
+              .nlx-paper .nl-preview :is(h1,h2,h3,h4) { color:var(--nlp-head); font-family:var(--nlp-font); }
+              .nlx-paper .nl-preview h1 { font-size:calc(30px * var(--nlp-scale)); line-height:1.15; margin:6px 0 6px; letter-spacing:-.01em; }
+              .nlx-paper .nl-preview h2 { font-size:calc(20px * var(--nlp-scale)); margin:26px 0 8px; border-bottom:2px solid color-mix(in srgb, var(--nlp-text) 12%, transparent); padding-bottom:6px; }
+              .nlx-paper .nl-preview h3 { font-size:calc(16px * var(--nlp-scale)); margin:18px 0 4px; }
+              .nlx-paper .nl-preview a { color:var(--nlp-link); }
+              .nlx-paper .nl-preview img { max-width:100%; height:auto; border-radius:8px; display:block; margin:10px 0; border:1px solid color-mix(in srgb, var(--nlp-text) 10%, transparent); }
               .nlx-paper .nl-preview figure { margin:14px 0; }
-              .nlx-paper .nl-preview figcaption { font-size:12px; color:#6b7280; margin-top:6px; text-align:center; }
-              .nlx-paper .nl-preview blockquote { border-left:4px solid var(--cp-accent, #3b82f6); background:#eff6ff; color:#334155; margin:14px 0; padding:10px 16px; border-radius:0 8px 8px 0; }
+              .nlx-paper .nl-preview figcaption { font-size:12px; color:color-mix(in srgb, var(--nlp-text) 60%, transparent); margin-top:6px; text-align:center; }
+              .nlx-paper .nl-preview blockquote { border-left:4px solid var(--nlp-accent); background:color-mix(in srgb, var(--nlp-accent) 8%, transparent); color:inherit; margin:14px 0; padding:10px 16px; border-radius:0 8px 8px 0; }
               .nlx-paper .nl-preview svg { max-width:100%; height:auto; }
+
+              /* pending image attachments in the chat composer */
+              .nlx-color { width:100%; height:30px; padding:0; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); cursor:pointer; }
+              .nlx-attach { display:flex; flex-wrap:wrap; gap:6px; padding:0 10px 8px; }
+              .nlx-attach .chip { position:relative; width:46px; height:46px; border-radius:8px; overflow:hidden; border:1px solid var(--cp-border); background:var(--cp-surface-soft); }
+              .nlx-attach .chip img { width:100%; height:100%; object-fit:cover; display:block; }
+              .nlx-attach .chip button { position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; border:0; background:#ef4444; color:#fff; font-size:11px; line-height:18px; cursor:pointer; padding:0; }
+              .nlx-chat.drop { outline:2px dashed var(--cp-accent); outline-offset:-6px; }
 
               /* right chat drawer */
               .nlx-chat { display:flex; flex-direction:column; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px;
@@ -9917,11 +9937,38 @@
                         <div class="nlx-fld"><label>Cadence</label><select class="field-input" x-model="newsletter.config.cadence"><option value="weekly">Weekly</option><option value="biweekly">Every two weeks</option><option value="monthly">Monthly</option><option value="adhoc">Ad-hoc</option></select></div>
                         <div class="nlx-fld"><label>Template</label><select class="field-input" x-model="newsletter.config.template"><option value="digest">Digest</option><option value="highlights">Highlights</option><option value="executive">Executive</option></select></div>
                       </div>
+                      <div class="nlx-fld"><label>Email to</label><input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" /></div>
+                  </div>
+                  <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
+                    <div class="nlx-acc-head" @click="o=!o">🎨 Appearance <span class="chev">›</span></div>
+                    <div class="nlx-acc-body">
                       <div class="nlx-fld2">
-                        <div class="nlx-fld"><label>Accent</label><input class="field-input" type="text" x-model="newsletter.config.accent" placeholder="#0078d4" /></div>
-                        <div class="nlx-fld"><label>Email to</label><input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" /></div>
+                        <div class="nlx-fld"><label>Paper</label><input type="color" class="nlx-color" x-model="newsletter.config.bg" @change="newsletter.draftDirty = newsletter.draftDirty" /></div>
+                        <div class="nlx-fld"><label>Text</label><input type="color" class="nlx-color" x-model="newsletter.config.textColor" /></div>
                       </div>
-                      <button class="btn ghost" type="button" style="width:100%;justify-content:center" :disabled="newsletter.busy" @click="saveNewsletterConfig()" x-text="newsletter.busy ? 'Saving…' : 'Save settings'"></button>
+                      <div class="nlx-fld2">
+                        <div class="nlx-fld"><label>Headings</label><input type="color" class="nlx-color" x-model="newsletter.config.headingColor" /></div>
+                        <div class="nlx-fld"><label>Accent</label><input type="color" class="nlx-color" x-model="newsletter.config.accent" /></div>
+                      </div>
+                      <div class="nlx-fld2">
+                        <div class="nlx-fld"><label>Links</label><input type="color" class="nlx-color" x-model="newsletter.config.linkColor" /></div>
+                        <div class="nlx-fld"><label>Font</label><select class="field-input" x-model="newsletter.config.fontFamily">
+                          <option value="">System sans</option>
+                          <option value="Georgia, 'Times New Roman', serif">Georgia (serif)</option>
+                          <option value="'Segoe UI', system-ui, sans-serif">Segoe UI</option>
+                          <option value="'Helvetica Neue', Helvetica, Arial, sans-serif">Helvetica</option>
+                          <option value="'Iowan Old Style', 'Palatino Linotype', Palatino, serif">Palatino (serif)</option>
+                          <option value="'Courier New', monospace">Monospace</option>
+                        </select></div>
+                      </div>
+                      <div class="nlx-fld"><label>Text size <span class="hint" style="font-weight:400" x-text="'· ' + Math.round((newsletter.config.fontScale||1)*100) + '%'"></span></label>
+                        <input type="range" min="0.85" max="1.3" step="0.05" style="width:100%" x-model.number="newsletter.config.fontScale" /></div>
+                      <div class="nlx-fld"><label>Width <span class="hint" style="font-weight:400" x-text="'· ' + (newsletter.config.width||760) + 'px'"></span></label>
+                        <input type="range" min="600" max="900" step="20" style="width:100%" x-model.number="newsletter.config.width" /></div>
+                      <div style="display:flex;gap:8px">
+                        <button class="btn ghost" type="button" style="flex:1;justify-content:center;padding:5px" @click="newsletterResetAppearance()">Reset</button>
+                        <button class="btn ghost" type="button" style="flex:2;justify-content:center;padding:5px" :disabled="newsletter.busy" @click="saveNewsletterConfig()" x-text="newsletter.busy ? 'Saving…' : 'Save appearance'"></button>
+                      </div>
                     </div>
                   </div>
                   <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
@@ -9978,7 +10025,7 @@
                     <p class="hint">Watch the live activity feed on the left to see what AI is investigating.</p>
                   </div>
                   <template x-if="newsletter.draftText.trim() && newsletter.preview">
-                    <article class="nlx-paper"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
+                    <article class="nlx-paper" :style="newsletterPaperStyle()"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
                   </template>
                   <textarea x-show="newsletter.draftText.trim() && !newsletter.preview" class="nlx-edit" x-model="newsletter.draftText" @input="newsletter.draftDirty = true" placeholder="# Your newsletter…"></textarea>
                 </div>
@@ -10005,10 +10052,14 @@
               </main>
 
               <!-- RIGHT: chat drawer -->
-              <aside class="nlx-chat" x-show="newsletter.chat.open" x-transition.opacity.duration.120ms>
+              <aside class="nlx-chat" x-show="newsletter.chat.open" x-transition.opacity.duration.120ms
+                     :class="{ drop: newsletter.chat.dragging }"
+                     @dragover.prevent="newsletter.chat.dragging = true"
+                     @dragleave.prevent="newsletter.chat.dragging = false"
+                     @drop.prevent="newsletter.chat.dragging = false; newsletterChatDrop($event)">
                 <div class="nlx-chat-head"><strong style="font-size:13px">💬 Newsletter assistant</strong><button class="btn ghost" type="button" style="margin-left:auto;padding:4px 8px;font-size:12px" @click="newsletterToggleChat()">✕</button></div>
                 <div id="nlChatScroll" class="nlx-chat-log">
-                  <p class="hint" x-show="!newsletter.chat.messages.length" style="margin:0">Ask for changes — “punchier intro”, “add a chart for PR throughput”, “shorten to 3 stories”.</p>
+                  <p class="hint" x-show="!newsletter.chat.messages.length" style="margin:0">Ask for changes — “punchier intro”, “add a chart for PR throughput”, “shorten to 3 stories”. Paste or drag images here to add them to the newsletter.</p>
                   <template x-for="(m, i) in newsletter.chat.messages" :key="i">
                     <div class="connect-chat-msg" :class="{ 'is-user': m.role === 'user' }">
                       <div class="connect-chat-role" x-text="m.role === 'user' ? 'You' : 'Assistant'"></div>
@@ -10017,9 +10068,15 @@
                   </template>
                   <div class="connect-chat-msg" x-show="newsletter.chat.busy"><div class="connect-chat-role">Assistant</div><div class="connect-chat-body"><span class="hint">Working…</span></div></div>
                 </div>
+                <div class="nlx-attach" x-show="newsletter.chat.attachments.length">
+                  <template x-for="(a, i) in newsletter.chat.attachments" :key="a.ref">
+                    <div class="chip" :title="a.name"><img :src="'/api/newsletter/asset/' + a.file" alt="" /><button type="button" @click="newsletterChatRemoveAttachment(i)">✕</button></div>
+                  </template>
+                  <div class="chip" x-show="newsletter.chat.uploading" style="display:flex;align-items:center;justify-content:center"><span class="hint" style="font-size:10px">…</span></div>
+                </div>
                 <div class="nlx-chat-in">
-                  <textarea rows="2" x-model="newsletter.chat.input" placeholder="Message the assistant…" :disabled="newsletter.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); newsletterChatSend(); }"></textarea>
-                  <button class="btn primary" type="button" @click="newsletterChatSend()" :disabled="newsletter.chat.busy || !newsletter.chat.input.trim()">Send</button>
+                  <textarea rows="2" x-model="newsletter.chat.input" placeholder="Message the assistant… (paste an image to attach)" :disabled="newsletter.chat.busy" @paste="newsletterChatPaste($event)" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); newsletterChatSend(); }"></textarea>
+                  <button class="btn primary" type="button" @click="newsletterChatSend()" :disabled="newsletter.chat.busy || (!newsletter.chat.input.trim() && !newsletter.chat.attachments.length)">Send</button>
                 </div>
               </aside>
             </div>
@@ -15793,6 +15850,9 @@
             busy: false,
             input: '',
             messages: [],        // { role:'user'|'assistant', text }
+            attachments: [],     // { file, ref, name } images to hand to the assistant
+            uploading: false,
+            dragging: false,
           },
         },
         codeflow: {
@@ -20978,7 +21038,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             timeframeDays: Math.max(1, Math.min(400, parseInt(c.timeframeDays, 10) || 7)),
             template: c.template || 'digest', cadence: c.cadence || 'weekly',
             accent: c.accent || '#0078d4', emailTo: c.emailTo || '',
+            bg: c.bg || '#ffffff', textColor: c.textColor || '#1f2430',
+            headingColor: c.headingColor || '#111827', linkColor: c.linkColor || '#1d4ed8',
+            fontFamily: c.fontFamily || '',
+            fontScale: Math.max(0.85, Math.min(1.3, parseFloat(c.fontScale) || 1)),
+            width: Math.max(600, Math.min(900, parseInt(c.width, 10) || 760)),
           };
+        },
+        // Inline CSS custom properties that drive the preview "paper" so it matches the
+        // sent email exactly and reflects the Appearance controls in real time.
+        newsletterPaperStyle() {
+          const c = this.newsletter.config || {};
+          const st = {};
+          if (c.bg) st['--nlp-bg'] = c.bg;
+          if (c.textColor) st['--nlp-text'] = c.textColor;
+          if (c.headingColor) st['--nlp-head'] = c.headingColor;
+          if (c.linkColor) st['--nlp-link'] = c.linkColor;
+          if (c.accent) st['--nlp-accent'] = c.accent;
+          if (c.fontFamily) st['--nlp-font'] = c.fontFamily;
+          if (c.fontScale) st['--nlp-scale'] = String(c.fontScale);
+          if (c.width) st['--nlp-width'] = (parseInt(c.width, 10) || 760) + 'px';
+          return st;
+        },
+        newsletterResetAppearance() {
+          const c = this.newsletter.config; if (!c) return;
+          Object.assign(c, { bg: '#ffffff', textColor: '#1f2430', headingColor: '#111827',
+            linkColor: '#1d4ed8', accent: '#0078d4', fontFamily: '', fontScale: 1, width: 760 });
         },
         async saveNewsletterConfig() {
           const nl = this.newsletter;
@@ -21121,14 +21206,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async newsletterChatSend() {
           const nl = this.newsletter, c = nl.chat;
           const msg = (c.input || '').trim();
-          if (!msg || c.busy) return;
-          c.messages.push({ role: 'user', text: msg });
+          const atts = (c.attachments || []).slice();
+          if ((!msg && !atts.length) || c.busy) return;
+          // Show the user's message with inline thumbnails of any attached images.
+          let shown = msg;
+          if (atts.length) {
+            const thumbs = atts.map(a => '![' + (a.name || 'image') + '](/api/newsletter/asset/' + a.file + ')').join(' ');
+            shown = (msg ? msg + '\n\n' : '') + thumbs;
+          }
+          c.messages.push({ role: 'user', text: shown });
           c.input = '';
+          c.attachments = [];
           c.busy = true;
           this.$nextTick(() => this._newsletterChatScroll());
           try {
             const history = c.messages.slice(-12).map(m => ({ role: m.role, content: m.text }));
-            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', body: JSON.stringify({ message: msg, history, draft: nl.draftText }) });
+            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', body: JSON.stringify({
+              message: msg || 'Please add the attached image(s) to the newsletter and reflow the layout so it reads well.',
+              history, draft: nl.draftText,
+              attachments: atts.map(a => ({ file: a.file, ref: a.ref, name: a.name })),
+            }) });
             const reply = (r && r.reply) || 'Done.';
             c.messages.push({ role: 'assistant', text: reply });
             if (r && typeof r.draft === 'string' && r.draft.trim() && r.draft !== nl.draftText) {
@@ -21143,6 +21240,34 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             c.busy = false;
             this.$nextTick(() => this._newsletterChatScroll());
           }
+        },
+        // ----- Chat image attachments (paste / drag-drop) -----
+        newsletterChatPaste(ev) {
+          const items = ev && ev.clipboardData && ev.clipboardData.items;
+          if (!items) return;
+          const files = [];
+          for (const it of items) { if (it.kind === 'file' && /^image\//.test(it.type)) { const f = it.getAsFile(); if (f) files.push(f); } }
+          if (files.length) { ev.preventDefault(); this._newsletterUploadImages(files); }
+        },
+        newsletterChatDrop(ev) {
+          const dt = ev && ev.dataTransfer; if (!dt) return;
+          const files = Array.from(dt.files || []).filter(f => /^image\//.test(f.type));
+          if (files.length) this._newsletterUploadImages(files);
+        },
+        newsletterChatRemoveAttachment(i) { this.newsletter.chat.attachments.splice(i, 1); },
+        async _newsletterUploadImages(files) {
+          const c = this.newsletter.chat;
+          c.uploading = true;
+          try {
+            for (const f of files) {
+              if (f.size > 12 * 1024 * 1024) { this.toast('Image too large (max 12MB): ' + f.name, 'error'); continue; }
+              const dataUrl = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(f); });
+              const r = await this.request('/api/newsletter/asset/upload', { method: 'POST', body: JSON.stringify({ name: f.name || 'image.png', dataUrl }) });
+              if (r && r.file) c.attachments.push({ file: r.file, ref: r.ref || ('assets/' + r.file), name: f.name || r.file });
+            }
+          } catch (e) {
+            this.toast('Upload failed: ' + (e.message || e), 'error');
+          } finally { c.uploading = false; }
         },
         _newsletterChatScroll() {
           try { const el = document.getElementById('nlChatScroll'); if (el) el.scrollTop = el.scrollHeight; } catch {}

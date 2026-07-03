@@ -120,4 +120,56 @@ async function captureUrl(url, outDir, opts = {}) {
   }
 }
 
-module.exports = { findBrowser, capabilities, captureUrl, slugify };
+module.exports = { findBrowser, capabilities, captureUrl, rasterizeHtml, slugify };
+
+// Rasterize an HTML/SVG snippet to a PNG Buffer using a headless browser. Unlike
+// captureUrl (http(s) only), this renders arbitrary markup via page.setContent —
+// used to turn inline <svg> charts/hero/stat-strips into real images for email
+// clients (Outlook et al.) that strip inline SVG.
+//   html   the snippet to render (e.g. a single <svg>…</svg> block)
+//   opts   { bg (page background, default #ffffff), maxWidth (default 680),
+//            pad (default 0), timeoutMs, deviceScaleFactor (default 2) }
+// Returns { ok, buffer, bytes, width, height } or { ok:false, error }.
+async function rasterizeHtml(html, opts = {}) {
+  const pp = puppeteer();
+  if (!pp) return { ok: false, error: 'puppeteer-core is not installed' };
+  const exe = findBrowser();
+  if (!exe) return { ok: false, error: 'No Chrome/Edge executable found. Set PUPPETEER_EXECUTABLE_PATH.' };
+  const snippet = String(html || '').trim();
+  if (!snippet) return { ok: false, error: 'Empty snippet' };
+
+  const bg = /^#[0-9a-fA-F]{3,8}$/.test(String(opts.bg || '')) ? opts.bg : '#ffffff';
+  const maxWidth = Math.max(120, Math.min(1400, parseInt(opts.maxWidth, 10) || 680));
+  const pad = Math.max(0, Math.min(60, parseInt(opts.pad, 10) || 0));
+  const timeoutMs = Math.max(3000, Math.min(30000, parseInt(opts.timeoutMs, 10) || 15000));
+  const scale = Math.max(1, Math.min(3, parseInt(opts.deviceScaleFactor, 10) || 2));
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><style>
+    *{box-sizing:border-box} html,body{margin:0;padding:0;background:${bg}}
+    #cap{display:inline-block;background:${bg};padding:${pad}px;max-width:${maxWidth}px}
+    #cap svg,#cap img{max-width:${maxWidth - pad * 2}px;height:auto;display:block}
+  </style></head><body><div id="cap">${snippet}</div></body></html>`;
+
+  let browser;
+  try {
+    browser = await pp.launch({
+      executablePath: exe,
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars', '--force-color-profile=srgb'],
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: maxWidth + 40, height: 800, deviceScaleFactor: scale });
+    await page.setContent(doc, { waitUntil: 'networkidle0', timeout: timeoutMs }).catch(async () => {
+      await page.setContent(doc, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    });
+    const el = await page.$('#cap');
+    if (!el) throw new Error('render container missing');
+    const box = await el.boundingBox().catch(() => null);
+    const buffer = await el.screenshot({ type: 'png' });
+    return { ok: true, buffer, bytes: buffer.length, width: box ? Math.round(box.width) : null, height: box ? Math.round(box.height) : null };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  } finally {
+    try { if (browser) await browser.close(); } catch (_) { /* ignore */ }
+  }
+}

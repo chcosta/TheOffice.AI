@@ -110,6 +110,16 @@ const DEFAULT_STATE = {
     accent: '',
     // Default recipient for the "Email newsletter" action.
     emailTo: '',
+    // Appearance / visual-format controls (Design panel). Empty string / defaults
+    // mean "use the built-in light look". These drive both the preview paper and
+    // the sent email so the two stay in visual sync.
+    bg: '#ffffff',
+    textColor: '#1f2430',
+    headingColor: '#111827',
+    linkColor: '#1d4ed8',
+    fontFamily: '',
+    fontScale: 1,
+    width: 760,
   },
   // The newsletter draft. `markdown` is the single editable body (Markdown that
   // MAY contain inline HTML/SVG for charts and image references).
