@@ -3195,12 +3195,18 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
     try {
       const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
       const save = { reports: reports || [] };
+      // The review worktree is a detached snapshot at the old PR tip, so its own
+      // HEAD never reflects new local commits (which land on the branch inside a
+      // sibling branch-attached worktree — e.g. a dev card's Work worktree). Measure
+      // sync + uncommitted against that branch-attached dir so the card's Git section
+      // shows real "N to push" / dirty state instead of a false "In sync / Clean".
+      const branchDir = _cfUsableDir(rec) || rec.worktreePath;
       if (rec.sourceBranch) {
         try {
           const lastFetch = _cfDriftFetchAt.get(key) || 0;
           const doFetch = req.query.refresh === '1' || (Date.now() - lastFetch) > CF_DRIFT_FETCH_TTL_MS;
           if (doFetch) _cfDriftFetchAt.set(key, Date.now());
-          const drift = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: doFetch });
+          const drift = devitems.prDrift(branchDir, rec.sourceBranch, { fetch: doFetch });
           if (drift) save.drift = drift;
         } catch {}
       }
@@ -3220,8 +3226,9 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   try { Object.assign(extra, _cfAgentPresence(rec)); } catch {}
   try { extra.reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, _cfWtDevId(o)) || []; } catch { extra.reportHistory = []; }
   try {
-    if (rec.worktreePath && fs.existsSync(rec.worktreePath)) {
-      const ch = devitems.worktreeChanges(rec.worktreePath);
+    const branchDir = _cfUsableDir(rec) || rec.worktreePath;
+    if (branchDir && fs.existsSync(branchDir)) {
+      const ch = devitems.worktreeChanges(branchDir);
       extra.changeCount = (ch.changed || []).length;
     }
   } catch {}
@@ -3544,14 +3551,18 @@ app.post('/api/codeflow/pr/push', async (req, res) => {
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to push from.' });
   if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
+  // Work happens on the branch-attached worktree (e.g. a dev card's Work dir), not
+  // the detached review snapshot — push/commit from there so the user's real commits
+  // and uncommitted edits land on the PR, not the frozen review-tip HEAD.
+  const workDir = _cfUsableDir(rec) || rec.worktreePath;
   try {
     let message = String(b.message || '').trim();
     if (!message) {
       let dirty = false;
-      try { dirty = !!devitems.worktreeChanges(rec.worktreePath).dirty; } catch {}
-      if (dirty) { try { message = await _cfGenerateCommitMessage(rec.worktreePath); } catch {} }
+      try { dirty = !!devitems.worktreeChanges(workDir).dirty; } catch {}
+      if (dirty) { try { message = await _cfGenerateCommitMessage(workDir); } catch {} }
     }
-    const r = devitems.pushPrBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, message });
+    const r = devitems.pushPrBranch(workDir, { sourceBranch: rec.sourceBranch, message });
     if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Push failed.', drift: r && r.drift });
     const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
     res.json({ ok: true, committed: r.files || 0, message: r.message, commitMessage: message || '', drift: r.drift || null, worktree: { key, ...updated } });
@@ -3596,7 +3607,8 @@ app.get('/api/codeflow/pr/changes', (req, res) => {
   const rec = _getCfWt(_cfWtKey(o));
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree found.' });
   try {
-    const ch = devitems.worktreeChanges(rec.worktreePath);
+    const workDir = _cfUsableDir(rec) || rec.worktreePath;
+    const ch = devitems.worktreeChanges(workDir);
     res.json({ ok: true, dirty: ch.dirty, changed: ch.changed, ignored: ch.ignored });
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'Could not read changes.' }); }
 });
@@ -3664,16 +3676,17 @@ app.post('/api/codeflow/pr/commit', async (req, res) => {
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to commit.' });
   try {
+    const workDir = _cfUsableDir(rec) || rec.worktreePath;
     let message = String(b.message || '').trim();
     if (!message) {
       let dirty = true;
-      try { dirty = !!devitems.worktreeChanges(rec.worktreePath).dirty; } catch {}
-      if (dirty) { try { message = await _cfGenerateCommitMessage(rec.worktreePath); } catch {} }
+      try { dirty = !!devitems.worktreeChanges(workDir).dirty; } catch {}
+      if (dirty) { try { message = await _cfGenerateCommitMessage(workDir); } catch {} }
     }
-    const r = devitems.commitAll(rec.worktreePath, { message });
+    const r = devitems.commitAll(workDir, { message });
     if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Commit failed.' });
     const save = {};
-    try { if (rec.sourceBranch) { const d = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
+    try { if (rec.sourceBranch) { const d = devitems.prDrift(workDir, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
     const updated = _saveCfWt(key, save);
     res.json({ ok: true, committed: r.committed, files: r.files || 0, message: r.message, commitMessage: message || '', worktree: { key, ...updated } });
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'Commit failed' }); }
@@ -3689,10 +3702,11 @@ app.post('/api/codeflow/pr/discard', (req, res) => {
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to clean.' });
   try {
-    const r = devitems.discardWorktreeChanges(rec.worktreePath);
+    const workDir = _cfUsableDir(rec) || rec.worktreePath;
+    const r = devitems.discardWorktreeChanges(workDir);
     if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Discard failed.' });
     const save = {};
-    try { if (rec.sourceBranch) { const d = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
+    try { if (rec.sourceBranch) { const d = devitems.prDrift(workDir, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
     const updated = _saveCfWt(key, save);
     res.json({ ok: true, message: r.message, worktree: { key, ...updated } });
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'Discard failed' }); }
