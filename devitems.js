@@ -565,6 +565,18 @@ function syncToPrBranch(wt, { sourceBranch, force = false, desc = null } = {}) {
   return { ok: true, message: 'Synced to the PR branch.', drift };
 }
 
+// True when the worktree has uncommitted changes to TRACKED files (staged or
+// unstaged, minus ignorable agent/report artifacts). Untracked files — build
+// output like artifacts/**, obj/**, generated files — are deliberately NOT
+// counted: git merge/rebase run fine with them present and abort cleanly only if
+// one would actually be overwritten. Gating merge/rebase-style "update" actions
+// on this (instead of the -uall dirty check) stops stray build artifacts from
+// blocking a pull the user's real (tracked) tree is perfectly clean for.
+function _trackedDirty(wt) {
+  const out = _gitTry(['status', '--porcelain', '-uno'], wt).out || '';
+  return classifyPorcelain(out).dirty;
+}
+
 // Bring the PR/source branch up to date with its TARGET (base) branch by merging
 // or rebasing origin/<targetBranch> into the worktree's HEAD — the classic "my PR
 // is behind main, catch it up" operation. This is the OPPOSITE direction of
@@ -583,8 +595,9 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
   const mode = strategy === 'rebase' ? 'rebase' : 'merge';
 
   // A merge/rebase needs a clean tree — never silently discard the user's work.
-  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
-  if (cls.dirty) {
+  // Only TRACKED changes block; untracked build output (artifacts/**, obj/**)
+  // doesn't stop git and shouldn't stop us.
+  if (_trackedDirty(wt)) {
     return { ok: false, needsClean: true, message: 'Commit or discard your uncommitted changes before updating from ' + tgt + '.' };
   }
 
@@ -633,8 +646,9 @@ function pullPrBranch(wt, { sourceBranch, strategy = 'merge', desc = null } = {}
   if (!src) return { ok: false, message: 'No PR source branch to update from.' };
   const mode = strategy === 'rebase' ? 'rebase' : 'merge';
 
-  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
-  if (cls.dirty) {
+  // Only TRACKED changes block the merge/rebase; untracked build output
+  // (artifacts/**, obj/**) is left to git and shouldn't stop the pull.
+  if (_trackedDirty(wt)) {
     return { ok: false, needsClean: true, message: 'Commit or discard your uncommitted changes before updating from the PR branch.' };
   }
 
