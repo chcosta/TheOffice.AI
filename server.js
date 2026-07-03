@@ -2698,25 +2698,88 @@ function _cfUsableDir(rec) {
     return (r && r.dir) || current;
   } catch { return current; }
 }
-// Resolve the agent that SHOULD tend a worktree's PR and whether its .agent.md
-// file is actually present on disk. The steward/reviewer file is git-excluded and
-// lives only in the worktree, so a recreated/cleaned worktree can lose it (the CLI
-// then errors "Custom agent ... not found"). Presence reflects the dir the CLI
-// actually opens (which can differ from rec.worktreePath), so a "Ready" card never
-// lies about an agent the CLI can't find. Returns { agentKind, agentName,
-// agentPresent, agentOpenDir? }.
-function _cfAgentPresence(rec) {
+// Every worktree dir the CLI could open for this PR's branch: the review/steward
+// worktree itself PLUS any other worktree currently checked out on the source
+// branch (e.g. a dev card's Work worktree). The `.agent.md` must exist in ALL of
+// them, because the user can launch the CLI from any one — and the resolver
+// (`resolveUsableWorktree`) may land on a sibling worktree that never had it.
+function _cfAgentTargetDirs(rec) {
+  const dirs = [];
+  const seen = new Set();
+  const add = (d) => {
+    if (!d) return;
+    let key; try { key = path.resolve(String(d)).toLowerCase(); } catch { key = String(d).toLowerCase(); }
+    if (seen.has(key)) return;
+    try { if (!fs.existsSync(d)) return; } catch { return; }
+    seen.add(key); dirs.push(d);
+  };
+  add(rec && rec.worktreePath);
+  const br = String((rec && rec.sourceBranch) || '').replace(/^refs\/heads\//, '').trim();
+  if (br) {
+    try {
+      const wts = devitems.listWorktrees(rec && rec.org, rec && rec.project, rec && rec.repo, rec && rec.provider) || [];
+      for (const w of wts) if (w && !w.detached && w.branch === br) add(w.path);
+    } catch { /* ignore */ }
+  }
+  return dirs;
+}
+
+// Self-healing presence: the steward/reviewer `.agent.md` is git-excluded and
+// lives only inside a worktree, so worktree churn (recreate/clean, or a NEW
+// sibling worktree checked out on the branch after the agent was written) can
+// leave the dir the CLI opens without it — the CLI then errors "Custom agent ...
+// not found" while the card still reads "Ready". This ensures the file exists in
+// EVERY on-branch worktree by copying it from whichever one still has it. Only if
+// NO worktree has a copy does it report missing (so the card flips to "Agent file
+// missing" + the recreate button). Cheap, best-effort, never throws. Returns
+// { agentKind, agentName, agentPresent }.
+function _cfEnsureAgentFile(rec) {
   const kind = _cfAgentKindForView(rec && rec.view);
   const idish = { org: rec && rec.org, project: rec && rec.project, repo: rec && rec.repo, prId: rec && rec.prId };
   const slug = kind === 'steward' ? _cfStewardAgentSlug(idish) : _cfReviewAgentSlug(idish);
   const rel = path.join('.github', 'agents', slug + '.agent.md');
-  const has = (d) => { try { return !!d && fs.existsSync(path.join(d, rel)); } catch { return false; } };
-  const wt = rec && rec.worktreePath;
-  const openDir = _cfUsableDir(rec);
-  // The CLI runs from openDir, so presence must reflect THAT dir.
-  const present = (openDir && openDir !== wt) ? has(openDir) : has(wt);
-  const out = { agentKind: kind, agentName: slug, agentPresent: present };
-  if (openDir && wt && openDir !== wt) out.agentOpenDir = openDir;
+  const relPosix = '.github/agents/' + slug + '.agent.md';
+  const dirs = _cfAgentTargetDirs(rec);
+  const fileIn = (d) => path.join(d, rel);
+  const hasIn = (d) => { try { return fs.existsSync(fileIn(d)); } catch { return false; } };
+  // Find a surviving copy to seed the others from.
+  let src = '';
+  for (const d of dirs) { if (hasIn(d)) { src = d; break; } }
+  if (src) {
+    let content = null;
+    try { content = fs.readFileSync(fileIn(src)); } catch { /* ignore */ }
+    if (content != null) {
+      for (const d of dirs) {
+        if (d === src || hasIn(d)) continue;
+        try {
+          fs.mkdirSync(path.dirname(fileIn(d)), { recursive: true });
+          fs.writeFileSync(fileIn(d), content);
+          try { devitems.addGitExclude(d, relPosix); } catch {}
+          try { devitems.addGitExclude(d, CODEFLOW_REPORT_NAME); } catch {}
+          try { devitems.addGitExclude(d, CODEFLOW_COMMENTS_NAME); } catch {}
+        } catch { /* ignore */ }
+      }
+    }
+  }
+  const present = !!src && dirs.length > 0 && dirs.every(hasIn);
+  return { agentKind: kind, agentName: slug, agentPresent: present };
+}
+
+// Resolve the agent that SHOULD tend a worktree's PR and whether its .agent.md is
+// actually present where the CLI opens. Delegates to the self-healing ensure so a
+// transient miss (a fresh sibling worktree) is fixed automatically and a "Ready"
+// card never lies about an agent the CLI can't find. Returns { agentKind,
+// agentName, agentPresent, agentOpenDir? }.
+function _cfAgentPresence(rec) {
+  let base;
+  try { base = _cfEnsureAgentFile(rec); }
+  catch { base = { agentKind: _cfAgentKindForView(rec && rec.view), agentName: '', agentPresent: false }; }
+  const out = { agentKind: base.agentKind, agentName: base.agentName, agentPresent: base.agentPresent };
+  try {
+    const wt = rec && rec.worktreePath;
+    const openDir = _cfUsableDir(rec);
+    if (openDir && wt && openDir !== wt) out.agentOpenDir = openDir;
+  } catch { /* ignore */ }
   return out;
 }
 
@@ -2998,10 +3061,11 @@ function _writeCfReviewAgentFile(rec, pr, workItems, opts = {}) {
   const md = steward
     ? _buildStewardAgentMd({ agentName: slug, pr, workItems, threads: opts.threads || [], reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME })
     : _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME });
-  // Write into the worktree AND the dir the CLI actually opens (they differ when
-  // another worktree is checked out on the branch), so the CLI always resolves it.
-  const dirs = new Set([wt]);
-  try { const od = _cfUsableDir(rec); if (od && fs.existsSync(od)) dirs.add(od); } catch {}
+  // Write into EVERY worktree the CLI could open for this branch — the review
+  // worktree plus any sibling worktree checked out on the same branch — so the CLI
+  // always resolves the agent no matter which dir it lands in.
+  const dirs = _cfAgentTargetDirs(rec);
+  if (!dirs.length) dirs.push(wt);
   for (const d of dirs) {
     try {
       const agentsDir = path.join(d, '.github', 'agents');
@@ -3178,6 +3242,9 @@ app.post('/api/codeflow/pr/worktree/open-dir', (req, res) => {
   const rec = _getCfWt(_cfWtKey(o));
   const current = rec && rec.worktreePath ? rec.worktreePath : '';
   if (!current) return res.json({ dir: '' });
+  // Seed the agent file into every on-branch worktree before handing a dir to the
+  // CLI, so the resolved dir always has the steward/reviewer .agent.md.
+  try { _cfEnsureAgentFile(rec); } catch { /* best-effort */ }
   let r;
   try {
     r = devitems.resolveUsableWorktree({
