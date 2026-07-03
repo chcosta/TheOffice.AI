@@ -8955,8 +8955,77 @@ function _connectMemoryLines() {
 
 // Draft an HR-standard Connect from the user's (non-hidden) evidence, role, and
 // guidance. Saved as source:'ai' — an editable draft the user personalizes.
-async function runConnectGeneration({ lookbackDays = 0 } = {}) {
+// ---- Connect section locking --------------------------------------------------
+// A Connect draft is Markdown organized by headings. Users can "lock" individual
+// sections (by heading) so a full regeneration preserves them verbatim. We parse
+// the body into heading-keyed blocks and, after the writer returns a fresh draft,
+// splice the previously-locked blocks back in. The client and server MUST derive
+// the section key identically — see `connectSectionKey` in public/app.html.
+function _connectSectionKey(heading) {
+  return String(heading || '').replace(/^#+\s*/, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+// Split Markdown into { preamble, blocks:[{ key, heading, text }] }. `text` is the
+// full block including its heading line and everything up to the next heading.
+function _connectSplitSections(md) {
+  const lines = String(md || '').split('\n');
+  const blocks = [];
+  let preamble = [];
+  let cur = null;
+  const headingRe = /^(#{1,6})\s+(.+?)\s*$/;
+  for (const line of lines) {
+    const m = line.match(headingRe);
+    if (m) {
+      if (cur) blocks.push(cur);
+      cur = { key: _connectSectionKey(m[2]), heading: m[2].trim(), lines: [line] };
+    } else if (cur) {
+      cur.lines.push(line);
+    } else {
+      preamble.push(line);
+    }
+  }
+  if (cur) blocks.push(cur);
+  return {
+    preamble: preamble.join('\n'),
+    blocks: blocks.map(b => ({ key: b.key, heading: b.heading, text: b.lines.join('\n').replace(/\s+$/, '') })),
+  };
+}
+// Produce a merged draft: start from `newMd`, but for any locked key replace the
+// new block with the old (locked) one. Locked blocks that vanished from the new
+// draft are appended so their content is never lost.
+function _connectMergeLocked(newMd, oldMd, lockedKeys) {
+  const locked = new Set((lockedKeys || []).map(_connectSectionKey).filter(Boolean));
+  if (!locked.size) return newMd;
+  const oldParsed = _connectSplitSections(oldMd);
+  const oldByKey = new Map(oldParsed.blocks.map(b => [b.key, b]));
+  const newParsed = _connectSplitSections(newMd);
+  const usedKeys = new Set();
+  const outBlocks = newParsed.blocks.map(b => {
+    if (locked.has(b.key) && oldByKey.has(b.key)) {
+      usedKeys.add(b.key);
+      return oldByKey.get(b.key).text;
+    }
+    return b.text;
+  });
+  // Append any locked sections that the new draft dropped entirely.
+  for (const key of locked) {
+    if (!usedKeys.has(key) && oldByKey.has(key)) outBlocks.push(oldByKey.get(key).text);
+  }
+  const parts = [];
+  if (newParsed.preamble.trim()) parts.push(newParsed.preamble.replace(/\s+$/, ''));
+  parts.push(...outBlocks);
+  return parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function runConnectGeneration({ lookbackDays = 0, lockedSections = [] } = {}) {
   const st = connect.getState();
+  const prevBody = (st.draft && st.draft.markdown) || '';
+  // Locked section headings (from the current draft) the user wants preserved.
+  const lockedKeys = Array.isArray(lockedSections)
+    ? lockedSections.map(_connectSectionKey).filter(Boolean)
+    : [];
+  const lockedHeadings = lockedKeys.length
+    ? _connectSplitSections(prevBody).blocks.filter(b => lockedKeys.includes(b.key)).map(b => b.heading)
+    : [];
   // Lookback window: 0 = all-time. Otherwise only draft from evidence on/after `since`.
   let since = '';
   const days = Math.max(0, parseInt(lookbackDays, 10) || 0);
@@ -8989,6 +9058,12 @@ async function runConnectGeneration({ lookbackDays = 0 } = {}) {
       '## Remembered preferences (durable guidance from past sessions — honor these)',
       memLines,
     ] : []),
+    ...(lockedHeadings.length ? [
+      '',
+      '## Locked sections (reproduce these headings EXACTLY, keep their content stable)',
+      'The user has locked the following sections — keep each heading verbatim and preserve its content; only refine surrounding sections:',
+      ...lockedHeadings.map(h => `- ${h}`),
+    ] : []),
     '',
     '## Diary evidence' + (since ? ` (covering ${since} → today)` : ''),
     evLines,
@@ -8998,6 +9073,9 @@ async function runConnectGeneration({ lookbackDays = 0 } = {}) {
   const fence = md.match(/```(?:markdown|md)?\s*([\s\S]*?)```/i);
   if (fence && fence[1].trim()) md = fence[1].trim();
   if (!md) throw new Error('The writer returned an empty draft. Try again.');
+  // Authoritatively restore locked sections from the previous draft (belt-and-suspenders
+  // on top of the prompt instruction) so a lock is never silently broken.
+  if (lockedKeys.length) md = _connectMergeLocked(md, prevBody, lockedKeys);
   return connect.saveDraft({ markdown: md }, { source: 'ai' });
 }
 
@@ -10631,7 +10709,8 @@ app.post('/api/connect/backfill', (req, res) => {
 app.post('/api/connect/generate', async (req, res) => {
   try {
     const lookbackDays = Math.max(0, parseInt(req.body && req.body.lookbackDays, 10) || 0);
-    const state = await runConnectGeneration({ lookbackDays });
+    const lockedSections = Array.isArray(req.body && req.body.lockedSections) ? req.body.lockedSections : [];
+    const state = await runConnectGeneration({ lookbackDays, lockedSections });
     res.json({ ok: true, state });
   } catch (err) {
     res.status(err.message && /No diary evidence/.test(err.message) ? 400 : 500).json({ error: err.message });
