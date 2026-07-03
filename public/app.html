@@ -9427,7 +9427,7 @@
                     <div class="nlx-stage-actions">
                       <div class="nlx-zoom" x-show="connect._preview !== false && connect.draftText.trim()" title="Zoom the preview">
                         <button class="btn ghost" type="button" title="Zoom out" style="padding:5px 9px;font-size:14px;line-height:1" @click="connectZoom(-0.1)" :disabled="(connect.zoom||1) <= 0.5">−</button>
-                        <button class="btn ghost" type="button" title="Reset to 100%" style="padding:5px 6px;font-size:12px;min-width:46px" @click="connect.zoom = 1" x-text="Math.round((connect.zoom||1)*100) + '%'"></button>
+                        <button class="btn ghost" type="button" title="Reset to 100% (Ctrl/⌘ + scroll to zoom)" style="padding:5px 6px;font-size:12px;min-width:46px" @click="connect.zoom = 1" x-text="Math.round((connect.zoom||1)*100) + '%'"></button>
                         <button class="btn ghost" type="button" title="Zoom in" style="padding:5px 9px;font-size:14px;line-height:1" @click="connectZoom(0.1)" :disabled="(connect.zoom||1) >= 2">+</button>
                       </div>
                       <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :disabled="connect.savingDraft || !connect.draftDirty" @click="saveConnectDraft()" x-text="connect.savingDraft ? 'Saving…' : (connect.draftDirty ? 'Save' : 'Saved')"></button>
@@ -9485,7 +9485,7 @@
                               placeholder="## My impact&#10;&#10;- What I delivered and the outcome it drove…&#10;&#10;## How I delivered it&#10;&#10;## Reflection &amp; growth&#10;&#10;## Goals"></textarea>
 
                     <!-- Preview -->
-                    <article x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output connect-paper" :style="{ zoom: connect.zoom || 1 }" x-html="connectRenderDraft()"></article>
+                    <article x-show="connect._preview !== false && connect.draftText.trim()" class="connect-draft-preview md-output connect-paper" :style="{ zoom: connect.zoom || 1 }" @wheel="if($event.ctrlKey||$event.metaKey){$event.preventDefault(); connectZoom($event.deltaY < 0 ? 0.1 : -0.1);}" x-html="connectRenderDraft()"></article>
                   </div>
                 </main>
               </div>
@@ -10141,7 +10141,7 @@
                   <div class="nlx-stage-actions">
                     <div class="nlx-zoom" x-show="newsletter.tab !== 'history' && newsletter.preview && newsletter.draftText.trim()" title="Zoom the preview">
                       <button class="btn ghost" type="button" title="Zoom out" style="padding:5px 9px;font-size:14px;line-height:1" @click="newsletterZoom(-0.1)" :disabled="(newsletter.zoom||1) <= 0.5">−</button>
-                      <button class="btn ghost" type="button" title="Reset to 100%" style="padding:5px 6px;font-size:12px;min-width:46px" @click="newsletter.zoom = 1" x-text="Math.round((newsletter.zoom||1)*100) + '%'"></button>
+                      <button class="btn ghost" type="button" title="Reset to 100% (Ctrl/⌘ + scroll to zoom)" style="padding:5px 6px;font-size:12px;min-width:46px" @click="newsletter.zoom = 1" x-text="Math.round((newsletter.zoom||1)*100) + '%'"></button>
                       <button class="btn ghost" type="button" title="Zoom in" style="padding:5px 9px;font-size:14px;line-height:1" @click="newsletterZoom(0.1)" :disabled="(newsletter.zoom||1) >= 2">+</button>
                     </div>
                     <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="newsletter.tab !== 'history' && (!newsletter.preview || newsletter.draftDirty)" :disabled="newsletter.savingDraft || !newsletter.draftDirty" @click="saveNewsletterDraft()" x-text="newsletter.savingDraft ? 'Saving…' : (newsletter.draftDirty ? 'Save' : 'Saved')"></button>
@@ -10162,7 +10162,7 @@
                     <p class="hint">Watch the live activity feed on the left to see what AI is investigating.</p>
                   </div>
                   <template x-if="newsletter.draftText.trim() && newsletter.preview">
-                    <article class="nlx-paper" :style="{ ...newsletterPaperStyle(), zoom: newsletter.zoom || 1 }"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
+                    <article class="nlx-paper" :style="{ ...newsletterPaperStyle(), zoom: newsletter.zoom || 1 }" @wheel="if($event.ctrlKey||$event.metaKey){$event.preventDefault(); newsletterZoom($event.deltaY < 0 ? 0.1 : -0.1);}"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
                   </template>
                   <textarea x-show="newsletter.draftText.trim() && !newsletter.preview" class="nlx-edit" x-model="newsletter.draftText" @input="newsletter.draftDirty = true" placeholder="# Your newsletter…"></textarea>
                 </div>
