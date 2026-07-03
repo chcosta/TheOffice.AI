@@ -9409,7 +9409,13 @@ async function runNewsletterGeneration(runId) {
   emitProgress('📖', `Reading ${items.length} diary ${items.length === 1 ? 'entry' : 'entries'} from ${win.since} → ${win.until}`);
   const evLines = _newsletterEvidenceLines(items);
   const prompt = [
-    'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing. Follow the newsletter-standards skill and output only the newsletter Markdown body (inline HTML/SVG allowed).',
+    'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing, and capture real screenshots/visuals where they strengthen a story. Follow the newsletter-standards skill.',
+    '',
+    'OUTPUT PROTOCOL — STRICT: You may think and use tools freely, but emit the finished newsletter exactly once, wrapped between these two sentinel lines, each alone on its own line:',
+    '===NEWSLETTER-START===',
+    '<the newsletter Markdown body — inline HTML/SVG and images allowed>',
+    '===NEWSLETTER-END===',
+    'Put nothing except the newsletter between the sentinels, and nothing at all after ===NEWSLETTER-END===. No code fences around the whole thing.',
     '',
     '## Newsletter config',
     `Title (masthead): ${cfg.title || '(none provided — invent a compelling, specific title from the content and use it as the H1)'}`,
@@ -9434,8 +9440,28 @@ async function runNewsletterGeneration(runId) {
   const text = await _newsletterRunAgent('writer', prompt, onStep);
   emitProgress('✍️', 'Composing the newsletter…');
   let md = String(text || '').trim();
-  const fence = md.match(/```(?:markdown|md|html)?\s*([\s\S]*?)```\s*$/i);
-  if (fence && fence[1].trim() && /^```/.test(md)) md = fence[1].trim();
+  // Prefer the sentinel-delimited body so the agent's investigation chatter /
+  // preamble never leaks into the newsletter.
+  const sent = md.match(/===NEWSLETTER-START===\s*([\s\S]*?)\s*===NEWSLETTER-END===/i);
+  if (sent && sent[1].trim()) {
+    md = sent[1].trim();
+  } else {
+    // Fallback 1: a start sentinel with no end (truncated) — take everything after it.
+    const startOnly = md.match(/===NEWSLETTER-START===\s*([\s\S]*)$/i);
+    if (startOnly && startOnly[1].trim()) {
+      md = startOnly[1].trim();
+    } else {
+      // Fallback 2: whole output was a single code fence.
+      const fence = md.match(/```(?:markdown|md|html)?\s*([\s\S]*?)```\s*$/i);
+      if (fence && fence[1].trim() && /^```/.test(md)) md = fence[1].trim();
+      // Fallback 3: strip any leading preamble by starting at the first masthead —
+      // an H1 line (# …) or an opening block-HTML container.
+      const anchor = md.search(/^(#\s+\S|<(?:div|section|header|figure|table|svg)\b)/im);
+      if (anchor > 0) md = md.slice(anchor).trim();
+    }
+  }
+  // Drop any stray sentinel lines that survived.
+  md = md.replace(/^===NEWSLETTER-(?:START|END)===\s*$/gim, '').trim();
   if (!md) throw new Error('The newsletter writer returned an empty draft. Try again.');
   // Derive a display title from the first H1 if present.
   const h1 = md.match(/^#\s+(.+)$/m);
@@ -9539,6 +9565,26 @@ app.get('/api/newsletter', (req, res) => {
         timeframeDays: cfg.timeframeDays,
       },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve a captured newsletter asset (chart/screenshot the writer saved into the
+// assets dir) so the browser preview can render <img src="assets/<file>">. The
+// filename is basename-sanitized to keep the read inside the assets directory.
+app.get('/api/newsletter/asset/:file', (req, res) => {
+  try {
+    const dir = newsletter.assetsDir();
+    const file = path.join(dir, path.basename(String(req.params.file || '')));
+    if (!file.startsWith(dir) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      return res.status(404).end();
+    }
+    const ext = (path.extname(file).slice(1) || 'png').toLowerCase();
+    const mimes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+    res.setHeader('Content-Type', mimes[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    fs.createReadStream(file).pipe(res);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

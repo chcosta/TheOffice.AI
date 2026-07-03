@@ -9731,6 +9731,11 @@
               .nl-preview.md-output { max-height:none; overflow:visible; }
               .nl-preview :is(h1,h2,h3) { color:var(--cp-text); }
               .nl-preview svg { max-width:100%; height:auto; }
+              .nl-preview img.md-img, .nl-preview figure img, .nl-preview img {
+                max-width:100%; height:auto; border-radius:8px; display:block; margin:10px 0;
+                border:1px solid var(--cp-border); }
+              .nl-preview figure { margin:14px 0; }
+              .nl-preview figcaption { font-size:12px; color:var(--cp-text-soft); margin-top:6px; text-align:center; }
               .nl-preview blockquote { border-left:3px solid var(--cp-accent); background:var(--cp-accent-soft);
                 margin:12px 0; padding:8px 14px; border-radius:6px; color:var(--cp-text-muted); }
               .nl-activity { margin-top:14px; padding:12px 14px; border:1px solid var(--cp-border);
@@ -9953,7 +9958,7 @@
                         <a href="#" @click.prevent="newsletterDeleteVersion(v.id)" style="color:var(--cp-danger)">Delete</a>
                       </div>
                     </div>
-                    <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === v.id" x-html="renderMarkdown(v.markdown || '')"></div>
+                    <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === v.id" x-html="newsletterRenderHtml(v.markdown || '')"></div>
                   </div>
                 </template>
               </div>
@@ -21004,7 +21009,67 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           window.open('/api/newsletter/export', '_blank');
         },
         newsletterRenderedDraft() {
-          try { return this.renderMarkdown(this.newsletter.draftText || ''); } catch { return ''; }
+          try { return this.newsletterRenderHtml(this.newsletter.draftText || ''); } catch { return ''; }
+        },
+        // Newsletter-specific renderer. Unlike the shared renderMarkdown (which
+        // escapes all HTML), the newsletter is *designed* to carry inline HTML/SVG
+        // (mastheads, hero banners, charts, stat cards, images). This renders
+        // markdown normally but passes block-level HTML/SVG through verbatim, and
+        // rewrites local asset references (assets/<file>) to the server route so
+        // captured screenshots/charts actually load in the preview.
+        newsletterRenderHtml(md) {
+          const src = md == null ? '' : String(md);
+          if (!src.trim()) return '';
+          const lines = src.split('\n');
+          // Elements whose *contents* are raw (not markdown) — pass through until
+          // the matching close tag, tolerating blank lines (SVG has them).
+          const rawTags = new Set(['svg', 'style', 'pre', 'script', 'table', 'thead', 'tbody', 'tr', 'td', 'th']);
+          // Layout containers — emit the tag line raw but keep rendering markdown
+          // inside them (so a <div>-wrapped masthead still formats its heading).
+          const containerTags = new Set(['div', 'section', 'figure', 'figcaption', 'header', 'footer', 'article', 'aside', 'center', 'main', 'details', 'summary', 'nav', 'blockquote']);
+          const selfTags = /^<(img|hr|br|iframe|video|audio|source|picture|embed|object)[\s/>]/i;
+          const out = [];
+          let mdBuf = [];
+          const flushMd = () => { if (mdBuf.length) { out.push(this.renderMarkdown(mdBuf.join('\n'))); mdBuf = []; } };
+          const countTag = (line, tag) => {
+            const opens = (line.match(new RegExp('<' + tag + '(?=[\\s/>])', 'gi')) || []).length;
+            const closes = (line.match(new RegExp('</' + tag + '\\s*>', 'gi')) || []).length;
+            return opens - closes;
+          };
+          let rawTag = null, rawDepth = 0, rawBuf = [];
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const t = line.trim();
+            if (rawTag) {
+              rawBuf.push(line);
+              rawDepth += countTag(line, rawTag);
+              if (rawDepth <= 0) { out.push(rawBuf.join('\n')); rawBuf = []; rawTag = null; }
+              continue;
+            }
+            const open = t.match(/^<([a-zA-Z][a-zA-Z0-9]*)/);
+            if (open) {
+              const tag = open[1].toLowerCase();
+              if (rawTags.has(tag)) {
+                flushMd();
+                const depth = countTag(line, tag);
+                if (depth <= 0) { out.push(line); } else { rawTag = tag; rawDepth = depth; rawBuf = [line]; }
+                continue;
+              }
+              if (containerTags.has(tag)) { flushMd(); out.push(line); continue; }
+              if (selfTags.test(t)) { flushMd(); out.push(line); continue; }
+            }
+            const close = t.match(/^<\/([a-zA-Z][a-zA-Z0-9]*)\s*>$/);
+            if (close && (containerTags.has(close[1].toLowerCase()) || rawTags.has(close[1].toLowerCase()))) {
+              flushMd(); out.push(line); continue;
+            }
+            mdBuf.push(line);
+          }
+          flushMd();
+          if (rawTag && rawBuf.length) out.push(rawBuf.join('\n'));
+          let html = out.join('\n');
+          // Point local asset references at the server route so images render.
+          html = html.replace(/(<img\b[^>]*\bsrc=["'])assets\/([^"']+)(["'])/gi, (m, pre, file, post) => `${pre}/api/newsletter/asset/${encodeURIComponent(file)}${post}`);
+          return html;
         },
         async loadDataLocation() {
           try {
@@ -29601,6 +29666,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let s = String(text == null ? '' : text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           // Stash explicit markdown links first so their URLs aren't double-linkified.
           const stash = [];
+          // Images: ![alt](url) — stash as <img> before links are processed.
+          s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (m, alt, url, title) => {
+            const t = title ? ` title="${title}"` : '';
+            const i = stash.push(`<img src="${url}" alt="${alt}"${t} class="md-img" loading="lazy">`) - 1;
+            return `\u0000L${i}\u0000`;
+          });
           s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) => {
             const i = stash.push(`<a href="${url}" target="_blank" rel="noopener" class="md-link">${label}</a>`) - 1;
             return `\u0000L${i}\u0000`;

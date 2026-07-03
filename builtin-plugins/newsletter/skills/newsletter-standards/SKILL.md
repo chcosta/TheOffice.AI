@@ -9,12 +9,14 @@ Guidance for turning impact-diary evidence into a newsletter people actually enj
 
 ## Layout (top to bottom)
 
-1. **Masthead** — an `# ` H1 that is a *specific, inviting issue title* (e.g. "Shipping Week: Autoscaler Goes Live", not "Weekly Newsletter"). Directly under it, a one-line **dek** (subtitle) and the **covered date range**. If an accent color is provided, you may wrap the masthead in a simple inline-styled `<div>` banner using that color.
+1. **Hero masthead** — a full-width inline `<svg>` banner (accent-colored or `<linearGradient>` background with the issue title set in `<text>` and light geometric/iconographic art — never a stock photo), immediately followed by an `# ` H1 that is a *specific, inviting issue title* (e.g. "Shipping Week: Autoscaler Goes Live", not "Weekly Newsletter"), a one-line **dek** (subtitle), and the **covered date range**.
 2. **In this issue** — 2–3 sentence intro naming the theme of the period and teasing the highlights.
-3. **Highlight stories** — 2–4 `## ` sections. Each: a punchy headline, then 2–4 tight sentences following **Action → Scale → Measurable impact → Business outcome**, with a link to the primary source (PR, work item, doc, thread) when the evidence has one.
-4. **Charts** — one or two inline SVG visuals where real numbers support them (see below).
+3. **Highlight stories** — 2–4 `## ` sections. Each: a punchy headline, then 2–4 tight sentences following **Action → Scale → Measurable impact → Business outcome**, with a link to the primary source (PR, work item, doc, thread) when the evidence has one, and **at least one visual** (captured screenshot, chart, or stat card).
+4. **Charts & stat cards** — inline SVG visuals where real numbers support them (see below).
 5. **By the numbers** — a short bulleted stat line (items shipped, PRs merged, meetings driven) — only figures you can substantiate.
 6. **Up next / closer** — a brief forward-looking or thank-you sign-off.
+
+**Imagery is required, not decorative-optional.** Open every issue with the hero banner and keep a visual roughly every screenful. A text-only newsletter is a failure.
 
 ## Voice
 
@@ -23,23 +25,24 @@ Guidance for turning impact-diary evidence into a newsletter people actually enj
 - Celebrate honestly: highlight wins and quantify **only where evidence supports it**. Never oversell or invent.
 - First person or editorial "we" is fine — match what reads naturally for a personal impact digest.
 
-## Charts (inline SVG, email-safe)
+## Charts & stat cards (inline SVG, email-safe)
 
-- Self-contained `<svg width viewBox>` with `<rect>`/`<line>`/`<polyline>`/`<text>` only.
+- Self-contained `<svg width viewBox>` with `<rect>`/`<line>`/`<polyline>`/`<text>`/`<circle>`/`<linearGradient>` only.
 - **No** `<script>`, external CSS, or web fonts. Inline `fill`/`stroke` attributes only.
-- Bar chart for category counts; line/`<polyline>` for a trend over the weeks in the window.
-- Label bars/axes with `<text>`. Use the accent color if given, else `#0078d4`.
+- Bar chart for category counts; line/`<polyline>` for a trend over the weeks in the window; **stat cards** (big number + label in rounded rects) for headline figures.
+- Label bars/axes/cards with `<text>`. Use the accent color if given, else `#0078d4`; a gradient for the hero.
 - One bold caption line above each chart. Only chart numbers you actually derived.
 
-## Screenshots
+## Screenshots — capture, don't just suggest
 
-- Prefer a clearly-marked **suggestion** the user can swap in:
+- **Try to capture the real thing first.** Deep-dive the referenced PRs, work items, builds, dashboards, wiki/spec pages, and repos in a browser (or via shell) and capture the telling view — a merged-PR checks-passed screen, a diff, a Grafana/dashboard panel, a build summary, a slide from a deck, a meeting recap.
+- Save each capture into the assets directory and embed it with a caption:
+  `![Merged PR #1234 — all checks green](assets/pr-1234-checks.png)` (optionally inside `<figure>…<figcaption>…</figcaption></figure>`).
+- **Only** embed images that exist on disk after saving. If you genuinely cannot capture one, fall back to a clearly-marked suggestion the user can swap in:
   `> 📸 **Suggested screenshot:** <what to capture and why it helps>`
-- Embed a real image only if you captured/generated one into the assets directory:
-  `![caption](assets/<file>.png)`. Never embed a path that doesn't exist.
 
 ## Hard rules
 
 - Ground everything in the diary evidence and your investigation of it. No fabricated metrics, quotes, or events.
 - Keep it tight — a great newsletter is a few strong stories, not an exhaustive log.
-- Output Markdown only (inline HTML/SVG allowed), no surrounding code fences.
+- Output the newsletter Markdown (inline HTML/SVG/images allowed) wrapped in the `===NEWSLETTER-START===` / `===NEWSLETTER-END===` sentinels; no surrounding code fences.

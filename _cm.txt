@@ -1,0 +1,19 @@
+Render newsletter HTML/SVG + images in preview; strip agent preamble; mandate imagery
+
+Client: add newsletterRenderHtml() that passes block-level HTML/SVG through
+verbatim (raw-tag close-depth counting tolerates blank lines in SVG) while
+still rendering markdown inside layout containers; add markdown-image support
+to inlineMarkdown and rewrite assets/<file> to /api/newsletter/asset/<file>;
+add image/figure CSS. Preview and history now use it instead of renderMarkdown
+(which escapes HTML).
+
+Server: wrap generated newsletter in sentinels and extract server-side with
+masthead-anchor + fence fallbacks, eliminating the agent investigation preamble
+leaking into the draft; add GET /api/newsletter/asset/:file to serve
+captured/generated images to the browser preview.
+
+Writer agent + newsletter-standards skill: mandate a hero SVG banner, a visual
+per story, inline SVG charts/stat cards, and genuine screenshot capture with
+sentinel output.
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
