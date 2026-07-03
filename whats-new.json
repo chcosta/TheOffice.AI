@@ -1,0 +1,64 @@
+{
+  "entries": [
+    {
+      "version": "1.0.4",
+      "date": "2025-02-14",
+      "title": "What's New & in-app Feedback",
+      "summary": "This release adds a running changelog that greets you after every upgrade, plus a one-click way to send feedback straight to the team as a GitHub issue \u2014 optionally with a screenshot of what you're looking at.",
+      "highlights": [
+        "A \u201cWhat's new?\u201d dialog now appears automatically the first time you open the app after an update.",
+        "A Feedback button sits next to Settings so you can report a bug or share an idea without leaving the app.",
+        "Attach a screenshot of your current screen and AI turns your note into a well-structured GitHub issue."
+      ],
+      "details": [
+        {
+          "heading": "What's New dialog",
+          "items": [
+            "Summarizes every change between your previous version and the one you just installed.",
+            "Expand any release to read the full detail list, grouped by area.",
+            "Reopen it any time from Settings \u2192 About \u2192 \u201cWhat's new\u201d."
+          ]
+        },
+        {
+          "heading": "Feedback",
+          "items": [
+            "Pick a topic (General, Bugs, or Requests and ideas) and describe what happened.",
+            "Optionally capture a screenshot of your current screen for visual issues.",
+            "AI drafts a clear title and reproducible issue body, then files it in the project's GitHub repo and links you to it."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.3",
+      "date": "2025-02-13",
+      "title": "Newsletter studio & Code Flow reliability",
+      "summary": "A big polish pass on the Newsletter experience and a batch of Code Flow PR-card fixes so pushes, updates, and review agents behave the way you'd expect.",
+      "highlights": [
+        "Newsletter is now a full studio with appearance controls, chat image uploads, and faithful email rendering.",
+        "Code Flow PR cards show every reviewer and keep their Git section in sync with the review worktree.",
+        "Review agents now self-heal instead of showing \u201cReady\u201d for an agent the CLI can't find."
+      ],
+      "details": [
+        {
+          "heading": "Newsletter",
+          "items": [
+            "Redesigned into a studio layout with background, accent, font, size, and width controls.",
+            "Drag, drop, or paste images into chat and the assistant embeds and reflows them.",
+            "Emails now match the preview exactly, with charts and hero images rasterized so they survive mail clients.",
+            "Removed the redundant header Generate button; the assistant recovers context on its own when revising."
+          ]
+        },
+        {
+          "heading": "Code Flow",
+          "items": [
+            "PR cards list all reviewers, not just the pending ones.",
+            "Added an \u201cUpdate from PR branch\u201d action and fixed \u201cUpdate from main/PR\u201d silently refusing over untracked build output.",
+            "The Git section now reads sync, changes, and push state from the correct review worktree.",
+            "Review-agent files are seeded into every on-branch worktree so \u201cReady\u201d always means the agent is really there."
+          ]
+        }
+      ]
+    }
+  ]
+}

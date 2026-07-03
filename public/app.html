@@ -5217,6 +5217,10 @@
             <span>⚙</span>
             <span>Settings</span>
           </a>
+          <button class="nav-link" type="button" @click="openFeedback()" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;font:inherit;color:inherit">
+            <span>💬</span>
+            <span>Feedback</span>
+          </button>
           <div class="conn-cluster" @click.outside="connMenu = null">
             <div class="conn-cluster-label">Connections</div>
             <!-- GitHub -->
@@ -5294,7 +5298,10 @@
             <template x-if="update.supported && (update.phase === 'downloading' || update.phase === 'verifying' || update.phase === 'ready')">
               <div class="sidebar-update-note" :class="update.phase === 'ready' ? 'is-ready' : ''" x-text="updateStatusText()"></div>
             </template>
-            <div x-text="versionLabel()"></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span x-text="versionLabel()"></span>
+              <a href="#" class="svc-logs-link" @click.prevent="openWhatsNew()" title="See what changed in recent updates">What's new</a>
+            </div>
             <div x-text="sseStatusLabel()"></div>
             <template x-if="sseStuck && update.supported">
               <button class="svc-restart-btn" @click="restartService()" :disabled="restarting"
@@ -13498,6 +13505,7 @@
             <div class="card" style="margin-top:24px">
               <h2 style="font-size:1rem;margin-bottom:12px">System Info</h2>
               <div class="help-row"><strong>Version</strong><span class="mono" x-text="versionLabel()"></span></div>
+              <div class="help-row" style="margin-top:10px"><strong>What's new</strong><a href="#" @click.prevent="openWhatsNew()">View release notes</a></div>
               <div class="help-row" style="margin-top:10px"><strong>Process</strong><span x-text="data.version?.pid ? 'PID ' + data.version.pid : 'Unknown'"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Started</strong><span x-text="data.version?.startedAt ? formatDateTime(data.version.startedAt) : 'Unknown'"></span></div>
               <div class="help-row" style="margin-top:10px"><strong>Realtime</strong><span x-text="sseStatusLabel()"></span></div>
@@ -14611,6 +14619,113 @@
     </section>
   </div>
 
+  <!-- What's New Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="whatsNew.open" x-transition.opacity @click.self="dismissWhatsNew()" style="z-index:10000" x-cloak>
+    <div class="modal-card" style="max-width:620px">
+      <div class="modal-header">
+        <h2 class="modal-title">✨ What's new</h2>
+        <button class="icon-button" type="button" @click="dismissWhatsNew()">✕</button>
+      </div>
+      <div style="padding:0 20px 20px;max-height:70vh;overflow:auto">
+        <div class="empty-state" x-show="whatsNew.loading">Loading release notes…</div>
+        <div class="empty-state" x-show="!whatsNew.loading && !whatsNew.entries.length">No release notes yet.</div>
+        <template x-for="(e, ei) in whatsNew.entries" :key="e.version + ':' + ei">
+          <div style="padding:16px 0;border-bottom:1px solid var(--cp-border)">
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+              <span style="font-weight:700;font-size:1.05rem" x-text="e.title || ('Version ' + e.version)"></span>
+              <span class="mono" style="opacity:.6;font-size:.8rem" x-text="'v' + e.version"></span>
+              <span x-show="e.version === whatsNew.current" style="font-size:.72rem;opacity:.7">· current</span>
+              <span style="opacity:.5;font-size:.78rem" x-text="e.date || ''"></span>
+            </div>
+            <div x-show="e.summary" style="margin-top:8px;opacity:.9;line-height:1.5" x-text="e.summary"></div>
+            <ul x-show="e.highlights && e.highlights.length" style="margin:10px 0 0;padding-left:20px;line-height:1.6">
+              <template x-for="(h, hi) in (e.highlights || [])" :key="hi"><li x-text="h"></li></template>
+            </ul>
+            <template x-if="e.details && e.details.length">
+              <div style="margin-top:10px">
+                <a href="#" @click.prevent="whatsNew.expanded[e.version] = !whatsNew.expanded[e.version]"
+                   x-text="whatsNew.expanded[e.version] ? 'Hide details' : 'Show details'"></a>
+                <div x-show="whatsNew.expanded[e.version]" x-transition style="margin-top:8px">
+                  <template x-for="(g, gi) in (e.details || [])" :key="gi">
+                    <div style="margin-top:10px">
+                      <div style="font-weight:600" x-text="g.heading"></div>
+                      <ul style="margin:6px 0 0;padding-left:20px;line-height:1.6">
+                        <template x-for="(it, ii) in (g.items || [])" :key="ii"><li x-text="it"></li></template>
+                      </ul>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+        <div style="display:flex;justify-content:flex-end;margin-top:16px">
+          <button class="btn primary" type="button" @click="dismissWhatsNew()">Got it</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback Modal -->
+  <div class="modal-backdrop modal-overlay" x-show="feedback.open && !feedback.capturing" x-transition.opacity @click.self="feedback.submitting || (feedback.open = false)" style="z-index:10000" x-cloak>
+    <div class="modal-card" style="max-width:460px">
+      <div class="modal-header">
+        <h2 class="modal-title">💬 Share feedback</h2>
+        <button class="icon-button" type="button" @click="feedback.open = false" :disabled="feedback.submitting">✕</button>
+      </div>
+      <div style="padding:18px">
+        <template x-if="!feedback.done">
+          <div>
+            <div class="field-label">Topic</div>
+            <select class="field-input" x-model="feedback.topic" style="margin-bottom:14px">
+              <option>General</option>
+              <option>Bugs</option>
+              <option>Requests and ideas</option>
+            </select>
+            <div class="field-label">How do you feel?</div>
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <template x-for="m in ['😞','🙂','🎉']" :key="m">
+                <button type="button" @click="feedback.mood = (feedback.mood === m ? '' : m)"
+                        :style="'font-size:1.4rem;line-height:1;padding:6px 10px;border-radius:8px;cursor:pointer;background:' + (feedback.mood === m ? 'var(--cp-surface-soft)' : 'transparent') + ';border:1px solid ' + (feedback.mood === m ? 'var(--cp-accent)' : 'var(--cp-border)')"
+                        x-text="m"></button>
+              </template>
+            </div>
+            <div class="field-label" x-text="feedbackPrompt().label"></div>
+            <textarea class="field-input" x-model="feedback.text" rows="6" :placeholder="feedbackPrompt().placeholder" style="margin-bottom:12px;resize:vertical"></textarea>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer">
+              <input type="checkbox" x-model="feedback.includeShot" @change="feedback.includeShot ? captureFeedbackShot() : clearFeedbackShot()" />
+              <span x-text="feedback.capturing ? 'Capturing screen…' : 'Include a screenshot of my current screen'"></span>
+            </label>
+            <template x-if="feedback.shot">
+              <div style="margin-bottom:12px">
+                <img :src="feedback.shot" alt="screenshot preview" style="max-width:100%;border-radius:8px;border:1px solid var(--cp-border)" />
+                <a href="#" @click.prevent="clearFeedbackShot()" style="font-size:.8rem">Remove screenshot</a>
+              </div>
+            </template>
+            <div class="hint" style="margin-bottom:14px">This will be posted as a public GitHub issue.</div>
+            <div class="conn-pop-err" x-show="feedback.error" x-text="feedback.error" style="margin-bottom:12px"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+              <button class="btn" type="button" @click="feedback.open = false" :disabled="feedback.submitting">Cancel</button>
+              <button class="btn primary" type="button" @click="submitFeedback()" :disabled="feedback.submitting || !feedback.text.trim()"
+                      x-text="feedback.submitting ? 'Sharing…' : 'Share feedback'"></button>
+            </div>
+          </div>
+        </template>
+        <template x-if="feedback.done">
+          <div style="text-align:center;padding:10px 0">
+            <div style="font-size:2rem">✅</div>
+            <div style="font-weight:600;margin:8px 0" x-text="'Thanks! Filed as issue #' + feedback.done.number"></div>
+            <div style="opacity:.8;margin-bottom:16px" x-show="feedback.done.screenshotAttached === false && feedback.includeShot">Your screenshot couldn't be attached, but your note was filed.</div>
+            <div style="display:flex;justify-content:center;gap:8px">
+              <button class="btn" type="button" @click="feedback.open = false">Close</button>
+              <a class="btn primary" :href="feedback.done.url" target="_blank" rel="noopener">View issue</a>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
   <!-- Share Modal -->
   <div class="modal-backdrop modal-overlay" x-show="shareModalOpen" x-transition.opacity @click.self="shareModalOpen = false" style="z-index:9999" x-cloak>
     <div class="modal-card" style="max-width:480px">
@@ -15495,6 +15610,12 @@
         // whole UI so browser/LAN builds never show update chrome.
         update: { supported: false, checked: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '' },
         updateConfirmOpen: false,
+        _whatsNewChecked: false,
+        // "What's new" release-notes dialog. Populated from /api/whats-new; shown
+        // automatically the first time the app runs after a version bump.
+        whatsNew: { open: false, current: '', entries: [], expanded: {}, loading: false },
+        // In-app feedback -> GitHub issue.
+        feedback: { open: false, topic: 'General', mood: '', text: '', includeShot: false, shot: '', capturing: false, submitting: false, error: '', done: null },
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
         appMode: (() => { try { const m = localStorage.getItem('app-mode'); return (m === 'workspace' || m === 'workforce') ? m : 'workspace'; } catch { return 'workspace'; } })(),
@@ -17034,6 +17155,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.route === 'boards') this.refreshBoardPinDetails();
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
             this.initUpdater();
+            this.maybeShowWhatsNew();
           } catch (error) {
             this.errorMessage = error.message;
             this.showToast('Load failed', error.message, 'error');
@@ -32407,6 +32529,166 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           setTimeout(() => {
             this.toasts = this.toasts.filter((entry) => entry.id !== toast.id);
           }, 4200);
+        },
+
+        // --- What's New (release notes) --------------------------------------
+        semverGt(a, b) {
+          const pa = String(a || '').split('.').map(n => parseInt(n, 10) || 0);
+          const pb = String(b || '').split('.').map(n => parseInt(n, 10) || 0);
+          for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            const x = pa[i] || 0, y = pb[i] || 0;
+            if (x > y) return true;
+            if (x < y) return false;
+          }
+          return false;
+        },
+        async loadWhatsNew() {
+          this.whatsNew.loading = true;
+          try {
+            const r = await this.request('/api/whats-new');
+            this.whatsNew.current = r.current || (this.data.version && this.data.version.version) || '';
+            this.whatsNew.entries = Array.isArray(r.entries) ? r.entries : [];
+          } catch (e) {
+            this.whatsNew.entries = [];
+          } finally {
+            this.whatsNew.loading = false;
+          }
+          return this.whatsNew.entries;
+        },
+        async openWhatsNew() {
+          this.whatsNew.open = true;
+          this.whatsNew.expanded = {};
+          if (!this.whatsNew.entries.length) await this.loadWhatsNew();
+          // Reading the notes counts as "seen".
+          this._markWhatsNewSeen();
+        },
+        _markWhatsNewSeen() {
+          const cur = this.whatsNew.current || (this.data.version && this.data.version.version) || '';
+          if (cur) { try { localStorage.setItem('whatsNewSeenVersion', cur); } catch {} }
+        },
+        dismissWhatsNew() {
+          this.whatsNew.open = false;
+          this._markWhatsNewSeen();
+        },
+        // Auto-show once after a version bump. Records the current version silently
+        // for first-time users so we never nag them about a changelog they have no
+        // baseline for.
+        async maybeShowWhatsNew() {
+          if (this._whatsNewChecked) return;
+          this._whatsNewChecked = true;
+          const cur = (this.data.version && this.data.version.version) || '';
+          if (!cur) return;
+          let seen = '';
+          try { seen = localStorage.getItem('whatsNewSeenVersion') || ''; } catch {}
+          if (!seen) { try { localStorage.setItem('whatsNewSeenVersion', cur); } catch {} return; }
+          if (!this.semverGt(cur, seen)) return;
+          await this.loadWhatsNew();
+          // Only surface entries the user hasn't seen yet.
+          const fresh = (this.whatsNew.entries || []).filter(e => this.semverGt(e.version, seen) && !this.semverGt(e.version, cur));
+          if (fresh.length) {
+            this.whatsNew.entries = fresh;
+            this.whatsNew.open = true;
+            this.whatsNew.expanded = {};
+          } else {
+            try { localStorage.setItem('whatsNewSeenVersion', cur); } catch {}
+          }
+        },
+
+        // --- Feedback --------------------------------------------------------
+        openFeedback() {
+          this.feedback = { open: true, topic: 'General', mood: '', text: '', includeShot: false, shot: '', capturing: false, submitting: false, error: '', done: null };
+        },
+        clearFeedbackShot() {
+          this.feedback.shot = '';
+          this.feedback.includeShot = false;
+        },
+        async captureFeedbackShot() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            this.feedback.error = 'Screen capture is not supported in this environment.';
+            this.feedback.includeShot = false;
+            return;
+          }
+          this.feedback.capturing = true;
+          this.feedback.error = '';
+          // The modal is hidden while `capturing` is true (see its x-show). Wait
+          // for Alpine to remove it and the browser to paint the frame WITHOUT it,
+          // so neither the getDisplayMedia preview nor the grabbed frame include
+          // the feedback dialog — the user sees what they were actually doing.
+          await this.$nextTick();
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          let stream = null;
+          try {
+            stream = await navigator.mediaDevices.getDisplayMedia({
+              video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true
+            });
+            const track = stream.getVideoTracks()[0];
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            await video.play();
+            // Give the frame a beat to paint.
+            await new Promise(r => setTimeout(r, 180));
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 1280;
+            canvas.height = video.videoHeight || 720;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            this.feedback.shot = canvas.toDataURL('image/png');
+            this.feedback.includeShot = true;
+            video.pause();
+            video.srcObject = null;
+          } catch (e) {
+            this.feedback.error = (e && e.name === 'NotAllowedError') ? 'Screenshot cancelled.' : ('Could not capture screen: ' + ((e && e.message) || e));
+            this.feedback.includeShot = false;
+            this.feedback.shot = '';
+          } finally {
+            if (stream) { try { stream.getTracks().forEach(t => t.stop()); } catch {} }
+            this.feedback.capturing = false;
+          }
+        },
+        feedbackPrompt() {
+          const t = this.feedback.topic;
+          if (t === 'Bugs') {
+            return {
+              label: 'Describe the bug',
+              placeholder: 'What happened?\n\nWhat did you expect to happen instead?\n\nSteps to reproduce (if you know them):\n1. \n2. '
+            };
+          }
+          if (t === 'Requests and ideas') {
+            return {
+              label: 'Describe your idea',
+              placeholder: 'What would you like to see?\n\nWhy would it help / what problem does it solve?'
+            };
+          }
+          return {
+            label: 'What feedback would you like to share?',
+            placeholder: 'Anything on your mind…'
+          };
+        },
+        async submitFeedback() {
+          const text = (this.feedback.text || '').trim();
+          if (!text) { this.feedback.error = 'Please enter some feedback first.'; return; }
+          this.feedback.submitting = true;
+          this.feedback.error = '';
+          try {
+            const v = this.data.version || {};
+            const payload = {
+              topic: this.feedback.topic,
+              mood: this.feedback.mood,
+              text,
+              screenshot: (this.feedback.includeShot && this.feedback.shot) ? this.feedback.shot : '',
+              route: (typeof location !== 'undefined' ? location.hash : '') || this.route || '',
+              version: v.version || '',
+              commit: v.commit || v.gitHash || '',
+              userAgent: (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
+              platform: (typeof navigator !== 'undefined' ? (navigator.platform || '') : '')
+            };
+            const r = await this.request('/api/feedback', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 120000 });
+            this.feedback.done = r;
+            this.showToast('Feedback sent', 'Filed as issue #' + r.number, 'success');
+          } catch (e) {
+            this.feedback.error = (e && e.message) || 'Could not submit feedback.';
+          } finally {
+            this.feedback.submitting = false;
+          }
         },
 
         versionLabel() {

@@ -928,6 +928,63 @@ async function materializePlugin(owner, _project, repo, branch, item) {
 
 // ---- Write helpers (PR create / push) ------------------------------------
 
+// Create a GitHub issue. `labels` is an optional string[]. Returns { number, url }.
+async function createIssue(owner, repo, { title, body, labels } = {}) {
+  const payload = { title: title || 'Feedback', body: body || '' };
+  if (Array.isArray(labels) && labels.length) payload.labels = labels;
+  const R = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`;
+  let d;
+  try {
+    d = await api(R, { method: 'POST', body: payload });
+  } catch (e) {
+    // A non-existent label yields 422 — retry once without labels so feedback
+    // still reaches GitHub rather than being lost.
+    if (payload.labels && /422|label/i.test(e && e.message || '')) {
+      const { labels: _drop, ...noLabels } = payload;
+      d = await api(R, { method: 'POST', body: noLabels });
+    } else { throw e; }
+  }
+  return { number: d.number, url: d.html_url, webUrl: d.html_url };
+}
+
+// Best-effort: make sure a label exists so createIssue can apply it. Swallows
+// the "already exists" 422 and any other error (labels are non-critical).
+async function ensureLabel(owner, repo, name, color = '5319e7', description = '') {
+  try {
+    await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/labels`, {
+      method: 'POST', body: { name, color, description }
+    });
+  } catch { /* already exists or insufficient scope — ignore */ }
+}
+
+// Upload a binary image (base64, no data: prefix) to `branch` at `repoPath`,
+// creating the branch from the repo's default branch if it doesn't exist yet.
+// Returns a raw.githubusercontent.com URL that renders inline in issue markdown.
+async function uploadImageToBranch(owner, repo, { branch, path: repoPath, base64, message } = {}) {
+  const R = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  // Ensure the destination branch exists (branch off the default branch tip).
+  let sha = await getRefObjectId(owner, null, repo, branch);
+  if (!sha) {
+    const meta = await getRepo(owner, null, repo);
+    const baseSha = await getRefObjectId(owner, null, repo, meta.defaultBranch);
+    if (!baseSha) throw new Error('Could not resolve a base branch to create ' + branch);
+    try {
+      await api(`${R}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${branch}`, sha: baseSha } });
+    } catch (e) {
+      // Lost a race, or it exists now — tolerate "Reference already exists".
+      if (!/already exists|422/i.test(e && e.message || '')) throw e;
+    }
+  }
+  const cleanPath = String(repoPath).replace(/^\/+/, '');
+  const enc = cleanPath.split('/').map(encodeURIComponent).join('/');
+  const d = await api(`${R}/contents/${enc}`, {
+    method: 'PUT',
+    body: { message: message || 'Add feedback screenshot', branch, content: base64 }
+  });
+  const raw = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${cleanPath}`;
+  return { url: raw, downloadUrl: (d.content && d.content.download_url) || raw };
+}
+
 async function createPullRequest(owner, _project, repo, { sourceBranch, targetBranch, title, description } = {}) {
   const d = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`, {
     method: 'POST',
@@ -1045,6 +1102,9 @@ module.exports = {
   getRefObjectId,
   pushFiles,
   createPullRequest,
+  createIssue,
+  ensureLabel,
+  uploadImageToBranch,
   cloneUrl,
   workItemUrl,
   pullRequestUrl,

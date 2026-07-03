@@ -4788,6 +4788,166 @@ app.get('/api/version', (req, res) => {
   });
 });
 
+// --- What's New (release notes) --------------------------------------------
+// Serves the curated changelog so the SPA can greet users after an upgrade.
+function readWhatsNew() {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'whats-new.json'), 'utf-8');
+    const parsed = JSON.parse(raw);
+    const entries = Array.isArray(parsed) ? parsed : (parsed.entries || []);
+    return entries;
+  } catch { return []; }
+}
+
+app.get('/api/whats-new', (req, res) => {
+  res.json({ current: GIT_VERSION.version || '', entries: readWhatsNew() });
+});
+
+// Maintainer helper (dev only, where git is available): draft a changelog entry
+// for HEAD from the commit log since a given ref, using the same AI one-shot the
+// rest of the app uses. Returns a { version, ...entry } object to paste into
+// whats-new.json — it does NOT write the file.
+app.post('/api/whats-new/generate', async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    let sinceRef = (req.body && req.body.since || '').trim();
+    if (!sinceRef) {
+      // Default: the most recent tag, else the last 20 commits.
+      try { sinceRef = execSync('git describe --tags --abbrev=0', { cwd: __dirname, encoding: 'utf-8' }).trim(); } catch {}
+    }
+    const range = sinceRef ? `${sinceRef}..HEAD` : '-20';
+    let log = '';
+    try { log = execSync(`git --no-pager log ${range} --format=%s`, { cwd: __dirname, encoding: 'utf-8' }).trim(); } catch (e) {
+      return res.status(502).json({ error: 'git log failed (is git available?): ' + e.message });
+    }
+    if (!log) return res.json({ error: 'No commits found in range ' + range });
+    const version = GIT_VERSION.version || '';
+    const prompt = [
+      'You are drafting a user-facing "What\'s New" changelog entry for a desktop/web app.',
+      'Given the raw git commit subjects below, produce ONE JSON object (no markdown, no code fence) with this exact shape:',
+      '{ "version": string, "date": "YYYY-MM-DD", "title": string, "summary": string, "highlights": string[], "details": [{ "heading": string, "items": string[] }] }',
+      'Write for end users, not developers: describe capabilities and fixes in plain language, group related work under headings, omit purely internal/mechanical commits.',
+      '"title" is a short phrase; "summary" is 1-2 sentences; 2-4 highlights; 1-3 detail groups.',
+      'Use version "' + version + '" and today\'s date.',
+      '',
+      'Commit subjects:',
+      log.slice(0, 8000),
+      '',
+      'JSON:'
+    ].join('\n');
+    let acc = '';
+    await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    let entry = null;
+    try {
+      const m = acc.match(/\{[\s\S]*\}/);
+      entry = JSON.parse(m ? m[0] : acc);
+    } catch {
+      return res.json({ error: 'Could not parse AI output as JSON', raw: acc.trim().slice(0, 4000) });
+    }
+    if (!entry.version) entry.version = version;
+    res.json({ entry });
+  } catch (e) { res.status(500).json({ error: (e && e.message) || 'generate failed' }); }
+});
+
+// --- Feedback -> GitHub issue ----------------------------------------------
+const FEEDBACK_OWNER = 'chcosta';
+const FEEDBACK_REPO = 'TheOffice.AI';
+const FEEDBACK_ASSET_BRANCH = 'feedback-assets';
+
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const topic = String(b.topic || 'General').trim();
+    const mood = String(b.mood || '').trim();
+    const text = String(b.text || '').trim();
+    if (!text) return res.status(400).json({ error: 'Feedback text is required.' });
+
+    // Gather lightweight context to make the issue reproducible.
+    const ctxLines = [];
+    if (b.route) ctxLines.push('Screen/route: ' + String(b.route).slice(0, 200));
+    if (b.version || GIT_VERSION.version) ctxLines.push('App version: ' + (b.version || GIT_VERSION.version));
+    if (b.commit || GIT_VERSION.hash) ctxLines.push('Commit: ' + (b.commit || GIT_VERSION.hash));
+    if (b.userAgent) ctxLines.push('User agent: ' + String(b.userAgent).slice(0, 300));
+    if (b.platform) ctxLines.push('Platform: ' + String(b.platform).slice(0, 120));
+    const contextBlock = ctxLines.join('\n');
+
+    // Ask the AI to turn the raw note into a clean issue. Structure is topic-aware:
+    // bugs/requests get useful sections when the info is present; General stays faithful.
+    const moodNote = mood ? `The user's overall sentiment was "${mood}".` : '';
+    const isBug = /bug/i.test(topic);
+    const isIdea = /request|idea|feature/i.test(topic);
+    let shapeRule;
+    if (isBug) {
+      shapeRule = '- This is a BUG report. Where the user supplied the information, organize the body with "### What happened", "### Expected behavior", and "### Steps to reproduce" headings. OMIT any of those sections the user did not actually address — never add a heading only to fill it with "N/A", "Not provided", or a guess.';
+    } else if (isIdea) {
+      shapeRule = '- This is a feature request / idea. Where the user supplied the information, organize the body with "### Summary" and "### Why it helps" headings. OMIT a section the user did not address — never add a heading only to fill it with a placeholder or a guess.';
+    } else {
+      shapeRule = '- This is general feedback. Do NOT impose a template or add headings/sections. Convey only what the user actually said, lightly cleaned up. If it is one or two sentences, keep the body one or two sentences.';
+    }
+    const prompt = [
+      'Convert the following in-app user feedback into a clear GitHub issue.',
+      'Respond with ONE JSON object (no markdown, no code fence) of shape:',
+      '{ "title": string, "body": string }',
+      'Rules:',
+      '- "title" is a concise, specific summary (max ~90 chars), no leading label.',
+      '- "body" is GitHub-flavored markdown that faithfully conveys ONLY what the user actually said. Do not invent details, placeholders, or speculation.',
+      shapeRule,
+      '- Do NOT include the raw context block or screenshots in your output; those are appended separately.',
+      '',
+      'Topic: ' + topic,
+      moodNote,
+      'User feedback:',
+      text,
+      '',
+      'JSON:'
+    ].filter(Boolean).join('\n');
+
+    let acc = '';
+    try {
+      await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    } catch { /* fall through to templated fallback */ }
+    let gen = null;
+    try { const m = acc.match(/\{[\s\S]*\}/); if (m) gen = JSON.parse(m[0]); } catch {}
+    let title = (gen && gen.title || '').trim();
+    let body = (gen && gen.body || '').trim();
+    if (!title) title = `[${topic}] ` + text.split('\n')[0].slice(0, 80);
+    if (!body) body = text;
+
+    // Try to attach a screenshot (raw.githubusercontent URLs render inline).
+    let shotNote = '';
+    if (b.screenshot) {
+      try {
+        const base64 = String(b.screenshot).replace(/^data:image\/\w+;base64,/, '');
+        const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+        const up = await github.uploadImageToBranch(FEEDBACK_OWNER, FEEDBACK_REPO, {
+          branch: FEEDBACK_ASSET_BRANCH,
+          path: `screenshots/${name}`,
+          base64,
+          message: 'Add feedback screenshot ' + name
+        });
+        shotNote = `\n\n### Screenshot\n\n![screenshot](${up.url})`;
+      } catch (e) {
+        shotNote = `\n\n_(A screenshot was attached in-app but could not be uploaded: ${(e && e.message || 'unknown error').slice(0, 160)}.)_`;
+      }
+    }
+
+    let fullBody = body;
+    if (shotNote) fullBody += shotNote;
+    if (contextBlock) fullBody += `\n\n---\n<sub>Submitted via in-app feedback.</sub>\n\n<details><summary>Environment</summary>\n\n\`\`\`\n${contextBlock}\n\`\`\`\n</details>`;
+
+    // Topic -> labels.
+    const labels = ['feedback'];
+    if (/bug/i.test(topic)) labels.push('bug');
+    else if (/request|idea/i.test(topic)) labels.push('enhancement');
+    try { await github.ensureLabel(FEEDBACK_OWNER, FEEDBACK_REPO, 'feedback', '5319e7', 'Submitted via in-app feedback'); } catch {}
+
+    const issue = await github.createIssue(FEEDBACK_OWNER, FEEDBACK_REPO, { title, body: fullBody, labels });
+    res.json({ ok: true, number: issue.number, url: issue.url, screenshotAttached: !!(b.screenshot && shotNote && shotNote.includes('![')) });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Failed to submit feedback' });
+  }
+});
+
 // --- In-app self-updater (desktop build only) ------------------------------
 // No-ops (supported:false) outside the packaged Tauri sidecar so browser/LAN
 // and `npm start` are unaffected.
