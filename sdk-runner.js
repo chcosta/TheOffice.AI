@@ -94,6 +94,48 @@ class SdkRunner {
     this._modelsCache = null;
     this._modelsCacheAt = 0;
     this._modelsTtlMs = parseInt(process.env.SDK_MODELS_TTL_MS || '', 10) || 300000; // 5 min
+    // Usage sink: a single function the host registers once (setUsageSink) that
+    // appends a row to the canonical usage ledger. Because EVERY runAgent /
+    // runChat / runPrompt flows through _execute, wiring the sink here means any
+    // AI call — present or future — is tracked automatically with no per-call
+    // bookkeeping. Callers may pass meta:{source,category,label,refId} to tag the
+    // row, or meta:{record:false} to opt out (used by the few paths that keep
+    // their own curated/aggregated ledger write to avoid double-counting).
+    this._usageSink = null;
+  }
+
+  /**
+   * Register the canonical usage recorder. Called once at startup, e.g.
+   *   sdkRunner.setUsageSink(ev => supervisor.recordUsage(ev))
+   * ev shape: { ts, source, category, refId, label, model, status, usage }.
+   */
+  setUsageSink(fn) {
+    this._usageSink = typeof fn === 'function' ? fn : null;
+  }
+
+  /**
+   * Emit one usage ledger row for a completed run. Never throws. Skips when no
+   * sink is registered or the caller opted out via meta.record === false.
+   * `meta` is the optional tag object threaded through opts.__meta.
+   */
+  _emitUsage(meta, { model, code, usage }) {
+    try {
+      if (!this._usageSink) return;
+      if (meta && meta.record === false) return;
+      const m = meta || {};
+      this._usageSink({
+        ts: new Date().toISOString(),
+        source: m.source || 'system',
+        category: m.category || 'system',
+        refId: m.refId || null,
+        label: m.label || null,
+        model: model || m.model || '',
+        status: code === 0 ? 'success' : 'error',
+        usage: usage || null,
+      });
+    } catch (e) {
+      try { console.error('[sdk-runner] usage sink failed:', e.message); } catch (_) { /* ignore */ }
+    }
   }
 
   /** (Re)arm the idle eviction timer for a kept-alive chat session. */
@@ -532,7 +574,7 @@ class SdkRunner {
    * On a resolution failure the result has fallback:true so the caller can
    * record a terminal failure (no CLI fallback remains).
    */
-  async runAgent({ config, prompt, sessionId, onChunk, model }) {
+  async runAgent({ config, prompt, sessionId, onChunk, model, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -545,6 +587,7 @@ class SdkRunner {
       onPermissionRequest: config.allowAll !== false ? approveAll : deny,
     };
     if (model) opts.model = model;
+    opts.__meta = meta || { source: 'agent', category: 'agents_tasks' };
 
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
       opts.pluginDirectories = [config.pluginDir];
@@ -581,7 +624,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runPrompt({ prompt, cwd, sessionId, onChunk, model }) {
+  async runPrompt({ prompt, cwd, sessionId, onChunk, model, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -592,6 +635,7 @@ class SdkRunner {
       onPermissionRequest: approveAll,
     };
     if (model) opts.model = model;
+    opts.__meta = meta || { source: 'system', category: 'system' };
     return this._execute(opts, prompt, sessionId, onChunk);
   }
 
@@ -606,7 +650,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, availableTools }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, availableTools, meta }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
@@ -617,6 +661,8 @@ class SdkRunner {
       onPermissionRequest: (config && config.allowAll === false) ? deny : approveAll,
     };
     if (model) opts.model = model;
+    // Default chat turns to the chat/system buckets; callers override via meta.
+    opts.__meta = meta || { source: 'chat', category: 'chat' };
     // Optional tool gate: pass availableTools:[] for a pure text-generation turn
     // (e.g. summarization) so the model cannot wander off to inspect the
     // filesystem and leak "let me check…" tool-planning prose into the output.
@@ -663,9 +709,11 @@ class SdkRunner {
 
     const resume = !!opts.__resume;
     const keepAlive = !!opts.__keepAlive;
+    const meta = opts.__meta || null;
     const sessionOpts = { ...opts };
     delete sessionOpts.__resume;
     delete sessionOpts.__keepAlive;
+    delete sessionOpts.__meta;
 
     let session = null;
     let entry = null;
@@ -843,6 +891,11 @@ class SdkRunner {
         this._liveSessions.set(sessionId, entry);
         this._scheduleEvict(sessionId, entry);
       }
+
+      // Canonical usage ledger: every executed run records exactly one row here
+      // (unless the caller opted out via meta.record:false). This is what makes
+      // ALL AI usage — including future call sites — show up in Reports for free.
+      this._emitUsage(meta, { model: usedModel || opts.model || '', code, usage });
 
       return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '', usage };
     } catch (e) {

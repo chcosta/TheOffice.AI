@@ -77,6 +77,7 @@ class Supervisor extends EventEmitter {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT NOT NULL,
         source TEXT NOT NULL,
+        category TEXT,
         ref_id TEXT,
         label TEXT,
         model TEXT,
@@ -90,6 +91,16 @@ class Supervisor extends EventEmitter {
       );
     `);
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_ts ON usage_events(ts)'); } catch {}
+    // Migration: add `category` (activity bucket for the Productivity report) to
+    // ledgers created before this column existed. SQLite has no ADD COLUMN IF NOT
+    // EXISTS, so probe the schema first.
+    try {
+      const cols = this.db.prepare('PRAGMA table_info(usage_events)').all();
+      if (!cols.some(c => c.name === 'category')) {
+        this.db.exec('ALTER TABLE usage_events ADD COLUMN category TEXT');
+      }
+    } catch {}
+    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_category ON usage_events(category)'); } catch {}
   }
 
   /**
@@ -102,9 +113,9 @@ class Supervisor extends EventEmitter {
     try {
       const u = (ev && ev.usage) || {};
       this.db.prepare(
-        'INSERT INTO usage_events (ts, source, ref_id, label, model, status, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO usage_events (ts, source, category, ref_id, label, model, status, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
-        ev.ts || new Date().toISOString(), ev.source, ev.refId || null, ev.label || null, ev.model || null, ev.status || null,
+        ev.ts || new Date().toISOString(), ev.source, ev.category || null, ev.refId || null, ev.label || null, ev.model || null, ev.status || null,
         u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null
       );
     } catch (e) {
@@ -338,7 +349,7 @@ class Supervisor extends EventEmitter {
     // hangs; this guarantees the run is finalized even if the SDK never resolves.
     this._armStallWatchdog(ctx);
 
-    sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk, model: settings.resolveModel('execution', config) })
+    sdkRunner.runAgent({ config, prompt, sessionId: pinnedSessionId, onChunk, model: settings.resolveModel('execution', config), meta: { record: false } })
       .then((res) => {
         if (res.fallback) {
           const msg = res.error || 'agent could not be resolved/started via the SDK runner';
@@ -467,6 +478,7 @@ class Supervisor extends EventEmitter {
     this.recordUsage({
       ts: finishedAt,
       source: taskId ? 'task' : 'agent',
+      category: 'agents_tasks',
       refId: taskId || agentId,
       label: config.name || agentId,
       model: model || '',

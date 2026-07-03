@@ -1766,6 +1766,7 @@ class MobileHandler extends EventEmitter {
         cwd: config && config.cwd,
         onChunk,
         model: chatModel,
+        meta: { record: false },
       });
     } finally {
       clearInterval(heartbeat);
@@ -1784,7 +1785,7 @@ class MobileHandler extends EventEmitter {
       if (resume) {
         const retry = await sdkRunner.runChat({
           config, prompt: message, sessionId: threadId, resume: false,
-          cwd: config && config.cwd, onChunk, model: chatModel,
+          cwd: config && config.cwd, onChunk, model: chatModel, meta: { record: false },
         }).catch(() => null);
         if (retry && !retry.fallback && retry.ok !== false) {
           this._recordChatUsage(targetId, config, retry);
@@ -1804,6 +1805,7 @@ class MobileHandler extends EventEmitter {
         this.supervisor.recordUsage({
           ts: new Date().toISOString(),
           source: 'chat',
+          category: 'chat',
           refId: agentId || 'chat',
           label: (config && config.name) || agentId || 'Mobile Chat',
           model: res.model || '',

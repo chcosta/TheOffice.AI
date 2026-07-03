@@ -9803,7 +9803,13 @@
                 color:var(--cp-accent-fg); background:var(--cp-accent);
                 border-color:color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
               }
-              .nlx-scroll { max-height:calc(100vh - 240px); overflow:auto; padding:24px 18px 40px; }
+              /* single page scroll: the app shell (.content) is the only scroller — no nested overflow here
+                 (a second inner scrollbar sat right next to the shell's, making navigation awkward). The stage
+                 bar stays sticky and a tall left rail remains reachable via the one page scroll. */
+              .nlx-scroll { overflow:visible; padding:24px 18px 40px; }
+              .nlx-zoom { display:inline-flex; align-items:center; gap:2px; margin-right:6px; }
+              .nlx-zoom .btn { border-radius:8px; }
+              .nlx-zoom .btn[disabled] { opacity:.4; }
               .nlx-edit { width:100%; min-height:calc(100vh - 300px); background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border);
                 color:var(--cp-text); border-radius:10px; padding:14px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; line-height:1.55; resize:vertical; }
               .nlx-empty { max-width:520px; margin:40px auto; text-align:center; color:var(--cp-text-soft); }
@@ -9844,6 +9850,16 @@
                 border:1px solid color-mix(in srgb, var(--nlp-text) 10%, transparent); }
               .nlx-paper .nl-preview pre :is(code,kbd,samp) { background:transparent; color:inherit; padding:0; border-radius:0; font-size:.82em; }
               .nlx-paper .nl-preview svg { max-width:100%; height:auto; }
+              /* tables must read on the light paper — the global .md-output th paints a dark surface bg
+                 (var(--cp-surface)), which on the white sheet became dark-on-dark & unreadable. Drive the
+                 whole table from the paper's design vars instead. */
+              .nlx-paper .nl-preview table { border-collapse:collapse; width:100%; margin:16px 0;
+                font-size:calc(13.5px * var(--nlp-scale)); }
+              .nlx-paper .nl-preview :is(th,td) { border:1px solid color-mix(in srgb, var(--nlp-text) 14%, transparent);
+                padding:8px 12px; text-align:left; vertical-align:top; color:var(--nlp-text); background:transparent; }
+              .nlx-paper .nl-preview thead th, .nlx-paper .nl-preview th {
+                background:color-mix(in srgb, var(--nlp-accent) 12%, var(--nlp-bg)); color:var(--nlp-head); font-weight:700; }
+              .nlx-paper .nl-preview tbody tr:nth-child(even) td { background:color-mix(in srgb, var(--nlp-text) 4%, transparent); }
 
               /* pending image attachments in the chat composer */
               .nlx-color { width:100%; height:30px; padding:0; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); cursor:pointer; }
@@ -10034,6 +10050,11 @@
                   </span>
                   <span class="nlx-src" x-show="newsletter.tab === 'history'"><strong>🕘 Version history</strong></span>
                   <div class="nlx-stage-actions">
+                    <div class="nlx-zoom" x-show="newsletter.tab !== 'history' && newsletter.preview && newsletter.draftText.trim()" title="Zoom the preview">
+                      <button class="btn ghost" type="button" title="Zoom out" style="padding:5px 9px;font-size:14px;line-height:1" @click="newsletterZoom(-0.1)" :disabled="(newsletter.zoom||1) <= 0.5">−</button>
+                      <button class="btn ghost" type="button" title="Reset to 100%" style="padding:5px 6px;font-size:12px;min-width:46px" @click="newsletter.zoom = 1" x-text="Math.round((newsletter.zoom||1)*100) + '%'"></button>
+                      <button class="btn ghost" type="button" title="Zoom in" style="padding:5px 9px;font-size:14px;line-height:1" @click="newsletterZoom(0.1)" :disabled="(newsletter.zoom||1) >= 2">+</button>
+                    </div>
                     <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" x-show="newsletter.tab !== 'history' && (!newsletter.preview || newsletter.draftDirty)" :disabled="newsletter.savingDraft || !newsletter.draftDirty" @click="saveNewsletterDraft()" x-text="newsletter.savingDraft ? 'Saving…' : (newsletter.draftDirty ? 'Save' : 'Saved')"></button>
                     <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" :class="{ primary: newsletter.tab === 'history' }" @click="newsletterSetTab(newsletter.tab === 'history' ? 'compose' : 'history')" x-text="(newsletter.tab === 'history' ? '← Back' : ('🕘 History (' + (newsletter.versions ? newsletter.versions.length : 0) + ')'))"></button>
                     <button class="btn ghost" type="button" style="padding:5px 10px;font-size:12px" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Revise</button>
@@ -10052,7 +10073,7 @@
                     <p class="hint">Watch the live activity feed on the left to see what AI is investigating.</p>
                   </div>
                   <template x-if="newsletter.draftText.trim() && newsletter.preview">
-                    <article class="nlx-paper" :style="newsletterPaperStyle()"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
+                    <article class="nlx-paper" :style="{ ...newsletterPaperStyle(), zoom: newsletter.zoom || 1 }"><div class="nl-preview md-output" x-html="newsletterRenderedDraft()"></div></article>
                   </template>
                   <textarea x-show="newsletter.draftText.trim() && !newsletter.preview" class="nlx-edit" x-model="newsletter.draftText" @input="newsletter.draftDirty = true" placeholder="# Your newsletter…"></textarea>
                 </div>
@@ -12482,7 +12503,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>⚙️ Settings</h1>
-                <p>Cloud sync, path profiles, system configuration, and external connections.</p>
+                <p>Appearance, path profiles, system configuration, and external connections.</p>
               </div>
             </div>
 
@@ -12819,7 +12840,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>⚙️ Settings</h1>
-                <p>Cloud sync, path profiles, system configuration, and external connections.</p>
+                <p>Appearance, path profiles, system configuration, and external connections.</p>
               </div>
             </div>
 
@@ -12997,21 +13018,22 @@
 
             <!-- ===== Integrations category ===== -->
             <div x-show="settingsCat === 'integrations'">
-            <!-- Default Export Repository Section -->
+            <!-- Azure DevOps defaults (shared by Export + Dev cards) -->
             <div class="card" style="margin-bottom:20px">
-              <h3 style="margin-bottom:12px">⤴ Default Export Repository</h3>
-              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>Export to AzDO</strong> dialog with this Azure DevOps target. Enter the org &amp; project, click <strong>Connect</strong>, then pick the repository &amp; branch. When set, opening Export auto-connects and preselects them — you can still override per-export.</p>
+              <h3 style="margin-bottom:12px">⤴ Azure DevOps defaults</h3>
+              <p class="hint" style="margin-bottom:14px">A shared Azure DevOps <strong>org &amp; project</strong> used to pre-fill both the <strong>Export to AzDO</strong> dialog and the <strong>New dev card</strong> dialog — set it once here and you won't have to retype it. You can still override per export or per dev card.</p>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px">
                 <div>
                   <label class="field-label">Organization</label>
-                  <input class="field-input" type="text" x-model="exportSettings.exportOrg" placeholder="e.g. dnceng" @keydown.enter.prevent="expSettingsLoadRepos()" @change="onExportOrgProjectChange()" />
+                  <input class="field-input" type="text" x-model="exportSettings.exportOrg" placeholder="e.g. dnceng" @keydown.enter.prevent="saveAzdoOrgProject()" @change="saveAzdoOrgProject()" />
                 </div>
                 <div>
                   <label class="field-label">Project</label>
-                  <input class="field-input" type="text" x-model="exportSettings.exportProject" placeholder="e.g. internal" @keydown.enter.prevent="expSettingsLoadRepos()" @change="onExportOrgProjectChange()" />
+                  <input class="field-input" type="text" x-model="exportSettings.exportProject" placeholder="e.g. internal" @keydown.enter.prevent="saveAzdoOrgProject()" @change="saveAzdoOrgProject()" />
                 </div>
               </div>
-              <div class="toolbar" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+              <p class="hint" style="margin:16px 0 8px">Optionally <strong>Connect</strong> to preselect a repository &amp; branch for Export — the New dev card dialog lists repositories itself when you open it.</p>
+              <div class="toolbar" style="gap:8px;margin-top:0;flex-wrap:wrap">
                 <button class="btn" type="button" :disabled="exportSettingsLoadingRepos || !exportSettings.exportOrg.trim() || !exportSettings.exportProject.trim()" @click="expSettingsLoadRepos()" x-text="exportSettingsLoadingRepos ? 'Connecting…' : 'Connect'"></button>
                 <span class="hint" x-show="exportSettingsError" style="color:var(--cp-danger)" x-text="exportSettingsError"></span>
                 <span class="hint" x-show="!exportSettingsRepos.length && (exportSettings.exportRepo || exportSettings.exportBranch)" x-text="'Saved: ' + exportSettings.exportRepo + (exportSettings.exportBranch ? ' @ ' + exportSettings.exportBranch : '') + ' — Connect to change'"></span>
@@ -13052,35 +13074,6 @@
                 </div>
               </div>
               <p class="hint" x-show="exportSettingsSaved" style="margin-top:12px">✅ Saved.</p>
-            </div>
-
-            <!-- Default Dev Card Repository Section -->
-            <div class="card" style="margin-bottom:20px">
-              <h3 style="margin-bottom:12px">🧰 Default Dev Card Org / Project</h3>
-              <p class="hint" style="margin-bottom:14px">Pre-fill the <strong>New dev card</strong> dialog with this Azure DevOps org &amp; project so you don't retype them every time. The dialog still lists the repositories itself when you open it — you can override per item.</p>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:560px">
-                <div>
-                  <label class="field-label">Organization</label>
-                  <input class="field-input" type="text" x-model="devSettings.devOrg" placeholder="e.g. dnceng" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
-                </div>
-                <div>
-                  <label class="field-label">Project</label>
-                  <input class="field-input" type="text" x-model="devSettings.devProject" placeholder="e.g. internal" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
-                </div>
-              </div>
-              <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
-            </div>
-
-            <!-- Worktree Location Section -->
-            <div class="card" style="margin-bottom:20px">
-              <h3 style="margin-bottom:12px">📁 Worktree Location</h3>
-              <p class="hint" style="margin-bottom:14px">Root folder where <strong>all</strong> new worktrees are created — both <strong>dev-card</strong> worktrees and <strong>PR-review</strong> worktrees. A short root avoids Windows MAX_PATH (260-char) errors on deeply-nested repos.</p>
-              <div style="max-width:560px">
-                <label class="field-label">Worktree root</label>
-                <input class="field-input" type="text" x-model="devSettings.worktreeRoot" placeholder="Auto (short path, e.g. C:\a)" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
-                <p class="hint" style="margin-top:6px">Leave blank for a short auto path. Existing worktrees keep their current location — only newly-created ones use this root.</p>
-              </div>
-              <p class="hint" x-show="devSettingsSaved" style="margin-top:12px">✅ Saved.</p>
             </div>
 
             </div><!-- /integrations category -->
@@ -13420,21 +13413,24 @@
                       <template x-if="connect.backfill && !connect.backfill.running && connect.backfill.finishedAt">
                         <span x-text="connect.backfill.error ? ('Backfill failed: ' + connect.backfill.error) : ('Backfill done — +' + (connect.backfill.added||0) + ' entries (' + (connect.backfill.updated||0) + ' enriched), ' + (connect.backfill.ok||0) + '/' + (connect.backfill.total||0) + ' slices ok' + ((connect.backfill.failedWindows&&connect.backfill.failedWindows.length) ? (', ' + connect.backfill.failedWindows.length + ' window(s) need a retry') : ''))"></span>
                       </template>
+                      <template x-if="connect.backfill && !connect.backfill.running && !connect.backfill.error && connect.backfill.failedWindows && connect.backfill.failedWindows.length">
+                        <span style="display:inline-flex;align-items:center;gap:8px;margin-left:8px">
+                          <button class="btn ghost" type="button" style="padding:2px 8px;font-size:0.76rem" :disabled="!connect.config.consent" @click="connectBackfill()">↻ Retry failed windows</button>
+                          <span style="opacity:0.75">Safe to retry — it picks up the failed windows first and skips what's already collected.</span>
+                        </span>
+                      </template>
                     </div>
                   </div>
                 </div>
 
                 <div class="card" style="margin-top:16px">
-                  <h2 style="font-size:1rem;margin-bottom:12px">Storage &amp; delivery</h2>
-                  <div class="connect-field" style="margin-bottom:14px">
-                    <label>Storage folder</label>
-                    <input type="text" x-model="connect.config.storageDir" placeholder="Leave blank for the default local folder">
-                    <p class="hint" style="margin:5px 0 0">Point this at a OneDrive-synced folder (e.g. <code>C:\Users\you\OneDrive\Connect</code>) to keep your backing data in the cloud.</p>
-                  </div>
+                  <h2 style="font-size:1rem;margin-bottom:12px">Delivery</h2>
                   <div class="connect-field" style="max-width:360px">
                     <label>Default email recipient</label>
                     <input type="text" x-model="connect.config.emailTo" placeholder="you@microsoft.com (optional)">
+                    <p class="hint" style="margin:5px 0 0">Used as the default recipient when you email a Connect draft or newsletter.</p>
                   </div>
+                  <p class="hint" style="margin:14px 0 0">Looking for the <strong>storage folder</strong>? It moved to <a href="#/settings/storage">Settings → Storage</a>.</p>
                 </div>
 
                 <div style="margin-top:16px">
@@ -13497,6 +13493,39 @@
                   </div>
                 </template>
               </div>
+
+              <!-- Connect data folder (moved from Connect settings) -->
+              <template x-if="connect.config">
+              <div class="card" style="margin-top:16px">
+                <h2 style="font-size:1rem;margin-bottom:6px">Connect data folder</h2>
+                <p style="color:var(--cp-text-muted);font-size:0.85rem;margin-bottom:14px">
+                  Where your Connect diary evidence &amp; drafts are stored. Point this at a OneDrive-synced folder
+                  (e.g. <code>C:\Users\you\OneDrive\Connect</code>) to keep your backing data in the cloud.
+                </p>
+                <div style="max-width:560px">
+                  <label class="field-label">Storage folder</label>
+                  <input class="field-input" type="text" x-model="connect.config.storageDir" placeholder="Leave blank for the default local folder">
+                  <div style="margin-top:12px">
+                    <button class="btn primary" type="button" :disabled="connect.busy" @click="saveConnectConfig()" x-text="connect.busy ? 'Saving…' : 'Save'"></button>
+                  </div>
+                </div>
+              </div>
+              </template>
+
+              <!-- Worktree location (moved from Integrations) -->
+              <div class="card" style="margin-top:16px">
+                <h2 style="font-size:1rem;margin-bottom:6px">Worktree location</h2>
+                <p style="color:var(--cp-text-muted);font-size:0.85rem;margin-bottom:14px">
+                  Root folder where <strong>all</strong> new worktrees are created — both dev-card and PR-review worktrees.
+                  A short root avoids Windows MAX_PATH (260-char) errors on deeply-nested repos.
+                </p>
+                <div style="max-width:560px">
+                  <label class="field-label">Worktree root</label>
+                  <input class="field-input" type="text" x-model="devSettings.worktreeRoot" placeholder="Auto (short path, e.g. C:\a)" @change="saveDevSettings()" @keydown.enter.prevent="saveDevSettings()" />
+                  <p class="hint" style="margin-top:6px">Leave blank for a short auto path. Existing worktrees keep their location — only newly-created ones use this root.</p>
+                  <p class="hint" x-show="devSettingsSaved" style="margin-top:8px">✅ Saved.</p>
+                </div>
+              </div>
             </div><!-- /storage category -->
 
             <!-- ===== About category ===== -->
@@ -13549,10 +13578,20 @@
                 <div>
                   <strong x-text="'✨ ' + mkt.newBanner.count + ' new item' + (mkt.newBanner.count === 1 ? '' : 's') + ' since your last visit'"></strong>
                   <div class="muted" style="margin-top:2px;font-size:12px" x-show="marketplaceNewSummary()" x-text="marketplaceNewSummary()"></div>
+                  <!-- Clickable names: jump straight to what changed (no pills — inline text links). -->
+                  <div style="margin-top:6px;font-size:12.5px;line-height:1.7" x-show="mkt.newBanner.items && mkt.newBanner.items.length">
+                    <template x-for="(it, i) in mkt.newBanner.items.slice(0, 8)" :key="it.id">
+                      <span>
+                        <a href="#" @click.prevent="mktShowNewItems([it.id])" style="color:var(--cp-link)" x-text="it.name"></a><span class="muted" x-show="i < Math.min(mkt.newBanner.items.length, 8) - 1" style="margin:0 7px">·</span>
+                      </span>
+                    </template>
+                    <a href="#" x-show="mkt.newBanner.items.length > 8" @click.prevent="mktShowNewItems()" style="color:var(--cp-link);margin-left:8px" x-text="'+' + (mkt.newBanner.items.length - 8) + ' more'"></a>
+                  </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-shrink:0">
+                  <button class="btn ghost" type="button" x-show="mkt.newBanner.items && mkt.newBanner.items.length" @click="mktShowNewItems()">View</button>
                   <button class="btn ghost" type="button" @click="rescanMarketplaceNow()" :disabled="mkt.syncing" x-text="mkt.syncing ? 'Rescanning…' : '↻ Rescan'"></button>
-                  <button class="btn ghost" type="button" @click="mkt.newBanner = null" title="Dismiss">✕</button>
+                  <button class="btn ghost" type="button" @click="mkt.newBanner = null; mktClearNewFilter()" title="Dismiss">✕</button>
                 </div>
               </div>
             </template>
@@ -13739,9 +13778,12 @@
                 Hide installed<span x-show="mktInstalledCount()" x-text="' (' + mktInstalledCount() + ')'"></span>
               </label>
             </div>
-            <div class="hint" style="margin-bottom:10px" x-show="mktFilteredEntries().length">
+            <div class="hint" id="mktCatalogTop" style="margin-bottom:10px" x-show="mktFilteredEntries().length">
               <span x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></span>
               <span x-show="mktDedupMerged() > 0" x-text="' · ' + mktDedupMerged() + ' duplicate ' + (mktDedupMerged() === 1 ? 'entry' : 'entries') + ' merged'"></span>
+              <template x-if="mkt.showNewOnly">
+                <span> · ✨ new items only <a href="#" @click.prevent="mktClearNewFilter()" style="color:var(--cp-link)">show all</a></span>
+              </template>
             </div>
 
             <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
@@ -14214,6 +14256,39 @@
                   </div>
                   <div class="report-chart" x-html="renderReportChart()"></div>
                   <div class="empty-state" x-show="!reports.daily.length" style="padding:24px">No usage recorded in this window yet.</div>
+                </div>
+
+                <!-- Productivity: time & cost by activity -->
+                <div class="card" style="margin-bottom:20px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                    <h3 style="margin:0">Productivity</h3>
+                    <span class="hint">Where AI effort went</span>
+                  </div>
+                  <p class="hint" style="margin:0 0 14px">API time and cost grouped by what the work was — pull requests, dev cards, newsletters, Connect, insights and more. Every AI run in the system is counted, not just your agents and tasks.</p>
+                  <div class="table-wrap">
+                    <table class="report-table">
+                      <thead>
+                        <tr><th>Activity</th><th style="width:34%">Share of time</th><th class="num">Time</th><th class="num">Runs</th><th class="num">AIC</th><th class="num">Cost</th></tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="row in (reports.byCategory || [])" :key="row.category">
+                          <tr>
+                            <td><span class="type-badge" x-text="reportCategoryLabel(row.category)"></span></td>
+                            <td>
+                              <div style="height:8px;border-radius:6px;background:var(--cp-surface-soft,#e5e7eb);overflow:hidden">
+                                <div :style="`width:${reportCategoryShare(row)}%;height:100%;background:var(--cp-accent,#6366f1);border-radius:6px`"></div>
+                              </div>
+                            </td>
+                            <td class="num" x-text="formatDuration(row.apiDurationMs)"></td>
+                            <td class="num" x-text="formatNumber(row.runs)"></td>
+                            <td class="num" x-text="formatNumber(row.premiumRequests)"></td>
+                            <td class="num" x-text="formatCost(row.cost)"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                    <div class="empty-state" x-show="!(reports.byCategory && reports.byCategory.length)" style="padding:18px">No activity recorded yet.</div>
+                  </div>
                 </div>
 
                 <!-- By model -->
@@ -15729,6 +15804,8 @@
           tab: 'browse',
           autoPopulated: false,
           newBanner: null,
+          newHighlightIds: [],
+          showNewOnly: false,
           design: { mode: 'enhance', agentId: '', hint: '', busy: false, error: '', proposals: [], pinned: [], inited: false, cacheLoaded: false, capCatalog: [] },
           mcpTest: { id: null, busy: false, result: null },
           busy: false,
@@ -15985,6 +16062,7 @@
           runId: null,           // current generation run id (matches SSE progress events)
           progress: [],          // live activity log during generation: { icon, text, at }
           preview: true,         // compose tab: render Markdown vs edit textarea
+          zoom: 1,               // preview zoom factor (0.5–2), ephemeral view-only
           versions: [],          // draft version history (newest-first)
           _viewVersionId: null,
           busy: false,
@@ -16573,7 +16651,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return body;
           } catch (e) {
             if (e && e.name === 'AbortError') {
-              const te = new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + 's — the server may still be working in the background; refresh to see the result.');
+              const te = new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + 's — the server may still be finishing in the background. Please try again in a moment.');
               te.status = 0;
               te.timeout = true;
               throw te;
@@ -17041,13 +17119,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['experience', 'appearance', 'ai', 'integrations', 'sync', 'dependencies', 'storage', 'connect', 'about'];
+            const cats = ['experience', 'appearance', 'ai', 'integrations', 'dependencies', 'storage', 'connect', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
             this.loadModelSettings();
             if (this.settingsCat === 'dependencies') this.loadDependencies();
-            if (this.settingsCat === 'storage') this.loadDataLocation();
+            if (this.settingsCat === 'storage') { this.loadDataLocation(); this.ensureConnectConfig(); this.ensureDevSettings(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
           } else if (this.route === 'chains') {
             this.$nextTick(() => this.data.chains.forEach(c => this.renderChainDiagram(c)));
@@ -17706,6 +17784,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                   if (!c._seen) c._seen = new Set();
                   if (c._seen.has(key)) return;
                   c._seen.add(key);
+                  c._lastActivityAt = Date.now();   // feed the idle watchdog — the agent is alive
                   c.progress.push({ icon: d.icon || '•', text: d.text, at: d.at || Date.now() });
                   if (c.progress.length > 40) c.progress.splice(0, c.progress.length - 40);
                   this.$nextTick(() => this._newsletterChatScroll());
@@ -19668,7 +19747,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { id: 'appearance', label: 'Appearance', ico: '🎨', hash: '#/settings/appearance' },
             { id: 'ai', label: 'AI & Behavior', ico: '🧠', hash: '#/settings/ai' },
             { id: 'integrations', label: 'Integrations', ico: '🔗', hash: '#/settings/integrations' },
-            { id: 'sync', label: 'Sync & Machines', ico: '☁️', hash: '#/settings/sync' },
             { id: 'dependencies', label: 'Dependencies', ico: '📦', hash: '#/settings/dependencies' },
             { id: 'storage', label: 'Storage', ico: '💾', hash: '#/settings/storage' },
             { id: 'connect', label: 'Connect', ico: '🌟', hash: '#/settings/connect' },
@@ -19875,6 +19953,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.exportSettingsBranches = [];
           this.exportSettingsError = '';
           this.saveExportSettings();
+        },
+        // Unified AzDO org/project: one entry drives BOTH the Export defaults and
+        // the Dev-card defaults. Mirror the values into devSettings, persist both,
+        // and reset the export repo picker (org/project changed invalidates it).
+        saveAzdoOrgProject() {
+          this.devSettings.devOrg = this.exportSettings.exportOrg;
+          this.devSettings.devProject = this.exportSettings.exportProject;
+          this.saveDevSettings();
+          this.onExportOrgProjectChange();
         },
         // Connect to AzDO and list repositories for the configured org/project.
         // Preselects the saved repo (and loads its branches) if still present.
@@ -21220,6 +21307,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Inline CSS custom properties that drive the preview "paper" so it matches the
         // sent email exactly and reflects the Appearance controls in real time.
+        newsletterZoom(delta) {
+          const cur = this.newsletter.zoom || 1;
+          let next = Math.round((cur + delta) * 100) / 100;
+          next = Math.min(2, Math.max(0.5, next));
+          this.newsletter.zoom = next;
+        },
         newsletterPaperStyle() {
           const c = this.newsletter.config || {};
           const st = {};
@@ -21394,10 +21487,28 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           c.runId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
           c.progress = [];
           c._seen = new Set();
+          c._lastActivityAt = Date.now();
           this.$nextTick(() => this._newsletterChatScroll());
+          // Idle watchdog — a genuine deep-dive can run for many minutes, so we must NOT abort
+          // while the agent is streaming progress. The request()'s absolute timeout is disabled
+          // (timeoutMs:0); instead we reset _lastActivityAt on every SSE progress event (see the
+          // newsletter-progress handler) and only give up after a true silence. This is what the
+          // user meant by "it shouldn't time out while it's still active".
+          const IDLE_MS = 300000;          // 5 min with no activity → assume the stream died
+          const CEILING_MS = 45 * 60000;   // absolute safety ceiling
+          const startedAt = Date.now();
+          const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+          let idleAborted = false;
+          const watchdog = setInterval(() => {
+            const silent = Date.now() - (c._lastActivityAt || startedAt);
+            if (silent > IDLE_MS || (Date.now() - startedAt) > CEILING_MS) {
+              idleAborted = true;
+              try { controller && controller.abort(); } catch {}
+            }
+          }, 15000);
           try {
             const history = c.messages.slice(-12).map(m => ({ role: m.role, content: m.text }));
-            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', body: JSON.stringify({
+            const r = await this.request('/api/newsletter/draft/chat', { method: 'POST', timeoutMs: 0, signal: controller ? controller.signal : undefined, body: JSON.stringify({
               message: msg || 'Please add the attached image(s) to the newsletter and reflow the layout so it reads well.',
               history, draft: nl.draftText, runId: c.runId,
               attachments: atts.map(a => ({ file: a.file, ref: a.ref, name: a.name })),
@@ -21411,18 +21522,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.saveNewsletterDraft();
             }
           } catch (e) {
-            // A dropped connection surfaces as a bare "Failed to fetch" — explain that
-            // the assistant may still be investigating in the background rather than
-            // leaving a cryptic error in the thread.
+            // A dropped connection surfaces as a bare "Failed to fetch"; an idle-watchdog abort
+            // surfaces as AbortError. In every case the draft is unchanged and the server does
+            // not persist chat results, so guide the user to simply resend — never to "refresh".
             const raw = String((e && e.message) || e || '');
-            const friendly = /failed to fetch|networkerror|load failed/i.test(raw)
-              ? 'The connection dropped while I was investigating (this can happen on a long deep-dive or a server restart). Your draft is unchanged — send that again and I’ll pick up where I left off.'
-              : raw;
+            const aborted = idleAborted || (e && e.name === 'AbortError');
+            const friendly = aborted
+              ? 'I didn’t hear anything back from the writer for a while, so I stopped waiting. Your draft is unchanged — send your message again and I’ll retry.'
+              : (/failed to fetch|networkerror|load failed/i.test(raw)
+                ? 'The connection dropped while I was investigating (this can happen on a long deep-dive or a server restart). Your draft is unchanged — send that again and I’ll pick up where I left off.'
+                : raw);
             c.messages.push({ role: 'assistant', text: '⚠️ ' + friendly });
           } finally {
+            clearInterval(watchdog);
             c.busy = false;
             c.runId = null;
             c.progress = [];
+            c._lastActivityAt = null;
             this.$nextTick(() => this._newsletterChatScroll());
           }
         },
@@ -33121,12 +33237,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return out.length - this.mktDedupEntries(out).length;
         },
         mktFilteredEntries() {
-          const entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
+          let entries = (this.mkt.catalog && this.mkt.catalog.entries) || [];
+          // "New since your last visit" filter — driven from the banner's item ids so a user
+          // can actually navigate to what changed (matched on entry.id, which newSince() returns).
+          if (this.mkt.showNewOnly && (this.mkt.newHighlightIds || []).length) {
+            const set = new Set(this.mkt.newHighlightIds);
+            entries = entries.filter(e => set.has(e.id));
+          }
           const f = this.mkt.sourceKindFilter;
           let out = (!f || f === 'all') ? entries : entries.filter(e => this.mktEntryKind(e) === f);
           if (this.mkt.hideInstalled) out = out.filter(e => !e.installed && !e.inUse);
           return this.mktDedupEntries(out);
         },
+        // Focus the catalog on the "new since last visit" items (all, or a single one) and
+        // scroll to it, so the update banner is a real navigation affordance rather than a dead label.
+        mktShowNewItems(ids) {
+          const list = (ids && ids.length)
+            ? ids.slice()
+            : (((this.mkt.newBanner && this.mkt.newBanner.items) || []).map(i => i.id));
+          this.mkt.newHighlightIds = list.filter(Boolean);
+          this.mkt.showNewOnly = this.mkt.newHighlightIds.length > 0;
+          if (this.mkt.showNewOnly) { this.mkt.sourceKindFilter = 'all'; this.mkt.hideInstalled = false; }
+          this.$nextTick(() => {
+            try { const el = document.getElementById('mktCatalogTop'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {}
+          });
+        },
+        mktClearNewFilter() { this.mkt.showNewOnly = false; this.mkt.newHighlightIds = []; },
         // Group the filtered entries by the active grouping dimension. Returns
         // an ordered list of { key, label, icon, items } buckets for rendering.
         mktGroupedEntries() {
@@ -33275,8 +33411,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if ((this.marketplaceUpdates.newCount || 0) > 0) {
             this.mkt.newBanner = {
               count: this.marketplaceUpdates.newCount,
-              byType: this.marketplaceUpdates.byType || {}
+              byType: this.marketplaceUpdates.byType || {},
+              items: Array.isArray(this.marketplaceUpdates.items) ? this.marketplaceUpdates.items : []
             };
+          } else {
+            this.mkt.newBanner = null;
+            this.mktClearNewFilter();
           }
           try {
             const r = await this.request('/api/marketplace/sources');
@@ -34160,6 +34300,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return map[src] || (src || 'unknown');
         },
 
+        reportCategoryLabel(cat) {
+          const map = {
+            pull_requests: 'Pull Requests',
+            dev_cards: 'Dev Cards / Code',
+            newsletter: 'Newsletter',
+            connect: 'Connect',
+            agent_authoring: 'Agent Authoring',
+            insights: 'Insights',
+            feedback: 'Feedback',
+            release_notes: 'Release Notes',
+            chat: 'Chat',
+            agents_tasks: 'Agents & Tasks',
+            system: 'System'
+          };
+          return map[cat] || (cat ? cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'System');
+        },
+
+        reportCategoryShare(row) {
+          const rows = (this.reports && this.reports.byCategory) || [];
+          const max = Math.max(...rows.map(r => Number(r.apiDurationMs || 0)), 1);
+          return (Number(row.apiDurationMs || 0) / max * 100).toFixed(1);
+        },
+
         formatNumber(n) {
           const v = Number(n || 0);
           if (!isFinite(v)) return '0';
@@ -34204,6 +34367,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             : this.reportMetric === 'tokens' ? this.formatTokens(v)
             : this.formatNumber(v);
           let bars = '';
+          let valLabels = '';
+          const slotW = plotW / n;
+          // show a value label every Nth bar so labels stay ~40px apart and don't collide
+          const labelEvery = Math.max(1, Math.ceil(40 / slotW));
           days.forEach((d, i) => {
             const v = vals[i];
             const h = max > 0 ? (v / max) * plotH : 0;
@@ -34211,6 +34378,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const y = padT + (plotH - h);
             const title = `${d.day}: ${fmt(v)}`;
             bars += `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" rx="2"><title>${title}</title></rect>`;
+            if (v > 0 && (i % labelEvery === 0 || i === n - 1)) {
+              const cx = x + bw / 2;
+              const ty = Math.max(padT + 7, y - 3);
+              valLabels += `<text class="lbl" x="${cx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" style="font-size:9px">${fmt(v)}</text>`;
+            }
           });
           // x-axis labels: first, middle, last
           const labelIdx = [0, Math.floor(n / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i);
@@ -34224,7 +34396,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const axisY = padT + plotH + 0.5;
           const maxLbl = `<text class="lbl" x="${padL}" y="${padT - 2}" text-anchor="start">peak ${fmt(max)}</text>`;
           return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily usage chart">`
-            + `${maxLbl}<line class="axis" x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}"/>${bars}${labels}</svg>`;
+            + `${maxLbl}<line class="axis" x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}"/>${bars}${valLabels}${labels}</svg>`;
         },
 
         humanizeSchedule(schedule) {

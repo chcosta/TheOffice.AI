@@ -410,8 +410,8 @@ class ChainEngine extends EventEmitter {
       const { randomUUID } = require('crypto');
       const sessionId = randomUUID();
       const res = agentEntry
-        ? await sdkRunner.runAgent({ config: agentEntry.config, prompt, sessionId, model: settings.resolveModel('system', agentEntry.config) })
-        : await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId, model: settings.resolveModel('system', null) });
+        ? await sdkRunner.runAgent({ config: agentEntry.config, prompt, sessionId, model: settings.resolveModel('system', agentEntry.config), meta: { source: 'system', category: 'agents_tasks' } })
+        : await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId, model: settings.resolveModel('system', null), meta: { source: 'system', category: 'agents_tasks' } });
       if (!res || res.fallback) return null;
       return this._parseVerdict(res.output || '');
     } catch (e) {

@@ -665,6 +665,12 @@ const supervisor = new Supervisor(db);
 
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
+// Wire the canonical usage sink once: EVERY AI run that flows through the
+// sdk-runner (runAgent/runChat/runPrompt) — present or future — auto-appends a
+// row to the usage ledger, so all AI usage shows up in Reports with no per-call
+// bookkeeping. The few paths that keep their own aggregated ledger write opt out
+// via meta:{record:false}.
+sdkRunner.setUsageSink((ev) => { try { supervisor.recordUsage(ev); } catch (_) { /* non-fatal */ } });
 const settings = require('./settings');
 const uiPrefs = require('./ui-prefs');
 const connect = require('./connect');
@@ -852,7 +858,7 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
     buf.lastUpdate = Date.now();
   };
 
-  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk, onStep, model: settings.resolveModel('chat', config) })
+  sdkRunner.runChat({ config, prompt: message, sessionId, resume, cwd: config && config.cwd, onChunk, onStep, model: settings.resolveModel('chat', config), meta: { record: false } })
     .then((res) => {
       buf.running = false;
       buf.finishedAt = Date.now();
@@ -874,6 +880,7 @@ function runChatTurn({ sessionId, message, config, resume, agentId }) {
       supervisor.recordUsage({
         ts: new Date().toISOString(),
         source: 'chat',
+        category: 'chat',
         refId: agentId || 'chat',
         label: (config && config.name) || agentId || 'Chat',
         model: res.model || buf.requestedModel || '',
@@ -2609,7 +2616,8 @@ app.post('/api/codeflow/ai', async (req, res) => {
         let acc = '';
         const result = await sdkRunner.runChat({
           config: null, prompt, sessionId: require('crypto').randomUUID(),
-          resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }
+          resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+          meta: { source: 'system', category: 'pull_requests' }
         });
         text = acc.trim() ? acc : (result.output || '');
         arr = _parseCodeflowAi(text);
@@ -3451,7 +3459,8 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       let acc = '';
       let run = await sdkRunner.runAgent({
         config: { cwd: wtPath, agent: slug, allowAll: true },
-        prompt: kickoff, sessionId: sid, model, onChunk: (c) => { acc += c; }
+        prompt: kickoff, sessionId: sid, model, onChunk: (c) => { acc += c; },
+        meta: { source: 'system', category: 'pull_requests' }
       });
       if (!run || run.fallback) {
         // Agent didn't resolve — run the persona body directly with full tools.
@@ -3462,7 +3471,8 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         run = await sdkRunner.runPrompt({
           prompt: body + '\n\n---\n\n' + kickoff,
           cwd: wtPath, sessionId: require('crypto').randomUUID(), model,
-          onChunk: (c) => { acc += c; }
+          onChunk: (c) => { acc += c; },
+          meta: { source: 'system', category: 'pull_requests' }
         });
       }
       // 4. Cache whatever report was produced and resolve the review status.
@@ -3697,7 +3707,8 @@ async function _cfGenerateCommitMessage(wt) {
     await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       cwd: wt, availableTools: [], onChunk: (c) => { acc += c; },
-      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined
+      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      meta: { source: 'system', category: 'pull_requests' }
     });
     let msg = String(acc || '').trim()
       .replace(/^```[\w-]*\s*/, '').replace(/\s*```$/, '')
@@ -4411,7 +4422,8 @@ app.post('/api/marketplace/design/generate', async (req, res) => {
       let acc = '';
       const result = await sdkRunner.runChat({
         config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname,
-        onChunk: (c) => { acc += c; }
+        onChunk: (c) => { acc += c; },
+        meta: { source: 'system', category: 'agent_authoring' }
       });
       text = acc.trim() ? acc : (result.output || '');
       arr = marketplaceDesign.parseProposals(text);
@@ -4483,6 +4495,7 @@ app.post('/api/agents/draft/generate-prompt', async (req, res) => {
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false,
       cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'system', category: 'agent_authoring' },
     });
     let text = (acc.trim() ? acc : (result.output || '')).trim();
     // Strip an accidental surrounding code fence if the model added one.
@@ -4528,6 +4541,7 @@ app.post('/api/agents/draft/recommend-skills', async (req, res) => {
       const result = await sdkRunner.runChat({
         config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false,
         cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+        meta: { source: 'system', category: 'agent_authoring' },
       });
       text = (acc.trim() ? acc : (result.output || '')).trim();
       try {
@@ -4836,7 +4850,7 @@ app.post('/api/whats-new/generate', async (req, res) => {
       'JSON:'
     ].join('\n');
     let acc = '';
-    await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'release_notes' } });
     let entry = null;
     try {
       const m = acc.match(/\{[\s\S]*\}/);
@@ -4904,7 +4918,7 @@ app.post('/api/feedback', async (req, res) => {
 
     let acc = '';
     try {
-      await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+      await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'feedback' } });
     } catch { /* fall through to templated fallback */ }
     let gen = null;
     try { const m = acc.match(/\{[\s\S]*\}/); if (m) gen = JSON.parse(m[0]); } catch {}
@@ -7466,7 +7480,7 @@ app.post('/api/cli/sessions/:id/summarize', async (req, res) => {
   ].join('\n');
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
     let summary = (acc.trim() || (result && result.output) || '').trim();
     if (!summary) return res.status(500).json({ error: 'Empty summary returned' });
     const payload = { summary, generatedAt: new Date().toISOString(), turnCount: turns.length };
@@ -7564,7 +7578,7 @@ app.post('/api/cli/sessions/search', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
     let raw = (acc.trim() || (result && result.output) || '').trim();
     // Strip an accidental code fence and isolate the JSON object.
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -7647,7 +7661,7 @@ app.post('/api/cli/sessions/cluster', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
     let raw = (acc.trim() || (result && result.output) || '').trim();
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
@@ -7990,7 +8004,7 @@ app.post('/api/updates/:id/summarize-changes', async (req, res) => {
       'Summary of changes:'
     ].join('\n');
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'agent_authoring' } });
     const summary = (acc.trim() || (result && result.output) || '').trim();
     if (!summary) return res.status(500).json({ error: 'Empty summary returned' });
     res.json({ summary, changedFiles: files.map(f => f.path), upToDate: false });
@@ -8402,6 +8416,7 @@ async function _connectRunAgent(agentName, prompt) {
     sessionId: require('crypto').randomUUID(),
     resume: false,
     cwd: __dirname,
+    meta: { source: 'connect', category: 'connect' },
     onChunk: (c) => { acc += c; },
   });
   if (result && result.fallback) throw new Error(result.error || 'Connect agent runtime unavailable');
@@ -8662,6 +8677,7 @@ async function _runMeetingSlice(win, nowIso, skipIds, { hardCapMs, stallMs }) {
       sessionId: require('crypto').randomUUID(),
       resume: false,
       cwd: __dirname,
+      meta: { source: 'connect', category: 'connect' },
       onChunk: (c) => { acc += c; bump(); },
       onStep: () => { bump(); },
     });
@@ -8795,6 +8811,7 @@ async function runConnectSearch(query) {
   const result = await sdkRunner.runChat({
     config: null, prompt, sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    meta: { source: 'connect', category: 'connect' },
   });
   let raw = (acc.trim() || (result && result.output) || '').trim();
   raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -9079,6 +9096,7 @@ async function extractConnectMemories({ history, message } = {}) {
     result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'connect', category: 'connect' },
     });
   } catch (e) { console.warn('[connect] memory extraction failed:', e.message); return []; }
   let rawOut = (acc.trim() || (result && result.output) || '').trim();
@@ -9223,6 +9241,7 @@ async function runConnectAssistant({ message, history, extraContext, allowSearch
   const result = await sdkRunner.runChat({
     config: null, prompt: sys, sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    meta: { source: 'connect', category: 'connect' },
   });
   let raw = (acc.trim() || (result && result.output) || '').trim();
 
@@ -9790,6 +9809,7 @@ async function _newsletterRunAgent(agentName, prompt, onStep) {
     sessionId: require('crypto').randomUUID(),
     resume: false,
     cwd: __dirname,
+    meta: { source: 'newsletter', category: 'newsletter' },
     onChunk: (c) => { acc += c; },
     onStep: typeof onStep === 'function' ? onStep : undefined,
   });
@@ -10752,6 +10772,12 @@ app.get('/api/reports', (req, res) => {
     const bySource = db.prepare(`SELECT source, ${SUMS}
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY source ORDER BY premiumRequests DESC`).all(from, to);
 
+    // Activity buckets for the Productivity report (PRs, newsletter, connect, dev
+    // cards, agent authoring, …). `category` is the finer axis; untagged rows
+    // (legacy or generic system calls) collapse into 'system'.
+    const byCategory = db.prepare(`SELECT COALESCE(NULLIF(category,''),'system') AS category, ${SUMS}
+      FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY category ORDER BY apiDurationMs DESC, premiumRequests DESC`).all(from, to);
+
     const byModel = db.prepare(`SELECT COALESCE(NULLIF(model,''),'(runtime default)') AS model, ${SUMS}
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY model ORDER BY premiumRequests DESC, runs DESC`).all(from, to);
 
@@ -10774,6 +10800,12 @@ app.get('/api/reports', (req, res) => {
     const dailyBySource = db.prepare(`SELECT substr(ts,1,10) AS day, source, COUNT(*) AS runs,
         COALESCE(SUM(premium_requests),0) AS premiumRequests
       FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day, source ORDER BY day ASC`).all(from, to);
+
+    const dailyByCategory = db.prepare(`SELECT substr(ts,1,10) AS day, COALESCE(NULLIF(category,''),'system') AS category,
+        COUNT(*) AS runs, COALESCE(SUM(premium_requests),0) AS premiumRequests,
+        COALESCE(SUM(api_duration_ms),0) AS apiDurationMs,
+        COALESCE(SUM(input_tokens),0) + COALESCE(SUM(output_tokens),0) AS totalTokens
+      FROM usage_events WHERE ts >= ? AND ts <= ? GROUP BY day, category ORDER BY day ASC`).all(from, to);
 
     // Per-source counts for the headline cards.
     const srcCount = {};
@@ -10818,9 +10850,11 @@ app.get('/api/reports', (req, res) => {
         mobileThreads,
       },
       bySource: decorate(bySource),
+      byCategory: decorate(byCategory),
       byModel: decorate(byModel),
       daily: decorate(filledDaily),
       dailyBySource,
+      dailyByCategory,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -13373,7 +13407,7 @@ async function _generateDevSummary(d, opts = {}) {
   const cwdSlot = (meta.repos.find(rp => rp.slot && rp.slot.primary && rp.slot.worktreePath)
     || meta.repos.find(rp => rp.slot && rp.slot.worktreePath) || {}).slot;
   let acc = '';
-  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: (cwdSlot && cwdSlot.worktreePath) || d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+  const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: (cwdSlot && cwdSlot.worktreePath) || d.worktreePath || __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'dev_cards' } });
   const text = _cleanDevSummaryText(acc.trim() || (result && result.output) || '');
   if (!text) throw new Error('Empty summary');
   return { text, generatedAt: new Date().toISOString(), wi: meta.wi, repos: meta.repos, meta };
@@ -13924,7 +13958,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   let title = '', description = '';
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'pull_requests' } });
     const raw = (acc.trim() || (result && result.output) || '').trim();
     const parsed = _extractJsonObject(raw);
     if (parsed && parsed.title) { title = String(parsed.title).trim(); description = String(parsed.description || '').trim(); }
@@ -14128,7 +14162,7 @@ async function generateInsight(viewId) {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'insights' } });
     const raw = (acc.trim() || (result && result.output) || '').trim();
     const parsed = _parseInsightJson(raw);
     if (!parsed) throw new Error('could not parse insight JSON');
@@ -14267,7 +14301,7 @@ app.post('/api/insights/suggest', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'insights' } });
     const text = acc.trim() ? acc : (result && result.output) || '';
     const arr = parseSuggestionJson(text);
     if (!arr) return res.status(502).json({ error: 'Could not parse AI suggestions. Try refreshing.', raw: String(text).slice(0, 500) });
@@ -15234,6 +15268,7 @@ app.post('/api/boards/:id/assistant/query', async (req, res) => {
       sessionId: require('crypto').randomUUID(),
       model: settings.resolveModel('execution', entry.config),
       onChunk: (c) => { acc += c; },
+      meta: { source: 'system', category: 'agents_tasks' },
     });
     const output = ((acc.trim() || (run && run.output) || '').trim()).slice(0, 8000);
     if (run && run.fallback) return res.status(502).json({ ok: false, error: `Could not run ${name}.` });
@@ -15779,7 +15814,8 @@ app.post('/api/manager-template-assistant/chat', async (req, res) => {
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId, resume: isResume, cwd: __dirname,
-      onChunk: (c) => { acc += c; }
+      onChunk: (c) => { acc += c; },
+      meta: { source: 'system', category: 'agents_tasks' }
     });
     // Deltas fire only for the current turn, so `acc` is just this reply. The
     // result.output joins ALL assistant messages in the session (every prior
@@ -16001,7 +16037,8 @@ app.post('/api/execution-suggestions/generate', async (req, res) => {
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname,
-      onChunk: (c) => { acc += c; }
+      onChunk: (c) => { acc += c; },
+      meta: { source: 'system', category: 'agents_tasks' }
     });
     const text = acc.trim() ? acc : (result.output || '');
     const arr = parseSuggestionJson(text);
@@ -16116,7 +16153,7 @@ function startSuggestionRun(suggestion) {
         const entry = supervisor.agents.get(st.agentId);
         if (!entry) { stepRec.running = false; stepRec.output = `Agent "${st.agentId}" is not installed.`; break; }
         const p = String(st.prompt || '').replace(/\{\{\s*(?:previous|output|trigger\.output)\s*\}\}/gi, prev);
-        const r = await sdkRunner.runAgent({ config: entry.config, prompt: p, sessionId: require('crypto').randomUUID() });
+        const r = await sdkRunner.runAgent({ config: entry.config, prompt: p, sessionId: require('crypto').randomUUID(), meta: { source: 'system', category: 'agents_tasks' } });
         stepRec.running = false;
         stepRec.ok = !!r.ok;
         stepRec.output = r.output || r.error || '(no output)';
@@ -16249,7 +16286,8 @@ app.post('/api/chats/:id/autotitle', async (req, res) => {
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
-      onChunk: (c) => { acc += c; }
+      onChunk: (c) => { acc += c; },
+      meta: { source: 'system', category: 'chat' }
     });
     let title = (acc.trim() || result.output || '').trim();
     title = (title.split('\n').map(s => s.trim()).filter(Boolean)[0] || '');

@@ -474,7 +474,7 @@ class ManagerAgent extends EventEmitter {
     try {
       const entry = this.managers.get(managerId);
       const label = (entry && entry.config && entry.config.name) || managerId;
-      this.supervisor.recordUsage({ ts, source: 'manager', refId: managerId, label, model: model || '', status, usage: usageAcc });
+      this.supervisor.recordUsage({ ts, source: 'manager', category: 'agents_tasks', refId: managerId, label, model: model || '', status, usage: usageAcc });
     } catch (e) {
       console.error('[manager] usage ledger write failed:', e.message);
     }
@@ -581,7 +581,7 @@ ${loadResponseFormat()}`;
       // deltas, so accumulate before forwarding.
       let acc = '';
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
-      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('system', cfg) });
+      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('system', cfg), meta: { record: false } });
       if (!res || res.fallback) return null;
       if (res.code !== 0 || !(res.output && res.output.trim())) return null;
       if (res.model) this._lastBrainModel = res.model;
@@ -617,7 +617,7 @@ ${loadResponseFormat()}`;
       // onChunk expects CUMULATIVE text; the SDK streams deltas, so accumulate.
       let acc = '';
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
-      const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('execution', entry.config) });
+      const res = await sdkRunner.runAgent({ config: entry.config, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('execution', entry.config), meta: { record: false } });
       if (!res) {
         return { exitCode: -1, output: `Sub-agent "${name}" failed: SDK runner returned no result`, stderr: '' };
       }
