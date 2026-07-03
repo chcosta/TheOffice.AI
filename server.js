@@ -9727,10 +9727,17 @@ async function runNewsletterGeneration(runId) {
 
 // Conversational revision of the current newsletter draft. Returns the reply plus
 // an OPTIONAL fully-revised draft (parsed from a sentinel block). Never saves.
-async function runNewsletterDraftChat({ message, history, draft, attachments }) {
+// Streams live progress over SSE (`newsletter-progress`, tagged `chat:true`) so the
+// UI shows what the editor is investigating instead of a silent spinner.
+async function runNewsletterDraftChat({ message, history, draft, attachments, runId }) {
   const msg = String(message || '').trim();
   const atts = Array.isArray(attachments) ? attachments.filter(a => a && (a.ref || a.file)) : [];
   if (!msg && !atts.length) throw new Error('Say what you would like to change or ask about the newsletter.');
+  let _nlSeq = 0;
+  const emitProgress = (icon, text) => {
+    if (!text) return;
+    try { broadcastSSE('newsletter-progress', { runId: runId || null, chat: true, icon, text, at: Date.now(), seq: ++_nlSeq }); } catch (_) { /* ignore */ }
+  };
   const { st, cfg, win, items } = _newsletterContext();
   const curDraft = String(draft != null ? draft : ((st.draft && st.draft.markdown) || '')).trim();
   const evLines = _newsletterEvidenceLines(items.slice(0, 100)) || '(no diary evidence)';
@@ -9741,9 +9748,16 @@ async function runNewsletterDraftChat({ message, history, draft, attachments }) 
   const attBlock = atts.length
     ? atts.map(a => `- ${a.ref || ('assets/' + a.file)}${a.name ? ` (original: ${a.name})` : ''}`).join('\n')
     : '';
+  emitProgress('💬', atts.length ? 'Reading your message and attached image(s)…' : 'Reading your feedback…');
   const prompt = [
     'You are revising my newsletter draft through conversation. Follow your output protocol exactly.',
     ((() => { try { const c = newsletterCapture.capabilities(); return c && c.available ? 'You can request real screenshots with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1) — and the app captures and swaps in the image. Public pages work best. Also draw clever on-theme SVG cartoons/illustrations to keep it enjoyable.' : 'Headless screenshot capture is unavailable — do not use shot: directives; use inline SVG charts/illustrations instead.'; } catch (_) { return ''; } })()),
+    '',
+    'INVESTIGATE BEFORE YOU REVISE — this is required, not optional. My feedback often references something by a short name (a meeting like "the VS Images meeting", a PR, a work item, a person, an initiative, a demo) that may be only lightly present — or entirely absent — in the current draft. Do NOT reply that you cannot find it or cannot make the change. Instead, act like the "Generate newsletter" pass does:',
+    '  1. Re-scan the diary evidence below for the thing I referenced (match on title, people, dates, links, keywords).',
+    '  2. If it is missing or thin, SLEUTH for the real details before writing: use WorkIQ for M365 (meetings + their transcripts/recaps, mail, calendar, work items, files), open any ADO/GitHub links, use the browser and shell as needed — exactly the tools the generator uses — to gather concrete, accurate context (what happened, who, when, outcomes, figures, quotable moments).',
+    '  3. Only then weave the verified findings into the draft in the place I asked, keeping the existing tone/structure and inventing nothing the evidence does not support.',
+    'If after genuinely investigating you still cannot substantiate something, say what you searched and what you found (or did not), and propose the closest change you CAN support — never a bare refusal.',
     '',
     '## Newsletter config',
     `Title (masthead): ${cfg.title || 'My Impact Digest'}`,
@@ -9773,7 +9787,8 @@ async function runNewsletterDraftChat({ message, history, draft, attachments }) 
     '## My latest message',
     msg || '(no text — just embed the attached image(s) nicely and reflow the layout)',
   ].join('\n');
-  const text = await _newsletterRunAgent('editor', prompt);
+  const onStep = (step) => { try { const m = _newsletterStepMessage(step); if (m) emitProgress(m.icon, m.text); } catch (_) { /* ignore */ } };
+  const text = await _newsletterRunAgent('editor', prompt, onStep);
   const raw = String(text || '').trim();
   let reply = raw;
   let newDraft = null;
@@ -9785,7 +9800,12 @@ async function runNewsletterDraftChat({ message, history, draft, attachments }) 
     if (fence && fence[1].trim() && /^```/.test(d)) d = fence[1].trim();
     if (d) newDraft = d;
   }
+  // The editor may leave shot: directives — capture them into real screenshots.
+  if (newDraft && /!\[[^\]]*\]\(\s*shot:/i.test(newDraft)) {
+    try { newDraft = await _newsletterProcessShots(newDraft, emitProgress); } catch (_) { /* non-fatal */ }
+  }
   if (!reply) reply = newDraft ? 'Updated the newsletter below — review the changes.' : 'Done.';
+  emitProgress('✅', newDraft ? 'Revision ready' : 'Done', true);
   return { reply, draft: newDraft };
 }
 
@@ -9810,10 +9830,28 @@ function _newsletterInlineAssets(html) {
 // Turn inline <svg> blocks (charts, hero, stat strips) into base64 PNG <img> tags
 // so mail clients that strip SVG (Outlook et al.) still show the visuals. Falls
 // back to leaving the SVG untouched when no headless browser is available.
+//
+// Prefers rendering the WHOLE body and screenshotting each <svg> in its real DOM
+// context, so a transparent hero SVG inside a `<div style="background:gradient">`
+// card bakes that gradient into the image (exact match with the preview). Only if
+// the in-context render fails does it fall back to rasterizing each <svg> alone.
 async function _newsletterRasterizeSvgs(html, { bg, maxWidth, cssVars } = {}) {
   const src = String(html || '');
   if (!/<svg\b/i.test(src)) return src;
   try { if (!newsletterCapture.capabilities().available) return src; } catch { return src; }
+
+  // Preferred: full-body, in-context capture (keeps ancestor backgrounds/padding).
+  try {
+    if (typeof newsletterCapture.rasterizeNewsletterBody === 'function') {
+      const r = await newsletterCapture.rasterizeNewsletterBody(src, {
+        bg: bg || '#ffffff', width: maxWidth || 616, cssVars,
+      });
+      if (r && r.ok && r.replaced > 0 && r.html) return r.html;
+      if (r && r.ok && r.replaced === 0) return src;
+    }
+  } catch (_) { /* fall through to per-SVG */ }
+
+  // Fallback: rasterize each <svg> in isolation on the paper background.
   const blocks = src.match(/<svg\b[\s\S]*?<\/svg>/gi) || [];
   let out = src;
   for (const svg of blocks) {
@@ -10134,8 +10172,8 @@ app.post('/api/newsletter/generate', async (req, res) => {
 // Conversationally revise the draft. Returns { reply, draft? } — never saves.
 app.post('/api/newsletter/draft/chat', async (req, res) => {
   try {
-    const { message, history, draft, attachments } = req.body || {};
-    const out = await runNewsletterDraftChat({ message, history, draft, attachments });
+    const { message, history, draft, attachments, runId } = req.body || {};
+    const out = await runNewsletterDraftChat({ message, history, draft, attachments, runId });
     res.json({ ok: true, ...out });
   } catch (err) {
     res.status(500).json({ error: err.message });

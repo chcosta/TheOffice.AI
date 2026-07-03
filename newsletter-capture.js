@@ -120,7 +120,114 @@ async function captureUrl(url, outDir, opts = {}) {
   }
 }
 
-module.exports = { findBrowser, capabilities, captureUrl, rasterizeHtml, slugify };
+// Rasterize EVERY inline <svg> in a newsletter body to PNG **in its real DOM
+// context** — so a transparent hero SVG that sits inside a
+// `<div style="background:linear-gradient(…)">` gradient card bakes that gradient
+// (and padding/rounding) into the image, and bare charts bake the paper
+// background. This is what makes the emailed newsletter an EXACT match for the
+// in-app preview (the previous approach rasterized each <svg> in isolation on a
+// flat bg, which dropped any ancestor background → the hero became a white box).
+//
+//   html  the newsletter body HTML (post-markdown, inline assets resolved)
+//   opts  { bg (paper background, default #ffffff), width (content inner width,
+//           default 616), css (extra CSS to mirror the preview paper),
+//           cssVars (design custom-props + base color/font for #nlbody),
+//           deviceScaleFactor (default 2), timeoutMs }
+// Returns { ok, html: <body html with each <svg> swapped for an <img>>, replaced }
+// or { ok:false, error } (caller should fall back to leaving SVGs as-is).
+async function rasterizeNewsletterBody(html, opts = {}) {
+  const pp = puppeteer();
+  if (!pp) return { ok: false, error: 'puppeteer-core is not installed' };
+  const exe = findBrowser();
+  if (!exe) return { ok: false, error: 'No Chrome/Edge executable found. Set PUPPETEER_EXECUTABLE_PATH.' };
+  const snippet = String(html || '');
+  if (!/<svg\b/i.test(snippet)) return { ok: true, html: snippet, replaced: 0 };
+
+  const bg = /^#[0-9a-fA-F]{3,8}$/.test(String(opts.bg || '')) ? opts.bg : '#ffffff';
+  const width = Math.max(320, Math.min(1200, parseInt(opts.width, 10) || 616));
+  const scale = Math.max(1, Math.min(3, parseInt(opts.deviceScaleFactor, 10) || 2));
+  const timeoutMs = Math.max(3000, Math.min(30000, parseInt(opts.timeoutMs, 10) || 20000));
+  const css = String(opts.css || '');
+  const cssVars = String(opts.cssVars || '').replace(/[<>]/g, '').trim();
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><style>
+    *{box-sizing:border-box} html,body{margin:0;padding:0;background:${bg}}
+    #nlbody{width:${width}px;background:${bg};${cssVars}}
+    #nlbody svg,#nlbody img{max-width:100%;height:auto}
+    ${css}
+  </style></head><body><div id="nlbody">${snippet}</div></body></html>`;
+
+  let browser;
+  try {
+    browser = await pp.launch({
+      executablePath: exe,
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars', '--force-color-profile=srgb'],
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: width + 40, height: 900, deviceScaleFactor: scale });
+    await page.setContent(doc, { waitUntil: 'networkidle0', timeout: timeoutMs }).catch(async () => {
+      await page.setContent(doc, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    });
+
+    // Tag each SVG's capture target: prefer a tightly-wrapping styled block (the
+    // hero gradient card) so its background bakes in; otherwise the SVG itself.
+    const count = await page.evaluate(() => {
+      const svgs = Array.from(document.querySelectorAll('#nlbody svg'));
+      let i = 0; const seen = new Set();
+      for (const svg of svgs) {
+        let target = svg;
+        const p = svg.parentElement;
+        if (p && p.id !== 'nlbody' && p !== document.body) {
+          const kids = Array.from(p.children);
+          const onlyChild = kids.length === 1 && kids[0] === svg;
+          const style = (p.getAttribute('style') || '').toLowerCase();
+          const cs = getComputedStyle(p);
+          const hasBg = style.includes('background') || style.includes('gradient')
+            || (cs.backgroundImage && cs.backgroundImage !== 'none')
+            || (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent');
+          if (onlyChild && hasBg) target = p;
+        }
+        if (seen.has(target)) continue;
+        seen.add(target);
+        target.setAttribute('data-cap', String(i++));
+      }
+      return i;
+    });
+
+    // Screenshot each tagged target while the DOM is still intact (no reflow).
+    const buffers = [];
+    for (let k = 0; k < count; k++) {
+      const el = await page.$(`[data-cap="${k}"]`);
+      if (!el) { buffers.push(null); continue; }
+      const buf = await el.screenshot({ type: 'png' }).catch(() => null);
+      buffers.push(buf);
+    }
+    const dataUris = buffers.map(b => (b ? `data:image/png;base64,${b.toString('base64')}` : null));
+
+    // Swap each captured target for the rendered <img>, then read the final body.
+    const finalHtml = await page.evaluate((uris) => {
+      for (let k = 0; k < uris.length; k++) {
+        const el = document.querySelector(`[data-cap="${k}"]`);
+        if (!el) continue;
+        if (!uris[k]) { el.removeAttribute('data-cap'); continue; }
+        const img = document.createElement('img');
+        img.src = uris[k];
+        img.setAttribute('style', 'max-width:100%;height:auto;display:block;margin:14px auto;border-radius:8px');
+        el.replaceWith(img);
+      }
+      return document.querySelector('#nlbody').innerHTML;
+    }, dataUris);
+
+    return { ok: true, html: finalHtml, replaced: dataUris.filter(Boolean).length };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  } finally {
+    try { if (browser) await browser.close(); } catch (_) { /* ignore */ }
+  }
+}
+
+module.exports = { findBrowser, capabilities, captureUrl, rasterizeHtml, rasterizeNewsletterBody, slugify };
 
 // Rasterize an HTML/SVG snippet to a PNG Buffer using a headless browser. Unlike
 // captureUrl (http(s) only), this renders arbitrary markup via page.setContent —
