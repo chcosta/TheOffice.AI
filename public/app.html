@@ -9782,6 +9782,20 @@
               .nlx-seg button.active { background:var(--cp-accent-soft); color:var(--cp-text); }
               .nlx-src { font-size:12px; color:var(--cp-text-soft); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
               .nlx-stage-actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+              /* keep action-bar ghost buttons clearly legible (no dark-on-dark blend) */
+              .nlx-actions .btn.ghost, .nlx-stage-actions .btn.ghost {
+                color:var(--cp-text);
+                background:color-mix(in srgb, var(--cp-text) 6%, transparent);
+                border-color:color-mix(in srgb, var(--cp-text) 16%, transparent);
+              }
+              .nlx-actions .btn.ghost:hover, .nlx-stage-actions .btn.ghost:hover {
+                background:color-mix(in srgb, var(--cp-text) 12%, transparent);
+                border-color:color-mix(in srgb, var(--cp-text) 26%, transparent);
+              }
+              .nlx-actions .btn.ghost.primary, .nlx-stage-actions .btn.ghost.primary {
+                color:var(--cp-accent-fg); background:var(--cp-accent);
+                border-color:color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
+              }
               .nlx-scroll { max-height:calc(100vh - 240px); overflow:auto; padding:24px 18px 40px; }
               .nlx-edit { width:100%; min-height:calc(100vh - 300px); background:var(--cp-bg-elevated, var(--cp-surface)); border:1px solid var(--cp-border);
                 color:var(--cp-text); border-radius:10px; padding:14px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; line-height:1.55; resize:vertical; }
@@ -9814,6 +9828,14 @@
               .nlx-paper .nl-preview figure { margin:14px 0; }
               .nlx-paper .nl-preview figcaption { font-size:12px; color:color-mix(in srgb, var(--nlp-text) 60%, transparent); margin-top:6px; text-align:center; }
               .nlx-paper .nl-preview blockquote { border-left:4px solid var(--nlp-accent); background:color-mix(in srgb, var(--nlp-accent) 8%, transparent); color:inherit; margin:14px 0; padding:10px 16px; border-radius:0 8px 8px 0; }
+              /* inline code / pre must read on the light paper (the global .md-output rule paints a dark surface → black box) */
+              .nlx-paper .nl-preview :is(code,kbd,samp) { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+                background:color-mix(in srgb, var(--nlp-text) 8%, transparent); color:color-mix(in srgb, var(--nlp-accent) 80%, var(--nlp-text));
+                padding:1px 6px; border-radius:5px; font-size:.86em; }
+              .nlx-paper .nl-preview pre { background:color-mix(in srgb, var(--nlp-text) 6%, transparent); color:var(--nlp-text);
+                padding:12px 14px; border-radius:8px; overflow-x:auto; margin:14px 0;
+                border:1px solid color-mix(in srgb, var(--nlp-text) 10%, transparent); }
+              .nlx-paper .nl-preview pre :is(code,kbd,samp) { background:transparent; color:inherit; padding:0; border-radius:0; font-size:.82em; }
               .nlx-paper .nl-preview svg { max-width:100%; height:auto; }
 
               /* pending image attachments in the chat composer */
@@ -9855,7 +9877,6 @@
                   <span x-show="!newsletter.sched.autoGenerate">Manual — no schedule</span>
                 </span>
                 <button class="btn ghost" type="button" :disabled="newsletter.busy" @click="exportNewsletter()" title="Download the newsletter backing data as JSON">⬇ Export</button>
-                <button class="btn ghost" type="button" @click="newsletterToggleChat()" :class="{ primary: newsletter.chat.open }">💬 Chat</button>
                 <button class="btn" type="button" :disabled="newsletter.busy || !newsletter.draftText.trim()" @click="emailNewsletter()">✉ Email</button>
                 <button class="btn primary" type="button" :disabled="newsletter.generating" @click="newsletterGenerate()">
                   <span x-show="!newsletter.generating">✨ Generate</span>
@@ -21305,6 +21326,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Layout containers — emit the tag line raw but keep rendering markdown
           // inside them (so a <div>-wrapped masthead still formats its heading).
           const containerTags = new Set(['div', 'section', 'figure', 'figcaption', 'header', 'footer', 'article', 'aside', 'center', 'main', 'details', 'summary', 'nav', 'blockquote']);
+          // Inline formatting tags — when a whole line is one balanced inline
+          // element (e.g. a "<span style=…>June 4 · 5 min read · By …</span>"
+          // byline), pass it through raw instead of letting renderMarkdown escape
+          // it into literal "&lt;span&gt;…" text.
+          const inlineTags = new Set(['span', 'small', 'sub', 'sup', 'mark', 'b', 'i', 'u', 'strong', 'em', 'a', 'code', 'abbr', 'time', 'cite', 'kbd', 'samp', 'font', 'big', 's', 'del', 'ins', 'q', 'label']);
           const selfTags = /^<(img|hr|br|iframe|video|audio|source|picture|embed|object)[\s/>]/i;
           const out = [];
           let mdBuf = [];
@@ -21334,6 +21360,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 continue;
               }
               if (containerTags.has(tag)) { flushMd(); out.push(line); continue; }
+              if (inlineTags.has(tag) && new RegExp('</' + tag + '\\s*>\\s*$', 'i').test(t)) { flushMd(); out.push(line); continue; }
               if (selfTags.test(t)) { flushMd(); out.push(line); continue; }
             }
             const close = t.match(/^<\/([a-zA-Z][a-zA-Z0-9]*)\s*>$/);
@@ -23253,16 +23280,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async cfCommit(pr) {
           const key = this.cfPrKey(pr);
-          const msg = await this.uiPrompt({ title: 'Commit changes', label: 'Commit message for the local changes', value: 'Commit local changes', confirmLabel: 'Commit' });
-          if (msg === null) return;
           this.codeflow.wtBusy[key] = 'commit';
           try {
             const resp = await this.request('/api/codeflow/pr/commit', {
               method: 'POST',
-              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider, message: msg })
+              body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider })
             });
             if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
-            this.showToast('Commit', (resp && resp.message) || 'Committed.', 'success');
+            const subj = (resp && resp.commitMessage || '').split('\n')[0].trim();
+            const base = (resp && resp.message) || 'Committed.';
+            this.showToast('Commit', subj ? (base + ' — “' + subj + '”') : base, 'success');
             if (this.codeflow.changes[key]) this.codeflow.changes[key].open = false;
             await this._cfReloadWt(key, pr);
           } catch (e) {
@@ -23312,7 +23339,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider })
             });
             if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
-            this.showToast('Push', (resp && resp.message) || 'Pushed to PR branch.', 'success');
+            const psubj = (resp && resp.commitMessage || '').split('\n')[0].trim();
+            const pbase = (resp && resp.message) || 'Pushed to PR branch.';
+            this.showToast('Push', psubj ? (pbase + ' — “' + psubj + '”') : pbase, 'success');
           } catch (e) {
             this.showToast('Push', e.message, 'error');
           } finally {

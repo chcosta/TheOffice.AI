@@ -653,7 +653,7 @@ function listWorktrees(org, project, repo, provider) {
 //     review checkout sitting exactly at the branch tip → attach it onto the
 //     branch (no commits lost) so it becomes usable.
 // Otherwise fall back to `current`. Returns { dir, branch, reused, attached }.
-function resolveUsableWorktree({ org, project, repo, provider, sourceBranch, current } = {}) {
+function resolveUsableWorktree({ org, project, repo, provider, sourceBranch, current, readOnly = false } = {}) {
   const br = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
   const fallback = { dir: current || '', branch: br, reused: false, attached: false };
   if (!br) return fallback;
@@ -673,7 +673,8 @@ function resolveUsableWorktree({ org, project, repo, provider, sourceBranch, cur
 
   // 3. Branch is free — attach the current detached review worktree onto it, but
   // only when it's clean and sitting exactly at the branch tip so no work is lost.
-  if (current && _isRepo(current)) {
+  // Skipped in read-only mode (used for presence checks) since it mutates git state.
+  if (!readOnly && current && _isRepo(current)) {
     const clone = clonePath(org, project, repo);
     const localHas = _gitTry(['rev-parse', '--verify', '--quiet', 'refs/heads/' + br], clone).ok;
     const remoteHas = _gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + br], clone).ok;

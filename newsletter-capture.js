@@ -144,9 +144,13 @@ async function rasterizeHtml(html, opts = {}) {
   const timeoutMs = Math.max(3000, Math.min(30000, parseInt(opts.timeoutMs, 10) || 15000));
   const scale = Math.max(1, Math.min(3, parseInt(opts.deviceScaleFactor, 10) || 2));
 
+  // Design context (CSS custom properties + a base `color`) so inline SVGs that use
+  // var(--nlp-accent) / currentColor rasterize identically to the live preview paper
+  // instead of collapsing to white/black in an isolated container.
+  const cssVars = String(opts.cssVars || '').replace(/[<>]/g, '').trim();
   const doc = `<!doctype html><html><head><meta charset="utf-8"><style>
     *{box-sizing:border-box} html,body{margin:0;padding:0;background:${bg}}
-    #cap{display:inline-block;background:${bg};padding:${pad}px;max-width:${maxWidth}px}
+    #cap{display:inline-block;background:${bg};padding:${pad}px;max-width:${maxWidth}px;${cssVars}}
     #cap svg,#cap img{max-width:${maxWidth - pad * 2}px;height:auto;display:block}
   </style></head><body><div id="cap">${snippet}</div></body></html>`;
 

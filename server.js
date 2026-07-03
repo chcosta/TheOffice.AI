@@ -2683,20 +2683,41 @@ function _cfStewardAgentSlug(o) {
 function _cfAgentKindForView(view) {
   return String(view || '').toLowerCase() === 'mine' ? 'steward' : 'reviewer';
 }
+// The directory the CLI/Open buttons actually land on for a PR worktree — which
+// can DIFFER from rec.worktreePath when another worktree is checked out on the
+// branch (the open-dir endpoint reuses that one). Read-only resolve (never
+// mutates git). Falls back to the worktree path.
+function _cfUsableDir(rec) {
+  const current = rec && rec.worktreePath ? rec.worktreePath : '';
+  if (!current) return '';
+  try {
+    const r = devitems.resolveUsableWorktree({
+      org: rec.org, project: rec.project, repo: rec.repo,
+      provider: rec.provider, sourceBranch: rec.sourceBranch, current, readOnly: true
+    });
+    return (r && r.dir) || current;
+  } catch { return current; }
+}
 // Resolve the agent that SHOULD tend a worktree's PR and whether its .agent.md
 // file is actually present on disk. The steward/reviewer file is git-excluded and
 // lives only in the worktree, so a recreated/cleaned worktree can lose it (the CLI
-// then errors "Custom agent ... not found"). Returns { agentKind, agentName, agentPresent }.
+// then errors "Custom agent ... not found"). Presence reflects the dir the CLI
+// actually opens (which can differ from rec.worktreePath), so a "Ready" card never
+// lies about an agent the CLI can't find. Returns { agentKind, agentName,
+// agentPresent, agentOpenDir? }.
 function _cfAgentPresence(rec) {
   const kind = _cfAgentKindForView(rec && rec.view);
   const idish = { org: rec && rec.org, project: rec && rec.project, repo: rec && rec.repo, prId: rec && rec.prId };
   const slug = kind === 'steward' ? _cfStewardAgentSlug(idish) : _cfReviewAgentSlug(idish);
-  let present = false;
-  try {
-    const wt = rec && rec.worktreePath;
-    if (wt) present = fs.existsSync(path.join(wt, '.github', 'agents', slug + '.agent.md'));
-  } catch {}
-  return { agentKind: kind, agentName: slug, agentPresent: present };
+  const rel = path.join('.github', 'agents', slug + '.agent.md');
+  const has = (d) => { try { return !!d && fs.existsSync(path.join(d, rel)); } catch { return false; } };
+  const wt = rec && rec.worktreePath;
+  const openDir = _cfUsableDir(rec);
+  // The CLI runs from openDir, so presence must reflect THAT dir.
+  const present = (openDir && openDir !== wt) ? has(openDir) : has(wt);
+  const out = { agentKind: kind, agentName: slug, agentPresent: present };
+  if (openDir && wt && openDir !== wt) out.agentOpenDir = openDir;
+  return out;
 }
 
 // Head-repository verification protocol shared by BOTH the reviewer and steward
@@ -2974,15 +2995,23 @@ function _writeCfReviewAgentFile(rec, pr, workItems, opts = {}) {
   const steward = kind === 'steward';
   const slug = steward ? _cfStewardAgentSlug(pr) : _cfReviewAgentSlug(pr);
   const rel = '.github/agents/' + slug + '.agent.md';
-  const agentsDir = path.join(wt, '.github', 'agents');
-  fs.mkdirSync(agentsDir, { recursive: true });
   const md = steward
     ? _buildStewardAgentMd({ agentName: slug, pr, workItems, threads: opts.threads || [], reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME })
     : _buildReviewAgentMd({ agentName: slug, pr, workItems, worktreePath: wt, reportName: CODEFLOW_REPORT_NAME, commentsName: CODEFLOW_COMMENTS_NAME });
-  fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), md);
-  try { devitems.addGitExclude(wt, rel); } catch {}
-  try { devitems.addGitExclude(wt, CODEFLOW_REPORT_NAME); } catch {}
-  try { devitems.addGitExclude(wt, CODEFLOW_COMMENTS_NAME); } catch {}
+  // Write into the worktree AND the dir the CLI actually opens (they differ when
+  // another worktree is checked out on the branch), so the CLI always resolves it.
+  const dirs = new Set([wt]);
+  try { const od = _cfUsableDir(rec); if (od && fs.existsSync(od)) dirs.add(od); } catch {}
+  for (const d of dirs) {
+    try {
+      const agentsDir = path.join(d, '.github', 'agents');
+      fs.mkdirSync(agentsDir, { recursive: true });
+      fs.writeFileSync(path.join(agentsDir, slug + '.agent.md'), md);
+      try { devitems.addGitExclude(d, rel); } catch {}
+      try { devitems.addGitExclude(d, CODEFLOW_REPORT_NAME); } catch {}
+      try { devitems.addGitExclude(d, CODEFLOW_COMMENTS_NAME); } catch {}
+    } catch {}
+  }
   return { reviewAgentName: slug, reviewAgentFile: rel, agentKind: kind };
 }
 
@@ -3440,7 +3469,7 @@ app.post('/api/codeflow/pr/worktree/update-from-target', (req, res) => {
 // Push the local worktree's commits to the PR's source branch (commits any dirty
 // changes first). Used for "my PRs" where the user worked locally in the review
 // worktree and wants to update the PR branch.
-app.post('/api/codeflow/pr/push', (req, res) => {
+app.post('/api/codeflow/pr/push', async (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
   if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
@@ -3449,10 +3478,16 @@ app.post('/api/codeflow/pr/push', (req, res) => {
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to push from.' });
   if (!rec.sourceBranch) return res.status(400).json({ error: 'No PR source branch on record.' });
   try {
-    const r = devitems.pushPrBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, message: b.message });
+    let message = String(b.message || '').trim();
+    if (!message) {
+      let dirty = false;
+      try { dirty = !!devitems.worktreeChanges(rec.worktreePath).dirty; } catch {}
+      if (dirty) { try { message = await _cfGenerateCommitMessage(rec.worktreePath); } catch {} }
+    }
+    const r = devitems.pushPrBranch(rec.worktreePath, { sourceBranch: rec.sourceBranch, message });
     if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Push failed.', drift: r && r.drift });
     const updated = _saveCfWt(key, r.drift ? { drift: r.drift } : {});
-    res.json({ ok: true, committed: r.files || 0, message: r.message, drift: r.drift || null, worktree: { key, ...updated } });
+    res.json({ ok: true, committed: r.files || 0, message: r.message, commitMessage: message || '', drift: r.drift || null, worktree: { key, ...updated } });
   } catch (e) {
     res.status(500).json({ error: (e && e.message) || 'Push failed' });
   }
@@ -3499,8 +3534,62 @@ app.get('/api/codeflow/pr/changes', (req, res) => {
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'Could not read changes.' }); }
 });
 
+// Auto-generate a concise git commit message for a worktree's uncommitted
+// changes. Feeds the diff (truncated) + changed-file list to the model and asks
+// for a conventional-commit subject (+ optional body). Falls back to a heuristic
+// built from the file list if the model is unavailable or returns nothing. The
+// committable set already excludes git-excluded agent reports (they don't show in
+// `git status`), so the message reflects only what will actually be committed.
+async function _cfGenerateCommitMessage(wt) {
+  const { execFileSync } = require('child_process');
+  const git = (args) => {
+    try { return String(execFileSync('git', args, { cwd: wt, encoding: 'utf-8', maxBuffer: 12 * 1024 * 1024 }) || '').trim(); }
+    catch { return ''; }
+  };
+  const status = git(['status', '--porcelain', '-uall']);
+  const files = status
+    ? status.split(/\r?\n/).filter(Boolean).map(l => l.slice(3).replace(/^"|"$/g, '').trim()).filter(Boolean)
+    : [];
+  const heuristic = () => {
+    if (!files.length) return 'Update local changes';
+    const names = files.slice(0, 3).map(f => f.split('/').pop());
+    return 'Update ' + names.join(', ') + (files.length > 3 ? ` and ${files.length - 3} more` : '');
+  };
+  const diffstat = git(['diff', 'HEAD', '--stat']);
+  let patch = git(['diff', 'HEAD']);
+  if (patch.length > 6000) patch = patch.slice(0, 6000) + '\n… (diff truncated)';
+  if (!files.length && !patch) return heuristic();
+  try {
+    const prompt = [
+      'Write ONE git commit message for the staged changes below.',
+      'Rules: imperative mood; a Conventional Commits prefix (feat/fix/docs/refactor/chore/test/perf) when it clearly applies; subject line ≤ 72 chars with no trailing period; add a short body only if it genuinely helps. Output ONLY the commit message — no code fences, no quotes, no "Commit message:" label.',
+      '',
+      'Changed files:',
+      files.join('\n') || '(none)',
+      '',
+      'Diffstat:',
+      diffstat || '(n/a)',
+      '',
+      'Diff (may be truncated):',
+      patch || '(no textual diff — likely new or binary files)'
+    ].join('\n');
+    let acc = '';
+    await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      cwd: wt, availableTools: [], onChunk: (c) => { acc += c; },
+      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined
+    });
+    let msg = String(acc || '').trim()
+      .replace(/^```[\w-]*\s*/, '').replace(/\s*```$/, '')
+      .replace(/^(commit message|message)\s*[:\-]\s*/i, '')
+      .trim();
+    return msg || heuristic();
+  } catch { return heuristic(); }
+}
+
 // Commit the review worktree's uncommitted changes locally (does NOT push).
-app.post('/api/codeflow/pr/commit', (req, res) => {
+// When no message is supplied, one is auto-generated from the diff.
+app.post('/api/codeflow/pr/commit', async (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
   if (!_cfPrOk(o)) return res.status(400).json({ error: 'org, repo and prId are required' });
@@ -3508,12 +3597,18 @@ app.post('/api/codeflow/pr/commit', (req, res) => {
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No worktree to commit.' });
   try {
-    const r = devitems.commitAll(rec.worktreePath, { message: b.message });
+    let message = String(b.message || '').trim();
+    if (!message) {
+      let dirty = true;
+      try { dirty = !!devitems.worktreeChanges(rec.worktreePath).dirty; } catch {}
+      if (dirty) { try { message = await _cfGenerateCommitMessage(rec.worktreePath); } catch {} }
+    }
+    const r = devitems.commitAll(rec.worktreePath, { message });
     if (!r || r.ok === false) return res.status(409).json({ error: (r && r.message) || 'Commit failed.' });
     const save = {};
     try { if (rec.sourceBranch) { const d = devitems.prDrift(rec.worktreePath, rec.sourceBranch, { fetch: false }); if (d) save.drift = d; } } catch {}
     const updated = _saveCfWt(key, save);
-    res.json({ ok: true, committed: r.committed, files: r.files || 0, message: r.message, worktree: { key, ...updated } });
+    res.json({ ok: true, committed: r.committed, files: r.files || 0, message: r.message, commitMessage: message || '', worktree: { key, ...updated } });
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'Commit failed' }); }
 });
 
@@ -9715,7 +9810,7 @@ function _newsletterInlineAssets(html) {
 // Turn inline <svg> blocks (charts, hero, stat strips) into base64 PNG <img> tags
 // so mail clients that strip SVG (Outlook et al.) still show the visuals. Falls
 // back to leaving the SVG untouched when no headless browser is available.
-async function _newsletterRasterizeSvgs(html, { bg, maxWidth } = {}) {
+async function _newsletterRasterizeSvgs(html, { bg, maxWidth, cssVars } = {}) {
   const src = String(html || '');
   if (!/<svg\b/i.test(src)) return src;
   try { if (!newsletterCapture.capabilities().available) return src; } catch { return src; }
@@ -9723,7 +9818,7 @@ async function _newsletterRasterizeSvgs(html, { bg, maxWidth } = {}) {
   let out = src;
   for (const svg of blocks) {
     try {
-      const r = await newsletterCapture.rasterizeHtml(svg, { bg: bg || '#ffffff', maxWidth: maxWidth || 680 });
+      const r = await newsletterCapture.rasterizeHtml(svg, { bg: bg || '#ffffff', maxWidth: maxWidth || 680, cssVars });
       if (r && r.ok && r.buffer) {
         const dataUri = `data:image/png;base64,${r.buffer.toString('base64')}`;
         out = out.replace(svg, `<img src="${dataUri}" alt="" style="max-width:100%;height:auto;display:block;margin:12px auto;border-radius:8px" />`);
@@ -9766,7 +9861,11 @@ async function _newsletterBuildEml({ body, to, subject, bannerNote } = {}) {
   let htmlBody = marked.parse(md);
   htmlBody = _newsletterInlineAssets(htmlBody);
   // Rasterize inline SVG → PNG data URIs so Outlook & friends show charts/hero.
-  htmlBody = await _newsletterRasterizeSvgs(htmlBody, { bg, maxWidth: width - 64 });
+  // Carry the same design vars + base text color the preview paper uses so SVGs that
+  // reference var(--nlp-accent)/currentColor rasterize identically (no white hero box).
+  const svgVars = `--nlp-bg:${bg};--nlp-text:${textColor};--nlp-head:${headColor};--nlp-link:${linkColor};`
+    + `--nlp-accent:${accent};--nlp-font:${fontFamily};--nlp-scale:${scale};color:${textColor};`;
+  htmlBody = await _newsletterRasterizeSvgs(htmlBody, { bg, maxWidth: width - 64, cssVars: svgVars });
 
   const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const bannerHtml = bannerNote
@@ -9786,6 +9885,9 @@ body { margin:0; padding:0; background:#f4f5f7; }
 .content img { max-width:100%; height:auto; border-radius:8px; }
 .content svg { max-width:100%; height:auto; }
 .content blockquote { margin:14px 0; padding:10px 14px; background:#f6f8fa; border-left:4px solid ${accent}; color:#57606a; border-radius:0 6px 6px 0; }
+.content code, .content kbd, .content samp { font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; background:color-mix(in srgb, ${textColor} 8%, transparent); color:color-mix(in srgb, ${accent} 80%, ${textColor}); padding:1px 6px; border-radius:5px; font-size:.86em; }
+.content pre { background:color-mix(in srgb, ${textColor} 6%, transparent); color:${textColor}; padding:12px 14px; border-radius:8px; overflow-x:auto; margin:14px 0; border:1px solid color-mix(in srgb, ${textColor} 10%, transparent); }
+.content pre code { background:transparent; color:inherit; padding:0; border-radius:0; }
 .content hr { border:none; border-top:1px solid #eaecef; margin:24px 0; }
 .content ul { padding-left:20px; }
 .footer { font-family:${fontFamily}; font-size:12px; color:#8b949e; text-align:center; padding:16px 32px 28px; }
