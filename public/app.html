@@ -1168,37 +1168,47 @@
     .topbar > .mode-switch { justify-self: center; }
     .topbar > .topbar-right { justify-self: end; display: flex; align-items: center; gap: 12px; min-width: 0; }
     .topbar-right > .search-trigger { min-width: 0; }
-    /* ===== GitHub connection indicator (topbar, calm/no-pill) ===== */
-    .gh-conn { position: relative; }
-    .gh-conn-btn { display: inline-flex; align-items: center; gap: 6px; background: transparent;
-      border: 1px solid transparent; border-radius: 8px; padding: 4px 8px; cursor: pointer;
-      color: var(--cp-text-muted); font-size: 12px; line-height: 1; }
-    .gh-conn-btn:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
-    .gh-conn-btn.gh-off { color: var(--cp-danger); }
-    .gh-dot { width: 7px; height: 7px; border-radius: 999px; flex: 0 0 auto; }
-    .gh-dot.on { background: var(--cp-success); }
-    .gh-dot.off { background: var(--cp-danger); }
-    .gh-conn-label { white-space: nowrap; }
-    .gh-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; width: 300px;
-      background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 10px;
-      box-shadow: var(--cp-shadow); padding: 12px; }
-    .gh-menu-body { display: flex; flex-direction: column; gap: 8px; }
-    .gh-menu-row { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--cp-text); }
-    .gh-menu-sub { font-size: 12px; color: var(--cp-text-muted); }
-    .gh-menu-note { font-size: 12px; color: var(--cp-text-soft); line-height: 1.4; }
-    .gh-menu-link { align-self: flex-start; background: none; border: none; color: var(--cp-link);
+    /* ===== Provider connection cluster (left sidebar, calm/no-pill) ===== */
+    .conn-cluster { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 2px; }
+    .conn-cluster-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--cp-text-muted); padding: 2px 4px; }
+    .conn-row-wrap { position: relative; }
+    .conn-row { display: flex; align-items: center; gap: 7px; width: 100%; background: transparent;
+      border: 1px solid transparent; border-radius: 8px; padding: 5px 6px; cursor: pointer;
+      color: var(--cp-text-muted); font-size: 12px; line-height: 1; text-align: left; }
+    .conn-row:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .conn-name { flex: 0 0 auto; color: var(--cp-text-soft); }
+    .conn-id { flex: 1 1 auto; min-width: 0; text-align: right; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; color: var(--cp-text-muted); }
+    .conn-dot { width: 7px; height: 7px; border-radius: 999px; flex: 0 0 auto; }
+    .conn-dot.on { background: var(--cp-success); }
+    .conn-dot.off { background: var(--cp-danger); }
+    .conn-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 80; width: 280px;
+      max-width: 78vw; background: var(--cp-bg-elevated); border: 1px solid var(--cp-border);
+      border-radius: 10px; box-shadow: var(--cp-shadow); padding: 12px; }
+    .conn-pop-body { display: flex; flex-direction: column; gap: 8px; }
+    .conn-pop-row { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--cp-text); }
+    .conn-pop-sub { font-size: 12px; color: var(--cp-text-muted); word-break: break-word; }
+    .conn-pop-note { font-size: 12px; color: var(--cp-text-soft); line-height: 1.4; }
+    .conn-pop-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .conn-pop-btn { flex: 1 1 auto; background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+      border-radius: 8px; padding: 7px 8px; font-size: 12px; cursor: pointer; color: var(--cp-text); white-space: nowrap; }
+    .conn-pop-btn:hover { border-color: var(--cp-border-strong); }
+    .conn-pop-btn.danger { color: var(--cp-danger); }
+    .conn-pop-btn:disabled { opacity: 0.55; cursor: default; }
+    .conn-pop-link { align-self: flex-start; background: none; border: none; color: var(--cp-link);
       font-size: 12px; cursor: pointer; padding: 0; }
-    .gh-menu-cta { background: var(--cp-accent); color: var(--cp-accent-fg); border: none;
+    .conn-pop-cta { background: var(--cp-accent); color: var(--cp-accent-fg); border: none;
       border-radius: 8px; padding: 8px 10px; font-size: 13px; cursor: pointer; }
-    .gh-menu-cta:disabled { opacity: 0.6; cursor: default; }
-    .gh-menu-or { font-size: 11px; color: var(--cp-text-muted); text-align: center; }
-    .gh-menu-pat { display: flex; gap: 6px; }
-    .gh-menu-pat input { flex: 1; min-width: 0; background: var(--cp-surface); border: 1px solid var(--cp-border);
+    .conn-pop-cta:disabled { opacity: 0.6; cursor: default; }
+    .conn-pop-or { font-size: 11px; color: var(--cp-text-muted); text-align: center; }
+    .conn-pop-pat { display: flex; gap: 6px; }
+    .conn-pop-pat input { flex: 1; min-width: 0; background: var(--cp-surface); border: 1px solid var(--cp-border);
       border-radius: 8px; padding: 6px 8px; font-size: 12px; color: var(--cp-text); }
-    .gh-menu-pat button { background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+    .conn-pop-pat button { background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
       border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--cp-text); }
-    .gh-menu-pat button:disabled { opacity: 0.5; cursor: default; }
-    .gh-menu-err { font-size: 12px; color: var(--cp-danger); }
+    .conn-pop-pat button:disabled { opacity: 0.5; cursor: default; }
+    .conn-pop-err { font-size: 12px; color: var(--cp-danger); }
     /* ===== Starred-boards quick launch bar (under the topbar) ===== */
     .quick-launch {
       display: flex; align-items: center; gap: 6px;
@@ -5069,39 +5079,6 @@
         <span>Search agents, managers, tasks…</span>
         <span class="kbd">⌘K</span>
       </button>
-      <div class="gh-conn" @click.outside="ghMenuOpen = false">
-        <button class="gh-conn-btn" type="button" @click="ghMenuOpen = !ghMenuOpen"
-          :class="{ 'gh-off': ghStatus && !ghStatus.connected }"
-          :title="ghConnTitle()">
-          <span class="gh-dot" :class="ghStatus && ghStatus.connected ? 'on' : 'off'"></span>
-          <span class="gh-conn-label" x-text="ghConnLabel()"></span>
-        </button>
-        <div class="gh-menu" x-show="ghMenuOpen" x-transition.opacity.duration.120ms x-cloak>
-          <template x-if="ghStatus && ghStatus.connected">
-            <div class="gh-menu-body">
-              <div class="gh-menu-row"><span class="gh-dot on"></span><b x-text="ghStatus.name || ghStatus.login"></b></div>
-              <div class="gh-menu-sub" x-text="'@' + ghStatus.login + (ghStatus.source ? ' · ' + ghSourceLabel(ghStatus.source) : '')"></div>
-              <div class="gh-menu-note">Connected to GitHub. The app never prompts for credentials — git runs with this identity.</div>
-              <button class="gh-menu-link" type="button" @click="refreshGithubStatus(true)">↻ Re-check</button>
-            </div>
-          </template>
-          <template x-if="!ghStatus || !ghStatus.connected">
-            <div class="gh-menu-body">
-              <div class="gh-menu-row"><span class="gh-dot off"></span><b>Not connected to GitHub</b></div>
-              <div class="gh-menu-note" x-text="(ghStatus && ghStatus.reason) || 'Sign in so the app can read PRs and manage worktrees.'"></div>
-              <button class="gh-menu-cta" type="button" @click="connectGithubCli()" :disabled="ghBusy">
-                <span x-text="ghBusy ? 'Opening sign-in…' : 'Sign in with GitHub CLI'"></span>
-              </button>
-              <div class="gh-menu-or">or paste a Personal Access Token</div>
-              <div class="gh-menu-pat">
-                <input type="password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" />
-                <button type="button" @click="connectGithubPat()" :disabled="ghBusy || !ghPat">Save</button>
-              </div>
-              <div class="gh-menu-err" x-show="ghErr" x-text="ghErr"></div>
-            </div>
-          </template>
-        </div>
-      </div>
       </div>
     </header>
 
@@ -5230,6 +5207,74 @@
             <span>⚙</span>
             <span>Settings</span>
           </a>
+          <div class="conn-cluster" @click.outside="connMenu = null">
+            <div class="conn-cluster-label">Connections</div>
+            <!-- GitHub -->
+            <div class="conn-row-wrap">
+              <button class="conn-row" type="button" @click="connMenu = (connMenu === 'gh' ? null : 'gh')" :title="ghConnTitle()">
+                <span class="conn-dot" :class="ghStatus && ghStatus.connected ? 'on' : 'off'"></span>
+                <span class="conn-name">GitHub</span>
+                <span class="conn-id" x-text="ghStatus ? (ghStatus.connected ? '@' + ghStatus.login : 'Sign in') : '…'"></span>
+              </button>
+              <div class="conn-pop" x-show="connMenu === 'gh'" x-transition.opacity.duration.120ms x-cloak>
+                <template x-if="ghStatus && ghStatus.connected">
+                  <div class="conn-pop-body">
+                    <div class="conn-pop-row"><span class="conn-dot on"></span><b x-text="ghStatus.name || ghStatus.login"></b></div>
+                    <div class="conn-pop-sub" x-text="'@' + ghStatus.login + (ghStatus.source ? ' · ' + ghSourceLabel(ghStatus.source) : '')"></div>
+                    <div class="conn-pop-actions">
+                      <button class="conn-pop-btn" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening…' : 'Switch / add account'"></button>
+                      <button class="conn-pop-btn danger" type="button" @click="signOutGithub()" :disabled="ghBusy">Sign out</button>
+                    </div>
+                    <button class="conn-pop-link" type="button" @click="refreshGithubStatus(true)">↻ Re-check</button>
+                    <div class="conn-pop-err" x-show="ghErr" x-text="ghErr"></div>
+                  </div>
+                </template>
+                <template x-if="!ghStatus || !ghStatus.connected">
+                  <div class="conn-pop-body">
+                    <div class="conn-pop-row"><span class="conn-dot off"></span><b>Not connected</b></div>
+                    <div class="conn-pop-note" x-text="(ghStatus && ghStatus.reason) || 'Sign in so the app can read PRs and manage worktrees.'"></div>
+                    <button class="conn-pop-cta" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening sign-in…' : 'Sign in with GitHub CLI'"></button>
+                    <div class="conn-pop-or">or paste a Personal Access Token</div>
+                    <div class="conn-pop-pat">
+                      <input type="password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" />
+                      <button type="button" @click="connectGithubPat()" :disabled="ghBusy || !ghPat">Save</button>
+                    </div>
+                    <div class="conn-pop-err" x-show="ghErr" x-text="ghErr"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <!-- Azure DevOps -->
+            <div class="conn-row-wrap">
+              <button class="conn-row" type="button" @click="connMenu = (connMenu === 'azdo' ? null : 'azdo')" :title="azdoConnTitle()">
+                <span class="conn-dot" :class="azdoStatus && azdoStatus.connected ? 'on' : 'off'"></span>
+                <span class="conn-name">Azure DevOps</span>
+                <span class="conn-id" x-text="azdoStatus ? (azdoStatus.connected ? (azdoStatus.login || 'Signed in') : 'Sign in') : '…'"></span>
+              </button>
+              <div class="conn-pop" x-show="connMenu === 'azdo'" x-transition.opacity.duration.120ms x-cloak>
+                <template x-if="azdoStatus && azdoStatus.connected">
+                  <div class="conn-pop-body">
+                    <div class="conn-pop-row"><span class="conn-dot on"></span><b x-text="azdoStatus.name || azdoStatus.login"></b></div>
+                    <div class="conn-pop-sub" x-text="azdoStatus.subscription ? ('Azure CLI · ' + azdoStatus.subscription) : 'Azure CLI'"></div>
+                    <div class="conn-pop-actions">
+                      <button class="conn-pop-btn" type="button" @click="connectAzdo('switch')" :disabled="azdoBusy" x-text="azdoBusy ? 'Opening…' : 'Switch account'"></button>
+                      <button class="conn-pop-btn danger" type="button" @click="connectAzdo('logout')" :disabled="azdoBusy">Sign out</button>
+                    </div>
+                    <button class="conn-pop-link" type="button" @click="refreshAzdoStatus(true)">↻ Re-check</button>
+                    <div class="conn-pop-err" x-show="azdoErr" x-text="azdoErr"></div>
+                  </div>
+                </template>
+                <template x-if="!azdoStatus || !azdoStatus.connected">
+                  <div class="conn-pop-body">
+                    <div class="conn-pop-row"><span class="conn-dot off"></span><b>Not connected</b></div>
+                    <div class="conn-pop-note" x-text="(azdoStatus && azdoStatus.reason) || 'Sign in to Azure so the app can read Azure DevOps repos, work items and PRs.'"></div>
+                    <button class="conn-pop-cta" type="button" @click="connectAzdo('login')" :disabled="azdoBusy" x-text="azdoBusy ? 'Opening sign-in…' : 'Sign in with Azure CLI'"></button>
+                    <div class="conn-pop-err" x-show="azdoErr" x-text="azdoErr"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
           <div class="sidebar-meta">
             <template x-if="update.supported && update.available && (update.phase === 'idle' || update.phase === 'error') && !update.dismissed">
               <button type="button" class="sidebar-update-btn" @click="downloadUpdate()" :disabled="update.busy"
@@ -14742,13 +14787,17 @@
         agentStatusFilter: 'all',
         currentTeamId: (() => { try { return localStorage.getItem('current-org-id') || 'all'; } catch { return 'all'; } })(),
         orgMenuOpen: false,
-        // GitHub connection indicator state.
-        ghMenuOpen: false,
+        // Provider connection indicators (left sidebar).
+        connMenu: null,
         ghStatus: null,
         ghBusy: false,
         ghErr: '',
         ghPat: '',
         _ghPoll: null,
+        azdoStatus: null,
+        azdoBusy: false,
+        azdoErr: '',
+        _azdoPoll: null,
         orgModalOpen: false,
         orgForm: { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' },
         orgThemes: [
@@ -15323,10 +15372,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // then refreshed periodically to keep the menu badge live.
           setTimeout(() => this.loadCodeflowAttention(true), 4000);
           this._codeflowAttnTimer = setInterval(() => this.loadCodeflowAttention(true), 180000);
-          // GitHub connection indicator — lazy initial probe + periodic refresh so
-          // the header stays honest without blocking startup.
+          // Provider connection indicators — lazy initial probe + periodic refresh
+          // so the sidebar stays honest without blocking startup.
           setTimeout(() => this.refreshGithubStatus(false), 2500);
           this._ghPoll = setInterval(() => this.refreshGithubStatus(false), 300000);
+          setTimeout(() => this.refreshAzdoStatus(false), 3000);
+          this._azdoPoll = setInterval(() => this.refreshAzdoStatus(false), 300000);
           // Marketplace "new items" nav badge — lazy + periodic so it never blocks startup.
           setTimeout(() => this.loadMarketplaceUpdates(true), 5000);
           this._marketplaceUpdTimer = setInterval(() => this.loadMarketplaceUpdates(true), 300000);
@@ -16967,7 +17018,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               await this.refreshGithubStatus(true);
               if ((this.ghStatus && this.ghStatus.connected) || tries > 40) {
                 clearInterval(iv);
-                if (this.ghStatus && this.ghStatus.connected) { this.ghMenuOpen = false; this.toast('Connected to GitHub as @' + this.ghStatus.login, 'success'); }
+                if (this.ghStatus && this.ghStatus.connected) { this.connMenu = null; this.toast('Connected to GitHub as @' + this.ghStatus.login, 'success'); }
               }
             }, 3000);
           } catch (e) {
@@ -16981,10 +17032,63 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/github/connect', { method: 'POST', body: JSON.stringify({ method: 'pat', pat: this.ghPat }) });
             this.ghStatus = r.status || this.ghStatus;
             this.ghPat = '';
-            if (this.ghStatus && this.ghStatus.connected) { this.ghMenuOpen = false; this.toast('Connected to GitHub as @' + this.ghStatus.login, 'success'); }
+            if (this.ghStatus && this.ghStatus.connected) { this.connMenu = null; this.toast('Connected to GitHub as @' + this.ghStatus.login, 'success'); }
           } catch (e) {
             this.ghErr = (e && e.message) || 'That token could not be validated.';
           } finally { this.ghBusy = false; }
+        },
+        // Sign out of GitHub. For a stored PAT this just clears it; for a CLI
+        // login it opens `gh auth logout` so the user can drop/switch the account.
+        async signOutGithub() {
+          this.ghErr = ''; this.ghBusy = true;
+          try {
+            const src = this.ghStatus && this.ghStatus.source;
+            const method = src === 'pat' ? 'signout' : 'cli-signout';
+            const r = await this.request('/api/github/connect', { method: 'POST', body: JSON.stringify({ method }) });
+            if (r.launched) this.toast(r.message || 'A GitHub sign-out window has opened.', 'info');
+            // Give the logout a moment, then re-probe.
+            setTimeout(() => this.refreshGithubStatus(true), 1500);
+          } catch (e) {
+            this.ghErr = (e && e.message) || 'Sign-out failed.';
+          } finally { this.ghBusy = false; }
+        },
+        // ===== Azure DevOps connection indicator =====
+        azdoConnTitle() {
+          if (!this.azdoStatus) return 'Azure DevOps connection';
+          return this.azdoStatus.connected
+            ? ('Signed in to Azure as ' + (this.azdoStatus.login || 'user'))
+            : ((this.azdoStatus.reason) || 'Not signed in to Azure — click to sign in');
+        },
+        async refreshAzdoStatus(force) {
+          try {
+            const r = await this.request('/api/azdo/status' + (force ? '?refresh=1' : ''));
+            this.azdoStatus = r;
+          } catch (e) { /* leave prior status; sidebar stays quiet */ }
+        },
+        // method: 'login' | 'switch' | 'logout'. login/switch open an `az login`
+        // window; logout runs `az logout` quietly.
+        async connectAzdo(method) {
+          this.azdoErr = ''; this.azdoBusy = true;
+          try {
+            const r = await this.request('/api/azdo/connect', { method: 'POST', body: JSON.stringify({ method: method || 'login' }) });
+            if (method === 'logout') {
+              this.azdoStatus = r.status || this.azdoStatus;
+              this.toast('Signed out of Azure.', 'info');
+              return;
+            }
+            this.toast(r.message || 'Azure sign-in window opened. Complete it to reconnect.', 'info');
+            let tries = 0;
+            const iv = setInterval(async () => {
+              tries++;
+              await this.refreshAzdoStatus(true);
+              if ((this.azdoStatus && this.azdoStatus.connected) || tries > 40) {
+                clearInterval(iv);
+                if (this.azdoStatus && this.azdoStatus.connected) { this.connMenu = null; this.toast('Signed in to Azure as ' + (this.azdoStatus.login || 'user'), 'success'); }
+              }
+            }, 3000);
+          } catch (e) {
+            this.azdoErr = (e && e.message) || 'Azure sign-in failed.';
+          } finally { this.azdoBusy = false; }
         },
         // ===== App mode (Workspace ⇄ Workforce) =====
         // Workspace = productivity (boards, insights, reports). Workforce = agentic

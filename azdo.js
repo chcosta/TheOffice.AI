@@ -689,6 +689,39 @@ async function getCurrentUser(org) {
   };
 }
 
+// Reflects the Azure CLI sign-in that Azure DevOps auth relies on. Uses
+// `az account show` so we can report the identity without needing a specific
+// org/project. Never throws — returns a {connected,...} shape either way.
+function getSignInStatus() {
+  let raw;
+  try {
+    raw = execSync('az account show -o json', { encoding: 'utf-8', timeout: 20_000, shell: true }).trim();
+  } catch (e) {
+    const msg = (e.stderr || e.message || '').toString().split('\n')[0];
+    return {
+      connected: false, login: '', name: '', tenant: '', subscription: '', source: 'az',
+      reason: 'Not signed in to Azure CLI. Run "az login" (or use the button).' + (msg ? ` Details: ${msg}` : '')
+    };
+  }
+  try {
+    const a = JSON.parse(raw);
+    const user = a.user || {};
+    return {
+      connected: true,
+      login: user.name || '',        // usually the signed-in UPN / email
+      name: user.name || '',
+      tenant: a.tenantId || '',
+      subscription: a.name || '',
+      source: 'az',
+      reason: ''
+    };
+  } catch {
+    // `az` returned something we couldn't parse, but it didn't error — treat as
+    // signed in with an unknown identity rather than reporting a false negative.
+    return { connected: true, login: '', name: '', tenant: '', subscription: '', source: 'az', reason: '' };
+  }
+}
+
 // Map an Azure DevOps reviewer vote to a friendly label.
 function voteLabel(vote) {
   switch (Number(vote)) {
@@ -1157,6 +1190,7 @@ module.exports = {
   getPrWorkItems,
   updateWorkItemState,
   getPullRequest,
+  getSignInStatus,
   listProjectPullRequests,
   listMyWorkItems
 };

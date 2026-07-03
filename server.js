@@ -1430,6 +1430,22 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
       github.getToken(true);
       return res.json({ ok: true, status: await _githubStatus(true) });
     }
+    if (method === 'cli-signout') {
+      // Drop the CLI login too: clear any stored PAT AND open `gh auth logout`
+      // so the user can remove / switch the account behind the keyring.
+      settings.updateSettings({ githubPat: '', githubAuthMode: 'cli' });
+      github.getToken(true);
+      const { spawn } = require('child_process');
+      if (process.platform === 'win32') {
+        spawn('cmd', ['/c', 'start', '"GitHub Sign-out"', 'cmd', '/k',
+          'gh', 'auth', 'logout', '--hostname', 'github.com'],
+          { detached: true, stdio: 'ignore', windowsHide: false });
+      } else {
+        spawn('gh', ['auth', 'logout', '--hostname', 'github.com'],
+          { detached: true, stdio: 'ignore' });
+      }
+      return res.json({ ok: true, launched: true, message: 'A GitHub sign-out window has opened. Complete it to switch or remove the account.' });
+    }
     // method === 'cli' — launch an interactive sign-in in its own window.
     const { spawn } = require('child_process');
     if (process.platform === 'win32') {
@@ -1445,6 +1461,58 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
     return res.json({ ok: true, launched: true, message: 'A sign-in window has opened. Complete it, then this page will reconnect.' });
   } catch (e) {
     res.status(500).json({ error: (e && e.message) || 'Sign-in failed.' });
+  }
+});
+
+// ---- Azure DevOps connection indicator ------------------------------------
+// Reflects the local Azure CLI sign-in that AzDO token minting reuses.
+let _azdoStatusCache = { at: 0, value: null };
+async function _azdoStatus(force = false) {
+  const now = Date.now();
+  if (!force && _azdoStatusCache.value && now - _azdoStatusCache.at < 30_000) {
+    return _azdoStatusCache.value;
+  }
+  let value;
+  try {
+    value = azdo.getSignInStatus();
+  } catch (e) {
+    value = { connected: false, login: '', name: '', source: 'az', reason: (e && e.message) || 'Azure status check failed.' };
+  }
+  _azdoStatusCache = { at: now, value };
+  return value;
+}
+
+app.get('/api/azdo/status', async (req, res) => {
+  const force = req.query.refresh === '1' || req.query.force === '1';
+  res.json(await _azdoStatus(force));
+});
+
+// Sign in / switch / out of Azure. login+switch open `az login` in a visible
+// console; switch runs `az logout` first for a clean account picker; logout
+// runs `az logout` quietly and returns the refreshed status.
+app.post('/api/azdo/connect', express.json(), async (req, res) => {
+  const method = (req.body && req.body.method) || 'login';
+  const { spawn, execSync } = require('child_process');
+  try {
+    if (method === 'logout') {
+      try { execSync('az logout', { timeout: 20_000, shell: true, stdio: 'ignore' }); } catch { /* already signed out */ }
+      _azdoStatusCache = { at: 0, value: null };
+      return res.json({ ok: true, status: await _azdoStatus(true) });
+    }
+    if (method === 'switch') {
+      // Clear the current account so `az login` shows a fresh picker.
+      try { execSync('az logout', { timeout: 20_000, shell: true, stdio: 'ignore' }); } catch { /* ignore */ }
+    }
+    if (process.platform === 'win32') {
+      spawn('cmd', ['/c', 'start', '"Azure Sign-in"', 'cmd', '/k', 'az', 'login'],
+        { detached: true, stdio: 'ignore', windowsHide: false });
+    } else {
+      spawn('az', ['login'], { detached: true, stdio: 'ignore' });
+    }
+    _azdoStatusCache = { at: 0, value: null };
+    return res.json({ ok: true, launched: true, message: 'An Azure sign-in window has opened. Complete it, then this page will reconnect.' });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Azure sign-in failed.' });
   }
 });
 
