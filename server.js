@@ -1381,6 +1381,73 @@ app.post('/api/plugins/install', (req, res) => {
   res.status(400).json({ error: 'installCmd or pluginDir required' });
 });
 
+// ---- GitHub connection status + sign-in --------------------------------------
+// The app never pops Git Credential Manager (git subprocesses are hardened in
+// devitems.js) — instead it surfaces its own GitHub connection state and an
+// explicit sign-in affordance here. Status is cached briefly so the header
+// indicator can poll cheaply.
+const github = require('./github');
+let _ghStatusCache = { at: 0, value: null };
+async function _githubStatus(force = false) {
+  const now = Date.now();
+  if (!force && _ghStatusCache.value && now - _ghStatusCache.at < 30_000) {
+    return _ghStatusCache.value;
+  }
+  let value;
+  try {
+    value = await github.getStatus();
+  } catch (e) {
+    value = { connected: false, login: '', name: '', source: null, reason: (e && e.message) || 'GitHub status check failed.' };
+  }
+  _ghStatusCache = { at: now, value };
+  return value;
+}
+
+app.get('/api/github/status', async (req, res) => {
+  const force = req.query.refresh === '1' || req.query.force === '1';
+  res.json(await _githubStatus(force));
+});
+
+// Sign in to GitHub. method:'cli' launches `gh auth login` in a visible console
+// so the user completes the browser/device flow; method:'pat' stores a PAT.
+app.post('/api/github/connect', express.json(), async (req, res) => {
+  const method = (req.body && req.body.method) || 'cli';
+  try {
+    if (method === 'pat') {
+      const pat = (req.body.pat || '').trim();
+      if (!pat) return res.status(400).json({ error: 'A Personal Access Token is required.' });
+      settings.updateSettings({ githubPat: pat, githubAuthMode: 'pat' });
+      github.getToken(true); // refresh the in-process token cache
+      const status = await _githubStatus(true);
+      if (!status.connected) {
+        return res.status(400).json({ error: status.reason || 'That token could not be validated.', status });
+      }
+      return res.json({ ok: true, status });
+    }
+    if (method === 'signout') {
+      // Only clears a stored PAT; a `gh` CLI login is managed by the user's OS keyring.
+      settings.updateSettings({ githubPat: '', githubAuthMode: 'cli' });
+      github.getToken(true);
+      return res.json({ ok: true, status: await _githubStatus(true) });
+    }
+    // method === 'cli' — launch an interactive sign-in in its own window.
+    const { spawn } = require('child_process');
+    if (process.platform === 'win32') {
+      // `start` opens a new console; `cmd /k` keeps it open so the user can
+      // read the device code / complete the browser flow.
+      spawn('cmd', ['/c', 'start', '"GitHub Sign-in"', 'cmd', '/k',
+        'gh', 'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
+        { detached: true, stdio: 'ignore', windowsHide: false });
+    } else {
+      spawn('gh', ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
+        { detached: true, stdio: 'ignore' });
+    }
+    return res.json({ ok: true, launched: true, message: 'A sign-in window has opened. Complete it, then this page will reconnect.' });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Sign-in failed.' });
+  }
+});
+
 // ---- Azure DevOps git: discover + install agents/plugins from a repo --------
 // Auth is secretless via the locally signed-in Azure CLI (see azdo.js).
 

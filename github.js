@@ -942,10 +942,64 @@ async function pushFiles(owner, _project, repo, { baseBranch, newBranch, changes
   return { branch: newBranch, commit: commit.sha };
 }
 
+// Resolve the current auth source without throwing (for status reporting).
+// Returns { source: 'cli'|'env'|'pat'|null, hasToken }.
+function _tokenSource() {
+  try {
+    const raw = execSync(`gh auth token --hostname ${HOST}`, {
+      encoding: 'utf-8', timeout: 15_000, shell: true
+    }).trim();
+    if (/^gh[opsu]_|^github_pat_/.test(raw) || (raw && !/not logged|no oauth|error/i.test(raw))) {
+      return { source: 'cli', hasToken: true };
+    }
+  } catch {}
+  if ((process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim()) {
+    return { source: 'env', hasToken: true };
+  }
+  if (_settingsPat()) return { source: 'pat', hasToken: true };
+  return { source: null, hasToken: false };
+}
+
+// Non-throwing GitHub connection status for the in-app indicator.
+// Probes /user to confirm the token is actually valid (a stale/revoked token
+// or an SSO-blocked token reports connected:false with an actionable reason).
+async function getStatus() {
+  const src = _tokenSource();
+  if (!src.hasToken) {
+    return {
+      connected: false,
+      login: '',
+      name: '',
+      source: null,
+      reason: 'Not signed in to GitHub. Run "gh auth login" or add a Personal Access Token.'
+    };
+  }
+  try {
+    const u = await getCurrentUser();
+    return {
+      connected: true,
+      login: u.login || '',
+      name: u.name || u.login || '',
+      source: src.source,
+      reason: ''
+    };
+  } catch (e) {
+    const msg = (e && e.message ? e.message : String(e || '')).trim();
+    return {
+      connected: false,
+      login: '',
+      name: '',
+      source: src.source,
+      reason: msg || 'GitHub token present but could not be validated.'
+    };
+  }
+}
+
 module.exports = {
   HOST,
   GITHUB_STORE,
   getToken,
+  getStatus,
   getCurrentUser,
   voteLabel,
   getRepoContributors,

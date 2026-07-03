@@ -1168,6 +1168,37 @@
     .topbar > .mode-switch { justify-self: center; }
     .topbar > .topbar-right { justify-self: end; display: flex; align-items: center; gap: 12px; min-width: 0; }
     .topbar-right > .search-trigger { min-width: 0; }
+    /* ===== GitHub connection indicator (topbar, calm/no-pill) ===== */
+    .gh-conn { position: relative; }
+    .gh-conn-btn { display: inline-flex; align-items: center; gap: 6px; background: transparent;
+      border: 1px solid transparent; border-radius: 8px; padding: 4px 8px; cursor: pointer;
+      color: var(--cp-text-muted); font-size: 12px; line-height: 1; }
+    .gh-conn-btn:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .gh-conn-btn.gh-off { color: var(--cp-danger); }
+    .gh-dot { width: 7px; height: 7px; border-radius: 999px; flex: 0 0 auto; }
+    .gh-dot.on { background: var(--cp-success); }
+    .gh-dot.off { background: var(--cp-danger); }
+    .gh-conn-label { white-space: nowrap; }
+    .gh-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; width: 300px;
+      background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 10px;
+      box-shadow: var(--cp-shadow); padding: 12px; }
+    .gh-menu-body { display: flex; flex-direction: column; gap: 8px; }
+    .gh-menu-row { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--cp-text); }
+    .gh-menu-sub { font-size: 12px; color: var(--cp-text-muted); }
+    .gh-menu-note { font-size: 12px; color: var(--cp-text-soft); line-height: 1.4; }
+    .gh-menu-link { align-self: flex-start; background: none; border: none; color: var(--cp-link);
+      font-size: 12px; cursor: pointer; padding: 0; }
+    .gh-menu-cta { background: var(--cp-accent); color: var(--cp-accent-fg); border: none;
+      border-radius: 8px; padding: 8px 10px; font-size: 13px; cursor: pointer; }
+    .gh-menu-cta:disabled { opacity: 0.6; cursor: default; }
+    .gh-menu-or { font-size: 11px; color: var(--cp-text-muted); text-align: center; }
+    .gh-menu-pat { display: flex; gap: 6px; }
+    .gh-menu-pat input { flex: 1; min-width: 0; background: var(--cp-surface); border: 1px solid var(--cp-border);
+      border-radius: 8px; padding: 6px 8px; font-size: 12px; color: var(--cp-text); }
+    .gh-menu-pat button { background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+      border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--cp-text); }
+    .gh-menu-pat button:disabled { opacity: 0.5; cursor: default; }
+    .gh-menu-err { font-size: 12px; color: var(--cp-danger); }
     /* ===== Starred-boards quick launch bar (under the topbar) ===== */
     .quick-launch {
       display: flex; align-items: center; gap: 6px;
@@ -5038,6 +5069,39 @@
         <span>Search agents, managers, tasks…</span>
         <span class="kbd">⌘K</span>
       </button>
+      <div class="gh-conn" @click.outside="ghMenuOpen = false">
+        <button class="gh-conn-btn" type="button" @click="ghMenuOpen = !ghMenuOpen"
+          :class="{ 'gh-off': ghStatus && !ghStatus.connected }"
+          :title="ghConnTitle()">
+          <span class="gh-dot" :class="ghStatus && ghStatus.connected ? 'on' : 'off'"></span>
+          <span class="gh-conn-label" x-text="ghConnLabel()"></span>
+        </button>
+        <div class="gh-menu" x-show="ghMenuOpen" x-transition.opacity.duration.120ms x-cloak>
+          <template x-if="ghStatus && ghStatus.connected">
+            <div class="gh-menu-body">
+              <div class="gh-menu-row"><span class="gh-dot on"></span><b x-text="ghStatus.name || ghStatus.login"></b></div>
+              <div class="gh-menu-sub" x-text="'@' + ghStatus.login + (ghStatus.source ? ' · ' + ghSourceLabel(ghStatus.source) : '')"></div>
+              <div class="gh-menu-note">Connected to GitHub. The app never prompts for credentials — git runs with this identity.</div>
+              <button class="gh-menu-link" type="button" @click="refreshGithubStatus(true)">↻ Re-check</button>
+            </div>
+          </template>
+          <template x-if="!ghStatus || !ghStatus.connected">
+            <div class="gh-menu-body">
+              <div class="gh-menu-row"><span class="gh-dot off"></span><b>Not connected to GitHub</b></div>
+              <div class="gh-menu-note" x-text="(ghStatus && ghStatus.reason) || 'Sign in so the app can read PRs and manage worktrees.'"></div>
+              <button class="gh-menu-cta" type="button" @click="connectGithubCli()" :disabled="ghBusy">
+                <span x-text="ghBusy ? 'Opening sign-in…' : 'Sign in with GitHub CLI'"></span>
+              </button>
+              <div class="gh-menu-or">or paste a Personal Access Token</div>
+              <div class="gh-menu-pat">
+                <input type="password" x-model="ghPat" placeholder="ghp_… or github_pat_…" @keydown.enter="connectGithubPat()" />
+                <button type="button" @click="connectGithubPat()" :disabled="ghBusy || !ghPat">Save</button>
+              </div>
+              <div class="gh-menu-err" x-show="ghErr" x-text="ghErr"></div>
+            </div>
+          </template>
+        </div>
+      </div>
       </div>
     </header>
 
@@ -14678,6 +14742,13 @@
         agentStatusFilter: 'all',
         currentTeamId: (() => { try { return localStorage.getItem('current-org-id') || 'all'; } catch { return 'all'; } })(),
         orgMenuOpen: false,
+        // GitHub connection indicator state.
+        ghMenuOpen: false,
+        ghStatus: null,
+        ghBusy: false,
+        ghErr: '',
+        ghPat: '',
+        _ghPoll: null,
         orgModalOpen: false,
         orgForm: { id: '', name: '', emoji: '🏢', color: '#b11f4b', description: '', theme: 'default' },
         orgThemes: [
@@ -15252,6 +15323,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // then refreshed periodically to keep the menu badge live.
           setTimeout(() => this.loadCodeflowAttention(true), 4000);
           this._codeflowAttnTimer = setInterval(() => this.loadCodeflowAttention(true), 180000);
+          // GitHub connection indicator — lazy initial probe + periodic refresh so
+          // the header stays honest without blocking startup.
+          setTimeout(() => this.refreshGithubStatus(false), 2500);
+          this._ghPoll = setInterval(() => this.refreshGithubStatus(false), 300000);
           // Marketplace "new items" nav badge — lazy + periodic so it never blocks startup.
           setTimeout(() => this.loadMarketplaceUpdates(true), 5000);
           this._marketplaceUpdTimer = setInterval(() => this.loadMarketplaceUpdates(true), 300000);
@@ -16859,6 +16934,57 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         goHome() {
           this.setCurrentOrg('all');
           this.goTo('#/home');
+        },
+        // ===== GitHub connection indicator =====
+        ghSourceLabel(src) {
+          return src === 'cli' ? 'GitHub CLI' : src === 'env' ? 'environment token' : src === 'pat' ? 'Personal Access Token' : '';
+        },
+        ghConnLabel() {
+          if (!this.ghStatus) return 'GitHub';
+          return this.ghStatus.connected ? ('@' + (this.ghStatus.login || 'github')) : 'GitHub: Sign in';
+        },
+        ghConnTitle() {
+          if (!this.ghStatus) return 'GitHub connection';
+          return this.ghStatus.connected
+            ? ('Connected to GitHub as @' + this.ghStatus.login)
+            : ((this.ghStatus.reason) || 'Not connected to GitHub — click to sign in');
+        },
+        async refreshGithubStatus(force) {
+          try {
+            const r = await this.request('/api/github/status' + (force ? '?refresh=1' : ''));
+            this.ghStatus = r;
+          } catch (e) { /* leave prior status; header stays quiet */ }
+        },
+        async connectGithubCli() {
+          this.ghErr = ''; this.ghBusy = true;
+          try {
+            const r = await this.request('/api/github/connect', { method: 'POST', body: JSON.stringify({ method: 'cli' }) });
+            this.toast(r.message || 'Sign-in window opened. Complete it to reconnect.', 'info');
+            // Poll for the login to complete.
+            let tries = 0;
+            const iv = setInterval(async () => {
+              tries++;
+              await this.refreshGithubStatus(true);
+              if ((this.ghStatus && this.ghStatus.connected) || tries > 40) {
+                clearInterval(iv);
+                if (this.ghStatus && this.ghStatus.connected) { this.ghMenuOpen = false; this.toast('Connected to GitHub as @' + this.ghStatus.login, 'success'); }
+              }
+            }, 3000);
+          } catch (e) {
+            this.ghErr = (e && e.message) || 'Sign-in failed.';
+          } finally { this.ghBusy = false; }
+        },
+        async connectGithubPat() {
+          if (!this.ghPat) return;
+          this.ghErr = ''; this.ghBusy = true;
+          try {
+            const r = await this.request('/api/github/connect', { method: 'POST', body: JSON.stringify({ method: 'pat', pat: this.ghPat }) });
+            this.ghStatus = r.status || this.ghStatus;
+            this.ghPat = '';
+            if (this.ghStatus && this.ghStatus.connected) { this.ghMenuOpen = false; this.toast('Connected to GitHub as @' + this.ghStatus.login, 'success'); }
+          } catch (e) {
+            this.ghErr = (e && e.message) || 'That token could not be validated.';
+          } finally { this.ghBusy = false; }
         },
         // ===== App mode (Workspace ⇄ Workforce) =====
         // Workspace = productivity (boards, insights, reports). Workforce = agentic

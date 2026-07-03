@@ -83,6 +83,30 @@ function _authArgs(desc) {
   return ['-c', 'http.extraheader=AUTHORIZATION: bearer ' + azdo.getToken()];
 }
 
+// Never let a git subprocess launch an interactive credential prompt. We supply
+// the token ourselves via http.extraheader (see _authArgs), so git needs no
+// credential helper at all — disabling it means a genuinely-unauthenticated op
+// fails fast with a clean error instead of popping a Git Credential Manager GUI
+// window (the "Connect to GitHub" swarm) or hanging on a stale askpass helper.
+// `-c credential.helper=` resets the helper list to empty (kills GCM + any
+// configured askpass); GIT_TERMINAL_PROMPT=0 blocks git's own terminal prompt;
+// GCM_INTERACTIVE=never is belt-and-suspenders for any GCM still in the chain.
+const _NO_PROMPT_ARGS = [
+  '-c', 'credential.helper=',
+  '-c', 'credential.interactive=false',
+  '-c', 'core.askPass='
+];
+function _noPromptEnv() {
+  const env = Object.assign({}, process.env, {
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'never'
+  });
+  // A configured askpass helper (GUI) would bypass the above — drop them.
+  delete env.GIT_ASKPASS;
+  delete env.SSH_ASKPASS;
+  return env;
+}
+
 // Run a git command, throwing on failure with a clean message.
 function _git(args, cwd, { auth = false, timeout = 240_000 } = {}) {
   // core.longpaths=true makes git use the \\?\ prefix so deep repo paths
@@ -90,14 +114,18 @@ function _git(args, cwd, { auth = false, timeout = 240_000 } = {}) {
   // during clone + worktree checkout.
   // `auth` may be false, true (=> azdo default), or a provider descriptor.
   const authArgs = auth ? _authArgs(auth === true ? null : auth) : [];
-  const full = ['-c', 'core.longpaths=true'].concat(authArgs).concat(args);
+  const full = ['-c', 'core.longpaths=true']
+    .concat(_NO_PROMPT_ARGS)
+    .concat(authArgs)
+    .concat(args);
   try {
     return execFileSync('git', full, {
       cwd: cwd || undefined,
       encoding: 'utf-8',
       timeout,
       maxBuffer: 32 * 1024 * 1024,
-      windowsHide: true
+      windowsHide: true,
+      env: _noPromptEnv()
     }).toString();
   } catch (e) {
     const err = (e.stderr || e.stdout || e.message || '').toString().trim();
