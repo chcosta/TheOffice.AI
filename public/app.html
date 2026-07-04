@@ -20694,6 +20694,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             .map(g => ({ name: g.name, cat: g.cat, catLabel: g.catLabel, color: g.color, runs: g.runs, avg: g.runs ? Math.round(g.total / g.runs) : 0, last: g.last }))
             .sort((a, b) => b.runs - a.runs || b.last - a.last);
         },
+        mgmtFlowDot(c) {
           const live = this.chainRunState && this.chainRunState[c.id];
           if (live && String(live.status || '').toLowerCase() === 'running') return 'run';
           const runs = this._chainRunStats(c.id);
