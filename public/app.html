@@ -4638,6 +4638,12 @@
       border-radius: 12px; padding: 8px 12px;
     }
     .board-tab-brief-head { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 13px; user-select: none; }
+    .board-tab-brief-next { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; overflow: hidden; }
+    .board-tab-brief-next .btb-next { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+    .board-tab-brief-next .btb-next-label { flex: 0 0 auto; font-weight: 700; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--cp-accent); }
+    .board-tab-brief-next .btb-next-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; font-size: 12px; color: var(--cp-text); }
+    .board-tab-brief-next .btb-next-more { flex: 0 0 auto; font-weight: 400; font-size: 11px; color: var(--cp-text-muted); }
+    .board-tab-brief-next.empty .btb-next-text { font-weight: 400; font-size: 12px; font-style: italic; color: var(--cp-text-muted); }
     .board-tab-brief-caret { font-size: 11px; color: var(--cp-text-muted); }
     .board-tab-brief-body { margin-top: 8px; font-size: 13px; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
@@ -8272,7 +8278,21 @@
                       <div class="board-tab-brief" :class="{ collapsed: !boardBriefOpen() }">
                         <div class="board-tab-brief-head" @click="toggleBoardBrief()">
                           <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
-                          <span>🧭 Briefing</span>
+                          <span style="flex:0 0 auto">🧭 Briefing</span>
+                          <template x-if="!boardBriefOpen()">
+                            <div class="board-tab-brief-next" :class="{ empty: !briefNextStepShort() }">
+                              <template x-if="briefNextStepShort()">
+                                <span class="btb-next">
+                                  <span class="btb-next-label">Next</span>
+                                  <span class="btb-next-text" x-text="briefNextStepShort()"></span>
+                                  <span class="btb-next-more" x-show="briefNextStepsMore()" x-text="'+' + briefNextStepsMore() + ' more'"></span>
+                                </span>
+                              </template>
+                              <template x-if="!briefNextStepShort()">
+                                <span class="btb-next-text" x-text="(activeBoard().summary && activeBoard().summary.text) ? 'No immediate next steps' : 'Not generated yet — click ↻ Update'"></span>
+                              </template>
+                            </div>
+                          </template>
                           <div style="margin-left:auto;display:flex;align-items:center;gap:6px" @click.stop>
                             <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
                               <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
@@ -27328,6 +27348,47 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // The briefing bar sits above the tabbed canvas; collapsing/expanding it changes
           // the canvas top, so re-measure the fixed canvas height to keep the bar docked.
           if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
+        },
+        // Turn a raw markdown fragment into a compact one-line plain-text snippet:
+        // strips link syntax, emphasis, code ticks and leftover markup so the collapsed
+        // briefing preview reads cleanly.
+        _briefPlainText(s) {
+          return String(s || '')
+            .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // [text](url) -> text
+            .replace(/[*_`>#]+/g, '')                // emphasis / code / heading marks
+            .replace(/\s+/g, ' ')
+            .trim();
+        },
+        // Extract the "Next steps:" bullet list from the active board briefing so the
+        // collapsed header can lead with the user's immediate next actions. Returns a
+        // cleaned array of step strings (empty when the briefing has no next steps).
+        briefNextSteps() {
+          const b = this.activeBoard();
+          const txt = (b && b.summary && b.summary.text) ? String(b.summary.text) : '';
+          if (!txt) return [];
+          const lines = txt.split(/\r?\n/);
+          const startIx = lines.findIndex(l => /next steps?\s*:?\s*$/i.test(l.trim().replace(/^#+\s*/, '')));
+          if (startIx < 0) return [];
+          const steps = [];
+          for (let i = startIx + 1; i < lines.length; i++) {
+            const raw = lines[i];
+            const t = raw.trim();
+            if (!t) { if (steps.length) break; else continue; }
+            const m = t.match(/^(?:[-*+]|\d+[.)])\s+(.*)$/);
+            if (!m) break; // bullet list ended
+            const clean = this._briefPlainText(m[1]);
+            if (clean) steps.push(clean);
+          }
+          return steps;
+        },
+        // The single most-immediate next step (first bullet), for the collapsed preview.
+        briefNextStepShort() {
+          const steps = this.briefNextSteps();
+          return steps.length ? steps[0] : '';
+        },
+        briefNextStepsMore() {
+          const n = this.briefNextSteps().length;
+          return n > 1 ? (n - 1) : 0;
         },
         // The sources that fed the active board briefing: the resolved pinned items
         // (excludes any flagged "off summary"), each carrying its own last-updated time
