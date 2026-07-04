@@ -1354,6 +1354,66 @@
     .home-section-label .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     .home-section { margin-bottom: 22px; }
 
+    /* ----- Productivity home: What's new banner + reorderable sections ----- */
+    .home-whatsnew {
+      display: flex; align-items: center; gap: 12px;
+      margin: 0 0 18px; padding: 12px 14px;
+      background: var(--cp-accent-soft);
+      border: 1px solid color-mix(in srgb, var(--cp-accent) 40%, var(--cp-border));
+      border-radius: 12px;
+    }
+    .home-whatsnew .hw-spark { font-size: 18px; color: var(--cp-accent); flex: 0 0 auto; }
+    .home-whatsnew .hw-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
+    .home-whatsnew .hw-body strong { font-size: 14px; }
+    .home-whatsnew .hw-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+    .home-whatsnew .hw-dismiss {
+      background: transparent; border: none; color: var(--cp-text-muted);
+      font-size: 15px; line-height: 1; cursor: pointer; padding: 4px 6px; border-radius: 8px;
+    }
+    .home-whatsnew .hw-dismiss:hover { color: var(--cp-text); background: color-mix(in srgb, var(--cp-accent) 14%, transparent); }
+
+    .home-rsecs { display: flex; flex-direction: column; }
+    .home-rsec { margin-bottom: 22px; }
+    .home-rsec.is-drop { outline: 2px dashed var(--cp-accent); outline-offset: 4px; border-radius: 12px; }
+    .home-rsec-bar {
+      display: flex; align-items: center; gap: 8px;
+      margin: 0 0 6px; padding: 0 2px;
+    }
+    .home-rsec-bar .home-drag {
+      cursor: grab; color: var(--cp-text-muted); font-size: 14px; line-height: 1;
+      padding: 2px 4px; border-radius: 6px; user-select: none;
+    }
+    .home-rsec-bar .home-drag:hover { color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .home-rsec-bar .home-drag:active { cursor: grabbing; }
+    .home-rsec-bar .home-rsec-name {
+      font-size: 11px; font-weight: 700; letter-spacing: .4px;
+      text-transform: uppercase; color: var(--cp-text-soft);
+    }
+    .home-rsec-bar .home-rsec-spacer { flex: 1 1 auto; }
+    .home-rsec-bar .home-move { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
+    .home-rsec:hover .home-rsec-bar .home-move { opacity: 1; }
+    .home-rsec-bar .home-move button {
+      background: transparent; border: 1px solid var(--cp-border); color: var(--cp-text-muted);
+      width: 22px; height: 22px; border-radius: 6px; cursor: pointer; font-size: 11px; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .home-rsec-bar .home-move button:hover { color: var(--cp-accent); border-color: var(--cp-accent); }
+
+    /* Featured newsletter card on Home */
+    .home-nl-card { display: flex; align-items: center; gap: 16px; }
+    .home-nl-card .home-nl-icon { font-size: 30px; flex: 0 0 auto; }
+    .home-nl-card .home-nl-main { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; }
+    .home-nl-card .home-nl-kicker { font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--cp-text-soft); }
+    .home-nl-card .home-nl-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .home-nl-card .home-nl-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cp-text-muted); }
+    .home-nl-card .home-nl-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--cp-text-soft); flex: 0 0 auto; }
+    .home-nl-card .home-nl-status.is-sent { color: var(--cp-success); }
+    .home-nl-card .home-nl-status.is-sent .home-nl-dot { background: var(--cp-success); }
+    .home-nl-card .home-nl-status.is-draft { color: var(--cp-accent); }
+    .home-nl-card .home-nl-status.is-draft .home-nl-dot { background: var(--cp-accent); }
+    .home-nl-card .home-nl-go { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 13px; font-weight: 600; }
+    .home-nl-card:hover .home-nl-go { color: var(--cp-accent); }
+
     /* ----- Getting started (Basic mode onboarding) ----- */
     .gs-card {
       position: relative;
@@ -5482,129 +5542,234 @@
               </div>
             </div>
 
-            <!-- Active dev work — live Dev cards pulled from this team's boards -->
-            <div class="home-section board-calm" x-show="appMode === 'workspace' && (homeDevCards().length || homeDoneDevCount() || archivedDevCount())">
-              <div class="home-section-label">
-                <span class="hsl-icon">🧰</span>
-                <span class="hsl-text">Active dev work</span>
-                <span class="hsl-sub" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></span>
-                <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
-                        x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
-                <button type="button" class="hsl-toggle" x-show="archivedDevCount()" @click="goTo('#/dev-archive')"
-                        x-text="'🗄 Archive (' + archivedDevCount() + ')'"></button>
+            <!-- ===== Productivity home (workspace mode): What's new + reorderable sections ===== -->
+            <div class="home-workspace" x-show="appMode === 'workspace'">
+
+              <!-- What's new banner (pinned; release notes + new marketplace items) -->
+              <div class="home-whatsnew" x-show="homeBannerVisible()" x-transition.opacity.duration.180ms>
+                <span class="hw-spark">✦</span>
+                <div class="hw-body">
+                  <strong>What's new</strong>
+                  <span class="hint" x-show="homeWhatsNewUnseen()">The app just updated — see what changed.</span>
+                  <span class="hint" x-show="homeMarketplaceCount() > 0"
+                        x-text="homeMarketplaceSummary() ? (homeMarketplaceSummary() + ' new in the marketplace') : (homeMarketplaceCount() + ' new marketplace item' + (homeMarketplaceCount() === 1 ? '' : 's'))"></span>
+                </div>
+                <div class="hw-actions">
+                  <button type="button" class="btn ghost" x-show="homeWhatsNewUnseen()" @click="openWhatsNew()">Release notes</button>
+                  <button type="button" class="btn ghost" x-show="homeMarketplaceCount() > 0" @click="goTo('#/marketplace')">View marketplace</button>
+                  <button type="button" class="hw-dismiss" @click="dismissHomeBanner()" title="Dismiss">✕</button>
+                </div>
               </div>
-              <div class="hint" style="font-size:12px;padding:4px 2px 0" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
-              <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
-                <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
-                  <article class="card clickable" @click="openDevCardOnBoard(dc)" :title="'Open on board: ' + dc._board.name" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
-                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-                      <div style="min-width:0">
-                        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
-                        <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
+
+              <div class="home-rsecs">
+
+                <!-- Active dev work -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
+                     :class="homeDragOver === 'devwork' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('devwork')" @drop.prevent="homeReorderDrop('devwork')">
+                  <div class="home-rsec-bar">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('devwork',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="home-rsec-name">Active dev work</span>
+                    <span class="home-rsec-spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('devwork',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('devwork',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <div class="home-section board-calm">
+                    <div class="home-section-label">
+                      <span class="hsl-icon">🧰</span>
+                      <span class="hsl-text">Active dev work</span>
+                      <span class="hsl-sub" x-text="homeActiveDevCount() + ' dev card' + (homeActiveDevCount() === 1 ? '' : 's') + ' in progress'"></span>
+                      <button type="button" class="hsl-toggle" x-show="homeDoneDevCount()" @click="homeShowDoneDev = !homeShowDoneDev"
+                              x-text="homeShowDoneDev ? '✓ Hide done (' + homeDoneDevCount() + ')' : '✓ Show done (' + homeDoneDevCount() + ')'"></button>
+                      <button type="button" class="hsl-toggle" x-show="archivedDevCount()" @click="goTo('#/dev-archive')"
+                              x-text="'🗄 Archive (' + archivedDevCount() + ')'"></button>
+                    </div>
+                    <div class="hint" style="font-size:12px;padding:4px 2px 0" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
+                    <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
+                      <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
+                        <article class="card clickable" @click="openDevCardOnBoard(dc)" :title="'Open on board: ' + dc._board.name" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
+                          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                            <div style="min-width:0">
+                              <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
+                              <div class="hint" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="(dc.repo || '') + (dc.branch ? ' @ ' + dc.branch : '')"></div>
+                            </div>
+                            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto">
+                              <span class="type-badge" style="font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
+                              <span class="type-badge" x-show="dc._done" style="font-size:0.62rem;white-space:nowrap;background:var(--cp-success);color:#fff">✓ Done</span>
+                            </div>
+                          </div>
+                          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                            <template x-if="dc.workItemId">
+                              <a class="pill" :href="devWorkItemUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.workItem ? (dc.workItem.type + ': ' + dc.workItem.title) : 'Open work item'">
+                                <span x-text="'📋 #' + dc.workItemId"></span>
+                                <span x-show="dc.workItem && dc.workItem.state" x-text="' · ' + (dc.workItem ? dc.workItem.state : '')"></span>
+                              </a>
+                            </template>
+                            <template x-if="dc.prId">
+                              <a class="pill" :href="devPrUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.pr ? dc.pr.title : 'Open pull request'">
+                                <span x-text="'🔀 !' + dc.prId"></span>
+                                <span x-show="dc.pr && dc.pr.status" x-text="' · ' + (dc.pr ? (dc.pr.isDraft ? 'draft' : dc.pr.status) : '')"></span>
+                              </a>
+                            </template>
+                            <template x-if="dc.worktreePath">
+                              <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(dc).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
+                            </template>
+                            <span class="hint" x-show="!dc.workItemId && !dc.prId && !dc.worktreePath" style="font-size:11px">Just created — no work item / PR / worktree yet.</span>
+                          </div>
+                          <div class="hint" style="font-size:12px;line-height:1.5" x-show="homeDevSummary(dc)" x-text="homeDevSummary(dc)"></div>
+                          <div class="hint" style="font-size:11px;opacity:.7" x-show="!homeDevSummary(dc)">No AI summary yet — open the card to generate one.</div>
+                        </article>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Boards -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('boards') }" x-show="homeSectionVisible('boards')"
+                     :class="homeDragOver === 'boards' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('boards')" @drop.prevent="homeReorderDrop('boards')">
+                  <div class="home-rsec-bar">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('boards',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="home-rsec-name">Boards</span>
+                    <span class="home-rsec-spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('boards',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('boards',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title">📌 Boards</h2>
+                        <div class="card-subtitle" x-text="homeBoards().length + ' board' + (homeBoards().length === 1 ? '' : 's') + (currentTeamId === 'all' ? '' : ' in this team')"></div>
                       </div>
-                      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto">
-                        <span class="type-badge" style="font-size:0.68rem;white-space:nowrap" x-text="(dc._board.emoji || '📌') + ' ' + dc._board.name"></span>
-                        <span class="type-badge" x-show="dc._done" style="font-size:0.62rem;white-space:nowrap;background:var(--cp-success);color:#fff">✓ Done</span>
+                      <a class="btn ghost" href="#/boards">Open</a>
+                    </div>
+                    <div class="stack" x-show="homeBoards().length">
+                      <template x-for="b in homeBoards().slice(0, 5)" :key="'home-board-' + b.id">
+                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span x-text="b.emoji || '📌'"></span>
+                            <strong x-text="b.name"></strong>
+                            <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-show="homeBoardSnippet(b)" x-text="homeBoardSnippet(b)"></div>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="empty-state" x-show="!homeBoards().length">No boards in this team yet.</div>
+                  </section>
+                </div>
+
+                <!-- My pull requests -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('prs') }" x-show="homeSectionVisible('prs')"
+                     :class="homeDragOver === 'prs' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('prs')" @drop.prevent="homeReorderDrop('prs')">
+                  <div class="home-rsec-bar">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('prs',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="home-rsec-name">My pull requests</span>
+                    <span class="home-rsec-spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('prs',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('prs',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title">🔀 My pull requests</h2>
+                        <div class="card-subtitle" x-text="homePrs.items.length + ' open PR' + (homePrs.items.length === 1 ? '' : 's') + ' you authored'"></div>
+                      </div>
+                      <a class="btn ghost" href="#/codeflow">Open</a>
+                    </div>
+                    <div class="stack" x-show="homePrs.items.length">
+                      <template x-for="pr in homePrs.items.slice(0, 6)" :key="'home-pr-' + (pr.repoId || pr.repo) + ':' + pr.id">
+                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
+                             @click="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))"
+                             @keydown.enter="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span x-show="pr.attention" title="Needs your attention" style="color:var(--cp-accent)">●</span>
+                            <strong x-text="pr.title || ('PR ' + pr.id)"></strong>
+                            <span class="hint" x-show="pr.isDraft" style="color:var(--cp-text-soft)">draft</span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-text="(pr.repo || '') + ' · !' + pr.id + (pr.ageDays != null ? ' · ' + pr.ageDays + 'd old' : '')"></div>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="empty-state" x-show="!homePrs.items.length && homePrs.loading">Loading your PRs…</div>
+                  </section>
+                </div>
+
+                <!-- Newsletter (featured; click navigates, sent indicator) -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('newsletter') }" x-show="homeSectionVisible('newsletter')"
+                     :class="homeDragOver === 'newsletter' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('newsletter')" @drop.prevent="homeReorderDrop('newsletter')">
+                  <div class="home-rsec-bar">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('newsletter',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="home-rsec-name">Newsletter</span>
+                    <span class="home-rsec-spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('newsletter',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('newsletter',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <article class="card clickable home-nl-card" @click="goTo('#/newsletter')" role="button" tabindex="0" @keydown.enter="goTo('#/newsletter')" title="Open the newsletter">
+                    <div class="home-nl-icon">📰</div>
+                    <div class="home-nl-main">
+                      <div class="home-nl-kicker">This week's newsletter</div>
+                      <div class="home-nl-title" x-text="homeNewsletterTitle()"></div>
+                      <div class="home-nl-status" :class="homeNewsletterSent() ? 'is-sent' : (homeNewsletter.hasDraft ? 'is-draft' : 'is-empty')">
+                        <span class="home-nl-dot"></span>
+                        <span x-text="homeNewsletterStatusText()"></span>
                       </div>
                     </div>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-                      <template x-if="dc.workItemId">
-                        <a class="pill" :href="devWorkItemUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.workItem ? (dc.workItem.type + ': ' + dc.workItem.title) : 'Open work item'">
-                          <span x-text="'📋 #' + dc.workItemId"></span>
-                          <span x-show="dc.workItem && dc.workItem.state" x-text="' · ' + (dc.workItem ? dc.workItem.state : '')"></span>
-                        </a>
-                      </template>
-                      <template x-if="dc.prId">
-                        <a class="pill" :href="devPrUrl(dc)" target="_blank" rel="noopener" @click.stop style="font-size:11px;text-decoration:none" :title="dc.pr ? dc.pr.title : 'Open pull request'">
-                          <span x-text="'🔀 !' + dc.prId"></span>
-                          <span x-show="dc.pr && dc.pr.status" x-text="' · ' + (dc.pr ? (dc.pr.isDraft ? 'draft' : dc.pr.status) : '')"></span>
-                        </a>
-                      </template>
-                      <template x-if="dc.worktreePath">
-                        <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(dc).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
-                      </template>
-                      <span class="hint" x-show="!dc.workItemId && !dc.prId && !dc.worktreePath" style="font-size:11px">Just created — no work item / PR / worktree yet.</span>
-                    </div>
-                    <div class="hint" style="font-size:12px;line-height:1.5" x-show="homeDevSummary(dc)" x-text="homeDevSummary(dc)"></div>
-                    <div class="hint" style="font-size:11px;opacity:.7" x-show="!homeDevSummary(dc)">No AI summary yet — open the card to generate one.</div>
+                    <span class="home-nl-go">Open →</span>
                   </article>
-                </template>
+                </div>
+
+                <!-- Recent conversations -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('conversations') }" x-show="homeSectionVisible('conversations')"
+                     :class="homeDragOver === 'conversations' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('conversations')" @drop.prevent="homeReorderDrop('conversations')">
+                  <div class="home-rsec-bar">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('conversations',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="home-rsec-name">Recent conversations</span>
+                    <span class="home-rsec-spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('conversations',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('conversations',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title">💬 Recent conversations</h2>
+                        <div class="card-subtitle" x-text="homeRecentConversations().length + ' recent AI session' + (homeRecentConversations().length === 1 ? '' : 's')"></div>
+                      </div>
+                      <a class="btn ghost" href="#/sessions">Open</a>
+                    </div>
+                    <div class="stack" x-show="homeRecentConversations().length">
+                      <template x-for="s in homeRecentConversations()" :key="'home-conv-' + s.id">
+                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/sessions')" @keydown.enter="goTo('#/sessions')">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span x-text="(s.origin === 'system') ? '🏛' : '🌐'"></span>
+                            <strong x-text="s.title"></strong>
+                            <span class="hint" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
+                            <span class="hint" x-text="'· ' + formatRelative(s.lastModified)"></span>
+                          </div>
+                          <div class="hint" style="margin-top:6px" x-show="homeConversationSnippet(s)" x-text="homeConversationSnippet(s)"></div>
+                        </div>
+                      </template>
+                    </div>
+                    <div class="empty-state" x-show="!homeRecentConversations().length">No recent conversations yet.</div>
+                  </section>
+                </div>
+
               </div>
             </div>
 
-            <!-- Team-scoped overview: Boards & Insights -->
-            <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:18px" x-show="appMode === 'workspace'">
-              <section class="card">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">📌 Boards</h2>
-                    <div class="card-subtitle" x-text="homeBoards().length + ' board' + (homeBoards().length === 1 ? '' : 's') + (currentTeamId === 'all' ? '' : ' in this team')"></div>
-                  </div>
-                  <a class="btn ghost" href="#/boards">Open</a>
-                </div>
-                <div class="stack" x-show="homeBoards().length">
-                  <template x-for="b in homeBoards().slice(0, 5)" :key="'home-board-' + b.id">
-                    <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span x-text="b.emoji || '📌'"></span>
-                        <strong x-text="b.name"></strong>
-                        <span class="hint" x-text="homePinCount(b) + ' pin' + (homePinCount(b) === 1 ? '' : 's')"></span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-show="homeBoardSnippet(b)" x-text="homeBoardSnippet(b)"></div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!homeBoards().length">No boards in this team yet.</div>
-              </section>
-
-              <section class="card" x-show="featureVisible('insights')">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">🛰️ Insights</h2>
-                    <div class="card-subtitle" x-text="homeInsights().length + ' relevant view' + (homeInsights().length === 1 ? '' : 's')"></div>
-                  </div>
-                  <a class="btn ghost" href="#/insights">Open</a>
-                </div>
-                <div class="stack" x-show="homeInsights().length">
-                  <template x-for="v in homeInsights().slice(0, 5)" :key="'home-insight-' + v.id">
-                    <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/insights/' + v.id)" @keydown.enter="goTo('#/insights/' + v.id)">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span x-text="v.emoji || '🛰️'"></span>
-                        <strong x-text="v.name"></strong>
-                        <span class="hint" x-show="insightGenerating[v.id] || v.generating">generating…</span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-show="homeInsightSnippet(v)" x-text="homeInsightSnippet(v)"></div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!homeInsights().length">No insights cover this team yet.</div>
-              </section>
-
-              <section class="card" x-show="homePrs.items.length || homePrs.loading">
-                <div class="card-header">
-                  <div>
-                    <h2 class="card-title">🔀 My pull requests</h2>
-                    <div class="card-subtitle" x-text="homePrs.items.length + ' open PR' + (homePrs.items.length === 1 ? '' : 's') + ' you authored'"></div>
-                  </div>
-                  <a class="btn ghost" href="#/codeflow">Open</a>
-                </div>
-                <div class="stack" x-show="homePrs.items.length">
-                  <template x-for="pr in homePrs.items.slice(0, 6)" :key="'home-pr-' + (pr.repoId || pr.repo) + ':' + pr.id">
-                    <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
-                         @click="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))"
-                         @keydown.enter="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))">
-                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span x-show="pr.attention" title="Needs your attention" style="color:var(--cp-accent)">●</span>
-                        <strong x-text="pr.title || ('PR ' + pr.id)"></strong>
-                        <span class="hint" x-show="pr.isDraft" style="color:var(--cp-text-soft)">draft</span>
-                      </div>
-                      <div class="hint" style="margin-top:6px" x-text="(pr.repo || '') + ' · !' + pr.id + (pr.ageDays != null ? ' · ' + pr.ageDays + 'd old' : '')"></div>
-                    </div>
-                  </template>
-                </div>
-                <div class="empty-state" x-show="!homePrs.items.length && homePrs.loading">Loading your PRs…</div>
-              </section>
-            </div>
 
             <section class="card home-section" style="margin-top:18px" x-show="appMode === 'workforce'">
               <div class="card-header">
@@ -16373,6 +16538,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Lightweight copy of the user's own active PRs for the Home page card.
         // Kept separate from codeflow.pullRequests (which may hold a different view).
         homePrs: { loading: false, items: [], fetchedAt: null },
+        // Home (Productivity) redesign — reorderable sections, newsletter status card,
+        // recent-conversations feed, and the "What's new" banner.
+        homeSectionsDefault: ['devwork', 'boards', 'prs', 'newsletter', 'conversations'],
+        homeSectionOrder: [],
+        homeDrag: null,
+        homeDragOver: null,
+        homeNewsletter: { title: '', subtitle: '', hasDraft: false, lastGeneratedAt: null, lastEmailedAt: null, coveredFrom: '', coveredTo: '', loaded: false },
+        homeBanner: { dismissed: false },
         codeflowRepoForm: { provider: 'azdo', org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
         codeflowManageOpen: false,
@@ -17439,6 +17612,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.loadBoards(null, true);
             this.loadHomePrs();
             try { const list = await this.request('/api/insights'); this.insights = Array.isArray(list) ? list : []; } catch {}
+            // Productivity home extras (fire-and-forget; each is non-blocking).
+            this.homeInitSections();
+            this.loadHomeNewsletter();
+            if (!this.cliSessions || !this.cliSessions.length) this.loadCliSessions();
           }
           // Deep-link focus requested from the schedules dashboard.
           if (this.pendingFocus && this.pendingFocus.route === this.route) {
@@ -19899,6 +20076,163 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (op.kind === 'flow') return '#/chains/' + encodeURIComponent(op.chainId);
           if (op.kind === 'assignment') return '#/tasks';
           return '#/tasks';
+        },
+
+        // --- Home (Productivity) redesign helpers ----------------------------
+        // Reorderable section order, persisted per browser. Unknown/removed keys are
+        // filtered out and any newly-added default keys are appended, so the order
+        // survives future section additions.
+        homeInitSections() {
+          let saved = [];
+          try { saved = JSON.parse(localStorage.getItem('home-section-order') || '[]'); } catch { saved = []; }
+          const def = this.homeSectionsDefault;
+          const order = (Array.isArray(saved) ? saved : []).filter(k => def.includes(k));
+          def.forEach(k => { if (!order.includes(k)) order.push(k); });
+          this.homeSectionOrder = order;
+        },
+        homeSecIndex(key) {
+          const i = this.homeSectionOrder.indexOf(key);
+          return i === -1 ? 99 : i;
+        },
+        homePersistSections() {
+          try { localStorage.setItem('home-section-order', JSON.stringify(this.homeSectionOrder)); } catch {}
+        },
+        homeReorderStart(key, ev) {
+          this.homeDrag = key;
+          if (ev && ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = 'move';
+            try { ev.dataTransfer.setData('text/plain', key); } catch {}
+          }
+        },
+        homeReorderOver(key) {
+          if (this.homeDrag && this.homeDrag !== key) this.homeDragOver = key;
+        },
+        homeReorderDrop(key) {
+          const from = this.homeDrag;
+          this.homeDrag = null;
+          this.homeDragOver = null;
+          if (!from || from === key) return;
+          const orig = this.homeSectionOrder;
+          const fi = orig.indexOf(from);
+          const ti0 = orig.indexOf(key);
+          if (fi === -1 || ti0 === -1) return;
+          const order = orig.filter(k => k !== from);
+          let insert = order.indexOf(key);
+          if (fi < ti0) insert += 1;
+          order.splice(insert, 0, from);
+          this.homeSectionOrder = order;
+          this.homePersistSections();
+        },
+        homeReorderEnd() {
+          this.homeDrag = null;
+          this.homeDragOver = null;
+        },
+        homeMoveSection(key, dir) {
+          const order = this.homeSectionOrder.slice();
+          const i = order.indexOf(key);
+          if (i === -1) return;
+          const j = i + dir;
+          if (j < 0 || j >= order.length) return;
+          const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+          this.homeSectionOrder = order;
+          this.homePersistSections();
+        },
+        homeResetSections() {
+          this.homeSectionOrder = this.homeSectionsDefault.slice();
+          this.homePersistSections();
+        },
+        // Is a section worth rendering at all? Keeps the reorder list from showing
+        // empty blocks the user can't interact with.
+        homeSectionVisible(key) {
+          if (this.appMode !== 'workspace') return false;
+          switch (key) {
+            case 'devwork': return !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
+            case 'boards': return true;
+            case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
+            case 'newsletter': return this.featureVisible('newsletter');
+            case 'conversations': return !!(this.cliSessions && this.cliSessions.length);
+            default: return false;
+          }
+        },
+
+        // Newsletter status for the featured home card (lightweight — no full state).
+        async loadHomeNewsletter() {
+          try {
+            const r = await this.request('/api/newsletter/status');
+            this.homeNewsletter = {
+              title: r.title || '', subtitle: r.subtitle || '',
+              hasDraft: !!r.hasDraft,
+              lastGeneratedAt: r.lastGeneratedAt || null,
+              lastEmailedAt: r.lastEmailedAt || null,
+              coveredFrom: r.coveredFrom || '', coveredTo: r.coveredTo || '',
+              loaded: true,
+            };
+            const sc = this.newsletter && this.newsletter.sched;
+            if (sc) {
+              sc.reviewPending = !!r.reviewPending;
+              sc.autoGenerate = !!r.autoGenerate;
+              if (r.lastAutoGeneratedAt) sc.lastAutoGeneratedAt = r.lastAutoGeneratedAt;
+            }
+          } catch (_) { this.homeNewsletter.loaded = true; }
+        },
+        homeNewsletterSent() {
+          const n = this.homeNewsletter;
+          if (!n.lastEmailedAt) return false;
+          if (!n.lastGeneratedAt) return true;
+          // Emailed at-or-after the current draft was generated (1s slack).
+          return new Date(n.lastEmailedAt).getTime() >= new Date(n.lastGeneratedAt).getTime() - 1000;
+        },
+        homeNewsletterStatusText() {
+          const n = this.homeNewsletter;
+          if (!n.loaded) return 'Loading…';
+          if (!n.hasDraft) return 'No newsletter yet — generate your first digest';
+          if (this.homeNewsletterSent()) return 'Sent ' + this.formatRelative(n.lastEmailedAt);
+          return 'Draft ready · not sent yet';
+        },
+        homeNewsletterTitle() {
+          const n = this.homeNewsletter;
+          return (n.title && n.title.trim()) || 'This week\u2019s newsletter';
+        },
+
+        // Recent AI conversations (CLI/agent sessions) surfaced on Home.
+        homeRecentConversations(limit = 5) {
+          const list = Array.isArray(this.cliSessions) ? this.cliSessions.slice() : [];
+          list.sort((a, b) => new Date(b.lastModified || 0) - new Date(a.lastModified || 0));
+          return list.slice(0, limit);
+        },
+        homeConversationSnippet(s) {
+          if (s && s.summary && s.summary.trim()) {
+            const t = s.summary.replace(/\s+/g, ' ').trim();
+            return t.length > 150 ? t.slice(0, 150) + '…' : t;
+          }
+          if (s && s.lastUserPreview) return 'Last prompt: ' + s.lastUserPreview;
+          return '';
+        },
+
+        // "What's new" banner logic (release notes + new marketplace items).
+        homeWhatsNewUnseen() {
+          const cur = (this.data.version && this.data.version.version) || '';
+          if (!cur) return false;
+          let seen = '';
+          try { seen = localStorage.getItem('whatsNewSeenVersion') || ''; } catch {}
+          if (!seen) return false;
+          return this.semverGt(cur, seen);
+        },
+        homeMarketplaceCount() {
+          return (this.marketplaceUpdates && this.marketplaceUpdates.newCount) || 0;
+        },
+        homeMarketplaceSummary() {
+          const bt = (this.marketplaceUpdates && this.marketplaceUpdates.byType) || {};
+          const parts = Object.entries(bt).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}${n === 1 ? '' : 's'}`);
+          return parts.join(' · ');
+        },
+        homeBannerVisible() {
+          if (this.homeBanner.dismissed) return false;
+          return this.homeWhatsNewUnseen() || this.homeMarketplaceCount() > 0;
+        },
+        dismissHomeBanner() {
+          this.homeBanner.dismissed = true;
+          this._markWhatsNewSeen();
         },
 
         // Open the run-detail modal for an activity/alert entry and fetch the full
