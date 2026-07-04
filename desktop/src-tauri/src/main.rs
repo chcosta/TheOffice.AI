@@ -170,12 +170,142 @@ fn de_verbatim(p: PathBuf) -> PathBuf {
     p
 }
 
+// ─── Per-user runtime provisioning ──────────────────────────────────────────
+// The Node runtime and the vendored server (which carries the Copilot CLI/SDK
+// in node_modules) are bundled as Tauri `resources`, so the NSIS installer
+// re-extracts them into $INSTDIR on EVERY upgrade — needlessly "reinstalling"
+// Node/Copilot, and, worse, overwriting the very `node.exe` the running sidecar
+// has open (Windows locks it → "Error opening file for writing" → the upgrade
+// stalls). To break that, on the first launch of each app version we copy the
+// bundled `node\` and `server\` trees into a stable per-user location
+// (`%LOCALAPPDATA%\TheOffice.AI\runtime\<version>`) and run the sidecar from
+// THERE. The live `node.exe` then lives outside $INSTDIR, so an upgrade never
+// touches a locked file, and the copy happens once per version rather than
+// every launch. If provisioning can't run (dev build, no LOCALAPPDATA, disk
+// error) we fall back to the bundled resources exactly as before.
+static RUNTIME_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Base dir for per-user runtimes: `%LOCALAPPDATA%\TheOffice.AI\runtime`.
+fn runtime_base() -> Option<PathBuf> {
+    std::env::var("LOCALAPPDATA")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| PathBuf::from(v).join("TheOffice.AI").join("runtime"))
+}
+
+/// Recursively copy `src` → `dst`. Symlinks are dereferenced (copied as files)
+/// so a symlinked entry in node_modules can't break the copy on a non-elevated
+/// user account.
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort removal of runtime dirs for other (older) versions.
+fn cleanup_old_runtimes(base: &std::path::Path, keep: &str) {
+    if let Ok(rd) = std::fs::read_dir(base) {
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy() != keep && e.path().is_dir() {
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
+    }
+}
+
+/// Ensure the per-user runtime for the current version exists, copying the
+/// bundled `node\`/`server\` into it on first launch. Returns the runtime dir
+/// (containing `node\` and `server\`), or `None` to signal "use bundled
+/// resources". Runs at most once per process (cached in `RUNTIME_DIR`).
+fn provision_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
+    RUNTIME_DIR
+        .get_or_init(|| {
+            let r = provision_runtime_inner(app);
+            match &r {
+                Some(d) => log_line(&format!("[desktop] runtime ready at {}", d.display())),
+                None => log_line("[desktop] runtime provisioning skipped — using bundled resources"),
+            }
+            r
+        })
+        .clone()
+}
+
+/// Read the cached runtime dir WITHOUT triggering provisioning (so the exit
+/// path never kicks off a copy). `None` until `provision_runtime` has run.
+fn runtime_dir() -> Option<PathBuf> {
+    RUNTIME_DIR.get().and_then(|o| o.clone())
+}
+
+fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let base = runtime_base()?;
+    let version = app.package_info().version.to_string();
+    let dir = base.join(&version);
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    let node_bin = dir.join("node").join(exe);
+    let server_js = dir.join("server").join("server.js");
+    let marker = dir.join(".provisioned");
+
+    // Already provisioned for this version — nothing to copy.
+    if marker.exists() && node_bin.exists() && server_js.exists() {
+        cleanup_old_runtimes(&base, &version);
+        return Some(dir);
+    }
+
+    // Locate the bundled sources. Absent in a dev build → fall back to bundled.
+    let res = de_verbatim(app.path().resource_dir().ok()?);
+    let src_node = [res.join("node"), res.join("resources").join("node")]
+        .into_iter()
+        .find(|p| p.join(exe).exists())?;
+    let src_server = [res.join("server"), res.join("resources").join("server")]
+        .into_iter()
+        .find(|p| p.join("server.js").exists())?;
+
+    // Fresh (re)provision: clear any partial remains, then copy both trees.
+    let _ = std::fs::remove_file(&marker);
+    let _ = std::fs::remove_dir_all(dir.join("node"));
+    let _ = std::fs::remove_dir_all(dir.join("server"));
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log_line(&format!("[desktop] runtime: create {} failed: {e}", dir.display()));
+        return None;
+    }
+    log_line(&format!(
+        "[desktop] provisioning runtime v{version} (first launch of this build)…"
+    ));
+    if let Err(e) = copy_dir_all(&src_node, &dir.join("node")) {
+        log_line(&format!("[desktop] runtime: copy node failed: {e}"));
+        return None;
+    }
+    if let Err(e) = copy_dir_all(&src_server, &dir.join("server")) {
+        log_line(&format!("[desktop] runtime: copy server failed: {e}"));
+        return None;
+    }
+    if !node_bin.exists() || !server_js.exists() {
+        log_line("[desktop] runtime: copy finished but expected files are missing");
+        return None;
+    }
+    let _ = std::fs::write(&marker, version.as_bytes());
+    cleanup_old_runtimes(&base, &version);
+    Some(dir)
+}
+
 /// Node executable to run the sidecar with.
 ///
 /// Order:
 /// 1. `SUPERVISOR_NODE` env override.
-/// 2. Bundled resource at `<resources>/node/node(.exe)` (packaged builds).
-/// 3. `node` on PATH (dev fallback).
+/// 2. Per-user runtime copy at `<runtime>/node/node(.exe)` (packaged builds,
+///    after provisioning) — kept OUT of the install dir so upgrades never lock it.
+/// 3. Bundled resource at `<resources>/node/node(.exe)` (fallback).
+/// 4. `node` on PATH (dev fallback).
 fn resolve_node_bin(app: &tauri::AppHandle) -> PathBuf {
     if let Ok(p) = std::env::var("SUPERVISOR_NODE") {
         let pb = PathBuf::from(p);
@@ -183,8 +313,14 @@ fn resolve_node_bin(app: &tauri::AppHandle) -> PathBuf {
             return pb;
         }
     }
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    if let Some(rt) = runtime_dir() {
+        let cand = rt.join("node").join(exe);
+        if cand.exists() {
+            return cand;
+        }
+    }
     if let Ok(res) = app.path().resource_dir() {
-        let exe = if cfg!(windows) { "node.exe" } else { "node" };
         for cand in [
             res.join("node").join(exe),
             res.join("resources").join("node").join(exe),
@@ -201,13 +337,21 @@ fn resolve_node_bin(app: &tauri::AppHandle) -> PathBuf {
 ///
 /// Order:
 /// 1. `SUPERVISOR_SERVER_JS` env override.
-/// 2. Bundled resource at `<resources>/server/server.js` (packaged builds).
-/// 3. Dev fallback: repo root two levels up from this crate.
+/// 2. Per-user runtime copy at `<runtime>/server/server.js` (packaged builds,
+///    after provisioning).
+/// 3. Bundled resource at `<resources>/server/server.js` (fallback).
+/// 4. Dev fallback: repo root two levels up from this crate.
 fn resolve_server_js(app: &tauri::AppHandle) -> PathBuf {
     if let Ok(p) = std::env::var("SUPERVISOR_SERVER_JS") {
         let pb = PathBuf::from(p);
         if pb.exists() {
             return pb;
+        }
+    }
+    if let Some(rt) = runtime_dir() {
+        let cand = rt.join("server").join("server.js");
+        if cand.exists() {
+            return cand;
         }
     }
     if let Ok(res) = app.path().resource_dir() {
@@ -236,6 +380,13 @@ fn resolve_server_js(app: &tauri::AppHandle) -> PathBuf {
 fn start_sidecar(app: &tauri::AppHandle, state: Arc<SidecarState>) {
     let handle = app.clone();
     std::thread::spawn(move || {
+        // Provision the per-user runtime BEFORE the first spawn so the sidecar
+        // launches node/copilot from %LOCALAPPDATA%\TheOffice.AI\runtime rather
+        // than the versioned install dir. This keeps $INSTDIR\node.exe unlocked,
+        // so an in-place upgrade never stalls on a locked file, and Node/Copilot
+        // are copied once per version instead of re-extracted every launch.
+        let _ = provision_runtime(&handle);
+
         // Backoff between crash-restarts: start small, double up to a cap, and
         // reset once a spawn has stayed up long enough to be considered healthy.
         let mut delay_ms: u64 = 500;
