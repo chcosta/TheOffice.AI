@@ -1808,6 +1808,7 @@
     }
     .sidebar-scroll {
       min-height: 0;
+      flex: 1 1 auto;
       overflow: auto;
       padding-right: 4px;
     }
@@ -1893,6 +1894,36 @@
       background: var(--cp-surface-soft);
       color: var(--cp-text);
     }
+    /* ===== Custom (user-organized) nav — Productivity + Basic ===== */
+    .cnav { display: flex; flex-direction: column; gap: 2px; }
+    .cnav-row { display: flex; align-items: center; gap: 2px; border-radius: 10px; }
+    .cnav-row.drop-before { box-shadow: 0 -2px 0 0 var(--cp-accent); }
+    .cnav-grip {
+      flex: none; width: 16px; align-self: stretch; display: flex; align-items: center; justify-content: center;
+      color: var(--cp-text-soft); opacity: 0; cursor: grab; font-size: 12px; line-height: 1;
+      border-radius: 6px; transition: opacity .12s ease, color .12s ease;
+    }
+    .cnav-row:hover .cnav-grip, .cnav-ghead:hover .cnav-grip { opacity: .5; }
+    .cnav-grip:hover { opacity: 1 !important; color: var(--cp-text); }
+    .cnav-row > .nav-link { flex: 1; min-width: 0; }
+    /* Group */
+    .cnav-group { border: 1px solid var(--cp-border); border-radius: 12px; padding: 4px; margin: 2px 0; background: color-mix(in srgb, var(--cp-surface-soft) 40%, transparent); }
+    .cnav-group.drop-into { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
+    .cnav-ghead { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 2px; }
+    .cnav-gchev { background: none; border: none; color: var(--cp-text-soft); cursor: pointer; padding: 2px 4px; font-size: 10px; line-height: 1; border-radius: 4px; }
+    .cnav-gchev:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .cnav-gname { flex: 1; min-width: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cp-text-soft); padding: 2px 2px; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cnav-gname-input { flex: 1; min-width: 0; font: inherit; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border: 1px solid var(--cp-accent); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text); }
+    .cnav-gdel { background: none; border: none; color: var(--cp-text-soft); cursor: pointer; padding: 2px 5px; font-size: 11px; line-height: 1; border-radius: 4px; opacity: 0; transition: opacity .12s ease; }
+    .cnav-ghead:hover .cnav-gdel { opacity: .6; }
+    .cnav-gdel:hover { opacity: 1 !important; color: var(--cp-danger, #e5484d); background: var(--cp-surface-soft); }
+    .cnav-gbody { display: flex; flex-direction: column; gap: 2px; padding: 2px 2px 2px 4px; }
+    .cnav-gempty { font-size: 11px; color: var(--cp-text-soft); padding: 6px 8px; border: 1px dashed var(--cp-border); border-radius: 8px; text-align: center; }
+    .cnav-gempty.drop-into { border-color: var(--cp-accent); color: var(--cp-text); }
+    .cnav-end { height: 14px; border-radius: 8px; margin-top: 2px; }
+    .cnav-end.drop-before { box-shadow: 0 -2px 0 0 var(--cp-accent); }
+    .cnav-newgroup { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 6px; padding: 7px 10px; border: 1px dashed var(--cp-border); border-radius: 10px; background: none; color: var(--cp-text-soft); cursor: pointer; font: inherit; font-size: 12px; text-align: left; transition: border-color .12s ease, color .12s ease, background .12s ease; }
+    .cnav-newgroup:hover { border-color: var(--cp-accent); color: var(--cp-text); background: color-mix(in srgb, var(--cp-accent) 8%, transparent); }
     .exec-row {
       display: flex;
       align-items: center;
@@ -4573,21 +4604,30 @@
       min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px;
       background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 14px;
     }
+    /* Draggable splitter between the toolbox and the stage (resize toolbox width). */
+    .board-tbx-splitter { flex: 0 0 auto; width: 8px; margin: 0 -6px; align-self: stretch; cursor: col-resize; position: relative; z-index: 3; border-radius: 4px; }
+    .board-tbx-splitter::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 3px; height: 42px; border-radius: 2px; background: var(--cp-border); opacity: 0; transition: opacity .12s ease, background-color .12s ease; }
+    .board-tbx-splitter:hover::after { opacity: .7; }
+    body.board-tbx-resizing, body.board-tbx-resizing * { cursor: col-resize !important; user-select: none !important; }
     .board-tbx-group { display: flex; flex-direction: column; gap: 6px; }
     .board-tbx-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-soft); display: flex; align-items: center; gap: 6px; }
     .board-tbx-label .muted-count { font-weight: 600; color: var(--cp-text-muted); letter-spacing: 0; }
     .board-tbx-item {
       display: flex; align-items: center; gap: 8px; padding: 6px 8px;
       border: 1px solid var(--cp-border); border-radius: 8px; background: var(--cp-surface);
-      cursor: grab; font-size: 12.5px; color: var(--cp-text); user-select: none;
+      cursor: pointer; font-size: 12.5px; color: var(--cp-text); user-select: none;
       transition: border-color .12s ease, background .12s ease, opacity .12s ease;
     }
     .board-tbx-item:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-hover, var(--cp-surface)); }
-    .board-tbx-item:active { cursor: grabbing; }
     .board-tbx-item.placed { opacity: .5; }
+    .board-tbx-item .tbx-grip { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 20px; margin: -2px 0 -2px -2px; color: var(--cp-text-faint, var(--cp-text-muted)); opacity: .45; cursor: grab; font-size: 12px; line-height: 1; border-radius: 5px; transition: opacity .12s ease, background .12s ease, color .12s ease; }
+    .board-tbx-item:hover .tbx-grip { opacity: .8; }
+    .board-tbx-item .tbx-grip:hover { opacity: 1; color: var(--cp-text); background: var(--cp-accent-soft); }
+    .board-tbx-item .tbx-grip:active { cursor: grabbing; }
     .board-tbx-item .tbx-emoji { font-size: 14px; line-height: 1; flex: 0 0 auto; }
-    .board-tbx-item .tbx-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .board-tbx-item .tbx-dot { margin-left: auto; font-size: 10px; color: var(--cp-accent); }
+    .board-tbx-item .tbx-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board-tbx-item .tbx-dot { flex: 0 0 auto; font-size: 10px; color: var(--cp-accent); }
+    .board-tbx-item .tbx-grip-r { margin: -2px -2px -2px 0; }
     .board-tbx-add { display: flex; flex-direction: column; gap: 6px; }
     .board-tbx-addbtn {
       display: flex; align-items: center; gap: 8px; padding: 6px 8px; width: 100%;
@@ -4599,6 +4639,7 @@
     /* --- Right stage (tabs on top, grid below, section bar under) --- */
     .board-stagewrap { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 10px; }
     .board-sectiontabs { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+    .board-sectiontabs-label { flex: 0 0 auto; font-size: .68rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--cp-text-muted); padding: 0 8px 0 2px; margin-right: 2px; border-right: 1px solid var(--cp-border); align-self: stretch; display: flex; align-items: center; cursor: help; }
     .board-sectiontab {
       display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px;
       border: 1px solid transparent; border-radius: 9px; background: transparent;
@@ -4629,23 +4670,77 @@
       border: 1px solid var(--cp-border); border-radius: 14px; background: var(--cp-surface); padding: 12px;
     }
     .board-sectionstage.drag-over { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
+    /* Trash drop-target: pinned to the lower-left of the section stage. Floated + sticky
+       so it stays visible while the stage scrolls and never adds scroll height. */
+    .board-trash {
+      position: sticky; float: left; clear: left; bottom: 12px; z-index: 6;
+      display: flex; align-items: center; justify-content: center;
+      width: 46px; height: 46px; margin: -46px 0 0 2px;
+      border: 1.5px dashed var(--cp-border); border-radius: 12px;
+      background: color-mix(in srgb, var(--cp-surface) 88%, transparent);
+      backdrop-filter: blur(3px); cursor: default;
+      transition: border-color .12s ease, background .12s ease, transform .12s ease, box-shadow .12s ease;
+    }
+    .board-trash .board-trash-ico { font-size: 20px; opacity: .55; pointer-events: none; transition: opacity .12s ease; }
+    .board-trash.over {
+      border-color: var(--cp-danger, #e5484d); border-style: solid;
+      background: color-mix(in srgb, var(--cp-danger, #e5484d) 16%, var(--cp-surface));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-danger, #e5484d) 24%, transparent);
+      transform: scale(1.08);
+    }
+    .board-trash.over .board-trash-ico { opacity: 1; }
     /* Section grid — a distinct class so the tabbed '.board-grid' overrides
        (transform:none !important, width:100%) never apply to section cards. */
-    .board-sec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); grid-auto-rows: 232px; gap: 12px; align-content: start; transform-origin: top left; }
-    .board-sec-grid.view-mode { display: block; }
-    .board-card { position: relative; min-width: 0; overflow: hidden; border-radius: 12px; }
-    .board-card.sz-wide { grid-column: span 2; }
-    .board-card.sz-tall { grid-row: span 2; }
-    .board-card.sz-big  { grid-column: span 2; grid-row: span 2; }
-    .board-card.sz-view { grid-column: 1 / -1; grid-row: auto; min-height: 62vh; }
+    /* Masonry column flow: cards keep their natural height and pack top-to-bottom
+       per column, so a short card never leaves a big equalized-row gap (which used
+       to make the hover tools read as floating "phantom" icons over empty space).
+       Wider columns (min ~440px) so a single card fills the stage instead of sitting
+       narrow, and multiple cards get comfortable width. */
+    /* Section stage = a 12-column snap grid. Each card spans N columns (its width);
+       height stays auto so the full item is never clipped. Dragging a card's right
+       edge resizes its width and snaps to whole columns. 'Show grid' paints column
+       guides. grid-auto-flow:dense backfills gaps left by tall cards. */
+    /* Section stage = an explicit-placement grid (gridstack-style). Each card is
+       positioned by grid-column/grid-row (x/y) and spans w columns × h row-units.
+       gap:0 so the guide lines align exactly to cell edges; per-card padding gives
+       the visual gutter. Drops snap to the nearest cell; overlaps cascade down. */
+    .board-sec-grid { display: grid; grid-template-columns: repeat(12, 1fr); grid-auto-rows: 22px; gap: 0; align-items: stretch; align-content: start; min-height: 100%; transform-origin: top left; }
+    .board-sec-grid.view-mode { display: block; grid-auto-rows: auto; min-height: 0; }
+    /* Grid guides: vertical column lines + horizontal row lines, filling the whole stage. */
+    .board-sec-grid.show-grid { background-image: linear-gradient(90deg, var(--cp-border) 0 1px, transparent 1px), linear-gradient(180deg, var(--cp-border) 0 1px, transparent 1px); background-size: calc(100% / 12) 100%, 100% 22px; background-repeat: repeat; }
+    .board-card { position: relative; min-width: 0; min-height: 0; overflow: visible; border-radius: 12px; align-self: stretch; box-sizing: border-box; padding: 6px; }
+    .board-card.sz-view { min-height: 62vh; padding: 0; }
     .board-card.dragging { opacity: .4; }
-    /* Neutralize pin-view absolute geometry on the reused panel so it fills its cell. */
-    .board-card > .board-panel { position: static !important; left: auto !important; top: auto !important; width: 100% !important; height: 100% !important; margin: 0 !important; transform: none !important; }
-    .board-card > .board-panel .board-panel-inner { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-    .board-card > .board-panel .board-panel-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
+    /* Right-edge width resize handle (snap to columns). */
+    .board-card-resize { position: absolute; top: 0; right: -2px; width: 12px; height: 100%; cursor: ew-resize; z-index: 6; }
+    .board-card-resize::after { content: ''; position: absolute; top: 50%; right: 5px; transform: translateY(-50%); width: 3px; height: 36px; border-radius: 2px; background: var(--cp-border); opacity: 0; transition: opacity .12s ease, background-color .12s ease; }
+    .board-card:hover .board-card-resize::after { opacity: .55; }
+    .board-card-resize:hover::after { opacity: 1; background: var(--cp-accent); }
+    /* Bottom-edge height resize handle (snap to rows). */
+    .board-card-resize-v { position: absolute; left: 0; bottom: -2px; height: 12px; width: 100%; cursor: ns-resize; z-index: 6; }
+    .board-card-resize-v::after { content: ''; position: absolute; left: 50%; bottom: 5px; transform: translateX(-50%); height: 3px; width: 36px; border-radius: 2px; background: var(--cp-border); opacity: 0; transition: opacity .12s ease, background-color .12s ease; }
+    .board-card:hover .board-card-resize-v::after { opacity: .55; }
+    .board-card-resize-v:hover::after { opacity: 1; background: var(--cp-accent); }
+    /* Bottom-right corner resize handle (both axes). */
+    .board-card-resize-c { position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; cursor: nwse-resize; z-index: 7; }
+    body.board-resizing, body.board-resizing * { cursor: ew-resize !important; user-select: none !important; }
+    body.board-resizing-v, body.board-resizing-v * { cursor: ns-resize !important; user-select: none !important; }
+    /* Neutralize pin-view absolute geometry on the reused panel so it fills its cell.
+       In grid (sections) mode the card has a fixed height (h rows) → the panel fills
+       it and scrolls internally so tall items never overflow the cell. */
+    .board-card > .board-panel { position: static !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; margin: 0 !important; transform: none !important; }
+    .board-sec-grid:not(.view-mode) .board-card > .board-panel { height: 100% !important; overflow: auto; }
+    .board-card > .board-panel .board-panel-inner { height: auto; display: flex; flex-direction: column; min-height: 0; }
+    .board-sec-grid:not(.view-mode) .board-card > .board-panel .board-panel-inner { height: 100%; }
+    .board-card > .board-panel .board-panel-body { flex: 0 0 auto; overflow: visible; min-height: 0; }
+    .board-sec-grid:not(.view-mode) .board-card > .board-panel .board-panel-body { flex: 1 1 auto; }
     /* Card hover tools (section-level: view / resize / remove-from-section) */
-    .board-card-tools { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; opacity: 0; z-index: 5; transition: opacity .12s ease; }
-    .board-card:hover .board-card-tools { opacity: 1; }
+    .board-card-tools { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; opacity: 0; z-index: 5; transition: opacity .12s ease; pointer-events: none; }
+    .board-card:hover .board-card-tools { opacity: 1; pointer-events: auto; }
+    /* Whole card header acts as a drag handle in card (sections) mode */
+    .board-panel-head.card-drag { cursor: grab; }
+    .board-panel-head.card-drag:active { cursor: grabbing; }
+    .board-panel-head.card-drag button { cursor: pointer; }
     .board-card-tools button {
       display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
       border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface);
@@ -4655,11 +4750,29 @@
     .board-card-tools .card-grip { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text-muted); cursor: grab; font-size: 11px; line-height: 1; }
     .board-card-tools .card-grip:active { cursor: grabbing; }
     .board-stage-empty { padding: 34px 16px; text-align: center; color: var(--cp-text-soft); font-size: 13px; }
-    .board-sectbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--cp-text-muted); }
+    .board-sectbar { flex: 0 0 auto; position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--cp-text-muted); }
     .board-sectbar .sb-zoom { display: inline-flex; align-items: center; gap: 4px; }
-    .board-sectbar .sb-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 1px solid var(--cp-border); border-radius: 7px; background: var(--cp-surface); color: var(--cp-text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+    .board-sectbar .sb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 24px; height: 24px; border: 1px solid var(--cp-border); border-radius: 7px; background: var(--cp-surface); color: var(--cp-text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+    .board-sectbar .sb-btn.sb-wide { width: auto; padding: 0 9px; font-size: 12px; }
     .board-sectbar .sb-btn:hover { border-color: var(--cp-border-strong); color: var(--cp-text); }
+    .board-sectbar .sb-btn.active { border-color: var(--cp-accent); color: var(--cp-text); background: var(--cp-accent-soft); }
     .board-sectbar .sb-zval { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+    .board-sectbar .sb-slider { display: inline-flex; align-items: center; gap: 6px; }
+    .board-sectbar .sb-slider .sb-ico { font-size: 13px; opacity: .8; line-height: 1; }
+    .board-sectbar .sb-slider input[type=range] { width: 96px; cursor: pointer; accent-color: var(--cp-accent); }
+    .board-editsec { position: absolute; bottom: calc(100% + 8px); right: 0; width: 380px; max-width: min(92vw, 460px); max-height: 340px; display: flex; flex-direction: column; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.28); z-index: 40; overflow: hidden; }
+    .board-editsec-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--cp-border); font-weight: 600; font-size: 12px; color: var(--cp-text); }
+    .board-editsec-head .es-close { border: 0; background: none; color: var(--cp-text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; border-radius: 6px; }
+    .board-editsec-head .es-close:hover { color: var(--cp-text); background: var(--cp-surface-soft); }
+    .board-editsec-body { flex: 1 1 auto; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .board-editsec-row { display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: 8px; }
+    .board-editsec-row:hover { background: var(--cp-surface-soft); }
+    .board-editsec-row .es-ico { flex: 0 0 auto; font-size: 14px; line-height: 1; }
+    .board-editsec-row .es-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cp-text); font-size: 12px; }
+    .board-editsec-row .es-act { flex: 0 0 auto; border: 1px solid var(--cp-border); border-radius: 7px; background: var(--cp-surface); color: var(--cp-text-muted); cursor: pointer; font-size: 11px; padding: 3px 8px; line-height: 1.3; white-space: nowrap; }
+    .board-editsec-row .es-act:hover { border-color: var(--cp-border-strong); color: var(--cp-text); }
+    .board-editsec-row .es-act.danger:hover { border-color: var(--cp-danger, #c33); color: var(--cp-danger, #c33); }
+    .board-editsec .es-empty { padding: 14px 10px; text-align: center; color: var(--cp-text-muted); font-size: 12px; }
 
     /* ---- Subtle self-fading scrollbars (scoped to .scrollfade regions) ----
        Idle: nearly invisible track/thumb. On active scroll (.sb-live, added by a
@@ -5433,6 +5546,26 @@
       font-size: 1.05rem;
       line-height: 1;
     }
+    .nav-lock-btn { font-size: .98rem; opacity: .7; transition: opacity .12s ease; background: transparent; border: none; cursor: pointer; padding: 2px 6px; border-radius: 8px; color: var(--cp-text); }
+    .nav-lock-btn:hover { opacity: 1; background: color-mix(in srgb, var(--cp-text-muted) 12%, transparent); }
+    .nav-lock-btn.locked { opacity: .92; }
+    /* Sidebar top bar: lock (left) + "Menu" caption + Edit-menu (right) */
+    .sidebar-topbar { display: flex; align-items: center; gap: 6px; padding: 0 2px 8px; margin-bottom: 4px; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 70%, transparent); }
+    .sidebar-topbar-title { flex: 1; font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--cp-text-muted); }
+    .nav-edit-btn { display: inline-flex; align-items: center; gap: 4px; font-size: .74rem; font-weight: 600; color: var(--cp-text-muted); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 3px 7px; cursor: pointer; transition: all .12s ease; }
+    .nav-edit-btn:hover { color: var(--cp-text); background: color-mix(in srgb, var(--cp-text-muted) 12%, transparent); }
+    .nav-edit-btn.active { color: var(--cp-accent); border-color: var(--cp-accent-soft); background: var(--cp-accent-soft); }
+    .nav-editpop { position: absolute; top: 42px; left: 10px; right: 10px; z-index: 60; background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 12px; box-shadow: var(--cp-shadow); padding: 10px; }
+    .nav-editpop-head { display: flex; align-items: center; justify-content: space-between; font-size: .82rem; font-weight: 700; color: var(--cp-text); margin-bottom: 4px; }
+    .nav-editpop-x { background: transparent; border: none; color: var(--cp-text-muted); cursor: pointer; font-size: .82rem; border-radius: 6px; padding: 2px 6px; }
+    .nav-editpop-x:hover { background: color-mix(in srgb, var(--cp-text-muted) 14%, transparent); color: var(--cp-text); }
+    .nav-editpop-hint { font-size: .68rem; line-height: 1.35; color: var(--cp-text-muted); margin-bottom: 8px; }
+    .nav-editpop-list { display: flex; flex-direction: column; gap: 1px; max-height: 340px; overflow: auto; }
+    .nav-editpop-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 8px; cursor: pointer; font-size: .82rem; color: var(--cp-text); }
+    .nav-editpop-row:hover { background: color-mix(in srgb, var(--cp-text-muted) 10%, transparent); }
+    .nav-editpop-row input { cursor: pointer; accent-color: var(--cp-accent); }
+    .nav-editpop-ico { width: 18px; text-align: center; }
+    .nav-editpop-lbl { flex: 1; }
     body.nav-collapsed .body-grid {
       grid-template-columns: 1fr;
     }
@@ -5491,7 +5624,6 @@
   <div class="app-shell" x-effect="syncBaDock(); syncConnectDock()">
     <header class="topbar">
       <div class="brand">
-        <button class="icon-button nav-toggle-btn" type="button" @click="toggleMainNav()" :aria-label="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" :title="navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">☰</button>
         <button class="brand-home" type="button" @click="goHome()" title="Back to all teams">
           <div class="brand-mark">⚡</div>
           <div>TheOffice.AI</div>
@@ -5559,7 +5691,112 @@
         <span x-text="mobileNavOpen ? '✕' : '☰'"></span>
       </button>
       <aside class="sidebar" :class="{ 'mobile-open': mobileNavOpen }" @click="mobileNavOpen = false">
+        <div class="sidebar-topbar" @click.stop>
+          <button class="nav-lock-btn" type="button" @click="toggleMainNav()" :class="{ locked: !navCollapsed }" :aria-label="navCollapsed ? 'Lock sidebar open' : 'Unlock — collapse sidebar'" :title="navCollapsed ? 'Locked closed — click to lock the sidebar open' : 'Locked open — click to collapse the sidebar'"><span x-text="navCollapsed ? '🔓' : '🔒'"></span></button>
+          <span class="sidebar-topbar-title">Menu</span>
+          <button class="nav-edit-btn" type="button" x-show="navIsCustom()" @click="navEditOpen = !navEditOpen" :class="{ active: navEditOpen }" aria-label="Edit menu items" title="Choose which items appear on the menu"><span>⚙︎</span><span class="nav-edit-lbl">Edit</span></button>
+        </div>
+        <template x-if="navEditOpen && navIsCustom()">
+          <div class="nav-editpop" @click.stop>
+            <div class="nav-editpop-head">
+              <span>Show on menu</span>
+              <button class="nav-editpop-x" type="button" @click="navEditOpen = false" title="Done">✕</button>
+            </div>
+            <div class="nav-editpop-hint">Pick which items appear. Hiding an item here keeps its feature on — manage features in Settings.</div>
+            <div class="nav-editpop-list">
+              <template x-for="it in navEditItems()" :key="it.key">
+                <label class="nav-editpop-row">
+                  <input type="checkbox" :checked="!it.hidden" @change="toggleNavItemVisible(it.key)">
+                  <span class="nav-editpop-ico" x-text="it.icon"></span>
+                  <span class="nav-editpop-lbl" x-text="it.label"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+        </template>
         <div class="sidebar-scroll">
+          <!-- Custom (user-organized) nav — Productivity + Basic. Drag to reorder,
+               group into user-defined groups, rename/collapse/delete groups. -->
+          <template x-if="navIsCustom()">
+            <div class="cnav">
+              <template x-for="node in navCustomNodes()" :key="node.t === 'group' ? node.id : node.key">
+                <div>
+                  <!-- Item -->
+                  <template x-if="node.t === 'item'">
+                    <div class="cnav-row" :class="{ 'drop-before': _navDropKey === node.key }"
+                         @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropKey = node.key; _navDropGroup = null"
+                         @dragleave="if(_navDropKey===node.key)_navDropKey=null"
+                         @drop.prevent.stop="onNavItemDrop($event, node.key, null)">
+                      <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, node.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder">⠿</span>
+                      <a class="nav-link" :class="{ active: isRouteGroup(_navItemDef(node.key).routeGroup) }" :href="_navItemDef(node.key).href">
+                        <span x-text="_navItemDef(node.key).icon"></span>
+                        <span x-text="_navItemDef(node.key).label" style="flex:1"></span>
+                        <template x-if="_navItemDef(node.key).badge || _navItemDef(node.key).attnBadge">
+                          <span class="nav-badges">
+                            <template x-if="_navItemDef(node.key).badge"><span class="nav-count-badge" x-text="_navItemDef(node.key).badge" :title="_navItemDef(node.key).badgeTitle"></span></template>
+                            <template x-if="_navItemDef(node.key).attnBadge"><span class="nav-attn-badge" x-text="_navItemDef(node.key).attnBadge" :title="_navItemDef(node.key).attnTitle"></span></template>
+                          </span>
+                        </template>
+                      </a>
+                    </div>
+                  </template>
+                  <!-- Group -->
+                  <template x-if="node.t === 'group'">
+                    <div class="cnav-group" :class="{ 'drop-into': _navDropGroup === node.id }">
+                      <div class="cnav-ghead"
+                           @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropGroup = node.id; _navDropKey = null"
+                           @dragleave="if(_navDropGroup===node.id)_navDropGroup=null"
+                           @drop.prevent.stop="onNavGroupHeaderDrop($event, node.id)">
+                        <span class="cnav-grip" draggable="true" @dragstart.stop="onNavGroupDragStart($event, node.id)" @dragend="_navClearHints(); _navDrag=null" title="Drag group">⠿</span>
+                        <button class="cnav-gchev" type="button" @click="navToggleGroup(node.id)" x-text="node.collapsed ? '▸' : '▾'" :title="node.collapsed ? 'Expand' : 'Collapse'"></button>
+                        <template x-if="_navRenameId === node.id">
+                          <input class="cnav-gname-input" x-model="_navRenameText" @keydown.enter.prevent="navCommitRename()" @keydown.escape.prevent="navCancelRename()" @blur="navCommitRename()" @click.stop>
+                        </template>
+                        <template x-if="_navRenameId !== node.id">
+                          <span class="cnav-gname" x-text="node.name" @dblclick="navStartRename(node.id, node.name)" title="Double-click to rename"></span>
+                        </template>
+                        <button class="cnav-gdel" type="button" @click="navDeleteGroup(node.id)" title="Delete group (keeps its items)">✕</button>
+                      </div>
+                      <div class="cnav-gbody" x-show="!node.collapsed" x-transition.opacity.duration.150ms>
+                        <template x-if="!node.children.length">
+                          <div class="cnav-gempty" :class="{ 'drop-into': _navDropGroup === node.id }"
+                               @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropGroup = node.id"
+                               @dragleave="if(_navDropGroup===node.id)_navDropGroup=null"
+                               @drop.prevent.stop="onNavGroupHeaderDrop($event, node.id)">Drop items here</div>
+                        </template>
+                        <template x-for="child in node.children" :key="child.key">
+                          <div class="cnav-row" :class="{ 'drop-before': _navDropKey === child.key }"
+                               @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropKey = child.key; _navDropGroup = null"
+                               @dragleave="if(_navDropKey===child.key)_navDropKey=null"
+                               @drop.prevent.stop="onNavItemDrop($event, child.key, node.id)">
+                            <span class="cnav-grip" draggable="true" @dragstart.stop="onNavItemDragStart($event, child.key)" @dragend="_navClearHints(); _navDrag=null" title="Drag to reorder">⠿</span>
+                            <a class="nav-link" :class="{ active: isRouteGroup(_navItemDef(child.key).routeGroup) }" :href="_navItemDef(child.key).href">
+                              <span x-text="_navItemDef(child.key).icon"></span>
+                              <span x-text="_navItemDef(child.key).label" style="flex:1"></span>
+                              <template x-if="_navItemDef(child.key).badge || _navItemDef(child.key).attnBadge">
+                                <span class="nav-badges">
+                                  <template x-if="_navItemDef(child.key).badge"><span class="nav-count-badge" x-text="_navItemDef(child.key).badge" :title="_navItemDef(child.key).badgeTitle"></span></template>
+                                  <template x-if="_navItemDef(child.key).attnBadge"><span class="nav-attn-badge" x-text="_navItemDef(child.key).attnBadge" :title="_navItemDef(child.key).attnTitle"></span></template>
+                                </span>
+                              </template>
+                            </a>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <!-- trailing drop zone: append to the end of the top level -->
+              <div class="cnav-end" :class="{ 'drop-before': _navDropEnd }"
+                   @dragover.prevent="$event.dataTransfer.dropEffect='move'; _navDropEnd = true; _navDropKey = null; _navDropGroup = null"
+                   @dragleave="_navDropEnd = false"
+                   @drop.prevent.stop="onNavEndDrop($event)"></div>
+              <button class="cnav-newgroup" type="button" @click="navNewGroup()"><span>＋</span><span>New group</span></button>
+            </div>
+          </template>
+          <template x-if="!navIsCustom()">
+          <div>
           <template x-for="section in sidebarSections()" :key="section.key">
             <section class="sidebar-section">
               <template x-if="section.caption">
@@ -5657,6 +5894,8 @@
                 </div>
               </template>
             </section>
+          </template>
+          </div>
           </template>
         </div>
         <div class="sidebar-bottom">
@@ -5855,9 +6094,9 @@
                       <span class="hs-num" :class="homePrsAttention() ? 'is-hot' : ''" x-text="homePrs.items.length"></span>
                       <span class="hs-label">Open PRs</span>
                     </div>
-                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Boards">
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Workspaces">
                       <span class="hs-num" x-text="homeBoards().length"></span>
-                      <span class="hs-label">Boards</span>
+                      <span class="hs-label">Workspaces</span>
                     </div>
                     <div class="home-stat" x-show="runningEntities().length" title="Running now">
                       <span class="hs-num is-hot" x-text="runningEntities().length"></span>
@@ -5994,7 +6233,7 @@
                      @dragover.prevent="homeReorderOver('boards')" @drop.prevent="homeReorderDrop('boards')">
                   <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('boards',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Boards</span>
+                    <span class="has-name">Workspaces</span>
                     <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('boards',-1)" title="Move up">↑</button>
@@ -6004,8 +6243,8 @@
                   <section class="card">
                     <div class="card-header">
                       <div>
-                        <h2 class="card-title">📌 Boards</h2>
-                        <div class="card-subtitle" x-text="homeBoards().length + ' board' + (homeBoards().length === 1 ? '' : 's') + (currentTeamId === 'all' ? '' : ' in this team')"></div>
+                        <h2 class="card-title">📌 Workspaces</h2>
+                        <div class="card-subtitle" x-text="homeBoards().length + ' workspace' + (homeBoards().length === 1 ? '' : 's') + (currentTeamId === 'all' ? '' : ' in this team')"></div>
                       </div>
                       <a class="btn ghost" href="#/boards">Open</a>
                     </div>
@@ -6021,7 +6260,7 @@
                         </div>
                       </template>
                     </div>
-                    <div class="empty-state" x-show="!homeBoards().length">No boards in this team yet.</div>
+                    <div class="empty-state" x-show="!homeBoards().length">No workspaces in this team yet.</div>
                   </section>
                 </div>
 
@@ -6711,7 +6950,7 @@
                           <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
                           <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                           <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
-                          <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to board">📌</button>
+                          <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to workspace">📌</button>
                           <button @click.stop="quickStarEmp(agent.id, agent.name, 'agent', agent.config.pluginDir ? '🧩' : '🤖', agent.teamId)" :title="empStarred(agent.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(agent.id) ? '★' : '☆'"></button>
                           <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                         </div>
@@ -6752,7 +6991,7 @@
                         <button @click.stop="openOrCreateChat('agent', agent.id)" title="Chat">💬</button>
                         <button @click.stop="openAgentCliSession(agent.id)" title="Open CLI session">⌨</button>
                         <button @click.stop="openTaskModal(null, agent.id)" title="New Task">＋</button>
-                        <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to board">📌</button>
+                        <button @click.stop="openQuickPin('agent', agent.id, agent.name, agent.config.group || 'Agent')" title="Pin to workspace">📌</button>
                         <button @click.stop="quickStarEmp(agent.id, agent.name, 'agent', agent.config.pluginDir ? '🧩' : '🤖', agent.teamId)" :title="empStarred(agent.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(agent.id) ? '★' : '☆'"></button>
                         <button @click.stop="goTo('#/agents/' + encodeURIComponent(agent.id))" title="Open">↗</button>
                       </div></td>
@@ -6793,7 +7032,7 @@
                   </button>
                 </template>
                 <button class="btn primary" type="button" @click="openTaskModal(null, selectedAgent.id)">＋ New Task</button>
-                <button class="btn" type="button" @click="openQuickPin('agent', selectedAgent.id, selectedAgent.name, selectedAgent.config?.group || 'Agent')" title="Pin to board">📌 Pin</button>
+                <button class="btn" type="button" @click="openQuickPin('agent', selectedAgent.id, selectedAgent.name, selectedAgent.config?.group || 'Agent')" title="Pin to workspace">📌 Pin</button>
                 <button class="btn" type="button" @click="quickStarEmp(selectedAgent.id, selectedAgent.name, 'agent', selectedAgent.config?.pluginDir ? '🧩' : '🤖', selectedAgent.teamId)" :title="empStarred(selectedAgent.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedAgent.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedAgent.id) ? 'Starred' : 'Star'"></span></button>
                 <button class="btn" type="button" @click="openOrCreateChat('agent', selectedAgent.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="openAgentCliSession(selectedAgent.id)" title="Open an interactive Copilot CLI terminal wired with this agent; the conversation mirrors here as a chat">⌨ CLI session</button>
@@ -7297,7 +7536,7 @@
                   <div class="lp-qa">
                     <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
                     <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
-                    <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to board">📌</button>
+                    <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to workspace">📌</button>
                     <button @click.stop="quickStarEmp(manager.id, manager.name, 'manager', '🧑‍💼', manager.teamId)" :title="empStarred(manager.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(manager.id) ? '★' : '☆'"></button>
                     <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                   </div>
@@ -7338,7 +7577,7 @@
                       <td><div class="lp-row-qa">
                         <button @click.stop="openOrCreateChat('manager', manager.id)" title="Chat">💬</button>
                         <button @click.stop="openAssignmentModal(null, manager.id)" title="New Assignment">＋</button>
-                        <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to board">📌</button>
+                        <button @click.stop="openQuickPin('manager', manager.id, manager.name, 'Manager')" title="Pin to workspace">📌</button>
                         <button @click.stop="quickStarEmp(manager.id, manager.name, 'manager', '🧑‍💼', manager.teamId)" :title="empStarred(manager.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="empStarred(manager.id) ? '★' : '☆'"></button>
                         <button @click.stop="goTo('#/managers/' + encodeURIComponent(manager.id))" title="Open">↗</button>
                       </div></td>
@@ -7366,7 +7605,7 @@
               </div>
               <div class="ag-hero-actions">
                 <button class="btn primary" type="button" @click="managerTab = 'assignments'; resetManagerAssignmentForm()">＋ New Assignment</button>
-                <button class="btn" type="button" @click="openQuickPin('manager', selectedManager.id, selectedManager.name, 'Manager')" title="Pin to board">📌 Pin</button>
+                <button class="btn" type="button" @click="openQuickPin('manager', selectedManager.id, selectedManager.name, 'Manager')" title="Pin to workspace">📌 Pin</button>
                 <button class="btn" type="button" @click="quickStarEmp(selectedManager.id, selectedManager.name, 'manager', '🧑‍💼', selectedManager.teamId)" :title="empStarred(selectedManager.id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="empStarred(selectedManager.id) ? '★' : '☆'"></span> <span x-text="empStarred(selectedManager.id) ? 'Starred' : 'Star'"></span></button>
                 <button class="btn" type="button" @click="openOrCreateChat('manager', selectedManager.id)">💬 Chat</button>
                 <button class="btn" type="button" @click="selectedManager._menu = !selectedManager._menu" @click.outside="selectedManager._menu = false">⋯</button>
@@ -8153,13 +8392,13 @@
           <section class="board-calm" x-show="!loading && !errorMessage && route === 'boards'" x-transition.opacity.duration.180ms>
             <div class="nlx-top board-top">
               <div class="page-title">
-                <h1>📌 Boards</h1>
+                <h1>📌 Workspaces</h1>
                 <p>Pin sessions, chats, tasks, flows, assignments, agents &amp; managers you're actively working on. Add notes and checklists, and get a <strong>Briefing</strong> of where you left off.</p>
               </div>
               <div class="nlx-actions">
                 <label class="board-picker" x-show="!boardsLoading && visibleBoards().length">
-                  <span class="board-picker-lbl">Board</span>
-                  <select class="field-input board-select" :value="activeBoardId" @change="selectBoard($event.target.value)" title="Switch board">
+                  <span class="board-picker-lbl">Workspace</span>
+                  <select class="field-input board-select" :value="activeBoardId" @change="selectBoard($event.target.value)" title="Switch workspace">
                     <template x-for="b in visibleBoards()" :key="b.id">
                       <option :value="b.id" x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name + ' · ' + boardOrgLabel(b)"></option>
                     </template>
@@ -8167,22 +8406,21 @@
                 </label>
                 <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
                   x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
-                <button class="btn" type="button" @click="openBoardModal(null)">＋ New Board</button>
               </div>
             </div>
 
             <div x-show="boardsLoading" class="hint" style="padding:24px">Loading boards…</div>
 
             <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="margin-top:24px">
-              No boards yet. <strong>＋ New Board</strong> to create your first task board.
+              No workspaces yet. <button class="btn" type="button" @click="openBoardModal(null)" style="margin-left:6px">＋ New Workspace</button>
             </div>
 
             <template x-if="!boardsLoading && visibleBoards().length">
               <div>
                 <template x-if="activeBoard()">
                   <div :class="{ 'board-focus': boardFocus }" @keydown.escape.window="boardFocus && !boardAssistant.open && (boardFocus = false)">
-                    <!-- Floating Board AI chat launcher — always within reach, lower-right. -->
-                    <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — chat to organize notes, checklists & dev cards from this board's activity" aria-label="Open Board AI chat">💬</button>
+                    <!-- Floating Workspace Assistant chat launcher — always within reach, lower-right. -->
+                    <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Workspace Assistant — chat to organize notes, checklists & dev cards from this workspace's activity" aria-label="Open Workspace Assistant chat">💬</button>
                     <!-- Board toolbar renders below the briefing as a sticky stage-bar. -->
 
                     <!-- Where was I? briefing — lifted out of the board into the header
@@ -8286,10 +8524,6 @@
                       </div>
                       <div class="toolbar">
                         <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
-                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
-                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
-                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()" title="Add a checklist as its own panel">✅ Checklist</button>
-                        <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)" title="Add a Dev card — groups an Azure DevOps work item, PR and a git worktree with AI state tracking">🧰 Dev card</button>
                         <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
                         <!-- Secondary board actions tucked behind an overflow menu so the
                              toolbar stays focused on the things you reach for constantly. -->
@@ -8405,20 +8639,25 @@
                     </template>
                     <!-- Unified SECTIONS studio: left toolbox tray + section tabs and stage. -->
                     <div class="board-studio">
-                      <aside class="board-toolbox scrollfade">
+                      <aside class="board-toolbox scrollfade" :style="'width:' + boardTbxW + 'px'">
                         <div class="board-tbx-group">
-                          <div class="board-tbx-label">Panels <span class="muted-count" x-text="toolboxPanels().length"></span></div>
+                          <div class="board-tbx-label">Cards <span class="muted-count" x-text="toolboxPanels().length"></span></div>
                           <template x-if="!toolboxPanels().length">
                             <div class="hint" style="font-size:11.5px">Nothing pinned yet — use “Add new” below.</div>
                           </template>
                           <template x-for="p in toolboxPanels()" :key="'tbx-' + p.id">
-                            <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p) }" draggable="true"
-                                 @dragstart="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
+                            <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p) }"
                                  @click="openInView(p)"
-                                 :title="chipType(p) + ': ' + chipName(p) + ' — drag onto a section, or click to view'">
+                                 :title="chipType(p) + ': ' + chipName(p) + ' — click to view, or drag the grip onto a section'">
+                              <span class="tbx-grip" draggable="true"
+                                    @dragstart.stop="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
+                                    @click.stop title="Drag onto a section to place this card">⠿</span>
                               <span class="tbx-emoji" x-text="chipIcon(p)"></span>
                               <span class="tbx-name" x-text="chipName(p)"></span>
                               <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
+                              <span class="tbx-grip tbx-grip-r" draggable="true"
+                                    @dragstart.stop="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
+                                    @click.stop title="Drag onto a section to place this card">⠿</span>
                             </div>
                           </template>
                         </div>
@@ -8426,23 +8665,25 @@
                           <div class="board-tbx-label">Add new</div>
                           <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                           <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()">📝 Note</button>
-                          <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()">✅ Checklist</button>
+                          <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()">📋 Checklist</button>
                           <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)">🧰 Dev card</button>
                         </div>
                       </aside>
+                      <div class="board-tbx-splitter" @mousedown.prevent="startTbxResize($event)" title="Drag to resize the toolbox"></div>
                       <div class="board-stagewrap">
                         <div class="board-sectiontabs scrollfade">
-                          <button type="button" class="board-sectiontab" :class="{ active: isViewTab() }" @click="setActiveSection('view')" title="View — focus a single panel full size">
-                            <span class="st-emoji">🔎</span><span>View</span>
+                          <span class="board-sectiontabs-label" title="Each tab is a Board (also called a section). Say “add a board / put this on the X board” to the Workspace Assistant.">Boards</span>
+                          <button type="button" class="board-sectiontab" :class="{ active: isViewTab() }" @click="setActiveSection('view')" title="Card View — focus a single card full size">
+                            <span class="st-emoji">🔎</span><span>Card View</span>
                           </button>
                           <template x-for="s in boardSections()" :key="s.id">
                             <button type="button" class="board-sectiontab"
                                     :class="{ active: activeSectionId() === s.id, 'drag-over': _boardDragOverSec === s.id }"
                                     @click="setActiveSection(s.id)"
                                     @dblclick="renameSection(s.id)"
-                                    @dragover.prevent="_boardDragOverSec = s.id"
+                                    @dragover.prevent="_boardDragOverSec = s.id; setActiveSection(s.id)"
                                     @dragleave="_boardDragOverSec === s.id && (_boardDragOverSec = null)"
-                                    @drop="_boardDragOverSec = null; onSectionTabDrop(s.id, $event)"
+                                    @drop.prevent="_boardDragOverSec = null; onSectionTabDrop(s.id, $event)"
                                     :title="(s.name || '') + ' — double-click to rename'">
                               <span class="st-emoji" x-text="s.icon || '🗂'"></span>
                               <span x-text="s.name"></span>
@@ -8453,18 +8694,19 @@
                           <button type="button" class="board-sectiontab-add" @click="addSection()" title="New section">＋</button>
                         </div>
                         <div class="board-sectionstage scrollfade" :class="{ 'drag-over': _boardDragOver }"
-                             @dragover="onGridDragOver($event); _boardDragOver = true"
-                             @dragleave="_boardDragOver = false"
-                             @drop="_boardDragOver = false; onGridDrop($event)">
-                          <div class="board-sec-grid" :class="{ 'view-mode': isViewTab() }" :style="sectionGridStyle()">
+                             @dragenter.prevent
+                             @dragover.prevent="_boardDragOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
+                             @dragleave="if ($event.target === $el) _boardDragOver = false"
+                             @drop.prevent="_boardDragOver = false; onGridDrop($event)">
+                          <div class="board-sec-grid" :class="{ 'view-mode': isViewTab(), 'show-grid': sectionShowGrid() }" :style="sectionGridStyle()">
                             <template x-for="p in activeSectionPanels()" :key="p.id">
-                              <div class="board-card" :class="'sz-' + cardSize(p)" :data-card-base="panelBaseId(p)">
+                              <div class="board-card" :class="{ 'sz-view': isViewTab() }" :style="isViewTab() ? '' : cardGridStyle(p)" :data-card-base="panelBaseId(p)">
                                 <div class="board-card-tools" x-show="!isViewTab()">
-                                  <span class="card-grip" draggable="true" @dragstart="onCardDragStart(p, $event)" @dragend="onCardDragEnd()" title="Drag to move / reorder">⠿</span>
-                                  <button type="button" @click.stop="openInView(p)" title="Open in View — full size">⤢</button>
-                                  <button type="button" @click.stop="cycleCardSize(p)" :title="'Resize card (' + cardSizeLabel(p) + ')'">⤡</button>
-                                  <button type="button" @click.stop="removeCardFromSection(p)" title="Remove from this section (stays on the board)">✕</button>
+                                  <button type="button" @click.stop="expandCardToFit(p, $event)" title="Expand to fit contents — grows the card so nothing scrolls">⤢</button>
                                 </div>
+                                <div class="board-card-resize" x-show="!isViewTab()" @mousedown.stop.prevent="startCardResize(p, $event)" @click.stop title="Drag to resize width — snaps to the grid columns"></div>
+                                <div class="board-card-resize-v" x-show="!isViewTab()" @mousedown.stop.prevent="startCardVResize(p, $event)" @click.stop title="Drag to resize height — snaps to the grid rows"></div>
+                                <div class="board-card-resize-c" x-show="!isViewTab()" @mousedown.stop.prevent="startCardResize(p, $event); startCardVResize(p, $event)" @click.stop title="Drag to resize"></div>
                                 <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
@@ -8492,7 +8734,7 @@
                                  collapse / reduce / drag controls on the right. The title is only shown
                                  when collapsed (the expanded content carries its own heading), so an
                                  expanded panel reclaims the space the old framed header bar used. -->
-                            <div class="board-panel-head" :class="{ collapsed: isPanelCollapsed(p.id) }" @mousedown="!boardIsTabbed() && startPanelDrag(p.id, $event)" :title="panelTypeLabel(p) + ' · ' + panelTitleText(p)">
+                            <div class="board-panel-head" :class="{ collapsed: isPanelCollapsed(p.id), 'card-drag': boardIsTabbed() && !isViewTab() }" :draggable="boardIsTabbed() && !isViewTab()" @dragstart="(boardIsTabbed() && !isViewTab()) && onCardDragStart(p, $event)" @dragend="onCardDragEnd()" @mousedown="!boardIsTabbed() && startPanelDrag(p.id, $event)" :title="panelTypeLabel(p) + ' · ' + panelTitleText(p)">
                               <div class="bph-left">
                                 <span class="board-panel-tag" x-text="panelIcon(p)" :title="panelTypeLabel(p)"></span>
                                 <span class="board-panel-type" x-show="!isPanelCollapsed(p.id)" x-text="panelTypeLabel(p)"></span>
@@ -8757,7 +8999,7 @@
                                                 <button class="btn ghost" style="font-size:0.72rem" type="button" title="Open in File Explorer" @click.stop="openLocation(item,'explorer')">🗂 Explorer</button>
                                               </div>
                                               <div class="hint" style="word-break:break-all;margin-bottom:6px" x-text="item.refId"></div>
-                                              <div class="hint" style="font-size:11px;opacity:0.8">💬 Ask Board AI about this folder — it can search the contents to answer.</div>
+                                              <div class="hint" style="font-size:11px;opacity:0.8">💬 Ask the Workspace Assistant about this folder — it can search the contents to answer.</div>
                                             </div>
                                           </template>
                                           <!-- Pull Request: full Code Flow worktree/review actions on the pinned PR. -->
@@ -8787,6 +9029,90 @@
                                                   <!--CF_PR_CARD_BODY-->
                                                 </div>
                                               </template>
+                                            </div>
+                                          </template>
+                                          <!-- Agent: inline full-featured chat (thinking / tools / response) — no navigation. -->
+                                          <template x-if="item.kind === 'agent'">
+                                            <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px" x-init="boardAgentChatEnsure(item)" @click.stop>
+                                              <div class="board-agent-chat-stream" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto">
+                                                <template x-if="!(boardAgentChatState(item) && (boardAgentChatState(item).messages.length || boardAgentChatState(item).live))">
+                                                  <div class="hint" style="padding:2px">Ask <strong x-text="item.label || item.refId"></strong> anything — replies show its thinking, tools, and answer right here.</div>
+                                                </template>
+                                                <template x-for="(message, mi) in (boardAgentChatState(item) ? boardAgentChatState(item).messages : [])" :key="'bac-' + item.id + '-' + mi">
+                                                  <div class="message-row" :class="message.role === 'user' ? 'user' : ''">
+                                                    <div class="message-bubble-wrap">
+                                                      <div class="message-bubble">
+                                                        <div class="md-output" x-html="renderMarkdown(message.content || '')"></div>
+                                                        <template x-if="message.role !== 'user' && message.activity && message.activity.length">
+                                                          <details class="msg-activity">
+                                                            <summary>🔎 Reasoning &amp; steps (<span x-text="message.activity.length"></span>)</summary>
+                                                            <div class="msg-activity-body">
+                                                              <template x-for="(st, ai) in message.activity" :key="'bacs-' + item.id + '-' + mi + '-' + ai">
+                                                                <div class="msg-activity-step" :class="st.type">
+                                                                  <template x-if="st.text">
+                                                                    <details class="msg-activity-substep">
+                                                                      <summary x-text="st.label"></summary>
+                                                                      <pre class="live-stream-pre" x-text="st.text"></pre>
+                                                                    </details>
+                                                                  </template>
+                                                                  <template x-if="!st.text">
+                                                                    <div class="msg-activity-label" x-text="st.label"></div>
+                                                                  </template>
+                                                                </div>
+                                                              </template>
+                                                            </div>
+                                                          </details>
+                                                        </template>
+                                                        <div class="message-meta">
+                                                          <span x-text="message.role + ' • ' + formatDateTime(message.timestamp)"></span>
+                                                          <template x-if="message.role !== 'user' && message.model">
+                                                            <span class="model-badge" :title="'Model: ' + message.model" x-text="'🧠 ' + formatModelName(message.model)"></span>
+                                                          </template>
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                </template>
+                                                <!-- Live thinking / tool activity while the agent runs. -->
+                                                <template x-if="boardAgentChatState(item) && boardAgentChatState(item).live">
+                                                  <div class="agent-activity">
+                                                    <div class="activity-header">
+                                                      <span class="activity-pulse"></span>
+                                                      <strong x-text="boardAgentChatState(item).live.status || 'Running…'"></strong>
+                                                    </div>
+                                                    <template x-for="(step, si) in (boardAgentChatState(item).live.steps || [])" :key="'bacl-' + item.id + '-' + si">
+                                                      <div class="activity-step" :class="step.type">
+                                                        <template x-if="step.type === 'tool'">
+                                                          <div class="tool-step">
+                                                            <span class="tool-icon">🔧</span>
+                                                            <span class="tool-name" x-text="step.tool"></span>
+                                                            <span class="tool-status" :class="step.success === false ? 'failed' : (step.success === true ? 'done' : 'running')" x-text="step.success === false ? '✗' : (step.success === true ? '✓' : '⋯')"></span>
+                                                          </div>
+                                                        </template>
+                                                        <template x-if="step.type === 'thinking'">
+                                                          <div class="thinking-step">
+                                                            <span>💭</span>
+                                                            <span class="thinking-text" x-text="step.content"></span>
+                                                          </div>
+                                                        </template>
+                                                      </div>
+                                                    </template>
+                                                  </div>
+                                                </template>
+                                              </div>
+                                              <template x-if="boardAgentChatState(item) && boardAgentChatState(item).error">
+                                                <div class="hint" style="color:var(--cp-danger,#c0392b);padding:2px" x-text="boardAgentChatState(item).error"></div>
+                                              </template>
+                                              <div class="board-agent-chat-input" style="display:flex;gap:6px;align-items:flex-end;margin-top:2px">
+                                                <textarea rows="1" class="field-input" placeholder="Message this agent…" style="flex:1;resize:vertical;min-height:34px;max-height:120px"
+                                                          :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
+                                                          x-model="boardAgentChats[item.refId].input"
+                                                          @keydown.enter.prevent="boardAgentSend(item)"></textarea>
+                                                <button class="btn" type="button"
+                                                        :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
+                                                        @click.stop="boardAgentSend(item)"
+                                                        x-text="(boardAgentChatState(item) && boardAgentChatState(item).running) ? '…' : 'Send'"></button>
+                                              </div>
                                             </div>
                                           </template>
                                         </div>
@@ -9302,13 +9628,57 @@
                             </template>
                             <div class="board-canvas-resize" x-show="!boardIsTabbed()" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
                           </div>
+                          <!-- Always-visible trash: drag a card here to remove it from the workspace.
+                               Hidden on Card View and when the toggle is off. -->
+                          <div class="board-trash" x-show="!isViewTab() && boardTrashOn" x-cloak
+                               :class="{ over: _boardTrashOver }"
+                               @dragenter.prevent.stop="_boardTrashOver = true"
+                               @dragover.prevent.stop="_boardTrashOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
+                               @dragleave.stop="_boardTrashOver = false"
+                               @drop.prevent.stop="_boardTrashOver = false; onTrashDrop($event)"
+                               title="Drag a card here to remove it from the workspace">
+                            <span class="board-trash-ico">🗑</span>
+                          </div>
                         </div>
                         <div class="board-sectbar" x-show="!isViewTab()">
-                          <span class="sb-zoom">
-                            <button type="button" class="sb-btn" @click="bumpSectionZoom(-0.1)" title="Zoom out">−</button>
+                          <div class="board-editsec" x-show="boardEditSecOpen" x-cloak @click.outside="boardEditSecOpen = false">
+                            <div class="board-editsec-head">
+                              <span x-text="'Edit cards' + (activeSection() ? ' · ' + activeSection().name : '')"></span>
+                              <button type="button" class="es-close" @click="boardEditSecOpen = false" title="Close">✕</button>
+                            </div>
+                            <div class="board-editsec-body">
+                              <template x-for="p in activeSectionPanels()" :key="p.id">
+                                <div class="board-editsec-row">
+                                  <span class="es-ico" x-text="panelIcon(p)"></span>
+                                  <span class="es-name" x-text="panelTitleText(p)" :title="panelTitleText(p)"></span>
+                                  <button type="button" class="es-act" @click="removeCardFromSection(p)" title="Take this card off the current section (the item stays on the board and in the toolbox)">Remove from section</button>
+                                  <button type="button" class="es-act danger" @click="removeCardFromBoard(p)" :title="panelRemoveLabel(p)">Remove from board</button>
+                                </div>
+                              </template>
+                              <template x-if="!activeSectionPanels().length">
+                                <div class="es-empty">No cards on this section yet.</div>
+                              </template>
+                            </div>
+                          </div>
+                          <span class="sb-slider" title="Zoom this section in / out">
+                            <span class="sb-ico">🔍</span>
+                            <input type="range" min="0.5" max="1.6" step="0.05" :value="sectionZoom()" @input="setSectionZoom($event.target.value)" title="Section zoom">
                             <span class="sb-zval" x-text="Math.round(sectionZoom()*100) + '%'"></span>
-                            <button type="button" class="sb-btn" @click="bumpSectionZoom(0.1)" title="Zoom in">＋</button>
                           </span>
+                          <span class="sb-slider" title="Text size of card content (this board)">
+                            <span class="sb-ico">🔤</span>
+                            <input type="range" min="0.6" max="1.6" step="0.05" :value="boardFont()" @input="setBoardFont($event.target.value)" title="Text size">
+                            <span class="sb-zval" x-text="Math.round(boardFont()*100) + '%'"></span>
+                          </span>
+                          <button type="button" class="sb-btn sb-wide" :class="{ active: sectionShowGrid() }" @click="toggleSectionGrid()" :title="sectionShowGrid() ? 'Hide grid guides' : 'Show grid guides — cards snap to columns'">▦ Grid</button>
+                          <span class="sb-slider" title="Number of grid columns for this section — more columns = finer card widths">
+                            <span class="sb-ico">▥</span>
+                            <input type="range" min="3" max="24" step="1" :value="sectionCols()" @input="setSectionCols($event.target.value)" title="Grid columns">
+                            <span class="sb-zval" x-text="sectionCols() + ' cols'"></span>
+                          </span>
+                          <button type="button" class="sb-btn sb-wide" @click="boardEditSecOpen = !boardEditSecOpen" :class="{ active: boardEditSecOpen }" title="Edit cards — remove a card from this section, or remove the item from the board entirely">✎ Edit</button>
+                          <button type="button" class="sb-btn sb-wide" @click="clearSection()" title="Clear this section — removes every card from the section (items stay on the board and in the toolbox)">🧹 Clear</button>
+                          <button type="button" class="sb-btn sb-wide" :class="{ active: boardTrashOn }" @click="toggleBoardTrash()" :title="boardTrashOn ? 'Hide the trash drop-target' : 'Show the trash drop-target — drag cards onto it to remove them from the workspace'">🗑 Trash</button>
                           <span x-show="!!activeSection()" x-text="(activeSection() ? (activeSection().cards||[]).length : 0) + ' card' + ((activeSection() && (activeSection().cards||[]).length===1) ? '' : 's')"></span>
                         </div>
                       </div>
@@ -9321,7 +9691,7 @@
                          Auto-arrange was removed: a drag moves ONLY the dragged panel; overlaps
                          resolve via an explicit Organize. Compact's manual button was folded out
                          (its tight-pack stays available to AI Layout). -->
-                    <div class="board-bottombar">
+                    <div class="board-bottombar" x-show="!boardIsTabbed()">
                       <div class="bb-cluster" x-show="!boardIsTabbed()">
                       <span class="bb-glabel" title="Explicit layout commands — the board only rearranges when you press one of these">Arrange</span>
                       <div class="bb-group">
@@ -9332,7 +9702,7 @@
                       </div>
                       </div>
                       <div class="bb-sep" x-show="!boardIsTabbed()"></div>
-                      <div class="bb-cluster">
+                      <div class="bb-cluster" x-show="!boardIsTabbed()">
                       <span class="bb-glabel" title="Frame the canvas — these change the view only, never move your panels">View</span>
                       <div class="bb-group">
                         <span class="board-zoom" x-show="!boardIsTabbed()" title="Zoom the board canvas in / out" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--cp-text-muted);white-space:nowrap">
@@ -9389,7 +9759,7 @@
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
                     <span style="font-size:18px">💬</span>
                     <div style="min-width:0">
-                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Board AI</div>
+                      <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Workspace Assistant</div>
                       <div class="hint" style="font-size:11px" x-text="(activeBoard() ? activeBoard().name + ' · ' : '') + 'proposes notes & checklists — you confirm'"></div>
                     </div>
                   </div>
@@ -9400,7 +9770,7 @@
                 </div>
                 <div class="board-assistant-body" x-ref="baBody">
                   <div x-show="!boardAssistant.messages.length" class="empty-state" style="padding:16px;font-size:13px">
-                    <div style="margin-bottom:2px">Ask Board AI to help tidy this board, or pick a prompt:</div>
+                    <div style="margin-bottom:2px">Ask the Workspace Assistant to help tidy this workspace, or pick a prompt:</div>
 
                     <!-- Pinned prompts -->
                     <template x-if="boardAiPinned.length">
@@ -9435,7 +9805,7 @@
                     <!-- Fallback examples when there's no history at all -->
                     <template x-if="!boardAiPinned.length && !boardAiRecent.length">
                       <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
-                        <button class="btn ghost" type="button" style="text-align:left" @click="runBoardAiPrompt('Turn the latest activity on this board into a checklist of next steps.')">“Make a checklist of next steps from the latest activity”</button>
+                        <button class="btn ghost" type="button" style="text-align:left" @click="runBoardAiPrompt('Turn the latest activity on this workspace into a checklist of next steps.')">“Make a checklist of next steps from the latest activity”</button>
                         <button class="btn ghost" type="button" style="text-align:left" @click="runBoardAiPrompt('Summarize the open items here as a short note.')">“Jot a note summarizing the open items”</button>
                       </div>
                     </template>
@@ -9480,7 +9850,7 @@
                   </div>
                 </div>
                 <div class="board-assistant-input">
-                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask Board AI…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" style="flex:1;resize:none"></textarea>
+                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask the Workspace Assistant…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" style="flex:1;resize:none"></textarea>
                   <button class="btn primary" type="button" @click="sendBoardAssistant()" :disabled="boardAssistant.busy || !boardAssistant.input.trim()">Send</button>
                 </div>
               </aside>
@@ -9490,7 +9860,7 @@
             <div class="modal-backdrop modal-overlay" x-show="boardModalOpen" x-transition.opacity.duration.150ms @click.self="boardModalOpen=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:460px">
                 <div class="modal-header">
-                  <h2 class="modal-title" x-text="boardForm.id ? 'Edit board' : 'New board'"></h2>
+                  <h2 class="modal-title" x-text="boardForm.id ? 'Edit workspace' : 'New workspace'"></h2>
                   <button class="icon-button" type="button" @click="boardModalOpen=false">✕</button>
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
@@ -9741,7 +10111,7 @@
                   <div class="hint" style="font-size:11px">The worktree isn't created yet — save the item, then click <strong>🌱 Create worktree</strong> on its panel.</div>
                   <div style="display:flex;justify-content:flex-end;gap:8px">
                     <button class="btn" type="button" @click="devModal.open=false">Cancel</button>
-                    <button class="btn primary" type="button" :disabled="devModal.busy || !devModal.repo" @click="saveDevItem()" x-text="devModal.id ? 'Save' : 'Add to board'"></button>
+                    <button class="btn primary" type="button" :disabled="devModal.busy || !devModal.repo" @click="saveDevItem()" x-text="devModal.id ? 'Save' : 'Add to workspace'"></button>
                   </div>
                 </div>
               </div>
@@ -9750,7 +10120,7 @@
             <div class="modal-backdrop modal-overlay" x-show="boardPinOpen" x-transition.opacity.duration.150ms @click.self="boardPinOpen=false" x-cloak style="z-index:9999">
               <div class="modal-card" style="max-width:620px">
                 <div class="modal-header">
-                  <h2 class="modal-title">Pin to board</h2>
+                  <h2 class="modal-title">Pin to workspace</h2>
                   <button class="icon-button" type="button" @click="boardPinOpen=false">✕</button>
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
@@ -9897,17 +10267,85 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>🛰️ Insights</h1>
-                <p>AI-generated views that summarize and prioritize work across your enabled boards. Read-only — you choose the boards and focus; the assistant writes the briefing.</p>
+                <p>What needs you right now — and what changed since you last looked. Built live from your boards, pull requests, tasks and agents.</p>
               </div>
               <div class="toolbar">
-                <button class="btn ghost" type="button" @click="openInsightSuggest()">✨ Design with AI</button>
-                <button class="btn" type="button" @click="openInsightEditor(null)">＋ New insight</button>
+                <span class="hint" x-show="digest.lastSeen" x-text="'Reviewed ' + formatRelative(digest.lastSeen)"></span>
+                <button class="btn ghost" type="button" @click="buildInsightsDigest()" :disabled="digestLoading" x-text="digestLoading ? '↻ Refreshing…' : '↻ Refresh'"></button>
+                <button class="btn" type="button" @click="markDigestReviewed()" :disabled="!digest.changed.length">✓ Mark all reviewed</button>
               </div>
             </div>
 
-            <div x-show="insightsLoading && !insights.length" class="hint" style="padding:24px">Loading insights…</div>
+            <div x-show="digestLoading && !digest.generatedAt" class="hint" style="padding:24px">🛰️ Scanning your boards, pull requests, tasks and agents…</div>
 
-            <template x-if="!insightsLoading || insights.length">
+            <template x-if="digest.generatedAt">
+              <div style="display:flex;flex-direction:column;gap:18px;max-width:920px">
+
+                <!-- Needs you -->
+                <div class="card">
+                  <div style="font-weight:600;display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <span>🔔 Needs you</span>
+                    <span class="hint" x-show="digest.needsYou.length" x-text="digest.needsYou.length"></span>
+                  </div>
+                  <div x-show="!digest.needsYou.length" class="empty-state" style="padding:20px">You're all caught up. Nothing needs you right now. 🎉</div>
+                  <div style="display:flex;flex-direction:column;gap:8px" x-show="digest.needsYou.length">
+                    <template x-for="row in digest.needsYou" :key="row.key">
+                      <div class="card" style="padding:11px 13px;display:flex;align-items:flex-start;gap:11px">
+                        <span style="font-size:17px;line-height:1.4;flex:none" x-text="row.icon"></span>
+                        <div style="min-width:0;flex:1">
+                          <div style="font-weight:600;display:flex;align-items:center;gap:7px">
+                            <span x-show="row.isNew" title="New since your last visit" style="color:var(--cp-accent);flex:none">●</span>
+                            <span x-text="row.title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                          </div>
+                          <div class="hint" x-text="row.why"></div>
+                          <div class="hint" style="opacity:.7;margin-top:2px" x-show="row.source" x-text="row.source + (row.relative ? ' · ' + row.relative : '')"></div>
+                        </div>
+                        <button class="btn ghost" type="button" style="flex:none" @click="digestAct(row)" x-text="row.actionLabel"></button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Changed since last visit -->
+                <template x-if="digest.changed.length">
+                  <div class="card">
+                    <div style="font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                      <span>🆕 Changed since you last looked</span>
+                      <span class="hint" x-text="digest.changed.length"></span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <template x-for="row in digest.changed" :key="'chg-' + row.key">
+                        <div style="display:flex;align-items:flex-start;gap:9px;cursor:pointer" @click="digestAct(row)">
+                          <span style="flex:none" x-text="row.icon"></span>
+                          <div style="min-width:0">
+                            <span x-text="row.title" style="font-weight:600"></span>
+                            <span class="hint" x-text="' · ' + row.why"></span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Nudges -->
+                <template x-if="digest.nudges.length">
+                  <div class="card">
+                    <div style="font-weight:600;margin-bottom:10px">💡 Nudges</div>
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <template x-for="(n, i) in digest.nudges" :key="'nudge-' + i">
+                        <div style="display:flex;align-items:flex-start;gap:9px" :style="n.hash ? 'cursor:pointer' : ''" @click="n.hash && goTo(n.hash)">
+                          <span style="flex:none" x-text="n.icon"></span>
+                          <div style="min-width:0" x-text="n.text"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+              </div>
+            </template>
+
+            <template x-if="false">
               <div style="display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:start">
                 <!-- Insight list -->
                 <div style="display:flex;flex-direction:column;gap:6px">
@@ -10005,7 +10443,7 @@
                         <!-- Per-board where-was-i cards -->
                         <template x-if="(activeInsight().content.boards || []).length">
                           <div class="card">
-                            <div style="font-weight:600;margin-bottom:10px" x-text="'Boards in this insight (' + activeInsight().content.boards.length + ')'"></div>
+                            <div style="font-weight:600;margin-bottom:10px" x-text="'Workspaces in this insight (' + activeInsight().content.boards.length + ')'"></div>
                             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
                               <template x-for="bd in activeInsight().content.boards" :key="bd.boardId">
                                 <div class="card" style="padding:12px;display:flex;flex-direction:column;gap:6px">
@@ -10057,13 +10495,13 @@
 
                   <template x-if="!insightEditor.builtin">
                     <div>
-                      <label class="field-label">Boards</label>
+                      <label class="field-label">Workspaces</label>
                       <div style="display:flex;gap:8px;margin-bottom:8px">
                         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                          <input type="radio" value="all_enabled" x-model="insightEditor.mode"> All enabled boards
+                          <input type="radio" value="all_enabled" x-model="insightEditor.mode"> All enabled workspaces
                         </label>
                         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-                          <input type="radio" value="custom" x-model="insightEditor.mode"> Choose boards
+                          <input type="radio" value="custom" x-model="insightEditor.mode"> Choose workspaces
                         </label>
                       </div>
                       <template x-if="insightEditor.mode === 'custom'">
@@ -10075,7 +10513,7 @@
                               <span class="hint" x-text="b.teamId ? '· ' + boardOrgLabel(b) : '· All teams'"></span>
                             </label>
                           </template>
-                          <div x-show="!insightSelectableBoards().length" class="hint">No enabled boards available.</div>
+                          <div x-show="!insightSelectableBoards().length" class="hint">No enabled workspaces available.</div>
                         </div>
                       </template>
                     </div>
@@ -11396,7 +11834,7 @@
                     <div style="flex:0 0 auto">
                       <button class="btn ghost" type="button" style="font-size:0.72rem"
                               title="Pin this pull request to a board (with full review/worktree actions)"
-                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to board</button>
+                              @click.stop="openQuickPin('pr', cfPrKey(pr), pr.title, pr.repo + ' #' + pr.id, { org: pr.org, project: pr.project, repo: pr.repo, prId: String(pr.id), url: pr.url, view: codeflow.view, title: pr.title, provider: pr.provider })">📌 Pin to workspace</button>
                     </div>
                   </div>
 
@@ -11900,7 +12338,7 @@
                       <div class="hint" style="margin-top:6px" x-text="task.ownerName + ' • ' + task.scheduleSummary"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click.stop="openQuickPin(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.ownerName)" title="Pin to board">📌</button>
+                      <button class="btn" type="button" @click.stop="openQuickPin(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.ownerName)" title="Pin to workspace">📌</button>
                       <button class="btn" type="button" @click.stop="quickStarOp(task.type === 'assignment' ? 'assignment' : 'task', task.taskKey, task.name, task.type === 'assignment' ? '📋' : '⚙️', null, task.teamId)" :title="opStarred(task.taskKey) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(task.taskKey) ? '★' : '☆'"></button>
                       <button class="btn" type="button" @click="editOpFromDetail(task)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runTask(task)">▶ Run</button>
@@ -12994,7 +13432,7 @@
                       <div class="hint" style="margin-top:6px" x-text="(chain.description || 'No description') + ' • ' + chainScheduleSummary(chain)"></div>
                     </div>
                     <div class="toolbar">
-                      <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to board">📌</button>
+                      <button class="btn" type="button" @click.stop="openQuickPin('flow', chain.id, chain.name || chain.id, 'Flow')" title="Pin to workspace">📌</button>
                       <button class="btn" type="button" @click.stop="quickStarOp('flow', chain.id, chain.name || chain.id, '🔀', chain.id, chain.teamId)" :title="opStarred(chain.id) ? 'Unstar from quick launch' : 'Star to quick launch'" x-text="opStarred(chain.id) ? '★' : '☆'"></button>
                       <button class="btn" type="button" @click="openChainModal(chain)">✏️ Edit</button>
                       <button class="btn primary" type="button" @click="runChain(chain)">▶ Run</button>
@@ -13033,7 +13471,7 @@
                     </p>
                   </div>
                   <div class="toolbar">
-                    <button class="btn" type="button" @click="openQuickPin(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().ownerName)" title="Pin to board">📌</button>
+                    <button class="btn" type="button" @click="openQuickPin(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().ownerName)" title="Pin to workspace">📌</button>
                     <button class="btn" type="button" @click="quickStarOp(opDetail().type === 'assignment' ? 'assignment' : 'task', opDetail().taskKey, opDetail().name, opDetail().type === 'assignment' ? '📋' : '⚙️', null, opDetail().teamId)" :title="opStarred(opDetail().taskKey) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="opStarred(opDetail().taskKey) ? '★' : '☆'"></span> <span x-text="opStarred(opDetail().taskKey) ? 'Starred' : 'Star'"></span></button>
                     <button class="btn" type="button" @click="editOpFromDetail(opDetail())">✏️ Edit</button>
                     <button class="btn primary" type="button" @click="runTask(opDetail())">▶ Run</button>
@@ -13198,7 +13636,7 @@
                     <p x-text="(detailChain().description || 'No description') + ' • ' + chainScheduleSummary(detailChain())"></p>
                   </div>
                   <div class="toolbar">
-                    <button class="btn" type="button" @click="openQuickPin('flow', detailChain().id, detailChain().name, 'Flow')" title="Pin to board">📌</button>
+                    <button class="btn" type="button" @click="openQuickPin('flow', detailChain().id, detailChain().name, 'Flow')" title="Pin to workspace">📌</button>
                     <button class="btn" type="button" @click="quickStarOp('flow', detailChain().id, detailChain().name, '🔀', detailChain().id, detailChain().teamId)" :title="opStarred(detailChain().id) ? 'Remove from the quick launch bar' : 'Add to the quick launch bar'"><span x-text="opStarred(detailChain().id) ? '★' : '☆'"></span> <span x-text="opStarred(detailChain().id) ? 'Starred' : 'Star'"></span></button>
                     <button class="btn" type="button" @click="openChainModal(detailChain())">✏️ Edit</button>
                     <button class="btn primary" type="button" @click="runChain(detailChain())">▶ Run</button>
@@ -13898,7 +14336,7 @@
             <div x-show="settingsCat === 'experience'">
             <div class="card" style="margin-bottom:20px">
               <h3 style="margin-bottom:12px">🧭 Experience level</h3>
-              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Boards, Code Flow, Agents and Marketplace — with the features you need and nothing else. <strong>Advanced</strong> unlocks the full Productivity / Management workspace with every page.</p>
+              <p class="hint" style="margin-bottom:14px"><strong>Basic</strong> is a simplified single view — Home, Workspaces, Code Flow, Agents and Marketplace — with the features you need and nothing else. <strong>Advanced</strong> unlocks the full Productivity / Management workspace with every page.</p>
               <div class="filter-pills">
                 <button class="pill" type="button" :class="{ active: experienceLevel === 'basic' }" @click="setExperienceLevel('basic')">🌱 Basic</button>
                 <button class="pill" type="button" :class="{ active: experienceLevel === 'advanced' }" @click="setExperienceLevel('advanced')">🚀 Advanced</button>
@@ -15700,7 +16138,7 @@
                               :disabled="summarizingSessionId === s.id"
                               @click="summarizeCliSession(s, !!s.summary)"
                               x-text="summarizingSessionId === s.id ? '⏳ Summarizing…' : (s.summary ? '🔄 Re-summarize' : '✨ Summarize')"></button>
-                            <button class="btn" type="button" @click="openQuickPin('session', s.id, s.title, s.agentName || s.cwd)" title="Pin to board">📌</button>
+                            <button class="btn" type="button" @click="openQuickPin('session', s.id, s.title, s.agentName || s.cwd)" title="Pin to workspace">📌</button>
                           </div>
                         </div>
                         <div class="cli-sess-preview hint" x-show="s.lastUserPreview && !s.summary" x-text="'Last prompt: ' + s.lastUserPreview"></div>
@@ -16053,13 +16491,13 @@
   <div class="modal-backdrop modal-overlay" x-show="quickPin.open" x-transition.opacity.duration.150ms @click.self="quickPin.open=false" style="z-index:10001" x-cloak>
     <div class="modal-card" style="max-width:440px">
       <div class="modal-header">
-        <h2 class="modal-title">📌 Pin to board</h2>
+        <h2 class="modal-title">📌 Pin to workspace</h2>
         <button class="icon-button" type="button" @click="quickPin.open=false">✕</button>
       </div>
       <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
         <div class="hint" x-text="boardKindIcon(quickPin.kind) + ' ' + boardKindLabel(quickPin.kind) + ' · ' + quickPin.label"></div>
         <div x-show="boardsLoading" class="hint">Loading boards…</div>
-        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No boards on this team yet.</div>
+        <div x-show="!boardsLoading && !visibleBoards().length" class="empty-state" style="padding:14px">No workspaces on this team yet.</div>
         <div style="display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto">
           <template x-for="b in visibleBoards()" :key="b.id">
             <button type="button" class="card clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;text-align:left" @click="quickPinTo(b)">
@@ -16071,7 +16509,7 @@
             </button>
           </template>
         </div>
-        <button class="btn" type="button" @click="quickPinNewBoard()">＋ New board &amp; pin</button>
+        <button class="btn" type="button" @click="quickPinNewBoard()">＋ New workspace &amp; pin</button>
       </div>
     </div>
   </div>
@@ -16922,6 +17360,19 @@
         mobileNavOpen: false,
         navCollapsed: (() => { try { return localStorage.getItem('nav-collapsed') === '1'; } catch { return false; } })(),
         appMode: (() => { try { const m = localStorage.getItem('app-mode'); return (m === 'workspace' || m === 'workforce') ? m : 'workspace'; } catch { return 'workspace'; } })(),
+        // User-defined sidebar organization (Productivity + Basic only). Keyed by scope
+        // ('basic' | 'workspace'); each holds { order: [ node ] } where a node is
+        // { t:'item', key } or { t:'group', id, name, collapsed, children:[{t:'item',key}] }.
+        // Management (workforce) keeps its curated landing-page groups untouched.
+        navCustom: (() => { try { return JSON.parse(localStorage.getItem('nav-custom') || '{}') || {}; } catch { return {}; } })(),
+        navHidden: (() => { try { return JSON.parse(localStorage.getItem('nav-hidden') || '{}') || {}; } catch { return {}; } })(),
+        navEditOpen: false,
+        _navDrag: null,
+        _navDropKey: null,
+        _navDropGroup: null,
+        _navDropEnd: false,
+        _navRenameId: null,
+        _navRenameText: '',
         // Experience level: 'basic' (default, simplified single-view) vs 'advanced'
         // (full Productivity/Management split + every page). Switched in Settings.
         experienceLevel: (() => { try { const v = localStorage.getItem('experience-level'); return v === 'advanced' ? 'advanced' : 'basic'; } catch { return 'basic'; } })(),
@@ -17135,9 +17586,17 @@
         // Sections-board drag state (toolbox → section, card reorder) + pending nav.
         _boardCardDrag: null,
         _boardDragOver: false,
+        boardEditSecOpen: false,
         _boardDragOverSec: null,
         _pendingBoardSection: null,
+        // Trash-can drop target (lower-left of the section stage). Persisted on/off toggle;
+        // drag a card onto it to remove the item from the workspace entirely.
+        boardTrashOn: (() => { try { const v = localStorage.getItem('board-trash-on'); return v === null ? true : v === '1'; } catch (e) { return true; } })(),
+        _boardTrashOver: false,
+        // Left toolbox tray width (px) — user-draggable splitter, persisted globally.
+        boardTbxW: (() => { try { const v = parseInt(localStorage.getItem('board-tbx-w'), 10); return (isFinite(v) && v >= 150 && v <= 460) ? v : 216; } catch (e) { return 216; } })(),
         boardChatCache: {},
+        boardAgentChats: {},
         activeChat: null,
         chatDraft: '',
         _cliPollTimer: null,
@@ -17234,6 +17693,11 @@
         insightSuggestions: [],
         insightSuggestHint: '',
         insightSuggestError: '',
+        // Insights (reimagined) — proactive "Needs You" digest computed live from
+        // boards, PRs, tasks & agents. The only surface that answers "what needs me
+        // now, and what changed since I last looked?"
+        digest: { needsYou: [], changed: [], nudges: [], lastSeen: null, generatedAt: null },
+        digestLoading: false,
         // Code Flow — Azure DevOps PR monitoring across watched repos.
         // ===== Connect (living impact / performance diary) =====
         dataLoc: {
@@ -18437,7 +18901,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'newsletter') {
             await this.loadNewsletter();
           } else if (this.route === 'insights') {
-            await this.loadInsights(this.app.routeParam);
+            await this.buildInsightsDigest();
           } else if (this.route === 'codeflow') {
             const cfFocus = this.app.routeParam || '';
             if (!cfFocus) this.codeflow.focusKey = '';
@@ -19254,6 +19718,222 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }, 400);
         },
 
+        // ===== Custom (user-organized) sidebar nav — Productivity + Basic only =====
+        // Management (workforce) keeps its curated landing-page groups and is NOT customizable.
+        navIsCustom() {
+          return this.experienceLevel === 'basic' || (this.experienceLevel === 'advanced' && this.appMode === 'workspace');
+        },
+        _navScopeKey() { return this.experienceLevel === 'basic' ? 'basic' : 'workspace'; },
+        // Render metadata for a single leaf nav key (shared by basic + workspace).
+        _navItemDef(key) {
+          const mk = (label, icon, href, routeGroup, extra) => Object.assign({ key, label, title: label, icon, href, routeGroup, items: [], collapsible: false }, extra || {});
+          switch (key) {
+            case 'home': return mk('Home', '🏠', '#/home', 'home');
+            case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards');
+            case 'insights': return mk('Insights', '🛰️', '#/insights', 'insights');
+            case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
+            case 'connect': return mk('Connect', '🌟', '#/connect', 'connect');
+            case 'newsletter': return mk('Newsletter', '📰', '#/newsletter', 'newsletter', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
+            case 'watercooler': return mk('Water cooler', '💬', '#/chat', 'chat');
+            case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
+            case 'managers': return mk('Managers', '👔', '#/managers', 'managers');
+            case 'tasks': return mk('Tasks', '⚡', '#/tasks', 'tasks');
+            case 'chains': return mk('Flows', '🔗', '#/chains', 'chains');
+            case 'marketplace': return mk('Marketplace', '🛍️', '#/marketplace', 'marketplace', { badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' });
+            case 'teams': return mk('Teams', '🏢', '#/teams', 'teams');
+            case 'sessions': return mk('CLI Sessions', '⌨', '#/sessions', 'sessions');
+            case 'activity': return mk('Activity', '📜', '#/activity', 'activity');
+            case 'reports': return mk('Reports', '📊', '#/reports', 'reports');
+            default: return null;
+          }
+        },
+        // Ordered list of available leaf keys for a scope (basic honors feature toggles).
+        _navDefaultKeys(scope) {
+          if (scope === 'basic') {
+            const bf = this.basicFeatures || {};
+            const out = ['home', 'boards', 'codeflow'];
+            if (bf.insights) out.push('insights');
+            out.push('agents');
+            if (bf.managers) out.push('managers');
+            if (bf.tasks) out.push('tasks');
+            if (bf.flows) out.push('chains');
+            out.push('marketplace');
+            if (bf.watercooler) out.push('watercooler');
+            if (bf.teams) out.push('teams');
+            if (bf.sessions) out.push('sessions');
+            if (bf.news) { out.push('activity', 'reports'); }
+            if (bf.connect) out.push('connect');
+            if (bf.connect && bf.newsletter) out.push('newsletter');
+            return out;
+          }
+          // workspace
+          return ['home', 'boards', 'insights', 'codeflow', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
+        },
+        // Reconcile the saved layout against currently-available keys: keep the user's
+        // order + groups, drop stale/dupe keys, append newly-available keys at the end.
+        // Persists in place (no reactive churn) so mutations always see a concrete array.
+        _reconcileNavLayout(scope) {
+          const hidden = this._navHiddenSet(scope);
+          const avail = this._navDefaultKeys(scope).filter(k => !hidden.has(k));
+          const availSet = new Set(avail);
+          const seen = new Set();
+          const saved = (this.navCustom[scope] && Array.isArray(this.navCustom[scope].order)) ? this.navCustom[scope].order : null;
+          const out = [];
+          if (saved) {
+            for (const node of saved) {
+              if (!node || typeof node !== 'object') continue;
+              if (node.t === 'group') {
+                const children = [];
+                for (const c of (Array.isArray(node.children) ? node.children : [])) {
+                  if (c && c.t === 'item' && availSet.has(c.key) && !seen.has(c.key)) { children.push({ t: 'item', key: c.key }); seen.add(c.key); }
+                }
+                out.push({ t: 'group', id: node.id || ('g' + Math.random().toString(36).slice(2)), name: node.name || 'Group', collapsed: !!node.collapsed, children });
+              } else if (node.t === 'item' && availSet.has(node.key) && !seen.has(node.key)) {
+                out.push({ t: 'item', key: node.key }); seen.add(node.key);
+              }
+            }
+          }
+          // Append any available keys not yet placed (new features, first run).
+          for (const k of avail) { if (!seen.has(k)) out.push({ t: 'item', key: k }); }
+          // Persist only when the shape actually changed (avoid render loops).
+          const prev = saved ? JSON.stringify(saved) : null;
+          const next = JSON.stringify(out);
+          if (prev !== next) {
+            this.navCustom[scope] = { order: out };
+            try { localStorage.setItem('nav-custom', JSON.stringify(this.navCustom)); } catch {}
+          }
+          return out;
+        },
+        // The reconciled node list the custom-nav template renders.
+        navCustomNodes() { return this._reconcileNavLayout(this._navScopeKey()); },
+        // ----- Menu editing: choose which eligible items appear on the menu -----
+        _navHiddenSet(scope) {
+          const arr = (this.navHidden && Array.isArray(this.navHidden[scope])) ? this.navHidden[scope] : [];
+          return new Set(arr);
+        },
+        navItemHidden(key) { return this._navHiddenSet(this._navScopeKey()).has(key); },
+        // Every eligible item for the current scope (regardless of hidden) with its def.
+        navEditItems() {
+          const scope = this._navScopeKey();
+          const hidden = this._navHiddenSet(scope);
+          return this._navDefaultKeys(scope).map(key => {
+            const def = this._navItemDef(key) || { key, label: key, icon: '•' };
+            return { key, label: def.label, icon: def.icon, hidden: hidden.has(key) };
+          });
+        },
+        toggleNavItemVisible(key) {
+          const scope = this._navScopeKey();
+          const set = this._navHiddenSet(scope);
+          if (set.has(key)) set.delete(key); else set.add(key);
+          this.navHidden = { ...this.navHidden, [scope]: Array.from(set) };
+          try { localStorage.setItem('nav-hidden', JSON.stringify(this.navHidden)); } catch {}
+          // Re-render: reconcile drops/re-appends the toggled key.
+          this._reconcileNavLayout(scope);
+          this.navCustom = { ...this.navCustom };
+        },
+        _navOrder() { this._reconcileNavLayout(this._navScopeKey()); return this.navCustom[this._navScopeKey()].order; },
+        _saveNavCustom() {
+          try { localStorage.setItem('nav-custom', JSON.stringify(this.navCustom)); } catch {}
+          this.navCustom = { ...this.navCustom };
+        },
+        _navFindGroupIdx(order, id) { return order.findIndex(n => n.t === 'group' && n.id === id); },
+        // Remove the dragged node from wherever it currently lives; return it.
+        _navDetachNode(order, d) {
+          if (!d) return null;
+          if (d.kind === 'group') {
+            const gi = this._navFindGroupIdx(order, d.id);
+            return gi >= 0 ? order.splice(gi, 1)[0] : null;
+          }
+          // item
+          const ti = order.findIndex(n => n.t === 'item' && n.key === d.key);
+          if (ti >= 0) return order.splice(ti, 1)[0];
+          for (const n of order) {
+            if (n.t === 'group') {
+              const ci = n.children.findIndex(c => c.key === d.key);
+              if (ci >= 0) return n.children.splice(ci, 1)[0];
+            }
+          }
+          return null;
+        },
+        onNavItemDragStart(ev, key) { this._navDrag = { kind: 'item', key }; try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', key); } catch {} },
+        onNavGroupDragStart(ev, id) { this._navDrag = { kind: 'group', id }; try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', id); } catch {} },
+        _navClearHints() { this._navDropKey = null; this._navDropGroup = null; this._navDropEnd = false; },
+        // Drop before an item row. groupId set → the row lives inside that group.
+        onNavItemDrop(ev, targetKey, groupId) {
+          const d = this._navDrag; this._navClearHints(); this._navDrag = null;
+          if (!d) return;
+          const order = this._navOrder();
+          const node = this._navDetachNode(order, d);
+          if (!node) { this._saveNavCustom(); return; }
+          if (node.t === 'group') {
+            // Groups can only live at the top level. Insert before the group owning the target.
+            let idx = order.length;
+            if (groupId) { const gi = this._navFindGroupIdx(order, groupId); if (gi >= 0) idx = gi; }
+            else { const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey); if (ti >= 0) idx = ti; }
+            order.splice(idx, 0, node);
+          } else if (groupId) {
+            const g = order.find(n => n.t === 'group' && n.id === groupId);
+            if (g) { const ci = g.children.findIndex(c => c.key === targetKey); g.children.splice(ci < 0 ? g.children.length : ci, 0, node); }
+            else order.push(node);
+          } else {
+            const ti = order.findIndex(n => n.t === 'item' && n.key === targetKey);
+            order.splice(ti < 0 ? order.length : ti, 0, node);
+          }
+          this._saveNavCustom();
+        },
+        // Drop onto a group header: append item into the group, or reorder groups.
+        onNavGroupHeaderDrop(ev, groupId) {
+          const d = this._navDrag; this._navClearHints(); this._navDrag = null;
+          if (!d) return;
+          const order = this._navOrder();
+          if (d.kind === 'group' && d.id === groupId) return; // no-op onto self
+          const node = this._navDetachNode(order, d);
+          if (!node) { this._saveNavCustom(); return; }
+          if (node.t === 'group') {
+            const gi = this._navFindGroupIdx(order, groupId);
+            order.splice(gi < 0 ? order.length : gi, 0, node);
+          } else {
+            const g = order.find(n => n.t === 'group' && n.id === groupId);
+            if (g) g.children.push(node); else order.push(node);
+          }
+          this._saveNavCustom();
+        },
+        onNavEndDrop(ev) {
+          const d = this._navDrag; this._navClearHints(); this._navDrag = null;
+          if (!d) return;
+          const order = this._navOrder();
+          const node = this._navDetachNode(order, d);
+          if (node) order.push(node);
+          this._saveNavCustom();
+        },
+        navNewGroup() {
+          const order = this._navOrder();
+          const id = 'g' + Date.now().toString(36);
+          order.push({ t: 'group', id, name: 'New group', collapsed: false, children: [] });
+          this._saveNavCustom();
+          this.navStartRename(id, 'New group');
+        },
+        navGroupCollapsed(id) { const g = this._navOrder().find(n => n.t === 'group' && n.id === id); return !!(g && g.collapsed); },
+        navToggleGroup(id) { const g = this._navOrder().find(n => n.t === 'group' && n.id === id); if (g) { g.collapsed = !g.collapsed; this._saveNavCustom(); } },
+        navStartRename(id, name) { this._navRenameId = id; this._navRenameText = name || ''; this.$nextTick(() => { try { const el = this.$root.querySelector('.cnav-gname-input'); if (el) { el.focus(); el.select(); } } catch {} }); },
+        navCommitRename() {
+          const id = this._navRenameId; if (!id) return;
+          const g = this._navOrder().find(n => n.t === 'group' && n.id === id);
+          if (g) g.name = (this._navRenameText || '').trim() || 'Group';
+          this._navRenameId = null; this._navRenameText = '';
+          this._saveNavCustom();
+        },
+        navCancelRename() { this._navRenameId = null; this._navRenameText = ''; },
+        navDeleteGroup(id) {
+          const order = this._navOrder();
+          const gi = this._navFindGroupIdx(order, id);
+          if (gi < 0) return;
+          const g = order[gi];
+          // Never lose items — spill the group's children back to the top level in place.
+          order.splice(gi, 1, ...g.children);
+          this._saveNavCustom();
+        },
+
         sidebarSections() {
           const org = this.currentOrg();
           const scopeLabel = org ? `Team · ${org.name}` : 'All teams';
@@ -19274,7 +19954,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Default items + any optional features the user switched on in Settings.
           if (this.experienceLevel === 'basic') {
             const bf = this.basicFeatures || {};
-            const boards = { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false };
+            const boards = { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false };
             const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
             const insights = { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false };
             const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
@@ -19328,7 +20008,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             scope,
             home,
-            { key: 'boards', label: 'Boards', title: 'Boards', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
+            { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
             { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false },
@@ -21401,7 +22081,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homeSecLabel(key) {
           const labels = {
             greeting: 'Good evening', devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
-            boards: 'Boards', prs: 'Pull requests',
+            boards: 'Workspaces', prs: 'Pull requests',
             teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
             flowchart: 'Flow / Task activity',
@@ -25966,6 +26646,115 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return 'All caught up';
         },
         // ---- Insights
+        // ── Proactive "Needs You" digest ──────────────────────────────────────
+        // Rebuilt from live client state (boards, PRs, tasks, agents) — no server
+        // generation. Answers "what needs me right now, and what changed since I
+        // last looked?" A snapshot of reviewed items is kept in localStorage so we
+        // can flag rows that are NEW/changed since the last "Mark all reviewed".
+        _digestSeen() {
+          try { return JSON.parse(localStorage.getItem('insights-digest-seen') || '{}') || {}; }
+          catch { return {}; }
+        },
+        _digestLastSeen() {
+          try { const v = localStorage.getItem('insights-digest-seen-at'); return v ? Number(v) : null; }
+          catch { return null; }
+        },
+        async buildInsightsDigest() {
+          this.digestLoading = true;
+          try {
+            // Ensure we have the user's PRs (cheap, view=mine). Ignore failure.
+            if (!this.homePrs.items.length && !this.homePrs.loading) { try { await this.loadHomePrs(); } catch {} }
+            const seen = this._digestSeen();
+            const now = Date.now();
+            const DAY = 86400000;
+            const needs = [];
+
+            // 1) PRs flagged as needing your attention (authored view).
+            for (const pr of (this.homePrs.items || [])) {
+              if (!pr || !pr.attention) continue;
+              const pk = this.cfPrKey(pr);
+              needs.push({
+                key: 'pr:' + pk, sig: 'attention', icon: '🔀',
+                title: pr.title || ('PR !' + pr.id),
+                why: pr.isDraft ? 'Draft PR waiting on you' : 'Pull request needs your attention',
+                source: pr.repo || '', relative: (pr.ageDays != null ? pr.ageDays + 'd old' : ''),
+                actionLabel: 'Review', hash: '#/codeflow/' + encodeURIComponent(pk), prio: 1
+              });
+            }
+
+            // 2) Board pins whose last run failed — a blocker that needs a look.
+            for (const b of this.visibleBoards()) {
+              for (const it of ((b && b.items) || [])) {
+                const st = this.pinStatus(it);
+                if (!st || st.state !== 'failed') continue;
+                needs.push({
+                  key: 'pin:' + b.id + ':' + it.id, sig: 'failed', icon: '⚠️',
+                  title: it.label || (it.kind + ' item'),
+                  why: st.label || 'Last run failed',
+                  source: (b.emoji ? b.emoji + ' ' : '') + b.name, relative: st.relative || '',
+                  actionLabel: 'Open', item: it, prio: 0
+                });
+              }
+            }
+
+            // 3) Tasks whose latest run failed (independent of any pin).
+            const seenKeys = new Set(needs.map(n => n.key));
+            for (const t of this.allTasks()) {
+              const lr = t.lastRun;
+              if (!lr || !lr.finished_at) continue;
+              const ls = (lr.status || '').toLowerCase();
+              const failed = ls === 'failed' || ls === 'error' || (lr.exit_code != null && Number(lr.exit_code) !== 0);
+              if (!failed) continue;
+              const key = 'task:' + t.taskKey;
+              if (seenKeys.has(key)) continue;
+              seenKeys.add(key);
+              needs.push({
+                key, sig: 'failed', icon: '⚠️', title: t.name || 'Task',
+                why: 'Last run failed', source: 'Task', relative: this.formatRelative(lr.finished_at),
+                hash: '#/tasks/' + encodeURIComponent(t.taskKey), actionLabel: 'Open', prio: 0
+              });
+            }
+
+            // Dedupe (pin wins over task) + sort blockers before PRs.
+            const uniq = []; const uk = new Set();
+            for (const n of needs) { if (uk.has(n.key)) continue; uk.add(n.key); uniq.push(n); }
+            uniq.sort((a, b) => (a.prio - b.prio));
+            for (const n of uniq) n.isNew = seen[n.key] !== n.sig;
+            const changed = uniq.filter(n => n.isNew);
+
+            // 4) Cross-cutting pattern nudges (muted, optional).
+            const nudges = [];
+            const stale = (this.homePrs.items || []).filter(p => p && p.ageDays != null && p.ageDays >= 7);
+            if (stale.length) nudges.push({ icon: '⏳', text: stale.length + ' pull request' + (stale.length === 1 ? '' : 's') + ' older than a week', hash: '#/codeflow' });
+            const idle = (this.data.agents || []).filter(a => {
+              if (!a || a.enabled === false || a.enabled === 0) return false;
+              const fin = a.lastRun && (a.lastRun.finished_at || a.lastRun.started_at);
+              if (!fin) return true;
+              return (now - new Date(fin).getTime()) > 7 * DAY;
+            });
+            if (idle.length) nudges.push({ icon: '😴', text: idle.length + ' enabled agent' + (idle.length === 1 ? '' : 's') + " haven't run in over a week", hash: '#/agents' });
+            const failCount = uniq.filter(n => n.sig === 'failed').length;
+            if (failCount >= 3) nudges.push({ icon: '🔁', text: failCount + ' items have a failing last run — worth a batch look' });
+
+            this.digest = { needsYou: uniq, changed, nudges, lastSeen: this._digestLastSeen(), generatedAt: now };
+          } finally {
+            this.digestLoading = false;
+          }
+        },
+        markDigestReviewed() {
+          const map = {};
+          for (const n of this.digest.needsYou) { map[n.key] = n.sig; n.isNew = false; }
+          try {
+            localStorage.setItem('insights-digest-seen', JSON.stringify(map));
+            localStorage.setItem('insights-digest-seen-at', String(Date.now()));
+          } catch {}
+          this.digest = { ...this.digest, changed: [], lastSeen: Date.now() };
+        },
+        digestAct(row) {
+          if (!row) return;
+          if (row.item) { this.boardJump(row.item); return; }
+          if (row.hash) { this.goTo(row.hash); }
+        },
         async loadInsights(selectId, silent) {
           if (!silent) this.insightsLoading = true;
           try {
@@ -26463,7 +27252,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async deleteBoard(board) {
           if (!board) return;
-          const ok = await this.uiConfirm({ title: 'Delete board', message: `Delete "${board.name}"? Pinned references are removed (the underlying items are not deleted).`, confirmLabel: 'Delete', danger: true });
+          const ok = await this.uiConfirm({ title: 'Delete workspace', message: `Delete "${board.name}"? Pinned references are removed (the underlying items are not deleted).`, confirmLabel: 'Delete', danger: true });
           if (!ok) return;
           try {
             await this.request('/api/boards/' + encodeURIComponent(board.id), { method: 'DELETE' });
@@ -26857,7 +27646,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Which pin kinds can show their last run/output (with steps & reasoning) or,
         // for chats, their most recent message right on the board card.
         boardPinHasDetail(item) {
-          return !!item && ['task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr'].includes(item.kind);
+          return !!item && ['agent', 'task', 'assignment', 'flow', 'chat', 'comment', 'location', 'pr'].includes(item.kind);
+        },
+        // ── Inline agent chat (agent board cards) ──────────────────────────────
+        // A full-featured chat embedded on an agent card: shows the user turn, the
+        // agent's live thinking/tool activity while it runs, and the final response
+        // with expandable reasoning & steps — no navigation away from the board.
+        // Reuses the shared agent-chat endpoint + poller (same as the main chat).
+        boardAgentChatEnsure(item) {
+          if (!item || !item.refId) return null;
+          if (!this.boardAgentChats[item.refId]) {
+            this.boardAgentChats = {
+              ...this.boardAgentChats,
+              [item.refId]: { messages: [], input: '', sessionId: null, live: null, running: false, error: '' },
+            };
+          }
+          return this.boardAgentChats[item.refId];
+        },
+        boardAgentChatState(item) { return (item && item.refId && this.boardAgentChats[item.refId]) || null; },
+        async boardAgentSend(item) {
+          const st = this.boardAgentChatEnsure(item);
+          if (!st) return;
+          const msg = (st.input || '').trim();
+          if (!msg || st.running) return;
+          st.error = ''; st.input = '';
+          st.messages.push({ role: 'user', content: msg, activity: [], timestamp: Date.now() });
+          st.running = true; st.live = { status: 'Thinking…', steps: [] };
+          try {
+            const r = await this.request('/api/agents/' + encodeURIComponent(item.refId) + '/chat', {
+              method: 'POST',
+              body: JSON.stringify({ message: msg, sessionId: st.sessionId || null }),
+            });
+            if (r && r.sessionId) st.sessionId = r.sessionId;
+            if (!st.sessionId) { st.running = false; st.live = null; st.error = 'Could not start the agent session.'; return; }
+            await this.pollSessionTurn(st.sessionId, {
+              onActivity: ({ steps, elapsed, lastAssistant }) => {
+                const live = this.caLiveSteps(steps);
+                const phase = lastAssistant ? 'Responding' : (live.length ? 'Working' : 'Thinking');
+                st.live = { status: phase + '… ' + elapsed + 's', steps: live };
+              },
+              onError: (m) => { st.live = null; st.running = false; st.error = m || 'Chat failed'; },
+              onDone: ({ response, steps, model }) => {
+                const activity = this.mapAgentSteps(steps);
+                st.messages.push({
+                  role: 'agent',
+                  content: response || '_(The agent finished without a text response. Try rephrasing your message.)_',
+                  activity, model: model || '', timestamp: Date.now(),
+                });
+                st.live = null; st.running = false;
+              },
+            });
+          } catch (e) {
+            st.live = null; st.running = false; st.error = (e && e.message) || 'Chat failed';
+          }
         },
         // Expanded by default; collapsed only if the user collapsed this pin before.
         boardPinIsExpanded(item) {
@@ -27148,7 +27989,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         panelIcon(p) {
           if (p.type === 'summary') return '🧭';
           if (p.type === 'note') return '📝';
-          if (p.type === 'checklist') return '✅';
+          if (p.type === 'checklist') return '📋';
           if (p.type === 'pin') return this.boardKindIcon(p.kind);
           if (p.type === 'dev') return '🧰';
           return '•';
@@ -27214,7 +28055,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         chipIcon(p) {
           if (p.type === 'pin') return this.boardKindIcon(p.kind);
           if (p.type === 'note') return '📝';
-          if (p.type === 'checklist') return '✅';
+          if (p.type === 'checklist') return '📋';
           if (p.type === 'dev') return '🧰';
           return '•';
         },
@@ -27525,8 +28366,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         setActiveSection(id) {
           if (!this.boardCanvas || this.boardCanvas.sec === id) return;
-          this.boardCanvas = { ...this.boardCanvas, sec: id };
+          this.boardEditSecOpen = false;
+          const patch = { sec: id };
+          if (id && id !== 'view') patch.secLast = id;
+          this.boardCanvas = { ...this.boardCanvas, ...patch };
           this._saveBoardCanvas();
+        },
+        // The section a drop should land in. On the View tab (no active section)
+        // we route to the last board section the user was looking at (or the first,
+        // creating one if the board has none yet).
+        _dropSection() {
+          let sec = this.activeSection();
+          if (sec) return sec;
+          const secs = this.boardSections();
+          const last = this.boardCanvas && this.boardCanvas.secLast;
+          sec = (last && this.sectionById(last)) || (secs.length ? secs[0] : null);
+          if (!sec) { this.addSection(); sec = this.boardSections()[0] || null; }
+          return sec;
         },
         // Persist a mutation to the sections array (mutated in place) + keep Alpine
         // reactive by swapping in a fresh array reference.
@@ -27545,6 +28401,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           const sec = this.activeSection();
           if (!sec) return [];
+          this._ensureGeom(sec);
           const out = [];
           for (const c of (sec.cards || [])) { const p = this._panelByBase(c.base); if (p) out.push(p); }
           return out;
@@ -27556,25 +28413,253 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const b = this.panelBaseId(p);
           return (sec.cards || []).some(c => c.base === b);
         },
-        // ----- Card size (per section) -----
+        // ----- Card width (per section, in grid columns) -----
+        _secCols() { return this.sectionCols(); },
+        // Grid column count is per-section and user-adjustable (default 12, 3..24).
+        sectionCols() {
+          const sec = this.activeSection();
+          let n = sec && sec.cols;
+          if (n == null) n = 12;
+          return Math.max(3, Math.min(24, Math.round(n)));
+        },
+        setSectionCols(v) {
+          const sec = this.activeSection(); if (!sec) return;
+          let n = parseInt(v, 10); if (!isFinite(n)) n = 12;
+          n = Math.max(3, Math.min(24, n));
+          if (sec.cols === n) return;
+          sec.cols = n;
+          // Re-clamp any card that was wider than the new column count.
+          (sec.cards || []).forEach(c => { if (c.w != null && c.w > n) c.w = n; });
+          this._touchSections();
+        },
+        bumpSectionCols(d) { this.setSectionCols(this.sectionCols() + d); },
+        // Drag the splitter to resize the left toolbox tray.
+        startTbxResize(ev) {
+          const startX = ev.clientX;
+          const startW = this.boardTbxW || 216;
+          const self = this;
+          const move = (e) => {
+            const w = Math.max(150, Math.min(460, startW + (e.clientX - startX)));
+            self.boardTbxW = w;
+          };
+          const up = () => {
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            document.body.classList.remove('board-tbx-resizing');
+            try { localStorage.setItem('board-tbx-w', String(self.boardTbxW)); } catch (e) {}
+          };
+          document.addEventListener('mousemove', move);
+          document.addEventListener('mouseup', up);
+          document.body.classList.add('board-tbx-resizing');
+        },
         _activeCard(p) {
           const sec = this.activeSection(); if (!sec) return null;
           const b = this.panelBaseId(p);
           return (sec.cards || []).find(c => c.base === b) || null;
         },
-        cardSize(p) {
-          if (this.isViewTab()) return 'view';
+        cardW(p) {
+          const cols = this._secCols();
+          if (this.isViewTab()) return cols;
           const c = this._activeCard(p);
-          return (c && c.size) || 'sm';
+          let w = c && c.w;
+          if (w == null) {
+            // migrate legacy size buckets → column width
+            const s = c && c.size;
+            w = (s === 'full' || s === 'wide') ? cols : Math.round(cols / 2);
+          }
+          return Math.max(1, Math.min(cols, Math.round(w)));
         },
-        cycleCardSize(p) {
-          const c = this._activeCard(p); if (!c) return;
-          const order = ['sm', 'wide', 'tall', 'big'];
-          c.size = order[(order.indexOf(c.size) + 1) % order.length] || 'sm';
+        setCardW(p, w) {
+          const sec = this.activeSection(); const c = this._activeCard(p); if (!sec || !c) return;
+          const cols = this._secCols();
+          const nw = Math.max(1, Math.min(cols, Math.round(w)));
+          if (c.w === nw) return;
+          c.w = nw; if ('size' in c) delete c.size;
+          this._resolveSection(sec, c);
+        },
+        cycleCardW(p) {
+          const cols = this._secCols();
+          const order = [Math.round(cols / 3), Math.round(cols / 2), Math.round(cols * 2 / 3), cols]; // ~33/50/66/100%
+          const cur = this.cardW(p);
+          let i = order.findIndex(w => w > cur);
+          if (i === -1) i = 0;
+          this.setCardW(p, order[i]);
+        },
+        cardWLabel(p) {
+          const cols = this._secCols(); const w = this.cardW(p);
+          return w >= cols ? 'Full width' : Math.round(w / cols * 100) + '%';
+        },
+        startCardResize(p, ev) {
+          const cardEl = ev.currentTarget.closest('.board-card');
+          const gridEl = ev.currentTarget.closest('.board-sec-grid');
+          if (!cardEl || !gridEl) return;
+          const cols = this._secCols();
+          const zoom = this.sectionZoom() || 1;
+          const colW = Math.max(1, gridEl.clientWidth / cols); // layout px per column
+          const leftPx = cardEl.getBoundingClientRect().left;  // scaled screen px
+          const self = this;
+          const move = (e) => {
+            const layoutW = (e.clientX - leftPx) / zoom;        // width from card's left edge to cursor, in layout px
+            self.setCardW(p, layoutW / colW);
+          };
+          const up = () => {
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            document.body.classList.remove('board-resizing');
+            self._saveBoardCanvas();
+          };
+          document.addEventListener('mousemove', move);
+          document.addEventListener('mouseup', up);
+          document.body.classList.add('board-resizing');
+        },
+        // ----- Positional grid geometry (gridstack-style x/y/w/h in grid units) -----
+        _rowU() { return 22; },                 // px per grid row track (gap:0 grid)
+        _secColsOf(sec) { let n = sec && sec.cols; if (n == null) n = 12; return Math.max(3, Math.min(24, Math.round(n))); },
+        _cardDefaultH(base) {
+          const p = this._panelByBase(base); const t = p && p.type;
+          // Compact starting heights (rows @ 22px) so newly-placed cards pack tightly
+          // near the top with no dead space; the ⤢ Expand-to-fit tool grows any that
+          // actually need more room.
+          if (t === 'pin') return 10; if (t === 'dev') return 12; if (t === 'summary') return 10;
+          if (t === 'checklist') return 9; if (t === 'note') return 7; return 9;
+        },
+        _cardDefaultW(sec, base) {
+          const cols = this._secColsOf(sec); const p = this._panelByBase(base);
+          const wide = p && (p.width === 'full' || p.width === 'wide');
+          return wide ? cols : Math.round(cols / 2);
+        },
+        _overlap(a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; },
+        // First free top-left footprint for a w×h card among already-placed cards.
+        _firstFit(placed, w, h, cols) {
+          for (let y = 0; y < 400; y++) {
+            for (let x = 0; x + w <= cols; x++) {
+              const cand = { x, y, w, h };
+              if (!placed.some(p => this._overlap(p, cand))) return { x, y };
+            }
+          }
+          return { x: 0, y: 0 };
+        },
+        // Ensure every card has {x,y,w,h}. Legacy cards (w only, or size buckets) get
+        // auto-packed in reading order. Mutates in place; idempotent; quiet-persists.
+        _ensureGeom(sec) {
+          if (!sec) return;
+          const cols = this._secColsOf(sec);
+          const cards = sec.cards || (sec.cards = []);
+          let changed = false;
+          cards.forEach(c => {
+            if (c.w == null) {
+              const s = c.size;
+              c.w = (s === 'full' || s === 'wide') ? cols : this._cardDefaultW(sec, c.base);
+              changed = true;
+            }
+            const cw = Math.max(1, Math.min(cols, Math.round(c.w)));
+            if (cw !== c.w) { c.w = cw; changed = true; }
+            if (c.h == null) { c.h = this._cardDefaultH(c.base); changed = true; }
+            if ('size' in c) { delete c.size; changed = true; }
+          });
+          const placed = cards.filter(c => c.x != null && c.y != null);
+          cards.forEach(c => {
+            if (c.x == null || c.y == null) {
+              const pos = this._firstFit(placed, c.w, c.h, cols);
+              c.x = pos.x; c.y = pos.y; placed.push(c); changed = true;
+            }
+          });
+          if (changed) { try { this._saveBoardCanvas(); } catch (e) {} }
+        },
+        // Keep `moved` fixed; cascade every other card downward until nothing overlaps.
+        _resolveSection(sec, moved) {
+          const cols = this._secColsOf(sec);
+          const cards = sec.cards || [];
+          moved.w = Math.max(1, Math.min(cols, Math.round(moved.w)));
+          moved.h = Math.max(1, Math.round(moved.h));
+          moved.x = Math.max(0, Math.min(cols - moved.w, Math.round(moved.x)));
+          moved.y = Math.max(0, Math.round(moved.y));
+          const others = cards.filter(c => c !== moved).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+          const placed = [moved];
+          others.forEach(c => {
+            c.w = Math.max(1, Math.min(cols, Math.round(c.w)));
+            c.x = Math.max(0, Math.min(cols - c.w, Math.round(c.x)));
+            c.y = Math.max(0, Math.round(c.y));
+            let guard = 0;
+            while (placed.some(p => this._overlap(p, c)) && guard++ < 500) c.y++;
+            placed.push(c);
+          });
           this._touchSections();
         },
-        cardSizeLabel(p) {
-          return ({ sm: 'Small', wide: 'Wide', tall: 'Tall', big: 'Large' })[this.cardSize(p)] || 'Small';
+        // Live geometry for a rendered panel's card in the active section.
+        cardGeom(p) {
+          const c = this._activeCard(p); if (!c) return { x: 0, y: 0, w: this._secCols(), h: 12 };
+          return { x: c.x || 0, y: c.y || 0, w: c.w || Math.round(this._secCols() / 2), h: c.h || 12 };
+        },
+        cardGridStyle(p) {
+          const g = this.cardGeom(p);
+          return 'grid-column:' + (g.x + 1) + ' / span ' + g.w + ';grid-row:' + (g.y + 1) + ' / span ' + g.h + ';';
+        },
+        cardH(p) { const c = this._activeCard(p); return (c && c.h) || this._cardDefaultH(this.panelBaseId(p)); },
+        setCardH(p, h) {
+          const sec = this.activeSection(); const c = this._activeCard(p); if (!sec || !c) return;
+          const nh = Math.max(2, Math.round(h)); if (c.h === nh) return;
+          c.h = nh; this._resolveSection(sec, c);
+        },
+        // Drag the bottom edge to resize height (snaps to whole grid rows) + push down.
+        startCardVResize(p, ev) {
+          const cardEl = ev.currentTarget.closest('.board-card'); if (!cardEl) return;
+          const zoom = this.sectionZoom() || 1;
+          const rowH = this._rowU();
+          const topPx = cardEl.getBoundingClientRect().top;
+          const self = this;
+          const move = (e) => { const layoutH = (e.clientY - topPx) / zoom; self.setCardH(p, layoutH / rowH); };
+          const up = () => {
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            document.body.classList.remove('board-resizing-v');
+            self._saveBoardCanvas();
+          };
+          document.addEventListener('mousemove', move);
+          document.addEventListener('mouseup', up);
+          document.body.classList.add('board-resizing-v');
+        },
+        // Grow a card just enough that its content no longer scrolls — horizontally
+        // (widen in columns) and/or vertically (add rows). Width is applied first, then
+        // height is measured after the reflow so a wider card reports its true height.
+        expandCardToFit(p, ev) {
+          const sec = this.activeSection(); const c = this._activeCard(p); if (!sec || !c) return;
+          const cardEl = ev && ev.currentTarget ? ev.currentTarget.closest('.board-card') : null;
+          if (!cardEl) return;
+          const cols = this._secColsOf(sec);
+          const zoom = this.sectionZoom() || 1;
+          const rowH = this._rowU();
+          const grid = cardEl.closest('.board-sec-grid');
+          const colW = grid ? Math.max(1, (grid.getBoundingClientRect().width / zoom) / cols) : 0;
+          const innerOf = (el) => el.querySelector('.board-panel-inner') || el.querySelector('.board-panel') || el;
+          // 1) Widen if the content overflows sideways (e.g. wide tables / code).
+          const inner = innerOf(cardEl);
+          if (colW && inner) {
+            const overW = inner.scrollWidth - inner.clientWidth;
+            if (overW > 4) {
+              const add = Math.ceil(overW / colW);
+              c.w = Math.max(1, Math.min(cols, (c.w || 1) + add));
+              c.x = Math.max(0, Math.min(cols - c.w, c.x || 0));
+              this._resolveSection(sec, c);
+            }
+          }
+          // 2) After the width reflows, grow height to fit the full content.
+          this.$nextTick(() => {
+            const inner2 = innerOf(cardEl);
+            const contentH = inner2 ? inner2.scrollHeight : 0;
+            if (contentH && rowH) {
+              const rows = Math.ceil((contentH + 10) / rowH);
+              const nh = Math.max(2, Math.min(80, rows));
+              if (nh !== c.h) { c.h = nh; this._resolveSection(sec, c); }
+            }
+          });
+        },
+
+        sectionShowGrid() { const s = this.activeSection(); return !!(s && s.showGrid); },
+        toggleSectionGrid() {
+          const s = this.activeSection(); if (!s) return;
+          s.showGrid = !s.showGrid;
+          this._touchSections();
         },
         // ----- Per-section zoom (transform scale on the grid) -----
         sectionZoom() {
@@ -27590,14 +28675,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bumpSectionZoom(d) { this.setSectionZoom(this.sectionZoom() + d); },
         sectionGridStyle() {
+          const cols = this.sectionCols();
           const z = this.sectionZoom();
-          if (!z || z === 1) return '';
-          return 'transform:scale(' + z + ');transform-origin:top left;width:' + (100 / z).toFixed(3) + '%;';
+          const ru = this._rowU();
+          // Column template + fixed row unit; guides drawn on both axes (cols + rows).
+          let s = 'grid-template-columns:repeat(' + cols + ',1fr);grid-auto-rows:' + ru + 'px;'
+                + 'background-size:calc(100% / ' + cols + ') 100%, 100% ' + ru + 'px;';
+          if (z && z !== 1) s += 'transform:scale(' + z + ');transform-origin:top left;width:' + (100 / z).toFixed(3) + '%;';
+          return s;
         },
         // ----- Section CRUD -----
         addSection() {
           const secs = this.boardSections().slice();
-          const s = { id: this._newSectionId(), name: 'New section', icon: '🗂', zoom: 1, starred: false, cards: [] };
+          const s = { id: this._newSectionId(), name: 'New section', icon: '🗂', zoom: 1, cols: 12, starred: false, showGrid: false, cards: [] };
           secs.push(s);
           this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: s.id };
           this._saveBoardCanvas();
@@ -27630,36 +28720,107 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const b = this.boardCanvas && this.boardCanvas.viewBase;
           return b ? this._panelByBase(b) : null;
         },
-        // ----- Card placement: add / reorder / remove -----
-        addCardToSection(sectionId, base, atIndex) {
+        // ----- Card placement: add / move (positional) / remove -----
+        // Place `base` in a section at grid cell (x,y). Null x/y → first free footprint.
+        // Existing cards get moved; collisions cascade the others downward.
+        placeCard(sectionId, base, x, y) {
           const s = this.sectionById(sectionId); if (!s || !base) return;
+          this._ensureGeom(s);
           s.cards = (s.cards || []).slice();
-          const existing = s.cards.findIndex(c => c.base === base);
-          if (existing !== -1) {
-            const [card] = s.cards.splice(existing, 1);
-            let idx = (atIndex == null) ? s.cards.length : atIndex;
-            if (existing < idx) idx--;
-            s.cards.splice(Math.max(0, Math.min(s.cards.length, idx)), 0, card);
-          } else {
-            let idx = (atIndex == null) ? s.cards.length : atIndex;
-            s.cards.splice(Math.max(0, Math.min(s.cards.length, idx)), 0, { base, size: 'sm' });
+          const cols = this._secColsOf(s);
+          let c = s.cards.find(cc => cc.base === base);
+          if (!c) {
+            c = { base, w: this._cardDefaultW(s, base), h: this._cardDefaultH(base), x: null, y: null };
+            s.cards.push(c);
           }
-          this._touchSections();
+          if (x == null || y == null) {
+            const others = s.cards.filter(cc => cc !== c && cc.x != null && cc.y != null);
+            const pos = this._firstFit(others, c.w, c.h, cols);
+            c.x = pos.x; c.y = pos.y;
+          } else {
+            c.x = Math.max(0, Math.min(cols - c.w, Math.round(x)));
+            c.y = Math.max(0, Math.round(y));
+          }
+          this._resolveSection(s, c);
         },
+        // Back-compat shim (kept for any other callers): append at first free slot.
+        addCardToSection(sectionId, base) { this.placeCard(sectionId, base, null, null); },
         removeCardFromSection(p) {
           const s = this.activeSection(); if (!s) return;
           const b = this.panelBaseId(p);
           s.cards = (s.cards || []).filter(c => c.base !== b);
           this._touchSections();
         },
-        // ----- Drag & drop (toolbox → section, card reorder) -----
+        // Remove EVERY card from the active section (the underlying items stay on the
+        // board and in the toolbox — this only clears the section's placements).
+        clearSection() {
+          const s = this.activeSection(); if (!s) return;
+          if (!(s.cards || []).length) return;
+          if (!window.confirm('Clear all cards from "' + (s.name || 'this section') + '"? The items stay on the board and in the toolbox — only their placement on this section is removed.')) return;
+          s.cards = [];
+          this._touchSections();
+        },
+        // Remove the item from the BOARD entirely (unpin a pin / delete a note or
+        // checklist / remove a dev card), then purge any dangling card refs it left in
+        // every section. Reuses the shared confirmRemovePanel flow.
+        async removeCardFromBoard(p) {
+          if (!p) return;
+          const base = this.panelBaseId(p);
+          await this.confirmRemovePanel(p);
+          if (!this._panelByBase(base)) this._purgeBaseFromSections(base);
+        },
+        _purgeBaseFromSections(base) {
+          const secs = this.boardSections();
+          let changed = false;
+          secs.forEach(s => {
+            const before = (s.cards || []).length;
+            s.cards = (s.cards || []).filter(c => c.base !== base);
+            if (s.cards.length !== before) changed = true;
+          });
+          if (changed) this._touchSections();
+        },
+        // Toggle the always-visible trash drop-target on/off (persisted globally).
+        toggleBoardTrash() {
+          this.boardTrashOn = !this.boardTrashOn;
+          try { localStorage.setItem('board-trash-on', this.boardTrashOn ? '1' : '0'); } catch (e) {}
+        },
+        // A card was dropped on the trash — remove that item from the board entirely.
+        async onTrashDrop(ev) {
+          const base = this._dragBase(ev);
+          this._boardCardDrag = null;
+          this._boardTrashOver = false;
+          this._boardDragOver = false;
+          if (!base) return;
+          const p = this._panelByBase(base);
+          if (p) { await this.removeCardFromBoard(p); }
+          else { this._purgeBaseFromSections(base); }
+        },
+        // On drag-start immediately switch to the target board section so the user can
+        // see where the drop will land (instead of waiting for release).
         onToolboxDragStart(base, ev) {
-          this._boardCardDrag = { base };
+          this._boardCardDrag = { base, grabX: 0, grabY: 0 };
           try { ev.dataTransfer.effectAllowed = 'copyMove'; ev.dataTransfer.setData('text/plain', 'card:' + base); } catch {}
+          const sec = this._dropSection();
+          if (sec && this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
         },
         onCardDragStart(p, ev) {
-          this._boardCardDrag = { base: this.panelBaseId(p) };
-          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', 'card:' + this.panelBaseId(p)); } catch {}
+          const base = this.panelBaseId(p);
+          // Record where within the card the pointer grabbed, in SCREEN pixels, so the
+          // grabbed point stays exactly under the cursor on drop. On drop we compute the
+          // card's LEFT/TOP edge from (cursor − grab-offset) in one rounding pass, which
+          // avoids the double-rounding gap the old cell-then-subtract math produced.
+          let grabX = 0, grabY = 0;
+          const cardEl = ev.currentTarget.closest('.board-card');
+          if (cardEl) {
+            const r = cardEl.getBoundingClientRect();
+            grabX = ev.clientX - r.left;
+            grabY = ev.clientY - r.top;
+            try { ev.dataTransfer.setDragImage(cardEl, grabX, grabY); } catch {}
+          }
+          this._boardCardDrag = { base, grabX, grabY };
+          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', 'card:' + base); } catch {}
+          const sec = this._dropSection();
+          if (sec && this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
         },
         onCardDragEnd() { this._boardCardDrag = null; },
         _dragBase(ev) {
@@ -27671,33 +28832,44 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const base = this._dragBase(ev);
           this._boardCardDrag = null;
           if (!base) return;
-          this.addCardToSection(sectionId, base, null);
+          this.placeCard(sectionId, base, null, null);
           this.setActiveSection(sectionId);
         },
         onGridDragOver(ev) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch {} },
         onGridDrop(ev) {
           ev.preventDefault();
           const base = this._dragBase(ev);
+          const onView = this.isViewTab();
+          const drag = this._boardCardDrag;
           this._boardCardDrag = null;
-          const sec = this.activeSection();
-          if (!base || !sec) return;
-          const idx = this._gridInsertIndex(ev);
-          this.addCardToSection(sec.id, base, idx);
+          if (!base) return;
+          const sec = this._dropSection();
+          if (!sec) return;
+          if (this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
+          // From the View tab there's no grid to hit-test → first free slot.
+          if (onView) { this.placeCard(sec.id, base, null, null); return; }
+          const grabX = (drag && drag.grabX) || 0;
+          const grabY = (drag && drag.grabY) || 0;
+          const cell = this._gridDropCell(ev, sec, grabX, grabY);
+          this.placeCard(sec.id, base, cell.x, cell.y);
         },
-        // Closest-card-center insert index within the active grid.
-        _gridInsertIndex(ev) {
-          const host = ev.currentTarget;
-          const cards = host ? Array.from(host.querySelectorAll('[data-card-base]')) : [];
-          if (!cards.length) return null;
-          const x = ev.clientX, y = ev.clientY;
-          let best = cards.length, bestD = Infinity;
-          cards.forEach((el, i) => {
-            const r = el.getBoundingClientRect();
-            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-            const d = Math.hypot(x - cx, y - cy);
-            if (d < bestD) { bestD = d; best = (x < cx) ? i : i + 1; }
-          });
-          return best;
+        // Snap the grabbed point to a grid cell. grabX/grabY (screen px) is the offset of
+        // the cursor from the card's top-left; we subtract it so the card's LEFT/TOP edge —
+        // not the cursor — lands on the cell, then round ONCE.
+        _gridDropCell(ev, sec, grabX = 0, grabY = 0) {
+          const grid = ev.currentTarget.querySelector('.board-sec-grid') || ev.currentTarget;
+          const r = grid.getBoundingClientRect();
+          const cols = this._secColsOf(sec);
+          const zoom = this.sectionZoom() || 1;
+          const colW = Math.max(1, (r.width / zoom) / cols);
+          const rowH = this._rowU();
+          const lx = (ev.clientX - r.left - grabX) / zoom;
+          const ly = (ev.clientY - r.top - grabY) / zoom;
+          let x = Math.round(lx / colW);
+          let y = Math.round(ly / rowH);
+          if (!isFinite(x) || x < 0) x = 0;
+          if (!isFinite(y) || y < 0) y = 0;
+          return { x, y };
         },
         // ----- Section star → quick launch -----
         isSectionStarred(id) { const s = this.sectionById(id); return !!(s && s.starred); },
@@ -28039,7 +29211,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _railGroupIcon(p) {
           if (!p) return '📌';
           if (p.type === 'note') return '📝';
-          if (p.type === 'checklist') return '✅';
+          if (p.type === 'checklist') return '📋';
           if (p.type === 'dev') return '🧰';
           return this.boardKindIcon(p.kind);
         },
@@ -28128,10 +29300,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Tooltip/label for the per-tab and per-panel remove control.
         panelRemoveLabel(p) {
           if (!p) return 'Remove';
-          if (p.type === 'pin') return 'Unpin from this board';
+          if (p.type === 'pin') return 'Unpin from this workspace';
           if (p.type === 'note') return 'Delete this note';
           if (p.type === 'checklist') return 'Delete this checklist';
-          if (p.type === 'dev') return 'Remove from board';
+          if (p.type === 'dev') return 'Remove from workspace';
           return 'Remove';
         },
         // Remove a panel's underlying item, with a confirmation. Pins are unpinned
@@ -28140,18 +29312,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!p) return;
           if (p.type === 'pin') {
             const name = (p.item && (p.item.label || p.item.refId)) || 'this item';
-            const ok = await this.uiConfirm({ title: 'Unpin item', message: 'Remove "' + name + '" from this board? The underlying ' + this.boardKindLabel(p.kind).toLowerCase() + ' is not deleted — only its pin on this board.', confirmLabel: 'Unpin', danger: true });
+            const ok = await this.uiConfirm({ title: 'Unpin item', message: 'Remove "' + name + '" from this workspace? The underlying ' + this.boardKindLabel(p.kind).toLowerCase() + ' is not deleted — only its pin on this workspace.', confirmLabel: 'Unpin', danger: true });
             if (ok) await this.unpinItem(p.item);
           } else if (p.type === 'note') {
-            const ok = await this.uiConfirm({ title: 'Delete note', message: 'Delete this note from the board? This cannot be undone.', confirmLabel: 'Delete', danger: true });
+            const ok = await this.uiConfirm({ title: 'Delete note', message: 'Delete this note from the workspace? This cannot be undone.', confirmLabel: 'Delete', danger: true });
             if (ok) await this.deleteBoardNote(p.note);
           } else if (p.type === 'checklist') {
             const name = (p.checklist && p.checklist.title) || 'this checklist';
-            const ok = await this.uiConfirm({ title: 'Delete checklist', message: 'Delete "' + name + '" from the board? This cannot be undone.', confirmLabel: 'Delete', danger: true });
+            const ok = await this.uiConfirm({ title: 'Delete checklist', message: 'Delete "' + name + '" from the workspace? This cannot be undone.', confirmLabel: 'Delete', danger: true });
             if (ok) await this.deleteChecklist(p.checklist);
           } else if (p.type === 'dev') {
             const name = (p.dev && (p.dev.title || p.dev.repo)) || 'this dev card';
-            const ok = await this.uiConfirm({ title: 'Remove dev card', message: 'Remove "' + name + '" from the board? Its worktree folder on disk is left intact (remove it separately first if you want it deleted).', confirmLabel: 'Remove', danger: true });
+            const ok = await this.uiConfirm({ title: 'Remove dev card', message: 'Remove "' + name + '" from the workspace? Its worktree folder on disk is left intact (remove it separately first if you want it deleted).', confirmLabel: 'Remove', danger: true });
             if (ok) await this.deleteDevItem(p.dev);
           }
         },
@@ -28610,12 +29782,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         panelStyle(id) {
           if (this.boardIsTabbed()) {
-            // Tabbed view: ONLY the active tab's panel renders, full-width in the main
-            // column. Visibility is owned here (the single writer of the style attribute)
-            // rather than a competing x-show — an x-show display:none gets clobbered when
-            // :style re-evaluates, which is why every panel used to leak through.
-            const base = String(id || '').replace(/^pv:/, '');
-            if (base !== this.activeTabId()) return 'display:none !important;';
+            // Sections studio: every card renders its panel full-size inside its own grid
+            // cell (the `.board-card > .board-panel` CSS neutralizes absolute positioning).
+            // No more single active-tab gating — that display:none belonged to the old
+            // one-panel tab view and was hiding every card except one (and blanking the
+            // Card View when the focused item wasn't the "active tab").
             return 'position:relative; left:auto; top:auto; width:100%; height:auto; padding:0; display:block;';
           }
           const cols = this.boardCols, rowH = this.boardRowH, gap = this.boardGap;
@@ -30296,7 +31467,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const board = this.activeBoard();
           if (!board) { this.showToast('Board', 'Open a board first', 'error'); return; }
           const panels = this.boardPanels();
-          if (!panels.length) { this.showToast('Board', 'Nothing on this board yet', 'info'); return; }
+          if (!panels.length) { this.showToast('Workspace', 'Nothing on this workspace yet', 'info'); return; }
           if (this._ensureBoardLease) this._ensureBoardLease();
           const abort = new AbortController();
           this._aiLayoutAbort = abort;
@@ -30453,7 +31624,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const notes = [...(board.notes || []), { id, text: '', createdAt: new Date().toISOString() }];
           await this._patchBoard(board, { notes });
           this.scheduleAutoFit();
-          this.$nextTick(() => { this.boardEditingNote = id; });
+          // Reveal the new note full-size in Card View so the user can type its content
+          // straight away (in the sections model a blank note otherwise has nowhere visible to fill in).
+          this.boardCanvas = { ...this.boardCanvas, sec: 'view', viewBase: 'note:' + id };
+          this._saveBoardCanvas();
+          this.$nextTick(() => {
+            this.boardEditingNote = id;
+            this.$nextTick(() => {
+              try {
+                const ta = this.$root.querySelector('.board-sec-grid [data-pid$="' + id + '"] textarea')
+                  || document.querySelector('.board-sec-grid textarea');
+                if (ta) { ta.focus(); }
+              } catch (e) {}
+            });
+          });
         },
         async updateBoardNote(note, text) {
           const board = this.activeBoard();
@@ -31959,6 +33143,138 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = Math.floor(s / 60), r = s % 60;
           return m + ':' + String(r).padStart(2, '0');
         },
+        // Resolve a section from an assistant action by id first, then by
+        // case-insensitive name match (the model may reference either).
+        _secResolve(id, name) {
+          if (id) { const s = this.sectionById(id); if (s) return s; }
+          if (name) {
+            const w = String(name).toLowerCase().trim();
+            const s = this.boardSections().find(x => String(x.name || '').toLowerCase().trim() === w);
+            if (s) return s;
+          }
+          return null;
+        },
+        // Resolve a card base from an assistant action by base first, then by
+        // panel-title match (exact, then substring).
+        _baseResolve(base, title) {
+          if (base && this._panelByBase(base)) return base;
+          if (title) {
+            const w = String(title).toLowerCase().trim();
+            const p = this.boardPanels().find(x => String(this.panelTitle(x) || '').toLowerCase().trim() === w)
+              || this.boardPanels().find(x => String(this.panelTitle(x) || '').toLowerCase().includes(w));
+            if (p) return this.panelBaseId(p);
+          }
+          return (base && this._panelByBase(base)) ? base : null;
+        },
+        // Apply a presentation-only section action (add/rename/delete section,
+        // place/move/remove card) against the live sections model. Returns true
+        // when the change landed, false if the target couldn't be resolved.
+        applyBoardSectionAction(a) {
+          if (!this.boardCanvas) return false;
+          if (a.type === 'add_section') {
+            this.addSection();
+            const secs = this.boardSections();
+            const s = secs[secs.length - 1];
+            if (s) { if (a.name) s.name = a.name; if (a.icon) s.icon = a.icon; this._touchSections(); }
+            return true;
+          }
+          if (a.type === 'rename_section') {
+            const s = this._secResolve(a.sectionId, a.sectionName);
+            if (!s || !a.name) return false;
+            s.name = a.name; this._touchSections(); return true;
+          }
+          if (a.type === 'delete_section') {
+            const s = this._secResolve(a.sectionId, a.sectionName);
+            if (!s) return false;
+            const secs = this.boardSections().slice();
+            const i = secs.findIndex(x => x.id === s.id);
+            if (i === -1) return false;
+            this._removeSectionQuick(s.id);
+            secs.splice(i, 1);
+            const nextSec = secs.length ? secs[Math.max(0, i - 1)].id : 'view';
+            this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: nextSec };
+            this._saveBoardCanvas();
+            return true;
+          }
+          if (a.type === 'place_card') {
+            const s = this._secResolve(a.sectionId, a.sectionName);
+            const base = this._baseResolve(a.base, a.cardTitle);
+            if (!s || !base) return false;
+            this.placeCard(s.id, base, null, null);
+            return true;
+          }
+          if (a.type === 'move_card') {
+            const to = this._secResolve(a.toSectionId, a.toSectionName);
+            const base = this._baseResolve(a.base, a.cardTitle);
+            if (!to || !base) return false;
+            const from = this._secResolve(a.fromSectionId, a.fromSectionName);
+            const sources = from ? [from] : this.boardSections().filter(x => x.id !== to.id);
+            sources.forEach(sec => { sec.cards = (sec.cards || []).filter(c => c.base !== base); });
+            this.placeCard(to.id, base, null, null); // persists via _resolveSection→_touchSections
+            this._touchSections();
+            return true;
+          }
+          if (a.type === 'remove_card') {
+            const s = this._secResolve(a.sectionId, a.sectionName);
+            const base = this._baseResolve(a.base, a.cardTitle);
+            if (!s || !base) return false;
+            s.cards = (s.cards || []).filter(c => c.base !== base);
+            this._touchSections();
+            return true;
+          }
+          return false;
+        },
+        // Snapshot of the CLIENT-SIDE sections model (which the server has no
+        // knowledge of) so the assistant can reason about the current board
+        // layout: the sections/tabs, the cards on each, and the catalog of board
+        // items it can place. Sent as `clientContext` on every assistant call.
+        _boardSectionsContext() {
+          try {
+            const secs = this.boardSections();
+            const panels = this.boardPanels();
+            const baseTitle = {};
+            panels.forEach(p => { try { baseTitle[this.panelBaseId(p)] = this.panelTitle(p); } catch {} });
+            const activeId = this.activeSectionId();
+            const activeSec = secs.find(s => s.id === activeId);
+            const activeName = this.isViewTab() ? 'Card View' : (activeSec ? (activeSec.name || activeId) : '(none)');
+            const lines = [];
+            lines.push('## BOARD SECTIONS (current view)');
+            lines.push('This workspace is organized into SECTIONS — also called BOARDS or TABS; the three');
+            lines.push('words mean the same thing. Each board is a canvas holding CARDS; a card is a');
+            lines.push('reference to a workspace item (note / checklist / pin / dev card / briefing) placed');
+            lines.push('on that board. The SAME item can appear on multiple boards. Card positions are');
+            lines.push('AUTOMATIC (packed top-left, no gaps) — there is no manual x/y, so "move to the top",');
+            lines.push('"line up", or "tidy" need no action. There is NO legacy free-form "pins" canvas and');
+            lines.push('NO old per-panel "tabs" layout — arrange ONLY with section actions (add_section,');
+            lines.push('rename_section, delete_section, place_card, move_card, remove_card).');
+            lines.push('CURRENT BOARD the user is looking at: "' + activeName + '"' + (activeSec ? ' (id=' + activeSec.id + ')' : '') + '. "the board"/"this board"/"the top of the board" all refer to THIS one — never a section literally named "Board".');
+            lines.push('');
+            if (!secs.length) {
+              lines.push('(no sections yet — propose add_section to create one)');
+            } else {
+              secs.forEach(s => {
+                const cards = (s.cards || []).map(c => {
+                  const t = baseTitle[c.base];
+                  return (t ? t + ' ' : '') + '[base=' + c.base + ']';
+                });
+                lines.push('- BOARD id=' + s.id + ' name="' + (s.name || '') + '"'
+                  + (s.id === activeId ? ' (CURRENT)' : '')
+                  + (s.starred ? ' (starred)' : '')
+                  + (cards.length ? ' — cards: ' + cards.join('; ') : ' — (empty)'));
+              });
+            }
+            lines.push('');
+            lines.push('## AVAILABLE CARDS (board items placeable via place_card / move_card, by their base)');
+            if (!panels.length) {
+              lines.push('(none yet)');
+            } else {
+              panels.forEach(p => {
+                try { lines.push('- ' + this.panelTitle(p) + ' [base=' + this.panelBaseId(p) + ']'); } catch {}
+              });
+            }
+            return lines.join('\n');
+          } catch (e) { return ''; }
+        },
         async sendBoardAssistant() {
           const board = this.activeBoard();
           const text = (this.boardAssistant.input || '').trim();
@@ -31973,9 +33289,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const history = this.boardAssistant.messages
             .filter(m => m.role === 'user' || m.role === 'assistant')
             .map(m => ({ role: m.role, content: m.content }));
+          const clientContext = this._boardSectionsContext();
           try {
             const r = await this.request('/api/boards/' + encodeURIComponent(board.id) + '/assistant', {
-              method: 'POST', body: JSON.stringify({ message: text, history })
+              method: 'POST', body: JSON.stringify({ message: text, history, clientContext })
             });
             const actions = (r.actions || []).map(a => ({ ...a, _applied: false, _dismissed: false, _running: false }));
             this.boardAssistant.messages.push({ role: 'assistant', content: r.reply || 'Done.', actions });
@@ -32005,6 +33322,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'pin_agent' || a.type === 'pin_item') return 'Pin';
           if (a.type === 'pr_action') return a.op === 'remove' ? '🗑 Remove' : 'Run';
           if (a.type === 'set_layout') return '✨ Apply';
+          if (a.type === 'add_section') return '＋ Add';
+          if (a.type === 'delete_section') return '🗑 Delete';
+          if (a.type === 'rename_section') return 'Rename';
+          if (a.type === 'place_card' || a.type === 'move_card') return 'Apply';
+          if (a.type === 'remove_card') return '🗑 Remove';
           if (a.destructive) return '🗑 Delete';
           return 'Apply';
         },
@@ -32016,6 +33338,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'pin_agent' || a.type === 'pin_item') return '✓ pinned';
           if (a.type === 'pr_action') return '✓ done';
           if (a.type === 'set_layout') return '✓ applied';
+          if (a.type === 'add_section') return '✓ added';
+          if (a.type === 'delete_section') return '✓ deleted';
+          if (a.type === 'rename_section') return '✓ renamed';
+          if (a.type === 'place_card') return '✓ added';
+          if (a.type === 'move_card') return '✓ moved';
+          if (a.type === 'remove_card') return '✓ removed';
           if (a.type === 'replace_dev_link') return '✓ replaced';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
@@ -32033,6 +33361,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const applied = this.applyLayoutAction(a);
             if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Layout') + ' applied', 'success'); }
             else this.showToast('Board assistant', 'Open a board first', 'error');
+            return;
+          }
+          // Presentation-only SECTION actions: applied client-side against the
+          // per-board sections model (the server has no knowledge of sections),
+          // mirroring set_layout — never routed through _patchBoard.
+          const SECTION_TYPES = ['add_section', 'rename_section', 'delete_section', 'place_card', 'move_card', 'remove_card'];
+          if (SECTION_TYPES.includes(a.type)) {
+            const applied = this.applyBoardSectionAction(a);
+            if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Section change') + ' applied', 'success'); }
+            else this.showToast('Board assistant', "Couldn't apply that section change", 'error');
             return;
           }
           const now = new Date().toISOString();
@@ -32288,7 +33626,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Create a new board inline from the quick-pin picker, then pin into it.
         async quickPinNewBoard() {
-          const name = (this.quickPin.label || 'New board').slice(0, 40);
+          const name = (this.quickPin.label || 'New workspace').slice(0, 40);
           const defOrg = this.currentTeamId === 'all' ? null : this.currentTeamId;
           try {
             const resp = await this.request('/api/boards', { method: 'POST', body: JSON.stringify({ name, emoji: '📌', teamId: defOrg }) });

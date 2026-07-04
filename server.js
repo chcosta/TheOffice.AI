@@ -13232,7 +13232,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   }
 
   const prompt = [
-    `You are reviewing a work board named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections, and any DEV CARDS (active development work — an Azure DevOps work item + pull request + git worktree, with a status summary). Checklist lines marked "[x]" are done and "[ ]" are still open.`,
+    `You are reviewing a workspace named "${b.name}". Below is recent context: items the user pinned (conversation transcripts, run output, or messages), plus the user's own NOTES and CHECKLIST sections, and any DEV CARDS (active development work — an Azure DevOps work item + pull request + git worktree, with a status summary). Checklist lines marked "[x]" are done and "[ ]" are still open.`,
     'Each pinned-item section is headed "### KIND: Name [source link: <route>]". The route after "source link:" is the primary source for everything in that section.',
     ...(guidance ? [
       '',
@@ -14706,7 +14706,7 @@ app.post('/api/insights/suggest', async (req, res) => {
 // (query_agent), or pinning an installed agent to the board (pin_agent). Everything
 // is propose → confirm — the client applies/queues confirmed actions. The only thing
 // executed directly is a pinned agent the user has explicitly chosen to run.
-async function runBoardAssistant(b, { message, history = [], extraContext = '', allowQuery = true, depth = 0 } = {}) {
+async function runBoardAssistant(b, { message, history = [], extraContext = '', clientContext = '', allowQuery = true, depth = 0 } = {}) {
   const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
   // Bounded agent orchestration: the assistant may chain agent runs across confirmable
   // steps, but only up to MAX_QUERY_DEPTH hops so a request can't spiral into unbounded
@@ -14910,8 +14910,12 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // Reserved budgets per section so a busy board's pinned transcripts can't crowd out
   // the catalog or source locations. Modern models have large context windows, so we
   // keep the main content budget generous.
-  const CTX_CONTENT_MAX = 120000, CTX_LOCATION_MAX = 1600, CTX_CATALOG_MAX = 4000;
-  const contentStr = [extraContext, baseCtx].filter(Boolean).join('\n\n').slice(0, CTX_CONTENT_MAX);
+  const CTX_CONTENT_MAX = 120000, CTX_LOCATION_MAX = 1600, CTX_CATALOG_MAX = 4000, CTX_CLIENT_MAX = 16000;
+  // Client-supplied snapshot of the SECTIONS view (tabs + cards) — the server has
+  // no knowledge of sections, so the client sends it each turn. Kept distinct from
+  // extraContext so it never trips the AGENT/SEARCH RESULT re-invoke detection.
+  const clientStr = String(clientContext || '').slice(0, CTX_CLIENT_MAX);
+  const contentStr = [extraContext, clientStr, baseCtx].filter(Boolean).join('\n\n').slice(0, CTX_CONTENT_MAX);
   const catalogStr = catalogCtx.join('\n\n').slice(0, CTX_CATALOG_MAX);
   const locStr = locationStr.slice(0, CTX_LOCATION_MAX);
   const contextStr = [contentStr, locStr, catalogStr].filter(Boolean).join('\n\n') || '(this board is empty — no pins, notes, or checklists yet)';
@@ -14919,7 +14923,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // ---- Prompt: force a single JSON object {reply, actions[]}. Actions are
   // constrained to notes/checklists only.
   const sys = [
-    `You are the board assistant for a work board named "${b.name}". You help keep the board clean and actionable, and you can orchestrate the board's own pinned agents. You work by PROPOSING actions that the user confirms — you never apply changes or run anything yourself except a pinned agent the user explicitly confirms.`,
+    `You are the Workspace Assistant for a workspace named "${b.name}". You help keep the workspace clean and actionable, and you can orchestrate the workspace's own pinned agents. You work by PROPOSING actions that the user confirms — you never apply changes or run anything yourself except a pinned agent the user explicitly confirms.`,
     '',
     'You can propose these action types (and ONLY these):',
     '- {"type":"add_note","text":"<markdown note>"}',
@@ -14946,7 +14950,15 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     (devItems.length ? '- {"type":"add_dev_repo","devItemId":"<devId from DEV CARDS>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","branch":"<feature branch, optional>","baseBranch":"<base branch, optional>"}  (adds an ADDITIONAL repo to a multi-repo Dev card. org, project and repo are REQUIRED — never invent them.)' : ''),
     (devItems.length ? '- {"type":"remove_dev_repo","devItemId":"<devId from DEV CARDS>","repoId":"<repo-id from the card\'s extra repos>"}  (removes an EXTRA repo from a multi-repo Dev card by its (repo-id) as shown under that card\'s "extra repos:" — the primary repo cannot be removed this way. Destructive.)' : ''),
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
-    '- {"type":"set_layout", ...}  (change how the board is PRESENTED — VISUAL ONLY, never touches content. Use for requests like "focus on the release checklist", "collapse everything", "expand the autoscaler agent", "hide the boring panels", "stash the finished checklist", "zoom out a bit", "bigger font", "tidy this up", or "design a good layout". Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI — use this for vague asks like "make it look good" or "collapse whatever is not interesting", and do NOT combine aiDesign with other fields). Reference targets by the SAME ids in BOARD CONTEXT: a NOTE by its note id with kind "note", a CHECKLIST by its cl id with kind "checklist", a PIN by its kind:refId. Propose at most ONE set_layout per turn.)',
+    '- {"type":"set_layout", ...}  (LEGACY / rarely needed — the free-form pin canvas and per-panel tab layout it drove are NO LONGER USED; this board is organized with SECTIONS instead, see below. Only keep for a bare zoom/font nudge. Change how the board is PRESENTED — VISUAL ONLY, never touches content. Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI). Propose at most ONE set_layout per turn.)',
+    '',
+    'SECTIONS (also called BOARDS) — how this workspace is arranged. IMPORTANT TERMINOLOGY: within a workspace the words "section", "board", and "tab" all mean the SAME thing — one named canvas shown as a tab across the top. When the user says "board" they mean one of these sections; treat "board" and "section" as interchangeable. The workspace is split into named SECTIONS/BOARDS. Each holds CARDS, and a card is just a reference to a workspace item (a note, checklist, pin, dev card, or the briefing) placed onto that board. The SAME item can live on several boards at once. The current boards, the cards on each, and the catalog of placeable items are given below under "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS". Reference a board by its id (e.g. sec-ab12cd) OR its exact name, and a card by its base (e.g. note:xyz, cl:xyz, pin:xyz, dev:xyz, wherewasi) OR its title as shown in context. CRITICAL: never invent a board named "Board" — "the board" refers to whichever section the user is currently on (the active/current section in context), NOT a section literally named "Board". You can propose these section actions:',
+    '- {"type":"add_section","name":"<section name>","icon":"<optional emoji>"}  (create a NEW empty section/tab)',
+    '- {"type":"rename_section","sectionId":"<id>","name":"<new name>"}  (rename a section — you may pass "sectionName":"<current name>" instead of sectionId)',
+    '- {"type":"delete_section","sectionId":"<id>"}  (remove a whole section/tab — its cards stay on the board and on any other sections. Destructive — only on explicit request. May use "sectionName" instead of sectionId.)',
+    '- {"type":"place_card","sectionId":"<id>","base":"<card base>"}  (add an existing board item as a card onto a section. You may pass "sectionName" and/or "cardTitle" instead of the ids.)',
+    '- {"type":"move_card","base":"<card base>","toSectionId":"<id>","fromSectionId":"<id, optional>"}  (move a card to another section; without fromSectionId it is removed from the other sections. Accepts "toSectionName"/"fromSectionName"/"cardTitle".)',
+    '- {"type":"remove_card","sectionId":"<id>","base":"<card base>"}  (take a card off ONE section — the underlying item and its other placements are untouched. Accepts "sectionName"/"cardTitle".)',
     '',
     'Each checklist <item> is EITHER a plain string "<short imperative step>" OR an object that links the step to a pinned item so the user can run/open it directly from the checklist:',
     '  {"text":"<short step>","ref":{"kind":"<pin kind>","refId":"<pin refId>"}}',
@@ -14968,8 +14980,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_item when no pinned agent covers the need.',
     // Proactively help build/modify the board from a direction.
     '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
-    '- LAYOUT / PRESENTATION REQUESTS: when the user asks to change how the board LOOKS or is arranged — focus on / spotlight / collapse / hide / stash / expand / show an item, zoom in or out, larger or smaller font, tidy / organize / compact, or "design a good layout" — propose exactly ONE set_layout action and NOTHING else. NEVER edit, rename, or delete board content to satisfy a presentation request (collapsing and hiding/stashing are visual, not deletion). For a precise ask ("focus on the release checklist", "collapse the notes", "stash the finished checklist") fill the matching set_layout fields; for a vague ask ("make this look good", "collapse what is not interesting", "clean this up") use aiDesign:true alone.',
-    '- VISIBILITY & LOCKS: items in BOARD CONTEXT may be tagged [hidden] (currently stashed off the board but still part of context) and/or [locked:...] where the locked aspects are vis (visibility/stash), size, and/or pos (position). A hidden item still contributes to the board and you SHOULD feel free to "show" it when relevant. But you MUST NOT change any LOCKED aspect of a panel: never hide/show a [locked:vis] panel, never move/organize/compact a [locked:pos] panel, and never resize/widen a [locked:size] panel. If a presentation request would require changing a locked aspect, skip that panel and say so briefly in "reply".',
+    '- SECTIONS / LAYOUT REQUESTS: to organize the workspace, work with SECTIONS/BOARDS — add_section, rename_section, delete_section, place_card, move_card, remove_card — using the "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS" context below. Examples: "make a section for the release work" → add_section (then place_card the relevant items); "move the autoscaler agent to the Ops tab" → move_card; "put the release checklist on this board" → place_card; "get rid of the empty Scratch tab" → delete_section. CARD POSITIONS ARE AUTOMATIC: the system lays out and packs cards for you (top-left, no gaps). There is NO manual x/y position, and no "top/bottom/left" placement. So requests like "move these to the top of the board", "line them up", "tidy this board", or "pack them" need NO action — the cards are already packed to the top-left of their current board; just briefly reassure the user. NEVER respond to "top of the board" by creating or targeting a section named "Board" or by re-adding the cards elsewhere — that is wrong. If the cards are already on the current board, do nothing. NOTE: the OLD free-form "pins" canvas (dragging panels to x/y coordinates, pin-ifying, collapsing/locking panels) and the per-panel "tabs" view are DEPRECATED and no longer available — do not offer them or talk about pinning to positions, collapsing, stashing, or locking panels. For a bare zoom/font nudge you may still use one set_layout, but never for arranging content. Placing an item as a card does NOT duplicate or move the underlying content — the same item can appear on multiple boards.',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
     '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry its own LINKS (related URLs/files, each shown as "label → url (lnk-id)"), extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)") and read-only REPORTS. Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). For the card\'s LINKS section use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link are destructive — only on explicit request.',
     // Dedup / merge awareness.
@@ -15339,9 +15350,56 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       out.preview = clip(a.summary, 140) || bits.join(' · ') || 'Adjust the board layout';
       return out;
     }
+    // ---- SECTION actions (presentation-only, applied CLIENT-SIDE against the
+    // per-board sections model — the server has no sections state, so we just
+    // sanitize the fields and let the client resolve section ids/names and card
+    // bases/titles from its live view). Mirrors set_layout's client-resolved pattern.
+    if (type === 'add_section') {
+      const name = clip(a.name || a.title || a.sectionName, 80); if (!name) return null;
+      const icon = clip(a.icon, 8);
+      return { type, name, icon, label: 'Add section', preview: 'New section “' + name + '”' + (icon ? ' ' + icon : '') };
+    }
+    if (type === 'rename_section') {
+      const name = clip(a.name || a.newName || a.title, 80);
+      const sectionId = clip(a.sectionId || a.id, 80);
+      const sectionName = clip(a.sectionName || a.from || a.oldName, 80);
+      if (!name || (!sectionId && !sectionName)) return null;
+      return { type, sectionId, sectionName, name, label: 'Rename section', preview: 'Rename section → “' + name + '”' };
+    }
+    if (type === 'delete_section') {
+      const sectionId = clip(a.sectionId || a.id, 80);
+      const sectionName = clip(a.sectionName || a.name, 80);
+      if (!sectionId && !sectionName) return null;
+      return { type, sectionId, sectionName, destructive: true, label: 'Delete section', preview: 'Delete section ' + (sectionName ? '“' + sectionName + '”' : sectionId) };
+    }
+    if (type === 'place_card' || type === 'add_card') {
+      const sectionId = clip(a.sectionId || a.id, 80);
+      const sectionName = clip(a.sectionName || a.section, 80);
+      const base = clip(a.base || a.cardBase || a.card, 200);
+      const cardTitle = clip(a.cardTitle || a.title, 200);
+      if ((!sectionId && !sectionName) || (!base && !cardTitle)) return null;
+      return { type: 'place_card', sectionId, sectionName, base, cardTitle, label: 'Add card to section', preview: 'Add “' + (cardTitle || base) + '” to ' + (sectionName ? '“' + sectionName + '”' : 'section') };
+    }
+    if (type === 'move_card') {
+      const toSectionId = clip(a.toSectionId || a.sectionId, 80);
+      const toSectionName = clip(a.toSectionName || a.toSection || a.section, 80);
+      const fromSectionId = clip(a.fromSectionId, 80);
+      const fromSectionName = clip(a.fromSectionName || a.fromSection, 80);
+      const base = clip(a.base || a.cardBase || a.card, 200);
+      const cardTitle = clip(a.cardTitle || a.title, 200);
+      if ((!toSectionId && !toSectionName) || (!base && !cardTitle)) return null;
+      return { type, toSectionId, toSectionName, fromSectionId, fromSectionName, base, cardTitle, label: 'Move card', preview: 'Move “' + (cardTitle || base) + '” → ' + (toSectionName ? '“' + toSectionName + '”' : 'section') };
+    }
+    if (type === 'remove_card') {
+      const sectionId = clip(a.sectionId || a.id, 80);
+      const sectionName = clip(a.sectionName || a.section, 80);
+      const base = clip(a.base || a.cardBase || a.card, 200);
+      const cardTitle = clip(a.cardTitle || a.title, 200);
+      if ((!sectionId && !sectionName) || (!base && !cardTitle)) return null;
+      return { type, sectionId, sectionName, base, cardTitle, destructive: true, label: 'Remove card', preview: 'Remove “' + (cardTitle || base) + '” from ' + (sectionName ? '“' + sectionName + '”' : 'section') };
+    }
     return null;
   };
-
   let acc = '';
   const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
   const rawText = (acc.trim() || (result && result.output) || '').trim();
@@ -15377,7 +15435,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
         blocks.push(`### Search of "${s.locationLabel}" for "${s.query}"\n` + (lines ? lines : '(no matches found)'));
       }
       const searchCtx = (extraContext ? extraContext + '\n\n' : '') + '## SEARCH RESULT\n' + blocks.join('\n\n');
-      return await runBoardAssistant(b, { message, history, extraContext: searchCtx, allowQuery, depth: depth + 1 });
+      return await runBoardAssistant(b, { message, history, extraContext: searchCtx, clientContext, allowQuery, depth: depth + 1 });
     }
   }
 
@@ -15392,8 +15450,9 @@ app.post('/api/boards/:id/assistant', async (req, res) => {
   const message = String((req.body && req.body.message) || '').trim();
   if (!message) return res.status(400).json({ error: 'Missing message' });
   const history = Array.isArray(req.body && req.body.history) ? req.body.history : [];
+  const clientContext = String((req.body && req.body.clientContext) || '');
   try {
-    const out = await runBoardAssistant(b, { message, history });
+    const out = await runBoardAssistant(b, { message, history, clientContext });
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'assistant failed' });
@@ -15545,7 +15604,7 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
     }).join('\n');
 
     const sys = [
-      `You are a layout designer for a work board named "${b.name}". You are given every panel currently on the board with its type, title, a snippet of its live content, and whether it receives LIVE-updates (streaming / async content). Design how to PRESENT the board. You change presentation only — you never edit, add, or delete board content.`,
+      `You are a layout designer for a workspace named "${b.name}". You are given every panel currently on the workspace with its type, title, a snippet of its live content, and whether it receives LIVE-updates (streaming / async content). Design how to PRESENT the workspace. You change presentation only — you never edit, add, or delete workspace content.`,
       '',
       'Work in this order:',
       '1. INTERESTING FIRST — decide which 1–4 panels carry the most useful, active, or attention-worthy information right now (fresh status, errors/failures, action items, unchecked work, recent agent output, a substantive briefing). These are your highlights.',
