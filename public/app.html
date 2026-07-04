@@ -4469,6 +4469,19 @@
     .board-switch-arrow:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
     .board-switch-archived { flex: 0 0 auto; padding: 5px 11px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--cp-text-muted); font-size: 12.5px; cursor: pointer; }
     .board-switch-archived:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    /* Studio-style board header: dropdown selector in the .nlx-top action row. */
+    .board-top { margin-bottom: 18px; }
+    .board-picker { display: inline-flex; align-items: center; gap: 8px; }
+    .board-picker-lbl { font-size: 11px; color: var(--cp-text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+    .board-select { max-width: 360px; min-width: 210px; padding: 7px 30px 7px 11px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    /* Frame the tabbed board as a calm studio layout: a rail "card" on the left and a
+       bordered "stage" panel on the right — mirroring the Newsletter studio (rail + stage). */
+    .board-canvas-scroll.board-tabbed .board-tab-rail { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 8px; }
+    .board-canvas-scroll.board-tabbed .board-tab-col { border: 1px solid var(--cp-border); border-radius: 14px; background: var(--cp-bg-elevated, var(--cp-surface)); padding: 14px; }
+    /* Stage-bar: the board action row reads as a compact bar pinned atop the stage,
+       not a floating card. In the tabbed model the canvas scrolls internally so this
+       already stays put; position:sticky makes it robust on short viewports too. */
+    .board-stagebar { position: sticky; top: 0; z-index: 6; margin-bottom: 14px; padding: 10px 14px; }
     /* De-pill neutral chips & ghost buttons inside the board ecosystem. */
     .board-calm .pill { border-color: transparent; background: var(--cp-surface-soft); color: var(--cp-text-muted); font-weight: 500; }
     .board-calm .pill:hover { background: var(--cp-highlight); }
@@ -4509,7 +4522,7 @@
        keeps the docked .board-bottombar flush at the bottom of the screen in normal
        mode too (otherwise a tall detail column scrolls UNDER the sticky bar). */
     .board-canvas-scroll.board-tabbed { display: flex; flex-direction: row; align-items: stretch; gap: 14px; overflow: hidden; min-height: 0; }
-    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
+    .board-canvas-scroll.board-tabbed .board-tab-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 12px; overflow-y: auto; overflow-x: hidden; }
     .board-canvas-scroll.board-tabbed .board-tab-rail { max-height: 100%; }
     /* The whole tab column is the single scroller: the briefing and the active tab panel
        stack and scroll together as one page. The briefing auto-expands (flex:0 0 auto, no
@@ -4546,6 +4559,117 @@
     .board-rail-resizer:hover::after,
     .board-rail-resizer.dragging::after { width: 3px; background: var(--cp-accent); }
     body.rail-resizing { cursor: col-resize; user-select: none; }
+
+    /* ============================================================
+       Unified SECTIONS studio  (toolbox  |  section-tabs + stage)
+       The board is always in this model. Reusable panels live in the
+       left toolbox and are dragged into named sections (top tabs). A
+       "View" tab focuses a single panel full-size.
+       ============================================================ */
+    .board-studio { display: flex; flex-direction: row; align-items: stretch; gap: 14px; flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; }
+    /* --- Left toolbox tray --- */
+    .board-toolbox {
+      flex: 0 0 auto; width: 216px; display: flex; flex-direction: column; gap: 12px;
+      min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px;
+      background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 14px;
+    }
+    .board-tbx-group { display: flex; flex-direction: column; gap: 6px; }
+    .board-tbx-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-soft); display: flex; align-items: center; gap: 6px; }
+    .board-tbx-label .muted-count { font-weight: 600; color: var(--cp-text-muted); letter-spacing: 0; }
+    .board-tbx-item {
+      display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+      border: 1px solid var(--cp-border); border-radius: 8px; background: var(--cp-surface);
+      cursor: grab; font-size: 12.5px; color: var(--cp-text); user-select: none;
+      transition: border-color .12s ease, background .12s ease, opacity .12s ease;
+    }
+    .board-tbx-item:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-hover, var(--cp-surface)); }
+    .board-tbx-item:active { cursor: grabbing; }
+    .board-tbx-item.placed { opacity: .5; }
+    .board-tbx-item .tbx-emoji { font-size: 14px; line-height: 1; flex: 0 0 auto; }
+    .board-tbx-item .tbx-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .board-tbx-item .tbx-dot { margin-left: auto; font-size: 10px; color: var(--cp-accent); }
+    .board-tbx-add { display: flex; flex-direction: column; gap: 6px; }
+    .board-tbx-addbtn {
+      display: flex; align-items: center; gap: 8px; padding: 6px 8px; width: 100%;
+      border: 1px dashed var(--cp-border-strong); border-radius: 8px; background: transparent;
+      color: var(--cp-text-muted); cursor: pointer; font: inherit; font-size: 12.5px; text-align: left;
+      transition: border-color .12s ease, color .12s ease, background .12s ease;
+    }
+    .board-tbx-addbtn:hover { border-color: var(--cp-accent); color: var(--cp-text); background: var(--cp-accent-soft); }
+    /* --- Right stage (tabs on top, grid below, section bar under) --- */
+    .board-stagewrap { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 10px; }
+    .board-sectiontabs { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+    .board-sectiontab {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px;
+      border: 1px solid transparent; border-radius: 9px; background: transparent;
+      color: var(--cp-text-muted); cursor: pointer; font: inherit; font-size: 13px;
+      white-space: nowrap; flex: 0 0 auto;
+      transition: background .12s ease, border-color .12s ease, color .12s ease;
+    }
+    .board-sectiontab:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+    .board-sectiontab.active { background: var(--cp-surface); border-color: var(--cp-border); color: var(--cp-text); font-weight: 600; }
+    .board-sectiontab.drag-over { border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .board-sectiontab .st-emoji { font-size: 13px; line-height: 1; }
+    .board-sectiontab .st-star { opacity: 0; font-size: 11px; color: var(--cp-text-soft); background: none; border: 0; cursor: pointer; padding: 0; line-height: 1; }
+    .board-sectiontab:hover .st-star, .board-sectiontab.active .st-star { opacity: .7; }
+    .board-sectiontab .st-star:hover { opacity: 1; }
+    .board-sectiontab .st-star.on { opacity: 1; color: var(--cp-accent); }
+    .board-sectiontab .st-x { opacity: 0; font-size: 12px; color: var(--cp-text-soft); background: none; border: 0; cursor: pointer; padding: 0 0 0 2px; line-height: 1; }
+    .board-sectiontab:hover .st-x { opacity: .6; }
+    .board-sectiontab .st-x:hover { opacity: 1; color: var(--cp-danger, #c33); }
+    .board-sectiontab-add {
+      flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border: 1px dashed var(--cp-border-strong); border-radius: 9px;
+      background: transparent; color: var(--cp-text-muted); cursor: pointer; font-size: 15px; line-height: 1;
+      transition: border-color .12s ease, color .12s ease;
+    }
+    .board-sectiontab-add:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
+    .board-sectionstage {
+      flex: 1 1 auto; min-height: 0; overflow: auto;
+      border: 1px solid var(--cp-border); border-radius: 14px; background: var(--cp-surface); padding: 12px;
+    }
+    .board-sectionstage.drag-over { border-color: var(--cp-accent); box-shadow: 0 0 0 1px var(--cp-accent) inset; }
+    /* Section grid — a distinct class so the tabbed '.board-grid' overrides
+       (transform:none !important, width:100%) never apply to section cards. */
+    .board-sec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); grid-auto-rows: 232px; gap: 12px; align-content: start; transform-origin: top left; }
+    .board-sec-grid.view-mode { display: block; }
+    .board-card { position: relative; min-width: 0; overflow: hidden; border-radius: 12px; }
+    .board-card.sz-wide { grid-column: span 2; }
+    .board-card.sz-tall { grid-row: span 2; }
+    .board-card.sz-big  { grid-column: span 2; grid-row: span 2; }
+    .board-card.sz-view { grid-column: 1 / -1; grid-row: auto; min-height: 62vh; }
+    .board-card.dragging { opacity: .4; }
+    /* Neutralize pin-view absolute geometry on the reused panel so it fills its cell. */
+    .board-card > .board-panel { position: static !important; left: auto !important; top: auto !important; width: 100% !important; height: 100% !important; margin: 0 !important; transform: none !important; }
+    .board-card > .board-panel .board-panel-inner { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    .board-card > .board-panel .board-panel-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
+    /* Card hover tools (section-level: view / resize / remove-from-section) */
+    .board-card-tools { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; opacity: 0; z-index: 5; transition: opacity .12s ease; }
+    .board-card:hover .board-card-tools { opacity: 1; }
+    .board-card-tools button {
+      display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+      border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface);
+      color: var(--cp-text-muted); cursor: pointer; font-size: 11px; line-height: 1; padding: 0;
+    }
+    .board-card-tools button:hover { border-color: var(--cp-border-strong); color: var(--cp-text); }
+    .board-card-tools .card-grip { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text-muted); cursor: grab; font-size: 11px; line-height: 1; }
+    .board-card-tools .card-grip:active { cursor: grabbing; }
+    .board-stage-empty { padding: 34px 16px; text-align: center; color: var(--cp-text-soft); font-size: 13px; }
+    .board-sectbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--cp-text-muted); }
+    .board-sectbar .sb-zoom { display: inline-flex; align-items: center; gap: 4px; }
+    .board-sectbar .sb-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 1px solid var(--cp-border); border-radius: 7px; background: var(--cp-surface); color: var(--cp-text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+    .board-sectbar .sb-btn:hover { border-color: var(--cp-border-strong); color: var(--cp-text); }
+    .board-sectbar .sb-zval { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+
+    /* ---- Subtle self-fading scrollbars (scoped to .scrollfade regions) ----
+       Idle: nearly invisible track/thumb. On active scroll (.sb-live, added by a
+       document-level listener) or hover: the thumb fades in. Keeps the studio calm. */
+    .scrollfade { scrollbar-width: thin; scrollbar-color: transparent transparent; transition: scrollbar-color .35s ease; }
+    .scrollfade:hover, .scrollfade.sb-live { scrollbar-color: var(--cp-border-strong) transparent; }
+    .scrollfade::-webkit-scrollbar { width: 9px; height: 9px; }
+    .scrollfade::-webkit-scrollbar-track { background: transparent; }
+    .scrollfade::-webkit-scrollbar-thumb { background: transparent; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; transition: background-color .35s ease; }
+    .scrollfade:hover::-webkit-scrollbar-thumb, .scrollfade.sb-live::-webkit-scrollbar-thumb { background: var(--cp-border-strong); background-clip: padding-box; }
     .board-tab-empty { padding: 10px; }
     .board-tab {
       position: relative; display: flex; align-items: center; gap: 9px;
@@ -4646,6 +4770,7 @@
     .board-tab-brief-next.empty .btb-next-text { font-weight: 400; font-size: 12px; font-style: italic; color: var(--cp-text-muted); }
     .board-tab-brief-caret { font-size: 11px; color: var(--cp-text-muted); }
     .board-tab-brief-body { margin-top: 8px; font-size: 13px; }
+    .board-header-brief .board-tab-brief-body { max-height: 44vh; overflow: auto; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
     .board-canvas-scroll.board-tabbed .board-panel-body { overflow: visible; }
     /* Out-specify the pin-view rule (.board-panel...> .board-panel-body{overflow:auto}) so the
@@ -8026,12 +8151,22 @@
           </section>
 
           <section class="board-calm" x-show="!loading && !errorMessage && route === 'boards'" x-transition.opacity.duration.180ms>
-            <div class="page-header">
+            <div class="nlx-top board-top">
               <div class="page-title">
                 <h1>📌 Boards</h1>
                 <p>Pin sessions, chats, tasks, flows, assignments, agents &amp; managers you're actively working on. Add notes and checklists, and get a <strong>Briefing</strong> of where you left off.</p>
               </div>
-              <div class="toolbar">
+              <div class="nlx-actions">
+                <label class="board-picker" x-show="!boardsLoading && visibleBoards().length">
+                  <span class="board-picker-lbl">Board</span>
+                  <select class="field-input board-select" :value="activeBoardId" @change="selectBoard($event.target.value)" title="Switch board">
+                    <template x-for="b in visibleBoards()" :key="b.id">
+                      <option :value="b.id" x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name + ' · ' + boardOrgLabel(b)"></option>
+                    </template>
+                  </select>
+                </label>
+                <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
+                  x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
                 <button class="btn" type="button" @click="openBoardModal(null)">＋ New Board</button>
               </div>
             </div>
@@ -8044,30 +8179,104 @@
 
             <template x-if="!boardsLoading && visibleBoards().length">
               <div>
-                <!-- Board selector — a single horizontal strip that scrolls (with looping
-                     ‹ › arrows when it overflows) instead of a tall stack of full-width tabs. -->
-                <div class="board-switch" :class="{ 'has-overflow': boardSwitchOverflow }"
-                  x-init="$nextTick(() => updateBoardSwitchOverflow())" @resize.window.debounce.150ms="updateBoardSwitchOverflow()">
-                  <button type="button" class="board-switch-arrow" x-show="boardSwitchOverflow" @click="scrollBoardSwitch(-1)" title="Previous boards" aria-label="Scroll boards left">‹</button>
-                  <div class="board-switch-track" id="boardSwitchTrack" @scroll.debounce.100ms="updateBoardSwitchOverflow()">
-                    <template x-for="b in visibleBoards()" :key="b.id">
-                      <button type="button" class="board-chip" :class="{ active: activeBoardId === b.id, archived: b.archived }" @click="selectBoard(b.id)">
-                        <span x-text="(b.starred ? '★ ' : '') + (b.archived ? '🗄 ' : '') + (b.emoji || '📌') + ' ' + b.name"></span>
-                        <span class="board-chip-org" x-text="boardOrgLabel(b)"></span>
-                      </button>
-                    </template>
-                  </div>
-                  <button type="button" class="board-switch-arrow" x-show="boardSwitchOverflow" @click="scrollBoardSwitch(1)" title="More boards" aria-label="Scroll boards right">›</button>
-                  <button type="button" class="board-switch-archived" x-show="archivedBoardCount() > 0" @click="boardsShowArchived = !boardsShowArchived"
-                    x-text="(boardsShowArchived ? 'Hide' : 'Show') + ' archived (' + archivedBoardCount() + ')'"></button>
-                </div>
-
                 <template x-if="activeBoard()">
                   <div :class="{ 'board-focus': boardFocus }" @keydown.escape.window="boardFocus && !boardAssistant.open && (boardFocus = false)">
                     <!-- Floating Board AI chat launcher — always within reach, lower-right. -->
                     <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Board AI — chat to organize notes, checklists & dev cards from this board's activity" aria-label="Open Board AI chat">💬</button>
-                    <!-- Active board toolbar -->
-                    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+                    <!-- Board toolbar renders below the briefing as a sticky stage-bar. -->
+
+                    <!-- Where was I? briefing — lifted out of the board into the header
+                         section so it sits above the canvas rather than inside it. -->
+                    <template x-if="boardIsTabbed()">
+                      <div class="board-tab-brief board-header-brief" :class="{ collapsed: !boardBriefOpen() }" style="margin-bottom:16px">
+                        <div class="board-tab-brief-head" @click="toggleBoardBrief()">
+                          <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
+                          <span style="flex:0 0 auto">🧭 Briefing</span>
+                          <template x-if="!boardBriefOpen()">
+                            <div class="board-tab-brief-next" :class="{ empty: !briefNextStepShort() }">
+                              <template x-if="briefNextStepShort()">
+                                <span class="btb-next">
+                                  <span class="btb-next-label">Next</span>
+                                  <span class="btb-next-text" x-text="briefNextStepShort()"></span>
+                                  <span class="btb-next-more" x-show="briefNextStepsMore()" x-text="'+' + briefNextStepsMore() + ' more'"></span>
+                                </span>
+                              </template>
+                              <template x-if="!briefNextStepShort()">
+                                <span class="btb-next-text" x-text="(activeBoard().summary && activeBoard().summary.text) ? 'No immediate next steps' : 'Not generated yet — click ↻ Update'"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <div style="margin-left:auto;display:flex;align-items:center;gap:6px" @click.stop>
+                            <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
+                              <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
+                              <div class="board-prompt-pop" x-show="boardPromptPop" x-cloak @click.stop>
+                                <div class="board-prompt-row">
+                                  <button class="board-prompt-item" :class="{active: !activeBriefingPromptId()}" type="button" @click="setActiveBriefingPrompt(null)"><span style="width:12px" x-text="!activeBriefingPromptId() ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis">Default (no guidance)</span></button>
+                                </div>
+                                <template x-for="bp in briefingPrompts()" :key="bp.id">
+                                  <div class="board-prompt-row">
+                                    <button class="board-prompt-item" :class="{active: activeBriefingPromptId()===bp.id}" type="button" @click="setActiveBriefingPrompt(bp.id)" :title="bp.text"><span style="width:12px" x-text="activeBriefingPromptId()===bp.id ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis" x-text="bp.name"></span></button>
+                                    <button class="board-prompt-iconbtn" type="button" @click.stop="openBriefingPromptEditor(bp.id)" title="Edit">✎</button>
+                                    <button class="board-prompt-iconbtn del" type="button" @click.stop="deleteBriefingPrompt(bp.id)" title="Delete">🗑</button>
+                                  </div>
+                                </template>
+                                <div class="board-prompt-sep"></div>
+                                <template x-if="_briefEdit.open">
+                                  <div class="board-prompt-edit">
+                                    <input type="text" x-model="_briefEdit.name" placeholder="Prompt name (e.g. Risks only)" />
+                                    <textarea x-model="_briefEdit.text" placeholder="Guidance for the LLM, e.g. 'Focus on blockers and failing runs; keep it to 3 sentences.'"></textarea>
+                                    <div class="board-prompt-edit-actions">
+                                      <button class="btn ghost" type="button" @click.stop="cancelBriefingPromptEditor()">Cancel</button>
+                                      <button class="btn" type="button" @click.stop="saveBriefingPrompt()">Save</button>
+                                    </div>
+                                  </div>
+                                </template>
+                                <button class="board-prompt-item" type="button" x-show="!_briefEdit.open" @click.stop="openBriefingPromptEditor(null)" style="color:var(--cp-accent)">＋ New prompt</button>
+                              </div>
+                            </div>
+                            <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
+                          </div>
+                        </div>
+                        <div class="board-tab-brief-body" x-show="boardBriefOpen()">
+                          <div class="hint" style="font-size:11px;margin-bottom:8px" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
+                          <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
+                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+                              <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
+                              <template x-for="d in (activeBoard().summary.deltas||[])" :key="d.kind + ':' + d.label">
+                                <span class="pill" :style="'cursor:pointer;font-size:11px;padding:2px 8px;' + (d.attention ? 'border-color:var(--cp-danger);color:var(--cp-danger)' : '')" @click="d.route && goTo(d.route)" :title="d.status + (d.when ? ' · ' + formatRelative(d.when) : '')" x-text="(d.attention ? '⚠ ' : '') + d.label"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
+                          <template x-if="briefingSources().length">
+                            <div class="brief-sources">
+                              <div class="brief-sources-label" @click="toggleBriefSources()">
+                                <span class="brief-sources-caret" x-text="briefSourcesOpen() ? '▾' : '▸'"></span>
+                                <span>Sources</span>
+                                <span class="brief-sources-count" x-text="briefingSources().length"></span>
+                              </div>
+                              <template x-if="briefSourcesOpen()">
+                                <div>
+                                  <template x-for="s in briefingSources()" :key="s.id">
+                                    <div class="brief-source-row">
+                                    <template x-if="s.route"><a class="brief-source-link" href="#" @click.prevent="goTo(s.route)" x-text="s.label || s.refId"></a></template>
+                                    <template x-if="!s.route"><span class="brief-source-link no-route" x-text="s.label || s.refId"></span></template>
+                                     <span class="brief-source-type" x-text="boardKindLabel(s.kind)"></span>
+                                     <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
+                                   </div>
+                                 </template>
+                               </div>
+                              </template>
+                              </div>
+                          </template>
+                          <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
+                        </div>
+                      </div>
+                    </template>
+
+                    <!-- Active board toolbar — a stage-bar pinned atop the board, sitting
+                         directly above the stage (briefing lives above it in the header). -->
+                    <div class="card board-stagebar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
                       <div style="display:flex;align-items:center;gap:10px;min-width:0">
                         <span style="font-size:22px" x-text="activeBoard().emoji || '📌'"></span>
                         <div style="min-width:0">
@@ -8076,10 +8285,6 @@
                         </div>
                       </div>
                       <div class="toolbar">
-                        <div class="board-view-toggle" role="group" aria-label="Board view mode">
-                          <button type="button" :class="{ active: !boardIsTabbed() }" @click="setBoardView('pin')" title="Pin view — free-form spatial board">📌 Pins</button>
-                          <button type="button" :class="{ active: boardIsTabbed() }" @click="setBoardView('tabbed')" title="Tabbed view — vertical tabs with one focused panel">🗂 Tabs</button>
-                        </div>
                         <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
                         <button class="btn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()" title="Add a note as its own panel">📝 Note</button>
@@ -8096,15 +8301,6 @@
                             <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
                             <button class="org-menu-item" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)"><span>✅</span><span class="org-menu-label">Enable</span></button>
                             <button class="org-menu-item" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)"><span>⏸</span><span class="org-menu-label">Disable</span></button>
-                            <template x-if="boardIsTabbed()">
-                              <div style="display:contents">
-                                <div class="org-menu-sep"></div>
-                                <div class="org-menu-empty" style="padding-bottom:2px">Tab rail style</div>
-                                <button class="org-menu-item" type="button" :class="{ active: boardTabRailStyle==='a' }" @click.stop="setBoardTabRailStyle('a')"><span x-text="boardTabRailStyle==='a' ? '●' : '○'"></span><span class="org-menu-label">List</span></button>
-                                <button class="org-menu-item" type="button" :class="{ active: boardTabRailStyle==='b' }" @click.stop="setBoardTabRailStyle('b')"><span x-text="boardTabRailStyle==='b' ? '●' : '○'"></span><span class="org-menu-label">Cards</span></button>
-                                <button class="org-menu-item" type="button" :class="{ active: boardTabRailStyle==='c' }" @click.stop="setBoardTabRailStyle('c')"><span x-text="boardTabRailStyle==='c' ? '●' : '○'"></span><span class="org-menu-label">Grouped</span></button>
-                              </div>
-                            </template>
                             <div class="org-menu-sep"></div>
                             <button class="org-menu-item" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)"><span>🗑</span><span class="org-menu-label">Delete</span></button>
                           </div>
@@ -8207,162 +8403,69 @@
                     <template x-teleport="body">
                       <div class="board-tip-flyout" x-show="_tip.show" x-text="_tip.text" :class="{ 'tip-below': _tip.below }" :style="'top:' + _tip.top + 'px; left:' + _tip.left + 'px;'"></div>
                     </template>
-                    <!-- Tabbed view: vertical tab rail (icons + names) on the left -->
-                    <template x-if="boardIsTabbed()">
-                      <div style="display:contents">
-                      <div class="board-tab-rail" :class="'rail-' + boardTabRailStyle" :style="'width:' + boardRailW + 'px'">
-                        <template x-if="!boardTabPanels().length">
-                          <div class="board-tab-empty hint">Nothing pinned yet.</div>
-                        </template>
-                        <template x-for="row in boardTabRailRows()" :key="row.key">
-                          <div style="display:contents">
-                            <template x-if="row.header">
-                              <div class="board-tab-section" draggable="true"
-                                   :class="{ 'group-dragging': isGroupDragging(row.group), 'group-drag-over': isGroupDragOver(row.group) }"
-                                   @dragstart="onGroupDragStart(row.group, $event)"
-                                   @dragover="onGroupDragOver(row.group, $event)"
-                                   @drop="onGroupDrop(row.group, $event)"
-                                   @dragend="onGroupDragEnd()"
-                                   title="Drag to reorder this group">
-                                <span class="board-tab-section-grip" aria-hidden="true">⠿</span>
-                                <span class="board-tab-section-label" x-text="row.header"></span>
-                              </div>
-                            </template>
-                            <template x-if="row.panel">
-                              <button type="button" class="board-tab"
-                                      :class="{ active: isActiveTab(row.panel), contributed: !!_tabContributed(row.panel), 'tab-dragging': isTabDragging(row.panel), 'tab-drag-over': isTabDragOver(row.panel) }"
-                                      draggable="true"
-                                      @click="selectBoardTab(row.panel)"
-                                      @dragstart="onTabDragStart(row.panel, $event)"
-                                      @dragover="onTabDragOver(row.panel, $event)"
-                                      @drop="onTabDrop(row.panel, $event)"
-                                      @dragend="onTabDragEnd()"
-                                      @mouseenter="_showTabFlyout(row.panel, $event)"
-                                      @mouseleave="_hideTabFlyout()"
-                                      :title="chipType(row.panel) + ': ' + chipName(row.panel)">
-                                <span class="board-tab-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
-                                <span class="board-tab-tile">
-                                  <span x-text="chipIcon(row.panel)"></span>
-                                  <template x-if="panelIsPinned(row.panel)"><span class="board-tab-pinmark" title="Pinned operation (not a board note/checklist)">📌</span></template>
-                                </span>
-                                <span class="board-tab-body">
-                                  <span class="board-tab-name" x-text="_tabName(row.panel)"></span>
-                                  <span class="board-tab-meta" x-text="_tabMeta(row.panel)"></span>
-                                </span>
-                                <template x-if="row.panel.type==='pin' && pinStatus(row.panel.item)">
-                                  <span class="pin-dot" :class="pinStatus(row.panel.item).state"></span>
-                                </template>
-                                <template x-if="!!_tabContributed(row.panel)">
-                                  <span class="board-tab-flag" :class="{ attention: _tabContributed(row.panel).attention }" title="Contributed to the briefing">●</span>
-                                </template>
-                                <span class="board-tab-remove" @click.stop="confirmRemovePanel(row.panel)" @mousedown.stop @dragstart.stop.prevent :title="panelRemoveLabel(row.panel)">✕</span>
-                              </button>
-                            </template>
-                          </div>
-                        </template>
-                      </div>
-                      <div class="board-rail-resizer" @pointerdown="startRailResize($event)" @dblclick="resetRailWidth()" title="Drag to resize · double-click to reset"></div>
-                      <!-- Single hover preview flyout (body-teleported, fixed-positioned via JS). -->
-                      <template x-teleport="body">
-                        <div class="board-tab-flyout" x-show="_tabFlyout.show" :style="'top:' + _tabFlyout.top + 'px; left:' + _tabFlyout.left + 'px;'">
-                          <div class="pin-chip-pop-title"><span x-text="_tabFlyout.icon"></span> <span x-text="_tabFlyout.name"></span></div>
-                          <span class="pin-chip-type" x-text="_tabFlyout.type"></span>
-                          <div class="board-tab-flyout-body md-output" x-html="renderMarkdown((_tabFlyout.body||'').replace(/\n/g,'  \n'))"></div>
-                        </div>
-                      </template>
-                      </div>
-                    </template>
-                    <div class="board-tab-col">
-                    <!-- Tabbed view: collapsible "Where was I?" briefing across the top -->
-                    <template x-if="boardIsTabbed()">
-                      <div class="board-tab-brief" :class="{ collapsed: !boardBriefOpen() }">
-                        <div class="board-tab-brief-head" @click="toggleBoardBrief()">
-                          <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
-                          <span style="flex:0 0 auto">🧭 Briefing</span>
-                          <template x-if="!boardBriefOpen()">
-                            <div class="board-tab-brief-next" :class="{ empty: !briefNextStepShort() }">
-                              <template x-if="briefNextStepShort()">
-                                <span class="btb-next">
-                                  <span class="btb-next-label">Next</span>
-                                  <span class="btb-next-text" x-text="briefNextStepShort()"></span>
-                                  <span class="btb-next-more" x-show="briefNextStepsMore()" x-text="'+' + briefNextStepsMore() + ' more'"></span>
-                                </span>
-                              </template>
-                              <template x-if="!briefNextStepShort()">
-                                <span class="btb-next-text" x-text="(activeBoard().summary && activeBoard().summary.text) ? 'No immediate next steps' : 'Not generated yet — click ↻ Update'"></span>
-                              </template>
+                    <!-- Unified SECTIONS studio: left toolbox tray + section tabs and stage. -->
+                    <div class="board-studio">
+                      <aside class="board-toolbox scrollfade">
+                        <div class="board-tbx-group">
+                          <div class="board-tbx-label">Panels <span class="muted-count" x-text="toolboxPanels().length"></span></div>
+                          <template x-if="!toolboxPanels().length">
+                            <div class="hint" style="font-size:11.5px">Nothing pinned yet — use “Add new” below.</div>
+                          </template>
+                          <template x-for="p in toolboxPanels()" :key="'tbx-' + p.id">
+                            <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p) }" draggable="true"
+                                 @dragstart="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
+                                 @click="openInView(p)"
+                                 :title="chipType(p) + ': ' + chipName(p) + ' — drag onto a section, or click to view'">
+                              <span class="tbx-emoji" x-text="chipIcon(p)"></span>
+                              <span class="tbx-name" x-text="chipName(p)"></span>
+                              <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
                             </div>
                           </template>
-                          <div style="margin-left:auto;display:flex;align-items:center;gap:6px" @click.stop>
-                            <div class="board-prompt-wrap" @click.outside="boardPromptPop=false; cancelBriefingPromptEditor()">
-                              <button class="board-prompt-btn" type="button" @click.stop="boardPromptPop=!boardPromptPop" title="Choose a briefing guidance prompt">🎯 <span class="bp-name" x-text="activeBriefingPromptName()"></span> ▾</button>
-                              <div class="board-prompt-pop" x-show="boardPromptPop" x-cloak @click.stop>
-                                <div class="board-prompt-row">
-                                  <button class="board-prompt-item" :class="{active: !activeBriefingPromptId()}" type="button" @click="setActiveBriefingPrompt(null)"><span style="width:12px" x-text="!activeBriefingPromptId() ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis">Default (no guidance)</span></button>
+                        </div>
+                        <div class="board-tbx-group board-tbx-add">
+                          <div class="board-tbx-label">Add new</div>
+                          <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="openPinPicker()">📌 Pin item</button>
+                          <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addBoardNoteQuick()">📝 Note</button>
+                          <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="addChecklistQuick()">✅ Checklist</button>
+                          <button class="board-tbx-addbtn" type="button" :disabled="boardInert(activeBoard())" @click="openDevModal(null)">🧰 Dev card</button>
+                        </div>
+                      </aside>
+                      <div class="board-stagewrap">
+                        <div class="board-sectiontabs scrollfade">
+                          <button type="button" class="board-sectiontab" :class="{ active: isViewTab() }" @click="setActiveSection('view')" title="View — focus a single panel full size">
+                            <span class="st-emoji">🔎</span><span>View</span>
+                          </button>
+                          <template x-for="s in boardSections()" :key="s.id">
+                            <button type="button" class="board-sectiontab"
+                                    :class="{ active: activeSectionId() === s.id, 'drag-over': _boardDragOverSec === s.id }"
+                                    @click="setActiveSection(s.id)"
+                                    @dblclick="renameSection(s.id)"
+                                    @dragover.prevent="_boardDragOverSec = s.id"
+                                    @dragleave="_boardDragOverSec === s.id && (_boardDragOverSec = null)"
+                                    @drop="_boardDragOverSec = null; onSectionTabDrop(s.id, $event)"
+                                    :title="(s.name || '') + ' — double-click to rename'">
+                              <span class="st-emoji" x-text="s.icon || '🗂'"></span>
+                              <span x-text="s.name"></span>
+                              <span class="st-star" :class="{ on: isSectionStarred(s.id) }" @click.stop="toggleSectionStar(s.id)" :title="isSectionStarred(s.id) ? 'Unstar — remove from Quick Launch' : 'Star — pin this section to Quick Launch'" x-text="isSectionStarred(s.id) ? '★' : '☆'"></span>
+                              <span class="st-x" @click.stop="deleteSection(s.id)" title="Delete section">✕</span>
+                            </button>
+                          </template>
+                          <button type="button" class="board-sectiontab-add" @click="addSection()" title="New section">＋</button>
+                        </div>
+                        <div class="board-sectionstage scrollfade" :class="{ 'drag-over': _boardDragOver }"
+                             @dragover="onGridDragOver($event); _boardDragOver = true"
+                             @dragleave="_boardDragOver = false"
+                             @drop="_boardDragOver = false; onGridDrop($event)">
+                          <div class="board-sec-grid" :class="{ 'view-mode': isViewTab() }" :style="sectionGridStyle()">
+                            <template x-for="p in activeSectionPanels()" :key="p.id">
+                              <div class="board-card" :class="'sz-' + cardSize(p)" :data-card-base="panelBaseId(p)">
+                                <div class="board-card-tools" x-show="!isViewTab()">
+                                  <span class="card-grip" draggable="true" @dragstart="onCardDragStart(p, $event)" @dragend="onCardDragEnd()" title="Drag to move / reorder">⠿</span>
+                                  <button type="button" @click.stop="openInView(p)" title="Open in View — full size">⤢</button>
+                                  <button type="button" @click.stop="cycleCardSize(p)" :title="'Resize card (' + cardSizeLabel(p) + ')'">⤡</button>
+                                  <button type="button" @click.stop="removeCardFromSection(p)" title="Remove from this section (stays on the board)">✕</button>
                                 </div>
-                                <template x-for="bp in briefingPrompts()" :key="bp.id">
-                                  <div class="board-prompt-row">
-                                    <button class="board-prompt-item" :class="{active: activeBriefingPromptId()===bp.id}" type="button" @click="setActiveBriefingPrompt(bp.id)" :title="bp.text"><span style="width:12px" x-text="activeBriefingPromptId()===bp.id ? '✓' : ''"></span><span style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis" x-text="bp.name"></span></button>
-                                    <button class="board-prompt-iconbtn" type="button" @click.stop="openBriefingPromptEditor(bp.id)" title="Edit">✎</button>
-                                    <button class="board-prompt-iconbtn del" type="button" @click.stop="deleteBriefingPrompt(bp.id)" title="Delete">🗑</button>
-                                  </div>
-                                </template>
-                                <div class="board-prompt-sep"></div>
-                                <template x-if="_briefEdit.open">
-                                  <div class="board-prompt-edit">
-                                    <input type="text" x-model="_briefEdit.name" placeholder="Prompt name (e.g. Risks only)" />
-                                    <textarea x-model="_briefEdit.text" placeholder="Guidance for the LLM, e.g. 'Focus on blockers and failing runs; keep it to 3 sentences.'"></textarea>
-                                    <div class="board-prompt-edit-actions">
-                                      <button class="btn ghost" type="button" @click.stop="cancelBriefingPromptEditor()">Cancel</button>
-                                      <button class="btn" type="button" @click.stop="saveBriefingPrompt()">Save</button>
-                                    </div>
-                                  </div>
-                                </template>
-                                <button class="board-prompt-item" type="button" x-show="!_briefEdit.open" @click.stop="openBriefingPromptEditor(null)" style="color:var(--cp-accent)">＋ New prompt</button>
-                              </div>
-                            </div>
-                            <button class="btn ghost" type="button" @click.stop="refreshBoardSummary(true)" :disabled="boardSummaryLoading" style="padding:2px 8px" x-text="boardSummaryLoading ? 'Updating…' : '↻ Update'"></button>
-                          </div>
-                        </div>
-                        <div class="board-tab-brief-body" x-show="boardBriefOpen()">
-                          <div class="hint" style="font-size:11px;margin-bottom:8px" x-show="activeBoard().summary && activeBoard().summary.generatedAt" x-text="'Updated ' + formatRelative(activeBoard().summary.generatedAt)"></div>
-                          <template x-if="activeBoard().summary && (activeBoard().summary.deltas||[]).length">
-                            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
-                              <span class="hint" style="font-size:11px">🔔 Since you last looked:</span>
-                              <template x-for="d in (activeBoard().summary.deltas||[])" :key="d.kind + ':' + d.label">
-                                <span class="pill" :style="'cursor:pointer;font-size:11px;padding:2px 8px;' + (d.attention ? 'border-color:var(--cp-danger);color:var(--cp-danger)' : '')" @click="d.route && goTo(d.route)" :title="d.status + (d.when ? ' · ' + formatRelative(d.when) : '')" x-text="(d.attention ? '⚠ ' : '') + d.label"></span>
-                              </template>
-                            </div>
-                          </template>
-                          <div x-show="activeBoard().summary && activeBoard().summary.text" class="md-output" style="line-height:1.5" x-html="renderMarkdown(activeBoard().summary ? activeBoard().summary.text : '')"></div>
-                          <template x-if="briefingSources().length">
-                            <div class="brief-sources">
-                              <div class="brief-sources-label" @click="toggleBriefSources()">
-                                <span class="brief-sources-caret" x-text="briefSourcesOpen() ? '▾' : '▸'"></span>
-                                <span>Sources</span>
-                                <span class="brief-sources-count" x-text="briefingSources().length"></span>
-                              </div>
-                              <template x-if="briefSourcesOpen()">
-                                <div>
-                                  <template x-for="s in briefingSources()" :key="s.id">
-                                    <div class="brief-source-row">
-                                    <template x-if="s.route"><a class="brief-source-link" href="#" @click.prevent="goTo(s.route)" x-text="s.label || s.refId"></a></template>
-                                    <template x-if="!s.route"><span class="brief-source-link no-route" x-text="s.label || s.refId"></span></template>
-                                     <span class="brief-source-type" x-text="boardKindLabel(s.kind)"></span>
-                                     <span class="brief-source-when" x-text="s.when ? formatRelative(s.when) : 'no recent activity'" :title="s.when ? new Date(s.when).toLocaleString() : ''"></span>
-                                   </div>
-                                 </template>
-                               </div>
-                             </template>
-                             </div>
-                          </template>
-                          <div x-show="!(activeBoard().summary)" class="hint">Not generated yet — click ↻ Update.</div>
-                        </div>
-                      </div>
-                    </template>
-                    <div class="board-grid" :style="boardIsTabbed() ? '' : boardGridStyle()">
-                      <template x-for="p in boardPanels()" :key="p.id">
-                        <div class="board-panel" x-show="!boardIsTabbed() || isActiveTab(p)" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
+                                <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
                             <div class="pin-chip-card" @mousedown="startPanelDrag(p.id, $event)" @click="boardChipClick(p)" :title="chipType(p) + ': ' + chipName(p) + ' — click to expand'">
@@ -9192,9 +9295,23 @@
                           </div>
                           </template>
                         </div>
-                      </template>
-                      <div class="board-canvas-resize" x-show="!boardIsTabbed()" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
-                    </div>
+                              </div>
+                            </template>
+                            <template x-if="!activeSectionPanels().length">
+                              <div class="board-stage-empty" x-text="isViewTab() ? 'Pick a panel from the toolbox to view it here.' : 'Empty section — drag panels from the toolbox on the left, or press ＋ to add a section.'"></div>
+                            </template>
+                            <div class="board-canvas-resize" x-show="!boardIsTabbed()" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
+                          </div>
+                        </div>
+                        <div class="board-sectbar" x-show="!isViewTab()">
+                          <span class="sb-zoom">
+                            <button type="button" class="sb-btn" @click="bumpSectionZoom(-0.1)" title="Zoom out">−</button>
+                            <span class="sb-zval" x-text="Math.round(sectionZoom()*100) + '%'"></span>
+                            <button type="button" class="sb-btn" @click="bumpSectionZoom(0.1)" title="Zoom in">＋</button>
+                          </span>
+                          <span x-show="!!activeSection()" x-text="(activeSection() ? (activeSection().cards||[]).length : 0) + ' card' + ((activeSection() && (activeSection().cards||[]).length===1) ? '' : 's')"></span>
+                        </div>
+                      </div>
                     </div>
                     </div>
 
@@ -17015,6 +17132,11 @@
         // Quick-launch pins for non-board items (employees & operations), persisted
         // client-side. Boards keep their server-side `starred` flag; the bar merges both.
         quickPins: (() => { try { return JSON.parse(localStorage.getItem('quick-launch-pins') || '[]') || []; } catch { return []; } })(),
+        // Sections-board drag state (toolbox → section, card reorder) + pending nav.
+        _boardCardDrag: null,
+        _boardDragOver: false,
+        _boardDragOverSec: null,
+        _pendingBoardSection: null,
         boardChatCache: {},
         activeChat: null,
         chatDraft: '',
@@ -26111,6 +26233,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const p of (this.quickPins || [])) {
             // Skip employee pins whose underlying agent/manager was removed (ghost entries).
             if (p.kind === 'employee' && this._employeesLoaded() && !this._employeeExists(p.id)) continue;
+            if (p.kind === 'boardsection') {
+              items.push({ kind: 'boardsection', kindLabel: 'Section', id: p.id, name: p.name, emoji: p.emoji || '🗂', teamId: p.teamId || null, boardId: p.boardId, sectionId: p.sectionId });
+              continue;
+            }
             const kindLabel = p.kind === 'employee' ? 'Employee' : 'Operation';
             const fallback = p.kind === 'employee' ? '🧑' : '⚙️';
             items.push({ kind: p.kind, kindLabel, id: p.id, name: p.name, emoji: p.emoji || fallback, teamId: p.teamId || null, route: p.route });
@@ -26174,6 +26300,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         quickLaunchOpen(item) {
           if (!item) return;
           if (item.kind === 'board') return this.quickLaunchBoard(item.id);
+          if (item.kind === 'boardsection') {
+            // Remember the requested section, navigate to its board, then apply once
+            // the board's canvas is loaded (_applyPendingSection runs in loadBoardCanvas).
+            this._pendingBoardSection = { boardId: item.boardId, sectionId: item.sectionId };
+            this.quickLaunchBoard(item.boardId);
+            this.$nextTick(() => this._applyPendingSection());
+            return;
+          }
           if (this.teamSelectorVisible()) {
             if (item.teamId) { if (this.currentTeamId !== item.teamId) this.setCurrentOrg(item.teamId); }
             else if (this.currentTeamId !== 'all') this.setCurrentOrg('all');
@@ -27349,6 +27483,249 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // the canvas top, so re-measure the fixed canvas height to keep the bar docked.
           if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
         },
+        // ========================================================================
+        // Unified SECTIONS board model.
+        // The board is one or more named "sections" shown as horizontal top tabs.
+        // Each section holds a selection of the board's panels (pins / notes /
+        // checklists / dev cards) as resizable cards you drag in from the left
+        // toolbox, reorder (closest-card-center), and zoom (per section). Panels are
+        // reusable — the same pin can live in several sections. A special 'view' tab
+        // shows one panel at full size. Sections persist on boardCanvas (localStorage
+        // 'board-canvas') alongside zoom/font. Panels remain the single source of
+        // truth for content, so briefing / compliance / removal all keep working.
+        // ========================================================================
+        _newSectionId() { return 'sec-' + Math.random().toString(36).slice(2, 9); },
+        // Seed a default section (holding every current panel) when a board has none,
+        // so upgrading users never lose their pinned items. Called on board ENTER
+        // (loadBoardCanvas) — never from a render getter — to avoid render-time state
+        // mutation loops.
+        _seedSectionsIfEmpty() {
+          if (!this.boardCanvas) return;
+          const secs = Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null;
+          if (secs && secs.length) return;
+          const bases = this.boardTabPanels().map(p => this.panelBaseId(p));
+          const def = { id: this._newSectionId(), name: 'Board', icon: '📋', zoom: 1, starred: false, cards: bases.map(b => ({ base: b, size: 'sm' })) };
+          this.boardCanvas = { ...this.boardCanvas, sections: [def], sec: (this.boardCanvas.sec || def.id) };
+          this._saveBoardCanvas();
+        },
+        boardSections() { return (this.boardCanvas && Array.isArray(this.boardCanvas.sections)) ? this.boardCanvas.sections : []; },
+        sectionById(id) { return this.boardSections().find(s => s.id === id) || null; },
+        activeSectionId() {
+          const cur = this.boardCanvas && this.boardCanvas.sec;
+          if (cur === 'view') return 'view';
+          const secs = this.boardSections();
+          if (cur && secs.some(s => s.id === cur)) return cur;
+          return secs.length ? secs[0].id : null;
+        },
+        isViewTab() { return this.activeSectionId() === 'view'; },
+        activeSection() {
+          const id = this.activeSectionId();
+          if (id === 'view' || !id) return null;
+          return this.sectionById(id);
+        },
+        setActiveSection(id) {
+          if (!this.boardCanvas || this.boardCanvas.sec === id) return;
+          this.boardCanvas = { ...this.boardCanvas, sec: id };
+          this._saveBoardCanvas();
+        },
+        // Persist a mutation to the sections array (mutated in place) + keep Alpine
+        // reactive by swapping in a fresh array reference.
+        _touchSections() {
+          this.boardCanvas = { ...this.boardCanvas, sections: (this.boardCanvas.sections || []).slice() };
+          this._saveBoardCanvas();
+        },
+        // Map a base id → its live panel object (null if the underlying item is gone).
+        _panelByBase(base) { return this.boardPanels().find(p => this.panelBaseId(p) === base) || null; },
+        // Panels shown in the active tab, in card order. View tab → the one selected panel.
+        activeSectionPanels() {
+          if (this.isViewTab()) {
+            const b = this.boardCanvas && this.boardCanvas.viewBase;
+            const p = b ? this._panelByBase(b) : null;
+            return p ? [p] : [];
+          }
+          const sec = this.activeSection();
+          if (!sec) return [];
+          const out = [];
+          for (const c of (sec.cards || [])) { const p = this._panelByBase(c.base); if (p) out.push(p); }
+          return out;
+        },
+        // ----- Toolbox tray: every board panel is draggable into a section -----
+        toolboxPanels() { return this.boardTabPanels(); },
+        panelInActiveSection(p) {
+          const sec = this.activeSection(); if (!sec) return false;
+          const b = this.panelBaseId(p);
+          return (sec.cards || []).some(c => c.base === b);
+        },
+        // ----- Card size (per section) -----
+        _activeCard(p) {
+          const sec = this.activeSection(); if (!sec) return null;
+          const b = this.panelBaseId(p);
+          return (sec.cards || []).find(c => c.base === b) || null;
+        },
+        cardSize(p) {
+          if (this.isViewTab()) return 'view';
+          const c = this._activeCard(p);
+          return (c && c.size) || 'sm';
+        },
+        cycleCardSize(p) {
+          const c = this._activeCard(p); if (!c) return;
+          const order = ['sm', 'wide', 'tall', 'big'];
+          c.size = order[(order.indexOf(c.size) + 1) % order.length] || 'sm';
+          this._touchSections();
+        },
+        cardSizeLabel(p) {
+          return ({ sm: 'Small', wide: 'Wide', tall: 'Tall', big: 'Large' })[this.cardSize(p)] || 'Small';
+        },
+        // ----- Per-section zoom (transform scale on the grid) -----
+        sectionZoom() {
+          if (this.isViewTab()) return 1;
+          const sec = this.activeSection();
+          return (sec && sec.zoom) || 1;
+        },
+        setSectionZoom(v) {
+          const sec = this.activeSection(); if (!sec) return;
+          let z = parseFloat(v); if (!isFinite(z)) z = 1;
+          sec.zoom = Math.max(0.5, Math.min(1.6, Math.round(z * 20) / 20));
+          this._touchSections();
+        },
+        bumpSectionZoom(d) { this.setSectionZoom(this.sectionZoom() + d); },
+        sectionGridStyle() {
+          const z = this.sectionZoom();
+          if (!z || z === 1) return '';
+          return 'transform:scale(' + z + ');transform-origin:top left;width:' + (100 / z).toFixed(3) + '%;';
+        },
+        // ----- Section CRUD -----
+        addSection() {
+          const secs = this.boardSections().slice();
+          const s = { id: this._newSectionId(), name: 'New section', icon: '🗂', zoom: 1, starred: false, cards: [] };
+          secs.push(s);
+          this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: s.id };
+          this._saveBoardCanvas();
+        },
+        renameSection(id) {
+          const s = this.sectionById(id); if (!s) return;
+          const name = window.prompt('Section name', s.name || '');
+          if (name == null) return;
+          s.name = String(name).trim() || s.name;
+          this._touchSections();
+        },
+        deleteSection(id) {
+          const secs = this.boardSections().slice();
+          const i = secs.findIndex(s => s.id === id);
+          if (i === -1) return;
+          if (!window.confirm('Delete section "' + (secs[i].name || '') + '"? Pinned items stay on the board and in other sections.')) return;
+          this._removeSectionQuick(id);
+          secs.splice(i, 1);
+          const nextSec = secs.length ? secs[Math.max(0, i - 1)].id : 'view';
+          this.boardCanvas = { ...this.boardCanvas, sections: secs, sec: nextSec };
+          this._saveBoardCanvas();
+        },
+        // ----- View tab: focus a single panel full-size -----
+        openInView(p) {
+          const b = this.panelBaseId(p);
+          this.boardCanvas = { ...this.boardCanvas, sec: 'view', viewBase: b };
+          this._saveBoardCanvas();
+        },
+        viewPanel() {
+          const b = this.boardCanvas && this.boardCanvas.viewBase;
+          return b ? this._panelByBase(b) : null;
+        },
+        // ----- Card placement: add / reorder / remove -----
+        addCardToSection(sectionId, base, atIndex) {
+          const s = this.sectionById(sectionId); if (!s || !base) return;
+          s.cards = (s.cards || []).slice();
+          const existing = s.cards.findIndex(c => c.base === base);
+          if (existing !== -1) {
+            const [card] = s.cards.splice(existing, 1);
+            let idx = (atIndex == null) ? s.cards.length : atIndex;
+            if (existing < idx) idx--;
+            s.cards.splice(Math.max(0, Math.min(s.cards.length, idx)), 0, card);
+          } else {
+            let idx = (atIndex == null) ? s.cards.length : atIndex;
+            s.cards.splice(Math.max(0, Math.min(s.cards.length, idx)), 0, { base, size: 'sm' });
+          }
+          this._touchSections();
+        },
+        removeCardFromSection(p) {
+          const s = this.activeSection(); if (!s) return;
+          const b = this.panelBaseId(p);
+          s.cards = (s.cards || []).filter(c => c.base !== b);
+          this._touchSections();
+        },
+        // ----- Drag & drop (toolbox → section, card reorder) -----
+        onToolboxDragStart(base, ev) {
+          this._boardCardDrag = { base };
+          try { ev.dataTransfer.effectAllowed = 'copyMove'; ev.dataTransfer.setData('text/plain', 'card:' + base); } catch {}
+        },
+        onCardDragStart(p, ev) {
+          this._boardCardDrag = { base: this.panelBaseId(p) };
+          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', 'card:' + this.panelBaseId(p)); } catch {}
+        },
+        onCardDragEnd() { this._boardCardDrag = null; },
+        _dragBase(ev) {
+          if (this._boardCardDrag && this._boardCardDrag.base) return this._boardCardDrag.base;
+          try { const d = ev.dataTransfer.getData('text/plain') || ''; return d.indexOf('card:') === 0 ? d.slice(5) : ''; } catch { return ''; }
+        },
+        onSectionTabDrop(sectionId, ev) {
+          ev.preventDefault();
+          const base = this._dragBase(ev);
+          this._boardCardDrag = null;
+          if (!base) return;
+          this.addCardToSection(sectionId, base, null);
+          this.setActiveSection(sectionId);
+        },
+        onGridDragOver(ev) { ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch {} },
+        onGridDrop(ev) {
+          ev.preventDefault();
+          const base = this._dragBase(ev);
+          this._boardCardDrag = null;
+          const sec = this.activeSection();
+          if (!base || !sec) return;
+          const idx = this._gridInsertIndex(ev);
+          this.addCardToSection(sec.id, base, idx);
+        },
+        // Closest-card-center insert index within the active grid.
+        _gridInsertIndex(ev) {
+          const host = ev.currentTarget;
+          const cards = host ? Array.from(host.querySelectorAll('[data-card-base]')) : [];
+          if (!cards.length) return null;
+          const x = ev.clientX, y = ev.clientY;
+          let best = cards.length, bestD = Infinity;
+          cards.forEach((el, i) => {
+            const r = el.getBoundingClientRect();
+            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            const d = Math.hypot(x - cx, y - cy);
+            if (d < bestD) { bestD = d; best = (x < cx) ? i : i + 1; }
+          });
+          return best;
+        },
+        // ----- Section star → quick launch -----
+        isSectionStarred(id) { const s = this.sectionById(id); return !!(s && s.starred); },
+        toggleSectionStar(id) {
+          const s = this.sectionById(id); const b = this.activeBoard();
+          if (!s || !b) return;
+          s.starred = !s.starred;
+          const qid = b.id + '::' + id;
+          const i = (this.quickPins || []).findIndex(p => p.kind === 'boardsection' && p.id === qid);
+          if (s.starred) {
+            if (i < 0) this.quickPins.push({ kind: 'boardsection', id: qid, boardId: b.id, sectionId: id, name: (b.name + ' · ' + s.name), emoji: s.icon || '🗂', teamId: b.teamId || null });
+          } else if (i >= 0) { this.quickPins.splice(i, 1); }
+          this._saveQuickPins();
+          this._touchSections();
+        },
+        _removeSectionQuick(id) {
+          const b = this.activeBoard(); if (!b) return;
+          const qid = b.id + '::' + id;
+          const i = (this.quickPins || []).findIndex(p => p.kind === 'boardsection' && p.id === qid);
+          if (i >= 0) { this.quickPins.splice(i, 1); this._saveQuickPins(); }
+        },
+        // Apply a section requested via quick launch once the target board is active.
+        _applyPendingSection() {
+          if (!this._pendingBoardSection) return;
+          const { boardId, sectionId } = this._pendingBoardSection;
+          if (this.activeBoardId !== boardId) return;
+          if (this.sectionById(sectionId)) { this.setActiveSection(sectionId); this._pendingBoardSection = null; }
+        },
         // Turn a raw markdown fragment into a compact one-line plain-text snippet:
         // strips link syntax, emphasis, code ticks and leftover markup so the collapsed
         // briefing preview reads cleanly.
@@ -28300,17 +28677,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
           const c = boardId && map[boardId];
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: (c.view === 'tabbed' ? 'tabbed' : 'pin'), tab: c.tab || null, briefOpen: (c.briefOpen !== false), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null), groupOrder: (Array.isArray(c.groupOrder) ? c.groupOrder : null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null, groupOrder: null };
+          // The board now always uses the unified SECTIONS model (view is pinned to
+          // 'tabbed' — the pin-view geometry is retained but no longer surfaced).
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: 'tabbed', tab: c.tab || null, briefOpen: (c.briefOpen !== false), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null), groupOrder: (Array.isArray(c.groupOrder) ? c.groupOrder : null), sections: (Array.isArray(c.sections) ? c.sections : null), sec: (c.sec || null), viewBase: (c.viewBase || null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'tabbed', tab: null, briefOpen: true, tabOrder: null, groupOrder: null, sections: null, sec: null, viewBase: null };
+          this._seedSectionsIfEmpty();
+          this._applyPendingSection();
         },
         _saveBoardCanvas() {
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null) };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: 'tabbed', tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null), sections: (Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null), sec: (this.boardCanvas.sec || null), viewBase: (this.boardCanvas.viewBase || null) };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: (this.boardCanvas.view === 'tabbed' ? 'tabbed' : 'pin'), tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null) };
+          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: 'tabbed', tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null), sections: (Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null), sec: (this.boardCanvas.sec || null), viewBase: (this.boardCanvas.viewBase || null) };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
@@ -36945,6 +37326,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         }
       };
     }
+  </script>
+  <script>
+    // Self-fading scrollbars for .scrollfade regions: add .sb-live while a scrollfade
+    // element is actively scrolled, then drop it after a short idle so the thumb fades.
+    (function () {
+      const timers = new WeakMap();
+      document.addEventListener('scroll', function (e) {
+        const el = e.target;
+        if (!el || el.nodeType !== 1 || !el.classList || !el.classList.contains('scrollfade')) return;
+        el.classList.add('sb-live');
+        const prev = timers.get(el);
+        if (prev) clearTimeout(prev);
+        timers.set(el, setTimeout(() => el.classList.remove('sb-live'), 700));
+      }, true);
+    })();
   </script>
 </body>
 </html>

@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Board — merged tabs+drag mockup · TheOffice.AI</title>
+<style>
+  :root {
+    color-scheme: light;
+    --cp-bg: #f4f5f7; --cp-bg-elevated: #fafbfc; --cp-surface: #ffffff; --cp-surface-soft: #eef0f3;
+    --cp-border: #dee1e6; --cp-border-strong: #a8aeb8;
+    --cp-scrollthumb: rgba(90,98,110,0.32); --cp-scrollthumb-strong: rgba(90,98,110,0.55);
+    --cp-text: #1b1f27; --cp-text-muted: #59616d; --cp-text-soft: #6e7682;
+    --cp-accent: #2563eb; --cp-accent-soft: rgba(37,99,235,0.10);
+    --cp-success: #16a34a; --cp-danger: #dc2626; --cp-warning: #f59e0b; --cp-link: #1f6fb1;
+    --cp-note: #d97706; --cp-note-soft: rgba(217,119,6,0.12);
+    --cp-check: #16a34a; --cp-check-soft: rgba(22,163,74,0.12);
+    --cp-dev: #2563eb; --cp-dev-soft: rgba(37,99,235,0.12);
+    --cp-work: #7c3aed; --cp-work-soft: rgba(124,58,237,0.12);
+    --font-sans: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: Consolas, "Courier New", Courier, monospace;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --cp-bg: #161922; --cp-bg-elevated: #1b1f29; --cp-surface: #21262f; --cp-surface-soft: #272d37;
+    --cp-border: #343b47; --cp-border-strong: #4b5563;
+    --cp-scrollthumb: rgba(180,188,198,0.28); --cp-scrollthumb-strong: rgba(180,188,198,0.5);
+    --cp-text: #e4e7ec; --cp-text-muted: #98a1ad; --cp-text-soft: #b4bcc6;
+    --cp-accent: #60a5fa; --cp-accent-soft: rgba(96,165,250,0.16);
+    --cp-success: #4ade80; --cp-danger: #f87171; --cp-warning: #fbbf24; --cp-link: #7cc0f0;
+    --cp-note: #fbbf24; --cp-note-soft: rgba(251,191,36,0.16);
+    --cp-check: #4ade80; --cp-check-soft: rgba(74,222,128,0.16);
+    --cp-dev: #60a5fa; --cp-dev-soft: rgba(96,165,250,0.16);
+    --cp-work: #c4b5fd; --cp-work-soft: rgba(196,181,253,0.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+  .wrap { height: 100vh; display: flex; flex-direction: column; padding: 14px 20px 0; }
+  .muted { color: var(--cp-text-muted); }
+  .soft { color: var(--cp-text-soft); }
+  .count { font-size: 12px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+  button { font-family: inherit; }
+
+  /* ---- subtle, self-fading scrollbars ------------------------------
+   * Thumbs are invisible at rest and only surface while you're actively
+   * scrolling (JS adds .sb-live) or hovering the area, then fade back out. */
+  .scrollfade { scrollbar-width: thin; scrollbar-color: transparent transparent; transition: scrollbar-color .45s ease; }
+  .scrollfade::-webkit-scrollbar { width: 10px; height: 10px; }
+  .scrollfade::-webkit-scrollbar-track { background: transparent; }
+  .scrollfade::-webkit-scrollbar-thumb {
+    background: transparent; border-radius: 8px;
+    border: 3px solid transparent; background-clip: padding-box;
+    transition: background-color .5s ease .2s; }
+  .scrollfade:hover, .scrollfade.sb-live { scrollbar-color: var(--cp-scrollthumb) transparent; }
+  .scrollfade:hover::-webkit-scrollbar-thumb,
+  .scrollfade.sb-live::-webkit-scrollbar-thumb { background: var(--cp-scrollthumb); transition-delay: 0s; }
+  .scrollfade:hover::-webkit-scrollbar-thumb:hover { background: var(--cp-scrollthumb-strong); }
+
+  .mock-banner { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--cp-text-muted);
+    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; padding: 7px 14px; margin-bottom: 12px; flex: 0 0 auto; }
+  .mock-banner strong { color: var(--cp-text); }
+  .mock-banner .sp { flex: 1; }
+  .theme-btn { border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-soft);
+    border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+  .theme-btn:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
+
+  /* ---- studio header (mirrors .nlx-top) ---- */
+  .bx-top { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; flex: 0 0 auto; }
+  .bx-top h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  .bx-top .sub { font-size: 12.5px; color: var(--cp-text-soft); margin-top: 2px; }
+  .bx-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .field-input, select.field-input { padding: 7px 30px 7px 11px; font-size: 13px; font-weight: 600; cursor: pointer;
+    background: var(--cp-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2398a1ad' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 11px center;
+    color: var(--cp-text); border: 1px solid var(--cp-border); border-radius: 8px; -webkit-appearance: none; appearance: none;
+    min-width: 220px; max-width: 360px; }
+  .field-input:focus { outline: none; border-color: var(--cp-border-strong); }
+  .link-btn { background: transparent; border: 1px solid transparent; color: var(--cp-text-muted); font-size: 12.5px; cursor: pointer; padding: 5px 9px; border-radius: 8px; }
+  .link-btn:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+  .btn { border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); border-radius: 8px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--cp-border-strong); }
+  /* quick launch — starred sections as calm inline text links (no pills) */
+  .ql { display: inline-flex; align-items: center; gap: 2px; font-size: 12.5px; }
+  .ql .ql-lbl { color: var(--cp-text-soft); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin-right: 4px; }
+  .ql a { color: var(--cp-text-muted); text-decoration: none; cursor: pointer; padding: 3px 6px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
+  .ql a:hover { color: var(--cp-text); background: var(--cp-surface-soft); }
+  .ql a.on { color: var(--cp-text); }
+  .ql .mid { color: var(--cp-border-strong); }
+
+  /* ---- studio grid: rail + stage ---- */
+  .bx-studio { display: grid; grid-template-columns: 264px minmax(0,1fr); gap: 16px; flex: 1 1 auto; min-height: 0; }
+  .bx-rail { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; padding-bottom: 8px; }
+  .bx-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 10px; }
+  .bx-card .card-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--cp-text-soft);
+    font-weight: 700; margin: 2px 4px 8px; display: flex; align-items: center; gap: 6px; }
+  .bx-card .card-h .sp { flex: 1; }
+
+  /* toolbox: draggable + clickable source items */
+  .tb-search { position: relative; margin-bottom: 8px; }
+  .tb-search input { width: 100%; padding: 7px 10px 7px 28px; background: var(--cp-bg-elevated); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: 8px; font-size: 12.5px; }
+  .tb-search input:focus { outline: none; border-color: var(--cp-border-strong); }
+  .tb-search .mag { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--cp-text-soft); font-size: 12px; }
+  .tb-group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--cp-text-soft); font-weight: 700; margin: 10px 4px 5px; display:flex; align-items:center; gap:6px; }
+  .tb-group .ln { flex:1; height:1px; background:var(--cp-border); }
+  .tb-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--cp-border); border-radius: 8px;
+    background: var(--cp-bg-elevated); margin-bottom: 6px; cursor: pointer; }
+  .tb-item:hover { border-color: var(--cp-border-strong); background: var(--cp-surface-soft); }
+  .tb-item.dragging { opacity: .45; }
+  .tb-item.sel { border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+  .tb-item .ic { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; flex: 0 0 auto; }
+  .tb-item .tx { min-width: 0; flex:1 1 auto; }
+  .tb-item .tt { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tb-item .mt { font-size: 11px; color: var(--cp-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tb-item .grip { color: var(--cp-text-soft); font-size: 13px; flex: 0 0 auto; cursor: grab; }
+  .tb-hint { font-size: 11.5px; line-height: 1.5; color: var(--cp-text-soft); padding: 4px 6px 2px; }
+  .tb-hint strong { color: var(--cp-text-muted); font-weight: 600; }
+  .tb-action { display:flex; align-items:center; gap:7px; width:100%; margin-top:6px; padding:7px 8px; cursor:pointer;
+    border:1px dashed var(--cp-border-strong); border-radius:8px; background:transparent; color:var(--cp-text-muted);
+    font-size:12px; font-weight:600; font-family:inherit; text-align:left; }
+  .tb-action:hover { border-color:var(--cp-accent); color:var(--cp-accent); background:var(--cp-accent-soft); }
+  .tb-action span:first-child { font-size:14px; line-height:1; }
+
+  /* ---- stage ---- */
+  .bx-stage { border: 1px solid var(--cp-border); border-radius: 14px; background: var(--cp-bg-elevated); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+  /* top tab strip — slim horizontal scroll, never wraps (uses .scrollfade) */
+  .bx-tabs { display: flex; flex-wrap: nowrap; align-items: flex-end; gap: 3px; padding: 8px 10px 0; background: var(--cp-surface); border-bottom: 1px solid var(--cp-border); flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; }
+  .bx-tabs::-webkit-scrollbar { height: 8px; }
+  .bx-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid transparent; border-bottom: 0;
+    border-radius: 9px 9px 0 0; color: var(--cp-text-muted); cursor: pointer; white-space: nowrap; position: relative; top: 1px; flex: 0 0 auto; }
+  .bx-tab:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+  .bx-tab.active { background: var(--cp-bg-elevated); border-color: var(--cp-border); color: var(--cp-text); font-weight: 600; }
+  .bx-tab .ic { font-size: 14px; }
+  .bx-tab .star { font-size: 12px; color: var(--cp-text-soft); cursor: pointer; opacity: 0; }
+  .bx-tab .star.on { color: var(--cp-warning); opacity: 1; }
+  .bx-tab:hover .star { opacity: 1; }
+  .bx-tab .ct { font-size: 11px; color: var(--cp-text-soft); font-variant-numeric: tabular-nums; }
+  .bx-tab .tx { font-size: 12.5px; background: transparent; border: 1px solid transparent; border-radius: 5px; color: inherit; font: inherit; font-weight: inherit; padding: 1px 4px; max-width: 140px; cursor: text; }
+  .bx-tab .tx:hover { border-color: var(--cp-border); }
+  .bx-tab .tx:focus { outline: none; border-color: var(--cp-border-strong); background: var(--cp-surface); }
+  .bx-tab .del { border: 0; background: transparent; color: var(--cp-text-soft); cursor: pointer; font-size: 13px; border-radius: 5px; width: 18px; height: 18px; line-height: 1; opacity: 0; flex: 0 0 auto; }
+  .bx-tab:hover .del { opacity: .8; }
+  .bx-tab .del:hover { background: var(--cp-surface-soft); color: var(--cp-danger); opacity: 1; }
+  .bx-tab.drop-hot { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-text); }
+  .bx-tab.addtab { padding: 8px 12px; color: var(--cp-text-soft); font-size: 15px; }
+  .bx-tab-sep { width: 1px; align-self: stretch; margin: 6px 4px 0; background: var(--cp-border); flex: 0 0 auto; }
+
+  .bx-stagebar { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--cp-border);
+    background: var(--cp-surface); flex: 0 0 auto; }
+  .bx-stagebar .st-ic { font-size: 18px; }
+  .bx-stagebar .st-nm { font-weight: 700; }
+  .bx-stagebar input.rename { font: inherit; font-weight: 700; color: var(--cp-text); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; max-width: 220px; }
+  .bx-stagebar input.rename:hover { border-color: var(--cp-border); }
+  .bx-stagebar input.rename:focus { outline: none; border-color: var(--cp-border-strong); background: var(--cp-bg-elevated); }
+  .bx-stagebar .st-ct { font-size: 12px; color: var(--cp-text-soft); }
+  .bx-stagebar .sp { flex: 1; }
+
+  /* zoom control */
+  .zoom { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cp-border); border-radius: 8px; padding: 3px 6px; background: var(--cp-surface); }
+  .zoom button { border: 0; background: transparent; color: var(--cp-text-muted); width: 22px; height: 22px; border-radius: 6px; cursor: pointer; font-size: 15px; line-height: 1; }
+  .zoom button:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+  .zoom input[type=range] { width: 86px; accent-color: var(--cp-accent); }
+  .zoom .pct { font-size: 12px; color: var(--cp-text-soft); font-variant-numeric: tabular-nums; width: 38px; text-align: right; }
+  .zoom .fit { font-size: 11.5px; padding: 0 7px; width: auto; }
+
+  .bx-scroll { flex: 1 1 auto; overflow: auto; padding: 16px; position: relative; }
+  .bx-zoomwrap { transform-origin: top left; }
+  .bx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; align-content: start; }
+  .bx-grid.drop-active { outline: 2px dashed var(--cp-accent); outline-offset: 6px; border-radius: 12px; }
+
+  /* board card */
+  .bc { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 12px; position: relative;
+    cursor: pointer; transition: box-shadow .12s, border-color .12s; }
+  .bc:hover { border-color: var(--cp-border-strong); box-shadow: 0 4px 14px -8px rgba(0,0,0,.35); }
+  .bc.dragging { opacity: .4; }
+  .bc.insert-before::before, .bc.insert-after::after { content: ""; position: absolute; top: -8px; bottom: -8px; width: 3px; border-radius: 2px; background: var(--cp-accent); }
+  .bc.insert-before::before { left: -8px; }
+  .bc.insert-after::after { right: -8px; }
+  .bc .bc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .bc .bc-ic { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; flex: 0 0 auto; }
+  .bc .bc-tt { font-weight: 600; font-size: 13.5px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bc .bc-grip { opacity: 0; color: var(--cp-text-soft); font-size: 13px; cursor: grab; flex: 0 0 auto; }
+  .bc:hover .bc-grip { opacity: .8; }
+  .bc .bc-size { opacity: 0; border: 0; background: transparent; color: var(--cp-text-soft); cursor: pointer; font-size: 13px; border-radius: 6px; width: 22px; height: 22px; flex: 0 0 auto; }
+  .bc:hover .bc-size { opacity: 1; }
+  .bc .bc-size:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+  /* size variants: default 1×, wide spans 2 cols, tall taller body, big both */
+  .bc.sz-wide { grid-column: span 2; }
+  .bc.sz-big  { grid-column: span 2; }
+  .bc.sz-tall .bc-body, .bc.sz-big .bc-body { min-height: 120px; }
+  .bc .bc-x { opacity: 0; border: 0; background: transparent; color: var(--cp-text-soft); cursor: pointer; font-size: 15px; border-radius: 6px; width: 22px; height: 22px; flex: 0 0 auto; }
+  .bc:hover .bc-x { opacity: 1; }
+  .bc .bc-x:hover { background: var(--cp-surface-soft); color: var(--cp-danger); }
+  .bc .bc-body { font-size: 12.5px; color: var(--cp-text-muted); }
+  .bc .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+  .bc .cl-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 2px 0; color: var(--cp-text); }
+  .bc .cl-row .box { width: 14px; height: 14px; border: 1.5px solid var(--cp-border-strong); border-radius: 4px; flex: 0 0 auto; }
+  .bc .cl-row.done .box { background: var(--cp-check); border-color: var(--cp-check); }
+  .bc .cl-row.done span { color: var(--cp-text-soft); text-decoration: line-through; }
+  .bc .dev-line { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--cp-text-muted); padding: 2px 0; }
+  .bc .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+  .bc.t-note   .bc-ic { background: var(--cp-note-soft);  color: var(--cp-note); }
+  .bc.t-check  .bc-ic { background: var(--cp-check-soft); color: var(--cp-check); }
+  .bc.t-dev    .bc-ic { background: var(--cp-dev-soft);   color: var(--cp-dev); }
+  .bc.t-work   .bc-ic { background: var(--cp-work-soft);  color: var(--cp-work); }
+  .bc.t-pr     .bc-ic { background: var(--cp-check-soft); color: var(--cp-check); }
+  .bc.t-session .bc-ic { background: var(--cp-accent-soft); color: var(--cp-accent); }
+
+  .empty { text-align: center; color: var(--cp-text-soft); padding: 60px 20px; border: 1.5px dashed var(--cp-border); border-radius: 14px; }
+  .empty .big { font-size: 34px; margin-bottom: 8px; }
+
+  /* ---- view (item detail) pane ---- */
+  .bx-view { max-width: 760px; }
+  .vw-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+  .vw-ic { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; font-size: 22px; flex: 0 0 auto; }
+  .vw-h1 { font-size: 18px; font-weight: 700; margin: 0; }
+  .vw-sub { font-size: 12.5px; color: var(--cp-text-soft); margin-top: 3px; }
+  .vw-actions { margin-left: auto; display: flex; gap: 8px; }
+  .vw-sec { border: 1px solid var(--cp-border); border-radius: 12px; background: var(--cp-surface); padding: 14px; margin-bottom: 14px; }
+  .vw-sec h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--cp-text-soft); margin: 0 0 9px; }
+  .vw-kv { display: grid; grid-template-columns: 120px 1fr; gap: 7px 14px; font-size: 13px; }
+  .vw-kv .k { color: var(--cp-text-soft); }
+  .vw-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+  .vw-empty { text-align: center; color: var(--cp-text-soft); padding: 70px 20px; }
+  .vw-empty .big { font-size: 38px; margin-bottom: 10px; }
+  .vw-file { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 4px 0; font-family: var(--font-mono); }
+  .vw-file .add { color: var(--cp-success); } .vw-file .del { color: var(--cp-danger); }
+  .kbd { font-family: var(--font-mono); font-size: 11px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 5px; padding: 1px 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mock-banner">
+    <strong>Mockup</strong> · Sections are top tabs · <strong>View</strong> previews a clicked item · <strong>＋</strong> adds a board · <strong>★</strong> a section to pin it to Quick Launch · drag a pinned item onto any section (stays reusable) · drag a card's <span class="kbd">⤢</span> to resize.
+    <span class="sp"></span>
+    <span class="soft" id="hintTxt">Click an item to preview · drag it onto a board</span>
+    <button class="theme-btn" onclick="toggleTheme()">◐ Theme</button>
+  </div>
+
+  <div class="bx-top">
+    <div>
+      <h1>Boards</h1>
+      <div class="sub">One board, sections as tabs — cards you arrange, plus a View tab for details.</div>
+    </div>
+    <div class="bx-actions">
+      <span id="quickLaunch" class="ql"></span>
+      <label class="soft" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Board</label>
+      <select class="field-input" id="boardSel">
+        <option>★ Release 1.2 · Platform</option>
+        <option>🗂 Q3 Planning · Design</option>
+        <option>📌 On-call rotation · Ops</option>
+      </select>
+      <button class="link-btn">Show archived</button>
+    </div>
+  </div>
+
+  <div class="bx-studio">
+    <!-- RAIL: toolbox only (sections moved to top tabs) -->
+    <div class="bx-rail scrollfade">
+      <div class="bx-card">
+        <div class="card-h"><span>Toolbox</span><span class="sp"></span><span class="soft" style="font-size:10.5px;font-weight:600">click to view · drag to board</span></div>
+        <div class="tb-search"><span class="mag">⌕</span><input id="tbSearch" placeholder="Search items…" oninput="renderToolbox()" /></div>
+        <div id="toolbox"></div>
+      </div>
+    </div>
+
+    <!-- STAGE with top tabs -->
+    <div class="bx-stage">
+      <div class="bx-tabs scrollfade" id="tabStrip"></div>
+
+      <!-- board context bar (boards only) -->
+      <div class="bx-stagebar" id="stagebar">
+        <span class="st-ic" id="stIc">🧭</span>
+        <input class="rename" id="stNm" value="Section" onchange="renameActive(this.value)" />
+        <span class="st-ct" id="stCt"></span>
+        <span class="sp"></span>
+        <div class="zoom">
+          <button onclick="bumpZoom(-10)" title="Zoom out">−</button>
+          <input type="range" id="zoomRange" min="40" max="160" step="5" value="100" oninput="setZoom(this.value)" />
+          <button onclick="bumpZoom(10)" title="Zoom in">+</button>
+          <span class="pct" id="zoomPct">100%</span>
+          <button class="fit" onclick="setZoom(100)" title="Reset zoom">Fit</button>
+        </div>
+      </div>
+
+      <div class="bx-scroll scrollfade" id="stageScroll">
+        <div id="boardPane"><div class="bx-zoomwrap" id="zoomWrap"><div class="bx-grid" id="grid"></div></div></div>
+        <div id="viewPane" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Sections are TOP TABS. A leftmost "View" tab shows the contents of
+ * whatever Toolbox item (or board card) you click. "＋" adds an empty
+ * board tab. Dragging a Toolbox item auto-switches to your last board
+ * so you can drop it; clicking one auto-switches to View.
+ * ------------------------------------------------------------------ */
+let uid = 1; const nid = () => 'c' + (uid++);
+
+/* card factories ---------------------------------------------------- */
+function note(title, body){ return { id:nid(), type:'note', icon:'📝', title, body }; }
+function checklist(title, items){ return { id:nid(), type:'check', icon:'✅', title, items }; }
+function dev(title, ab, pr, state){ return { id:nid(), type:'dev', icon:'🧰', title, ab, pr, state }; }
+function work(title, ab, state){ return { id:nid(), type:'work', icon:'📋', title, ab, state }; }
+function pr(title, num, state){ return { id:nid(), type:'pr', icon:'🔀', title, num, state }; }
+function session(title, state){ return { id:nid(), type:'session', icon:'🤖', title, state }; }
+
+let board = [
+  { id:'t1', name:'Now', icon:'🔥', starred:true, zoom:100, cards:[
+    dev('Fix flaky auth test', 'AB#48213', 'PR #1204', 'building'),
+    checklist('Ship checklist', [['Cut release branch',true],['Update changelog',false],['Smoke test installer',false]]),
+    note('Decision', 'We are dropping the legacy pin-ify path. Tabs is the one model going forward.'),
+    work('Investigate slow board load', 'AB#48090', 'Active'),
+  ]},
+  { id:'t2', name:'Next', icon:'📋', starred:false, zoom:100, cards:[
+    work('Rework marketplace filters', 'AB#48311', 'Backlog'),
+    note('Idea', 'Let sections have a colour so the rail scans faster.'),
+  ]},
+  { id:'t3', name:'Watching', icon:'👀', starred:true, zoom:100, cards:[
+    pr('Bump node sidecar to 22', 'PR #1198', 'review'),
+    session('Nightly release build', 'passed · 4m ago'),
+  ]},
+];
+
+/* Toolbox has two, stable sources:
+ *  1) tray  — items INTENTIONALLY pinned to this board (from anywhere in the
+ *             app, or via "Pin an item…"). Stable, not a live feed. A pin is
+ *             NOT consumed when placed — the same pinned item can be dropped on
+ *             any number of sections and stays in the tray for re-use.
+ *  2) ADD_NEW — blank board-native templates you add from the boards view.
+ *             Infinite; never consumed.  */
+let tray = [
+  { tid:'p1', type:'work',    icon:'📋', title:'AB#48411 · Add zoom to boards', meta:'Work item · pinned' },
+  { tid:'p2', type:'pr',      icon:'🔀', title:'PR #1211 · Merge pins into tabs', meta:'Pull request · pinned' },
+  { tid:'p3', type:'session', icon:'🤖', title:'agent: standup-writer', meta:'Session · pinned' },
+];
+const ADD_NEW = [
+  { type:'note',  icon:'📝', title:'Note',      meta:'blank note panel' },
+  { type:'check', icon:'✅', title:'Checklist', meta:'blank checklist' },
+  { type:'dev',   icon:'🧰', title:'Dev card',  meta:'work item · PR · worktree' },
+];
+// sample pool for the "Pin an item…" picker (simulates pinning from the system)
+const PIN_POOL = [
+  { type:'work',    icon:'📋', title:'AB#48377 · Rail colour tokens', meta:'Work item · pinned' },
+  { type:'work',    icon:'📋', title:'AB#48090 · Slow board load', meta:'Work item · pinned' },
+  { type:'pr',      icon:'🔀', title:'PR #1206 · Installer lock fix', meta:'Pull request · pinned' },
+  { type:'session', icon:'🤖', title:'agent: triage-inbox', meta:'Session · pinned' },
+  { type:'session', icon:'🤖', title:'agent: release-notes', meta:'Session · pinned' },
+];
+let _pinPoolIx = 0;
+
+let activeView = 't1';    // 'view' or a section id
+let lastBoard  = 't1';    // last section tab viewed (drag returns here)
+let viewItem   = null;    // toolbox item / card currently open in the View tab
+
+const onBoard = () => activeView !== 'view';
+function tab(){ return board.find(t => t.id === lastBoard) || board[0]; }
+function activeSection(){ return board.find(t => t.id === activeView); }
+
+/* ---- top tab strip ------------------------------------------------ */
+function renderTabs(){
+  const host = document.getElementById('tabStrip');
+  host.innerHTML = '';
+
+  // View tab (leftmost, first)
+  const v = document.createElement('div');
+  v.className = 'bx-tab' + (activeView === 'view' ? ' active' : '');
+  v.innerHTML = `<span class="ic">🔎</span><span>View</span>`;
+  v.onclick = () => { activeView = 'view'; renderAll(); };
+  host.appendChild(v);
+
+  host.appendChild(Object.assign(document.createElement('div'), { className:'bx-tab-sep' }));
+
+  // one tab per section (board): star · icon · editable name · count · delete
+  board.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'bx-tab' + (activeView === t.id ? ' active' : '');
+    const star = document.createElement('span');
+    star.className = 'star' + (t.starred ? ' on' : '');
+    star.textContent = t.starred ? '★' : '☆';
+    star.title = t.starred ? 'Unstar (remove from Quick Launch)' : 'Star (pin to Quick Launch)';
+    star.onclick = e => { e.stopPropagation(); t.starred = !t.starred; renderTabs(); renderQuickLaunch(); flash(t.starred ? `“${t.name}” pinned to Quick Launch` : `“${t.name}” unpinned`); };
+    const ic = Object.assign(document.createElement('span'), { className:'ic', textContent:t.icon });
+    const nm = document.createElement('input');
+    nm.className = 'tx'; nm.value = t.name; nm.size = Math.max(4, t.name.length);
+    nm.onclick = e => e.stopPropagation();
+    nm.onchange = () => { t.name = nm.value || 'Untitled'; renderQuickLaunch(); renderStage(); };
+    const ct = Object.assign(document.createElement('span'), { className:'ct', textContent:t.cards.length });
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = '✕'; del.title = 'Delete section';
+    del.onclick = e => { e.stopPropagation(); deleteSection(t.id); };
+    el.append(star, ic, nm, ct, del);
+    el.onclick = () => { activeView = t.id; lastBoard = t.id; renderAll(); };
+    // section tabs are drop targets too
+    el.ondragover = e => { if (dragKind()) { e.preventDefault(); el.classList.add('drop-hot'); } };
+    el.ondragleave = () => el.classList.remove('drop-hot');
+    el.ondrop = e => {
+      e.preventDefault(); el.classList.remove('drop-hot');
+      const d = readDrag(e); if (!d) return;
+      lastBoard = t.id;
+      if (d.kind === 'new') { t.cards.push(makeCard(d.type, d.title, d.meta)); activeView = t.id; renderAll(); flash(`Added to “${t.name}”`); }
+      else if (d.kind === 'pin') { const p = getPin(d.tid); if (p){ t.cards.push(makeCard(p.type, p.title, p.meta)); activeView = t.id; renderAll(); flash(`Placed on “${t.name}”`); } }
+      else if (d.kind === 'move') { moveCardToTab(d.id, t.id); }
+    };
+    host.appendChild(el);
+  });
+
+  // "+" add-board tab
+  const add = document.createElement('div');
+  add.className = 'bx-tab addtab'; add.title = 'Add an empty board'; add.textContent = '＋';
+  add.onclick = addTab;
+  host.appendChild(add);
+}
+
+/* ---- toolbox: pinned tray (stable) + Add new (templates) ---------- */
+function renderToolbox(){
+  const q = (document.getElementById('tbSearch').value || '').toLowerCase();
+  const host = document.getElementById('toolbox');
+  host.innerHTML = '';
+
+  // GROUP 1 — Pinned items (intentionally pinned to this board; reusable across sections)
+  const gl = document.createElement('div'); gl.className = 'tb-group';
+  gl.innerHTML = `<span>Pinned items</span><span class="ln"></span>`; host.appendChild(gl);
+  const pins = tray.filter(it => !q || (it.title + ' ' + it.meta).toLowerCase().includes(q));
+  if (!tray.length){
+    const e = document.createElement('div'); e.className = 'tb-hint';
+    e.innerHTML = `Nothing pinned yet. Pin items to this board from anywhere in the app, or use <strong>Pin an item…</strong> below. Drag a pinned item onto any section — it stays here so you can place it on more than one.`;
+    host.appendChild(e);
+  } else {
+    pins.forEach(it => host.appendChild(toolboxItemEl(it, { kind:'pin', tid:it.tid })));
+  }
+  const pinBtn = document.createElement('button');
+  pinBtn.className = 'tb-action'; pinBtn.innerHTML = `<span>＋</span><span>Pin an item…</span>`;
+  pinBtn.title = 'Pin an existing work item, PR, or session (mirrors pinning from around the app)';
+  pinBtn.onclick = pinAnItem;
+  host.appendChild(pinBtn);
+
+  // GROUP 2 — Add new (blank board-native templates), at the bottom
+  const gl2 = document.createElement('div'); gl2.className = 'tb-group'; gl2.style.marginTop = '14px';
+  gl2.innerHTML = `<span>Add new</span><span class="ln"></span>`; host.appendChild(gl2);
+  ADD_NEW.filter(it => !q || (it.title + ' ' + it.meta).toLowerCase().includes(q))
+    .forEach(it => host.appendChild(toolboxItemEl(it, { kind:'new', type:it.type, title:it.title, meta:it.meta })));
+}
+
+function toolboxItemEl(it, payload){
+  const el = document.createElement('div');
+  const selKey = payload.kind === 'pin' ? ('pin:' + it.tid) : ('new:' + it.title);
+  el.className = 'tb-item' + (viewItem && viewItem._src === selKey ? ' sel' : ''); el.draggable = true;
+  el.innerHTML = `<span class="ic" style="background:var(--cp-${col(it.type)}-soft);color:var(--cp-${col(it.type)})">${it.icon}</span>
+    <span class="tx"><span class="tt">${esc(it.title)}</span><span class="mt">${esc(it.meta)}</span></span><span class="grip" title="Drag onto a board">⠿</span>`;
+  el.onclick = () => openInView({ type:it.type, icon:it.icon, title:it.title, meta:it.meta, _src:selKey, _tid: payload.kind === 'pin' ? it.tid : null });
+  el.ondragstart = e => {
+    el.classList.add('dragging');
+    setDrag(e, payload);
+    if (!onBoard()) { activeView = lastBoard; renderTabs(); renderStage(); }  // switch WITHOUT touching the drag source
+  };
+  el.ondragend = () => { el.classList.remove('dragging'); clearInsert(); document.getElementById('grid').classList.remove('drop-active'); };
+  return el;
+}
+
+function pinAnItem(){
+  const src = PIN_POOL[_pinPoolIx % PIN_POOL.length]; _pinPoolIx++;
+  tray.push({ tid:'p' + Date.now(), type:src.type, icon:src.icon, title:src.title, meta:src.meta });
+  renderToolbox(); flash('Pinned to this board — drag it onto a section');
+}
+
+/* look up a tray pin by id (pins are NOT consumed — the same pinned item can
+ * be placed on any number of sections, and stays available in the tray) */
+function getPin(tid){ return tray.find(p => p.tid === tid) || null; }
+function col(t){ return t === 'note' ? 'note' : t === 'check' ? 'check' : t === 'work' ? 'work' : t === 'pr' ? 'check' : t === 'session' ? 'accent' : 'dev'; }
+
+/* ---- stage: board grid OR view pane ------------------------------- */
+function renderStage(){
+  const boardPane = document.getElementById('boardPane');
+  const viewPane = document.getElementById('viewPane');
+  const bar = document.getElementById('stagebar');
+  if (onBoard()){
+    bar.style.display = ''; boardPane.style.display = ''; viewPane.style.display = 'none';
+    const t = activeSection() || tab();
+    document.getElementById('stIc').textContent = t.icon;
+    document.getElementById('stNm').value = t.name;
+    document.getElementById('stCt').textContent = t.cards.length + (t.cards.length === 1 ? ' card' : ' cards');
+    const grid = document.getElementById('grid'); grid.innerHTML = '';
+    if (!t.cards.length){
+      const e = document.createElement('div'); e.className = 'empty'; e.style.gridColumn = '1 / -1';
+      e.innerHTML = `<div class="big">🗂️</div><div><strong>This board is empty</strong></div>
+        <div class="muted" style="margin-top:6px">Drag items from the <strong>Toolbox</strong> onto this board.</div>`;
+      grid.appendChild(e);
+    } else { t.cards.forEach(c => grid.appendChild(cardEl(c))); }
+    applyZoom();
+  } else {
+    bar.style.display = 'none'; boardPane.style.display = 'none'; viewPane.style.display = '';
+    renderView(viewPane);
+  }
+}
+
+function cardEl(c){
+  const el = document.createElement('div');
+  el.className = 'bc t-' + c.type + (c.size && c.size !== 'sm' ? ' sz-' + c.size : ''); el.draggable = true; el.dataset.id = c.id;
+  let body = '';
+  if (c.type === 'note') body = `<div class="bc-body">${esc(c.body || 'Empty note — click to view.')}</div>`;
+  else if (c.type === 'check') body = (c.items || []).map(([tx,done]) => `<div class="cl-row ${done?'done':''}"><span class="box"></span><span>${esc(tx)}</span></div>`).join('');
+  else if (c.type === 'dev') body = `
+      <div class="dev-line"><span class="dot" style="background:var(--cp-work)"></span>${esc(c.ab||'—')} · work item</div>
+      <div class="dev-line"><span class="dot" style="background:var(--cp-check)"></span>${esc(c.pr||'—')}</div>
+      <div class="dev-line"><span class="dot" style="background:${c.state==='building'?'var(--cp-warning)':'var(--cp-text-soft)'}"></span>worktree · ${esc(c.state||'idle')}</div>`;
+  else if (c.type === 'work') body = `<div class="bc-body"><span class="badge" style="background:var(--cp-work-soft);color:var(--cp-work)">${esc(c.state||'—')}</span> <span class="soft">${esc(c.ab||'')}</span></div>`;
+  else if (c.type === 'pr') body = `<div class="bc-body"><span class="badge" style="background:var(--cp-check-soft);color:var(--cp-check)">${esc(c.state||'—')}</span> <span class="soft">${esc(c.num||'')}</span></div>`;
+  else if (c.type === 'session') body = `<div class="bc-body"><span class="badge" style="background:var(--cp-accent-soft);color:var(--cp-accent)">${esc(c.state||'—')}</span></div>`;
+  el.innerHTML = `<div class="bc-head"><span class="bc-ic">${c.icon}</span><span class="bc-tt">${esc(c.title)}</span>
+      <span class="bc-grip" title="Drag to reorder">⠿</span>
+      <button class="bc-size" title="Resize (cycle S → wide → tall → big)" onclick="cycleSize('${c.id}', event)">⤢</button>
+      <button class="bc-x" title="Remove" onclick="removeCard('${c.id}', event)">✕</button></div>${body}`;
+  // click a card → open it in the View tab
+  el.onclick = e => { if (e.target.closest('.bc-x') || e.target.closest('.bc-size')) return; openInView(Object.assign({}, c, { _src: null })); };
+  el.ondragstart = e => { e.stopPropagation(); el.classList.add('dragging'); setDrag(e, { kind:'move', id:c.id }); };
+  el.ondragend = () => { el.classList.remove('dragging'); clearInsert(); document.getElementById('grid').classList.remove('drop-active'); };
+  return el;
+}
+const SIZES = ['sm','wide','tall','big'];
+function cycleSize(id, e){ if (e) e.stopPropagation(); const t = activeSection() || tab(); const c = t.cards.find(x => x.id === id); if (!c) return; c.size = SIZES[(SIZES.indexOf(c.size || 'sm') + 1) % SIZES.length]; renderStage(); flash('Card size: ' + c.size); }
+
+/* ---- View pane detail --------------------------------------------- */
+function openInView(item){ viewItem = item; activeView = 'view'; renderAll(); flash('Opened in View'); }
+
+function renderView(host){
+  if (!viewItem){
+    host.innerHTML = `<div class="vw-empty"><div class="big">🔎</div><div><strong>Nothing selected</strong></div>
+      <div class="muted" style="margin-top:6px">Click a Toolbox item (or a card on a board) to preview its contents here.</div></div>`;
+    return;
+  }
+  const c = viewItem, cc = col(c.type);
+  let secs = '';
+  if (c.type === 'note') secs = `<div class="vw-sec"><h3>Note</h3><div style="white-space:pre-wrap">${esc(c.body || 'Empty note.')}</div></div>`;
+  else if (c.type === 'check') secs = `<div class="vw-sec"><h3>Checklist</h3>${(c.items||[['First item',false]]).map(([tx,d])=>`<div class="cl-row ${d?'done':''}" style="display:flex;gap:8px;padding:3px 0"><span class="box" style="width:15px;height:15px;border:1.5px solid var(--cp-border-strong);border-radius:4px;${d?'background:var(--cp-check);border-color:var(--cp-check)':''}"></span><span style="${d?'color:var(--cp-text-soft);text-decoration:line-through':''}">${esc(tx)}</span></div>`).join('')}</div>`;
+  else if (c.type === 'work') secs = `
+      <div class="vw-sec"><h3>Work item</h3><div class="vw-kv"><span class="k">ID</span><span>${esc(c.ab||'AB#48411')}</span><span class="k">State</span><span><span class="vw-badge" style="background:var(--cp-work-soft);color:var(--cp-work)">${esc(c.state|| (c.meta||'').split('·').pop().trim() || 'Active')}</span></span><span class="k">Assigned</span><span>you</span><span class="k">Iteration</span><span>Sprint 148</span></div></div>
+      <div class="vw-sec"><h3>Description</h3><div class="muted">Add a zoom control to the board stage so dense boards can be scanned at a glance. Should reveal more columns when zoomed out.</div></div>`;
+  else if (c.type === 'pr') secs = `
+      <div class="vw-sec"><h3>Pull request</h3><div class="vw-kv"><span class="k">Branch</span><span>merge-pins-into-tabs → main</span><span class="k">State</span><span><span class="vw-badge" style="background:var(--cp-check-soft);color:var(--cp-check)">${esc((c.meta||'').split('·').pop().trim()||'open')}</span></span><span class="k">Checks</span><span>3 passed · 1 running</span></div></div>
+      <div class="vw-sec"><h3>Files changed · 4</h3>
+        <div class="vw-file"><span class="add">+128</span> <span class="del">−34</span> public/app.html</div>
+        <div class="vw-file"><span class="add">+12</span> <span class="del">−2</span> server.js</div>
+        <div class="vw-file"><span class="add">+0</span> <span class="del">−61</span> public/board-pins.js</div></div>`;
+  else if (c.type === 'session') secs = `
+      <div class="vw-sec"><h3>Session</h3><div class="vw-kv"><span class="k">Agent</span><span>${esc(c.title)}</span><span class="k">State</span><span><span class="vw-badge" style="background:var(--cp-accent-soft);color:var(--cp-accent)">${esc((c.meta||c.state||'idle').split('·').pop().trim())}</span></span><span class="k">Last run</span><span>4 minutes ago</span></div></div>
+      <div class="vw-sec"><h3>Latest transcript</h3><div class="muted" style="font-family:var(--font-mono);font-size:12px">› triaged 12 inbox items, drafted 3 replies, flagged 1 for review.</div></div>`;
+  else if (c.type === 'dev') secs = `
+      <div class="vw-sec"><h3>Dev card</h3><div class="vw-kv"><span class="k">Work item</span><span>${esc(c.ab||'AB#—')}</span><span class="k">Pull request</span><span>${esc(c.pr||'—')}</span><span class="k">Worktree</span><span>${esc(c.state||'idle')}</span></div></div>`;
+  const isTemplate = c._src && ['Note','Checklist','Dev card'].includes(c._src);
+  const dropHint = isTemplate ? `<div class="vw-sec" style="border-style:dashed"><div class="muted">This is a blank template. Drag it onto a board to add a new ${esc(c.title.toLowerCase())}.</div></div>` : '';
+  host.innerHTML = `
+    <div class="bx-view">
+      <div class="vw-head">
+        <div class="vw-ic" style="background:var(--cp-${cc}-soft);color:var(--cp-${cc})">${c.icon}</div>
+        <div style="min-width:0">
+          <h2 class="vw-h1">${esc(c.title)}</h2>
+          <div class="vw-sub">${esc(c.meta || (c.type[0].toUpperCase()+c.type.slice(1)))}</div>
+        </div>
+        <div class="vw-actions">
+          <button class="btn" onclick="addViewItemToBoard()">＋ Add to “${esc(tab().name)}”</button>
+        </div>
+      </div>
+      ${dropHint}${secs}
+    </div>`;
+}
+function addViewItemToBoard(){ const c = viewItem; if (!c) return; const t = tab(); t.cards.push(makeCard(c.type, c.title, c.meta)); activeView = lastBoard; renderAll(); flash(`Added to “${t.name}”`); }
+
+/* ---- drag plumbing ------------------------------------------------ */
+let _drag = null;
+function setDrag(e, payload){ _drag = payload; try { e.dataTransfer.setData('text/plain', JSON.stringify(payload)); e.dataTransfer.effectAllowed = 'copyMove'; } catch(_){} }
+function readDrag(e){ try { const s = e.dataTransfer.getData('text/plain'); if (s) return JSON.parse(s); } catch(_){} return _drag; }
+function dragKind(){ return _drag && _drag.kind; }
+
+function makeCard(type, title, meta){
+  if (type === 'note') return note(title === 'Note' ? 'New note' : title, '');
+  if (type === 'check') return checklist(title === 'Checklist' ? 'New checklist' : title, [['First item', false]]);
+  if (type === 'dev') return dev(title === 'Dev card' ? 'New dev card' : title, 'AB#—', 'PR —', 'idle');
+  if (type === 'work') return work(title, (meta||'').split('·')[0].trim() || 'AB#—', (meta||'').split('·').pop().replace('Work item','').trim() || 'Active');
+  if (type === 'pr') return pr(title, (title.match(/PR #\d+/)||['PR —'])[0], (meta||'').split('·').pop().trim() || 'open');
+  if (type === 'session') return session(title, (meta||'').split('·').pop().trim() || 'idle');
+  return note(title, '');
+}
+
+const grid = document.getElementById('grid');
+grid.addEventListener('dragover', e => {
+  if (!dragKind()) return;
+  e.preventDefault();
+  grid.classList.add('drop-active');
+  const target = insertTarget(e.clientX, e.clientY);
+  clearInsert();
+  if (target.el) target.el.classList.add(target.after ? 'insert-after' : 'insert-before');
+});
+grid.addEventListener('dragleave', e => { if (e.target === grid) { grid.classList.remove('drop-active'); clearInsert(); } });
+grid.addEventListener('drop', e => {
+  e.preventDefault();
+  grid.classList.remove('drop-active');
+  const d = readDrag(e); clearInsert();
+  if (!d) return;
+  const t = activeSection() || tab();
+  const target = insertTarget(e.clientX, e.clientY);
+  let idx = target.el ? t.cards.findIndex(c => c.id === target.el.dataset.id) + (target.after ? 1 : 0) : t.cards.length;
+  if (d.kind === 'new'){
+    t.cards.splice(idx, 0, makeCard(d.type, d.title, d.meta)); renderAll(); flash('Added — system arranged it in the flow');
+  } else if (d.kind === 'pin'){
+    const p = getPin(d.tid); if (p){ t.cards.splice(idx, 0, makeCard(p.type, p.title, p.meta)); renderAll(); flash('Placed — system arranged it in the flow'); }
+  } else if (d.kind === 'move'){
+    const from = t.cards.findIndex(c => c.id === d.id);
+    if (from === -1){ moveCardToTab(d.id, t.id, idx); return; }
+    const [card] = t.cards.splice(from, 1);
+    if (from < idx) idx--;
+    t.cards.splice(idx, 0, card); renderAll();
+  }
+});
+
+function insertTarget(x, y){
+  const cards = [...grid.querySelectorAll('.bc')];
+  if (!cards.length) return { el:null, after:false };
+  let best = null, bestD = Infinity, after = false;
+  for (const el of cards){
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    const d = Math.hypot(x - cx, y - cy);
+    if (d < bestD){ bestD = d; best = el; after = (y > cy + 4) || (Math.abs(y - cy) < r.height/2 && x > cx); }
+  }
+  return { el: best, after };
+}
+function clearInsert(){ grid.querySelectorAll('.insert-before,.insert-after').forEach(el => el.classList.remove('insert-before','insert-after')); }
+
+function moveCardToTab(id, toTab, idx){
+  let card = null;
+  for (const t of board){ const i = t.cards.findIndex(c => c.id === id); if (i >= 0){ [card] = t.cards.splice(i,1); break; } }
+  if (!card) return;
+  const dst = board.find(t => t.id === toTab);
+  if (idx == null) dst.cards.push(card); else dst.cards.splice(idx, 0, card);
+  renderAll(); flash('Moved to “' + dst.name + '”');
+}
+
+function removeCard(id, e){ if (e) e.stopPropagation(); const t = activeSection() || tab(); t.cards = t.cards.filter(c => c.id !== id); renderAll(); }
+function addTab(){ const id = 't_' + Date.now(); board.push({ id, name:'New board', icon:'🗂', starred:false, zoom:100, cards:[] }); activeView = id; lastBoard = id; renderAll(); flash('Empty board added'); }
+function renameActive(v){ const t = activeSection(); if (t){ t.name = v || 'Untitled'; renderTabs(); renderQuickLaunch(); } }
+
+function deleteSection(id){
+  if (board.length <= 1){ flash('Can’t delete the last board'); return; }
+  const i = board.findIndex(t => t.id === id); if (i < 0) return;
+  const name = board[i].name;
+  if (!confirm(`Delete section “${name}” and its ${board[i].cards.length} card(s)?`)) return;
+  board.splice(i, 1);
+  const fallback = board[Math.max(0, i - 1)].id;
+  if (activeView === id) activeView = fallback;
+  if (lastBoard === id) lastBoard = fallback;
+  renderAll(); flash(`Deleted “${name}”`);
+}
+
+/* ---- quick launch: starred sections as calm inline links ---------- */
+function renderQuickLaunch(){
+  const host = document.getElementById('quickLaunch');
+  const starred = board.filter(t => t.starred);
+  if (!starred.length){ host.innerHTML = ''; return; }
+  host.innerHTML = `<span class="ql-lbl">Quick launch</span>`;
+  starred.forEach((t, i) => {
+    if (i) host.appendChild(Object.assign(document.createElement('span'), { className:'mid', textContent:'·' }));
+    const a = document.createElement('a');
+    a.className = (activeView === t.id ? 'on' : '');
+    a.innerHTML = `<span>${t.icon}</span><span>${esc(t.name)}</span>`;
+    a.title = 'Jump to this board';
+    a.onclick = () => { activeView = t.id; lastBoard = t.id; renderAll(); flash(`Jumped to “${t.name}”`); };
+    host.appendChild(a);
+  });
+}
+
+/* ---- zoom (persists per section) ---------------------------------- */
+function curZoom(){ const t = activeSection() || tab(); return t ? (t.zoom || 100) : 100; }
+function setZoom(v){ const t = activeSection() || tab(); const z = Math.max(40, Math.min(160, +v)); if (t) t.zoom = z;
+  document.getElementById('zoomRange').value = z; document.getElementById('zoomPct').textContent = z + '%'; applyZoom(); }
+function bumpZoom(d){ setZoom(curZoom() + d); }
+function applyZoom(){ const z = curZoom() / 100; const wrap = document.getElementById('zoomWrap'); wrap.style.transform = `scale(${z})`; wrap.style.width = (100 / z) + '%';
+  document.getElementById('zoomRange').value = curZoom(); document.getElementById('zoomPct').textContent = curZoom() + '%'; }
+
+/* ---- misc --------------------------------------------------------- */
+function esc(s){ return (s == null ? '' : String(s)).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+let _flashT;
+function flash(msg){ const h = document.getElementById('hintTxt'); h.textContent = msg; clearTimeout(_flashT); _flashT = setTimeout(() => h.textContent = 'Click an item to preview · drag it onto a board', 1800); }
+function toggleTheme(){ const r = document.documentElement; r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark'; }
+
+function renderAll(){ renderTabs(); renderStage(); renderToolbox(); renderQuickLaunch(); }
+renderAll();
+
+/* Surface scrollbars only while actively scrolling, then fade them out. */
+(function armScrollFade(){
+  const timers = new WeakMap();
+  function onScroll(el){
+    el.classList.add('sb-live');
+    clearTimeout(timers.get(el));
+    timers.set(el, setTimeout(() => el.classList.remove('sb-live'), 700));
+  }
+  document.querySelectorAll('.scrollfade').forEach(el =>
+    el.addEventListener('scroll', () => onScroll(el), { passive: true }));
+})();
+</script>
+</body>
+</html>
