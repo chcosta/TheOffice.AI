@@ -8760,10 +8760,12 @@
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p)" @click.stop="reducePinChip(p)" @mousedown.stop title="Pin-ify: reduce this item to an icon chip">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
                               </div>
-                              <!-- Tabbed view: lightweight remove/unpin control (the full pin-view
-                                   control strip is hidden in tabbed mode). -->
-                              <div class="bph-right" x-show="boardIsTabbed() && p.type !== 'summary'" style="opacity:1">
-                                <button class="board-panel-chevron" type="button" @click.stop="confirmRemovePanel(p)" :title="panelRemoveLabel(p)" x-text="panelIsPinned(p) ? '📌' : '🗑'"></button>
+                              <!-- Tabbed/section view: lightweight remove control for board-native
+                                   cards (notes/checklists). Pinned operations are removed via the
+                                   trash-can drop zone / More → Edit, so we do NOT show a per-card
+                                   pin/remove icon for them (it crowded the top-right tools). -->
+                              <div class="bph-right" x-show="boardIsTabbed() && p.type !== 'summary' && !panelIsPinned(p)" style="opacity:1">
+                                <button class="board-panel-chevron" type="button" @click.stop="confirmRemovePanel(p)" :title="panelRemoveLabel(p)">🗑</button>
                               </div>
                             </div>
                             <div class="board-panel-body" x-show="!isPanelCollapsed(p.id)">
@@ -9033,8 +9035,8 @@
                                           </template>
                                           <!-- Agent: inline full-featured chat (thinking / tools / response) — no navigation. -->
                                           <template x-if="item.kind === 'agent'">
-                                            <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px" x-init="boardAgentChatEnsure(item)" @click.stop>
-                                              <div class="board-agent-chat-stream" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto">
+                                            <div class="board-agent-chat" style="display:flex;flex-direction:column;gap:8px;min-height:0;max-height:min(56vh,460px)" x-init="boardAgentChatEnsure(item)" @click.stop>
+                                              <div class="board-agent-chat-stream" style="display:flex;flex-direction:column;gap:8px;flex:1 1 auto;min-height:0;overflow:auto">
                                                 <template x-if="!(boardAgentChatState(item) && (boardAgentChatState(item).messages.length || boardAgentChatState(item).live))">
                                                   <div class="hint" style="padding:2px">Ask <strong x-text="item.label || item.refId"></strong> anything — replies show its thinking, tools, and answer right here.</div>
                                                 </template>
@@ -28517,6 +28519,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _secColsOf(sec) { let n = sec && sec.cols; if (n == null) n = 12; return Math.max(3, Math.min(24, Math.round(n))); },
         _cardDefaultH(base) {
           const p = this._panelByBase(base); const t = p && p.type;
+          // Agent / manager cards carry an inline chat — give them a taller (but
+          // still bounded) default so the conversation is readable without the
+          // card growing unwieldy (the chat scrolls inside; see .board-agent-chat).
+          const k = p && p.item && p.item.kind;
+          if (t === 'pin' && (k === 'agent' || k === 'manager')) return 20;
           // Compact starting heights (rows @ 22px) so newly-placed cards pack tightly
           // near the top with no dead space; the ⤢ Expand-to-fit tool grows any that
           // actually need more room.
@@ -28586,6 +28593,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           this._touchSections();
         },
+        // Repack every card in a section tightly to the top-left, preserving each
+        // card's width/height and reading order (top→bottom, left→right) while
+        // closing the vertical/horizontal gaps that moves, resizes and removals
+        // leave behind. This is what the assistant's pack_section / "move to the
+        // top" / "tidy this board" all call.
+        packSection(sec) {
+          if (!sec) return false;
+          this._ensureGeom(sec);
+          const cols = this._secColsOf(sec);
+          const cards = (sec.cards || []).slice().sort((a, b) => (a.y - b.y) || (a.x - b.x));
+          const placed = [];
+          cards.forEach(c => {
+            c.w = Math.max(1, Math.min(cols, Math.round(c.w)));
+            c.h = Math.max(1, Math.round(c.h));
+            const pos = this._firstFit(placed, c.w, c.h, cols);
+            c.x = pos.x; c.y = pos.y; placed.push(c);
+          });
+          this._touchSections();
+          return true;
+        },
+        packActiveSection() { const s = this._dropSection(); return s ? this.packSection(s) : false; },
         // Live geometry for a rendered panel's card in the active section.
         cardGeom(p) {
           const c = this._activeCard(p); if (!c) return { x: 0, y: 0, w: this._secCols(), h: 12 };
@@ -33197,14 +33225,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return true;
           }
           if (a.type === 'place_card') {
-            const s = this._secResolve(a.sectionId, a.sectionName);
+            let s = this._secResolve(a.sectionId, a.sectionName);
+            if (!s && !a.sectionId && !a.sectionName) s = this._dropSection(); // default: current board
             const base = this._baseResolve(a.base, a.cardTitle);
             if (!s || !base) return false;
             this.placeCard(s.id, base, null, null);
             return true;
           }
           if (a.type === 'move_card') {
-            const to = this._secResolve(a.toSectionId, a.toSectionName);
+            let to = this._secResolve(a.toSectionId, a.toSectionName);
+            if (!to && !a.toSectionId && !a.toSectionName) to = this._dropSection(); // default: current board
             const base = this._baseResolve(a.base, a.cardTitle);
             if (!to || !base) return false;
             const from = this._secResolve(a.fromSectionId, a.fromSectionName);
@@ -33215,12 +33245,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return true;
           }
           if (a.type === 'remove_card') {
-            const s = this._secResolve(a.sectionId, a.sectionName);
+            let s = this._secResolve(a.sectionId, a.sectionName);
+            if (!s && !a.sectionId && !a.sectionName) s = this.activeSection(); // default: current board
             const base = this._baseResolve(a.base, a.cardTitle);
             if (!s || !base) return false;
             s.cards = (s.cards || []).filter(c => c.base !== base);
             this._touchSections();
             return true;
+          }
+          if (a.type === 'pack_section') {
+            const s = this._secResolve(a.sectionId, a.sectionName) || this._dropSection(); // default: current board
+            if (!s) return false;
+            return this.packSection(s);
           }
           return false;
         },
@@ -33242,11 +33278,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             lines.push('This workspace is organized into SECTIONS — also called BOARDS or TABS; the three');
             lines.push('words mean the same thing. Each board is a canvas holding CARDS; a card is a');
             lines.push('reference to a workspace item (note / checklist / pin / dev card / briefing) placed');
-            lines.push('on that board. The SAME item can appear on multiple boards. Card positions are');
-            lines.push('AUTOMATIC (packed top-left, no gaps) — there is no manual x/y, so "move to the top",');
-            lines.push('"line up", or "tidy" need no action. There is NO legacy free-form "pins" canvas and');
+            lines.push('on that board. The SAME item can appear on multiple boards. Each card sits at a');
+            lines.push('real grid position, and gaps CAN build up after cards move/resize/are removed — to');
+            lines.push('close them and pull everything to the top-left use pack_section (that is what "move');
+            lines.push('to the top" / "line up" / "tidy" mean). There is NO legacy free-form "pins" canvas and');
             lines.push('NO old per-panel "tabs" layout — arrange ONLY with section actions (add_section,');
-            lines.push('rename_section, delete_section, place_card, move_card, remove_card).');
+            lines.push('rename_section, delete_section, place_card, move_card, remove_card, pack_section).');
+            lines.push('When the user does not name a board, assume they mean the CURRENT board below.');
             lines.push('CURRENT BOARD the user is looking at: "' + activeName + '"' + (activeSec ? ' (id=' + activeSec.id + ')' : '') + '. "the board"/"this board"/"the top of the board" all refer to THIS one — never a section literally named "Board".');
             lines.push('');
             if (!secs.length) {
@@ -33327,6 +33365,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'rename_section') return 'Rename';
           if (a.type === 'place_card' || a.type === 'move_card') return 'Apply';
           if (a.type === 'remove_card') return '🗑 Remove';
+          if (a.type === 'pack_section') return '✨ Tidy';
           if (a.destructive) return '🗑 Delete';
           return 'Apply';
         },
@@ -33344,6 +33383,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (a.type === 'place_card') return '✓ added';
           if (a.type === 'move_card') return '✓ moved';
           if (a.type === 'remove_card') return '✓ removed';
+          if (a.type === 'pack_section') return '✓ tidied';
           if (a.type === 'replace_dev_link') return '✓ replaced';
           if (a.destructive) return '✓ removed';
           const edits = ['edit_note', 'edit_checklist', 'edit_checklist_item', 'check_item', 'uncheck_item'];
@@ -33366,7 +33406,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Presentation-only SECTION actions: applied client-side against the
           // per-board sections model (the server has no knowledge of sections),
           // mirroring set_layout — never routed through _patchBoard.
-          const SECTION_TYPES = ['add_section', 'rename_section', 'delete_section', 'place_card', 'move_card', 'remove_card'];
+          const SECTION_TYPES = ['add_section', 'rename_section', 'delete_section', 'place_card', 'move_card', 'remove_card', 'pack_section'];
           if (SECTION_TYPES.includes(a.type)) {
             const applied = this.applyBoardSectionAction(a);
             if (applied) { a._applied = true; this.showToast('Board assistant', (a.preview || a.label || 'Section change') + ' applied', 'success'); }
