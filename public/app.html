@@ -5664,105 +5664,12 @@
               </div>
             </div>
 
-            <!-- Company / org-health overview (shown only in the company-wide "All" view) -->
-            <div x-show="currentTeamId === 'all' && appMode === 'workforce' && companyOrgHealth().length" class="home-section">
-              <div class="home-section-label">
-                <span class="hsl-icon">🏢</span>
-                <span class="hsl-text">Teams</span>
-                <span class="hsl-sub" x-text="companyOrgHealth().length + ' team' + (companyOrgHealth().length === 1 ? '' : 's')"></span>
-              </div>
-              <div class="company-band">
-                <button type="button" class="cb-item" @click="goTo('#/teams')" title="Manage teams"><strong x-text="companyStats().orgCount"></strong><span>teams</span></button>
-                <button type="button" class="cb-item" @click="goTo('#/resources')" title="View all employees"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></button>
-                <button type="button" class="cb-item" @click="goTo('#/tasks')" title="View all operations & schedules"><strong x-text="companyStats().operations"></strong><span>operations</span></button>
-                <button type="button" class="cb-item" :class="companyStats().failures24h ? 'bad' : ''" @click="goTo('#/activity')" title="Investigate recent failures"><strong x-text="companyStats().failures24h"></strong><span>failures 24h</span></button>
-                <button type="button" class="cb-item" :class="companyStats().attention ? 'warn' : ''" @click="enterWorstOrg()" :title="companyStats().attention ? 'Step into the team needing the most attention' : 'All teams look healthy'"><strong x-text="companyStats().attention"></strong><span>need attention</span></button>
-              </div>
-              <div class="orgh-grid">
-                <template x-for="h in companyOrgHealth()" :key="h.org.id">
-                  <article class="orgh-card" :class="'orgh--' + h.statusClass" role="button" tabindex="0"
-                           @click="setCurrentOrg(h.org.id)" @keydown.enter="setCurrentOrg(h.org.id)"
-                           :title="'Enter ' + h.org.name">
-                    <div class="orgh-top">
-                      <span class="orgh-avatar" :style="'background: color-mix(in srgb, ' + orgThemePreset(h.org).accent + ' 16%, var(--cp-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, ' + orgThemePreset(h.org).accent + ' 45%, var(--cp-border));'">
-                        <span class="orgh-emoji" x-text="h.org.emoji || '🏢'"></span>
-                      </span>
-                      <div class="orgh-id">
-                        <strong x-text="h.org.name"></strong>
-                        <div class="orgh-chips">
-                          <span class="orgh-status" :class="'st-' + h.statusClass" x-text="h.status"></span>
-                          <span class="orgh-theme" :title="'Theme: ' + orgThemePreset(h.org).name">
-                            <span class="theme-dot" :style="'background:' + orgThemePreset(h.org).accent"></span>
-                            <span x-text="orgThemePreset(h.org).name"></span>
-                          </span>
-                        </div>
-                      </div>
-                      <span class="orgh-go">→</span>
-                    </div>
-                    <div class="orgh-metrics">
-                      <div class="orgh-m"><span class="orgh-mv" x-text="h.headcount"></span><span class="orgh-ml">staff</span></div>
-                      <div class="orgh-m"><span class="orgh-mv" x-text="h.operations"></span><span class="orgh-ml">ops</span></div>
-                      <div class="orgh-m"><span class="orgh-mv" x-text="h.runs24h"></span><span class="orgh-ml">runs 24h</span></div>
-                      <div class="orgh-m" :class="h.failures24h ? 'bad' : ''"><span class="orgh-mv" x-text="h.failures24h"></span><span class="orgh-ml">fails</span></div>
-                    </div>
-                    <div class="orgh-reasons" x-show="h.reasons.length">
-                      <template x-for="r in h.reasons" :key="r"><span class="orgh-reason" x-text="r"></span></template>
-                    </div>
-                  </article>
-                </template>
-              </div>
-            </div>
-
-            <div class="home-section" x-show="appMode === 'workforce'">
-              <div class="home-section-label">
-                <span class="hsl-icon">📊</span>
-                <span class="hsl-text">At a glance</span>
-              </div>
-              <div class="card-grid" style="margin-bottom:0">
-                <article class="card clickable" @click="goTo('#/activity')" title="View activity">
-                <div class="hint">Running now</div>
-                <strong style="font-size:1.6rem" x-text="runningEntities().length"></strong>
-                <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px" x-show="runningEntities().length">
-                  <template x-for="ent in runningEntities()" :key="ent.key">
-                    <a :href="ent.route" @click.stop class="running-chip" :title="'Open ' + ent.kind + ': ' + ent.name">
-                      <span class="pulse-dot"></span>
-                      <span class="running-chip-name" x-text="ent.name"></span>
-                      <span class="running-chip-kind" x-text="ent.kind"></span>
-                      <span class="running-chip-go">→</span>
-                    </a>
-                  </template>
-                </div>
-                <div class="hint" style="margin-top:6px" x-show="!runningEntities().length">Nothing running</div>
-              </article>
-              <article class="card clickable" @click="goTo('#/tasks')" title="View all schedules">
-                <div class="hint">Up next</div>
-                <template x-if="nextSchedule()">
-                  <div>
-                    <strong x-text="nextSchedule().name"></strong>
-                    <div class="mono" style="margin-top:4px" x-text="formatRelative(nextSchedule().nextRun)"></div>
-                  </div>
-                </template>
-                <template x-if="!nextSchedule()">
-                  <strong>Nothing scheduled</strong>
-                </template>
-              </article>
-              <article class="card clickable" @click="goTo('#/tasks')" title="View all schedules">
-                <div class="hint">Scheduled items</div>
-                <strong style="font-size:1.6rem" x-text="scheduleCounts().all"></strong>
-              </article>
-              <article class="card clickable" @click="goTo('#/activity')" :style="alerts().length ? 'border-color:var(--cp-danger)' : ''" title="Investigate alerts">
-                <div class="hint">Alerts (24h)</div>
-                <strong style="font-size:1.6rem" x-text="alerts().length"></strong>
-              </article>
-              </div>
-            </div>
-
             <!-- ===== Productivity home (workspace mode): What's new + reorderable sections ===== -->
             <div class="home-workspace" x-show="appMode === 'workspace'">
 
               <!-- Greeting + stats topbar -->
               <div class="home-topbar">
-                <div class="ht-greet">
+                <div class="ht-greet" x-show="homeSectionVisible('greeting')">
                   <h1 x-text="homeGreeting()"></h1>
                   <p x-text="currentTeamId === 'all' ? 'Here\u2019s what\u2019s happening across your work.' : ('Your work in ' + (currentOrg() ? currentOrg().name : 'this team') + '.')"></p>
                 </div>
@@ -5800,7 +5707,7 @@
                       <template x-for="s in homePickerSections()" :key="'hcp-p-'+s.key">
                         <div class="hcp-row">
                           <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
-                          <span class="hcp-move">
+                          <span class="hcp-move" x-show="!s.noMove">
                             <button type="button" @click="homePickerMove(s.key,-1)" title="Move up">↑</button>
                             <button type="button" @click="homePickerMove(s.key,1)" title="Move down">↓</button>
                           </span>
@@ -6027,7 +5934,7 @@
 
               <!-- Greeting + stats topbar -->
               <div class="home-topbar">
-                <div class="ht-greet">
+                <div class="ht-greet" x-show="mgmtSectionVisible('greeting')">
                   <h1 x-text="homeGreeting()"></h1>
                   <p x-text="currentTeamId === 'all' ? 'Your autonomous workforce at a glance.' : ('The ' + (currentOrg() ? currentOrg().name : 'team') + ' workforce at a glance.')"></p>
                 </div>
@@ -6050,17 +5957,22 @@
                       <span class="hs-label">Running</span>
                     </div>
                   </div>
+                  <button type="button" class="home-arrange-btn" :class="homeArrange ? 'is-on' : ''" @click="homeArrange = !homeArrange" :title="homeArrange ? 'Finish arranging' : 'Rearrange your home sections'">
+                    <span>⠿</span>
+                    <span x-text="homeArrange ? 'Done' : 'Arrange'"></span>
+                    <span class="haf-reset" x-show="homeArrange" @click.stop="mgmtResetSections()" title="Reset to default order">Reset</span>
+                  </button>
                   <div class="home-cust-wrap">
                     <button type="button" class="home-cust-btn" :class="homeCustomizeOpen ? 'is-on' : ''" @click="homeCustomizeOpen = !homeCustomizeOpen" title="Show, hide & reorder sections">
                       <span>⚙</span><span>Customize</span>
                     </button>
                     <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
                       <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
-                      <div class="hcp-hint">Toggle sections on or off and reorder them.</div>
+                      <div class="hcp-hint">Toggle sections on or off. Drag panels or use Arrange to reorder.</div>
                       <template x-for="s in homePickerSections()" :key="'hcp-m-'+s.key">
                         <div class="hcp-row">
                           <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
-                          <span class="hcp-move">
+                          <span class="hcp-move" x-show="!s.noMove">
                             <button type="button" @click="homePickerMove(s.key,-1)" title="Move up">↑</button>
                             <button type="button" @click="homePickerMove(s.key,1)" title="Move down">↓</button>
                           </span>
@@ -6072,10 +5984,12 @@
                 </div>
               </div>
 
-              <div class="home-cards">
+              <div class="home-cards" :class="homeArrange ? 'home-arrange' : ''">
 
                 <!-- What's new (marketplace + release highlights) -->
-                <section class="card home-wn-card mh-full" x-show="mgmtSectionVisible('whatsnew')" :style="{ order: mgmtSecIndex('whatsnew') }">
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('whatsnew') }" x-show="mgmtSectionVisible('whatsnew')" :class="mgmtDragOver === 'whatsnew' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('whatsnew')" @drop.prevent="mgmtReorderDrop('whatsnew')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('whatsnew',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">What's new</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('whatsnew',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('whatsnew',1)" title="Move down">↓</button></span></div>
+                  <section class="card home-wn-card mh-full">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title"><span class="home-wn-spark">✦</span> What's new</h2>
@@ -6096,9 +6010,12 @@
                     </template>
                   </div>
                 </section>
+                </div>
 
                 <!-- Attention needed -->
-                <section class="card mh-accent-warn" x-show="mgmtSectionVisible('attention')" :style="{ order: mgmtSecIndex('attention') }">
+                <div class="home-rsec" :style="{ order: mgmtSecIndex('attention') }" x-show="mgmtSectionVisible('attention')" :class="mgmtDragOver === 'attention' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('attention')" @drop.prevent="mgmtReorderDrop('attention')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('attention',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Attention needed</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('attention',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('attention',1)" title="Move down">↓</button></span></div>
+                  <section class="card mh-accent-warn">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">⚠ Attention needed</h2>
@@ -6120,9 +6037,12 @@
                   </div>
                   <div class="mh-empty" x-show="!mgmtAttention().length">All runs healthy and schedules enabled. ✅</div>
                 </section>
+                </div>
 
                 <!-- Team pulse -->
-                <section class="card" x-show="mgmtSectionVisible('pulse')" :style="{ order: mgmtSecIndex('pulse') }">
+                <div class="home-rsec" :style="{ order: mgmtSecIndex('pulse') }" x-show="mgmtSectionVisible('pulse')" :class="mgmtDragOver === 'pulse' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('pulse')" @drop.prevent="mgmtReorderDrop('pulse')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('pulse',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Team pulse</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('pulse',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('pulse',1)" title="Move down">↓</button></span></div>
+                  <section class="card">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">💓 Team pulse</h2>
@@ -6157,9 +6077,12 @@
                     <div class="mh-empty" x-show="!execMetrics().runs24h && !runningEntities().length">No runs in the last 24 hours.</div>
                   </div>
                 </section>
+                </div>
 
                 <!-- Recently added -->
-                <section class="card mh-full" x-show="mgmtSectionVisible('recent')" :style="{ order: mgmtSecIndex('recent') }">
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('recent') }" x-show="mgmtSectionVisible('recent')" :class="mgmtDragOver === 'recent' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('recent')" @drop.prevent="mgmtReorderDrop('recent')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('recent',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Recently added</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('recent',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('recent',1)" title="Move down">↓</button></span></div>
+                  <section class="card mh-full">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">🆕 Recently added</h2>
@@ -6181,9 +6104,12 @@
                   </div>
                   <div class="mh-empty" x-show="!mgmtRecentlyAdded().length">Nothing added recently.</div>
                 </section>
+                </div>
 
                 <!-- Flow activity chart -->
-                <section class="card mh-accent-link mh-full" x-show="mgmtSectionVisible('flowchart')" :style="{ order: mgmtSecIndex('flowchart') }">
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('flowchart') }" x-show="mgmtSectionVisible('flowchart')" :class="mgmtDragOver === 'flowchart' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('flowchart')" @drop.prevent="mgmtReorderDrop('flowchart')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('flowchart',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Flow activity</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('flowchart',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('flowchart',1)" title="Move down">↓</button></span></div>
+                  <section class="card mh-accent-link mh-full">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">📈 Flow activity</h2>
@@ -6226,6 +6152,107 @@
                   </template>
                   <div class="mh-empty" x-show="!mgmtRunPoints().length">No flow, task, or assignment runs recorded in the last 14 days. Run one to see its activity here.</div>
                 </section>
+                </div>
+
+                <!-- Teams (company / org-health overview) -->
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('teams') }" x-show="mgmtSectionVisible('teams')" :class="mgmtDragOver === 'teams' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('teams')" @drop.prevent="mgmtReorderDrop('teams')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('teams',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Teams</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('teams',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('teams',1)" title="Move down">↓</button></span></div>
+                  <div class="home-section">
+                    <div class="home-section-label">
+                      <span class="hsl-icon">🏢</span>
+                      <span class="hsl-text">Teams</span>
+                      <span class="hsl-sub" x-text="companyOrgHealth().length + ' team' + (companyOrgHealth().length === 1 ? '' : 's')"></span>
+                    </div>
+                    <div class="company-band">
+                      <button type="button" class="cb-item" @click="goTo('#/teams')" title="Manage teams"><strong x-text="companyStats().orgCount"></strong><span>teams</span></button>
+                      <button type="button" class="cb-item" @click="goTo('#/resources')" title="View all employees"><strong x-text="companyStats().employeeCount"></strong><span>employees</span></button>
+                      <button type="button" class="cb-item" @click="goTo('#/tasks')" title="View all operations & schedules"><strong x-text="companyStats().operations"></strong><span>operations</span></button>
+                      <button type="button" class="cb-item" :class="companyStats().failures24h ? 'bad' : ''" @click="goTo('#/activity')" title="Investigate recent failures"><strong x-text="companyStats().failures24h"></strong><span>failures 24h</span></button>
+                      <button type="button" class="cb-item" :class="companyStats().attention ? 'warn' : ''" @click="enterWorstOrg()" :title="companyStats().attention ? 'Step into the team needing the most attention' : 'All teams look healthy'"><strong x-text="companyStats().attention"></strong><span>need attention</span></button>
+                    </div>
+                    <div class="orgh-grid">
+                      <template x-for="h in companyOrgHealth()" :key="h.org.id">
+                        <article class="orgh-card" :class="'orgh--' + h.statusClass" role="button" tabindex="0"
+                                 @click="setCurrentOrg(h.org.id)" @keydown.enter="setCurrentOrg(h.org.id)"
+                                 :title="'Enter ' + h.org.name">
+                          <div class="orgh-top">
+                            <span class="orgh-avatar" :style="'background: color-mix(in srgb, ' + orgThemePreset(h.org).accent + ' 16%, var(--cp-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, ' + orgThemePreset(h.org).accent + ' 45%, var(--cp-border));'">
+                              <span class="orgh-emoji" x-text="h.org.emoji || '🏢'"></span>
+                            </span>
+                            <div class="orgh-id">
+                              <strong x-text="h.org.name"></strong>
+                              <div class="orgh-chips">
+                                <span class="orgh-status" :class="'st-' + h.statusClass" x-text="h.status"></span>
+                                <span class="orgh-theme" :title="'Theme: ' + orgThemePreset(h.org).name">
+                                  <span class="theme-dot" :style="'background:' + orgThemePreset(h.org).accent"></span>
+                                  <span x-text="orgThemePreset(h.org).name"></span>
+                                </span>
+                              </div>
+                            </div>
+                            <span class="orgh-go">→</span>
+                          </div>
+                          <div class="orgh-metrics">
+                            <div class="orgh-m"><span class="orgh-mv" x-text="h.headcount"></span><span class="orgh-ml">staff</span></div>
+                            <div class="orgh-m"><span class="orgh-mv" x-text="h.operations"></span><span class="orgh-ml">ops</span></div>
+                            <div class="orgh-m"><span class="orgh-mv" x-text="h.runs24h"></span><span class="orgh-ml">runs 24h</span></div>
+                            <div class="orgh-m" :class="h.failures24h ? 'bad' : ''"><span class="orgh-mv" x-text="h.failures24h"></span><span class="orgh-ml">fails</span></div>
+                          </div>
+                          <div class="orgh-reasons" x-show="h.reasons.length">
+                            <template x-for="r in h.reasons" :key="r"><span class="orgh-reason" x-text="r"></span></template>
+                          </div>
+                        </article>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- At a glance -->
+                <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('glance') }" x-show="mgmtSectionVisible('glance')" :class="mgmtDragOver === 'glance' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('glance')" @drop.prevent="mgmtReorderDrop('glance')">
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('glance',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">At a glance</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('glance',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('glance',1)" title="Move down">↓</button></span></div>
+                  <div class="home-section">
+                    <div class="home-section-label">
+                      <span class="hsl-icon">📊</span>
+                      <span class="hsl-text">At a glance</span>
+                    </div>
+                    <div class="card-grid" style="margin-bottom:0">
+                      <article class="card clickable" @click="goTo('#/activity')" title="View activity">
+                      <div class="hint">Running now</div>
+                      <strong style="font-size:1.6rem" x-text="runningEntities().length"></strong>
+                      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px" x-show="runningEntities().length">
+                        <template x-for="ent in runningEntities()" :key="ent.key">
+                          <a :href="ent.route" @click.stop class="running-chip" :title="'Open ' + ent.kind + ': ' + ent.name">
+                            <span class="pulse-dot"></span>
+                            <span class="running-chip-name" x-text="ent.name"></span>
+                            <span class="running-chip-kind" x-text="ent.kind"></span>
+                            <span class="running-chip-go">→</span>
+                          </a>
+                        </template>
+                      </div>
+                      <div class="hint" style="margin-top:6px" x-show="!runningEntities().length">Nothing running</div>
+                    </article>
+                    <article class="card clickable" @click="goTo('#/tasks')" title="View all schedules">
+                      <div class="hint">Up next</div>
+                      <template x-if="nextSchedule()">
+                        <div>
+                          <strong x-text="nextSchedule().name"></strong>
+                          <div class="mono" style="margin-top:4px" x-text="formatRelative(nextSchedule().nextRun)"></div>
+                        </div>
+                      </template>
+                      <template x-if="!nextSchedule()">
+                        <strong>Nothing scheduled</strong>
+                      </template>
+                    </article>
+                    <article class="card clickable" @click="goTo('#/tasks')" title="View all schedules">
+                      <div class="hint">Scheduled items</div>
+                      <strong style="font-size:1.6rem" x-text="scheduleCounts().all"></strong>
+                    </article>
+                    <article class="card clickable" @click="goTo('#/activity')" :style="alerts().length ? 'border-color:var(--cp-danger)' : ''" title="Investigate alerts">
+                      <div class="hint">Alerts (24h)</div>
+                      <strong style="font-size:1.6rem" x-text="alerts().length"></strong>
+                    </article>
+                    </div>
+                  </div>
+                </div>
 
               </div>
 
@@ -17088,16 +17115,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
+        homeSectionsDefault: ['greeting', 'devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeSectionHidden: [],
         homeDrag: null,
         homeDragOver: null,
         homeCustomizeOpen: false,
-        mgmtSectionsDefault: ['whatsnew', 'attention', 'pulse', 'recent', 'flowchart'],
+        mgmtSectionsDefault: ['greeting', 'teams', 'glance', 'whatsnew', 'attention', 'pulse', 'recent', 'flowchart'],
         mgmtSectionOrder: [],
         mgmtSectionHidden: [],
+        mgmtDrag: null,
+        mgmtDragOver: null,
         homeNewsletter: { title: '', subtitle: '', dek: '', storyCount: 0, readMins: 0, hasDraft: false, lastGeneratedAt: null, lastEmailedAt: null, coveredFrom: '', coveredTo: '', loaded: false },
         homeBanner: { dismissed: false },
         codeflowRepoForm: { provider: 'azdo', org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
@@ -21021,6 +21050,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.appMode !== 'workspace') return false;
           if ((this.homeSectionHidden || []).includes(key)) return false;
           switch (key) {
+            case 'greeting': return true;
             case 'devwork': return !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
             case 'whatsnew': return this.homeWhatsNewFeed().length > 0;
             case 'boards': return true;
@@ -21038,9 +21068,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         mgmtSectionVisible(key) {
           if (this.appMode !== 'workforce') return false;
           if ((this.mgmtSectionHidden || []).includes(key)) return false;
+          if (key === 'greeting') return true;
+          if (key === 'teams') return this.currentTeamId === 'all' && this.companyOrgHealth().length > 0;
+          if (key === 'glance') return true;
           if (key === 'whatsnew') return this.homeWhatsNewFeed().length > 0;
           return true;
         },
+        // Management home in-page drag reorder (mirrors the Productivity handlers)
+        mgmtPersistOrder() { try { localStorage.setItem('home-section-order-mgmt', JSON.stringify(this.mgmtSectionOrder)); } catch {} },
+        mgmtReorderStart(key, ev) {
+          this.mgmtDrag = key;
+          if (ev && ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', key); } catch {} }
+        },
+        mgmtReorderOver(key) { if (this.mgmtDrag && this.mgmtDrag !== key) this.mgmtDragOver = key; },
+        mgmtReorderDrop(key) {
+          const from = this.mgmtDrag; this.mgmtDrag = null; this.mgmtDragOver = null;
+          if (!from || from === key) return;
+          const orig = this.mgmtSectionOrder;
+          const fi = orig.indexOf(from); const ti0 = orig.indexOf(key);
+          if (fi === -1 || ti0 === -1) return;
+          const order = orig.filter(k => k !== from);
+          let insert = order.indexOf(key); if (fi < ti0) insert += 1;
+          order.splice(insert, 0, from);
+          this.mgmtSectionOrder = order; this.mgmtPersistOrder();
+        },
+        mgmtReorderEnd() { this.mgmtDrag = null; this.mgmtDragOver = null; },
+        mgmtMoveSection(key, dir) {
+          const order = this.mgmtSectionOrder.slice();
+          const i = order.indexOf(key); if (i === -1) return;
+          const j = i + dir; if (j < 0 || j >= order.length) return;
+          const t = order[i]; order[i] = order[j]; order[j] = t;
+          this.mgmtSectionOrder = order; this.mgmtPersistOrder();
+        },
+        mgmtResetSections() { this.mgmtSectionOrder = this.mgmtSectionsDefault.slice(); this.mgmtPersistOrder(); },
 
         // --- Unified "Customize sections" picker (dispatches by appMode) -----
         homeCustomKeys() {
@@ -21048,8 +21108,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         homeSecLabel(key) {
           const labels = {
-            devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
+            greeting: 'Good evening', devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
             boards: 'Boards', prs: 'Pull requests',
+            teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
             flowchart: 'Flow activity',
           };
@@ -21058,8 +21119,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePickerSections() {
           const order = this.appMode === 'workforce' ? this.mgmtSectionOrder : this.homeSectionOrder;
           const hidden = this.appMode === 'workforce' ? this.mgmtSectionHidden : this.homeSectionHidden;
-          const keys = (order && order.length) ? order.slice() : this.homeCustomKeys().slice();
-          return keys.map(k => ({ key: k, label: this.homeSecLabel(k), hidden: (hidden || []).includes(k) }));
+          let keys = (order && order.length) ? order.slice() : this.homeCustomKeys().slice();
+          // "Good evening" is a topbar toggle: always list it first, never reorderable.
+          keys = keys.filter(k => k !== 'greeting');
+          keys.unshift('greeting');
+          return keys.map(k => ({ key: k, label: this.homeSecLabel(k), hidden: (hidden || []).includes(k), noMove: k === 'greeting' }));
         },
         _homePersistHidden() {
           try {
