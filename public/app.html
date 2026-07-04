@@ -1415,7 +1415,7 @@
 
     /* Customize-sections picker (both homes) */
     .home-cust-wrap { position: relative; display: inline-flex; }
-    .home-cust-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer; font-size:0.82rem; white-space:nowrap; }
+    .home-cust-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border:1px solid var(--cp-border); border-radius:10px; background:transparent; color:var(--cp-text-muted); cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap; transition: color .15s ease, border-color .15s ease, background .15s ease; }
     .home-cust-btn:hover { color:var(--cp-text); border-color:var(--cp-border-strong); }
     .home-cust-btn.is-on { color:var(--cp-text); border-color:var(--cp-border-strong); }
     .home-cust-pop { position:absolute; top:calc(100% + 8px); right:0; z-index:60; width:264px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,0.28); padding:10px; }
@@ -1489,6 +1489,13 @@
     .mgmt-home .mh-leg-group { display: inline-flex; align-items: center; gap: 14px; }
     .mgmt-home .mh-leg-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-text-muted); }
     .mgmt-home .mh-leg-sep { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--cp-border) 70%, transparent); }
+    /* per-item run list (calm, line-broken rows — no frames/pills) */
+    .mgmt-home .mh-fa-items { margin-top: 14px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+    @media (max-width: 760px) { .mgmt-home .mh-fa-items { grid-template-columns: 1fr; } }
+    .mgmt-home .mh-fa-item { display: flex; align-items: baseline; gap: 9px; padding: 7px 2px; min-width: 0; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 45%, transparent); }
+    .mgmt-home .mh-fa-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; align-self: center; }
+    .mgmt-home .mh-fa-iname { font-size: 12.5px; color: var(--cp-text); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+    .mgmt-home .mh-fa-imeta { font-size: 11.5px; color: var(--cp-text-muted); margin-left: auto; white-space: nowrap; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
     .mgmt-home .mh-disclose { display: inline-block; font-size: 12px; color: var(--cp-text-muted); transition: transform .15s ease; }
     .mh-disclose { display: inline-block; font-size: 12px; color: var(--cp-text-muted); transition: transform .15s ease; }
     .mh-disclose.closed { transform: rotate(-90deg); }
@@ -5703,14 +5710,10 @@
                     </button>
                     <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
                       <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
-                      <div class="hcp-hint">Toggle sections on or off and reorder them.</div>
+                      <div class="hcp-hint">Toggle sections on or off. Use Arrange to reorder.</div>
                       <template x-for="s in homePickerSections()" :key="'hcp-p-'+s.key">
                         <div class="hcp-row">
                           <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
-                          <span class="hcp-move" x-show="!s.noMove">
-                            <button type="button" @click="homePickerMove(s.key,-1)" title="Move up">↑</button>
-                            <button type="button" @click="homePickerMove(s.key,1)" title="Move down">↓</button>
-                          </span>
                         </div>
                       </template>
                       <div class="hcp-foot"><button type="button" @click="homePickerReset()">Reset to default</button></div>
@@ -5968,14 +5971,10 @@
                     </button>
                     <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
                       <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
-                      <div class="hcp-hint">Toggle sections on or off. Drag panels or use Arrange to reorder.</div>
+                      <div class="hcp-hint">Toggle sections on or off. Use Arrange to reorder.</div>
                       <template x-for="s in homePickerSections()" :key="'hcp-m-'+s.key">
                         <div class="hcp-row">
                           <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
-                          <span class="hcp-move" x-show="!s.noMove">
-                            <button type="button" @click="homePickerMove(s.key,-1)" title="Move up">↑</button>
-                            <button type="button" @click="homePickerMove(s.key,1)" title="Move down">↓</button>
-                          </span>
                         </div>
                       </template>
                       <div class="hcp-foot"><button type="button" @click="homePickerReset()">Reset to default</button></div>
@@ -6108,11 +6107,11 @@
 
                 <!-- Flow activity chart -->
                 <div class="home-rsec span-full" :style="{ order: mgmtSecIndex('flowchart') }" x-show="mgmtSectionVisible('flowchart')" :class="mgmtDragOver === 'flowchart' ? 'is-drop' : ''" @dragover.prevent="mgmtReorderOver('flowchart')" @drop.prevent="mgmtReorderDrop('flowchart')">
-                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('flowchart',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Flow activity</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('flowchart',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('flowchart',1)" title="Move down">↓</button></span></div>
+                  <div class="home-arrange-strip"><span class="home-drag" draggable="true" @dragstart="mgmtReorderStart('flowchart',$event)" @dragend="mgmtReorderEnd()" title="Drag to reorder">⠿</span><span class="has-name">Flow / Task activity</span><span class="spacer"></span><span class="home-move"><button type="button" @click="mgmtMoveSection('flowchart',-1)" title="Move up">↑</button><button type="button" @click="mgmtMoveSection('flowchart',1)" title="Move down">↓</button></span></div>
                   <section class="card mh-accent-link mh-full">
                   <div class="card-header">
                     <div>
-                      <h2 class="card-title">📈 Flow activity</h2>
+                      <h2 class="card-title">📈 Flow / Task activity</h2>
                       <div class="card-subtitle">When flows, tasks &amp; assignments ran and how long they took — last 14 days</div>
                     </div>
                     <a class="btn ghost" href="#/chains">Open flows</a>
@@ -6147,6 +6146,15 @@
                             <span class="lname">Manual</span>
                           </button>
                         </div>
+                      </div>
+                      <div class="mh-fa-items" x-show="mgmtRunItems().length">
+                        <template x-for="it in mgmtRunItems()" :key="'mhfa-'+it.cat+'-'+it.name">
+                          <div class="mh-fa-item">
+                            <span class="mh-fa-dot" :style="'background:'+it.color"></span>
+                            <span class="mh-fa-iname" x-text="it.name" :title="it.name"></span>
+                            <span class="mh-fa-imeta"><span x-text="it.catLabel"></span> · <span x-text="it.runs + (it.runs===1?' run':' runs')"></span> · avg <span x-text="it.avg + 'm'"></span> · <span x-text="formatRelative(it.last)"></span></span>
+                          </div>
+                        </template>
                       </div>
                     </div>
                   </template>
@@ -10945,12 +10953,25 @@
 
           <!-- ===== Code Flow ===== -->
           <section x-show="!loading && !errorMessage && route === 'codeflow'" x-transition.opacity.duration.180ms>
-            <div class="page-header">
+            <style>
+              /* Code Flow: calm header + sticky control bar, echoing the Newsletter studio feel */
+              .cf-controlbar { position:sticky; top:0; z-index:5; display:flex; flex-direction:column; gap:10px;
+                background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:11px 14px; margin-bottom:16px; }
+              .cf-controlbar .cf-views { margin-bottom:0; }
+              .cf-controlbar .cf-toolbar { margin-bottom:0; padding-top:10px; border-top:1px solid color-mix(in srgb, var(--cp-border) 60%, transparent); }
+              .cf-controlbar .cf-views + .cf-toolbar:empty { display:none; }
+            </style>
+            <div class="nlx-top">
               <div class="page-title">
                 <h1>🔀 Code Flow</h1>
                 <p>Monitor your Azure DevOps pull requests across watched repos — build &amp; approval status, comment activity, validation runs, and what needs your attention. Read-only.</p>
               </div>
-              <div class="toolbar">
+              <div class="nlx-actions">
+                <span class="nlx-status" :class="codeflow.attentionCount ? '' : 'off'" x-show="codeflow.repos.length && !codeflow.loading"
+                      title="Pull requests needing your attention across watched repos">
+                  <span class="dotp"></span>
+                  <span x-text="cfHeaderStatus()"></span>
+                </span>
                 <button class="btn ghost" type="button" @click="codeflowManageOpen = !codeflowManageOpen"
                         x-text="codeflowManageOpen ? 'Hide repos' : ('⚙ Manage repos (' + codeflow.repos.length + ')')"></button>
                 <button class="btn ghost" type="button" :disabled="codeflow.aiBusy || !codeflow.pullRequests.length"
@@ -11057,7 +11078,8 @@
               <div x-show="codeflowRepoForm.error" class="hint" style="color:var(--cp-danger);margin-top:8px" x-text="codeflowRepoForm.error"></div>
             </div>
 
-            <!-- View tabs -->
+            <!-- View tabs + filters: unified sticky control bar -->
+            <div class="cf-controlbar" x-show="codeflow.repos.length">
             <div class="cf-views" role="tablist">
               <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'mine' }" role="tab"
                       :aria-selected="codeflow.view === 'mine'" @click="setCodeflowView('mine')">
@@ -11108,6 +11130,7 @@
                 </select>
               </label>
               <span class="hint" style="margin-left:auto" x-text="codeflowFetchedLabel()"></span>
+            </div>
             </div>
 
             <!-- Errors -->
@@ -11332,7 +11355,7 @@
                       <!-- Links: generated review/steward reports (HTML + findings) and past reports -->
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'links'">
                         <div class="cf-subsec">
-                        <div class="cf-subhead">🔗 Links</div>
+                        <div class="cf-subhead">🔗 Artifacts</div>
                         <template x-if="!cfWt(pr) || (!(cfWt(pr).reports || []).length && !(cfWt(pr).reportHistory || []).length)">
                           <span class="cf-wt-history-ts">No report has been generated yet. Run the review agent from the Worktree tab.</span>
                         </template>
@@ -20655,7 +20678,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           svg += '</svg>';
           return svg;
         },
-        mgmtFlowDot(c) {
+        mgmtRunItems() {
+          const defs = this.mgmtChartCatDefs();
+          const colorOf = {}; defs.forEach(d => { colorOf[d.key] = d.color; });
+          const catLabel = { flows: 'Flow', tasks: 'Task', assignments: 'Assignment' };
+          const groups = {};
+          this.mgmtRunPoints().filter(p => this.mgmtPointVisible(p)).forEach(p => {
+            const name = (p.name && String(p.name).trim()) || '(unnamed)';
+            const gk = p.cat + '::' + name;
+            if (!groups[gk]) groups[gk] = { name, cat: p.cat, catLabel: catLabel[p.cat] || p.cat, color: colorOf[p.cat] || 'var(--cp-text-muted)', runs: 0, total: 0, last: 0 };
+            const g = groups[gk];
+            g.runs++; g.total += (p.dur || 0); if (p.t > g.last) g.last = p.t;
+          });
+          return Object.values(groups)
+            .map(g => ({ name: g.name, cat: g.cat, catLabel: g.catLabel, color: g.color, runs: g.runs, avg: g.runs ? Math.round(g.total / g.runs) : 0, last: g.last }))
+            .sort((a, b) => b.runs - a.runs || b.last - a.last);
+        },
           const live = this.chainRunState && this.chainRunState[c.id];
           if (live && String(live.status || '').toLowerCase() === 'running') return 'run';
           const runs = this._chainRunStats(c.id);
@@ -21112,7 +21150,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             boards: 'Boards', prs: 'Pull requests',
             teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
-            flowchart: 'Flow activity',
+            flowchart: 'Flow / Task activity',
           };
           return labels[key] || key;
         },
@@ -24861,7 +24899,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           s.push({ id: 'worktree', label: reviews ? 'Review env' : 'Worktree', attn: wtAttn });
           if (wt && ((wt.reports || []).length || (wt.reportHistory || []).length)) {
-            s.push({ id: 'links', label: 'Links', count: (wt.reports || []).length || undefined });
+            s.push({ id: 'links', label: 'Artifacts', count: (wt.reports || []).length || undefined });
           }
           return s;
         },
@@ -25651,6 +25689,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         codeflowFetchedLabel() {
           if (!this.codeflow.fetchedAt) return '';
           try { return 'Updated ' + this.formatRelative(this.codeflow.fetchedAt); } catch { return ''; }
+        },
+        cfHeaderStatus() {
+          const attn = this.codeflow.attentionCount || 0;
+          const open = (this.filteredCodeflowPrs() || []).length;
+          if (attn > 0) return attn + (attn === 1 ? ' needs attention' : ' need attention') + ' · ' + open + ' open';
+          if (open > 0) return open + (open === 1 ? ' open PR' : ' open PRs') + ' · all caught up';
+          return 'All caught up';
         },
         // ---- Insights
         async loadInsights(selectId, silent) {
