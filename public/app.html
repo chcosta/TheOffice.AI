@@ -1447,6 +1447,24 @@
     .home-nl-card .home-nl-status.is-draft .home-nl-dot { background: var(--cp-accent); }
     .home-nl-card .home-nl-go { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 13px; font-weight: 600; }
     .home-nl-card:hover .home-nl-go { color: var(--cp-accent); }
+    .home-nl-card .home-nl-dek { font-size: 13px; color: var(--cp-text-soft); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .home-nl-card .home-nl-meta { font-size: 12px; color: var(--cp-text-muted); }
+
+    /* What's-new card on Home (release highlights + new marketplace items) */
+    .home-wn-card .home-wn-spark { color: var(--cp-accent); }
+    .home-wn-list { display: flex; flex-direction: column; }
+    .home-wn-row {
+      display: flex; align-items: center; gap: 12px; padding: 10px 6px; cursor: pointer;
+      border-top: 1px solid var(--cp-border); border-radius: 8px;
+    }
+    .home-wn-row:first-child { border-top: none; }
+    .home-wn-row:hover { background: var(--cp-surface-soft); }
+    .home-wn-ico { font-size: 18px; flex: 0 0 auto; line-height: 1; }
+    .home-wn-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+    .home-wn-label { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .home-wn-sub { font-size: 12px; color: var(--cp-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .home-wn-go { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 14px; font-weight: 600; }
+    .home-wn-row:hover .home-wn-go { color: var(--cp-accent); }
 
     /* ----- Getting started (Basic mode onboarding) ----- */
     .gs-card {
@@ -5612,23 +5630,43 @@
                 </div>
               </div>
 
-              <!-- What's new banner (pinned; release notes + new marketplace items) -->
-              <div class="home-whatsnew" x-show="homeBannerVisible()" x-transition.opacity.duration.180ms>
-                <span class="hw-spark">✦</span>
-                <div class="hw-body">
-                  <strong>What's new</strong>
-                  <span class="hint" x-show="homeWhatsNewUnseen()">The app just updated — see what changed.</span>
-                  <span class="hint" x-show="homeMarketplaceCount() > 0"
-                        x-text="homeMarketplaceSummary() ? (homeMarketplaceSummary() + ' new in the marketplace') : (homeMarketplaceCount() + ' new marketplace item' + (homeMarketplaceCount() === 1 ? '' : 's'))"></span>
-                </div>
-                <div class="hw-actions">
-                  <button type="button" class="btn ghost" x-show="homeWhatsNewUnseen()" @click="openWhatsNew()">Release notes</button>
-                  <button type="button" class="btn ghost" x-show="homeMarketplaceCount() > 0" @click="goTo('#/marketplace')">View marketplace</button>
-                  <button type="button" class="hw-dismiss" @click="dismissHomeBanner()" title="Dismiss">✕</button>
-                </div>
-              </div>
-
               <div class="home-cards" :class="homeArrange ? 'home-arrange' : ''">
+
+                <!-- What's new (release highlights + new marketplace items; clickable) -->
+                <div class="home-rsec" :style="{ order: homeSecIndex('whatsnew') }" x-show="homeSectionVisible('whatsnew')"
+                     :class="homeDragOver === 'whatsnew' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('whatsnew')" @drop.prevent="homeReorderDrop('whatsnew')">
+                  <div class="home-arrange-strip">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('whatsnew',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="has-name">What's new</span>
+                    <span class="spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('whatsnew',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('whatsnew',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card home-wn-card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title"><span class="home-wn-spark">✦</span> What's new</h2>
+                        <div class="card-subtitle">Latest release &amp; fresh marketplace finds</div>
+                      </div>
+                      <a class="btn ghost" href="#" @click.prevent="openWhatsNew()">Release notes</a>
+                    </div>
+                    <div class="home-wn-list">
+                      <template x-for="item in homeWhatsNewFeed()" :key="item.key">
+                        <div class="home-wn-row" role="button" tabindex="0" @click="homeWhatsNewOpen(item)" @keydown.enter="homeWhatsNewOpen(item)">
+                          <span class="home-wn-ico" x-text="item.icon"></span>
+                          <div class="home-wn-txt">
+                            <div class="home-wn-label" x-text="item.label"></div>
+                            <div class="home-wn-sub" x-text="item.sub"></div>
+                          </div>
+                          <span class="home-wn-go">→</span>
+                        </div>
+                      </template>
+                    </div>
+                  </section>
+                </div>
 
                 <!-- Active dev work -->
                 <div class="home-rsec span-full" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
@@ -5787,6 +5825,8 @@
                     <div class="home-nl-main">
                       <div class="home-nl-kicker">This week's newsletter</div>
                       <div class="home-nl-title" x-text="homeNewsletterTitle()"></div>
+                      <div class="home-nl-dek" x-show="homeNewsletter.dek" x-text="homeNewsletter.dek"></div>
+                      <div class="home-nl-meta" x-show="homeNewsletterMeta()" x-text="homeNewsletterMeta()"></div>
                       <div class="home-nl-status" :class="homeNewsletterSent() ? 'is-sent' : (homeNewsletter.hasDraft ? 'is-draft' : 'is-empty')">
                         <span class="home-nl-dot"></span>
                         <span x-text="homeNewsletterStatusText()"></span>
@@ -5824,6 +5864,7 @@
                             <span x-text="(s.origin === 'system') ? '🏛' : '🌐'"></span>
                             <strong x-text="s.title"></strong>
                             <span class="hint" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
+                            <span class="hint" x-show="s.turnCount" x-text="'· ' + s.turnCount + ' turns'"></span>
                             <span class="hint" x-text="'· ' + formatRelative(s.lastModified)"></span>
                           </div>
                           <div class="hint" style="margin-top:6px" x-show="homeConversationSnippet(s)" x-text="homeConversationSnippet(s)"></div>
@@ -16607,12 +16648,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['devwork', 'boards', 'prs', 'newsletter', 'conversations'],
+        homeSectionsDefault: ['devwork', 'whatsnew', 'newsletter', 'boards', 'prs', 'conversations'],
         homeArrange: false,
         homeSectionOrder: [],
         homeDrag: null,
         homeDragOver: null,
-        homeNewsletter: { title: '', subtitle: '', hasDraft: false, lastGeneratedAt: null, lastEmailedAt: null, coveredFrom: '', coveredTo: '', loaded: false },
+        homeNewsletter: { title: '', subtitle: '', dek: '', storyCount: 0, readMins: 0, hasDraft: false, lastGeneratedAt: null, lastEmailedAt: null, coveredFrom: '', coveredTo: '', loaded: false },
         homeBanner: { dismissed: false },
         codeflowRepoForm: { provider: 'azdo', org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
         codeflowReposBusy: {},   // repoId -> true while removing
@@ -17683,6 +17724,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Productivity home extras (fire-and-forget; each is non-blocking).
             this.homeInitSections();
             this.loadHomeNewsletter();
+            if (!this.whatsNew.entries || !this.whatsNew.entries.length) this.loadWhatsNew();
+            this.loadMarketplaceUpdates(true);
             if (!this.cliSessions || !this.cliSessions.length) this.loadCliSessions();
           }
           // Deep-link focus requested from the schedules dashboard.
@@ -20215,10 +20258,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.appMode !== 'workspace') return false;
           switch (key) {
             case 'devwork': return !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
+            case 'whatsnew': return this.homeWhatsNewFeed().length > 0;
             case 'boards': return true;
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
-            case 'conversations': return !!(this.cliSessions && this.cliSessions.length);
+            case 'conversations': return !!this.homeRecentConversations().length;
             default: return false;
           }
         },
@@ -20229,6 +20273,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/newsletter/status');
             this.homeNewsletter = {
               title: r.title || '', subtitle: r.subtitle || '',
+              dek: r.dek || '', storyCount: r.storyCount || 0, readMins: r.readMins || 0,
               hasDraft: !!r.hasDraft,
               lastGeneratedAt: r.lastGeneratedAt || null,
               lastEmailedAt: r.lastEmailedAt || null,
@@ -20261,6 +20306,24 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const n = this.homeNewsletter;
           return (n.title && n.title.trim()) || 'This week\u2019s newsletter';
         },
+        homeNewsletterMeta() {
+          const n = this.homeNewsletter;
+          if (!n.hasDraft) return '';
+          const parts = [];
+          if (n.storyCount) parts.push(n.storyCount + ' stor' + (n.storyCount === 1 ? 'y' : 'ies'));
+          if (n.readMins) parts.push('~' + n.readMins + ' min read');
+          const range = this.homeNewsletterRange();
+          if (range) parts.push('Covers ' + range);
+          return parts.join(' · ');
+        },
+        homeNewsletterRange() {
+          const n = this.homeNewsletter;
+          const fmt = (d) => { try { return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch { return ''; } };
+          const f = n.coveredFrom ? fmt(n.coveredFrom) : '';
+          const t = n.coveredTo ? fmt(n.coveredTo) : '';
+          if (f && t) return f === t ? f : (f + ' – ' + t);
+          return f || t || '';
+        },
 
         // Recent AI conversations (CLI/agent sessions) surfaced on Home.
         homeGreeting() {
@@ -20274,8 +20337,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         homeRecentConversations(limit = 5) {
           const list = Array.isArray(this.cliSessions) ? this.cliSessions.slice() : [];
-          list.sort((a, b) => new Date(b.lastModified || 0) - new Date(a.lastModified || 0));
-          return list.slice(0, limit);
+          // "Interesting" = a real back-and-forth: multiple turns that aren't just
+          // the same prompt repeated. distinctTurns is added server-side; when it's
+          // absent (older cache), fall back to turnCount alone.
+          const interesting = list.filter(s => {
+            const turns = Number(s && s.turnCount) || 0;
+            if (turns < 2) return false;
+            const distinct = (s && s.distinctTurns != null) ? Number(s.distinctTurns) : turns;
+            return distinct >= 2;
+          });
+          interesting.sort((a, b) => new Date(b.lastModified || 0) - new Date(a.lastModified || 0));
+          return interesting.slice(0, limit);
         },
         homeConversationSnippet(s) {
           if (s && s.summary && s.summary.trim()) {
@@ -20310,6 +20382,38 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         dismissHomeBanner() {
           this.homeBanner.dismissed = true;
           this._markWhatsNewSeen();
+        },
+        // Rich "What's new" section feed: latest release highlights + new
+        // marketplace items, each clickable to a destination.
+        homeWhatsNewFeed(limit = 6) {
+          const feed = [];
+          const entries = Array.isArray(this.whatsNew.entries) ? this.whatsNew.entries.slice() : [];
+          entries.sort((a, b) => (this.semverGt(a.version, b.version) ? -1 : 1));
+          const latest = entries[0];
+          if (latest) {
+            const hs = Array.isArray(latest.highlights) ? latest.highlights.slice(0, 3) : [];
+            if (hs.length) {
+              hs.forEach((h, i) => feed.push({ key: 'rel-' + latest.version + '-' + i, icon: '✨', label: h, sub: 'v' + latest.version + (latest.title ? ' · ' + latest.title : ''), kind: 'release' }));
+            } else {
+              feed.push({ key: 'rel-' + latest.version, icon: '✨', label: latest.summary || latest.title || ('Version ' + latest.version), sub: 'What changed · v' + latest.version, kind: 'release' });
+            }
+          }
+          const items = (this.marketplaceUpdates && Array.isArray(this.marketplaceUpdates.items)) ? this.marketplaceUpdates.items : [];
+          const iconFor = (t) => t === 'skill' ? '🧩' : t === 'mcp' ? '🔌' : t === 'agent' ? '🤖' : t === 'plugin' ? '📦' : '⭐';
+          const typeLabel = (t) => t ? (t.charAt(0).toUpperCase() + t.slice(1)) : 'Item';
+          items.slice(0, 3).forEach((it) => feed.push({
+            key: 'mkt-' + (it.id || it.name),
+            icon: iconFor(it.type),
+            label: it.name || ('New ' + (it.type || 'item')),
+            sub: 'New ' + typeLabel(it.type).toLowerCase() + ' in the marketplace' + (it.sourceLabel ? ' · ' + it.sourceLabel : ''),
+            kind: 'marketplace',
+          }));
+          return feed.slice(0, limit);
+        },
+        homeWhatsNewOpen(item) {
+          if (!item) return;
+          if (item.kind === 'marketplace') { this.goTo('#/marketplace'); return; }
+          this.openWhatsNew();
         },
 
         // Open the run-detail modal for an activity/alert entry and fetch the full
