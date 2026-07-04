@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Management home — mockup · TheOffice.AI</title>
+<style>
+  :root {
+    color-scheme: light;
+    --cp-bg: #f4f5f7; --cp-bg-elevated: #fafbfc; --cp-surface: #ffffff; --cp-surface-soft: #eef0f3;
+    --cp-border: #dee1e6; --cp-border-strong: #a8aeb8;
+    --cp-text: #1b1f27; --cp-text-muted: #59616d; --cp-text-soft: #6e7682;
+    --cp-accent: #1f2937; --cp-accent-soft: rgba(31,41,55,0.1);
+    --cp-success: #16a34a; --cp-danger: #dc2626; --cp-warning: #f59e0b; --cp-link: #1f6fb1;
+    --font-sans: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: Consolas, "Courier New", Courier, monospace;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --cp-bg: #161922; --cp-bg-elevated: #1b1f29; --cp-surface: #21262f; --cp-surface-soft: #272d37;
+    --cp-border: #343b47; --cp-border-strong: #4b5563;
+    --cp-text: #e4e7ec; --cp-text-muted: #98a1ad; --cp-text-soft: #b4bcc6;
+    --cp-accent: #e5e7eb; --cp-accent-soft: rgba(229,231,235,0.16);
+    --cp-success: #4ade80; --cp-danger: #f87171; --cp-warning: #fbbf24; --cp-link: #7cc0f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 28px 80px; }
+  a { color: inherit; }
+
+  .mock-banner { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--cp-text-muted);
+    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; padding: 8px 14px; margin-bottom: 20px; }
+  .mock-banner strong { color: var(--cp-text); }
+  .mock-banner .sp { flex: 1; }
+  .theme-btn { border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-soft);
+    border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+  .theme-btn:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
+
+  /* ===== Topbar (mirrors Productivity home) ===== */
+  .home-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 22px; }
+  .ht-greet h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.4px; }
+  .ht-greet p { margin: 0; color: var(--cp-text-soft); font-size: 14px; }
+  .ht-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .home-stats { display: flex; gap: 10px; }
+  .home-stat { min-width: 78px; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px;
+    padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; cursor: pointer; transition: border-color .15s, transform .15s; }
+  .home-stat:hover { border-color: var(--cp-border-strong); transform: translateY(-1px); }
+  .hs-num { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .hs-num.is-hot { color: var(--cp-warning); }
+  .hs-label { font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: .4px; }
+  .home-arrange-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cp-border);
+    background: var(--cp-surface-soft); color: var(--cp-text-soft); border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+  .home-arrange-btn:hover { color: var(--cp-text); }
+
+  /* ===== Cards grid ===== */
+  .home-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .span-full { grid-column: 1 / -1; }
+  @media (max-width: 900px) { .home-cards { grid-template-columns: 1fr; } }
+
+  .card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 14px; padding: 16px 18px; }
+  .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .card-title { margin: 0; font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .card-subtitle { margin-top: 3px; font-size: 12px; color: var(--cp-text-muted); }
+  .btn.ghost { border: 1px solid var(--cp-border); background: transparent; color: var(--cp-text-soft);
+    border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; text-decoration: none; }
+  .btn.ghost:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
+
+  /* left-accent featured cards (like What's new / Newsletter) */
+  .accent-warn { border-left: 3px solid color-mix(in srgb, var(--cp-warning) 70%, var(--cp-border)); }
+  .accent-link { border-left: 3px solid color-mix(in srgb, var(--cp-link) 60%, var(--cp-border)); }
+
+  /* list-flow: hairline dividers, no per-item frames */
+  .list-flow { display: flex; flex-direction: column; }
+  .list-flow .row { padding: 11px 2px; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent);
+    cursor: pointer; border-radius: 6px; transition: background .12s; }
+  .list-flow .row:last-child { border-bottom: none; }
+  .list-flow .row:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); }
+  .row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .row-top strong { font-weight: 600; }
+  .row-sub { margin-top: 4px; font-size: 12px; color: var(--cp-text-muted); }
+  .muted { color: var(--cp-text-muted); }
+  .soft { color: var(--cp-text-soft); }
+
+  /* status dots + badges */
+  .dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; display: inline-block; }
+  .dot.run { background: var(--cp-warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning) 22%, transparent); }
+  .dot.idle { background: var(--cp-text-soft); }
+  .dot.sched { background: var(--cp-link); }
+  .dot.ok { background: var(--cp-success); }
+  .dot.fail { background: var(--cp-danger); }
+  .badge { font-size: 11px; padding: 3px 8px; border-radius: 7px; font-weight: 600; white-space: nowrap; }
+  .badge.ok { background: color-mix(in srgb, var(--cp-success) 16%, transparent); color: var(--cp-success); }
+  .badge.fail { background: color-mix(in srgb, var(--cp-danger) 16%, transparent); color: var(--cp-danger); }
+  .badge.run { background: color-mix(in srgb, var(--cp-warning) 18%, transparent); color: var(--cp-warning); }
+  .badge.neutral { background: var(--cp-surface-soft); color: var(--cp-text-soft); }
+  .count { font-size: 12px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+
+  /* Attention rows */
+  .att-row { display: flex; align-items: center; gap: 10px; padding: 10px 2px;
+    border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; }
+  .att-row:last-child { border-bottom: none; }
+  .att-row:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); }
+  .att-ico { font-size: 16px; flex: 0 0 auto; }
+  .att-txt { flex: 1; min-width: 0; }
+  .att-label { font-weight: 600; font-size: 13px; }
+  .att-sub { font-size: 12px; color: var(--cp-text-muted); }
+  .att-go { color: var(--cp-text-muted); font-size: 13px; }
+
+  /* ===== Flow activity chart card ===== */
+  .fa-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .fa-meta { display: flex; gap: 22px; flex-wrap: wrap; margin: 4px 0 14px; }
+  .fa-metric .n { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .fa-metric .l { font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: .4px; }
+  .fa-chart { width: 100%; }
+  .fa-chart svg { width: 100%; height: auto; display: block; }
+  .axis-line { stroke: color-mix(in srgb, var(--cp-border) 80%, transparent); stroke-width: 1; }
+  .grid-line { stroke: color-mix(in srgb, var(--cp-border) 45%, transparent); stroke-width: 1; stroke-dasharray: 3 4; }
+  .axis-text { fill: var(--cp-text-muted); font-size: 10px; font-family: var(--font-sans); }
+  .series-line { fill: none; stroke-width: 2; }
+  .series-pt { stroke: var(--cp-surface); stroke-width: 1.5; cursor: pointer; }
+  /* legend — calm text links, not pills */
+  .fa-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; }
+  .fa-leg { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--cp-text-soft);
+    cursor: pointer; user-select: none; background: none; border: none; padding: 2px 0; }
+  .fa-leg .ld { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+  .fa-leg .lavg { color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+  .fa-leg.off { opacity: .38; }
+  .fa-leg.off .lname { text-decoration: line-through; }
+  .fa-leg:hover { color: var(--cp-text); }
+
+  /* Recently-added feed (marketplace / installs / new agents-tasks-flows) */
+  .feed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+  @media (max-width: 760px) { .feed-grid { grid-template-columns: 1fr; } }
+  .feed-row { display: flex; align-items: center; gap: 11px; padding: 10px 2px;
+    border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; }
+  .feed-row:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); }
+  .feed-ico { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; font-size: 15px;
+    border-radius: 8px; background: var(--cp-surface-soft); }
+  .feed-ico.mkt { background: color-mix(in srgb, var(--cp-link) 16%, transparent); }
+  .feed-ico.inst { background: color-mix(in srgb, var(--cp-success) 16%, transparent); }
+  .feed-ico.agent { background: color-mix(in srgb, #a855f7 20%, transparent); }
+  .feed-ico.task { background: color-mix(in srgb, var(--cp-warning) 18%, transparent); }
+  .feed-ico.flow { background: color-mix(in srgb, #3b82f6 18%, transparent); }
+  .feed-txt { flex: 1; min-width: 0; }
+  .feed-label { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-label .new-tag { color: var(--cp-success); font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; margin-left: 7px; vertical-align: 1px; }
+  .feed-sub { font-size: 12px; color: var(--cp-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-cat { font-size: 11px; color: var(--cp-text-soft); flex: 0 0 auto; }
+  .feed-time { font-size: 11px; color: var(--cp-text-muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+
+  .empty { color: var(--cp-text-muted); font-size: 13px; padding: 8px 2px; }
+  .section-label { display: flex; align-items: center; gap: 8px; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--cp-text-muted); margin: 26px 2px 10px; }
+  .section-label .ln { flex: 1; height: 1px; background: color-mix(in srgb, var(--cp-border) 60%, transparent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mock-banner">
+    <span>🧭</span>
+    <span><strong>Management home — design mockup.</strong> Static preview of the workforce home. Shares the Productivity home's language; adds a flow-activity line chart.</span>
+    <span class="sp"></span>
+    <button class="theme-btn" onclick="toggleTheme()">Toggle light / dark</button>
+  </div>
+
+  <!-- Greeting + stat tiles -->
+  <div class="home-topbar">
+    <div class="ht-greet">
+      <h1>Good afternoon, Chris</h1>
+      <p>Your team's autonomous workforce at a glance.</p>
+    </div>
+    <div class="ht-right">
+      <div class="home-stats">
+        <div class="home-stat" title="Registered agents"><span class="hs-num">12</span><span class="hs-label">Agents</span></div>
+        <div class="home-stat" title="Active tasks"><span class="hs-num">5</span><span class="hs-label">Tasks</span></div>
+        <div class="home-stat" title="Task flows"><span class="hs-num">4</span><span class="hs-label">Flows</span></div>
+        <div class="home-stat" title="Running now"><span class="hs-num is-hot">2</span><span class="hs-label">Running</span></div>
+      </div>
+      <button class="home-arrange-btn"><span>⠿</span><span>Arrange</span></button>
+    </div>
+  </div>
+
+  <div class="home-cards">
+
+    <!-- Attention needed (management analogue of "What's new") -->
+    <section class="card accent-warn">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">⚠ Attention needed</h2>
+          <div class="card-subtitle">Failed runs, stalls &amp; disabled schedules</div>
+        </div>
+        <a class="btn ghost" href="#">Review all</a>
+      </div>
+      <div>
+        <div class="att-row">
+          <span class="att-ico">🔴</span>
+          <div class="att-txt">
+            <div class="att-label">Dependency audit failed</div>
+            <div class="att-sub">scriptedai.mcp.azdo not found · 2h ago</div>
+          </div>
+          <span class="att-go">→</span>
+        </div>
+        <div class="att-row">
+          <span class="att-ico">🟠</span>
+          <div class="att-txt">
+            <div class="att-label">Release rollout waiting on approval</div>
+            <div class="att-sub">Nightly release rollout · paused 40m</div>
+          </div>
+          <span class="att-go">→</span>
+        </div>
+        <div class="att-row">
+          <span class="att-ico">⏸</span>
+          <div class="att-txt">
+            <div class="att-label">Standup digest schedule disabled</div>
+            <div class="att-sub">Won't run tomorrow at 9:00 AM</div>
+          </div>
+          <span class="att-go">→</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Team pulse (compact snapshot) -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">💓 Team pulse</h2>
+          <div class="card-subtitle">Last 24 hours</div>
+        </div>
+        <a class="btn ghost" href="#">Insights</a>
+      </div>
+      <div class="list-flow">
+        <div class="row"><div class="row-top"><span class="dot ok"></span><strong>38 runs completed</strong><span class="count">· 92% success</span></div><div class="row-sub">across 4 flows and 12 agents</div></div>
+        <div class="row"><div class="row-top"><span class="dot run"></span><strong>2 running now</strong><span class="count">· PR triage, Standup digest</span></div><div class="row-sub">started 6m and 12m ago</div></div>
+        <div class="row"><div class="row-top"><span class="dot fail"></span><strong>3 failures</strong><span class="count">· 1 needs attention</span></div><div class="row-sub">Dependency audit · Board sync · Board sync</div></div>
+      </div>
+    </section>
+
+    <!-- Recently added (marketplace / installs / new agents-tasks-flows) -->
+    <section class="card span-full">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">🆕 Recently added</h2>
+          <div class="card-subtitle">Marketplace updates, installs &amp; new agents, tasks and flows</div>
+        </div>
+        <a class="btn ghost" href="#">Marketplace</a>
+      </div>
+      <div class="feed-grid" id="feedGrid"></div>
+    </section>
+
+    <!-- ===== Flow activity chart (featured, full width) ===== -->
+    <section class="card accent-link span-full">
+      <div class="fa-head">
+        <div>
+          <h2 class="card-title">📈 Flow activity</h2>
+          <div class="card-subtitle">When each task flow ran and how long it took — last 14 days</div>
+        </div>
+        <a class="btn ghost" href="#">Open flows</a>
+      </div>
+      <div class="fa-meta">
+        <div class="fa-metric"><div class="n">63</div><div class="l">Runs</div></div>
+        <div class="fa-metric"><div class="n">14m</div><div class="l">Avg duration</div></div>
+        <div class="fa-metric"><div class="n">52m</div><div class="l">Slowest</div></div>
+        <div class="fa-metric"><div class="n">92%</div><div class="l">Success</div></div>
+      </div>
+      <div class="fa-chart" id="faChart"></div>
+      <div class="fa-legend" id="faLegend"></div>
+    </section>
+
+  </div>
+
+  <!-- ===== Workforce lists ===== -->
+  <div class="section-label"><span>Workforce</span><span class="ln"></span></div>
+  <div class="home-cards">
+
+    <!-- Agents -->
+    <section class="card">
+      <div class="card-header">
+        <div><h2 class="card-title">🤖 Agents</h2><div class="card-subtitle">12 agents · 2 running</div></div>
+        <a class="btn ghost" href="#">Open</a>
+      </div>
+      <div class="list-flow">
+        <div class="row"><div class="row-top"><span class="dot run"></span><strong>Board assistant</strong><span class="badge run">running</span></div><div class="row-sub">Syncing 3 boards · started 6m ago</div></div>
+        <div class="row"><div class="row-top"><span class="dot sched"></span><strong>Standup facilitator</strong><span class="count">· next 9:00 AM</span></div><div class="row-sub">Epic: Autoscaler GA · daily digest</div></div>
+        <div class="row"><div class="row-top"><span class="dot ok"></span><strong>Connect assistant</strong><span class="count">· ran 1h ago</span></div><div class="row-sub">Collected 24 M365 activities</div></div>
+        <div class="row"><div class="row-top"><span class="dot idle"></span><strong>Release captain</strong><span class="count">· idle</span></div><div class="row-sub">Last rollout 22h ago · succeeded</div></div>
+        <div class="row"><div class="row-top"><span class="dot idle"></span><strong>Newsletter writer</strong><span class="count">· idle</span></div><div class="row-sub">Draft ready · sent 2d ago</div></div>
+      </div>
+    </section>
+
+    <!-- Active tasks -->
+    <section class="card">
+      <div class="card-header">
+        <div><h2 class="card-title">✅ Active tasks</h2><div class="card-subtitle">5 tasks scheduled or in progress</div></div>
+        <a class="btn ghost" href="#">Open</a>
+      </div>
+      <div class="list-flow">
+        <div class="row"><div class="row-top"><span class="dot run"></span><strong>Triage new PRs</strong><span class="badge run">running</span></div><div class="row-sub">Release captain · every 30m · started 6m ago</div></div>
+        <div class="row"><div class="row-top"><span class="dot sched"></span><strong>Post standup digest</strong><span class="count">· next 9:00 AM</span></div><div class="row-sub">Standup facilitator · weekdays</div></div>
+        <div class="row"><div class="row-top"><span class="dot ok"></span><strong>Sync work items</strong><span class="badge ok">ok</span></div><div class="row-sub">Board assistant · hourly · ran 12m ago</div></div>
+        <div class="row"><div class="row-top"><span class="dot fail"></span><strong>Audit dependencies</strong><span class="badge fail">failed</span></div><div class="row-sub">Ops agent · daily · 2h ago</div></div>
+        <div class="row"><div class="row-top"><span class="dot idle"></span><strong>Draft weekly newsletter</strong><span class="count">· Fri 4:00 PM</span></div><div class="row-sub">Newsletter writer · weekly</div></div>
+      </div>
+    </section>
+
+    <!-- Flows -->
+    <section class="card span-full">
+      <div class="card-header">
+        <div><h2 class="card-title">🔀 Flows</h2><div class="card-subtitle">4 multi-step task flows</div></div>
+        <a class="btn ghost" href="#">Open</a>
+      </div>
+      <div class="list-flow" id="flowList"></div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+  function toggleTheme() {
+    const h = document.documentElement;
+    h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    renderChart();
+  }
+
+  // ---- Sample flow-run data (last 14 days). Each run: {day: 0..14 ago, hour, dur(min)} ----
+  const TODAY = new Date('2026-07-03T18:00:00');
+  const SERIES = [
+    { id: 'rollout', name: 'Nightly release rollout', color: '#3b82f6', runs: [
+      {d:13,h:2,dur:24},{d:12,h:2,dur:21},{d:11,h:2,dur:26},{d:10,h:2,dur:19},{d:9,h:2,dur:23},
+      {d:8,h:2,dur:20},{d:7,h:2,dur:22},{d:6,h:2,dur:18},{d:5,h:2,dur:25},{d:4,h:2,dur:21},
+      {d:3,h:2,dur:19},{d:2,h:2,dur:23},{d:1,h:2,dur:20} ] },
+    { id: 'triage', name: 'PR triage & label', color: '#22c55e', runs: [
+      {d:13,h:9,dur:5},{d:13,h:15,dur:4},{d:12,h:10,dur:6},{d:11,h:9,dur:4},{d:11,h:17,dur:5},
+      {d:10,h:11,dur:5},{d:9,h:9,dur:3},{d:8,h:14,dur:6},{d:7,h:10,dur:4},{d:6,h:9,dur:5},
+      {d:5,h:16,dur:4},{d:4,h:10,dur:6},{d:3,h:9,dur:4},{d:2,h:13,dur:5},{d:1,h:9,dur:4},{d:0,h:12,dur:5} ] },
+    { id: 'standup', name: 'Standup digest', color: '#a855f7', runs: [
+      {d:13,h:9,dur:11},{d:12,h:9,dur:9},{d:11,h:9,dur:12},{d:8,h:9,dur:10},{d:7,h:9,dur:8},
+      {d:6,h:9,dur:11},{d:5,h:9,dur:9},{d:4,h:9,dur:10},{d:1,h:9,dur:12},{d:0,h:9,dur:9} ] },
+    { id: 'audit', name: 'Dependency audit', color: '#f59e0b', runs: [
+      {d:13,h:4,dur:34},{d:10,h:4,dur:38},{d:7,h:4,dur:52},{d:4,h:4,dur:41},{d:1,h:4,dur:36} ] },
+  ];
+  const hidden = new Set();
+
+  function niceMax(v){ const steps=[10,15,20,30,40,50,60,80,100]; for(const s of steps){ if(v<=s) return s; } return Math.ceil(v/20)*20; }
+
+  function renderChart() {
+    const W = 960, H = 300, padL = 40, padR = 14, padT = 14, padB = 34;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const days = 14; // x domain: 14 days ago -> now
+    // y domain from visible series
+    let maxDur = 0;
+    SERIES.forEach(s => { if (hidden.has(s.id)) return; s.runs.forEach(r => { if (r.dur > maxDur) maxDur = r.dur; }); });
+    const yMax = niceMax(maxDur || 10);
+
+    // x: fractional days-ago -> position. run occurred at (d days ago, h hour) => daysAgo = d - h/24
+    const xOf = (r) => { const daysAgo = r.d - (r.h/24); const frac = 1 - (daysAgo / days); return padL + frac * plotW; };
+    const yOf = (dur) => padT + plotH - (dur / yMax) * plotH;
+
+    const gc = getComputedStyle(document.documentElement);
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Flow run durations over time">`;
+
+    // y gridlines + labels
+    const yticks = 4;
+    for (let i = 0; i <= yticks; i++) {
+      const val = Math.round(yMax * i / yticks);
+      const y = yOf(val);
+      svg += `<line class="grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" />`;
+      svg += `<text class="axis-text" x="${padL-8}" y="${(y+3).toFixed(1)}" text-anchor="end">${val}m</text>`;
+    }
+    // x axis line
+    svg += `<line class="axis-line" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" />`;
+    // x labels: every ~2 days
+    for (let d = days; d >= 0; d -= 2) {
+      const frac = 1 - (d / days);
+      const x = padL + frac * plotW;
+      const dt = new Date(TODAY.getTime() - d*86400000);
+      const lbl = (dt.getMonth()+1) + '/' + dt.getDate();
+      svg += `<text class="axis-text" x="${x.toFixed(1)}" y="${H-12}" text-anchor="middle">${lbl}</text>`;
+    }
+
+    // series lines + points
+    SERIES.forEach(s => {
+      if (hidden.has(s.id)) return;
+      const pts = s.runs.slice().sort((a,b)=> xOf(b) - xOf(a) ? xOf(a)-xOf(b) : 0).map(r => ({x:xOf(r), y:yOf(r.dur), r}));
+      // line connecting runs in time order
+      const ordered = s.runs.slice().sort((a,b)=> (b.d - b.h/24) < (a.d - a.h/24) ? 1 : -1);
+      const path = ordered.map((r,i)=> (i?'L':'M') + xOf(r).toFixed(1) + ' ' + yOf(r.dur).toFixed(1)).join(' ');
+      svg += `<path class="series-line" d="${path}" stroke="${s.color}" opacity="0.85" />`;
+      s.runs.forEach(r => {
+        const dt = new Date(TODAY.getTime() - r.d*86400000); dt.setHours(r.h);
+        const when = (dt.getMonth()+1)+'/'+dt.getDate()+' '+String(r.h).padStart(2,'0')+':00';
+        svg += `<circle class="series-pt" cx="${xOf(r).toFixed(1)}" cy="${yOf(r.dur).toFixed(1)}" r="3.6" fill="${s.color}"><title>${s.name} — ${r.dur}m (${when})</title></circle>`;
+      });
+    });
+
+    svg += `</svg>`;
+    document.getElementById('faChart').innerHTML = svg;
+    renderLegend();
+  }
+
+  function renderLegend() {
+    const el = document.getElementById('faLegend');
+    el.innerHTML = SERIES.map(s => {
+      const avg = Math.round(s.runs.reduce((a,r)=>a+r.dur,0)/s.runs.length);
+      const off = hidden.has(s.id) ? ' off' : '';
+      return `<button class="fa-leg${off}" data-id="${s.id}">`
+        + `<span class="ld" style="background:${s.color}"></span>`
+        + `<span class="lname">${s.name}</span>`
+        + `<span class="lavg">avg ${avg}m · ${s.runs.length} runs</span></button>`;
+    }).join('');
+    el.querySelectorAll('.fa-leg').forEach(b => b.addEventListener('click', () => {
+      const id = b.getAttribute('data-id');
+      if (hidden.has(id)) hidden.delete(id); else hidden.add(id);
+      renderChart();
+    }));
+  }
+
+  // Flows list (with mini duration sparkline)
+  function renderFlowList() {
+    const spark = (runs, color) => {
+      const w=88,h=22,max=Math.max(...runs.map(r=>r.dur));
+      const pts=runs.map((r,i)=>{ const x=(i/(runs.length-1))*w; const y=h-(r.dur/max)*(h-3)-1; return x.toFixed(1)+','+y.toFixed(1); }).join(' ');
+      return `<svg width="${w}" height="${h}" style="flex:0 0 auto"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.9"/></svg>`;
+    };
+    const rows = SERIES.map(s => {
+      const avg = Math.round(s.runs.reduce((a,r)=>a+r.dur,0)/s.runs.length);
+      const last = s.runs[s.runs.length-1];
+      const dt = new Date(TODAY.getTime() - last.d*86400000);
+      const badge = s.id==='audit' ? '<span class="badge fail">last failed</span>' : '<span class="badge ok">healthy</span>';
+      return `<div class="row"><div class="row-top" style="justify-content:space-between">
+          <span style="display:flex;align-items:center;gap:8px;min-width:0">
+            <span class="ld" style="width:10px;height:10px;border-radius:3px;background:${s.color};display:inline-block"></span>
+            <strong>${s.name}</strong>${badge}
+          </span>
+          ${spark(s.runs.slice(-8), s.color)}
+        </div>
+        <div class="row-sub">${s.runs.length} runs · avg ${avg}m · last ran ${last.d===0?'today':last.d+'d ago'}</div></div>`;
+    }).join('');
+    document.getElementById('flowList').innerHTML = rows;
+  }
+
+  // Recently-added feed — marketplace updates, installs, new agents/tasks/flows
+  const FEED = [
+    { cls:'agent', ico:'🤖', label:'Release captain', tag:'New agent', cat:'from marketplace', time:'2h ago', isNew:true },
+    { cls:'mkt', ico:'🧩', label:'Azure Cost Explorer MCP', tag:'Marketplace', cat:'new skill available', time:'3h ago', isNew:true },
+    { cls:'flow', ico:'⚡', label:'Nightly release rollout', tag:'New flow', cat:'4 steps · daily 2:00 AM', time:'5h ago', isNew:true },
+    { cls:'inst', ico:'⬇', label:'GitHub Projects MCP', tag:'Installed', cat:'available to all agents', time:'yesterday', isNew:false },
+    { cls:'task', ico:'✅', label:'Audit dependencies', tag:'New task', cat:'Ops agent · daily', time:'yesterday', isNew:false },
+    { cls:'mkt', ico:'🧩', label:'scriptedai.mcp.azdo → v2.3', tag:'Update', cat:'update available', time:'2d ago', isNew:false },
+    { cls:'agent', ico:'🤖', label:'Incident summarizer', tag:'New agent', cat:'installed from marketplace', time:'2d ago', isNew:false },
+    { cls:'inst', ico:'⬇', label:'Playwright test runner', tag:'Installed', cat:'tool · 3 agents using', time:'3d ago', isNew:false },
+  ];
+  function renderFeed() {
+    document.getElementById('feedGrid').innerHTML = FEED.map(f => `
+      <div class="feed-row" title="${f.tag}: ${f.label}">
+        <div class="feed-ico ${f.cls}">${f.ico}</div>
+        <div class="feed-txt">
+          <div class="feed-label">${f.label}${f.isNew ? '<span class="new-tag">new</span>' : ''}</div>
+          <div class="feed-sub"><span class="feed-cat">${f.tag}</span> · ${f.cat}</div>
+        </div>
+        <span class="feed-time">${f.time}</span>
+      </div>`).join('');
+  }
+
+  renderChart();
+  renderFlowList();
+  renderFeed();
+</script>
+</body>
+</html>

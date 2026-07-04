@@ -1413,6 +1413,76 @@
     .home-rsec > .card, .home-rsec > .home-section { margin-bottom: 0; height: 100%; }
     .home-rsec.is-drop { outline: 2px dashed var(--cp-accent); outline-offset: 6px; border-radius: 16px; }
 
+    /* ===== Management (workforce) home dashboard ===== */
+    .mgmt-home .mh-full { grid-column: 1 / -1; }
+    .mgmt-home .mh-accent-warn { border-left: 3px solid color-mix(in srgb, var(--cp-warning, #f59e0b) 70%, var(--cp-border)); }
+    .mgmt-home .mh-accent-link { border-left: 3px solid color-mix(in srgb, var(--cp-link, #3b82f6) 60%, var(--cp-border)); }
+    .mgmt-home .mh-list { display: flex; flex-direction: column; }
+    .mgmt-home .mh-row { padding: 11px 4px; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; transition: background .12s; }
+    .mgmt-home .mh-row:last-child { border-bottom: none; }
+    .mgmt-home .mh-row:hover { background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+    .mgmt-home .mh-rowtop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .mgmt-home .mh-rowtop strong { font-weight: 600; }
+    .mgmt-home .mh-rowsub { margin-top: 4px; font-size: 12px; color: var(--cp-text-muted); }
+    .mgmt-home .mh-count { font-size: 12px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+    .mgmt-home .mh-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; display: inline-block; }
+    .mgmt-home .mh-dot.run { background: var(--cp-warning, #f59e0b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-warning, #f59e0b) 22%, transparent); }
+    .mgmt-home .mh-dot.idle { background: var(--cp-text-soft, #9aa4b2); }
+    .mgmt-home .mh-dot.sched { background: var(--cp-link, #3b82f6); }
+    .mgmt-home .mh-dot.ok { background: var(--cp-success, #22c55e); }
+    .mgmt-home .mh-dot.fail { background: var(--cp-danger, #ef4444); }
+    .mgmt-home .mh-badge { font-size: 11px; padding: 2px 8px; border-radius: 7px; font-weight: 600; white-space: nowrap; }
+    .mgmt-home .mh-badge.ok { background: color-mix(in srgb, var(--cp-success, #22c55e) 16%, transparent); color: var(--cp-success, #22c55e); }
+    .mgmt-home .mh-badge.fail { background: color-mix(in srgb, var(--cp-danger, #ef4444) 16%, transparent); color: var(--cp-danger, #ef4444); }
+    .mgmt-home .mh-badge.run { background: color-mix(in srgb, var(--cp-warning, #f59e0b) 18%, transparent); color: var(--cp-warning, #f59e0b); }
+    .mgmt-home .mh-att { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; }
+    .mgmt-home .mh-att:last-child { border-bottom: none; }
+    .mgmt-home .mh-att:hover { background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+    .mgmt-home .mh-att-ico { font-size: 15px; flex: 0 0 auto; }
+    .mgmt-home .mh-att-txt { flex: 1; min-width: 0; }
+    .mgmt-home .mh-att-label { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mgmt-home .mh-att-sub { font-size: 12px; color: var(--cp-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mgmt-home .mh-att-go { color: var(--cp-text-muted); font-size: 13px; flex: 0 0 auto; }
+    /* flow-activity chart */
+    .mgmt-home .mh-fa-meta { display: flex; gap: 24px; flex-wrap: wrap; margin: 6px 0 14px; }
+    .mgmt-home .mh-fa-metric .n { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+    .mgmt-home .mh-fa-metric .l { font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: .4px; }
+    .mgmt-home .mh-fa-chart { width: 100%; }
+    .mgmt-home .mh-fa-chart svg { width: 100%; height: auto; display: block; }
+    .mgmt-home .mh-fa-chart .grid-line { stroke: color-mix(in srgb, var(--cp-border) 45%, transparent); stroke-width: 1; stroke-dasharray: 3 4; }
+    .mgmt-home .mh-fa-chart .axis-line { stroke: color-mix(in srgb, var(--cp-border) 80%, transparent); stroke-width: 1; }
+    .mgmt-home .mh-fa-chart .axis-text { fill: var(--cp-text-muted); font-size: 10px; }
+    .mgmt-home .mh-fa-chart .series-line { fill: none; stroke-width: 2; }
+    .mgmt-home .mh-fa-chart .series-pt { stroke: var(--cp-surface); stroke-width: 1.5; }
+    .mgmt-home .mh-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; }
+    .mgmt-home .mh-leg { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--cp-text-soft); cursor: pointer; user-select: none; background: none; border: none; padding: 2px 0; }
+    .mgmt-home .mh-leg .ld { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+    .mgmt-home .mh-leg .lavg { color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+    .mgmt-home .mh-leg.off { opacity: .4; }
+    .mgmt-home .mh-leg.off .lname { text-decoration: line-through; }
+    .mgmt-home .mh-leg:hover { color: var(--cp-text); }
+    /* recently-added feed */
+    .mgmt-home .mh-feed { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+    @media (max-width: 760px) { .mgmt-home .mh-feed { grid-template-columns: 1fr; } }
+    .mgmt-home .mh-feed-row { display: flex; align-items: center; gap: 11px; padding: 10px 4px; border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; }
+    .mgmt-home .mh-feed-row:hover { background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+    .mgmt-home .mh-feed-ico { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; font-size: 15px; border-radius: 8px; background: var(--cp-surface-soft); }
+    .mgmt-home .mh-feed-ico.mkt { background: color-mix(in srgb, var(--cp-link, #3b82f6) 16%, transparent); }
+    .mgmt-home .mh-feed-ico.inst { background: color-mix(in srgb, var(--cp-success, #22c55e) 16%, transparent); }
+    .mgmt-home .mh-feed-ico.agent { background: color-mix(in srgb, #a855f7 20%, transparent); }
+    .mgmt-home .mh-feed-ico.task { background: color-mix(in srgb, var(--cp-warning, #f59e0b) 18%, transparent); }
+    .mgmt-home .mh-feed-ico.flow { background: color-mix(in srgb, #3b82f6 18%, transparent); }
+    .mgmt-home .mh-feed-txt { flex: 1; min-width: 0; }
+    .mgmt-home .mh-feed-label { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mgmt-home .mh-feed-label .new-tag { color: var(--cp-success, #22c55e); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; margin-left: 7px; }
+    .mgmt-home .mh-feed-sub { font-size: 12px; color: var(--cp-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mgmt-home .mh-feed-cat { color: var(--cp-text-soft); }
+    .mgmt-home .mh-feed-time { font-size: 11px; color: var(--cp-text-muted); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+    .mgmt-home .mh-seclabel { display: flex; align-items: center; gap: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-muted); margin: 26px 4px 10px; }
+    .mgmt-home .mh-seclabel .ln { flex: 1; height: 1px; background: color-mix(in srgb, var(--cp-border) 60%, transparent); }
+    .mgmt-home .mh-empty { color: var(--cp-text-muted); font-size: 13px; padding: 10px 4px; }
+    .mgmt-home .mh-spark { flex: 0 0 auto; opacity: .85; }
+
     /* Arrange-mode reorder strip (hidden until arranging) */
     .home-arrange-strip {
       display: none; align-items: center; gap: 8px;
@@ -5895,6 +5965,245 @@
             </div>
 
 
+            <!-- ===== Management home (workforce mode): pulse, attention, flow activity ===== -->
+            <div class="home-workforce mgmt-home" x-show="appMode === 'workforce'" x-effect="mgmtEnsureFlowRuns()">
+
+              <!-- Greeting + stats topbar -->
+              <div class="home-topbar">
+                <div class="ht-greet">
+                  <h1 x-text="homeGreeting()"></h1>
+                  <p x-text="currentTeamId === 'all' ? 'Your autonomous workforce at a glance.' : ('The ' + (currentOrg() ? currentOrg().name : 'team') + ' workforce at a glance.')"></p>
+                </div>
+                <div class="ht-right">
+                  <div class="home-stats">
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/agents')" @keydown.enter="goTo('#/agents')" title="Registered agents">
+                      <span class="hs-num" x-text="mgmtStats().agents"></span>
+                      <span class="hs-label">Agents</span>
+                    </div>
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/tasks')" @keydown.enter="goTo('#/tasks')" title="Tasks & assignments">
+                      <span class="hs-num" x-text="mgmtStats().tasks"></span>
+                      <span class="hs-label">Tasks</span>
+                    </div>
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/chains')" @keydown.enter="goTo('#/chains')" title="Task flows">
+                      <span class="hs-num" x-text="mgmtStats().flows"></span>
+                      <span class="hs-label">Flows</span>
+                    </div>
+                    <div class="home-stat" x-show="mgmtStats().running" role="button" tabindex="0" @click="goTo('#/executions')" @keydown.enter="goTo('#/executions')" title="Running now">
+                      <span class="hs-num is-hot" x-text="mgmtStats().running"></span>
+                      <span class="hs-label">Running</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="home-cards">
+
+                <!-- Attention needed -->
+                <section class="card mh-accent-warn">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">⚠ Attention needed</h2>
+                      <div class="card-subtitle">Failed runs &amp; disabled schedules</div>
+                    </div>
+                    <a class="btn ghost" href="#/executions">Review</a>
+                  </div>
+                  <div class="mh-list" x-show="mgmtAttention().length">
+                    <template x-for="a in mgmtAttention()" :key="a.id">
+                      <div class="mh-att" role="button" tabindex="0" @click="a.onClick && a.onClick()" @keydown.enter="a.onClick && a.onClick()">
+                        <span class="mh-att-ico" x-text="a.ico"></span>
+                        <div class="mh-att-txt">
+                          <div class="mh-att-label" x-text="a.label"></div>
+                          <div class="mh-att-sub" x-text="a.sub"></div>
+                        </div>
+                        <span class="mh-att-go">→</span>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="mh-empty" x-show="!mgmtAttention().length">All runs healthy and schedules enabled. ✅</div>
+                </section>
+
+                <!-- Team pulse -->
+                <section class="card">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">💓 Team pulse</h2>
+                      <div class="card-subtitle">Last 24 hours</div>
+                    </div>
+                    <a class="btn ghost" href="#/executions">Insights</a>
+                  </div>
+                  <div class="mh-list">
+                    <div class="mh-row" @click="goTo('#/executions')">
+                      <div class="mh-rowtop">
+                        <span class="mh-dot ok"></span>
+                        <strong x-text="execMetrics().runs24h + ' run' + (execMetrics().runs24h === 1 ? '' : 's') + ' completed'"></strong>
+                        <span class="mh-count" x-show="execMetrics().successRate !== null" x-text="'· ' + execMetrics().successRate + '% success'"></span>
+                      </div>
+                      <div class="mh-rowsub" x-text="mgmtStats().agents + ' agents · ' + mgmtStats().flows + ' flows in this workforce'"></div>
+                    </div>
+                    <div class="mh-row" x-show="runningEntities().length" @click="goTo('#/executions')">
+                      <div class="mh-rowtop">
+                        <span class="mh-dot run"></span>
+                        <strong x-text="runningEntities().length + ' running now'"></strong>
+                        <span class="mh-count" x-text="'· ' + runningEntities().slice(0,2).map(e=>e.name).join(', ')"></span>
+                      </div>
+                      <div class="mh-rowsub" x-show="runningEntities()[0]" x-text="'started ' + (runningEntities()[0] ? formatRelative(runningEntities()[0].startedAt) : '')"></div>
+                    </div>
+                    <div class="mh-row" x-show="execMetrics().failed24h" @click="goTo('#/executions')">
+                      <div class="mh-rowtop">
+                        <span class="mh-dot fail"></span>
+                        <strong x-text="execMetrics().failed24h + ' failure' + (execMetrics().failed24h === 1 ? '' : 's')"></strong>
+                      </div>
+                      <div class="mh-rowsub" x-text="alerts().slice(0,3).map(a=>a.entityName).join(' · ')"></div>
+                    </div>
+                    <div class="mh-empty" x-show="!execMetrics().runs24h && !runningEntities().length">No runs in the last 24 hours.</div>
+                  </div>
+                </section>
+
+                <!-- Recently added -->
+                <section class="card mh-full">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">🆕 Recently added</h2>
+                      <div class="card-subtitle">New agents, tasks, flows &amp; marketplace installs</div>
+                    </div>
+                    <a class="btn ghost" href="#/marketplace">Marketplace</a>
+                  </div>
+                  <div class="mh-feed" x-show="mgmtRecentlyAdded().length">
+                    <template x-for="f in mgmtRecentlyAdded()" :key="f.id">
+                      <div class="mh-feed-row" @click="f.route && goTo(f.route)" :title="f.tag + ': ' + f.label">
+                        <div class="mh-feed-ico" :class="f.cls" x-text="f.ico"></div>
+                        <div class="mh-feed-txt">
+                          <div class="mh-feed-label"><span x-text="f.label"></span><span class="new-tag" x-show="f.isNew">new</span></div>
+                          <div class="mh-feed-sub"><span class="mh-feed-cat" x-text="f.tag"></span> · <span x-text="f.cat"></span></div>
+                        </div>
+                        <span class="mh-feed-time" x-text="f.time"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="mh-empty" x-show="!mgmtRecentlyAdded().length">Nothing added recently.</div>
+                </section>
+
+                <!-- Flow activity chart -->
+                <section class="card mh-accent-link mh-full">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">📈 Flow activity</h2>
+                      <div class="card-subtitle">When each task flow ran and how long it took — last 14 days</div>
+                    </div>
+                    <a class="btn ghost" href="#/chains">Open flows</a>
+                  </div>
+                  <template x-if="mgmtFlowSeries().length">
+                    <div>
+                      <div class="mh-fa-meta">
+                        <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().runs"></div><div class="l">Runs</div></div>
+                        <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().avg + 'm'"></div><div class="l">Avg duration</div></div>
+                        <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().slow + 'm'"></div><div class="l">Slowest</div></div>
+                        <div class="mh-fa-metric" x-show="mgmtFlowSummary().successRate !== null"><div class="n" x-text="mgmtFlowSummary().successRate + '%'"></div><div class="l">Success</div></div>
+                      </div>
+                      <div class="mh-fa-chart" x-html="mgmtChartSvg()"></div>
+                      <div class="mh-legend">
+                        <template x-for="s in mgmtFlowSeries()" :key="'mh-leg-'+s.id">
+                          <button type="button" class="mh-leg" :class="mgmtFlowHidden[s.id] ? 'off' : ''" @click="mgmtToggleFlow(s.id)">
+                            <span class="ld" :style="'background:'+s.color"></span>
+                            <span class="lname" x-text="s.name"></span>
+                            <span class="lavg" x-text="'avg ' + s.avg + 'm · ' + s.runs.length + ' run' + (s.runs.length === 1 ? '' : 's')"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="mh-empty" x-show="!mgmtFlowSeries().length">No flow runs recorded in the last 14 days. Run a flow to see its activity here.</div>
+                </section>
+
+              </div>
+
+              <!-- Workforce lists -->
+              <div class="mh-seclabel"><span>Workforce</span><span class="ln"></span></div>
+              <div class="home-cards">
+
+                <!-- Agents -->
+                <section class="card">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">🤖 Agents</h2>
+                      <div class="card-subtitle" x-text="mgmtStats().agents + ' agent' + (mgmtStats().agents === 1 ? '' : 's')"></div>
+                    </div>
+                    <a class="btn ghost" href="#/agents">All</a>
+                  </div>
+                  <div class="mh-list" x-show="mgmtAgents().length">
+                    <template x-for="ag in mgmtAgents()" :key="'mh-ag-'+ag.id">
+                      <div class="mh-row" @click="goTo(ag.route)">
+                        <div class="mh-rowtop">
+                          <span class="mh-dot" :class="ag.st === 'running' ? 'run' : (ag.st === 'scheduled' ? 'sched' : 'idle')"></span>
+                          <strong x-text="ag.name"></strong>
+                          <span class="mh-badge run" x-show="ag.st === 'running'">running</span>
+                          <span class="mh-count" x-show="ag.st !== 'running' && ag.lastRel" x-text="'· ' + ag.lastRel"></span>
+                        </div>
+                        <div class="mh-rowsub" x-text="ag.sub"></div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="mh-empty" x-show="!mgmtAgents().length">No agents yet. <a href="#/marketplace" style="color:var(--cp-link)">Install one →</a></div>
+                </section>
+
+                <!-- Active tasks -->
+                <section class="card">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">✅ Active tasks</h2>
+                      <div class="card-subtitle">Tasks &amp; assignments</div>
+                    </div>
+                    <a class="btn ghost" href="#/tasks">All</a>
+                  </div>
+                  <div class="mh-list" x-show="mgmtActiveTasks().length">
+                    <template x-for="t in mgmtActiveTasks()" :key="'mh-task-'+t.r.type+'-'+t.r.id">
+                      <div class="mh-row" @click="openScheduleItem(t.r)">
+                        <div class="mh-rowtop">
+                          <span class="mh-dot" :class="t.dot"></span>
+                          <strong x-text="t.r.name"></strong>
+                          <span class="mh-badge fail" x-show="t.dot === 'fail'">failed</span>
+                          <span class="mh-badge run" x-show="t.dot === 'run'">running</span>
+                          <span class="mh-count" x-show="t.dot !== 'fail' && t.dot !== 'run' && t.r.enabled !== false && t.r.nextRun" x-text="'· next ' + formatRelative(t.r.nextRun)"></span>
+                          <span class="mh-count" x-show="t.r.enabled === false">· disabled</span>
+                        </div>
+                        <div class="mh-rowsub" x-text="(t.r.parentName ? t.r.parentName + ' · ' : '') + (t.r.scheduleDescription || t.r.schedule || 'manual')"></div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="mh-empty" x-show="!mgmtActiveTasks().length">No tasks or assignments yet.</div>
+                </section>
+
+                <!-- Flows -->
+                <section class="card mh-full">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title">🔀 Flows</h2>
+                      <div class="card-subtitle" x-text="opsFlows().length + ' task flow' + (opsFlows().length === 1 ? '' : 's')"></div>
+                    </div>
+                    <a class="btn ghost" href="#/chains">All</a>
+                  </div>
+                  <div class="mh-list" x-show="opsFlows().length">
+                    <template x-for="c in opsFlows()" :key="'mh-flow-'+c.id">
+                      <div class="mh-row" @click="goTo('#/chains/' + encodeURIComponent(c.id))">
+                        <div class="mh-rowtop" style="justify-content:space-between">
+                          <span style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+                            <span class="mh-dot" :class="mgmtFlowDot(c)"></span>
+                            <strong x-text="c.name || c.id" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></strong>
+                            <span class="mh-badge fail" x-show="mgmtFlowBadge(c) === 'fail'">last failed</span>
+                            <span class="mh-badge run" x-show="mgmtFlowBadge(c) === 'run'">running</span>
+                          </span>
+                          <span class="mh-spark" x-html="mgmtFlowSpark(c.id)"></span>
+                        </div>
+                        <div class="mh-rowsub" x-text="mgmtFlowSub(c)"></div>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="mh-empty" x-show="!opsFlows().length">No flows yet. <a href="#/chains" style="color:var(--cp-link)">Create one →</a></div>
+                </section>
+
+              </div>
+            </div>
+
             <section class="card home-section" style="margin-top:18px" x-show="appMode === 'workforce'">
               <div class="card-header">
                 <div>
@@ -6024,35 +6333,6 @@
               </div>
             </section>
 
-            <section class="card" style="margin-top:18px" x-show="appMode === 'workforce' && alerts().length">
-              <div class="card-header">
-                <div>
-                  <h2 class="card-title">Alerts</h2>
-                  <div class="card-subtitle">Failed runs in the last 24 hours that may need attention.</div>
-                </div>
-              </div>
-              <div class="stack">
-                <template x-for="entry in alerts()" :key="entry.id">
-                  <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
-                       @click="openRunDetail(entry)" @keydown.enter="openRunDetail(entry)">
-                    <div class="split-meta">
-                      <div>
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                          <span>⚠</span>
-                          <strong x-text="entry.entityName"></strong>
-                          <span class="status-badge failed">Failed</span>
-                        </div>
-                        <div class="hint" style="margin-top:6px" x-text="entry.preview"></div>
-                      </div>
-                      <div style="display:flex;align-items:center;gap:10px">
-                        <div class="mono" x-text="formatRelative(entry.finishedAt || entry.startedAt)"></div>
-                        <span class="hint" style="font-size:1.1rem">›</span>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </section>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'agents'" x-transition.opacity.duration.180ms>
@@ -16420,6 +16700,7 @@
         schedModal: { open: false, title: 'Schedule', mode: 'off', intervalN: 15, intervalUnit: 'm', days: [1, 2, 3, 4, 5], times: ['09:00'], cron: '', _apply: null },
         chainRunState: {},
         chainRuns: {},
+        mgmtFlowHidden: {},
         expandedChainNodes: {},
         // Board pins: latest run/message is shown EXPANDED by default; we persist only
         // the pins the user has explicitly COLLAPSED (id -> true) in localStorage.
@@ -19921,6 +20202,248 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         opsFlows() {
           return (this.data.chains || []).filter(c => this.opInCurrentOrg(c.teamId));
+        },
+
+        // ===== Management (workforce) home dashboard =====
+        mgmtStats() {
+          return {
+            agents: (this.data.agents || []).filter(a => this.idInCurrentOrg(a.id)).length,
+            tasks: (this.allTasks() || []).filter(t => this.opInCurrentOrg(t.teamId)).length,
+            flows: this.opsFlows().length,
+            running: (this.runningEntities() || []).length,
+          };
+        },
+        mgmtAttention() {
+          const out = [];
+          for (const entry of this.alerts()) {
+            const ts = new Date(entry.finishedAt || entry.startedAt).getTime() || 0;
+            out.push({
+              id: 'att-run-' + entry.id,
+              ico: '🔴',
+              label: (entry.entityName || 'Run') + ' failed',
+              sub: (entry.preview ? (String(entry.preview).slice(0, 64) + ' · ') : '') + this.formatRelative(entry.finishedAt || entry.startedAt),
+              ts,
+              onClick: () => this.openRunDetail(entry),
+            });
+          }
+          const disabled = (this.data.schedules || [])
+            .filter(r => r.type !== 'manager' && r.enabled === false && r.schedule && r.schedule !== 'never' && this.scheduleInCurrentOrg(r))
+            .slice(0, 4);
+          for (const r of disabled) {
+            out.push({
+              id: 'att-sched-' + r.type + '-' + r.id,
+              ico: '⏸',
+              label: (r.name || 'Schedule') + ' is disabled',
+              sub: "Won't run · " + (r.scheduleDescription || r.schedule),
+              ts: 0,
+              onClick: () => this.openScheduleItem(r),
+            });
+          }
+          return out.sort((a, b) => b.ts - a.ts).slice(0, 6);
+        },
+        mgmtRecentlyAdded(limit) {
+          const items = [];
+          const now = Date.now();
+          const isNew = (ts) => (now - ts) < (24 * 60 * 60 * 1000);
+          for (const a of (this.data.agents || [])) {
+            if (!this.idInCurrentOrg(a.id)) continue;
+            const src = a.config && a.config.source;
+            const ts0 = src && (src.installedAt || src.createdAt);
+            const t = ts0 ? (new Date(ts0).getTime() || 0) : 0;
+            if (!t) continue;
+            const fromMkt = src && src.type && src.type !== 'design';
+            items.push({
+              id: 'feed-agent-' + a.id, cls: 'agent', ico: '🤖',
+              label: a.name || a.id, tag: 'Agent',
+              cat: fromMkt ? 'installed from marketplace' : 'created here',
+              ts: t, time: this.formatRelative(ts0), isNew: isNew(t),
+              route: '#/agents/' + encodeURIComponent(a.id),
+            });
+          }
+          for (const t of (this.data.tasks || [])) {
+            if (!this.opInCurrentOrg(t.teamId)) continue;
+            const ts0 = t.createdAt || t.updatedAt;
+            const ms = ts0 ? (new Date(ts0).getTime() || 0) : 0;
+            if (!ms) continue;
+            items.push({
+              id: 'feed-task-' + t.id, cls: 'task', ico: '✅',
+              label: t.name || t.id, tag: 'Task',
+              cat: (t.schedule && t.schedule !== 'never') ? ('scheduled · ' + this.humanizeSchedule(t.schedule)) : 'manual run',
+              ts: ms, time: this.formatRelative(ts0), isNew: isNew(ms),
+              route: '#/tasks/' + encodeURIComponent('task-' + t.id),
+            });
+          }
+          for (const c of this.opsFlows()) {
+            const ts0 = c.updatedAt;
+            const ms = ts0 ? (new Date(ts0).getTime() || 0) : 0;
+            if (!ms) continue;
+            const steps = (c.steps || []).length;
+            items.push({
+              id: 'feed-flow-' + c.id, cls: 'flow', ico: '🔀',
+              label: c.name || c.id, tag: 'Flow',
+              cat: steps + ' step' + (steps === 1 ? '' : 's'),
+              ts: ms, time: this.formatRelative(ts0), isNew: isNew(ms),
+              route: '#/chains/' + encodeURIComponent(c.id),
+            });
+          }
+          return items.sort((a, b) => b.ts - a.ts).slice(0, limit || 8);
+        },
+        mgmtAgents() {
+          const rank = { running: 0, scheduled: 1, idle: 2 };
+          const rows = (this.data.agents || [])
+            .filter(a => this.idInCurrentOrg(a.id))
+            .map(a => {
+              const st = this.agentStatusOf(a);
+              const lastTs = this.agentLastRunTs(a);
+              return { a, st, lastTs: lastTs ? (new Date(lastTs).getTime() || 0) : 0 };
+            });
+          rows.sort((x, y) => (rank[x.st] - rank[y.st]) || (y.lastTs - x.lastTs));
+          return rows.slice(0, 6).map(({ a, st, lastTs }) => ({
+            id: a.id, name: a.name || a.id, st,
+            route: '#/agents/' + encodeURIComponent(a.id),
+            lastRel: lastTs ? this.formatRelative(new Date(lastTs).toISOString()) : '',
+            sub: (a.config && a.config.group) ||
+                 (lastTs ? ('last run ' + this.formatRelative(new Date(lastTs).toISOString())) : 'no runs yet'),
+          }));
+        },
+        mgmtActiveTasks() {
+          const rows = (this.data.schedules || [])
+            .filter(r => (r.type === 'task' || r.type === 'assignment') && this.scheduleInCurrentOrg(r));
+          const dotOf = (r) => {
+            const s = (this.scheduleStatusClass(r.lastStatus) || '').toLowerCase();
+            if (s === 'running') return 'run';
+            if (s === 'failed') return 'fail';
+            if (r.enabled === false) return 'idle';
+            if (r.nextRun) return 'sched';
+            if (s === 'success') return 'ok';
+            return 'idle';
+          };
+          const rank = { run: 0, fail: 1, sched: 2, ok: 3, idle: 4 };
+          return rows.map(r => ({ r, dot: dotOf(r) }))
+            .sort((a, b) => (rank[a.dot] - rank[b.dot]) ||
+              (new Date(a.r.nextRun || 0).getTime() - new Date(b.r.nextRun || 0).getTime()))
+            .slice(0, 6);
+        },
+        // ---- flow run helpers (durations from chain_runs) ----
+        _chainRunStats(chainId) {
+          const raw = this.chainRuns[chainId] || [];
+          return raw.map(r => {
+            const s = new Date(r.started_at || r.startedAt).getTime();
+            const f = new Date(r.finished_at || r.finishedAt || r.started_at || r.startedAt).getTime();
+            return { t: s, dur: Math.max(0, (f - s)) / 60000, status: r.status };
+          }).filter(r => Number.isFinite(r.t)).sort((a, b) => a.t - b.t);
+        },
+        mgmtEnsureFlowRuns() {
+          if (this.route !== 'home' || this.appMode !== 'workforce') return;
+          for (const c of this.opsFlows()) {
+            if (this.chainRuns[c.id] === undefined) {
+              this.chainRuns[c.id] = [];
+              this.loadChainRuns(c.id);
+            }
+          }
+        },
+        mgmtToggleFlow(id) {
+          this.mgmtFlowHidden = { ...this.mgmtFlowHidden, [id]: !this.mgmtFlowHidden[id] };
+        },
+        mgmtFlowSeries() {
+          const palette = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6', '#eab308', '#ec4899'];
+          const cut = Date.now() - 14 * 86400000;
+          const out = [];
+          this.opsFlows().forEach((c, i) => {
+            const runs = this._chainRunStats(c.id).filter(r => r.t >= cut);
+            if (!runs.length) return;
+            const avg = Math.round(runs.reduce((a, r) => a + r.dur, 0) / runs.length);
+            out.push({ id: c.id, name: c.name || c.id, color: palette[i % palette.length], runs, avg });
+          });
+          return out;
+        },
+        mgmtFlowSummary() {
+          const series = this.mgmtFlowSeries();
+          let runs = 0, total = 0, slow = 0, ok = 0, statusN = 0;
+          series.forEach(s => s.runs.forEach(r => {
+            runs++; total += r.dur; if (r.dur > slow) slow = r.dur;
+            if (r.status) { statusN++; if (this._runOk(r.status)) ok++; }
+          }));
+          return {
+            runs,
+            avg: runs ? Math.round(total / runs) : 0,
+            slow: Math.round(slow),
+            successRate: statusN ? Math.round(ok / statusN * 100) : null,
+          };
+        },
+        mgmtChartSvg() {
+          const series = this.mgmtFlowSeries().filter(s => !this.mgmtFlowHidden[s.id]);
+          const W = 960, H = 300, padL = 40, padR = 14, padT = 14, padB = 34;
+          const plotW = W - padL - padR, plotH = H - padT - padB;
+          const now = Date.now(), dayMs = 86400000, days = 14;
+          let maxDur = 0;
+          series.forEach(s => s.runs.forEach(r => { if (r.dur > maxDur) maxDur = r.dur; }));
+          const niceMax = (v) => { const steps = [10, 15, 20, 30, 40, 50, 60, 80, 100]; for (const st of steps) { if (v <= st) return st; } return Math.ceil(v / 20) * 20; };
+          const yMax = niceMax(maxDur || 10);
+          const xOf = (t) => { const frac = 1 - ((now - t) / (days * dayMs)); return padL + Math.max(0, Math.min(1, frac)) * plotW; };
+          const yOf = (d) => padT + plotH - (d / yMax) * plotH;
+          const esc = (s) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+          let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Flow run durations over time">';
+          const yticks = 4;
+          for (let i = 0; i <= yticks; i++) {
+            const val = Math.round(yMax * i / yticks), y = yOf(val);
+            svg += '<line class="grid-line" x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '"/>';
+            svg += '<text class="axis-text" x="' + (padL - 8) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + val + 'm</text>';
+          }
+          svg += '<line class="axis-line" x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '"/>';
+          for (let d = days; d >= 0; d -= 2) {
+            const frac = 1 - (d / days), x = padL + frac * plotW, dt = new Date(now - d * dayMs);
+            svg += '<text class="axis-text" x="' + x.toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + (dt.getMonth() + 1) + '/' + dt.getDate() + '</text>';
+          }
+          series.forEach(s => {
+            const ordered = s.runs.slice().sort((a, b) => a.t - b.t);
+            if (ordered.length > 1) {
+              const path = ordered.map((r, i) => (i ? 'L' : 'M') + xOf(r.t).toFixed(1) + ' ' + yOf(r.dur).toFixed(1)).join(' ');
+              svg += '<path class="series-line" d="' + path + '" stroke="' + s.color + '" opacity="0.85"/>';
+            }
+            ordered.forEach(r => {
+              const dt = new Date(r.t);
+              const when = (dt.getMonth() + 1) + '/' + dt.getDate() + ' ' + String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+              svg += '<circle class="series-pt" cx="' + xOf(r.t).toFixed(1) + '" cy="' + yOf(r.dur).toFixed(1) + '" r="3.6" fill="' + s.color + '"><title>' + esc(s.name) + ' — ' + Math.round(r.dur) + 'm (' + when + ')</title></circle>';
+            });
+          });
+          svg += '</svg>';
+          return svg;
+        },
+        mgmtFlowDot(c) {
+          const live = this.chainRunState && this.chainRunState[c.id];
+          if (live && String(live.status || '').toLowerCase() === 'running') return 'run';
+          const runs = this._chainRunStats(c.id);
+          const last = runs[runs.length - 1];
+          if (!last) return c.enabled === false ? 'idle' : 'sched';
+          return this._runFail(last.status) ? 'fail' : (this._runOk(last.status) ? 'ok' : 'idle');
+        },
+        mgmtFlowBadge(c) {
+          const live = this.chainRunState && this.chainRunState[c.id];
+          if (live && String(live.status || '').toLowerCase() === 'running') return 'run';
+          const runs = this._chainRunStats(c.id);
+          const last = runs[runs.length - 1];
+          if (last && this._runFail(last.status)) return 'fail';
+          return '';
+        },
+        mgmtFlowSub(c) {
+          const runs = this._chainRunStats(c.id);
+          const steps = (c.steps || []).length;
+          if (!runs.length) return steps + ' step' + (steps === 1 ? '' : 's') + ' · no runs yet';
+          const avg = Math.round(runs.reduce((a, r) => a + r.dur, 0) / runs.length);
+          const last = runs[runs.length - 1];
+          return runs.length + ' run' + (runs.length === 1 ? '' : 's') + ' · avg ' + avg + 'm · last ' + this.formatRelative(new Date(last.t).toISOString());
+        },
+        mgmtFlowSpark(chainId) {
+          const durs = this._chainRunStats(chainId).map(r => r.dur).slice(-8);
+          if (durs.length < 2) return '';
+          const w = 84, h = 20, max = Math.max(...durs) || 1;
+          const pts = durs.map((d, i) => {
+            const x = (i / (durs.length - 1)) * w;
+            const y = h - (d / max) * (h - 3) - 1;
+            return x.toFixed(1) + ',' + y.toFixed(1);
+          }).join(' ');
+          return '<svg width="' + w + '" height="' + h + '"><polyline points="' + pts + '" fill="none" stroke="var(--cp-link, #3b82f6)" stroke-width="1.6"/></svg>';
         },
         // Navigate to an operation on its own page and focus/flash it.
         opsOpen(kind, item) {
