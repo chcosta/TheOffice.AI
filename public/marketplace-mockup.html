@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Marketplace — mockup · TheOffice.AI</title>
+<style>
+  :root {
+    color-scheme: light;
+    --cp-bg: #f4f5f7; --cp-bg-elevated: #fafbfc; --cp-surface: #ffffff; --cp-surface-soft: #eef0f3;
+    --cp-border: #dee1e6; --cp-border-strong: #a8aeb8;
+    --cp-text: #1b1f27; --cp-text-muted: #59616d; --cp-text-soft: #6e7682;
+    --cp-accent: #1f2937; --cp-accent-soft: rgba(31,41,55,0.1);
+    --cp-success: #16a34a; --cp-danger: #dc2626; --cp-warning: #f59e0b; --cp-link: #1f6fb1;
+    --font-sans: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: Consolas, "Courier New", Courier, monospace;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --cp-bg: #161922; --cp-bg-elevated: #1b1f29; --cp-surface: #21262f; --cp-surface-soft: #272d37;
+    --cp-border: #343b47; --cp-border-strong: #4b5563;
+    --cp-text: #e4e7ec; --cp-text-muted: #98a1ad; --cp-text-soft: #b4bcc6;
+    --cp-accent: #e5e7eb; --cp-accent-soft: rgba(229,231,235,0.16);
+    --cp-success: #4ade80; --cp-danger: #f87171; --cp-warning: #fbbf24; --cp-link: #7cc0f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px 26px 90px; }
+  a { color: inherit; text-decoration: none; }
+  .muted { color: var(--cp-text-muted); }
+  .soft { color: var(--cp-text-soft); }
+  .count { font-size: 12px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+
+  .mock-banner { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--cp-text-muted);
+    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; padding: 8px 14px; margin-bottom: 18px; }
+  .mock-banner strong { color: var(--cp-text); }
+  .mock-banner .sp { flex: 1; }
+  .theme-btn { border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-soft);
+    border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+  .theme-btn:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
+
+  /* ===== Page header ===== */
+  .mk-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+  .mk-head h1 { margin: 0 0 3px; font-size: 25px; letter-spacing: -0.4px; }
+  .mk-head p { margin: 0; color: var(--cp-text-soft); font-size: 13.5px; max-width: 620px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cp-border);
+    background: var(--cp-surface-soft); color: var(--cp-text); border-radius: 8px; padding: 7px 13px;
+    font-size: 13px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  .btn:hover { border-color: var(--cp-border-strong); }
+  .btn.primary { background: var(--cp-accent); color: var(--cp-bg-elevated); border-color: var(--cp-accent); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; color: var(--cp-text-soft); }
+  .btn.ghost:hover { color: var(--cp-text); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+
+  /* ===== Newsletter-style studio: sticky rail + bordered stage ===== */
+  .mk-studio { display: grid; grid-template-columns: 288px minmax(0,1fr); gap: 20px; align-items: start; }
+  @media (max-width: 960px) { .mk-studio { grid-template-columns: 1fr; } }
+
+  .mk-rail { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 12px; }
+  @media (max-width: 960px) { .mk-rail { position: static; } }
+  .rail-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 14px; }
+  .rail-title { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-muted);
+    font-weight: 600; margin: 0 0 10px; }
+
+  .search { display: flex; align-items: center; gap: 8px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+    border-radius: 9px; padding: 8px 11px; }
+  .search input { flex: 1; border: none; background: none; color: var(--cp-text); font-size: 13.5px; font-family: inherit; outline: none; }
+  .search .ic { color: var(--cp-text-muted); font-size: 14px; }
+
+  /* quiet text-link filter — NO pills */
+  .nav-links { display: flex; flex-direction: column; }
+  .nav-link { display: flex; align-items: center; gap: 9px; padding: 8px 8px; border-radius: 8px; cursor: pointer;
+    color: var(--cp-text-soft); border-left: 2px solid transparent; }
+  .nav-link:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); color: var(--cp-text); }
+  .nav-link.active { color: var(--cp-text); font-weight: 600; border-left-color: var(--cp-accent);
+    background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+  .nav-link .ico { font-size: 15px; width: 20px; text-align: center; }
+  .nav-link .lbl { flex: 1; font-size: 13.5px; }
+
+  /* sources */
+  .src-row { display: flex; align-items: center; gap: 9px; padding: 8px 8px; border-radius: 8px; cursor: pointer;
+    color: var(--cp-text-soft); border-left: 2px solid transparent; }
+  .src-row:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); color: var(--cp-text); }
+  .src-row.active { color: var(--cp-text); font-weight: 600; border-left-color: var(--cp-accent);
+    background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
+  .src-row .ico { font-size: 14px; width: 18px; text-align: center; }
+  .src-main { flex: 1; min-width: 0; }
+  .src-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src-path { font-size: 11px; color: var(--cp-text-muted); font-family: var(--font-mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .rail-foot { display: flex; flex-direction: column; gap: 8px; }
+  .rail-foot .btn { justify-content: center; }
+
+  /* ===== Stage ===== */
+  .mk-stage { background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 14px; overflow: hidden; min-height: 520px; }
+  .stage-bar { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--cp-border);
+    background: var(--cp-surface); flex-wrap: wrap; }
+  .stage-title { font-size: 15px; font-weight: 650; }
+  .stage-sub { font-size: 12.5px; color: var(--cp-text-muted); }
+  .stage-actions { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .grp { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--cp-text-soft); }
+  .grp select { background: var(--cp-surface-soft); border: 1px solid var(--cp-border); color: var(--cp-text);
+    border-radius: 7px; padding: 4px 8px; font-size: 12.5px; font-family: inherit; cursor: pointer; }
+  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--cp-text-soft); cursor: pointer; }
+
+  .stage-scroll { padding: 6px 18px 34px; }
+
+  /* What's new — a calm left-accent strip, inline text links (no pills) */
+  .whatsnew { border-left: 3px solid color-mix(in srgb, var(--cp-warning) 70%, var(--cp-border));
+    background: color-mix(in srgb, var(--cp-warning) 6%, transparent); border-radius: 10px;
+    padding: 12px 15px; margin: 14px 0 8px; }
+  .wn-head { display: flex; align-items: center; gap: 8px; }
+  .wn-title { font-weight: 650; font-size: 13.5px; }
+  .wn-x { margin-left: auto; color: var(--cp-text-muted); cursor: pointer; font-size: 13px; border: none; background: none; }
+  .wn-x:hover { color: var(--cp-text); }
+  .wn-body { margin-top: 6px; font-size: 12.5px; color: var(--cp-text-muted); }
+  .wn-links { margin-top: 7px; font-size: 13px; line-height: 1.85; }
+  .wn-links a { color: var(--cp-link); }
+  .wn-links .dotsep { color: var(--cp-text-muted); margin: 0 7px; }
+
+  /* group */
+  .group { margin-top: 18px; }
+  .group-head { display: flex; align-items: center; gap: 9px; padding: 4px 2px 8px; }
+  .group-icon { font-size: 15px; }
+  .group-label { font-size: 12.5px; font-weight: 650; letter-spacing: .2px; }
+  .group-count { font-size: 11.5px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+  .group-rule { height: 1px; background: color-mix(in srgb, var(--cp-border) 70%, transparent); flex: 1; margin-left: 4px; }
+
+  /* list-flow rows — hairline dividers, NO per-item frames */
+  .mk-list { display: flex; flex-direction: column; }
+  .mk-item { display: flex; align-items: center; gap: 13px; padding: 12px 4px;
+    border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; }
+  .mk-item:last-child { border-bottom: none; }
+  .mk-item:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); }
+  .mk-item.selected { background: color-mix(in srgb, var(--cp-accent) 9%, transparent); }
+  .mk-ticon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; font-size: 16px;
+    border-radius: 9px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); }
+  .mk-body { flex: 1; min-width: 0; }
+  .mk-name { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .mk-name .nm { font-weight: 600; font-size: 13.5px; }
+  .mk-desc { font-size: 12.5px; color: var(--cp-text-muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 640px; }
+  .mk-meta { font-size: 12px; color: var(--cp-text-soft); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .mk-meta .dotsep { color: var(--cp-text-muted); }
+  .mk-right { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+
+  /* small status badges (allowed on individual items) */
+  .badge { font-size: 10.5px; padding: 2px 7px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+  .badge.ok { background: color-mix(in srgb, var(--cp-success) 16%, transparent); color: var(--cp-success); }
+  .badge.new { background: color-mix(in srgb, var(--cp-warning) 18%, transparent); color: var(--cp-warning); }
+  .badge.neutral { background: var(--cp-surface-soft); color: var(--cp-text-soft); }
+
+  .empty { text-align: center; color: var(--cp-text-soft); padding: 60px 20px; font-size: 13.5px; }
+
+  /* ===== Detail drawer ===== */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: opacity .16s; z-index: 40; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 92vw; background: var(--cp-surface);
+    border-left: 1px solid var(--cp-border); box-shadow: -14px 0 40px rgba(0,0,0,.22); transform: translateX(100%);
+    transition: transform .18s ease; z-index: 50; display: flex; flex-direction: column; }
+  .drawer.open { transform: translateX(0); }
+  .dr-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--cp-border); }
+  .dr-ticon { width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; font-size: 19px;
+    border-radius: 10px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); }
+  .dr-title { font-weight: 700; font-size: 16px; word-break: break-word; }
+  .dr-badges { display: flex; align-items: center; gap: 7px; margin-top: 5px; flex-wrap: wrap; }
+  .dr-type { font-size: 11px; color: var(--cp-text-soft); text-transform: uppercase; letter-spacing: .4px; }
+  .dr-x { margin-left: auto; border: none; background: none; color: var(--cp-text-muted); font-size: 16px; cursor: pointer; }
+  .dr-x:hover { color: var(--cp-text); }
+  .dr-body { padding: 18px; overflow: auto; flex: 1; }
+  .dr-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-muted);
+    font-weight: 600; margin: 16px 0 6px; }
+  .dr-body .dr-label:first-child { margin-top: 0; }
+  .dr-code { background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 9px; padding: 10px 12px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--cp-text-soft); word-break: break-all; }
+  .dr-foot { padding: 14px 18px; border-top: 1px solid var(--cp-border); display: flex; gap: 10px; }
+  .dr-foot .btn { flex: 1; justify-content: center; }
+  .tag-row { display: flex; gap: 7px; flex-wrap: wrap; }
+  .tag { font-size: 11.5px; color: var(--cp-text-soft); background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
+    border-radius: 7px; padding: 3px 9px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mock-banner">
+    <strong>Mockup</strong><span>· Marketplace redesign — calm “Newsletter” rail + stage, no pill navigation.</span>
+    <span class="sp"></span>
+    <button class="theme-btn" onclick="toggleTheme()">◐ Toggle theme</button>
+  </div>
+
+  <div class="mk-head">
+    <div>
+      <h1>🛍️ Marketplace</h1>
+      <p>Discover agents, plugins, skills and MCP servers from local folders, Azure DevOps and GitHub — and add them to any agent or team.</p>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn ghost">✨ Design with AI</button>
+      <button class="btn primary">＋ Add source</button>
+    </div>
+  </div>
+
+  <div class="mk-studio">
+    <!-- ===== RAIL ===== -->
+    <aside class="mk-rail">
+      <div class="rail-card">
+        <div class="search">
+          <span class="ic">🔎</span>
+          <input id="q" type="text" placeholder="Search the catalog…" oninput="render()" />
+        </div>
+      </div>
+
+      <div class="rail-card">
+        <p class="rail-title">Type</p>
+        <div class="nav-links" id="typeNav"></div>
+      </div>
+
+      <div class="rail-card">
+        <p class="rail-title">Sources</p>
+        <div class="nav-links" id="srcNav"></div>
+      </div>
+
+      <div class="rail-card rail-foot">
+        <button class="btn ghost sm" onclick="alert('mockup: add source')">📁 Local folder</button>
+        <button class="btn ghost sm" onclick="alert('mockup: add source')">🔷 Azure DevOps</button>
+        <button class="btn ghost sm" onclick="alert('mockup: add source')">🐙 GitHub</button>
+      </div>
+    </aside>
+
+    <!-- ===== STAGE ===== -->
+    <section class="mk-stage">
+      <div class="stage-bar">
+        <div>
+          <div class="stage-title" id="stageTitle">All capabilities</div>
+          <div class="stage-sub" id="stageSub">—</div>
+        </div>
+        <div class="stage-actions">
+          <label class="grp">Group by
+            <select id="groupBy" onchange="render()">
+              <option value="type">Type</option>
+              <option value="source">Source</option>
+              <option value="installed">Installed</option>
+              <option value="none">None</option>
+            </select>
+          </label>
+          <label class="chk"><input type="checkbox" id="hideInstalled" onchange="render()" /> Hide installed</label>
+        </div>
+      </div>
+
+      <div class="stage-scroll">
+        <div class="whatsnew" id="whatsnew">
+          <div class="wn-head">
+            <span>✨</span>
+            <span class="wn-title">6 new items since your last visit</span>
+            <button class="wn-x" onclick="document.getElementById('whatsnew').style.display='none'">✕</button>
+          </div>
+          <div class="wn-body">New agents, a refreshed skill pack, and two MCP servers landed across your sources.</div>
+          <div class="wn-links" id="wnLinks"></div>
+        </div>
+
+        <div id="groups"></div>
+        <div class="empty" id="empty" style="display:none">No items match the current filters.</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- Detail drawer -->
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="dr-head">
+    <div class="dr-ticon" id="drIcon">🤖</div>
+    <div style="min-width:0;flex:1">
+      <div class="dr-title" id="drName">—</div>
+      <div class="dr-badges" id="drBadges"></div>
+    </div>
+    <button class="dr-x" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="dr-body" id="drBody"></div>
+  <div class="dr-foot" id="drFoot"></div>
+</aside>
+
+<script>
+  // ---- sample catalog (realistic mix) ----
+  const TYPES = {
+    agent:  { label: 'Agents',      icon: '🤖', action: 'Install' },
+    plugin: { label: 'Plugins',     icon: '🧩', action: 'Install' },
+    skill:  { label: 'Skills',      icon: '🛠️', action: 'Add…' },
+    mcp:    { label: 'MCP servers', icon: '🔌', action: 'Add…' },
+  };
+  const SOURCES = {
+    'local-1':  { label: 'my-agents',        kind: 'local',  icon: '📁', path: 'C:\\repos\\my-agents' },
+    'azdo-1':   { label: 'dnceng · helix',   kind: 'azdo',   icon: '🔷', path: 'dnceng/internal/helix-observer@main' },
+    'gh-1':     { label: 'costahome/office', kind: 'github', icon: '🐙', path: 'costahome/office-agents@main' },
+    'gh-2':     { label: 'contoso/skills',   kind: 'github', icon: '🐙', path: 'contoso/skill-lab@main' },
+  };
+  const ITEMS = [
+    { id:'a1', type:'agent',  name:'Standup Facilitator',  src:'gh-1',   desc:'Runs async daily standups, nudges blockers and posts a digest.', installed:true,  isNew:false, tags:['standup','summarize','teams'] },
+    { id:'a2', type:'agent',  name:'PR Steward',           src:'azdo-1', desc:'Reviews pull requests, applies feedback, hardens and validates.', installed:false, isNew:true,  tags:['code-review','ci','git'] },
+    { id:'a3', type:'agent',  name:'Release Notes Writer',  src:'gh-1',   desc:'Drafts crisp release notes from merged PRs and issues.',          installed:false, isNew:true,  tags:['docs','changelog'] },
+    { id:'a4', type:'agent',  name:'On-call Triage',        src:'azdo-1', desc:'Triages alerts, correlates telemetry and proposes mitigations.',  installed:false, isNew:false, tags:['sre','alerts'] },
+    { id:'p1', type:'plugin', name:'Azure DevOps Suite',    src:'azdo-1', desc:'Work items, pipelines, PRs and dashboards as agent tools.',       installed:true,  isNew:false, tags:['azdo','pipelines'] },
+    { id:'p2', type:'plugin', name:'Newsletter Studio',     src:'local-1',desc:'Compose, chart and email impact newsletters.',                    installed:false, isNew:true,  tags:['email','charts'] },
+    { id:'p3', type:'plugin', name:'Kusto Explorer',        src:'azdo-1', desc:'Query and visualize Kusto/Eventhouse from chat.',                 installed:false, isNew:false, tags:['kusto','data'] },
+    { id:'s1', type:'skill',  name:'Summarize Thread',      src:'gh-2',   desc:'Condense a long chat/email thread into decisions + actions.',     installed:false, isNew:false, tags:['summarize'] },
+    { id:'s2', type:'skill',  name:'Chart from CSV',        src:'gh-2',   desc:'Turn tabular data into inline SVG charts.',                       installed:false, isNew:true,  tags:['charts','data'] },
+    { id:'s3', type:'skill',  name:'Rewrite for Tone',      src:'local-1',desc:'Adjust copy for tone, length and audience.',                      installed:true,  isNew:false, tags:['writing'] },
+    { id:'s4', type:'skill',  name:'Extract Action Items',  src:'gh-2',   desc:'Pull owners + due dates out of meeting transcripts.',             installed:false, isNew:false, tags:['meetings'] },
+    { id:'m1', type:'mcp',    name:'Kusto MCP',             src:'azdo-1', desc:'Read-only Kusto access over MCP.',      installed:false, isNew:true,  cmd:'npx', args:'@office/kusto-mcp --readonly', env:['KUSTO_CLUSTER'], tags:['kusto'] },
+    { id:'m2', type:'mcp',    name:'GitHub MCP',            src:'gh-1',   desc:'Issues, PRs and repo files as MCP tools.', installed:true,  isNew:false, cmd:'gh-mcp', args:'serve', env:['GITHUB_TOKEN'], tags:['github'] },
+  ];
+
+  let state = { type: 'all', src: 'all', groupBy: 'type', selected: null };
+
+  function counts(dim, val) {
+    return ITEMS.filter(i => i[dim] === val).length;
+  }
+
+  function buildRail() {
+    // Type nav (quiet text links, muted counts — no pills)
+    const tn = document.getElementById('typeNav');
+    const typeRows = [['all','🗂️','All capabilities', ITEMS.length]];
+    Object.entries(TYPES).forEach(([k,t]) => typeRows.push([k, t.icon, t.label, counts('type', k)]));
+    tn.innerHTML = typeRows.map(([k,ic,lbl,n]) =>
+      `<div class="nav-link ${state.type===k?'active':''}" onclick="setType('${k}')">
+         <span class="ico">${ic}</span><span class="lbl">${lbl}</span><span class="count">${n}</span>
+       </div>`).join('');
+
+    // Sources
+    const sn = document.getElementById('srcNav');
+    let rows = `<div class="src-row ${state.src==='all'?'active':''}" onclick="setSrc('all')">
+        <span class="ico">🗃️</span><div class="src-main"><div class="src-name">All sources</div></div>
+        <span class="count">${ITEMS.length}</span></div>
+      <div class="src-row ${state.src==='installed'?'active':''}" onclick="setSrc('installed')">
+        <span class="ico">✓</span><div class="src-main"><div class="src-name">Installed only</div></div>
+        <span class="count">${ITEMS.filter(i=>i.installed).length}</span></div>`;
+    Object.entries(SOURCES).forEach(([id,s]) => {
+      rows += `<div class="src-row ${state.src===id?'active':''}" onclick="setSrc('${id}')">
+          <span class="ico">${s.icon}</span>
+          <div class="src-main"><div class="src-name">${s.label}</div><div class="src-path">${s.path}</div></div>
+          <span class="count">${counts('src', id)}</span></div>`;
+    });
+    sn.innerHTML = rows;
+  }
+
+  function setType(t){ state.type = t; render(); }
+  function setSrc(s){ state.src = s; render(); }
+
+  function filtered() {
+    const q = (document.getElementById('q').value || '').toLowerCase().trim();
+    const hide = document.getElementById('hideInstalled').checked;
+    return ITEMS.filter(i => {
+      if (state.type !== 'all' && i.type !== state.type) return false;
+      if (state.src === 'installed') { if (!i.installed) return false; }
+      else if (state.src !== 'all' && i.src !== state.src) return false;
+      if (hide && i.installed) return false;
+      if (q && !(i.name.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q) || (i.tags||[]).some(t=>t.includes(q)))) return false;
+      return true;
+    });
+  }
+
+  function grouped(items) {
+    const by = document.getElementById('groupBy').value;
+    if (by === 'none') return [{ key:'all', label:'', icon:'', items }];
+    const map = {};
+    items.forEach(i => {
+      let key, label, icon;
+      if (by === 'type') { key = i.type; label = TYPES[i.type].label; icon = TYPES[i.type].icon; }
+      else if (by === 'source') { key = i.src; label = SOURCES[i.src].label; icon = SOURCES[i.src].icon; }
+      else { key = i.installed ? 'inst' : 'avail'; label = i.installed ? 'Installed' : 'Available'; icon = i.installed ? '✓' : '＋'; }
+      (map[key] = map[key] || { key, label, icon, items: [] }).items.push(i);
+    });
+    const order = by === 'type' ? Object.keys(TYPES) : Object.keys(map);
+    return order.filter(k => map[k]).map(k => map[k]);
+  }
+
+  function itemRow(i) {
+    const s = SOURCES[i.src];
+    const t = TYPES[i.type];
+    const badges = (i.installed ? '<span class="badge ok">✓ Installed</span>' : (i.isNew ? '<span class="badge new">✨ New</span>' : ''));
+    const btn = i.installed
+      ? `<button class="btn ghost sm" disabled>✓</button>`
+      : `<button class="btn primary sm" onclick="event.stopPropagation();alert('mockup: ${t.action} ${i.name}')">${t.action}</button>`;
+    return `<div class="mk-item ${state.selected===i.id?'selected':''}" onclick="openDrawer('${i.id}')">
+      <div class="mk-ticon">${t.icon}</div>
+      <div class="mk-body">
+        <div class="mk-name"><span class="nm">${i.name}</span>${badges}</div>
+        <div class="mk-desc">${i.desc}</div>
+      </div>
+      <div class="mk-right">
+        <span class="mk-meta">${s.icon} ${s.label}</span>
+        ${btn}
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    state.groupBy = document.getElementById('groupBy').value;
+    buildRail();
+    const items = filtered();
+
+    // stage header
+    const title = state.type === 'all' ? 'All capabilities' : TYPES[state.type].label;
+    const srcLabel = state.src === 'all' ? 'all sources' : state.src === 'installed' ? 'installed only' : SOURCES[state.src].label;
+    document.getElementById('stageTitle').textContent = title;
+    document.getElementById('stageSub').textContent =
+      `${items.length} item${items.length===1?'':'s'} · ${srcLabel}`;
+
+    // what's new links
+    const news = ITEMS.filter(i => i.isNew);
+    document.getElementById('wnLinks').innerHTML = news.map((i,idx) =>
+      `<a href="#" onclick="openDrawer('${i.id}');return false">${i.name}</a>` +
+      (idx < news.length-1 ? '<span class="dotsep">·</span>' : '')).join('');
+
+    // groups
+    const gEl = document.getElementById('groups');
+    const groups = grouped(items);
+    if (!items.length) {
+      gEl.innerHTML = '';
+      document.getElementById('empty').style.display = 'block';
+      return;
+    }
+    document.getElementById('empty').style.display = 'none';
+    const showHead = document.getElementById('groupBy').value !== 'none';
+    gEl.innerHTML = groups.map(g => `
+      <div class="group">
+        ${showHead ? `<div class="group-head">
+          <span class="group-icon">${g.icon}</span>
+          <span class="group-label">${g.label}</span>
+          <span class="group-count">${g.items.length}</span>
+          <span class="group-rule"></span>
+        </div>` : ''}
+        <div class="mk-list">${g.items.map(itemRow).join('')}</div>
+      </div>`).join('');
+  }
+
+  function openDrawer(id) {
+    const i = ITEMS.find(x => x.id === id);
+    if (!i) return;
+    state.selected = id;
+    const s = SOURCES[i.src], t = TYPES[i.type];
+    document.getElementById('drIcon').textContent = t.icon;
+    document.getElementById('drName').textContent = i.name;
+    document.getElementById('drBadges').innerHTML =
+      `<span class="dr-type">${t.label.replace(/s$/,'')}</span>` +
+      (i.installed ? '<span class="badge ok">✓ Installed</span>' : (i.isNew ? '<span class="badge new">✨ New</span>' : ''));
+
+    let body = `<div class="dr-label">Description</div><div style="font-size:13px;line-height:1.55">${i.desc}</div>`;
+    body += `<div class="dr-label">Source</div><div class="dr-code">${s.icon} ${s.kind}<br>${s.path}</div>`;
+    if (i.type === 'mcp') {
+      body += `<div class="dr-label">MCP server</div><div class="dr-code">${i.cmd} ${i.args}` +
+        (i.env && i.env.length ? `<br><span class="muted">env: ${i.env.join(', ')}</span>` : '') + `</div>`;
+    }
+    if (i.tags && i.tags.length) {
+      body += `<div class="dr-label">Tags</div><div class="tag-row">${i.tags.map(x=>`<span class="tag">${x}</span>`).join('')}</div>`;
+    }
+    document.getElementById('drBody').innerHTML = body;
+
+    document.getElementById('drFoot').innerHTML = i.installed
+      ? `<button class="btn ghost">Open in team…</button><button class="btn ghost" disabled>✓ Installed</button>`
+      : `<button class="btn ghost">Preview</button><button class="btn primary" onclick="alert('mockup: ${t.action} ${i.name}')">${t.action.replace('…','')}</button>`;
+
+    document.getElementById('scrim').classList.add('open');
+    document.getElementById('drawer').classList.add('open');
+    render();
+  }
+  function closeDrawer() {
+    state.selected = null;
+    document.getElementById('scrim').classList.remove('open');
+    document.getElementById('drawer').classList.remove('open');
+    render();
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+  function toggleTheme() {
+    const el = document.documentElement;
+    el.setAttribute('data-theme', el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  }
+
+  render();
+</script>
+</body>
+</html>
