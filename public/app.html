@@ -2731,6 +2731,25 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    /* Filters read as quiet text toggles, not rounded chips. Status badges keep
+       their own styling; this only targets pills used as filters. */
+    .filter-pills .pill {
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      padding: 5px 9px;
+      color: var(--cp-text-muted);
+      box-shadow: none;
+    }
+    .filter-pills .pill:hover {
+      color: var(--cp-text);
+      background: color-mix(in srgb, var(--cp-surface-soft) 55%, transparent);
+    }
+    .filter-pills .pill.active {
+      border: none;
+      color: var(--cp-accent);
+      background: color-mix(in srgb, var(--cp-accent) 12%, transparent);
+    }
     .form-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -3008,6 +3027,25 @@
       gap: 12px;
       flex-wrap: wrap;
     }
+    /* Divider-flow list: rows separated by hairlines instead of framed cards,
+       so multi-item panels (boards / PRs) don't waste space on borders. */
+    .list-flow { gap: 0; }
+    .list-flow .item-row {
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      padding: 12px 2px;
+      border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 50%, transparent);
+    }
+    .list-flow .item-row:last-child { border-bottom: none; }
+    .list-flow .item-row:hover {
+      transform: none;
+      box-shadow: none;
+      border-color: transparent;
+      border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 50%, transparent);
+      background: color-mix(in srgb, var(--cp-surface-soft) 55%, transparent);
+    }
+    .list-flow .item-row:last-child:hover { border-bottom-color: transparent; }
     .mono,
     pre,
     code {
@@ -5769,7 +5807,7 @@
                       </div>
                       <a class="btn ghost" href="#/boards">Open</a>
                     </div>
-                    <div class="stack" x-show="homeBoards().length">
+                    <div class="stack list-flow" x-show="homeBoards().length">
                       <template x-for="b in homeBoards().slice(0, 5)" :key="'home-board-' + b.id">
                         <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
                           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -5806,7 +5844,7 @@
                       </div>
                       <a class="btn ghost" href="#/codeflow">Open</a>
                     </div>
-                    <div class="stack" x-show="homePrs.items.length">
+                    <div class="stack list-flow" x-show="homePrs.items.length">
                       <template x-for="pr in homePrs.items.slice(0, 6)" :key="'home-pr-' + (pr.repoId || pr.repo) + ':' + pr.id">
                         <div class="item-row" style="cursor:pointer" role="button" tabindex="0"
                              @click="goTo('#/codeflow/' + encodeURIComponent(cfPrKey(pr)))"
