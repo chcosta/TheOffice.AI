@@ -6057,6 +6057,7 @@ function executeTask(task, triggerContext = null, { scheduled = false, promptOve
   entry.config.prompt = promptOverride || task.prompt;
   entry._taskId = task.id;
   entry._trigger = { kind: 'task', label: task.name, route: '#/tasks' };
+  entry._triggerMode = scheduled ? 'scheduled' : 'manual';
   try { supervisor._executeAgent(task.agentId, triggerContext); }
   finally { entry.config.prompt = originalPrompt; }
   broadcastSSE('task-running', { taskId: task.id, agentId: task.agentId, scheduled });
@@ -16617,7 +16618,8 @@ app.get('/api/activity', (req, res) => {
       output: (run.output || '').slice(0, 500),
       runId: run.id,
       taskId: run.task_id || null,
-      triggeredBy: run.triggered_by || 'manual'
+      triggeredBy: run.triggered_by || 'manual',
+      triggerMode: run.trigger_mode || null
     });
   }
   
@@ -16639,7 +16641,8 @@ app.get('/api/activity', (req, res) => {
           : null,
         output: (run.result || '').slice(0, 500),
         runId: run.id,
-        assignmentId: run.assignment_id || null
+        assignmentId: run.assignment_id || null,
+        triggerMode: run.assignment_id ? 'scheduled' : 'manual'
       });
     }
   } catch {}

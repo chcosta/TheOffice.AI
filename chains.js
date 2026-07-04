@@ -57,6 +57,9 @@ class ChainEngine extends EventEmitter {
         status TEXT,
         state_json TEXT
       )`).run();
+      // Migration: persist trigger mode (scheduled/manual/auto) so the
+      // management activity chart can filter runs by how they fired.
+      try { this.db.exec('ALTER TABLE chain_runs ADD COLUMN trigger_mode TEXT'); } catch {}
     } catch (e) { console.warn('[chains] could not init chain_runs table:', e.message); }
   }
 
@@ -473,10 +476,10 @@ class ChainEngine extends EventEmitter {
   }
   _persist(run) {
     try {
-      this.db.prepare(`INSERT INTO chain_runs (id, chain_id, name, started_at, finished_at, status, state_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+      this.db.prepare(`INSERT INTO chain_runs (id, chain_id, name, started_at, finished_at, status, state_json, trigger_mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET finished_at=excluded.finished_at, status=excluded.status, state_json=excluded.state_json`)
-        .run(run.id, run.chainId, run.name, run.startedAt, run.finishedAt, run.status, JSON.stringify(this._public(run)));
+        .run(run.id, run.chainId, run.name, run.startedAt, run.finishedAt, run.status, JSON.stringify(this._public(run)), run.trigger || null);
     } catch (e) { /* best-effort */ }
   }
   getRun(runId) {
@@ -489,7 +492,7 @@ class ChainEngine extends EventEmitter {
   recentRuns(chainId, limit = 10) {
     try {
       const rows = this.db.prepare(
-        'SELECT id, chain_id, name, started_at, finished_at, status FROM chain_runs WHERE chain_id = ? ORDER BY started_at DESC LIMIT ?'
+        'SELECT id, chain_id, name, started_at, finished_at, status, trigger_mode FROM chain_runs WHERE chain_id = ? ORDER BY started_at DESC LIMIT ?'
       ).all(chainId, limit);
       return rows;
     } catch { return []; }

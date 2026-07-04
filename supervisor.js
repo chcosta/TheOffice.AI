@@ -55,6 +55,9 @@ class Supervisor extends EventEmitter {
     // Migration: add task_id column so task-triggered runs can be tracked
     // separately from an agent's own (manual/scheduled) runs.
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN task_id TEXT'); } catch {}
+    // Migration: add trigger_mode column (scheduled|manual) so the management
+    // activity chart can split runs by how they fired. Filled on new runs only.
+    try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN trigger_mode TEXT'); } catch {}
     // Migration: add model column so run history shows which model served the run.
     try { this.db.exec('ALTER TABLE agent_runs ADD COLUMN model TEXT'); } catch {}
     // Migrations: per-run usage/billing metrics for the Reports system.
@@ -282,6 +285,15 @@ class Supervisor extends EventEmitter {
     // show what kicked off the run and link back to it.
     const trigger = entry._trigger || this._inferTrigger(entry, triggerContext);
     entry._trigger = null;
+    // Trigger mode (scheduled|manual) for the management activity chart. Callers
+    // (e.g. executeTask) may stamp a one-shot entry._triggerMode; otherwise infer
+    // it from the trigger descriptor kind. Automated fires (schedule/event) count
+    // as "scheduled"; ad-hoc Run/chat count as "manual".
+    const triggerMode = entry._triggerMode
+      || (trigger && (['schedule', 'trigger', 'flow'].includes(trigger.kind) ? 'scheduled'
+        : (['manual', 'chat'].includes(trigger.kind) ? 'manual' : null)))
+      || null;
+    entry._triggerMode = null;
     const { config } = entry;
     const startedAt = new Date().toISOString();
 
@@ -314,7 +326,7 @@ class Supervisor extends EventEmitter {
       return;
     }
 
-    const ctx = { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId, trigger };
+    const ctx = { agentId, entry, config, startedAt, prompt, pinnedSessionId, triggerFiles, taskId, trigger, triggerMode };
 
     // The @github/copilot-sdk runner is the sole agent runtime. Any
     // resolution/start/run failure is recorded as a failed run by _executeViaSdk.
@@ -452,7 +464,7 @@ class Supervisor extends EventEmitter {
    * runtimes.
    */
   _recordCompletion(ctx, { finishedAt, code, output, error, sessionId, steps, model, usage }) {
-    const { agentId, entry, config, startedAt, triggerFiles, taskId } = ctx;
+    const { agentId, entry, config, startedAt, triggerFiles, taskId, triggerMode } = ctx;
     // Dedupe: the stall watchdog and the SDK then/catch can both reach here for
     // the same run. First caller wins; later ones are ignored.
     if (ctx._finalized) return;
@@ -472,8 +484,8 @@ class Supervisor extends EventEmitter {
     let stepsJson = null;
     try { stepsJson = Array.isArray(steps) && steps.length ? JSON.stringify(steps).slice(0, 200000) : null; } catch { stepsJson = null; }
     this.db.prepare(
-      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, model, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId, model || null,
+      'INSERT INTO agent_runs (agent_id, started_at, finished_at, exit_code, output, error, session_id, triggered_by, task_id, trigger_mode, model, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(agentId, startedAt, finishedAt, code, fullOutput.slice(-50000), (error || '').slice(-5000), sessionId || null, entry._triggeredBy || null, taskId, triggerMode || null, model || null,
       u.premiumRequests ?? null, u.apiDurationMs ?? null, u.inputTokens ?? null, u.outputTokens ?? null, u.cacheReadTokens ?? null, u.cacheWriteTokens ?? null, stepsJson);
 
     // Set status: 'scheduled' if scheduler is active, 'idle' if not, 'error' on failure

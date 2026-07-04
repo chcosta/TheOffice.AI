@@ -1461,6 +1461,13 @@
     .mgmt-home .mh-leg.off { opacity: .4; }
     .mgmt-home .mh-leg.off .lname { text-decoration: line-through; }
     .mgmt-home .mh-leg:hover { color: var(--cp-text); }
+    .mgmt-home .mh-legend { align-items: center; gap: 14px 18px; }
+    .mgmt-home .mh-leg-group { display: inline-flex; align-items: center; gap: 14px; }
+    .mgmt-home .mh-leg-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--cp-text-muted); }
+    .mgmt-home .mh-leg-sep { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--cp-border) 70%, transparent); }
+    .mgmt-home .mh-disclose { display: inline-block; font-size: 12px; color: var(--cp-text-muted); transition: transform .15s ease; }
+    .mh-disclose { display: inline-block; font-size: 12px; color: var(--cp-text-muted); transition: transform .15s ease; }
+    .mh-disclose.closed { transform: rotate(-90deg); }
     /* recently-added feed */
     .mgmt-home .mh-feed { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
     @media (max-width: 760px) { .mgmt-home .mh-feed { grid-template-columns: 1fr; } }
@@ -5998,6 +6005,29 @@
 
               <div class="home-cards">
 
+                <!-- What's new (marketplace + release highlights) -->
+                <section class="card home-wn-card mh-full" x-show="homeWhatsNewFeed().length">
+                  <div class="card-header">
+                    <div>
+                      <h2 class="card-title"><span class="home-wn-spark">✦</span> What's new</h2>
+                      <div class="card-subtitle">Latest release &amp; fresh marketplace finds</div>
+                    </div>
+                    <a class="btn ghost" href="#/marketplace">Marketplace</a>
+                  </div>
+                  <div class="home-wn-list">
+                    <template x-for="item in homeWhatsNewFeed()" :key="'mgmt-wn-'+item.key">
+                      <div class="home-wn-row" role="button" tabindex="0" @click="homeWhatsNewOpen(item)" @keydown.enter="homeWhatsNewOpen(item)">
+                        <span class="home-wn-ico" x-text="item.icon"></span>
+                        <div class="home-wn-txt">
+                          <div class="home-wn-label" x-text="item.label"></div>
+                          <div class="home-wn-sub" x-text="item.sub"></div>
+                        </div>
+                        <span class="home-wn-go">→</span>
+                      </div>
+                    </template>
+                  </div>
+                </section>
+
                 <!-- Attention needed -->
                 <section class="card mh-accent-warn">
                   <div class="card-header">
@@ -6088,11 +6118,11 @@
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">📈 Flow activity</h2>
-                      <div class="card-subtitle">When each task flow ran and how long it took — last 14 days</div>
+                      <div class="card-subtitle">When flows, tasks &amp; assignments ran and how long they took — last 14 days</div>
                     </div>
                     <a class="btn ghost" href="#/chains">Open flows</a>
                   </div>
-                  <template x-if="mgmtFlowSeries().length">
+                  <template x-if="mgmtRunPoints().length">
                     <div>
                       <div class="mh-fa-meta">
                         <div class="mh-fa-metric"><div class="n" x-text="mgmtFlowSummary().runs"></div><div class="l">Runs</div></div>
@@ -6102,17 +6132,30 @@
                       </div>
                       <div class="mh-fa-chart" x-html="mgmtChartSvg()"></div>
                       <div class="mh-legend">
-                        <template x-for="s in mgmtFlowSeries()" :key="'mh-leg-'+s.id">
-                          <button type="button" class="mh-leg" :class="mgmtFlowHidden[s.id] ? 'off' : ''" @click="mgmtToggleFlow(s.id)">
-                            <span class="ld" :style="'background:'+s.color"></span>
-                            <span class="lname" x-text="s.name"></span>
-                            <span class="lavg" x-text="'avg ' + s.avg + 'm · ' + s.runs.length + ' run' + (s.runs.length === 1 ? '' : 's')"></span>
+                        <div class="mh-leg-group">
+                          <span class="mh-leg-lbl">Source</span>
+                          <template x-for="d in mgmtChartCatDefs()" :key="'mh-src-'+d.key">
+                            <button type="button" class="mh-leg" :class="mgmtChartFilters[d.key] ? '' : 'off'" @click="mgmtToggleChartFilter(d.key)">
+                              <span class="ld" :style="'background:'+d.color"></span>
+                              <span class="lname" x-text="d.name"></span>
+                              <span class="lavg" x-text="mgmtCatCount(d.key)"></span>
+                            </button>
+                          </template>
+                        </div>
+                        <div class="mh-leg-sep"></div>
+                        <div class="mh-leg-group">
+                          <span class="mh-leg-lbl">Trigger</span>
+                          <button type="button" class="mh-leg" :class="mgmtChartFilters.scheduled ? '' : 'off'" @click="mgmtToggleChartFilter('scheduled')">
+                            <span class="lname">Scheduled</span>
                           </button>
-                        </template>
+                          <button type="button" class="mh-leg" :class="mgmtChartFilters.manual ? '' : 'off'" @click="mgmtToggleChartFilter('manual')">
+                            <span class="lname">Manual</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </template>
-                  <div class="mh-empty" x-show="!mgmtFlowSeries().length">No flow runs recorded in the last 14 days. Run a flow to see its activity here.</div>
+                  <div class="mh-empty" x-show="!mgmtRunPoints().length">No flow, task, or assignment runs recorded in the last 14 days. Run one to see its activity here.</div>
                 </section>
 
               </div>
@@ -6280,14 +6323,17 @@
 
             <!-- Team resources (employees + operations) -->
             <section class="card" style="margin-top:18px" x-show="appMode === 'workforce' && currentTeamId !== 'all'">
-              <div class="card-header">
-                <div>
-                  <h2 class="card-title">🧩 Resources</h2>
-                  <div class="card-subtitle" x-text="homeEmployees().length + ' employee' + (homeEmployees().length === 1 ? '' : 's') + ' · ' + homeOperations().length + ' operation' + (homeOperations().length === 1 ? '' : 's')"></div>
+              <div class="card-header" style="cursor:pointer" @click="mgmtToggleTeam()">
+                <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                  <span class="mh-disclose" :class="mgmtTeamCollapsed ? 'closed' : ''">▾</span>
+                  <div>
+                    <h2 class="card-title">🧩 Resources</h2>
+                    <div class="card-subtitle" x-text="homeEmployees().length + ' employee' + (homeEmployees().length === 1 ? '' : 's') + ' · ' + homeOperations().length + ' operation' + (homeOperations().length === 1 ? '' : 's')"></div>
+                  </div>
                 </div>
-                <a class="btn ghost" href="#/resources">Manage</a>
+                <a class="btn ghost" href="#/resources" @click.stop>Manage</a>
               </div>
-              <div class="card-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+              <div class="card-grid" x-show="!mgmtTeamCollapsed" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
                 <div>
                   <div class="field-label" style="margin-bottom:8px">Employees</div>
                   <div class="stack" x-show="homeEmployees().length">
@@ -16701,6 +16747,8 @@
         chainRunState: {},
         chainRuns: {},
         mgmtFlowHidden: {},
+        mgmtChartFilters: { flows: true, tasks: true, assignments: true, scheduled: true, manual: true },
+        mgmtTeamCollapsed: (() => { try { return localStorage.getItem('mgmt-team-collapsed') === '1'; } catch { return false; } })(),
         expandedChainNodes: {},
         // Board pins: latest run/message is shown EXPANDED by default; we persist only
         // the pins the user has explicitly COLLAPSED (id -> true) in localStorage.
@@ -18518,7 +18566,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               output: item.output || '',
               preview: this.preview(item.output || ''),
               taskId: item.taskId || null,
+              assignmentId: item.assignmentId || null,
               triggeredBy: item.triggeredBy || null,
+              triggerMode: item.triggerMode || null,
               route: `#/${item.type === 'agent' ? 'agents' : 'managers'}/${encodeURIComponent(item.entityId)}`
             }));
           } catch (err) {
@@ -20330,7 +20380,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return raw.map(r => {
             const s = new Date(r.started_at || r.startedAt).getTime();
             const f = new Date(r.finished_at || r.finishedAt || r.started_at || r.startedAt).getTime();
-            return { t: s, dur: Math.max(0, (f - s)) / 60000, status: r.status };
+            return { t: s, dur: Math.max(0, (f - s)) / 60000, status: r.status, mode: r.trigger_mode || null };
           }).filter(r => Number.isFinite(r.t)).sort((a, b) => a.t - b.t);
         },
         mgmtEnsureFlowRuns() {
@@ -20341,9 +20391,70 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.loadChainRuns(c.id);
             }
           }
+          // Task/assignment runs for the activity chart come from the unified
+          // activity feed; load it once on first workforce-home paint.
+          if (!this._mgmtActivityLoaded) { this._mgmtActivityLoaded = true; this.loadActivity(); }
         },
         mgmtToggleFlow(id) {
           this.mgmtFlowHidden = { ...this.mgmtFlowHidden, [id]: !this.mgmtFlowHidden[id] };
+        },
+        mgmtToggleChartFilter(key) {
+          this.mgmtChartFilters = { ...this.mgmtChartFilters, [key]: !this.mgmtChartFilters[key] };
+        },
+        mgmtToggleTeam() {
+          this.mgmtTeamCollapsed = !this.mgmtTeamCollapsed;
+          try { localStorage.setItem('mgmt-team-collapsed', this.mgmtTeamCollapsed ? '1' : '0'); } catch {}
+        },
+        // All run points (flows + tasks + assignments) in the last 14 days, each
+        // tagged with a category and trigger mode. Flows come from chain_runs;
+        // tasks (task-fired agent runs) and assignments (manager assignment runs)
+        // come from the unified activity feed. Trigger mode is only recorded on
+        // runs that fired after the feature shipped, so older points read as null.
+        mgmtRunPoints() {
+          const cut = Date.now() - 14 * 86400000;
+          const pts = [];
+          this.opsFlows().forEach(c => {
+            this._chainRunStats(c.id).forEach(r => {
+              if (r.t >= cut) pts.push({ t: r.t, dur: r.dur, status: r.status, cat: 'flows', mode: r.mode || null, name: c.name || c.id });
+            });
+          });
+          (this.data.activity || []).forEach(a => {
+            const t = new Date(a.startedAt).getTime();
+            if (!Number.isFinite(t) || t < cut) return;
+            if (!this.activityInCurrentOrg(a)) return;
+            const dur = (a.durationMs || 0) / 60000;
+            if (a.runKind === 'agent' && a.taskId) {
+              pts.push({ t, dur, status: a.status, cat: 'tasks', mode: a.triggerMode || null, name: a.entityName });
+            } else if (a.runKind === 'manager' && a.assignmentId) {
+              pts.push({ t, dur, status: a.status, cat: 'assignments', mode: a.triggerMode || null, name: a.entityName });
+            }
+          });
+          return pts;
+        },
+        mgmtPointVisible(p) {
+          const f = this.mgmtChartFilters;
+          if (!f[p.cat]) return false;
+          if (p.mode === 'scheduled') return !!f.scheduled;
+          if (p.mode === 'manual') return !!f.manual;
+          // Legacy runs (no recorded trigger) hide only when both modes are off.
+          return f.scheduled || f.manual;
+        },
+        mgmtChartCatDefs() {
+          return [
+            { key: 'flows', name: 'Flows', color: '#3b82f6' },
+            { key: 'tasks', name: 'Tasks', color: '#22c55e' },
+            { key: 'assignments', name: 'Assignments', color: '#a855f7' },
+          ];
+        },
+        mgmtChartCats() {
+          const pts = this.mgmtRunPoints().filter(p => this.mgmtPointVisible(p));
+          return this.mgmtChartCatDefs().map(d => ({
+            ...d,
+            runs: pts.filter(p => p.cat === d.key).sort((a, b) => a.t - b.t),
+          }));
+        },
+        mgmtCatCount(key) {
+          return this.mgmtRunPoints().filter(p => p.cat === key && this.mgmtPointVisible(p)).length;
         },
         mgmtFlowSeries() {
           const palette = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6', '#eab308', '#ec4899'];
@@ -20358,9 +20469,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return out;
         },
         mgmtFlowSummary() {
-          const series = this.mgmtFlowSeries();
+          const cats = this.mgmtChartCats();
           let runs = 0, total = 0, slow = 0, ok = 0, statusN = 0;
-          series.forEach(s => s.runs.forEach(r => {
+          cats.forEach(s => s.runs.forEach(r => {
             runs++; total += r.dur; if (r.dur > slow) slow = r.dur;
             if (r.status) { statusN++; if (this._runOk(r.status)) ok++; }
           }));
@@ -20372,7 +20483,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
         },
         mgmtChartSvg() {
-          const series = this.mgmtFlowSeries().filter(s => !this.mgmtFlowHidden[s.id]);
+          const series = this.mgmtChartCats().filter(s => s.runs.length);
           const W = 960, H = 300, padL = 40, padR = 14, padT = 14, padB = 34;
           const plotW = W - padL - padR, plotH = H - padT - padB;
           const now = Date.now(), dayMs = 86400000, days = 14;
