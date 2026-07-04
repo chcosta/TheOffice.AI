@@ -6146,6 +6146,16 @@
                             <span class="lname">Manual</span>
                           </button>
                         </div>
+                        <div class="mh-leg-sep"></div>
+                        <div class="mh-leg-group">
+                          <span class="mh-leg-lbl">Lines</span>
+                          <button type="button" class="mh-leg" :class="mgmtChartPerItem ? 'off' : ''" @click="if (mgmtChartPerItem) mgmtTogglePerItem()" title="One line per source category">
+                            <span class="lname">By source</span>
+                          </button>
+                          <button type="button" class="mh-leg" :class="mgmtChartPerItem ? '' : 'off'" @click="if (!mgmtChartPerItem) mgmtTogglePerItem()" title="One line per individual flow, task, or assignment">
+                            <span class="lname">Per item</span>
+                          </button>
+                        </div>
                       </div>
                       <div class="mh-fa-items" x-show="mgmtRunItems().length">
                         <template x-for="it in mgmtRunItems()" :key="'mhfa-'+it.cat+'-'+it.name">
@@ -10954,12 +10964,21 @@
           <!-- ===== Code Flow ===== -->
           <section x-show="!loading && !errorMessage && route === 'codeflow'" x-transition.opacity.duration.180ms>
             <style>
-              /* Code Flow: calm header + sticky control bar, echoing the Newsletter studio feel */
-              .cf-controlbar { position:sticky; top:0; z-index:5; display:flex; flex-direction:column; gap:10px;
-                background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:11px 14px; margin-bottom:16px; }
-              .cf-controlbar .cf-views { margin-bottom:0; }
-              .cf-controlbar .cf-toolbar { margin-bottom:0; padding-top:10px; border-top:1px solid color-mix(in srgb, var(--cp-border) 60%, transparent); }
-              .cf-controlbar .cf-views + .cf-toolbar:empty { display:none; }
+              /* Code Flow: two-column studio (sticky rail + bordered stage) echoing the Newsletter layout */
+              .cf-rail-title { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-soft); font-weight:600; margin-bottom:10px; }
+              .cf-rail-views { display:flex; flex-direction:column; gap:6px; }
+              .cf-rv { display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:1px solid transparent; background:transparent; color:var(--cp-text-soft); border-radius:8px; padding:8px 10px; font-size:13px; cursor:pointer; transition:background .15s, color .15s, border-color .15s; }
+              .cf-rv:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+              .cf-rv.on { background:var(--cp-accent-soft); color:var(--cp-text); border-color:color-mix(in srgb, var(--cp-accent) 30%, transparent); font-weight:600; }
+              .cf-rv-name { flex:1; min-width:0; }
+              .cf-rv-count { font-size:11.5px; color:var(--cp-text-soft); font-variant-numeric:tabular-nums; }
+              .cf-rv-count.attn { color:var(--cp-warning); font-weight:700; }
+              .cf-studio .nlx-fld { margin-bottom:10px; }
+              .cf-studio .nlx-fld:last-child { margin-bottom:0; }
+              .cf-studio .cf-select { width:100%; }
+              .cf-studio .cf-reviews-toggle { font-size:12.5px; }
+              .cf-studio .nlx-scroll { padding:16px 16px 32px; }
+              .cf-studio .cf-pr-list { margin-top:0; }
             </style>
             <div class="nlx-top">
               <div class="page-title">
@@ -11078,60 +11097,82 @@
               <div x-show="codeflowRepoForm.error" class="hint" style="color:var(--cp-danger);margin-top:8px" x-text="codeflowRepoForm.error"></div>
             </div>
 
-            <!-- View tabs + filters: unified sticky control bar -->
-            <div class="cf-controlbar" x-show="codeflow.repos.length">
-            <div class="cf-views" role="tablist">
-              <button type="button" class="cf-view-tab" :class="{ on: codeflow.view === 'mine' }" role="tab"
-                      :aria-selected="codeflow.view === 'mine'" @click="setCodeflowView('mine')">
-                <span>📤 My PRs</span>
-                <span class="cf-tab-count" :class="{ attn: codeflowAttention.mine > 0 }" x-show="codeflowAttention.mineActive > 0"
-                      :title="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' of ' + codeflowAttention.mineActive + ' pull requests need your attention') : (codeflowAttention.mineActive + ' open pull requests')"
-                      x-text="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' / ' + codeflowAttention.mineActive) : codeflowAttention.mineActive"></span>
-              </button>
-              <button type="button" class="cf-view-tab" :class="{ on: codeflow.view !== 'mine' }" role="tab"
-                      :aria-selected="codeflow.view !== 'mine'" @click="setCodeflowView(codeflow.reviewsOnly ? 'reviews' : 'active')">
-                <span>👀 Active PRs</span>
-                <span class="cf-tab-count" :class="{ attn: cfReviewsTab().attn }" x-show="cfReviewsTab().show"
-                      :title="cfReviewsTab().title" x-text="cfReviewsTab().text"></span>
-              </button>
+            <!-- No repos yet: keep the guidance outside the studio -->
+            <div x-show="!codeflow.loading && !codeflow.repos.length" class="empty-state">
+              No repos monitored yet. Click <strong>⚙ Manage repos</strong> above to add an Azure DevOps or GitHub repository.
             </div>
 
-            <!-- Toolbar: filter + sort -->
-            <div class="cf-toolbar" x-show="codeflow.repos.length">
-              <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine'"
-                     title="Show only pull requests that list you as a reviewer">
-                <input type="checkbox" :checked="codeflow.reviewsOnly" @change="toggleReviewsOnly()">
-                <span>Reviews needed from me</span>
-              </label>
-              <label class="hint" style="display:flex;align-items:center;gap:6px">Repo
-                <select class="cf-select" x-model="codeflow.filterRepo">
-                  <option value="">All repos</option>
-                  <template x-for="r in codeflow.repos" :key="r.id">
-                    <option :value="r.id" x-text="r.repo"></option>
-                  </template>
-                </select>
-              </label>
-              <label class="hint" style="display:flex;align-items:center;gap:6px">Sort
-                <select class="cf-select" x-model="codeflow.sort">
-                  <option value="attention">Attention first</option>
-                  <option value="urgency">AI urgency</option>
-                  <option value="newest">Newest</option>
-                  <option value="oldest">Oldest</option>
-                  <option value="age">Longest open</option>
-                </select>
-              </label>
-              <label class="hint" style="display:flex;align-items:center;gap:6px">Group
-                <select class="cf-select" x-model="codeflow.groupBy" @change="cfPersistGroupBy()">
-                  <option value="none">None</option>
-                  <option value="repo">Repo</option>
-                  <option value="state">State</option>
-                  <option value="urgency">AI urgency</option>
-                  <option value="approval">Approval</option>
-                </select>
-              </label>
-              <span class="hint" style="margin-left:auto" x-text="codeflowFetchedLabel()"></span>
-            </div>
-            </div>
+            <!-- Studio: sticky rail (view + filters) beside a bordered stage — echoes the Newsletter layout -->
+            <div class="nlx-studio cf-studio" x-show="codeflow.repos.length">
+              <aside class="nlx-rail">
+                <div class="nlx-card">
+                  <div class="cf-rail-title">View</div>
+                  <div class="cf-rail-views" role="tablist">
+                    <button type="button" class="cf-rv" :class="{ on: codeflow.view === 'mine' }" role="tab"
+                            :aria-selected="codeflow.view === 'mine'" @click="setCodeflowView('mine')">
+                      <span class="cf-rv-name">📤 My PRs</span>
+                      <span class="cf-rv-count" :class="{ attn: codeflowAttention.mine > 0 }" x-show="codeflowAttention.mineActive > 0"
+                            :title="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' of ' + codeflowAttention.mineActive + ' pull requests need your attention') : (codeflowAttention.mineActive + ' open pull requests')"
+                            x-text="codeflowAttention.mine > 0 ? (codeflowAttention.mine + ' / ' + codeflowAttention.mineActive) : codeflowAttention.mineActive"></span>
+                    </button>
+                    <button type="button" class="cf-rv" :class="{ on: codeflow.view !== 'mine' }" role="tab"
+                            :aria-selected="codeflow.view !== 'mine'" @click="setCodeflowView(codeflow.reviewsOnly ? 'reviews' : 'active')">
+                      <span class="cf-rv-name">👀 Active PRs</span>
+                      <span class="cf-rv-count" :class="{ attn: cfReviewsTab().attn }" x-show="cfReviewsTab().show"
+                            :title="cfReviewsTab().title" x-text="cfReviewsTab().text"></span>
+                    </button>
+                  </div>
+                </div>
+                <div class="nlx-card">
+                  <div class="cf-rail-title">Filters</div>
+                  <label class="cf-reviews-toggle" x-show="codeflow.view !== 'mine'" style="margin-bottom:12px"
+                         title="Show only pull requests that list you as a reviewer">
+                    <input type="checkbox" :checked="codeflow.reviewsOnly" @change="toggleReviewsOnly()">
+                    <span>Reviews needed from me</span>
+                  </label>
+                  <div class="nlx-fld">
+                    <label>Repository</label>
+                    <select class="field-input cf-select" x-model="codeflow.filterRepo">
+                      <option value="">All repos</option>
+                      <template x-for="r in codeflow.repos" :key="r.id">
+                        <option :value="r.id" x-text="r.repo"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="nlx-fld">
+                    <label>Sort</label>
+                    <select class="field-input cf-select" x-model="codeflow.sort">
+                      <option value="attention">Attention first</option>
+                      <option value="urgency">AI urgency</option>
+                      <option value="newest">Newest</option>
+                      <option value="oldest">Oldest</option>
+                      <option value="age">Longest open</option>
+                    </select>
+                  </div>
+                  <div class="nlx-fld">
+                    <label>Group by</label>
+                    <select class="field-input cf-select" x-model="codeflow.groupBy" @change="cfPersistGroupBy()">
+                      <option value="none">None</option>
+                      <option value="repo">Repo</option>
+                      <option value="state">State</option>
+                      <option value="urgency">AI urgency</option>
+                      <option value="approval">Approval</option>
+                    </select>
+                  </div>
+                </div>
+              </aside>
+
+              <main class="nlx-stage">
+                <div class="nlx-stage-bar">
+                  <span class="nlx-src">
+                    <strong x-text="filteredCodeflowPrs().length"></strong>
+                    <span x-text="(filteredCodeflowPrs().length === 1 ? ' pull request' : ' pull requests') + ' · ' + codeflowViewLabel(codeflow.view)"></span>
+                  </span>
+                  <div class="nlx-stage-actions">
+                    <span class="hint" x-text="codeflowFetchedLabel()"></span>
+                  </div>
+                </div>
+                <div class="nlx-scroll cf-scroll">
 
             <!-- Errors -->
             <template x-if="codeflow.errors.length">
@@ -11144,9 +11185,6 @@
 
             <!-- Loading / empty -->
             <div x-show="codeflow.loading && !codeflow.pullRequests.length" class="hint" style="padding:24px">Loading pull requests…</div>
-            <div x-show="!codeflow.loading && !codeflow.repos.length" class="empty-state">
-              No repos monitored yet. Click <strong>Manage repos</strong> above to add an Azure DevOps repository.
-            </div>
             <div x-show="!codeflow.loading && codeflow.repos.length && !filteredCodeflowPrs().length" class="empty-state">
               <span x-text="codeflow.view === 'mine' ? 'You have no open pull requests in the watched repos.' : (codeflow.view === 'active' ? 'No active pull requests in the watched repos.' : 'No pull requests are waiting on your review. 🎉')"></span>
             </div>
@@ -11646,6 +11684,9 @@
                 </article>
               </template>
             </div>
+                </div><!-- /nlx-scroll -->
+              </main>
+            </div><!-- /nlx-studio -->
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'tasks'" x-transition.opacity.duration.180ms>
@@ -16893,6 +16934,7 @@
         chainRuns: {},
         mgmtFlowHidden: {},
         mgmtChartFilters: { flows: true, tasks: true, assignments: true, scheduled: true, manual: true },
+        mgmtChartPerItem: (() => { try { return localStorage.getItem('mgmt-chart-peritem') === '1'; } catch { return false; } })(),
         mgmtTeamCollapsed: (() => { try { return localStorage.getItem('mgmt-team-collapsed') === '1'; } catch { return false; } })(),
         expandedChainNodes: {},
         // Board pins: latest run/message is shown EXPANDED by default; we persist only
@@ -20613,6 +20655,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         mgmtCatCount(key) {
           return this.mgmtRunPoints().filter(p => p.cat === key && this.mgmtPointVisible(p)).length;
         },
+        mgmtItemSeries() {
+          const palette = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6', '#eab308', '#ec4899', '#0ea5e9', '#84cc16', '#f97316', '#8b5cf6'];
+          const catOrder = { flows: 0, tasks: 1, assignments: 2 };
+          const catLabel = { flows: 'Flow', tasks: 'Task', assignments: 'Assignment' };
+          const groups = {};
+          this.mgmtRunPoints().filter(p => this.mgmtPointVisible(p)).forEach(p => {
+            const name = (p.name && String(p.name).trim()) || '(unnamed)';
+            const gk = p.cat + '::' + name;
+            if (!groups[gk]) groups[gk] = { key: gk, name, cat: p.cat, catLabel: catLabel[p.cat] || p.cat, runs: [] };
+            groups[gk].runs.push(p);
+          });
+          const arr = Object.values(groups).sort((a, b) =>
+            ((catOrder[a.cat] ?? 9) - (catOrder[b.cat] ?? 9)) || a.name.localeCompare(b.name));
+          arr.forEach((g, i) => { g.color = palette[i % palette.length]; g.runs.sort((x, y) => x.t - y.t); });
+          return arr;
+        },
+        mgmtTogglePerItem() {
+          this.mgmtChartPerItem = !this.mgmtChartPerItem;
+          try { localStorage.setItem('mgmt-chart-peritem', this.mgmtChartPerItem ? '1' : '0'); } catch {}
+        },
         mgmtFlowSeries() {
           const palette = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#14b8a6', '#eab308', '#ec4899'];
           const cut = Date.now() - 14 * 86400000;
@@ -20640,7 +20702,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
         },
         mgmtChartSvg() {
-          const series = this.mgmtChartCats().filter(s => s.runs.length);
+          const series = (this.mgmtChartPerItem ? this.mgmtItemSeries() : this.mgmtChartCats()).filter(s => s.runs.length);
           const W = 960, H = 300, padL = 40, padR = 14, padT = 14, padB = 34;
           const plotW = W - padL - padR, plotH = H - padT - padB;
           const now = Date.now(), dayMs = 86400000, days = 14;
@@ -20679,20 +20741,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return svg;
         },
         mgmtRunItems() {
-          const defs = this.mgmtChartCatDefs();
-          const colorOf = {}; defs.forEach(d => { colorOf[d.key] = d.color; });
-          const catLabel = { flows: 'Flow', tasks: 'Task', assignments: 'Assignment' };
-          const groups = {};
-          this.mgmtRunPoints().filter(p => this.mgmtPointVisible(p)).forEach(p => {
-            const name = (p.name && String(p.name).trim()) || '(unnamed)';
-            const gk = p.cat + '::' + name;
-            if (!groups[gk]) groups[gk] = { name, cat: p.cat, catLabel: catLabel[p.cat] || p.cat, color: colorOf[p.cat] || 'var(--cp-text-muted)', runs: 0, total: 0, last: 0 };
-            const g = groups[gk];
-            g.runs++; g.total += (p.dur || 0); if (p.t > g.last) g.last = p.t;
-          });
-          return Object.values(groups)
-            .map(g => ({ name: g.name, cat: g.cat, catLabel: g.catLabel, color: g.color, runs: g.runs, avg: g.runs ? Math.round(g.total / g.runs) : 0, last: g.last }))
-            .sort((a, b) => b.runs - a.runs || b.last - a.last);
+          const catColor = {}; this.mgmtChartCatDefs().forEach(d => { catColor[d.key] = d.color; });
+          const perItem = this.mgmtChartPerItem;
+          return this.mgmtItemSeries().map(s => {
+            const total = s.runs.reduce((a, r) => a + (r.dur || 0), 0);
+            const last = s.runs.reduce((m, r) => (r.t > m ? r.t : m), 0);
+            return {
+              name: s.name, cat: s.cat, catLabel: s.catLabel,
+              color: perItem ? s.color : (catColor[s.cat] || 'var(--cp-text-muted)'),
+              runs: s.runs.length, avg: s.runs.length ? Math.round(total / s.runs.length) : 0, last,
+            };
+          }).sort((a, b) => b.runs - a.runs || b.last - a.last);
         },
         mgmtFlowDot(c) {
           const live = this.chainRunState && this.chainRunState[c.id];
