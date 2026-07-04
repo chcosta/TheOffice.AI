@@ -71,12 +71,21 @@ for (const name of readdirSync(repoRoot)) {
   let st;
   try { st = statSync(src); } catch { continue; }
   if (!st.isFile()) continue;
-  if (name.endsWith('.js') || name === 'package.json' || name === 'package-lock.json') {
+  if (name.endsWith('.js') || name === 'package.json' || name === 'package-lock.json' || name === 'whats-new.json') {
     copyFileSync(src, join(serverDest, name));
     if (name.endsWith('.js')) jsCount++;
   }
 }
 log(`copied ${jsCount} root .js files + manifests`);
+
+// whats-new.json powers the in-app "What's new" dialog and home feed. It is not
+// a .js file, so ensure it is bundled explicitly (the loop above catches it, but
+// this guard makes the dependency obvious and survives loop refactors).
+{
+  const wn = join(repoRoot, 'whats-new.json');
+  if (existsSync(wn)) { copyFileSync(wn, join(serverDest, 'whats-new.json')); log('copied whats-new.json'); }
+  else log('WARNING: whats-new.json not found — release notes will be empty');
+}
 
 // 3) Copy runtime dirs.
 for (const d of RUNTIME_DIRS) {

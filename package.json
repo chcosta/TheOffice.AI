@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "notes": "node scripts/generate-release-notes.mjs",
     "install-service": "node install-service.js",
     "uninstall-service": "node uninstall-service.js",
     "test:board": "node tests/board-jumble.regression.mjs",

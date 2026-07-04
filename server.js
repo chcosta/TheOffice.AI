@@ -4865,17 +4865,45 @@ app.get('/api/version', (req, res) => {
 
 // --- What's New (release notes) --------------------------------------------
 // Serves the curated changelog so the SPA can greet users after an upgrade.
+function cmpWhatsNewVer(a, b) {
+  // Numeric compare on dot/dash-split segments; mirrors the SPA's semverGt so
+  // the server, generator, and UI all agree on ordering (handles X.Y.Z-preview.N).
+  const pa = String(a || '').split(/[.\-+]/).map(n => parseInt(n, 10)).map(n => Number.isNaN(n) ? 0 : n);
+  const pb = String(b || '').split(/[.\-+]/).map(n => parseInt(n, 10)).map(n => Number.isNaN(n) ? 0 : n);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
 function readWhatsNew() {
   try {
     const raw = fs.readFileSync(path.join(__dirname, 'whats-new.json'), 'utf-8');
     const parsed = JSON.parse(raw);
     const entries = Array.isArray(parsed) ? parsed : (parsed.entries || []);
-    return entries;
+    // Newest-first so the dialog and home feed render in a predictable order
+    // regardless of how the file happens to be ordered on disk.
+    return entries.slice().sort((a, b) => cmpWhatsNewVer(b && b.version, a && a.version));
   } catch { return []; }
 }
 
 app.get('/api/whats-new', (req, res) => {
-  res.json({ current: GIT_VERSION.version || '', entries: readWhatsNew() });
+  const current = GIT_VERSION.version || '';
+  let entries = readWhatsNew();
+  // Safety net: never hand the UI an empty changelog. If the file is missing or
+  // yields nothing (e.g. a build that skipped note generation), synthesize a
+  // minimal entry for the running version so "What's new" is never blank.
+  if (!entries.length && current) {
+    entries = [{
+      version: current,
+      date: (GIT_VERSION.builtAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+      title: 'Latest update',
+      summary: 'You are on the latest version. Detailed release notes were not bundled with this build.',
+      highlights: ['Improvements, fixes, and behind-the-scenes updates.'],
+      details: [],
+    }];
+  }
+  res.json({ current, entries });
 });
 
 // Maintainer helper (dev only, where git is available): draft a changelog entry
