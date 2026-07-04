@@ -11063,6 +11063,78 @@ app.get('/api/reports', (req, res) => {
   }
 });
 
+// Email a rendered report. The client sends an HTML fragment (the report it is
+// already showing) plus a subject/recipient; we wrap it in a self-contained
+// .eml (RFC 2822) and open it in the default mail client for review — matching
+// the Connect/newsletter email flow (no SMTP send).
+app.post('/api/reports/email', (req, res) => {
+  try {
+    const html = (req.body && typeof req.body.html === 'string') ? req.body.html : '';
+    const text = (req.body && typeof req.body.text === 'string') ? req.body.text : '';
+    if (!html.trim() && !text.trim()) {
+      return res.status(400).json({ error: 'Nothing to email — the report is empty.' });
+    }
+    const s = settings.getSettings();
+    const to = (req.body && req.body.to) || s.reportEmailTo || s.connectEmailTo || '';
+    const subject = (req.body && req.body.subject) || 'Report';
+
+    const htmlEmail = `<html><head><meta charset="utf-8"><style>
+body { font-family: Segoe UI, Arial, sans-serif; font-size: 14px; color: #1f2328; padding: 20px; background:#ffffff; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 20px 0 8px; color:#333; }
+p.sub { color:#6b7280; margin:0 0 16px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 4px; font-size: 13px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #e5e7eb; }
+th { color:#6b7280; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing:.02em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cards { margin: 0 0 8px; }
+.cardrow { display:block; }
+.stat { display:inline-block; margin:0 24px 12px 0; }
+.stat .l { color:#6b7280; font-size:12px; }
+.stat .v { font-size:20px; font-weight:700; }
+.foot { color:#9ca3af; font-size:12px; margin-top:20px; }
+</style></head><body>${html}</body></html>`;
+
+    const boundary = `----=_Part_${Date.now()}`;
+    const headers = [`Subject: ${subject}`];
+    if (to) headers.push(`To: ${to}`);
+    const plain = text.trim() || subject;
+    const eml = [
+      ...headers,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      `X-Unsent: 1`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      plain,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/html; charset="utf-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``,
+      htmlEmail,
+      ``,
+      `--${boundary}--`,
+    ].join('\r\n');
+
+    const draftDir = path.join(__dirname, '.share-drafts');
+    fs.mkdirSync(draftDir, { recursive: true });
+    const emlPath = path.join(draftDir, `report-${Date.now()}.eml`);
+    fs.writeFileSync(emlPath, eml, 'utf8');
+    const { exec } = require('child_process');
+    const opener = process.platform === 'darwin' ? `open "${emlPath}"`
+      : process.platform === 'win32' ? `start "" "${emlPath}"`
+      : `xdg-open "${emlPath}"`;
+    exec(opener);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/sync/status', async (req, res) => {
   try {
     const leaderInfo = configSync.enabled ? await configSync.getLeaderInfo() : null;

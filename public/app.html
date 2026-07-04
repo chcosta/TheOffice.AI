@@ -1431,6 +1431,12 @@
     .hcp-foot { display:flex; justify-content:flex-end; margin-top:8px; padding-top:8px; border-top:1px solid var(--cp-border); }
     .hcp-foot button { background:none;border:none;color:var(--cp-link);cursor:pointer;font-size:0.8rem; }
 
+    /* Reports "By activity" hover detail */
+    .rep-actinfo { position:relative; display:inline-flex; cursor:help; }
+    .rep-actinfo .rep-tip { position:absolute; left:0; top:calc(100% + 6px); z-index:40; width:270px; max-width:70vw; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.24); padding:9px 11px; font-size:0.78rem; line-height:1.45; color:var(--cp-text-muted); opacity:0; visibility:hidden; transform:translateY(-2px); transition:opacity .12s ease, transform .12s ease; pointer-events:none; white-space:normal; font-weight:400; text-transform:none; }
+    .rep-actinfo .rep-tip strong { color:var(--cp-text); font-weight:600; }
+    .rep-actinfo:hover .rep-tip, .rep-actinfo:focus-within .rep-tip { opacity:1; visibility:visible; transform:translateY(0); }
+
     /* ===== Management (workforce) home dashboard ===== */
     .mgmt-home .mh-full { grid-column: 1 / -1; }
     .mgmt-home .mh-accent-warn { border-left: 3px solid color-mix(in srgb, var(--cp-warning, #f59e0b) 70%, var(--cp-border)); }
@@ -15014,6 +15020,7 @@
                   </template>
                 </div>
                 <button class="btn" type="button" @click="loadReports()" :disabled="reportsLoading">↻ Refresh</button>
+                <button class="btn" type="button" @click="emailReport()" :disabled="reportsLoading || !reports" title="Open this report in your mail client">✉ Email report</button>
               </div>
             </div>
 
@@ -15101,7 +15108,7 @@
                       <tbody>
                         <template x-for="row in (reports.byCategory || [])" :key="row.category">
                           <tr>
-                            <td><span class="type-badge" x-text="reportCategoryLabel(row.category)"></span></td>
+                            <td><span class="rep-actinfo" tabindex="0"><span class="type-badge" x-text="reportCategoryLabel(row.category)"></span><span class="rep-tip" x-html="reportCategoryDetail(row.category)"></span></span></td>
                             <td>
                               <div style="height:8px;border-radius:6px;background:var(--cp-surface-soft,#e5e7eb);overflow:hidden">
                                 <div :style="`width:${reportCategoryShare(row)}%;height:100%;background:var(--cp-accent,#6366f1);border-radius:6px`"></div>
@@ -15237,7 +15244,7 @@
                         <tbody>
                           <template x-for="row in prodRows()" :key="row.category">
                             <tr>
-                              <td><span class="type-badge" x-text="reportCategoryLabel(row.category)"></span></td>
+                              <td><span class="rep-actinfo" tabindex="0"><span class="type-badge" x-text="reportCategoryLabel(row.category)"></span><span class="rep-tip" x-html="reportCategoryDetail(row.category)"></span></span></td>
                               <td>
                                 <div style="height:8px;border-radius:6px;background:var(--cp-surface-soft,#e5e7eb);overflow:hidden">
                                   <div :style="`width:${prodSavedShare(row)}%;height:100%;background:var(--cp-accent,#6366f1);border-radius:6px`"></div>
@@ -35997,6 +36004,72 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
         },
 
+        // Build a self-contained HTML report matching the on-screen view, then
+        // hand it to the server which wraps it in an .eml and opens the mail client.
+        buildReportEmailHtml() {
+          const r = this.reports;
+          if (!r) return '';
+          const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+          const rangeTxt = 'Last ' + this.reportRange + ' days';
+          let out = '';
+          if (this.reportView === 'productivity') {
+            const rows = this.prodRows();
+            const tot = this.prodTotals();
+            out += `<h1>⚡ Productivity report</h1><p class="sub">${esc(rangeTxt)} · the developer time this system saved you</p>`;
+            out += `<div class="cards"><span class="stat"><span class="l">Time saved</span><br><span class="v">${esc(this.formatMinutes(tot.savedMin))}</span></span>`;
+            out += `<span class="stat"><span class="l">Hands-on</span><br><span class="v">${esc(this.formatMinutes(tot.activeMin))}</span></span>`;
+            out += `<span class="stat"><span class="l">Manual est.</span><br><span class="v">${esc(this.formatMinutes(tot.manualMin))}</span></span></div>`;
+            out += `<h2>By activity</h2><table><thead><tr><th>Activity</th><th class="num">Runs</th><th class="num">Hands-on</th><th class="num">Manual est.</th><th class="num">Saved</th></tr></thead><tbody>`;
+            rows.forEach(row => {
+              out += `<tr><td>${esc(this.reportCategoryLabel(row.category))}</td><td class="num">${esc(this.formatNumber(row.runs))}</td><td class="num">${esc(this.formatMinutes(row.activeMin))}</td><td class="num">${esc(this.formatMinutes(row.manualMin))}</td><td class="num">${esc(this.formatMinutes(row.savedMin))}</td></tr>`;
+            });
+            if (!rows.length) out += `<tr><td colspan="5">No activity recorded yet.</td></tr>`;
+            out += `</tbody></table>`;
+          } else {
+            const t = r.totals || {};
+            out += `<h1>🔌 AI usage report</h1><p class="sub">${esc(rangeTxt)} · usage &amp; cost across agents, tasks, managers, flows and chats</p>`;
+            out += `<div class="cards">`;
+            out += `<span class="stat"><span class="l">Equivalent cost</span><br><span class="v">${esc(this.formatCost(t.cost))}</span></span>`;
+            out += `<span class="stat"><span class="l">AIC</span><br><span class="v">${esc(this.formatNumber(t.premiumRequests))}</span></span>`;
+            out += `<span class="stat"><span class="l">Total runs</span><br><span class="v">${esc(this.formatNumber(t.runs))}</span></span>`;
+            out += `<span class="stat"><span class="l">API time</span><br><span class="v">${esc(this.formatDuration(t.apiDurationMs))}</span></span></div>`;
+            const cats = r.byCategory || [];
+            out += `<h2>By activity</h2><table><thead><tr><th>Activity</th><th class="num">Time</th><th class="num">Runs</th><th class="num">AIC</th><th class="num">Cost</th></tr></thead><tbody>`;
+            cats.forEach(row => {
+              out += `<tr><td>${esc(this.reportCategoryLabel(row.category))}</td><td class="num">${esc(this.formatDuration(row.apiDurationMs))}</td><td class="num">${esc(this.formatNumber(row.runs))}</td><td class="num">${esc(this.formatNumber(row.premiumRequests))}</td><td class="num">${esc(this.formatCost(row.cost))}</td></tr>`;
+            });
+            if (!cats.length) out += `<tr><td colspan="5">No activity recorded yet.</td></tr>`;
+            out += `</tbody></table>`;
+            const models = r.byModel || [];
+            if (models.length) {
+              out += `<h2>By model</h2><table><thead><tr><th>Model</th><th class="num">Runs</th><th class="num">AIC</th><th class="num">Cost</th></tr></thead><tbody>`;
+              models.forEach(row => {
+                out += `<tr><td>${esc(this.formatModelName(row.model))}</td><td class="num">${esc(this.formatNumber(row.runs))}</td><td class="num">${esc(this.formatNumber(row.premiumRequests))}</td><td class="num">${esc(this.formatCost(row.cost))}</td></tr>`;
+              });
+              out += `</tbody></table>`;
+            }
+          }
+          out += `<p class="foot">Generated by TheOffice.AI · ${esc(new Date().toLocaleString())}</p>`;
+          return out;
+        },
+
+        async emailReport() {
+          if (!this.reports) { this.showToast('No report', 'Nothing to email yet.', 'warning'); return; }
+          const html = this.buildReportEmailHtml();
+          const subject = (this.reportView === 'productivity' ? 'Productivity report' : 'AI usage report') + ' — last ' + this.reportRange + ' days';
+          try {
+            const res = await fetch('/api/reports/email', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ html, subject })
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok || j.error) throw new Error(j.error || ('reports/email ' + res.status));
+            this.showToast('Report ready', 'Opened a draft in your mail client.', 'info');
+          } catch (err) {
+            this.showToast('Email failed', err.message || 'Could not email report', 'error');
+          }
+        },
+
         reportSourceLabel(src) {
           const map = { agent: 'Agent', task: 'Task', manager: 'Manager', chat: 'Chat' };
           return map[src] || (src || 'unknown');
@@ -36017,6 +36090,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             system: 'System'
           };
           return map[cat] || (cat ? cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'System');
+        },
+
+        // What runs/events feed each activity bucket — shown on hover in the
+        // "By activity" tables so a category name isn't a black box.
+        reportCategoryDetail(cat) {
+          const map = {
+            pull_requests: 'AI-written <strong>pull-request summaries, descriptions and code reviews</strong> generated across your PRs.',
+            dev_cards: '<strong>Code &amp; dev-card work</strong> — turning board cards into code changes, drafts and implementation runs.',
+            newsletter: 'Drafting, regenerating and shipping your <strong>newsletter</strong> — writing, layout and images. Counted once per issue emailed broadly.',
+            connect: 'Building your <strong>Connect / impact write-up</strong> — collecting M365 activity, profiling your role and drafting the review.',
+            agent_authoring: '<strong>Authoring agents</strong> — generating prompts, recommending skills and the live agent-preview chats while you build one.',
+            insights: 'Generating <strong>board &amp; portfolio insights</strong> and summaries.',
+            feedback: 'AI help <strong>drafting and triaging feedback</strong>.',
+            release_notes: 'Generating <strong>release notes and What\'s-new highlights</strong>.',
+            chat: '<strong>Manager and assistant chat turns</strong> across the app.',
+            agents_tasks: '<strong>Scheduled agent runs, task executions and assignments</strong> carried out by your workforce.',
+            system: 'Internal <strong>system &amp; plumbing calls</strong> — excluded from the time-saved estimate.'
+          };
+          return map[cat] || 'AI runs tagged as <strong>' + this.reportCategoryLabel(cat) + '</strong>.';
         },
 
         reportCategoryShare(row) {
