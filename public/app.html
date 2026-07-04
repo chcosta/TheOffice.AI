@@ -2792,6 +2792,40 @@
       color: var(--cp-text-muted); word-break: break-all; margin-top: 5px; padding-left: 24px;
     }
     @media (max-width: 720px) { .mkt-list { grid-template-columns: 1fr; } }
+    /* ===== Marketplace studio: sticky rail + focused, bounded stage (mirrors newsletter) ===== */
+    .mktx-head { position:sticky; top:-24px; z-index:30; background:var(--cp-bg); margin:0 -24px 16px; padding:24px 24px 0; }
+    .mktx-tabs { display:flex; gap:20px; margin:0; border-bottom:1px solid var(--cp-border); }
+    .mktx-tabs a { padding:9px 2px; font-size:14px; font-weight:600; color:var(--cp-text-muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; user-select:none; }
+    .mktx-tabs a:hover { color:var(--cp-text); }
+    .mktx-tabs a.active { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+    .mktx-studio { display:grid; grid-template-columns:282px minmax(0,1fr); gap:18px; align-items:start; }
+    .mktx-rail { display:flex; flex-direction:column; gap:14px; }
+    .mktx-card { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:12px; }
+    .mktx-card .rail-h { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--cp-text-soft); font-weight:700; margin:2px 4px 8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .mktx-search { width:100%; padding:8px 10px; background:var(--cp-bg-elevated); color:var(--cp-text); border:1px solid var(--cp-border); border-radius:8px; font-size:13px; margin-bottom:10px; box-sizing:border-box; }
+    .mktx-nav, .mktx-src { display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:7px; cursor:pointer; color:var(--cp-text-muted); border-left:2px solid transparent; }
+    .mktx-nav:hover, .mktx-src:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+    .mktx-nav.active, .mktx-src.active { background:color-mix(in srgb, var(--cp-accent) 12%, transparent); color:var(--cp-text); border-left-color:var(--cp-accent); }
+    .mktx-nav.active { font-weight:600; }
+    .mktx-nav .lbl, .mktx-src .s-main { flex:1; min-width:0; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mktx-nav .count, .mktx-src .count { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+    .mktx-src .s-ico { width:16px; text-align:center; flex:0 0 auto; }
+    .mktx-railbtns { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+    .mktx-railbtns .btn { flex:1; justify-content:center; padding:6px 8px; font-size:12px; white-space:nowrap; }
+    .mktx-stage { background:var(--cp-bg-elevated); border:1px solid var(--cp-border); border-radius:14px; overflow:hidden; }
+    .mktx-bar { display:flex; align-items:center; gap:12px; padding:11px 16px; border-bottom:1px solid var(--cp-border); background:var(--cp-surface); flex-wrap:wrap; }
+    .mktx-bar .title { font-size:15px; font-weight:700; display:flex; align-items:baseline; gap:8px; min-width:0; }
+    .mktx-bar .title .n { font-size:12px; color:var(--cp-text-soft); font-weight:500; }
+    .mktx-bar .bar-actions { margin-left:auto; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    .mktx-scroll { padding:12px 16px 24px; }
+    /* hairline rows inside the stage — line breaks, not per-item frames */
+    .mktx-scroll .mkt-list { display:block; }
+    .mktx-scroll .mkt-group { margin-bottom:18px; }
+    .mktx-scroll .mkt-group-count { border:0; background:transparent; border-radius:0; padding:0; min-width:0; color:var(--cp-text-muted); }
+    .mktx-scroll .mkt-row { border:0; border-radius:0; background:transparent; border-bottom:1px solid var(--cp-border); padding:11px 8px; }
+    .mktx-scroll .mkt-row:hover { background:var(--cp-surface-soft); }
+    .mktx-scroll .mkt-row.selected { background:color-mix(in srgb, var(--cp-accent) 12%, transparent); box-shadow:none; }
+    @media (max-width: 900px) { .mktx-studio { grid-template-columns:1fr; } .mktx-rail { position:static; } .mktx-stage { height:auto; } }
     .mcp-test-result {
       margin-top: 8px; padding: 10px 12px; border-radius: 8px;
       border: 1px solid var(--cp-border); background: var(--cp-surface-soft);
@@ -14481,6 +14515,7 @@
 
           <!-- Marketplace -->
           <section x-show="!loading && !errorMessage && route === 'marketplace'" x-transition.opacity.duration.180ms>
+            <div class="mktx-head">
             <div class="page-header">
               <div class="page-title">
                 <h1>🛍️ Marketplace</h1>
@@ -14492,10 +14527,11 @@
               </div>
             </div>
 
-            <div class="filter-pills" style="margin-bottom:16px">
-              <button class="pill" type="button" :class="{ active: mkt.tab === 'browse' }" @click="mkt.tab = 'browse'">🛍️ Browse</button>
-              <button class="pill" type="button" :class="{ active: mkt.tab === 'design' }" @click="mkt.tab = 'design'; mktDesignInit()">✨ Design with AI</button>
+            <div class="mktx-tabs">
+              <a :class="{ active: mkt.tab === 'browse' }" @click="mkt.tab = 'browse'">🛍️ Browse</a>
+              <a :class="{ active: mkt.tab === 'design' }" @click="mkt.tab = 'design'; mktDesignInit()">✨ Design with AI</a>
             </div>
+            </div><!-- /mktx-head -->
 
             <div x-show="mkt.tab === 'browse'">
             <!-- New-items-since-last-visit banner -->
@@ -14604,47 +14640,7 @@
               </div>
             </div>
 
-            <!-- Source selector + management -->
-            <div class="toolbar" style="gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
-              <label class="hint" style="opacity:.75">Source</label>
-              <select x-model="mkt.sourceSel" @change="applyMktSource()" style="min-width:240px">
-                <option value="all" x-text="'All sources — ' + mktKindTotal('all') + ' items'"></option>
-                <option value="installed">✓ Installed only</option>
-                <template x-if="mkt.sources.some(s => s.kind === 'local')">
-                  <option value="kind:local" x-text="'📁 All local sources (' + mktKindTotal('local') + ')'"></option>
-                </template>
-                <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
-                  <option value="kind:azdo" x-text="'🔷 All Azure DevOps (' + mktKindTotal('azdo') + ')'"></option>
-                </template>
-                <template x-if="mkt.sources.some(s => s.kind === 'github')">
-                  <option value="kind:github" x-text="'🐙 All GitHub (' + mktKindTotal('github') + ')'"></option>
-                </template>
-                <template x-if="mkt.sources.some(s => s.kind === 'local')">
-                  <optgroup label="Local folders">
-                    <template x-for="src in mkt.sources.filter(s => s.kind === 'local')" :key="'opt-' + src.id">
-                      <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
-                    </template>
-                  </optgroup>
-                </template>
-                <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
-                  <optgroup label="Azure DevOps">
-                    <template x-for="src in mkt.sources.filter(s => s.kind === 'azdo')" :key="'opt-' + src.id">
-                      <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
-                    </template>
-                  </optgroup>
-                </template>
-                <template x-if="mkt.sources.some(s => s.kind === 'github')">
-                  <optgroup label="GitHub">
-                    <template x-for="src in mkt.sources.filter(s => s.kind === 'github')" :key="'opt-' + src.id">
-                      <option :value="'src:' + src.id" x-text="src.label + ' (' + mktSrcCount(src) + ')'"></option>
-                    </template>
-                  </optgroup>
-                </template>
-              </select>
-              <span class="hint" x-text="mkt.sources.length + ' source' + (mkt.sources.length === 1 ? '' : 's') + ' connected'"></span>
-              <span style="flex:1"></span>
-              <button class="btn ghost" type="button" @click="mkt.showManageSources = !mkt.showManageSources" x-text="mkt.showManageSources ? '✕ Done managing' : '⚙ Manage sources'"></button>
-            </div>
+            <!-- Source selection now lives in the studio rail below -->
 
             <!-- Manage sources (collapsible) -->
             <div class="card" x-show="mkt.showManageSources" x-transition.opacity.duration.150ms style="margin-bottom:16px">
@@ -14678,45 +14674,98 @@
               </template>
             </div>
 
-            <!-- Type filter + search -->
-            <div class="toolbar" style="margin-bottom:14px;gap:10px;flex-wrap:wrap">
-              <div class="filter-pills">
-                <template x-for="t in ['all','agent','plugin','skill','mcp']" :key="t">
-                  <button class="pill" type="button" :class="{ active: mkt.typeFilter === t }" @click="mkt.typeFilter = t; loadMarketplaceCatalog()">
-                    <span x-text="mktTypeLabel(t)"></span>
-                    <span class="hint" x-show="t !== 'all' && mkt.catalog.counts[t]" x-text="'(' + (mkt.catalog.counts[t] || 0) + ')'"></span>
-                  </button>
-                </template>
-              </div>
-              <input type="text" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…" style="flex:1;min-width:200px">
-              <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
-                <span>Group by</span>
-                <select x-model="mkt.groupBy" style="cursor:pointer;padding:5px 8px">
-                  <option value="type">Type</option>
-                  <option value="source">Source</option>
-                  <option value="sourcepath">Source path</option>
-                  <option value="installed">Installed</option>
-                  <option value="none">None</option>
-                </select>
-              </label>
-              <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap" :title="'Hide the ' + mktInstalledCount() + ' items already installed or in use'">
-                <input type="checkbox" x-model="mkt.hideInstalled" style="cursor:pointer">
-                Hide installed<span x-show="mktInstalledCount()" x-text="' (' + mktInstalledCount() + ')'"></span>
-              </label>
-            </div>
-            <div class="hint" id="mktCatalogTop" style="margin-bottom:10px" x-show="mktFilteredEntries().length">
-              <span x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></span>
-              <span x-show="mktDedupMerged() > 0" x-text="' · ' + mktDedupMerged() + ' duplicate ' + (mktDedupMerged() === 1 ? 'entry' : 'entries') + ' merged'"></span>
-              <template x-if="mkt.showNewOnly">
-                <span> · ✨ new items only <a href="#" @click.prevent="mktClearNewFilter()" style="color:var(--cp-link)">show all</a></span>
-              </template>
-            </div>
+            <!-- Studio: sticky rail (nav + sources) + bounded, internally-scrolling stage -->
+            <div class="mktx-studio">
+              <aside class="mktx-rail">
+                <div class="mktx-card">
+                  <input type="text" class="mktx-search" x-model.debounce.300ms="mkt.q" @input="loadMarketplaceCatalog()" placeholder="Search the catalog…">
+                  <template x-for="t in ['all','agent','plugin','skill','mcp']" :key="'nav-' + t">
+                    <div class="mktx-nav" :class="{ active: mkt.typeFilter === t }" @click="mkt.typeFilter = t; loadMarketplaceCatalog()">
+                      <span class="lbl" x-text="mktTypeLabel(t)"></span>
+                      <span class="count" x-show="t === 'all' || mkt.catalog.counts[t]" x-text="t === 'all' ? mktKindTotal('all') : (mkt.catalog.counts[t] || 0)"></span>
+                    </div>
+                  </template>
+                </div>
+                <div class="mktx-card">
+                  <div class="rail-h">Sources <span x-text="mkt.sources.length + ' connected'" style="text-transform:none;letter-spacing:0;font-weight:500"></span></div>
+                  <div class="mktx-src" :class="{ active: mkt.sourceSel === 'all' }" @click="mkt.sourceSel = 'all'; applyMktSource()">
+                    <span class="s-ico">🗃️</span><span class="s-main">All sources</span><span class="count" x-text="mktKindTotal('all')"></span>
+                  </div>
+                  <div class="mktx-src" :class="{ active: mkt.sourceSel === 'installed' }" @click="mkt.sourceSel = 'installed'; applyMktSource()">
+                    <span class="s-ico">✓</span><span class="s-main">Installed only</span>
+                  </div>
+                  <template x-if="mkt.sources.some(s => s.kind === 'local')">
+                    <div class="mktx-src" :class="{ active: mkt.sourceSel === 'kind:local' }" @click="mkt.sourceSel = 'kind:local'; applyMktSource()">
+                      <span class="s-ico">📁</span><span class="s-main">All local</span><span class="count" x-text="mktKindTotal('local')"></span>
+                    </div>
+                  </template>
+                  <template x-if="mkt.sources.some(s => s.kind === 'azdo')">
+                    <div class="mktx-src" :class="{ active: mkt.sourceSel === 'kind:azdo' }" @click="mkt.sourceSel = 'kind:azdo'; applyMktSource()">
+                      <span class="s-ico">🔷</span><span class="s-main">All Azure DevOps</span><span class="count" x-text="mktKindTotal('azdo')"></span>
+                    </div>
+                  </template>
+                  <template x-if="mkt.sources.some(s => s.kind === 'github')">
+                    <div class="mktx-src" :class="{ active: mkt.sourceSel === 'kind:github' }" @click="mkt.sourceSel = 'kind:github'; applyMktSource()">
+                      <span class="s-ico">🐙</span><span class="s-main">All GitHub</span><span class="count" x-text="mktKindTotal('github')"></span>
+                    </div>
+                  </template>
+                  <template x-for="src in mkt.sources" :key="'rail-' + src.id">
+                    <div class="mktx-src" :class="{ active: mkt.sourceSel === 'src:' + src.id }" @click="mkt.sourceSel = 'src:' + src.id; applyMktSource()" :title="src.label">
+                      <span class="s-ico" x-text="src.kind === 'azdo' ? '🔷' : (src.kind === 'github' ? '🐙' : '📁')"></span>
+                      <span class="s-main" x-text="src.label"></span>
+                      <span class="count" x-text="mktSrcCount(src)"></span>
+                    </div>
+                  </template>
+                  <div class="hint" x-show="!mkt.sources.length" style="font-style:italic;padding:6px 4px">No sources yet.</div>
+                  <div class="mktx-railbtns">
+                    <button class="btn ghost" type="button" @click="mktAutoPopulate()" :disabled="mkt.syncing" x-text="mkt.syncing ? 'Syncing…' : '↻ Sync'"></button>
+                    <button class="btn ghost" type="button" @click="mkt.showAddForm = !mkt.showAddForm">＋ Add</button>
+                    <button class="btn ghost" type="button" @click="mkt.showManageSources = !mkt.showManageSources" x-text="mkt.showManageSources ? '✕ Done' : '⚙ Manage'"></button>
+                  </div>
+                </div>
+              </aside>
 
-            <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
-              No sources yet. Click <strong>↻ Sync from installed agents</strong> to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
-            </div>
+              <main class="mktx-stage">
+                <div class="mktx-bar">
+                  <div class="title">
+                    <span x-text="mktTypeLabel(mkt.typeFilter)"></span>
+                    <span class="n" x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></span>
+                    <span class="n" x-show="mktDedupMerged() > 0" x-text="'· ' + mktDedupMerged() + ' merged'"></span>
+                    <template x-if="mkt.showNewOnly">
+                      <span class="n">· ✨ new only <a href="#" @click.prevent="mktClearNewFilter()" style="color:var(--cp-link)">show all</a></span>
+                    </template>
+                  </div>
+                  <div class="bar-actions">
+                    <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
+                      <span>Group by</span>
+                      <select x-model="mkt.groupBy" style="cursor:pointer;padding:5px 8px">
+                        <option value="type">Type</option>
+                        <option value="source">Source</option>
+                        <option value="sourcepath">Source path</option>
+                        <option value="installed">Installed</option>
+                        <option value="none">None</option>
+                      </select>
+                    </label>
+                    <label class="hint" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap" :title="'Hide the ' + mktInstalledCount() + ' items already installed or in use'">
+                      <input type="checkbox" x-model="mkt.hideInstalled" style="cursor:pointer">
+                      Hide installed<span x-show="mktInstalledCount()" x-text="' (' + mktInstalledCount() + ')'"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="mktx-scroll">
+                  <div class="hint" id="mktCatalogTop" style="margin-bottom:10px" x-show="mktFilteredEntries().length">
+                    <span x-text="mktFilteredEntries().length + ' item' + (mktFilteredEntries().length === 1 ? '' : 's')"></span>
+                    <span x-show="mktDedupMerged() > 0" x-text="' · ' + mktDedupMerged() + ' duplicate ' + (mktDedupMerged() === 1 ? 'entry' : 'entries') + ' merged'"></span>
+                    <template x-if="mkt.showNewOnly">
+                      <span> · ✨ new items only <a href="#" @click.prevent="mktClearNewFilter()" style="color:var(--cp-link)">show all</a></span>
+                    </template>
+                  </div>
 
-            <!-- Compact rows grouped by the active dimension; multi-column when wide. Click a row for details. -->
+                  <div class="empty-state" x-show="!mkt.sources.length && mkt.activeSourceId !== 'installed' && !mkt.catalog.entries.length">
+                    No sources yet. Click <strong>↻ Sync</strong> in the rail to auto-add sources from your existing agents &amp; plugins, or add a local folder / Azure DevOps repo manually.
+                  </div>
+
+                  <!-- Compact rows grouped by the active dimension. Click a row for details. -->
             <template x-for="grp in mktGroupedEntries()" :key="grp.key">
               <div class="mkt-group">
                 <div class="mkt-group-head" x-show="mkt.groupBy !== 'none'" :title="grp.title || grp.label">
@@ -14757,6 +14806,9 @@
               No items match the current filters.
               <a href="#" @click.prevent="mkt.sourceKindFilter = 'all'; mkt.hideInstalled = false">Clear filters</a>
             </div>
+                </div><!-- /mktx-scroll -->
+              </main><!-- /mktx-stage -->
+            </div><!-- /mktx-studio -->
 
             <!-- Detail drawer -->
             <template x-if="mktSelectedEntry()">

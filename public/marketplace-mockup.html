@@ -10,7 +10,7 @@
     --cp-bg: #f4f5f7; --cp-bg-elevated: #fafbfc; --cp-surface: #ffffff; --cp-surface-soft: #eef0f3;
     --cp-border: #dee1e6; --cp-border-strong: #a8aeb8;
     --cp-text: #1b1f27; --cp-text-muted: #59616d; --cp-text-soft: #6e7682;
-    --cp-accent: #1f2937; --cp-accent-soft: rgba(31,41,55,0.1);
+    --cp-accent: #2563eb; --cp-accent-soft: rgba(37,99,235,0.10);
     --cp-success: #16a34a; --cp-danger: #dc2626; --cp-warning: #f59e0b; --cp-link: #1f6fb1;
     --font-sans: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: Consolas, "Courier New", Courier, monospace;
@@ -20,463 +20,393 @@
     --cp-bg: #161922; --cp-bg-elevated: #1b1f29; --cp-surface: #21262f; --cp-surface-soft: #272d37;
     --cp-border: #343b47; --cp-border-strong: #4b5563;
     --cp-text: #e4e7ec; --cp-text-muted: #98a1ad; --cp-text-soft: #b4bcc6;
-    --cp-accent: #e5e7eb; --cp-accent-soft: rgba(229,231,235,0.16);
+    --cp-accent: #60a5fa; --cp-accent-soft: rgba(96,165,250,0.16);
     --cp-success: #4ade80; --cp-danger: #f87171; --cp-warning: #fbbf24; --cp-link: #7cc0f0;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
-  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px 26px 90px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 26px 30px; }
   a { color: inherit; text-decoration: none; }
   .muted { color: var(--cp-text-muted); }
   .soft { color: var(--cp-text-soft); }
   .count { font-size: 12px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
 
   .mock-banner { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--cp-text-muted);
-    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; padding: 8px 14px; margin-bottom: 18px; }
+    background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 10px; padding: 8px 14px; margin-bottom: 16px; }
   .mock-banner strong { color: var(--cp-text); }
   .mock-banner .sp { flex: 1; }
   .theme-btn { border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-soft);
     border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
   .theme-btn:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
 
-  /* ===== Page header ===== */
-  .mk-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
-  .mk-head h1 { margin: 0 0 3px; font-size: 25px; letter-spacing: -0.4px; }
-  .mk-head p { margin: 0; color: var(--cp-text-soft); font-size: 13.5px; max-width: 620px; }
+  /* ---- studio: rail + stage, mirrors newsletter .nlx-studio ---- */
+  .mk-studio { display: grid; grid-template-columns: 288px minmax(0,1fr); gap: 18px; align-items: start; }
 
-  .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--cp-border);
-    background: var(--cp-surface-soft); color: var(--cp-text); border-radius: 8px; padding: 7px 13px;
-    font-size: 13px; cursor: pointer; font-family: inherit; white-space: nowrap; }
-  .btn:hover { border-color: var(--cp-border-strong); }
-  .btn.primary { background: var(--cp-accent); color: var(--cp-bg-elevated); border-color: var(--cp-accent); font-weight: 600; }
-  .btn.primary:hover { filter: brightness(1.08); }
-  .btn.ghost { background: transparent; color: var(--cp-text-soft); }
-  .btn.ghost:hover { color: var(--cp-text); }
-  .btn.sm { padding: 5px 10px; font-size: 12px; }
-
-  /* ===== Newsletter-style studio: sticky rail + bordered stage ===== */
-  .mk-studio { display: grid; grid-template-columns: 288px minmax(0,1fr); gap: 20px; align-items: start; }
-  @media (max-width: 960px) { .mk-studio { grid-template-columns: 1fr; } }
-
+  /* ---- rail ---- */
   .mk-rail { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 12px; }
-  @media (max-width: 960px) { .mk-rail { position: static; } }
-  .rail-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 14px; }
-  .rail-title { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-muted);
-    font-weight: 600; margin: 0 0 10px; }
+  .mk-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 12px; padding: 12px; }
+  .mk-card .card-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--cp-text-soft);
+    font-weight: 700; margin: 2px 4px 8px; }
+  .mk-search { position: relative; margin-bottom: 10px; }
+  .mk-search input { width: 100%; padding: 8px 10px 8px 30px; background: var(--cp-bg-elevated); color: var(--cp-text);
+    border: 1px solid var(--cp-border); border-radius: 8px; font-size: 13px; }
+  .mk-search input:focus { outline: none; border-color: var(--cp-border-strong); }
+  .mk-search .mag { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--cp-text-soft); font-size: 13px; }
 
-  .search { display: flex; align-items: center; gap: 8px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
-    border-radius: 9px; padding: 8px 11px; }
-  .search input { flex: 1; border: none; background: none; color: var(--cp-text); font-size: 13.5px; font-family: inherit; outline: none; }
-  .search .ic { color: var(--cp-text-muted); font-size: 14px; }
+  /* primary type navigation — quiet text links, no pills */
+  .nav-link { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer;
+    color: var(--cp-text-muted); border-left: 2px solid transparent; }
+  .nav-link:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+  .nav-link.active { background: var(--cp-accent-soft); color: var(--cp-text); border-left-color: var(--cp-accent); font-weight: 600; }
+  .nav-link .ico { width: 18px; text-align: center; font-size: 14px; }
+  .nav-link .lbl { flex: 1; font-size: 13px; }
 
-  /* quiet text-link filter — NO pills */
-  .nav-links { display: flex; flex-direction: column; }
-  .nav-link { display: flex; align-items: center; gap: 9px; padding: 8px 8px; border-radius: 8px; cursor: pointer;
-    color: var(--cp-text-soft); border-left: 2px solid transparent; }
-  .nav-link:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); color: var(--cp-text); }
-  .nav-link.active { color: var(--cp-text); font-weight: 600; border-left-color: var(--cp-accent);
-    background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
-  .nav-link .ico { font-size: 15px; width: 20px; text-align: center; }
-  .nav-link .lbl { flex: 1; font-size: 13.5px; }
-
-  /* sources */
-  .src-row { display: flex; align-items: center; gap: 9px; padding: 8px 8px; border-radius: 8px; cursor: pointer;
-    color: var(--cp-text-soft); border-left: 2px solid transparent; }
-  .src-row:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); color: var(--cp-text); }
-  .src-row.active { color: var(--cp-text); font-weight: 600; border-left-color: var(--cp-accent);
-    background: color-mix(in srgb, var(--cp-accent) 6%, transparent); }
-  .src-row .ico { font-size: 14px; width: 18px; text-align: center; }
+  .src-row { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: pointer;
+    color: var(--cp-text-muted); border-left: 2px solid transparent; }
+  .src-row:hover { background: var(--cp-surface-soft); color: var(--cp-text); }
+  .src-row.active { background: var(--cp-accent-soft); color: var(--cp-text); border-left-color: var(--cp-accent); }
+  .src-row .ico { width: 18px; text-align: center; font-size: 13px; }
   .src-main { flex: 1; min-width: 0; }
-  .src-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .src-path { font-size: 11px; color: var(--cp-text-muted); font-family: var(--font-mono);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .src-path { font-size: 11px; color: var(--cp-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .add-src { display: flex; gap: 6px; margin-top: 8px; }
+  .add-src button { flex: 1; padding: 6px 8px; font-size: 11.5px; border: 1px dashed var(--cp-border-strong);
+    background: transparent; color: var(--cp-text-soft); border-radius: 8px; cursor: pointer; }
+  .add-src button:hover { color: var(--cp-text); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
 
-  .rail-foot { display: flex; flex-direction: column; gap: 8px; }
-  .rail-foot .btn { justify-content: center; }
+  /* ---- stage: bordered pane, internal scroll, pinned bar (mirrors .nlx-stage) ---- */
+  .mk-stage { background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 14px;
+    overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 132px); min-height: 460px; }
+  .mk-stage-bar { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--cp-border);
+    background: var(--cp-surface); flex: 0 0 auto; }
+  .mk-stage-bar .title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .mk-stage-bar .title .n { font-size: 12px; color: var(--cp-text-soft); font-weight: 500; }
+  .stage-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .stage-actions label { font-size: 12px; color: var(--cp-text-muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .stage-actions select { background: var(--cp-bg-elevated); color: var(--cp-text); border: 1px solid var(--cp-border);
+    border-radius: 8px; padding: 5px 8px; font-size: 12px; }
+  .backlink { border: 1px solid var(--cp-border); background: var(--cp-surface-soft); color: var(--cp-text-soft);
+    border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+  .backlink:hover { color: var(--cp-text); border-color: var(--cp-border-strong); }
 
-  /* ===== Stage ===== */
-  .mk-stage { background: var(--cp-bg-elevated); border: 1px solid var(--cp-border); border-radius: 14px; overflow: hidden; min-height: 520px; }
-  .stage-bar { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--cp-border);
-    background: var(--cp-surface); flex-wrap: wrap; }
-  .stage-title { font-size: 15px; font-weight: 650; }
-  .stage-sub { font-size: 12.5px; color: var(--cp-text-muted); }
-  .stage-actions { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .grp { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--cp-text-soft); }
-  .grp select { background: var(--cp-surface-soft); border: 1px solid var(--cp-border); color: var(--cp-text);
-    border-radius: 7px; padding: 4px 8px; font-size: 12.5px; font-family: inherit; cursor: pointer; }
-  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--cp-text-soft); cursor: pointer; }
+  .mk-scroll { flex: 1; overflow: auto; padding: 4px 0 12px; }
 
-  .stage-scroll { padding: 6px 18px 34px; }
+  /* what's-new strip: calm, left-accent, inline text links (no pills) */
+  .whatsnew { margin: 14px 16px 6px; padding: 11px 14px; border-radius: 10px; background: var(--cp-surface);
+    border: 1px solid var(--cp-border); border-left: 3px solid var(--cp-accent); }
+  .whatsnew .wh-h { font-size: 12px; font-weight: 700; color: var(--cp-text); margin-bottom: 5px; }
+  .whatsnew .wh-links { display: flex; flex-wrap: wrap; gap: 4px 4px; align-items: baseline; font-size: 12.5px; color: var(--cp-text-muted); }
+  .whatsnew .wh-links a { color: var(--cp-link); cursor: pointer; }
+  .whatsnew .wh-links a:hover { text-decoration: underline; }
+  .whatsnew .dot { color: var(--cp-text-soft); margin: 0 3px; }
 
-  /* What's new — a calm left-accent strip, inline text links (no pills) */
-  .whatsnew { border-left: 3px solid color-mix(in srgb, var(--cp-warning) 70%, var(--cp-border));
-    background: color-mix(in srgb, var(--cp-warning) 6%, transparent); border-radius: 10px;
-    padding: 12px 15px; margin: 14px 0 8px; }
-  .wn-head { display: flex; align-items: center; gap: 8px; }
-  .wn-title { font-weight: 650; font-size: 13.5px; }
-  .wn-x { margin-left: auto; color: var(--cp-text-muted); cursor: pointer; font-size: 13px; border: none; background: none; }
-  .wn-x:hover { color: var(--cp-text); }
-  .wn-body { margin-top: 6px; font-size: 12.5px; color: var(--cp-text-muted); }
-  .wn-links { margin-top: 7px; font-size: 13px; line-height: 1.85; }
-  .wn-links a { color: var(--cp-link); }
-  .wn-links .dotsep { color: var(--cp-text-muted); margin: 0 7px; }
+  /* group heading — plain text with muted count, not a pill */
+  .grp-h { display: flex; align-items: baseline; gap: 8px; padding: 14px 16px 4px; }
+  .grp-h .g-title { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; color: var(--cp-text-soft); }
+  .grp-h .g-count { font-size: 12px; color: var(--cp-text-muted); }
 
-  /* group */
-  .group { margin-top: 18px; }
-  .group-head { display: flex; align-items: center; gap: 9px; padding: 4px 2px 8px; }
-  .group-icon { font-size: 15px; }
-  .group-label { font-size: 12.5px; font-weight: 650; letter-spacing: .2px; }
-  .group-count { font-size: 11.5px; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
-  .group-rule { height: 1px; background: color-mix(in srgb, var(--cp-border) 70%, transparent); flex: 1; margin-left: 4px; }
+  /* catalog rows: hairline dividers, no per-item frame */
+  .mk-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer;
+    border-bottom: 1px solid var(--cp-border); }
+  .mk-item:hover { background: var(--cp-surface-soft); }
+  .mk-item .it-ico { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 8px; background: var(--cp-surface-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 17px; border: 1px solid var(--cp-border); }
+  .mk-item .it-body { flex: 1; min-width: 0; }
+  .mk-item .it-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .mk-item .it-desc { font-size: 12.5px; color: var(--cp-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-item .it-meta { font-size: 11.5px; color: var(--cp-text-soft); margin-top: 1px; }
+  .mk-item .it-act { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 
-  /* list-flow rows — hairline dividers, NO per-item frames */
-  .mk-list { display: flex; flex-direction: column; }
-  .mk-item { display: flex; align-items: center; gap: 13px; padding: 12px 4px;
-    border-bottom: 1px solid color-mix(in srgb, var(--cp-border) 55%, transparent); cursor: pointer; border-radius: 6px; }
-  .mk-item:last-child { border-bottom: none; }
-  .mk-item:hover { background: color-mix(in srgb, var(--cp-accent) 5%, transparent); }
-  .mk-item.selected { background: color-mix(in srgb, var(--cp-accent) 9%, transparent); }
-  .mk-ticon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; font-size: 16px;
-    border-radius: 9px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); }
-  .mk-body { flex: 1; min-width: 0; }
-  .mk-name { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-  .mk-name .nm { font-weight: 600; font-size: 13.5px; }
-  .mk-desc { font-size: 12.5px; color: var(--cp-text-muted); margin-top: 2px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 640px; }
-  .mk-meta { font-size: 12px; color: var(--cp-text-soft); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .mk-meta .dotsep { color: var(--cp-text-muted); }
-  .mk-right { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+  /* small status badges on individual items are OK per convention */
+  .badge { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 6px; letter-spacing: .02em; }
+  .badge.new { background: color-mix(in srgb, var(--cp-accent) 18%, transparent); color: var(--cp-accent); }
+  .badge.installed { background: color-mix(in srgb, var(--cp-success) 20%, transparent); color: var(--cp-success); }
+  .btn { border: 1px solid var(--cp-border-strong); background: var(--cp-surface); color: var(--cp-text);
+    border-radius: 8px; padding: 6px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--cp-accent); color: var(--cp-accent); }
+  .btn.primary { background: var(--cp-accent); border-color: var(--cp-accent); color: #fff; }
+  .btn.primary:hover { color: #fff; filter: brightness(1.06); }
+  .btn.done { border-style: dashed; color: var(--cp-text-soft); cursor: default; }
+  .btn.done:hover { border-color: var(--cp-border-strong); color: var(--cp-text-soft); }
 
-  /* small status badges (allowed on individual items) */
-  .badge { font-size: 10.5px; padding: 2px 7px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-  .badge.ok { background: color-mix(in srgb, var(--cp-success) 16%, transparent); color: var(--cp-success); }
-  .badge.new { background: color-mix(in srgb, var(--cp-warning) 18%, transparent); color: var(--cp-warning); }
-  .badge.neutral { background: var(--cp-surface-soft); color: var(--cp-text-soft); }
+  .mk-empty { text-align: center; color: var(--cp-text-soft); padding: 60px 20px; }
+  .mk-empty .big { font-size: 32px; }
 
-  .empty { text-align: center; color: var(--cp-text-soft); padding: 60px 20px; font-size: 13.5px; }
+  /* ---- detail hero: fills the stage (mirrors .nlx-paper as the hero) ---- */
+  .mk-detail { padding: 22px 26px 40px; max-width: 720px; }
+  .mk-detail .d-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 6px; }
+  .mk-detail .d-ico { width: 48px; height: 48px; border-radius: 11px; background: var(--cp-surface-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 24px; border: 1px solid var(--cp-border); flex: 0 0 auto; }
+  .mk-detail h1 { font-size: 22px; margin: 2px 0 4px; letter-spacing: -.01em; }
+  .mk-detail .d-sub { font-size: 12.5px; color: var(--cp-text-soft); display: flex; flex-wrap: wrap; gap: 4px 4px; align-items: baseline; }
+  .mk-detail .d-sub .dot { color: var(--cp-text-soft); margin: 0 3px; }
+  .mk-detail .d-actions { margin: 16px 0 22px; display: flex; gap: 10px; align-items: center; }
+  .mk-detail .d-desc { font-size: 14px; color: var(--cp-text); line-height: 1.6; }
+  .mk-detail .d-sec { margin-top: 22px; }
+  .mk-detail .d-sec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--cp-text-soft);
+    margin: 0 0 8px; font-weight: 700; }
+  .mk-detail .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font-size: 13px; }
+  .mk-detail .kv .k { color: var(--cp-text-soft); }
+  .mk-detail .kv code { font-family: var(--font-mono); font-size: 12px; background: var(--cp-surface-soft);
+    padding: 1px 6px; border-radius: 5px; border: 1px solid var(--cp-border); }
+  .mk-detail .tagline { display: flex; flex-wrap: wrap; gap: 5px 4px; font-size: 12.5px; color: var(--cp-text-muted); }
+  .mk-detail .tagline a { color: var(--cp-link); cursor: pointer; }
+  .mk-detail .tagline .dot { color: var(--cp-text-soft); margin: 0 2px; }
 
-  /* ===== Detail drawer ===== */
-  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: opacity .16s; z-index: 40; }
-  .scrim.open { opacity: 1; pointer-events: auto; }
-  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 92vw; background: var(--cp-surface);
-    border-left: 1px solid var(--cp-border); box-shadow: -14px 0 40px rgba(0,0,0,.22); transform: translateX(100%);
-    transition: transform .18s ease; z-index: 50; display: flex; flex-direction: column; }
-  .drawer.open { transform: translateX(0); }
-  .dr-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--cp-border); }
-  .dr-ticon { width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; font-size: 19px;
-    border-radius: 10px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); }
-  .dr-title { font-weight: 700; font-size: 16px; word-break: break-word; }
-  .dr-badges { display: flex; align-items: center; gap: 7px; margin-top: 5px; flex-wrap: wrap; }
-  .dr-type { font-size: 11px; color: var(--cp-text-soft); text-transform: uppercase; letter-spacing: .4px; }
-  .dr-x { margin-left: auto; border: none; background: none; color: var(--cp-text-muted); font-size: 16px; cursor: pointer; }
-  .dr-x:hover { color: var(--cp-text); }
-  .dr-body { padding: 18px; overflow: auto; flex: 1; }
-  .dr-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-muted);
-    font-weight: 600; margin: 16px 0 6px; }
-  .dr-body .dr-label:first-child { margin-top: 0; }
-  .dr-code { background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 9px; padding: 10px 12px;
-    font-family: var(--font-mono); font-size: 12px; color: var(--cp-text-soft); word-break: break-all; }
-  .dr-foot { padding: 14px 18px; border-top: 1px solid var(--cp-border); display: flex; gap: 10px; }
-  .dr-foot .btn { flex: 1; justify-content: center; }
-  .tag-row { display: flex; gap: 7px; flex-wrap: wrap; }
-  .tag { font-size: 11.5px; color: var(--cp-text-soft); background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
-    border-radius: 7px; padding: 3px 9px; }
+  @media (max-width: 860px) {
+    .mk-studio { grid-template-columns: 1fr; }
+    .mk-rail { position: static; }
+    .mk-stage { height: auto; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="mock-banner">
-    <strong>Mockup</strong><span>· Marketplace redesign — calm “Newsletter” rail + stage, no pill navigation.</span>
-    <span class="sp"></span>
-    <button class="theme-btn" onclick="toggleTheme()">◐ Toggle theme</button>
-  </div>
-
-  <div class="mk-head">
-    <div>
-      <h1>🛍️ Marketplace</h1>
-      <p>Discover agents, plugins, skills and MCP servers from local folders, Azure DevOps and GitHub — and add them to any agent or team.</p>
+  <div class="wrap">
+    <div class="mock-banner">
+      <strong>Marketplace redesign — static mockup</strong>
+      <span>Studio layout (rail + focused stage) modeled on the Newsletter page. No functionality is wired up.</span>
+      <span class="sp"></span>
+      <button class="theme-btn" onclick="toggleTheme()">◐ Theme</button>
     </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn ghost">✨ Design with AI</button>
-      <button class="btn primary">＋ Add source</button>
-    </div>
-  </div>
 
-  <div class="mk-studio">
-    <!-- ===== RAIL ===== -->
-    <aside class="mk-rail">
-      <div class="rail-card">
-        <div class="search">
-          <span class="ic">🔎</span>
-          <input id="q" type="text" placeholder="Search the catalog…" oninput="render()" />
-        </div>
-      </div>
-
-      <div class="rail-card">
-        <p class="rail-title">Type</p>
-        <div class="nav-links" id="typeNav"></div>
-      </div>
-
-      <div class="rail-card">
-        <p class="rail-title">Sources</p>
-        <div class="nav-links" id="srcNav"></div>
-      </div>
-
-      <div class="rail-card rail-foot">
-        <button class="btn ghost sm" onclick="alert('mockup: add source')">📁 Local folder</button>
-        <button class="btn ghost sm" onclick="alert('mockup: add source')">🔷 Azure DevOps</button>
-        <button class="btn ghost sm" onclick="alert('mockup: add source')">🐙 GitHub</button>
-      </div>
-    </aside>
-
-    <!-- ===== STAGE ===== -->
-    <section class="mk-stage">
-      <div class="stage-bar">
-        <div>
-          <div class="stage-title" id="stageTitle">All capabilities</div>
-          <div class="stage-sub" id="stageSub">—</div>
-        </div>
-        <div class="stage-actions">
-          <label class="grp">Group by
-            <select id="groupBy" onchange="render()">
-              <option value="type">Type</option>
-              <option value="source">Source</option>
-              <option value="installed">Installed</option>
-              <option value="none">None</option>
-            </select>
-          </label>
-          <label class="chk"><input type="checkbox" id="hideInstalled" onchange="render()" /> Hide installed</label>
-        </div>
-      </div>
-
-      <div class="stage-scroll">
-        <div class="whatsnew" id="whatsnew">
-          <div class="wn-head">
-            <span>✨</span>
-            <span class="wn-title">6 new items since your last visit</span>
-            <button class="wn-x" onclick="document.getElementById('whatsnew').style.display='none'">✕</button>
+    <div class="mk-studio">
+      <!-- LEFT RAIL: navigation + filters live here, out of the content's way -->
+      <aside class="mk-rail">
+        <div class="mk-card">
+          <div class="mk-search">
+            <span class="mag">🔎</span>
+            <input id="q" type="text" placeholder="Search the marketplace…" oninput="render()" />
           </div>
-          <div class="wn-body">New agents, a refreshed skill pack, and two MCP servers landed across your sources.</div>
-          <div class="wn-links" id="wnLinks"></div>
+          <div id="typeNav"></div>
         </div>
 
-        <div id="groups"></div>
-        <div class="empty" id="empty" style="display:none">No items match the current filters.</div>
-      </div>
-    </section>
-  </div>
-</div>
+        <div class="mk-card">
+          <div class="card-h">Sources</div>
+          <div id="srcNav"></div>
+          <div class="add-src">
+            <button onclick="alert('mockup: connect an Azure DevOps repo')">＋ Azure DevOps</button>
+            <button onclick="alert('mockup: connect a GitHub repo')">＋ GitHub</button>
+          </div>
+        </div>
+      </aside>
 
-<!-- Detail drawer -->
-<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
-<aside class="drawer" id="drawer">
-  <div class="dr-head">
-    <div class="dr-ticon" id="drIcon">🤖</div>
-    <div style="min-width:0;flex:1">
-      <div class="dr-title" id="drName">—</div>
-      <div class="dr-badges" id="drBadges"></div>
+      <!-- CENTER STAGE: one focused view at a time; internal scroll keeps the bar + rail pinned -->
+      <main class="mk-stage">
+        <div class="mk-stage-bar" id="stageBar"></div>
+        <div class="mk-scroll" id="stage"></div>
+      </main>
     </div>
-    <button class="dr-x" onclick="closeDrawer()">✕</button>
   </div>
-  <div class="dr-body" id="drBody"></div>
-  <div class="dr-foot" id="drFoot"></div>
-</aside>
 
 <script>
   // ---- sample catalog (realistic mix) ----
   const TYPES = {
-    agent:  { label: 'Agents',      icon: '🤖', action: 'Install' },
-    plugin: { label: 'Plugins',     icon: '🧩', action: 'Install' },
-    skill:  { label: 'Skills',      icon: '🛠️', action: 'Add…' },
-    mcp:    { label: 'MCP servers', icon: '🔌', action: 'Add…' },
+    agent:  { label: 'Agents',      icon: '🤖', action: 'Install', noun: 'agent' },
+    plugin: { label: 'Plugins',     icon: '🧩', action: 'Install', noun: 'plugin' },
+    skill:  { label: 'Skills',      icon: '🛠️', action: 'Add',     noun: 'skill' },
+    mcp:    { label: 'MCP servers', icon: '🔌', action: 'Add',     noun: 'MCP server' },
   };
   const SOURCES = {
-    'local-1':  { label: 'my-agents',        kind: 'local',  icon: '📁', path: 'C:\\repos\\my-agents' },
-    'azdo-1':   { label: 'dnceng · helix',   kind: 'azdo',   icon: '🔷', path: 'dnceng/internal/helix-observer@main' },
-    'gh-1':     { label: 'costahome/office', kind: 'github', icon: '🐙', path: 'costahome/office-agents@main' },
-    'gh-2':     { label: 'contoso/skills',   kind: 'github', icon: '🐙', path: 'contoso/skill-lab@main' },
+    'local-1': { label: 'my-agents',       kind: 'local',  icon: '📁', path: 'C:\\repos\\my-agents' },
+    'azdo-1':  { label: 'dnceng · helix',  kind: 'azdo',   icon: '🔷', path: 'dnceng/internal/helix-observer@main' },
+    'gh-1':    { label: 'costahome/office',src:'', kind: 'github', icon: '🐙', path: 'costahome/office-agents@main' },
+    'gh-2':    { label: 'contoso/skills',  kind: 'github', icon: '🐙', path: 'contoso/skill-lab@main' },
   };
   const ITEMS = [
-    { id:'a1', type:'agent',  name:'Standup Facilitator',  src:'gh-1',   desc:'Runs async daily standups, nudges blockers and posts a digest.', installed:true,  isNew:false, tags:['standup','summarize','teams'] },
-    { id:'a2', type:'agent',  name:'PR Steward',           src:'azdo-1', desc:'Reviews pull requests, applies feedback, hardens and validates.', installed:false, isNew:true,  tags:['code-review','ci','git'] },
-    { id:'a3', type:'agent',  name:'Release Notes Writer',  src:'gh-1',   desc:'Drafts crisp release notes from merged PRs and issues.',          installed:false, isNew:true,  tags:['docs','changelog'] },
-    { id:'a4', type:'agent',  name:'On-call Triage',        src:'azdo-1', desc:'Triages alerts, correlates telemetry and proposes mitigations.',  installed:false, isNew:false, tags:['sre','alerts'] },
-    { id:'p1', type:'plugin', name:'Azure DevOps Suite',    src:'azdo-1', desc:'Work items, pipelines, PRs and dashboards as agent tools.',       installed:true,  isNew:false, tags:['azdo','pipelines'] },
-    { id:'p2', type:'plugin', name:'Newsletter Studio',     src:'local-1',desc:'Compose, chart and email impact newsletters.',                    installed:false, isNew:true,  tags:['email','charts'] },
-    { id:'p3', type:'plugin', name:'Kusto Explorer',        src:'azdo-1', desc:'Query and visualize Kusto/Eventhouse from chat.',                 installed:false, isNew:false, tags:['kusto','data'] },
-    { id:'s1', type:'skill',  name:'Summarize Thread',      src:'gh-2',   desc:'Condense a long chat/email thread into decisions + actions.',     installed:false, isNew:false, tags:['summarize'] },
-    { id:'s2', type:'skill',  name:'Chart from CSV',        src:'gh-2',   desc:'Turn tabular data into inline SVG charts.',                       installed:false, isNew:true,  tags:['charts','data'] },
-    { id:'s3', type:'skill',  name:'Rewrite for Tone',      src:'local-1',desc:'Adjust copy for tone, length and audience.',                      installed:true,  isNew:false, tags:['writing'] },
-    { id:'s4', type:'skill',  name:'Extract Action Items',  src:'gh-2',   desc:'Pull owners + due dates out of meeting transcripts.',             installed:false, isNew:false, tags:['meetings'] },
-    { id:'m1', type:'mcp',    name:'Kusto MCP',             src:'azdo-1', desc:'Read-only Kusto access over MCP.',      installed:false, isNew:true,  cmd:'npx', args:'@office/kusto-mcp --readonly', env:['KUSTO_CLUSTER'], tags:['kusto'] },
-    { id:'m2', type:'mcp',    name:'GitHub MCP',            src:'gh-1',   desc:'Issues, PRs and repo files as MCP tools.', installed:true,  isNew:false, cmd:'gh-mcp', args:'serve', env:['GITHUB_TOKEN'], tags:['github'] },
+    { id:'a1', type:'agent',  name:'Standup Facilitator',   src:'gh-1',    desc:'Runs async daily standups, nudges blockers and posts a digest to your channel.', installed:true,  isNew:false, ver:'1.4.0', tags:['standup','summarize','teams'] },
+    { id:'a2', type:'agent',  name:'PR Steward',            src:'azdo-1',  desc:'Reviews pull requests, applies feedback, hardens and validates before merge.',   installed:false, isNew:true,  ver:'0.9.2', tags:['code-review','ci','git'] },
+    { id:'a3', type:'agent',  name:'Release Notes Writer',  src:'gh-1',    desc:'Drafts crisp release notes from merged PRs and closed issues.',                  installed:false, isNew:true,  ver:'1.1.0', tags:['docs','changelog'] },
+    { id:'a4', type:'agent',  name:'On-call Triage',        src:'azdo-1',  desc:'Triages alerts, correlates telemetry and proposes mitigations.',                 installed:false, isNew:false, ver:'2.0.1', tags:['sre','alerts'] },
+    { id:'p1', type:'plugin', name:'Azure DevOps Suite',    src:'azdo-1',  desc:'Work items, pipelines, PRs and dashboards exposed as agent tools.',              installed:true,  isNew:false, ver:'3.2.0', tags:['azdo','pipelines'] },
+    { id:'p2', type:'plugin', name:'Newsletter Studio',     src:'local-1', desc:'Compose, chart and email impact newsletters from your work.',                   installed:false, isNew:true,  ver:'0.6.0', tags:['email','charts'] },
+    { id:'p3', type:'plugin', name:'Kusto Explorer',        src:'azdo-1',  desc:'Query and visualize Kusto / Eventhouse straight from chat.',                     installed:false, isNew:false, ver:'1.8.3', tags:['kusto','data'] },
+    { id:'s1', type:'skill',  name:'Summarize Thread',      src:'gh-2',    desc:'Condense a long chat or email thread into decisions and action items.',          installed:false, isNew:false, ver:'1.0.0', tags:['summarize'] },
+    { id:'s2', type:'skill',  name:'Chart from CSV',        src:'gh-2',    desc:'Turn tabular data into clean inline SVG charts.',                                installed:false, isNew:true,  ver:'1.2.0', tags:['charts','data'] },
+    { id:'s3', type:'skill',  name:'Rewrite for Tone',      src:'local-1', desc:'Adjust copy for tone, length and audience.',                                    installed:true,  isNew:false, ver:'1.0.4', tags:['writing'] },
+    { id:'s4', type:'skill',  name:'Extract Action Items',  src:'gh-2',    desc:'Pull owners and due dates out of meeting transcripts.',                          installed:false, isNew:false, ver:'1.1.0', tags:['meetings'] },
+    { id:'m1', type:'mcp',    name:'Kusto MCP',             src:'azdo-1',  desc:'Read-only Kusto access over MCP.',                                               installed:false, isNew:true,  ver:'0.3.0', cmd:'npx', args:'@office/kusto-mcp --readonly', env:['KUSTO_CLUSTER'], tags:['kusto'] },
+    { id:'m2', type:'mcp',    name:'GitHub MCP',            src:'gh-1',    desc:'Issues, PRs and repo files exposed as MCP tools.',                               installed:true,  isNew:false, ver:'1.0.0', cmd:'gh-mcp', args:'serve', env:['GITHUB_TOKEN'], tags:['github'] },
   ];
 
   let state = { type: 'all', src: 'all', groupBy: 'type', selected: null };
 
-  function counts(dim, val) {
-    return ITEMS.filter(i => i[dim] === val).length;
-  }
+  const el = id => document.getElementById(id);
+  const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const countType = k => ITEMS.filter(i => i.type === k).length;
+  const countSrc  = k => ITEMS.filter(i => i.src === k).length;
 
   function buildRail() {
-    // Type nav (quiet text links, muted counts — no pills)
-    const tn = document.getElementById('typeNav');
-    const typeRows = [['all','🗂️','All capabilities', ITEMS.length]];
-    Object.entries(TYPES).forEach(([k,t]) => typeRows.push([k, t.icon, t.label, counts('type', k)]));
-    tn.innerHTML = typeRows.map(([k,ic,lbl,n]) =>
+    // Primary navigation: capability type. Quiet text links + muted counts, active gets a soft accent.
+    const rows = [['all','🗂️','All capabilities', ITEMS.length]];
+    Object.entries(TYPES).forEach(([k,t]) => rows.push([k, t.icon, t.label, countType(k)]));
+    el('typeNav').innerHTML = rows.map(([k,ic,lbl,n]) =>
       `<div class="nav-link ${state.type===k?'active':''}" onclick="setType('${k}')">
          <span class="ico">${ic}</span><span class="lbl">${lbl}</span><span class="count">${n}</span>
        </div>`).join('');
 
-    // Sources
-    const sn = document.getElementById('srcNav');
-    let rows = `<div class="src-row ${state.src==='all'?'active':''}" onclick="setSrc('all')">
+    let s = `<div class="src-row ${state.src==='all'?'active':''}" onclick="setSrc('all')">
         <span class="ico">🗃️</span><div class="src-main"><div class="src-name">All sources</div></div>
         <span class="count">${ITEMS.length}</span></div>
       <div class="src-row ${state.src==='installed'?'active':''}" onclick="setSrc('installed')">
         <span class="ico">✓</span><div class="src-main"><div class="src-name">Installed only</div></div>
         <span class="count">${ITEMS.filter(i=>i.installed).length}</span></div>`;
-    Object.entries(SOURCES).forEach(([id,s]) => {
-      rows += `<div class="src-row ${state.src===id?'active':''}" onclick="setSrc('${id}')">
-          <span class="ico">${s.icon}</span>
-          <div class="src-main"><div class="src-name">${s.label}</div><div class="src-path">${s.path}</div></div>
-          <span class="count">${counts('src', id)}</span></div>`;
+    Object.entries(SOURCES).forEach(([id,src]) => {
+      s += `<div class="src-row ${state.src===id?'active':''}" onclick="setSrc('${id}')">
+          <span class="ico">${src.icon}</span>
+          <div class="src-main"><div class="src-name">${esc(src.label)}</div><div class="src-path">${esc(src.path)}</div></div>
+          <span class="count">${countSrc(id)}</span></div>`;
     });
-    sn.innerHTML = rows;
+    el('srcNav').innerHTML = s;
   }
 
-  function setType(t){ state.type = t; render(); }
-  function setSrc(s){ state.src = s; render(); }
+  function setType(t){ state.type = t; state.selected = null; render(); }
+  function setSrc(s){ state.src = s; state.selected = null; render(); }
+  function open(id){ state.selected = id; render(); el('stage').scrollTop = 0; }
+  function back(){ state.selected = null; render(); }
 
   function filtered() {
-    const q = (document.getElementById('q').value || '').toLowerCase().trim();
-    const hide = document.getElementById('hideInstalled').checked;
+    const q = (el('q').value || '').toLowerCase().trim();
     return ITEMS.filter(i => {
       if (state.type !== 'all' && i.type !== state.type) return false;
       if (state.src === 'installed') { if (!i.installed) return false; }
       else if (state.src !== 'all' && i.src !== state.src) return false;
-      if (hide && i.installed) return false;
       if (q && !(i.name.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q) || (i.tags||[]).some(t=>t.includes(q)))) return false;
       return true;
     });
   }
 
-  function grouped(items) {
-    const by = document.getElementById('groupBy').value;
-    if (by === 'none') return [{ key:'all', label:'', icon:'', items }];
-    const map = {};
-    items.forEach(i => {
-      let key, label, icon;
-      if (by === 'type') { key = i.type; label = TYPES[i.type].label; icon = TYPES[i.type].icon; }
-      else if (by === 'source') { key = i.src; label = SOURCES[i.src].label; icon = SOURCES[i.src].icon; }
-      else { key = i.installed ? 'inst' : 'avail'; label = i.installed ? 'Installed' : 'Available'; icon = i.installed ? '✓' : '＋'; }
-      (map[key] = map[key] || { key, label, icon, items: [] }).items.push(i);
-    });
-    const order = by === 'type' ? Object.keys(TYPES) : Object.keys(map);
-    return order.filter(k => map[k]).map(k => map[k]);
+  function itemRow(i) {
+    const t = TYPES[i.type];
+    const src = SOURCES[i.src];
+    const badge = i.installed ? `<span class="badge installed">Installed</span>`
+               : i.isNew ? `<span class="badge new">New</span>` : '';
+    const act = i.installed ? `<button class="btn done">Installed ✓</button>`
+              : `<button class="btn ${i.type==='agent'||i.type==='plugin'?'primary':''}" onclick="event.stopPropagation();alert('mockup: ${t.action} ${esc(i.name)}')">${t.action}</button>`;
+    return `<div class="mk-item" onclick="open('${i.id}')">
+        <div class="it-ico">${t.icon}</div>
+        <div class="it-body">
+          <div class="it-name">${esc(i.name)} ${badge}</div>
+          <div class="it-desc">${esc(i.desc)}</div>
+          <div class="it-meta">${src.icon} ${esc(src.label)} · v${i.ver}</div>
+        </div>
+        <div class="it-act">${act}</div>
+      </div>`;
   }
 
-  function itemRow(i) {
-    const s = SOURCES[i.src];
-    const t = TYPES[i.type];
-    const badges = (i.installed ? '<span class="badge ok">✓ Installed</span>' : (i.isNew ? '<span class="badge new">✨ New</span>' : ''));
-    const btn = i.installed
-      ? `<button class="btn ghost sm" disabled>✓</button>`
-      : `<button class="btn primary sm" onclick="event.stopPropagation();alert('mockup: ${t.action} ${i.name}')">${t.action}</button>`;
-    return `<div class="mk-item ${state.selected===i.id?'selected':''}" onclick="openDrawer('${i.id}')">
-      <div class="mk-ticon">${t.icon}</div>
-      <div class="mk-body">
-        <div class="mk-name"><span class="nm">${i.name}</span>${badges}</div>
-        <div class="mk-desc">${i.desc}</div>
-      </div>
-      <div class="mk-right">
-        <span class="mk-meta">${s.icon} ${s.label}</span>
-        ${btn}
-      </div>
-    </div>`;
+  function whatsNewStrip() {
+    // Only on the "All" home view — a calm what's-new strip with inline text links (no pills)
+    if (state.type !== 'all' || state.src !== 'all' || (el('q').value||'').trim()) return '';
+    const news = ITEMS.filter(i => i.isNew);
+    if (!news.length) return '';
+    const links = news.map((i,idx) =>
+      `${idx?'<span class="dot">·</span>':''}<a onclick="open('${i.id}')">${esc(i.name)}</a>`).join(' ');
+    return `<div class="whatsnew">
+        <div class="wh-h">🆕 What's new · ${news.length} added this week</div>
+        <div class="wh-links">${links}</div>
+      </div>`;
+  }
+
+  function renderList() {
+    const items = filtered();
+    let html = whatsNewStrip();
+    if (!items.length) {
+      html += `<div class="mk-empty"><div class="big">🔍</div><p>No matches. Try another source or clear the search.</p></div>`;
+      el('stage').innerHTML = html; return;
+    }
+    // group by the chosen dimension; plain-text headings with muted counts (no pills)
+    const groups = {};
+    items.forEach(i => {
+      const key = state.groupBy === 'source' ? i.src : (state.groupBy === 'status' ? (i.installed?'installed':'available') : i.type);
+      (groups[key] = groups[key] || []).push(i);
+    });
+    const order = state.groupBy === 'type' ? Object.keys(TYPES)
+                : state.groupBy === 'source' ? Object.keys(SOURCES)
+                : ['available','installed'];
+    const label = k => state.groupBy === 'source' ? (SOURCES[k]?.label || k)
+                     : state.groupBy === 'status' ? (k==='installed'?'Installed':'Available')
+                     : (TYPES[k]?.label || k);
+    order.filter(k => groups[k]).forEach(k => {
+      // when a single type is selected, don't repeat the redundant type heading
+      if (!(state.type !== 'all' && state.groupBy === 'type')) {
+        html += `<div class="grp-h"><span class="g-title">${esc(label(k))}</span><span class="g-count">${groups[k].length}</span></div>`;
+      }
+      html += groups[k].map(itemRow).join('');
+    });
+    el('stage').innerHTML = html;
+  }
+
+  function renderDetail(i) {
+    const t = TYPES[i.type]; const src = SOURCES[i.src];
+    const tags = (i.tags||[]).map((tg,idx)=>`${idx?'<span class="dot">·</span>':''}<a>#${esc(tg)}</a>`).join(' ');
+    const act = i.installed
+      ? `<button class="btn done">Installed ✓</button><button class="btn" onclick="alert('mockup: remove')">Remove</button>`
+      : `<button class="btn primary" onclick="alert('mockup: ${t.action} ${esc(i.name)}')">${t.action} ${esc(t.noun)}</button>`;
+    let extra = '';
+    if (i.type === 'mcp') {
+      extra = `<div class="d-sec"><h3>Connection</h3><div class="kv">
+          <div class="k">Command</div><div><code>${esc(i.cmd)} ${esc(i.args)}</code></div>
+          <div class="k">Env</div><div>${(i.env||[]).map(e=>`<code>${esc(e)}</code>`).join(' ')}</div>
+        </div></div>`;
+    }
+    el('stage').innerHTML = `<div class="mk-detail">
+        <div class="d-head">
+          <div class="d-ico">${t.icon}</div>
+          <div>
+            <h1>${esc(i.name)}</h1>
+            <div class="d-sub">
+              ${t.label.replace(/s$/,'')} <span class="dot">·</span>
+              ${src.icon} ${esc(src.label)} <span class="dot">·</span> v${i.ver}
+              ${i.isNew?'<span class="dot">·</span><span class="badge new">New</span>':''}
+              ${i.installed?'<span class="dot">·</span><span class="badge installed">Installed</span>':''}
+            </div>
+          </div>
+        </div>
+        <div class="d-actions">${act}</div>
+        <p class="d-desc">${esc(i.desc)}</p>
+        <div class="d-sec"><h3>Source</h3><div class="kv">
+          <div class="k">Repository</div><div>${esc(src.path)}</div>
+          <div class="k">Kind</div><div>${esc(src.kind)}</div>
+        </div></div>
+        ${extra}
+        <div class="d-sec"><h3>Tags</h3><div class="tagline">${tags||'<span class="muted">none</span>'}</div></div>
+      </div>`;
+  }
+
+  function renderBar() {
+    if (state.selected) {
+      const i = ITEMS.find(x => x.id === state.selected);
+      el('stageBar').innerHTML =
+        `<button class="backlink" onclick="back()">← Back</button>
+         <div class="title" style="font-size:14px">${TYPES[i.type].icon} ${esc(i.name)}</div>`;
+      return;
+    }
+    const t = state.type === 'all' ? { icon:'🗂️', label:'All capabilities' } : TYPES[state.type];
+    const n = filtered().length;
+    const srcLbl = state.src === 'all' ? '' : state.src === 'installed' ? ' · installed'
+                 : ' · ' + (SOURCES[state.src]?.label || '');
+    el('stageBar').innerHTML = `
+      <div class="title">${t.icon} ${esc(t.label)} <span class="n">${n} item${n===1?'':'s'}${esc(srcLbl)}</span></div>
+      <div class="stage-actions">
+        <label>Group by
+          <select onchange="state.groupBy=this.value;render()">
+            <option value="type" ${state.groupBy==='type'?'selected':''}>Type</option>
+            <option value="source" ${state.groupBy==='source'?'selected':''}>Source</option>
+            <option value="status" ${state.groupBy==='status'?'selected':''}>Status</option>
+          </select>
+        </label>
+      </div>`;
   }
 
   function render() {
-    state.groupBy = document.getElementById('groupBy').value;
     buildRail();
-    const items = filtered();
-
-    // stage header
-    const title = state.type === 'all' ? 'All capabilities' : TYPES[state.type].label;
-    const srcLabel = state.src === 'all' ? 'all sources' : state.src === 'installed' ? 'installed only' : SOURCES[state.src].label;
-    document.getElementById('stageTitle').textContent = title;
-    document.getElementById('stageSub').textContent =
-      `${items.length} item${items.length===1?'':'s'} · ${srcLabel}`;
-
-    // what's new links
-    const news = ITEMS.filter(i => i.isNew);
-    document.getElementById('wnLinks').innerHTML = news.map((i,idx) =>
-      `<a href="#" onclick="openDrawer('${i.id}');return false">${i.name}</a>` +
-      (idx < news.length-1 ? '<span class="dotsep">·</span>' : '')).join('');
-
-    // groups
-    const gEl = document.getElementById('groups');
-    const groups = grouped(items);
-    if (!items.length) {
-      gEl.innerHTML = '';
-      document.getElementById('empty').style.display = 'block';
-      return;
-    }
-    document.getElementById('empty').style.display = 'none';
-    const showHead = document.getElementById('groupBy').value !== 'none';
-    gEl.innerHTML = groups.map(g => `
-      <div class="group">
-        ${showHead ? `<div class="group-head">
-          <span class="group-icon">${g.icon}</span>
-          <span class="group-label">${g.label}</span>
-          <span class="group-count">${g.items.length}</span>
-          <span class="group-rule"></span>
-        </div>` : ''}
-        <div class="mk-list">${g.items.map(itemRow).join('')}</div>
-      </div>`).join('');
+    renderBar();
+    if (state.selected) renderDetail(ITEMS.find(x => x.id === state.selected));
+    else renderList();
   }
-
-  function openDrawer(id) {
-    const i = ITEMS.find(x => x.id === id);
-    if (!i) return;
-    state.selected = id;
-    const s = SOURCES[i.src], t = TYPES[i.type];
-    document.getElementById('drIcon').textContent = t.icon;
-    document.getElementById('drName').textContent = i.name;
-    document.getElementById('drBadges').innerHTML =
-      `<span class="dr-type">${t.label.replace(/s$/,'')}</span>` +
-      (i.installed ? '<span class="badge ok">✓ Installed</span>' : (i.isNew ? '<span class="badge new">✨ New</span>' : ''));
-
-    let body = `<div class="dr-label">Description</div><div style="font-size:13px;line-height:1.55">${i.desc}</div>`;
-    body += `<div class="dr-label">Source</div><div class="dr-code">${s.icon} ${s.kind}<br>${s.path}</div>`;
-    if (i.type === 'mcp') {
-      body += `<div class="dr-label">MCP server</div><div class="dr-code">${i.cmd} ${i.args}` +
-        (i.env && i.env.length ? `<br><span class="muted">env: ${i.env.join(', ')}</span>` : '') + `</div>`;
-    }
-    if (i.tags && i.tags.length) {
-      body += `<div class="dr-label">Tags</div><div class="tag-row">${i.tags.map(x=>`<span class="tag">${x}</span>`).join('')}</div>`;
-    }
-    document.getElementById('drBody').innerHTML = body;
-
-    document.getElementById('drFoot').innerHTML = i.installed
-      ? `<button class="btn ghost">Open in team…</button><button class="btn ghost" disabled>✓ Installed</button>`
-      : `<button class="btn ghost">Preview</button><button class="btn primary" onclick="alert('mockup: ${t.action} ${i.name}')">${t.action.replace('…','')}</button>`;
-
-    document.getElementById('scrim').classList.add('open');
-    document.getElementById('drawer').classList.add('open');
-    render();
-  }
-  function closeDrawer() {
-    state.selected = null;
-    document.getElementById('scrim').classList.remove('open');
-    document.getElementById('drawer').classList.remove('open');
-    render();
-  }
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
   function toggleTheme() {
-    const el = document.documentElement;
-    el.setAttribute('data-theme', el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    const h = document.documentElement;
+    h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   }
 
   render();
