@@ -1413,6 +1413,24 @@
     .home-rsec > .card, .home-rsec > .home-section { margin-bottom: 0; height: 100%; }
     .home-rsec.is-drop { outline: 2px dashed var(--cp-accent); outline-offset: 6px; border-radius: 16px; }
 
+    /* Customize-sections picker (both homes) */
+    .home-cust-wrap { position: relative; display: inline-flex; }
+    .home-cust-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface); color:var(--cp-text-muted); cursor:pointer; font-size:0.82rem; white-space:nowrap; }
+    .home-cust-btn:hover { color:var(--cp-text); border-color:var(--cp-border-strong); }
+    .home-cust-btn.is-on { color:var(--cp-text); border-color:var(--cp-border-strong); }
+    .home-cust-pop { position:absolute; top:calc(100% + 8px); right:0; z-index:60; width:264px; background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; box-shadow:0 12px 32px rgba(0,0,0,0.28); padding:10px; }
+    .home-cust-pop .hcp-head { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:0.85rem; margin-bottom:6px; padding:0 4px; }
+    .home-cust-pop .hcp-head button { background:none;border:none;color:var(--cp-text-muted);cursor:pointer;font-size:1rem;line-height:1; }
+    .home-cust-pop .hcp-hint { font-size:0.72rem; color:var(--cp-text-muted); padding:0 4px 6px; }
+    .hcp-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:5px 4px; border-radius:8px; }
+    .hcp-row:hover { background:var(--cp-surface-soft); }
+    .hcp-row label { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.85rem; flex:1; min-width:0; }
+    .hcp-move { display:inline-flex; gap:2px; }
+    .hcp-move button { width:22px;height:22px;border:1px solid var(--cp-border);background:var(--cp-surface);border-radius:6px;color:var(--cp-text-muted);cursor:pointer;font-size:0.72rem;line-height:1; }
+    .hcp-move button:hover { color:var(--cp-text); border-color:var(--cp-border-strong); }
+    .hcp-foot { display:flex; justify-content:flex-end; margin-top:8px; padding-top:8px; border-top:1px solid var(--cp-border); }
+    .hcp-foot button { background:none;border:none;color:var(--cp-link);cursor:pointer;font-size:0.8rem; }
+
     /* ===== Management (workforce) home dashboard ===== */
     .mgmt-home .mh-full { grid-column: 1 / -1; }
     .mgmt-home .mh-accent-warn { border-left: 3px solid color-mix(in srgb, var(--cp-warning, #f59e0b) 70%, var(--cp-border)); }
@@ -5759,6 +5777,25 @@
                     <span x-text="homeArrange ? 'Done' : 'Arrange'"></span>
                     <span class="haf-reset" x-show="homeArrange" @click.stop="homeResetSections()" title="Reset to default order">Reset</span>
                   </button>
+                  <div class="home-cust-wrap">
+                    <button type="button" class="home-cust-btn" :class="homeCustomizeOpen ? 'is-on' : ''" @click="homeCustomizeOpen = !homeCustomizeOpen" title="Show, hide & reorder sections">
+                      <span>⚙</span><span>Customize</span>
+                    </button>
+                    <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
+                      <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
+                      <div class="hcp-hint">Toggle sections on or off and reorder them.</div>
+                      <template x-for="s in homePickerSections()" :key="'hcp-p-'+s.key">
+                        <div class="hcp-row">
+                          <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
+                          <span class="hcp-move">
+                            <button type="button" @click="homePickerMove(s.key,-1)" title="Move up">↑</button>
+                            <button type="button" @click="homePickerMove(s.key,1)" title="Move down">↓</button>
+                          </span>
+                        </div>
+                      </template>
+                      <div class="hcp-foot"><button type="button" @click="homePickerReset()">Reset to default</button></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -6000,13 +6037,32 @@
                       <span class="hs-label">Running</span>
                     </div>
                   </div>
+                  <div class="home-cust-wrap">
+                    <button type="button" class="home-cust-btn" :class="homeCustomizeOpen ? 'is-on' : ''" @click="homeCustomizeOpen = !homeCustomizeOpen" title="Show, hide & reorder sections">
+                      <span>⚙</span><span>Customize</span>
+                    </button>
+                    <div class="home-cust-pop" x-show="homeCustomizeOpen" x-transition @click.outside="homeCustomizeOpen = false" x-cloak>
+                      <div class="hcp-head"><span>Customize sections</span><button type="button" @click="homeCustomizeOpen = false">✕</button></div>
+                      <div class="hcp-hint">Toggle sections on or off and reorder them.</div>
+                      <template x-for="s in homePickerSections()" :key="'hcp-m-'+s.key">
+                        <div class="hcp-row">
+                          <label><input type="checkbox" :checked="!s.hidden" @change="homePickerToggle(s.key)"><span x-text="s.label"></span></label>
+                          <span class="hcp-move">
+                            <button type="button" @click="homePickerMove(s.key,-1)" title="Move up">↑</button>
+                            <button type="button" @click="homePickerMove(s.key,1)" title="Move down">↓</button>
+                          </span>
+                        </div>
+                      </template>
+                      <div class="hcp-foot"><button type="button" @click="homePickerReset()">Reset to default</button></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div class="home-cards">
 
                 <!-- What's new (marketplace + release highlights) -->
-                <section class="card home-wn-card mh-full" x-show="homeWhatsNewFeed().length">
+                <section class="card home-wn-card mh-full" x-show="mgmtSectionVisible('whatsnew')" :style="{ order: mgmtSecIndex('whatsnew') }">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title"><span class="home-wn-spark">✦</span> What's new</h2>
@@ -6029,7 +6085,7 @@
                 </section>
 
                 <!-- Attention needed -->
-                <section class="card mh-accent-warn">
+                <section class="card mh-accent-warn" x-show="mgmtSectionVisible('attention')" :style="{ order: mgmtSecIndex('attention') }">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">⚠ Attention needed</h2>
@@ -6053,7 +6109,7 @@
                 </section>
 
                 <!-- Team pulse -->
-                <section class="card">
+                <section class="card" x-show="mgmtSectionVisible('pulse')" :style="{ order: mgmtSecIndex('pulse') }">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">💓 Team pulse</h2>
@@ -6090,7 +6146,7 @@
                 </section>
 
                 <!-- Recently added -->
-                <section class="card mh-full">
+                <section class="card mh-full" x-show="mgmtSectionVisible('recent')" :style="{ order: mgmtSecIndex('recent') }">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">🆕 Recently added</h2>
@@ -6114,7 +6170,7 @@
                 </section>
 
                 <!-- Flow activity chart -->
-                <section class="card mh-accent-link mh-full">
+                <section class="card mh-accent-link mh-full" x-show="mgmtSectionVisible('flowchart')" :style="{ order: mgmtSecIndex('flowchart') }">
                   <div class="card-header">
                     <div>
                       <h2 class="card-title">📈 Flow activity</h2>
@@ -16996,8 +17052,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homeSectionsDefault: ['devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
+        homeSectionHidden: [],
         homeDrag: null,
         homeDragOver: null,
+        homeCustomizeOpen: false,
+        mgmtSectionsDefault: ['whatsnew', 'attention', 'pulse', 'recent', 'flowchart'],
+        mgmtSectionOrder: [],
+        mgmtSectionHidden: [],
         homeNewsletter: { title: '', subtitle: '', dek: '', storyCount: 0, readMins: 0, hasDraft: false, lastGeneratedAt: null, lastEmailedAt: null, coveredFrom: '', coveredTo: '', loaded: false },
         homeBanner: { dismissed: false },
         codeflowRepoForm: { provider: 'azdo', org: '', project: '', repo: '', busy: false, error: '', repos: [], loadingRepos: false, repoOpen: false, repoQuery: '', prefilled: false },
@@ -20849,6 +20910,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const order = (Array.isArray(saved) ? saved : []).filter(k => def.includes(k));
           def.forEach(k => { if (!order.includes(k)) order.push(k); });
           this.homeSectionOrder = order;
+          try { const h = JSON.parse(localStorage.getItem('home-section-hidden') || '[]'); this.homeSectionHidden = (Array.isArray(h) ? h : []).filter(k => def.includes(k)); } catch { this.homeSectionHidden = []; }
+          // Management (workforce) home order + hidden
+          let msaved = [];
+          try { msaved = JSON.parse(localStorage.getItem('home-section-order-mgmt') || '[]'); } catch { msaved = []; }
+          const mdef = this.mgmtSectionsDefault;
+          const morder = (Array.isArray(msaved) ? msaved : []).filter(k => mdef.includes(k));
+          mdef.forEach(k => { if (!morder.includes(k)) morder.push(k); });
+          this.mgmtSectionOrder = morder;
+          try { const mh = JSON.parse(localStorage.getItem('home-section-hidden-mgmt') || '[]'); this.mgmtSectionHidden = (Array.isArray(mh) ? mh : []).filter(k => mdef.includes(k)); } catch { this.mgmtSectionHidden = []; }
         },
         homeSecIndex(key) {
           const i = this.homeSectionOrder.indexOf(key);
@@ -20905,6 +20975,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // empty blocks the user can't interact with.
         homeSectionVisible(key) {
           if (this.appMode !== 'workspace') return false;
+          if ((this.homeSectionHidden || []).includes(key)) return false;
           switch (key) {
             case 'devwork': return !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
             case 'whatsnew': return this.homeWhatsNewFeed().length > 0;
@@ -20912,6 +20983,75 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
             default: return false;
+          }
+        },
+
+        // --- Management (workforce) home: reorder + show/hide ----------------
+        mgmtSecIndex(key) {
+          const i = this.mgmtSectionOrder.indexOf(key);
+          return i === -1 ? 99 : i;
+        },
+        mgmtSectionVisible(key) {
+          if (this.appMode !== 'workforce') return false;
+          if ((this.mgmtSectionHidden || []).includes(key)) return false;
+          if (key === 'whatsnew') return this.homeWhatsNewFeed().length > 0;
+          return true;
+        },
+
+        // --- Unified "Customize sections" picker (dispatches by appMode) -----
+        homeCustomKeys() {
+          return this.appMode === 'workforce' ? this.mgmtSectionsDefault : this.homeSectionsDefault;
+        },
+        homeSecLabel(key) {
+          const labels = {
+            devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
+            boards: 'Boards', prs: 'Pull requests',
+            attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
+            flowchart: 'Flow activity',
+          };
+          return labels[key] || key;
+        },
+        homePickerSections() {
+          const order = this.appMode === 'workforce' ? this.mgmtSectionOrder : this.homeSectionOrder;
+          const hidden = this.appMode === 'workforce' ? this.mgmtSectionHidden : this.homeSectionHidden;
+          const keys = (order && order.length) ? order.slice() : this.homeCustomKeys().slice();
+          return keys.map(k => ({ key: k, label: this.homeSecLabel(k), hidden: (hidden || []).includes(k) }));
+        },
+        _homePersistHidden() {
+          try {
+            if (this.appMode === 'workforce') localStorage.setItem('home-section-hidden-mgmt', JSON.stringify(this.mgmtSectionHidden));
+            else localStorage.setItem('home-section-hidden', JSON.stringify(this.homeSectionHidden));
+          } catch {}
+        },
+        homePickerToggle(key) {
+          const arr = (this.appMode === 'workforce' ? this.mgmtSectionHidden : this.homeSectionHidden).slice();
+          const i = arr.indexOf(key);
+          if (i === -1) arr.push(key); else arr.splice(i, 1);
+          if (this.appMode === 'workforce') this.mgmtSectionHidden = arr; else this.homeSectionHidden = arr;
+          this._homePersistHidden();
+        },
+        homePickerMove(key, dir) {
+          if (this.appMode === 'workforce') {
+            const order = this.mgmtSectionOrder.slice();
+            const i = order.indexOf(key); if (i === -1) return;
+            const j = i + dir; if (j < 0 || j >= order.length) return;
+            const t = order[i]; order[i] = order[j]; order[j] = t;
+            this.mgmtSectionOrder = order;
+            try { localStorage.setItem('home-section-order-mgmt', JSON.stringify(order)); } catch {}
+          } else {
+            this.homeMoveSection(key, dir);
+          }
+        },
+        homePickerReset() {
+          if (this.appMode === 'workforce') {
+            this.mgmtSectionOrder = this.mgmtSectionsDefault.slice();
+            this.mgmtSectionHidden = [];
+            try { localStorage.setItem('home-section-order-mgmt', JSON.stringify(this.mgmtSectionOrder)); localStorage.setItem('home-section-hidden-mgmt', '[]'); } catch {}
+          } else {
+            this.homeSectionOrder = this.homeSectionsDefault.slice();
+            this.homeSectionHidden = [];
+            this.homePersistSections();
+            try { localStorage.setItem('home-section-hidden', '[]'); } catch {}
           }
         },
 
