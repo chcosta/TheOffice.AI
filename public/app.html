@@ -11440,7 +11440,7 @@
                                   :title="cfIsSteward(pr) ? 'Create a worktree for your PR (if needed) and run the AI steward to review, fix feedback, harden & validate it' : 'Create a worktree for this PR (if needed) and run the AI reviewer to generate a report'">
                             <span x-text="cfRunLabel(pr)"></span>
                           </button>
-                          <button x-show="!cfWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                          <button x-show="!cfHasWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
                                   :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
                             <span x-text="cfCreateLabel(pr)"></span>
                           </button>
@@ -11463,7 +11463,7 @@
                         <template x-if="!cfWt(pr) || cfWt(pr).worktreeStatus !== 'ready'">
                           <div class="cf-git-empty">
                             <span class="cf-wt-history-ts">Create a worktree to see git state and manage changes.</span>
-                            <button x-show="!cfWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
+                            <button x-show="!cfHasWt(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
                                     x-text="cfCreateLabel(pr)"></button>
                           </div>
                         </template>
@@ -11538,7 +11538,7 @@
                       </div>
                         <div class="cf-subsec">
                         <div class="cf-subhead" x-text="'🧰 ' + ((codeflow && codeflow.view === 'reviews') ? 'Review env' : 'Worktree')"></div>
-                        <template x-if="!cfWt(pr)">
+                        <template x-if="!cfHasWt(pr)">
                           <span class="cf-wt-row">
                             <button class="cf-wt-btn" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)" x-text="cfCreateLabel(pr)"></button>
                           </span>
@@ -24746,6 +24746,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           Object.keys(map).forEach(k => {
             const rec = map[k];
             if (!rec || rec.prId == null) return;
+            // Slim artifacts-only records have no live worktree to show here.
+            if (rec.artifactsOnly) return;
             if (present.has(k)) return;
             // An active PR is never an orphan — it's just not in the current view
             // (e.g. a review-PR worktree while looking at "My PRs"). Only worktrees
@@ -24856,6 +24858,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         cfWt(pr) {
           return (this.codeflow.worktrees || {})[this.cfPrKey(pr)] || null;
+        },
+        // Is there a LIVE worktree (creating/ready/error) for this PR — as opposed to
+        // a slim "artifacts-only" record kept purely to preserve reports after the
+        // worktree was removed? Gates the "create worktree" affordances so a
+        // reports-only record still offers to (re)create a worktree.
+        cfHasWt(pr) {
+          const w = this.cfWt(pr);
+          return !!(w && !w.artifactsOnly && (w.worktreePath || w.worktreeStatus));
         },
         // Is this `pr` the full live object (loaded via loadBoardPrs / Code Flow list)
         // rather than a thin board-pin stub? Gates the rich drawer sections so a stub
@@ -25300,11 +25310,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const rec = this.cfWt(pr);
           this.codeflow.wtBusy[key] = 'remove';
           try {
-            await this.request('/api/codeflow/pr/worktree/remove', {
+            const resp = await this.request('/api/codeflow/pr/worktree/remove', {
               method: 'POST',
               body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider })
             });
-            delete this.codeflow.worktrees[key];
+            // The server keeps a slim "artifacts-only" record when cached reports
+            // survive removal, so the PR's AI artifacts persist. Keep it if present;
+            // otherwise forget the worktree entirely.
+            if (resp && resp.worktree) this.codeflow.worktrees[key] = resp.worktree;
+            else delete this.codeflow.worktrees[key];
           } catch (e) {
             this.showToast('Remove', e.message, 'error');
           } finally {

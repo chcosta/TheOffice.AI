@@ -3531,7 +3531,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   })();
 });
 
-// Remove a review worktree + its cached reports + the record.
+// Remove a review worktree but PRESERVE the PR's AI artifacts. Deletes the git
+// worktree/checkout, yet keeps the durable report cache intact. If any cached
+// reports/history remain, a slim "artifacts-only" record is kept (no worktree
+// fields) so the card still lists + serves them; otherwise the record is dropped.
 app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
   const b = req.body || {};
   const o = { org: b.org, project: b.project, repo: b.repo, prId: b.prId, provider: b.provider };
@@ -3540,8 +3543,22 @@ app.post('/api/codeflow/pr/worktree/remove', (req, res) => {
   const rec = _getCfWt(key);
   const devId = _cfWtDevId(o);
   try { if (rec) devitems.removeWorktree(o.org, o.project, o.repo, devId, rec.worktreePath, o.provider); } catch {}
-  try { devitems.clearReportCache(CODEFLOW_REPORT_BOARD, devId); } catch {}
+  // Keep the durable report cache (do NOT clearReportCache) so artifacts survive.
+  let reports = []; try { reports = devitems.listCachedReports(CODEFLOW_REPORT_BOARD, devId) || []; } catch {}
+  let reportHistory = []; try { reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, devId) || []; } catch {}
   _deleteCfWt(key);
+  if (reports.length || reportHistory.length) {
+    const slim = {
+      org: o.org, project: o.project || '', repo: o.repo, prId: o.prId, provider: o.provider || '',
+      prStatus: (rec && rec.prStatus) || undefined, prTitle: (rec && rec.prTitle) || undefined,
+      prUrl: (rec && rec.prUrl) || undefined, sourceBranch: (rec && rec.sourceBranch) || undefined,
+      agentKind: (rec && rec.agentKind) || undefined, reviewAgentName: (rec && rec.reviewAgentName) || undefined,
+      artifactsOnly: true, worktreePath: '', worktreeStatus: null,
+      reports, reportHistory, artifactsSavedAt: new Date().toISOString()
+    };
+    const saved = _saveCfWt(key, slim);
+    return res.json({ ok: true, worktree: { key, ...saved } });
+  }
   res.json({ ok: true });
 });
 

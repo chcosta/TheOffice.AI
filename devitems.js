@@ -1096,6 +1096,15 @@ function readReportCached(boardId, devId, rel) {
   return _readReportFrom(reportCacheDir(boardId, devId), rel);
 }
 
+// List the durably-cached "current" reports for a card WITHOUT needing a live
+// worktree. Scans the persistent cache dir (mirrored copies made by
+// findAndCacheReports), so a card's artifacts remain listable after its worktree
+// is removed. Newest first; excludes the __history/ snapshots.
+function listCachedReports(boardId, devId) {
+  if (!boardId || !devId) return [];
+  return findReports(reportCacheDir(boardId, devId));
+}
+
 function hasCachedReport(boardId, devId, rel) {
   try { readReportCached(boardId, devId, rel); return true; } catch { return false; }
 }
@@ -1211,6 +1220,7 @@ module.exports = {
   cacheReports,
   listReportHistory,
   readReportCached,
+  listCachedReports,
   hasCachedReport,
   cacheLinkFile,
   clearReportCache,
