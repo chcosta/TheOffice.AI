@@ -1434,7 +1434,7 @@
     .home-arrange-strip .home-move button:hover { color: var(--cp-accent); border-color: var(--cp-accent); }
 
     /* Featured newsletter card on Home */
-    .home-nl-card { display: flex; align-items: center; gap: 16px; }
+    .home-nl-card { display: flex; align-items: center; gap: 16px; border-left: 3px solid color-mix(in srgb, var(--cp-link) 60%, var(--cp-border)); }
     .home-nl-card .home-nl-icon { font-size: 30px; flex: 0 0 auto; }
     .home-nl-card .home-nl-main { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; }
     .home-nl-card .home-nl-kicker { font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--cp-text-soft); }
@@ -1451,6 +1451,7 @@
     .home-nl-card .home-nl-meta { font-size: 12px; color: var(--cp-text-muted); }
 
     /* What's-new card on Home (release highlights + new marketplace items) */
+    .home-wn-card { border-left: 3px solid color-mix(in srgb, var(--cp-accent) 70%, var(--cp-border)); }
     .home-wn-card .home-wn-spark { color: var(--cp-accent); }
     .home-wn-list { display: flex; flex-direction: column; }
     .home-wn-row {
@@ -2132,6 +2133,22 @@
     .tiny-badge.mcp-st-err { border-color: var(--cp-danger); color: var(--cp-danger); background: color-mix(in srgb, var(--cp-danger) 12%, transparent); }
     .type-badge.type-badge-manager { border-color: var(--cp-accent); color: var(--cp-accent); background: var(--cp-accent-soft); }
     .type-badge.type-badge-agent { border-color: var(--cp-link); color: var(--cp-link); background: color-mix(in srgb, var(--cp-link) 10%, transparent); }
+
+    /* Home dev cards: blockier pills/badges + colour accents to match the mockup. */
+    .home-devcard .pill,
+    .home-devcard .status-badge,
+    .home-devcard .type-badge { border-radius: 7px; padding: 4px 9px; }
+    .home-devcard .pill { padding: 5px 9px; }
+    .status-badge.dev-git-clean {
+      border-color: color-mix(in srgb, var(--cp-success) 55%, var(--cp-border));
+      color: var(--cp-success);
+      background: color-mix(in srgb, var(--cp-success) 12%, transparent);
+    }
+    .status-badge.dev-git-dirty {
+      border-color: color-mix(in srgb, var(--cp-danger) 60%, var(--cp-border));
+      color: #fff;
+      background: color-mix(in srgb, var(--cp-danger) 82%, transparent);
+    }
 
     /* ===== Code Flow ===== */
     .nav-attn-badge {
@@ -5694,7 +5711,7 @@
                     <div class="hint" style="font-size:12px;padding:4px 2px 0" x-show="!homeDevCards().length && !homeDoneDevCount() && archivedDevCount()">No active dev cards — <a href="#/dev-archive" @click.prevent="goTo('#/dev-archive')" style="color:var(--cp-accent)">browse the archive</a>.</div>
                     <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));margin-bottom:0">
                       <template x-for="dc in homeDevCards()" :key="'home-dev-' + dc.id">
-                        <article class="card clickable" @click="openDevCardOnBoard(dc)" :title="'Open on board: ' + dc._board.name" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
+                        <article class="card clickable home-devcard" @click="openDevCardOnBoard(dc)" :title="'Open on board: ' + dc._board.name" :style="dc._done ? 'opacity:.6' : ''" style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
                           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                             <div style="min-width:0">
                               <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="'🧰 ' + (dc.title || dc.repo || 'Dev card')"></div>
@@ -5719,7 +5736,7 @@
                               </a>
                             </template>
                             <template x-if="dc.worktreePath">
-                              <span class="status-badge" :style="'font-size:0.7rem;' + (devGitBadge(dc).attention ? 'background:var(--cp-danger);color:#fff' : '')" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
+                              <span class="status-badge" :class="devGitBadge(dc).attention ? 'dev-git-dirty' : (devGitBadge(dc).text.indexOf('up to date') >= 0 ? 'dev-git-clean' : '')" style="font-size:0.7rem" x-text="devGitBadge(dc).text" :title="devGitBadge(dc).title"></span>
                             </template>
                             <span class="hint" x-show="!dc.workItemId && !dc.prId && !dc.worktreePath" style="font-size:11px">Just created — no work item / PR / worktree yet.</span>
                           </div>
@@ -5834,45 +5851,6 @@
                     </div>
                     <span class="home-nl-go">Open →</span>
                   </article>
-                </div>
-
-                <!-- Recent conversations -->
-                <div class="home-rsec" :style="{ order: homeSecIndex('conversations') }" x-show="homeSectionVisible('conversations')"
-                     :class="homeDragOver === 'conversations' ? 'is-drop' : ''"
-                     @dragover.prevent="homeReorderOver('conversations')" @drop.prevent="homeReorderDrop('conversations')">
-                  <div class="home-arrange-strip">
-                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('conversations',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="has-name">Recent conversations</span>
-                    <span class="spacer"></span>
-                    <span class="home-move">
-                      <button type="button" @click="homeMoveSection('conversations',-1)" title="Move up">↑</button>
-                      <button type="button" @click="homeMoveSection('conversations',1)" title="Move down">↓</button>
-                    </span>
-                  </div>
-                  <section class="card">
-                    <div class="card-header">
-                      <div>
-                        <h2 class="card-title">💬 Recent conversations</h2>
-                        <div class="card-subtitle" x-text="homeRecentConversations().length + ' recent AI session' + (homeRecentConversations().length === 1 ? '' : 's')"></div>
-                      </div>
-                      <a class="btn ghost" href="#/sessions">Open</a>
-                    </div>
-                    <div class="stack" x-show="homeRecentConversations().length">
-                      <template x-for="s in homeRecentConversations()" :key="'home-conv-' + s.id">
-                        <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/sessions')" @keydown.enter="goTo('#/sessions')">
-                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span x-text="(s.origin === 'system') ? '🏛' : '🌐'"></span>
-                            <strong x-text="s.title"></strong>
-                            <span class="hint" x-show="s.agentName" x-text="'🤖 ' + s.agentName"></span>
-                            <span class="hint" x-show="s.turnCount" x-text="'· ' + s.turnCount + ' turns'"></span>
-                            <span class="hint" x-text="'· ' + formatRelative(s.lastModified)"></span>
-                          </div>
-                          <div class="hint" style="margin-top:6px" x-show="homeConversationSnippet(s)" x-text="homeConversationSnippet(s)"></div>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="empty-state" x-show="!homeRecentConversations().length">No recent conversations yet.</div>
-                  </section>
                 </div>
 
               </div>
@@ -16648,7 +16626,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['devwork', 'whatsnew', 'newsletter', 'boards', 'prs', 'conversations'],
+        homeSectionsDefault: ['devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeDrag: null,
@@ -17726,7 +17704,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.loadHomeNewsletter();
             if (!this.whatsNew.entries || !this.whatsNew.entries.length) this.loadWhatsNew();
             this.loadMarketplaceUpdates(true);
-            if (!this.cliSessions || !this.cliSessions.length) this.loadCliSessions();
           }
           // Deep-link focus requested from the schedules dashboard.
           if (this.pendingFocus && this.pendingFocus.route === this.route) {
@@ -20262,7 +20239,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'boards': return true;
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
-            case 'conversations': return !!this.homeRecentConversations().length;
             default: return false;
           }
         },
@@ -23816,11 +23792,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             } catch {}
           }
           if (this._cfFocusTimer) { clearTimeout(this._cfFocusTimer); this._cfFocusTimer = null; }
+          if (this._cfScrollTimers) { this._cfScrollTimers.forEach(t => clearTimeout(t)); }
+          this._cfScrollTimers = [];
+          // Groups expand / the list re-lays out progressively, so re-scroll a few
+          // times over ~1s to make sure the target actually lands in view.
+          const scrollToPr = () => {
+            const el = document.getElementById('cfpr-' + key);
+            if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { el.scrollIntoView(); } }
+          };
           this.$nextTick(() => {
-            setTimeout(() => {
-              const el = document.getElementById('cfpr-' + key);
-              if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { el.scrollIntoView(); } }
-            }, 80);
+            [0, 120, 300, 550, 850, 1200].forEach(delay => {
+              this._cfScrollTimers.push(setTimeout(scrollToPr, delay));
+            });
           });
           this._cfFocusTimer = setTimeout(() => { if (this.codeflow.focusKey === key) this.codeflow.focusKey = ''; }, 5000);
         },
