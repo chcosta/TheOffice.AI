@@ -1354,13 +1354,43 @@
     .home-section-label .hsl-toggle:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
     .home-section { margin-bottom: 22px; }
 
-    /* ----- Productivity home: What's new banner + reorderable sections ----- */
+    /* ===== Productivity home ===== */
+    /* Greeting + stats topbar */
+    .home-topbar {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 20px; flex-wrap: wrap; margin: 0 0 22px;
+    }
+    .home-topbar .ht-greet h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+    .home-topbar .ht-greet p { margin: 4px 0 0; font-size: 13px; color: var(--cp-text-muted); }
+    .home-topbar .ht-right { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .home-stats { display: flex; align-items: center; gap: 8px; }
+    .home-stat {
+      display: flex; flex-direction: column; align-items: flex-start; line-height: 1.05;
+      padding: 6px 14px; border-radius: 12px; cursor: pointer;
+      transition: background .15s ease;
+    }
+    .home-stat:hover { background: var(--cp-surface-soft); }
+    .home-stat .hs-num { font-size: 20px; font-weight: 700; color: var(--cp-text); }
+    .home-stat .hs-num.is-hot { color: var(--cp-accent); }
+    .home-stat .hs-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--cp-text-soft); margin-top: 3px; }
+    .home-arrange-btn {
+      background: transparent; border: 1px solid var(--cp-border); color: var(--cp-text-muted);
+      border-radius: 10px; padding: 7px 13px; font-size: 12px; font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: color .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .home-arrange-btn:hover { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .home-arrange-btn.is-on { color: var(--cp-accent); border-color: var(--cp-accent); background: var(--cp-accent-soft); }
+    .home-arrange-btn .haf-reset { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--cp-border-strong); color: var(--cp-text-soft); }
+    .home-arrange-btn .haf-reset:hover { color: var(--cp-accent); }
+
+    /* What's new accent banner */
     .home-whatsnew {
       display: flex; align-items: center; gap: 12px;
-      margin: 0 0 18px; padding: 12px 14px;
+      margin: 0 0 20px; padding: 13px 16px;
       background: var(--cp-accent-soft);
       border: 1px solid color-mix(in srgb, var(--cp-accent) 40%, var(--cp-border));
-      border-radius: 12px;
+      border-radius: 14px;
     }
     .home-whatsnew .hw-spark { font-size: 18px; color: var(--cp-accent); flex: 0 0 auto; }
     .home-whatsnew .hw-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
@@ -1372,32 +1402,36 @@
     }
     .home-whatsnew .hw-dismiss:hover { color: var(--cp-text); background: color-mix(in srgb, var(--cp-accent) 14%, transparent); }
 
-    .home-rsecs { display: flex; flex-direction: column; }
-    .home-rsec { margin-bottom: 22px; }
-    .home-rsec.is-drop { outline: 2px dashed var(--cp-accent); outline-offset: 4px; border-radius: 12px; }
-    .home-rsec-bar {
-      display: flex; align-items: center; gap: 8px;
-      margin: 0 0 6px; padding: 0 2px;
+    /* Responsive section grid */
+    .home-cards {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px; align-items: start; grid-auto-flow: row dense;
     }
-    .home-rsec-bar .home-drag {
-      cursor: grab; color: var(--cp-text-muted); font-size: 14px; line-height: 1;
-      padding: 2px 4px; border-radius: 6px; user-select: none;
+    @media (max-width: 900px) { .home-cards { grid-template-columns: 1fr; } }
+    .home-rsec { min-width: 0; }
+    .home-rsec.span-full { grid-column: 1 / -1; }
+    .home-rsec > .card, .home-rsec > .home-section { margin-bottom: 0; height: 100%; }
+    .home-rsec.is-drop { outline: 2px dashed var(--cp-accent); outline-offset: 6px; border-radius: 16px; }
+
+    /* Arrange-mode reorder strip (hidden until arranging) */
+    .home-arrange-strip {
+      display: none; align-items: center; gap: 8px;
+      margin: 0 0 8px; padding: 5px 10px;
+      border: 1px dashed var(--cp-border-strong); border-radius: 10px;
+      background: var(--cp-surface-soft);
     }
-    .home-rsec-bar .home-drag:hover { color: var(--cp-accent); background: var(--cp-accent-soft); }
-    .home-rsec-bar .home-drag:active { cursor: grabbing; }
-    .home-rsec-bar .home-rsec-name {
-      font-size: 11px; font-weight: 700; letter-spacing: .4px;
-      text-transform: uppercase; color: var(--cp-text-soft);
-    }
-    .home-rsec-bar .home-rsec-spacer { flex: 1 1 auto; }
-    .home-rsec-bar .home-move { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
-    .home-rsec:hover .home-rsec-bar .home-move { opacity: 1; }
-    .home-rsec-bar .home-move button {
+    .home-arrange .home-arrange-strip { display: flex; }
+    .home-arrange-strip .home-drag { cursor: grab; color: var(--cp-text-muted); font-size: 14px; line-height: 1; user-select: none; }
+    .home-arrange-strip .home-drag:active { cursor: grabbing; }
+    .home-arrange-strip .has-name { font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--cp-text-soft); }
+    .home-arrange-strip .spacer { flex: 1 1 auto; }
+    .home-arrange-strip .home-move { display: inline-flex; gap: 3px; }
+    .home-arrange-strip .home-move button {
       background: transparent; border: 1px solid var(--cp-border); color: var(--cp-text-muted);
       width: 22px; height: 22px; border-radius: 6px; cursor: pointer; font-size: 11px; line-height: 1;
       display: inline-flex; align-items: center; justify-content: center;
     }
-    .home-rsec-bar .home-move button:hover { color: var(--cp-accent); border-color: var(--cp-accent); }
+    .home-arrange-strip .home-move button:hover { color: var(--cp-accent); border-color: var(--cp-accent); }
 
     /* Featured newsletter card on Home */
     .home-nl-card { display: flex; align-items: center; gap: 16px; }
@@ -5392,7 +5426,7 @@
           </template>
 
           <section x-show="!loading && !errorMessage && route === 'home'" x-transition.opacity.duration.180ms>
-            <div class="page-header">
+            <div class="page-header" x-show="appMode !== 'workspace'">
               <div class="page-title">
                 <h1 x-text="currentTeamId === 'all' ? 'Office' : (currentOrg() ? (currentOrg().emoji || '🏢') + ' ' + currentOrg().name : 'Overview')"></h1>
                 <p x-show="currentTeamId === 'all'">Team health across the office. Cards needing the most attention come first — click to step into a team.</p>
@@ -5545,6 +5579,39 @@
             <!-- ===== Productivity home (workspace mode): What's new + reorderable sections ===== -->
             <div class="home-workspace" x-show="appMode === 'workspace'">
 
+              <!-- Greeting + stats topbar -->
+              <div class="home-topbar">
+                <div class="ht-greet">
+                  <h1 x-text="homeGreeting()"></h1>
+                  <p x-text="currentTeamId === 'all' ? 'Here\u2019s what\u2019s happening across your work.' : ('Your work in ' + (currentOrg() ? currentOrg().name : 'this team') + '.')"></p>
+                </div>
+                <div class="ht-right">
+                  <div class="home-stats">
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/sessions')" @keydown.enter="goTo('#/sessions')" title="Active dev work">
+                      <span class="hs-num" x-text="homeActiveDevCount()"></span>
+                      <span class="hs-label">Dev cards</span>
+                    </div>
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/codeflow')" @keydown.enter="goTo('#/codeflow')" title="Your open pull requests">
+                      <span class="hs-num" :class="homePrsAttention() ? 'is-hot' : ''" x-text="homePrs.items.length"></span>
+                      <span class="hs-label">Open PRs</span>
+                    </div>
+                    <div class="home-stat" role="button" tabindex="0" @click="goTo('#/boards')" @keydown.enter="goTo('#/boards')" title="Boards">
+                      <span class="hs-num" x-text="homeBoards().length"></span>
+                      <span class="hs-label">Boards</span>
+                    </div>
+                    <div class="home-stat" x-show="runningEntities().length" title="Running now">
+                      <span class="hs-num is-hot" x-text="runningEntities().length"></span>
+                      <span class="hs-label">Running</span>
+                    </div>
+                  </div>
+                  <button type="button" class="home-arrange-btn" :class="homeArrange ? 'is-on' : ''" @click="homeArrange = !homeArrange" :title="homeArrange ? 'Finish arranging' : 'Rearrange your home sections'">
+                    <span>⠿</span>
+                    <span x-text="homeArrange ? 'Done' : 'Arrange'"></span>
+                    <span class="haf-reset" x-show="homeArrange" @click.stop="homeResetSections()" title="Reset to default order">Reset</span>
+                  </button>
+                </div>
+              </div>
+
               <!-- What's new banner (pinned; release notes + new marketplace items) -->
               <div class="home-whatsnew" x-show="homeBannerVisible()" x-transition.opacity.duration.180ms>
                 <span class="hw-spark">✦</span>
@@ -5561,16 +5628,16 @@
                 </div>
               </div>
 
-              <div class="home-rsecs">
+              <div class="home-cards" :class="homeArrange ? 'home-arrange' : ''">
 
                 <!-- Active dev work -->
-                <div class="home-rsec" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
+                <div class="home-rsec span-full" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
                      :class="homeDragOver === 'devwork' ? 'is-drop' : ''"
                      @dragover.prevent="homeReorderOver('devwork')" @drop.prevent="homeReorderDrop('devwork')">
-                  <div class="home-rsec-bar">
+                  <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('devwork',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="home-rsec-name">Active dev work</span>
-                    <span class="home-rsec-spacer"></span>
+                    <span class="has-name">Active dev work</span>
+                    <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('devwork',-1)" title="Move up">↑</button>
                       <button type="button" @click="homeMoveSection('devwork',1)" title="Move down">↓</button>
@@ -5630,10 +5697,10 @@
                 <div class="home-rsec" :style="{ order: homeSecIndex('boards') }" x-show="homeSectionVisible('boards')"
                      :class="homeDragOver === 'boards' ? 'is-drop' : ''"
                      @dragover.prevent="homeReorderOver('boards')" @drop.prevent="homeReorderDrop('boards')">
-                  <div class="home-rsec-bar">
+                  <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('boards',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="home-rsec-name">Boards</span>
-                    <span class="home-rsec-spacer"></span>
+                    <span class="has-name">Boards</span>
+                    <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('boards',-1)" title="Move up">↑</button>
                       <button type="button" @click="homeMoveSection('boards',1)" title="Move down">↓</button>
@@ -5667,10 +5734,10 @@
                 <div class="home-rsec" :style="{ order: homeSecIndex('prs') }" x-show="homeSectionVisible('prs')"
                      :class="homeDragOver === 'prs' ? 'is-drop' : ''"
                      @dragover.prevent="homeReorderOver('prs')" @drop.prevent="homeReorderDrop('prs')">
-                  <div class="home-rsec-bar">
+                  <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('prs',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="home-rsec-name">My pull requests</span>
-                    <span class="home-rsec-spacer"></span>
+                    <span class="has-name">My pull requests</span>
+                    <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('prs',-1)" title="Move up">↑</button>
                       <button type="button" @click="homeMoveSection('prs',1)" title="Move down">↓</button>
@@ -5706,10 +5773,10 @@
                 <div class="home-rsec" :style="{ order: homeSecIndex('newsletter') }" x-show="homeSectionVisible('newsletter')"
                      :class="homeDragOver === 'newsletter' ? 'is-drop' : ''"
                      @dragover.prevent="homeReorderOver('newsletter')" @drop.prevent="homeReorderDrop('newsletter')">
-                  <div class="home-rsec-bar">
+                  <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('newsletter',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="home-rsec-name">Newsletter</span>
-                    <span class="home-rsec-spacer"></span>
+                    <span class="has-name">Newsletter</span>
+                    <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('newsletter',-1)" title="Move up">↑</button>
                       <button type="button" @click="homeMoveSection('newsletter',1)" title="Move down">↓</button>
@@ -5733,10 +5800,10 @@
                 <div class="home-rsec" :style="{ order: homeSecIndex('conversations') }" x-show="homeSectionVisible('conversations')"
                      :class="homeDragOver === 'conversations' ? 'is-drop' : ''"
                      @dragover.prevent="homeReorderOver('conversations')" @drop.prevent="homeReorderDrop('conversations')">
-                  <div class="home-rsec-bar">
+                  <div class="home-arrange-strip">
                     <span class="home-drag" draggable="true" @dragstart="homeReorderStart('conversations',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
-                    <span class="home-rsec-name">Recent conversations</span>
-                    <span class="home-rsec-spacer"></span>
+                    <span class="has-name">Recent conversations</span>
+                    <span class="spacer"></span>
                     <span class="home-move">
                       <button type="button" @click="homeMoveSection('conversations',-1)" title="Move up">↑</button>
                       <button type="button" @click="homeMoveSection('conversations',1)" title="Move down">↓</button>
@@ -16541,6 +16608,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
         homeSectionsDefault: ['devwork', 'boards', 'prs', 'newsletter', 'conversations'],
+        homeArrange: false,
         homeSectionOrder: [],
         homeDrag: null,
         homeDragOver: null,
@@ -20195,6 +20263,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         // Recent AI conversations (CLI/agent sessions) surfaced on Home.
+        homeGreeting() {
+          const h = new Date().getHours();
+          const part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+          const name = (this.data && this.data.user && (this.data.user.firstName || this.data.user.name)) || '';
+          return name ? (part + ', ' + String(name).split(' ')[0]) : part;
+        },
+        homePrsAttention() {
+          return !!(this.homePrs && Array.isArray(this.homePrs.items) && this.homePrs.items.some(p => p && p.attention));
+        },
         homeRecentConversations(limit = 5) {
           const list = Array.isArray(this.cliSessions) ? this.cliSessions.slice() : [];
           list.sort((a, b) => new Date(b.lastModified || 0) - new Date(a.lastModified || 0));
