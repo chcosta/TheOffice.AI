@@ -3086,6 +3086,13 @@
       display: grid;
       gap: 10px;
     }
+    .act-toolbar { gap: 10px; flex-wrap: wrap; align-items: center; }
+    .act-filter { display: inline-flex; align-items: center; gap: 6px; }
+    .act-filter-l { font-size: 12px; color: var(--cp-text-muted); }
+    .act-filter .input { min-width: 150px; }
+    .act-search { min-width: 200px; flex: 1 1 200px; max-width: 360px; }
+    .act-kind-ico { font-size: 15px; line-height: 1; }
+    .act-kind-lbl { font-size: 12px; color: var(--cp-text-muted); }
     .item-row,
     .timeline-item,
     .run-item,
@@ -14969,36 +14976,59 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>Activity</h1>
-                <p>Reverse chronological timeline of agent and manager execution events.</p>
+                <p>Everything that happened across the system — runs, deliverables, installs, updates and emails.</p>
               </div>
             </div>
-            <div class="toolbar">
-              <div class="filter-pills">
-                <template x-for="filter in ['all', 'success', 'failed', 'running']" :key="filter">
-                  <button class="pill" type="button" :class="{ active: activityFilter === filter }" @click="activityFilter = filter" x-text="filter.charAt(0).toUpperCase() + filter.slice(1)"></button>
-                </template>
-              </div>
+            <div class="toolbar act-toolbar">
+              <label class="act-filter">
+                <span class="act-filter-l">Type</span>
+                <select class="input" x-model="activityKind">
+                  <option value="all">All types</option>
+                  <template x-for="k in activityKinds()" :key="k">
+                    <option :value="k" x-text="activityKindMeta(k).icon + '  ' + activityKindMeta(k).label"></option>
+                  </template>
+                </select>
+              </label>
+              <label class="act-filter">
+                <span class="act-filter-l">Status</span>
+                <select class="input" x-model="activityFilter">
+                  <option value="all">All</option>
+                  <option value="success">Success</option>
+                  <option value="failed">Failed</option>
+                  <option value="running">Running</option>
+                </select>
+              </label>
+              <input class="input act-search" type="search" placeholder="Search activity…" x-model.debounce.200ms="activitySearch">
+              <button class="btn" type="button" @click="loadActivity()" title="Refresh">↻ Refresh</button>
             </div>
             <div class="activity-list">
               <template x-for="entry in filteredActivity()" :key="entry.id">
                 <article class="timeline-item">
                   <div class="timeline-marker" :class="statusClass(entry.status)"></div>
-                  <div>
+                  <div style="min-width:0;flex:1">
                     <div class="split-meta">
-                      <div style="cursor:pointer;flex:1;min-width:0" @click="openRunDetail(entry)">
+                      <div :style="entry.runId ? 'cursor:pointer;flex:1;min-width:0' : 'flex:1;min-width:0'" @click="entry.runId && openRunDetail(entry)">
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                          <strong x-text="entry.entityName"></strong>
-                          <span class="type-badge" x-text="entry.runType"></span>
+                          <span class="act-kind-ico" x-text="activityKindMeta(entry.kind).icon" :title="activityKindMeta(entry.kind).label"></span>
+                          <strong x-text="entry.title || entry.entityName"></strong>
+                          <span class="act-kind-lbl" x-text="activityKindMeta(entry.kind).label"></span>
                           <span class="status-badge" :class="statusClass(entry.status)" x-text="statusLabel(entry.status)"></span>
                         </div>
-                        <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.startedAt) + ' • ' + formatDuration(entry.durationMs)"></div>
+                        <div class="hint" style="margin-top:6px" x-text="formatDateTime(entry.startedAt) + (entry.durationMs ? ' • ' + formatDuration(entry.durationMs) : '')"></div>
                       </div>
                       <div class="toolbar">
-                        <button class="btn" type="button" @click="openRunDetail(entry)">View output</button>
-                        <button class="btn ghost" type="button" @click="openShareModal(entry.output, 'Activity — ' + entry.entityName, 'run-output')">📤</button>
+                        <template x-if="entry.runId">
+                          <button class="btn" type="button" @click="openRunDetail(entry)">View output</button>
+                        </template>
+                        <template x-if="entry.route">
+                          <button class="btn ghost" type="button" @click="goTo(entry.route)" title="Open">↗</button>
+                        </template>
+                        <template x-if="entry.output">
+                          <button class="btn ghost" type="button" @click="openShareModal(entry.output, 'Activity — ' + (entry.title || entry.entityName), 'run-output')">📤</button>
+                        </template>
                       </div>
                     </div>
-                    <div class="hint" style="margin-top:10px;cursor:pointer" @click="openRunDetail(entry)" x-text="entry.preview"></div>
+                    <div class="hint" style="margin-top:10px" x-show="entry.preview" :style="entry.runId ? 'cursor:pointer' : ''" @click="entry.runId && openRunDetail(entry)" x-text="entry.preview"></div>
                   </div>
                 </article>
               </template>
@@ -16700,6 +16730,8 @@
         newAssignmentOpen: false,
         newAssignmentForm: { managerId: '', name: '', prompt: '', schedule: 'never' },
         activityFilter: 'all',
+        activityKind: 'all',
+        activitySearch: '',
         mkt: {
           sources: [],
           catalog: { entries: [], counts: {}, total: 0 },
@@ -18618,26 +18650,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         async loadActivity() {
           try {
-            const items = await this.request('/api/activity?limit=100');
+            const items = await this.request('/api/activity?limit=150');
             this.data.activity = items.map(item => ({
-              id: `${item.type}-${item.entityId}-${item.timestamp}`,
+              id: `${item.kind}-${item.entityId || item.title || 'x'}-${item.timestamp}-${item.runId || ''}`,
+              kind: item.kind || item.type || 'system',
               runId: item.runId || null,
-              runKind: item.type,
-              entityType: item.type === 'agent' ? 'Agent' : 'Manager',
+              runKind: item.type || null,
+              entityType: item.type === 'agent' ? 'Agent' : (item.type === 'manager' ? 'Manager' : ''),
               entityId: item.entityId,
-              entityName: item.entityName,
-              runType: item.type === 'agent' ? 'Task' : 'Assignment',
+              entityName: item.entityName || item.title || item.kind,
+              title: item.title || item.entityName || item.kind,
+              detail: item.detail || '',
+              runType: item.type === 'agent' ? 'Task' : (item.type === 'manager' ? 'Assignment' : (item.category || item.kind)),
+              category: item.category || item.kind,
               status: item.status,
               startedAt: item.timestamp,
               finishedAt: item.finishedAt || null,
               durationMs: item.duration || null,
               output: item.output || '',
-              preview: this.preview(item.output || ''),
+              preview: this.preview(item.output || item.detail || ''),
               taskId: item.taskId || null,
               assignmentId: item.assignmentId || null,
               triggeredBy: item.triggeredBy || null,
               triggerMode: item.triggerMode || null,
-              route: `#/${item.type === 'agent' ? 'agents' : 'managers'}/${encodeURIComponent(item.entityId)}`
+              model: item.model || null,
+              route: item.route || (item.type ? `#/${item.type === 'agent' ? 'agents' : 'managers'}/${encodeURIComponent(item.entityId)}` : null)
             }));
           } catch (err) {
             console.error('Failed to load activity:', err);
@@ -22315,20 +22352,49 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
 
         filteredActivity() {
-          if (this.activityFilter === 'all') return this.data.activity;
-          if (this.activityFilter === 'running') {
-            return this.runningEntities().map((entry) => ({
-              id: `live-${entry.key}`,
-              entityName: entry.name,
-              runType: entry.kind,
-              status: 'running',
-              startedAt: entry.startedAt,
-              durationMs: Date.now() - new Date(entry.startedAt).getTime(),
-              preview: entry.summary,
-              output: ''
-            }));
+          let rows = this.data.activity || [];
+          if (this.activityKind && this.activityKind !== 'all') {
+            rows = rows.filter((e) => e.kind === this.activityKind);
           }
-          return this.data.activity.filter((entry) => entry.status === this.activityFilter);
+          if (this.activityFilter && this.activityFilter !== 'all') {
+            if (this.activityFilter === 'running') rows = rows.filter((e) => e.status === 'running');
+            else if (this.activityFilter === 'success') rows = rows.filter((e) => e.status === 'success' || e.status === 'delivered' || e.status === 'completed');
+            else if (this.activityFilter === 'failed') rows = rows.filter((e) => e.status === 'failed' || e.status === 'error');
+            else rows = rows.filter((e) => e.status === this.activityFilter);
+          }
+          const q = (this.activitySearch || '').trim().toLowerCase();
+          if (q) {
+            rows = rows.filter((e) => `${e.entityName || ''} ${e.title || ''} ${e.detail || ''} ${e.kind || ''} ${e.category || ''}`.toLowerCase().includes(q));
+          }
+          return rows;
+        },
+
+        // Kinds actually present in the loaded feed, for the Type dropdown.
+        activityKinds() {
+          const seen = new Set();
+          for (const e of (this.data.activity || [])) { if (e.kind) seen.add(e.kind); }
+          const order = ['agent', 'manager', 'newsletter', 'connect', 'pull_request', 'dev_card', 'insight', 'agent_authoring', 'release_notes', 'feedback', 'marketplace', 'dependency', 'email', 'system'];
+          return order.filter((k) => seen.has(k)).concat([...seen].filter((k) => !order.includes(k)));
+        },
+
+        // Icon + human label for each activity kind.
+        activityKindMeta(kind) {
+          return ({
+            agent: { icon: '🤖', label: 'Agent run' },
+            manager: { icon: '🧑‍💼', label: 'Manager run' },
+            newsletter: { icon: '📰', label: 'Newsletter' },
+            connect: { icon: '🌱', label: 'Connect' },
+            pull_request: { icon: '🔀', label: 'Pull request' },
+            dev_card: { icon: '🗂️', label: 'Dev card' },
+            insight: { icon: '💡', label: 'Insight' },
+            agent_authoring: { icon: '✏️', label: 'Agent authoring' },
+            release_notes: { icon: '📝', label: 'Release notes' },
+            feedback: { icon: '💬', label: 'Feedback' },
+            marketplace: { icon: '🛍️', label: 'Marketplace' },
+            dependency: { icon: '📦', label: 'Dependency' },
+            email: { icon: '✉️', label: 'Email' },
+            system: { icon: '⚙️', label: 'System' },
+          })[kind] || { icon: '•', label: (kind || 'Activity').replace(/_/g, ' ') };
         },
 
         sortedChats() {

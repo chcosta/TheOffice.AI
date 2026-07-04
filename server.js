@@ -664,6 +664,45 @@ const db = await openDatabase(DB_PATH);
 // Initialize supervisor
 const supervisor = new Supervisor(db);
 
+// ---------------------------------------------------------------------------
+// Lightweight audit log for the "everything else" system events the Activity
+// page surfaces — marketplace installs/updates, dependency/system updates, and
+// emails sent. Agent/manager runs live in their own ledgers (agent_runs /
+// manager_runs) and AI work lives in usage_events; this table captures the
+// non-run operational events those ledgers don't. Best-effort — never throws
+// into a request path.
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    category TEXT,
+    title TEXT,
+    detail TEXT,
+    entity_id TEXT,
+    entity_name TEXT,
+    status TEXT,
+    route TEXT,
+    meta TEXT
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_activity_log_ts ON activity_log(ts)');
+} catch (e) { console.error('[activity] table init failed:', e.message); }
+
+// Append one row to the audit log. ev: { kind, category, title, detail,
+// entityId, entityName, status, route, meta, ts }. Call this on the success
+// path of any operational event worth showing on the Activity timeline.
+function recordActivity(ev) {
+  try {
+    db.prepare(
+      'INSERT INTO activity_log (ts, kind, category, title, detail, entity_id, entity_name, status, route, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      ev.ts || new Date().toISOString(), ev.kind || 'system', ev.category || ev.kind || 'system',
+      ev.title || '', ev.detail || '', ev.entityId || null, ev.entityName || null,
+      ev.status || 'info', ev.route || null, ev.meta ? JSON.stringify(ev.meta) : null
+    );
+  } catch (e) { console.error('[activity] write failed:', e.message); }
+}
+
 // --- Interactive chat: SDK runtime (Phase 6) ---------------------------------
 const sdkRunner = require('./sdk-runner');
 // Wire the canonical usage sink once: EVERY AI run that flows through the
@@ -4108,6 +4147,7 @@ app.post('/api/marketplace/install', async (req, res) => {
         result = capabilities.attachSkill(agentId, { name: mat.name, sourceDir: dir });
       }
       broadcastSSE('agent-update', { agentId });
+      try { recordActivity({ kind: 'marketplace', category: 'marketplace', title: `Added ${entry.type === 'mcp' ? 'MCP server' : 'skill'} “${mat.name}”`, detail: `Attached to agent ${agentId}.`, entityId: agentId, entityName: mat.name, status: 'success', route: '#/marketplace' }); } catch (_) {}
       return res.json({ ok: true, attached: { type: entry.type, name: mat.name, agentId }, result });
     }
 
@@ -4115,15 +4155,18 @@ app.post('/api/marketplace/install', async (req, res) => {
     if (entry.sourceKind === 'azdo' && entry.install && entry.azdo) {
       const { org, project, repo, branch } = entry.azdo;
       const config = await installForgeItem({ provider: 'azdo', org, project, repo, branch, item: entry.install.item, group });
+      try { recordActivity({ kind: 'marketplace', category: 'marketplace', title: `Installed ${entry.type || 'agent'} “${entry.displayName || entry.name || config.name}”`, detail: `From Azure DevOps ${org}/${repo}.`, entityId: config.id, entityName: config.name, status: 'success', route: '#/marketplace' }); } catch (_) {}
       return res.json({ ok: true, agent: config });
     }
     if (entry.sourceKind === 'github' && entry.install && entry.github) {
       const { org, repo, branch } = entry.github;
       const config = await installForgeItem({ provider: 'github', org, project: '', repo, branch, item: entry.install.item, group });
+      try { recordActivity({ kind: 'marketplace', category: 'marketplace', title: `Installed ${entry.type || 'agent'} “${entry.displayName || entry.name || config.name}”`, detail: `From GitHub ${org}/${repo}.`, entityId: config.id, entityName: config.name, status: 'success', route: '#/marketplace' }); } catch (_) {}
       return res.json({ ok: true, agent: config });
     }
     if (entry.sourceKind === 'local') {
       const config = installLocalCatalogEntry(entry, group);
+      try { recordActivity({ kind: 'marketplace', category: 'marketplace', title: `Installed ${entry.type || 'agent'} “${entry.displayName || entry.name || config.name}”`, detail: 'From a local marketplace source.', entityId: config.id, entityName: config.name, status: 'success', route: '#/marketplace' }); } catch (_) {}
       return res.json({ ok: true, agent: config });
     }
     return res.status(400).json({ error: 'This entry cannot be installed directly' });
@@ -9866,6 +9909,7 @@ hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
     fs.writeFileSync(emlPath, eml, 'utf8');
     const { exec } = require('child_process');
     exec(`start "" "${emlPath}"`);
+    try { recordActivity({ kind: 'email', category: 'email', title: 'Emailed Connect', detail: to ? `Draft opened for ${to}.` : 'Draft opened in mail client.', status: 'success', route: '#/connect', meta: { subject } }); } catch (_) {}
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10669,6 +10713,7 @@ app.post('/api/newsletter/email', async (req, res) => {
     // signal for the Productivity report — each broadly-sent issue is one finished
     // ~3h artifact, regardless of how many generate/chat runs shaped it.
     try { supervisor.recordUsage({ source: 'newsletter', category: 'newsletter', status: 'delivered', label: 'newsletter emailed', deliverable: 1 }); } catch (_) { /* non-fatal */ }
+    try { recordActivity({ kind: 'email', category: 'email', title: 'Emailed newsletter', detail: to ? `Draft opened for ${to}.` : 'Draft opened in mail client.', status: 'success', route: '#/newsletter' }); } catch (_) {}
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10848,6 +10893,7 @@ app.post('/api/dependencies/:id/update', async (req, res) => {
     };
     const result = await dependencies.update(req.params.id, opts);
     if (result && result.ok === false) return res.status(400).json({ error: result.error || 'Update failed', result, items: dependencies.list() });
+    try { recordActivity({ kind: 'dependency', category: 'dependency', title: `Updated ${req.params.id}`, detail: (result && (result.version || result.toVersion)) ? `Now at ${result.version || result.toVersion}.` : 'Dependency update applied.', entityId: req.params.id, entityName: req.params.id, status: 'success', route: '#/updates' }); } catch (_) {}
     res.json({ ok: true, result, items: dependencies.list() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10859,6 +10905,7 @@ app.post('/api/dependencies/:id/rollback', async (req, res) => {
   try {
     const result = await dependencies.rollback(req.params.id);
     if (result && result.ok === false) return res.status(400).json({ error: result.error || 'Rollback failed', result, items: dependencies.list() });
+    try { recordActivity({ kind: 'dependency', category: 'dependency', title: `Rolled back ${req.params.id}`, detail: (result && (result.version || result.toVersion)) ? `Restored to ${result.version || result.toVersion}.` : 'Dependency rolled back to previous version.', entityId: req.params.id, entityName: req.params.id, status: 'success', route: '#/updates' }); } catch (_) {}
     res.json({ ok: true, result, items: dependencies.list() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -10882,6 +10929,10 @@ app.put('/api/dependencies/:id/config', (req, res) => {
 app.post('/api/dependencies/update-all', async (req, res) => {
   try {
     const result = await runDependencyAutoUpdate({ manual: true });
+    try {
+      const updated = (result && Array.isArray(result.updated)) ? result.updated.length : (result && typeof result.updatedCount === 'number' ? result.updatedCount : null);
+      recordActivity({ kind: 'dependency', category: 'dependency', title: 'Ran all dependency updates', detail: updated != null ? `${updated} ${updated === 1 ? 'dependency' : 'dependencies'} updated.` : 'Checked all managed dependencies for updates.', status: 'success', route: '#/updates' });
+    } catch (_) {}
     res.json({ ok: true, result, items: dependencies.list() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -11129,6 +11180,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
       : process.platform === 'win32' ? `start "" "${emlPath}"`
       : `xdg-open "${emlPath}"`;
     exec(opener);
+    try { recordActivity({ kind: 'email', category: 'email', title: 'Emailed report', detail: to ? `Draft opened for ${to}.` : 'Draft opened in mail client.', status: 'success', route: '#/reports', meta: { subject } }); } catch (_) {}
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -16667,61 +16719,119 @@ app.get('/api/schedules', (req, res) => {
 });
 
 // Unified activity feed across all agents and managers
+// Unified activity timeline. Merges four sources into one reverse-chronological
+// feed the Activity page renders + filters:
+//   - agent_runs / manager_runs  (drill-downable runs, keep `type`+`runId`)
+//   - usage_events               (AI deliverables: newsletters, connects, PR
+//                                 summaries, dev cards, insights, agent authoring)
+//   - activity_log               (operational events: marketplace installs,
+//                                 dependency/system updates, emails sent)
+// Every item carries a `kind` so the client can group/filter/icon it. Optional
+// query filters: ?kinds=a,b  ?status=success  ?q=text  ?limit=N
 app.get('/api/activity', (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const offset = parseInt(req.query.offset) || 0;
-  const activities = [];
-  
-  // Gather agent run history from SQLite (persisted across restarts)
-  const agentRuns = db.prepare('SELECT * FROM agent_runs ORDER BY id DESC LIMIT ? OFFSET ?').all(limit, offset);
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+  const kindsFilter = req.query.kinds ? String(req.query.kinds).split(',').map(s => s.trim()).filter(Boolean) : null;
+  const statusFilter = (req.query.status || '').toString().trim();
+  const q = (req.query.q || '').toString().trim().toLowerCase();
+  const items = [];
+
+  // 1) Agent runs — drill-downable.
+  const agentRuns = db.prepare('SELECT * FROM agent_runs ORDER BY id DESC LIMIT ?').all(limit);
   for (const run of agentRuns) {
     const entry = supervisor.agents.get(run.agent_id);
-    activities.push({
-      type: 'agent',
-      entityId: run.agent_id,
-      entityName: entry?.config?.name || run.agent_id,
+    const name = entry?.config?.name || run.agent_id;
+    items.push({
+      kind: 'agent', type: 'agent', category: 'agent',
+      entityId: run.agent_id, entityName: name,
+      title: name, detail: (run.output || '').slice(0, 200),
       action: 'run',
       status: run.exit_code === 0 ? 'success' : (run.exit_code === null ? 'running' : 'failed'),
-      timestamp: run.started_at,
-      finishedAt: run.finished_at,
-      duration: (run.started_at && run.finished_at)
-        ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
-        : null,
+      timestamp: run.started_at, finishedAt: run.finished_at,
+      duration: (run.started_at && run.finished_at) ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime() : null,
       output: (run.output || '').slice(0, 500),
-      runId: run.id,
-      taskId: run.task_id || null,
-      triggeredBy: run.triggered_by || 'manual',
-      triggerMode: run.trigger_mode || null
+      runId: run.id, taskId: run.task_id || null,
+      triggeredBy: run.triggered_by || 'manual', triggerMode: run.trigger_mode || null,
     });
   }
-  
-  // Gather manager run history from SQLite
+
+  // 2) Manager runs — drill-downable.
   try {
     const mgrRuns = db.prepare('SELECT * FROM manager_runs ORDER BY id DESC LIMIT ?').all(limit);
     for (const run of mgrRuns) {
       const mgr = managerAgent.managers.get(run.manager_id);
-      activities.push({
-        type: 'manager',
-        entityId: run.manager_id,
-        entityName: mgr?.name || run.manager_id,
+      const name = mgr?.name || run.manager_id;
+      items.push({
+        kind: 'manager', type: 'manager', category: 'manager',
+        entityId: run.manager_id, entityName: name,
+        title: name, detail: (run.result || '').slice(0, 200),
         action: run.assignment_id ? `assignment:${run.assignment_id}` : 'prompt',
         status: run.status || 'completed',
-        timestamp: run.started_at,
-        finishedAt: run.finished_at,
-        duration: (run.started_at && run.finished_at)
-          ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()
-          : null,
+        timestamp: run.started_at, finishedAt: run.finished_at,
+        duration: (run.started_at && run.finished_at) ? new Date(run.finished_at).getTime() - new Date(run.started_at).getTime() : null,
         output: (run.result || '').slice(0, 500),
-        runId: run.id,
-        assignmentId: run.assignment_id || null,
-        triggerMode: run.assignment_id ? 'scheduled' : 'manual'
+        runId: run.id, assignmentId: run.assignment_id || null,
+        triggerMode: run.assignment_id ? 'scheduled' : 'manual',
       });
     }
   } catch {}
-  
-  // Sort by timestamp descending
-  activities.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-  res.json(activities.slice(0, limit));
+
+  // 3) usage_events — surface the notable AI *deliverables* only (skip generic
+  // agent/manager/chat rows that already appear above or would be pure noise).
+  try {
+    const catToKind = {
+      newsletter: 'newsletter', connect: 'connect', pull_requests: 'pull_request',
+      dev_cards: 'dev_card', insights: 'insight', agent_authoring: 'agent_authoring',
+      release_notes: 'release_notes', feedback: 'feedback',
+    };
+    const kindTitle = {
+      newsletter: 'Newsletter', connect: 'Connect', pull_request: 'Pull request',
+      dev_card: 'Dev card', insight: 'Insight', agent_authoring: 'Agent authoring',
+      release_notes: 'Release notes', feedback: 'Feedback',
+    };
+    const cats = Object.keys(catToKind);
+    const ph = cats.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT * FROM usage_events WHERE (category IN (${ph}) OR deliverable = 1) ORDER BY id DESC LIMIT ?`
+    ).all(...cats, limit);
+    for (const r of rows) {
+      const kind = catToKind[r.category] || (r.deliverable ? (catToKind[r.source] || 'system') : null);
+      if (!kind) continue;
+      items.push({
+        kind, type: null, category: r.category || kind,
+        entityId: r.ref_id || null, entityName: kindTitle[kind] || kind,
+        title: kindTitle[kind] || kind,
+        detail: r.label || (r.deliverable ? 'Delivered' : (r.model ? `via ${r.model}` : '')),
+        status: r.deliverable ? 'delivered' : (r.status === 'error' || r.status === 'failed' ? 'failed' : (r.status || 'success')),
+        timestamp: r.ts, finishedAt: null,
+        duration: r.api_duration_ms || null,
+        output: '', runId: null,
+        model: r.model || null, deliverable: !!r.deliverable,
+      });
+    }
+  } catch {}
+
+  // 4) activity_log — operational events (installs, updates, emails).
+  try {
+    const rows = db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT ?').all(limit);
+    for (const r of rows) {
+      items.push({
+        kind: r.kind, type: null, category: r.category || r.kind,
+        entityId: r.entity_id || null, entityName: r.entity_name || r.title || r.kind,
+        title: r.title || r.kind, detail: r.detail || '',
+        status: r.status || 'info',
+        timestamp: r.ts, finishedAt: null, duration: null,
+        output: '', runId: null, route: r.route || null,
+      });
+    }
+  } catch {}
+
+  // Merge, sort newest-first, apply optional filters, cap.
+  items.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+  let out = items;
+  if (kindsFilter && kindsFilter.length) out = out.filter(i => kindsFilter.includes(i.kind));
+  if (statusFilter && statusFilter !== 'all') out = out.filter(i => i.status === statusFilter);
+  if (q) out = out.filter(i => `${i.entityName || ''} ${i.title || ''} ${i.detail || ''} ${i.kind || ''} ${i.category || ''}`.toLowerCase().includes(q));
+  res.json(out.slice(0, limit));
 });
 
 // Explain WHY a given agent run fired, from its stored attribution.
