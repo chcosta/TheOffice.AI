@@ -11684,29 +11684,43 @@
                  "peek" rail of notification-style digests that expand on hover. */
               .meai-grid2 { display:grid; grid-template-columns:minmax(0,1fr) 340px 46px; gap:24px; align-items:start; }
               .meai-side-work { min-width:0; }
-              /* Peek rail: slim vertical tabs, sticky so they stay reachable while scrolling. */
+              /* Col 2 swaps between the daily-work column and the active notification
+                 panel: a 2-pane horizontal track that slides so the panel replaces the
+                 side-work (rather than a hover flyout). */
+              .meai-side2 { grid-column:2; overflow:hidden; }
+              .meai-side2-track { display:flex; align-items:flex-start; width:200%;
+                transition:transform .32s cubic-bezier(.4,0,.2,1); }
+              .meai-side2-track > .meai-pane { flex:0 0 50%; width:50%; min-width:0; }
+              .meai-side2.show-peek .meai-side2-track { transform:translateX(-50%); }
+              .meai-peek-panel { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px;
+                background:var(--cp-surface); }
+              .meai-peek-panel-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
+              .meai-peek-panel-title { font-weight:700; font-size:14px; }
+              .meai-peek-back { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg);
+                color:var(--cp-text); font-size:12px; font-weight:600; padding:4px 10px; border-radius:8px; cursor:pointer;
+                display:inline-flex; align-items:center; gap:4px; transition:border-color .12s, color .12s; }
+              .meai-peek-back:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
+              /* Peek switcher (col 3): slim vertical tabs, sticky so they stay reachable while scrolling. */
               .meai-peek { grid-column:3; position:sticky; top:12px; align-self:start; display:flex; flex-direction:column; gap:8px; }
-              .meai-peek-item { position:relative; }
               .meai-peek-tab { display:flex; flex-direction:column; align-items:center; gap:6px; width:46px; padding:12px 0;
                 border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); color:var(--cp-text);
                 cursor:pointer; transition:border-color .12s, background .12s; }
-              .meai-peek-item:hover .meai-peek-tab, .meai-peek-item.pinned .meai-peek-tab { border-color:var(--cp-accent); }
+              .meai-peek-tab:hover { border-color:var(--cp-accent); }
+              .meai-peek-tab.active { border-color:var(--cp-accent); background:var(--cp-accent-soft,rgba(31,111,235,.10)); }
               .meai-peek-label { writing-mode:vertical-rl; transform:rotate(180deg); font-size:11.5px; font-weight:600;
                 letter-spacing:.02em; white-space:nowrap; }
               .meai-peek-count { font-size:11px; font-weight:700; color:var(--cp-text); background:var(--cp-bg);
                 border:1px solid var(--cp-border); border-radius:8px; min-width:18px; text-align:center; padding:1px 4px; }
               .meai-peek-dot { width:7px; height:7px; border-radius:50%; background:var(--cp-warning); }
               .meai-peek-ico { font-size:15px; line-height:1; }
-              .meai-peek-fly { position:absolute; right:calc(100% + 10px); top:0; width:340px; max-height:78vh; overflow-y:auto;
-                background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:12px; padding:12px 14px;
-                box-shadow:-8px 0 28px rgba(0,0,0,.16); z-index:60; display:none; }
-              .meai-peek-item:hover .meai-peek-fly, .meai-peek-item.pinned .meai-peek-fly { display:block; }
-              .meai-peek-fly-title { font-weight:700; font-size:13px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
               @media (max-width:1000px) {
                 .meai-grid2 { grid-template-columns:1fr; }
-                .meai-peek { grid-column:auto; position:static; }
-                .meai-peek-tab { display:none; }
-                .meai-peek-fly { position:static; display:block; width:auto; max-height:none; box-shadow:none; }
+                .meai-side2 { grid-column:auto; overflow:visible; }
+                .meai-side2-track { width:100%; flex-direction:column; transform:none !important; }
+                .meai-side2-track > .meai-pane { flex:0 0 auto; width:100%; }
+                .meai-peek { grid-column:auto; position:static; flex-direction:row; flex-wrap:wrap; }
+                .meai-peek-tab { flex-direction:row; width:auto; padding:8px 12px; }
+                .meai-peek-label { writing-mode:horizontal-tb; transform:none; }
               }
               .meai-tl { position:relative; }
               .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
@@ -12215,7 +12229,13 @@
                 </div>
 
                 <!-- Side rail(s): daily-work column + notifications column (REQ-10) -->
-                <div class="meai-side meai-side-work">
+                <!-- Col 2 slides between the daily-work column and the active notification
+                     panel; col 3 (below) is the slim peek switcher. -->
+                <div class="meai-side2" :class="{ 'show-peek': !!meai.peekActive }">
+                  <div class="meai-side2-track">
+                    <!-- Pane A: daily work (Me agents at work + Today's todos) -->
+                    <div class="meai-pane">
+                      <div class="meai-side meai-side-work">
                   <!-- Me agents at work (M2 delegation lane) — pure status lane now; the
                        ad-hoc "ask a Me agent" launcher is folded into the agenda assistant. -->
                   <div class="meai-card">
@@ -12280,43 +12300,26 @@
                     </div>
                   </div>
 
-                </div><!-- /.meai-side-work -->
-
-                <!-- Peek rail (col 3): slim notification tabs that expand on hover; click a
-                     tab to pin it open. Working hours moved to the ⚙ modal in the datebar. -->
-                <div class="meai-peek" x-show="meai.agenda">
-                  <!-- Suggestions -->
-                  <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
-                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.sugg }">
-                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('sugg')" title="Suggestions">
-                        <span class="meai-peek-ico">💡</span>
-                        <span class="meai-peek-count" x-text="(meai.agenda.suggestions||[]).length"></span>
-                        <span class="meai-peek-label">Suggestions</span>
-                      </button>
-                      <div class="meai-peek-fly">
-                        <div class="meai-peek-fly-title">💡 Suggestions</div>
-                        <template x-for="sg in meai.agenda.suggestions" :key="sg.id">
+                      </div><!-- /.meai-side-work -->
+                    </div>
+                    <!-- Pane B: the active notification panel slides in over pane A -->
+                    <div class="meai-pane">
+                      <div class="meai-peek-panel" x-show="!!meai.peekActive">
+                        <div class="meai-peek-panel-head">
+                          <button type="button" class="meai-peek-back" @click="meai.peekActive=null">← My day</button>
+                          <span class="meai-peek-panel-title" x-text="meai.peekActive==='sugg' ? '💡 Suggestions' : meai.peekActive==='na' ? '⚠ Needs attention' : meai.peekActive==='bk' ? '📥 Didn\'t fit today' : meai.peekActive==='rm' ? '🗑 Removed today' : ''"></span>
+                        </div>
+                        <div x-show="meai.peekActive==='sugg'">
+                        <template x-for="sg in ((meai.agenda&&meai.agenda.suggestions)||[])" :key="sg.id">
                           <div class="meai-sugg" :class="'sev-' + (sg.sev||'info')">
                             <button class="meai-dismiss" type="button" @click.stop="meAiDismissSuggestion(sg.id)" title="Dismiss this suggestion">✕ Dismiss</button>
                             <div class="meai-sugg-t" x-text="sg.text"></div>
                             <a class="meai-detail-link" x-show="sg.link" :href="sg.link" target="_blank" rel="noopener">Open ↗</a>
                           </div>
                         </template>
-                      </div>
-                    </div>
-                  </template>
-
-                  <!-- Needs attention -->
-                  <template x-if="meai.agenda && meAiNeedsAttentionList().length">
-                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.na }">
-                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('na')" title="Needs attention">
-                        <span class="meai-peek-dot"></span>
-                        <span class="meai-peek-count" x-text="meAiNeedsAttentionList().length"></span>
-                        <span class="meai-peek-label">Needs attention</span>
-                      </button>
-                      <div class="meai-peek-fly">
-                        <div class="meai-peek-fly-title">⚠ Needs attention</div>
-                        <template x-for="(n, ni) in meAiNeedsAttentionList()" :key="ni">
+                        </div>
+                        <div x-show="meai.peekActive==='na'">
+                        <template x-for="(n, ni) in (meai.agenda?meAiNeedsAttentionList():[])" :key="ni">
                           <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
                                @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
                             <button class="meai-notmine" type="button" @click.stop="meAiDismiss(n)" title="Not mine — remove from today">✕ Not mine</button>
@@ -12333,21 +12336,9 @@
                             </div>
                           </div>
                         </template>
-                      </div>
-                    </div>
-                  </template>
-
-                  <!-- Didn't fit today (backlog) -->
-                  <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
-                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.bk }">
-                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('bk')" title="Didn't fit today">
-                        <span class="meai-peek-ico">📥</span>
-                        <span class="meai-peek-count" x-text="(meai.agenda.backlog||[]).length"></span>
-                        <span class="meai-peek-label">Didn't fit today</span>
-                      </button>
-                      <div class="meai-peek-fly">
-                        <div class="meai-peek-fly-title">📥 Didn't fit today</div>
-                        <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
+                        </div>
+                        <div x-show="meai.peekActive==='bk'">
+                        <template x-for="(bk, bki) in ((meai.agenda&&meai.agenda.backlog)||[])" :key="bki">
                           <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
                                @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
                             <button class="meai-notmine" type="button" @click.stop="meAiDismiss(bk)" title="Not mine — remove from today">✕ Not mine</button>
@@ -12364,21 +12355,9 @@
                             </div>
                           </div>
                         </template>
-                      </div>
-                    </div>
-                  </template>
-
-                  <!-- Removed today (#7 dismissed) -->
-                  <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
-                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.rm }">
-                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('rm')" title="Removed today">
-                        <span class="meai-peek-ico">🗑</span>
-                        <span class="meai-peek-count" x-text="(meai.agenda.dismissed||[]).length"></span>
-                        <span class="meai-peek-label">Removed today</span>
-                      </button>
-                      <div class="meai-peek-fly">
-                        <div class="meai-peek-fly-title">🗑 Removed today</div>
-                        <template x-for="d in meai.agenda.dismissed" :key="d.key">
+                        </div>
+                        <div x-show="meai.peekActive==='rm'">
+                        <template x-for="d in ((meai.agenda&&meai.agenda.dismissed)||[])" :key="d.key">
                           <div class="meai-dismissed-row">
                             <span style="flex:1">
                               <span x-text="d.title"></span>
@@ -12387,8 +12366,41 @@
                             <button type="button" class="meai-restore" @click="meAiUndismiss(d.key)">Restore</button>
                           </div>
                         </template>
+                        </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                <!-- Peek switcher (col 3): slim tabs; click to slide a panel into col 2. -->
+                <div class="meai-peek" x-show="meai.agenda">
+                  <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
+                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='sugg' }" @click="meAiPeekToggle('sugg')" title="Suggestions">
+                      <span class="meai-peek-ico">💡</span>
+                      <span class="meai-peek-count" x-text="(meai.agenda.suggestions||[]).length"></span>
+                      <span class="meai-peek-label">Suggestions</span>
+                    </button>
+                  </template>
+                  <template x-if="meai.agenda && meAiNeedsAttentionList().length">
+                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='na' }" @click="meAiPeekToggle('na')" title="Needs attention">
+                      <span class="meai-peek-dot"></span>
+                      <span class="meai-peek-count" x-text="meAiNeedsAttentionList().length"></span>
+                      <span class="meai-peek-label">Needs attention</span>
+                    </button>
+                  </template>
+                  <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
+                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='bk' }" @click="meAiPeekToggle('bk')" title="Didn't fit today">
+                      <span class="meai-peek-ico">📥</span>
+                      <span class="meai-peek-count" x-text="(meai.agenda.backlog||[]).length"></span>
+                      <span class="meai-peek-label">Didn't fit today</span>
+                    </button>
+                  </template>
+                  <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
+                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='rm' }" @click="meAiPeekToggle('rm')" title="Removed today">
+                      <span class="meai-peek-ico">🗑</span>
+                      <span class="meai-peek-count" x-text="(meai.agenda.dismissed||[]).length"></span>
+                      <span class="meai-peek-label">Removed today</span>
+                    </button>
                   </template>
                 </div><!-- /.meai-peek -->
               </div>
@@ -20323,8 +20335,8 @@
           // Collapsible side-rail cards — heavy lists (needs-attention, backlog)
           // can be collapsed to a one-line status indicator to reclaim space.
           railCollapsed: (() => { try { return JSON.parse(localStorage.getItem('meAiRailCollapsed') || '{}') || {}; } catch (_) { return {}; } })(),
-          // Peek rail: which notification tabs are pinned open (else hover-to-expand).
-          peekPinned: {},
+          // Peek switcher: which notification panel is slid into col 2 (null = daily work).
+          peekActive: null,
           // Working hours & grid flyout.
           hoursOpen: false,
           // REQ-13 Agenda Assistant — conversational agenda control. mode: 'agenda' | 'task'.
@@ -27174,9 +27186,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.railCollapsed[key] = !this.meai.railCollapsed[key];
           try { localStorage.setItem('meAiRailCollapsed', JSON.stringify(this.meai.railCollapsed)); } catch (_) {}
         },
-        // Peek rail: click a tab to pin its flyout open (else it opens on hover).
+        // Peek switcher: click a tab to slide its panel into col 2 (replacing the
+        // daily-work column); click the active tab again to slide back.
         meAiPeekToggle(key) {
-          this.meai.peekPinned[key] = !this.meai.peekPinned[key];
+          this.meai.peekActive = (this.meai.peekActive === key) ? null : key;
         },
         // De-dupe the redundancy the owner flagged: the top "new items need
         // attention" inbox and the right-rail "Needs attention" digest often show
