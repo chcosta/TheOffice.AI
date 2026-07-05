@@ -11679,17 +11679,35 @@
               .meai-auto-name { color:var(--cp-text); font-weight:500; }
               .meai-auto-why { color:var(--cp-text-muted); font-size:11px; }
               .meai-auto-undo { margin-left:auto; }
-              .meai-grid2 { display:grid; grid-template-columns:1fr 320px; gap:24px; align-items:start; }
-              /* REQ-10: the two side rails (daily-work + notifications). Default / medium:
-                 they stack in a single 320px side column. Wide: they spread into two 320px
-                 columns so the extra horizontal space is used without shrinking the cards. */
-              .meai-rails { display:flex; flex-direction:column; grid-column:2; }
-              .meai-side-notify { min-width:0; }
-              @media (min-width:1440px) {
-                .meai-grid2 { grid-template-columns:1fr 320px 320px; }
-                .meai-rails { display:contents; }
+              /* REQ (Jul): two-column focus layout. Column 1 = agenda (wide, emphasized);
+                 column 2 = the daily-work side column (Me agents + todos); column 3 = a slim
+                 "peek" rail of notification-style digests that expand on hover. */
+              .meai-grid2 { display:grid; grid-template-columns:minmax(0,1fr) 340px 46px; gap:24px; align-items:start; }
+              .meai-side-work { min-width:0; }
+              /* Peek rail: slim vertical tabs, sticky so they stay reachable while scrolling. */
+              .meai-peek { grid-column:3; position:sticky; top:12px; align-self:start; display:flex; flex-direction:column; gap:8px; }
+              .meai-peek-item { position:relative; }
+              .meai-peek-tab { display:flex; flex-direction:column; align-items:center; gap:6px; width:46px; padding:12px 0;
+                border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface); color:var(--cp-text);
+                cursor:pointer; transition:border-color .12s, background .12s; }
+              .meai-peek-item:hover .meai-peek-tab, .meai-peek-item.pinned .meai-peek-tab { border-color:var(--cp-accent); }
+              .meai-peek-label { writing-mode:vertical-rl; transform:rotate(180deg); font-size:11.5px; font-weight:600;
+                letter-spacing:.02em; white-space:nowrap; }
+              .meai-peek-count { font-size:11px; font-weight:700; color:var(--cp-text); background:var(--cp-bg);
+                border:1px solid var(--cp-border); border-radius:8px; min-width:18px; text-align:center; padding:1px 4px; }
+              .meai-peek-dot { width:7px; height:7px; border-radius:50%; background:var(--cp-warning); }
+              .meai-peek-ico { font-size:15px; line-height:1; }
+              .meai-peek-fly { position:absolute; right:calc(100% + 10px); top:0; width:340px; max-height:78vh; overflow-y:auto;
+                background:var(--cp-bg); border:1px solid var(--cp-border); border-radius:12px; padding:12px 14px;
+                box-shadow:-8px 0 28px rgba(0,0,0,.16); z-index:60; display:none; }
+              .meai-peek-item:hover .meai-peek-fly, .meai-peek-item.pinned .meai-peek-fly { display:block; }
+              .meai-peek-fly-title { font-weight:700; font-size:13px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+              @media (max-width:1000px) {
+                .meai-grid2 { grid-template-columns:1fr; }
+                .meai-peek { grid-column:auto; position:static; }
+                .meai-peek-tab { display:none; }
+                .meai-peek-fly { position:static; display:block; width:auto; max-height:none; box-shadow:none; }
               }
-              @media (max-width:900px) { .meai-grid2 { grid-template-columns:1fr; } .meai-rails { grid-column:auto; } }
               .meai-tl { position:relative; }
               .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
               .meai-block-time { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; padding-top:12px; text-align:right; }
@@ -11865,6 +11883,25 @@
               .meai-asst-kind { font-weight:600; font-size:12.5px; }
               .meai-asst-preview { color:var(--cp-text-muted); font-size:12px; margin-top:2px; }
               .meai-asst-input { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--cp-border); align-items:flex-end; }
+              /* Assistant input mode toggle (fold-in of the ad-hoc "ask a Me agent") */
+              .meai-asst-modes { display:flex; gap:6px; padding:10px 16px 0; }
+              .meai-asst-mode { flex:1; appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg);
+                color:var(--cp-text-muted); font-size:12px; padding:5px 8px; border-radius:8px; cursor:pointer; }
+              .meai-asst-mode.on { border-color:var(--cp-accent); color:var(--cp-text); background:var(--cp-accent-soft); }
+              /* Floating agenda-assistant launcher (matches board/connect FABs) */
+              .meai-ai-fab { z-index:56; }
+              /* "Not mine" made clearly visible on notification cards (was hover-only ghost) */
+              .meai-notmine { position:absolute; top:7px; right:8px; display:inline-flex; align-items:center; gap:3px;
+                border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); font-size:10.5px;
+                padding:2px 7px; border-radius:8px; cursor:pointer; opacity:.9; transition:all .12s; }
+              .meai-notmine:hover { opacity:1; border-color:var(--cp-danger,#dc2626); color:var(--cp-danger,#dc2626); }
+              /* Working hours & grid modal (moved out of the rail into a flyout) */
+              .meai-hours-modal { position:fixed; inset:0; z-index:9700; display:flex; align-items:flex-start; justify-content:center;
+                background:rgba(0,0,0,.42); padding:6vh 16px; overflow-y:auto; }
+              .meai-hours-panel { width:min(560px, 96vw); background:var(--cp-bg); border:1px solid var(--cp-border);
+                border-radius:14px; box-shadow:var(--cp-shadow); padding:18px 20px; }
+              .meai-hours-panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+              .meai-hours-panel-head h3 { margin:0; font-size:15px; }
               .meai-act-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:13px; padding:7px 14px; border-radius:8px; cursor:pointer; }
               .meai-act-btn:hover { border-color:var(--cp-accent); }
               .meai-act-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; }
@@ -11925,9 +11962,9 @@
                 </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
                 <span style="flex:1"></span>
-                <button class="btn ghost" type="button" @click="meAiAsstToggle()"
-                        title="Chat to reshape your day — add breaks, split items, change hours, move things around">
-                  💬 Agenda assistant
+                <button class="btn ghost" type="button" @click="meai.hoursOpen = true"
+                        title="Working hours, work week, grid & time-of-day preferences">
+                  ⚙ Hours &amp; grid
                 </button>
               </div>
 
@@ -12178,9 +12215,9 @@
                 </div>
 
                 <!-- Side rail(s): daily-work column + notifications column (REQ-10) -->
-                <div class="meai-rails">
                 <div class="meai-side meai-side-work">
-                  <!-- Me agents at work (M2 delegation lane) -->
+                  <!-- Me agents at work (M2 delegation lane) — pure status lane now; the
+                       ad-hoc "ask a Me agent" launcher is folded into the agenda assistant. -->
                   <div class="meai-card">
                     <div class="meai-card-head" @click="meAiRailToggle('agents')" :title="meai.railCollapsed.agents ? 'Show running agents' : 'Collapse to status'">
                       <span class="meai-caret" x-text="meai.railCollapsed.agents ? '▸' : '▾'"></span>
@@ -12189,14 +12226,6 @@
                       <span class="meai-card-count" x-text="(meai.tasks||[]).length"></span>
                     </div>
                     <div x-show="!meai.railCollapsed.agents" x-transition>
-                    <!-- Ad-hoc: tell a Me agent what to accomplish in your own words. -->
-                    <div class="meai-adhoc">
-                      <input class="field-input meai-adhoc-in" x-model="meai.adhocGoal"
-                             placeholder="Ask a Me agent to… (e.g. draft a status update on the Helix work)"
-                             @keydown.enter="meAiLaunchAdhoc()" :disabled="meai.consoleBusy">
-                      <button class="meai-mini-btn" type="button" @click="meAiLaunchAdhoc()"
-                              :disabled="meai.consoleBusy || !(meai.adhocGoal||'').trim()">🤖 Go</button>
-                    </div>
                     <template x-if="(meai.tasks||[]).length">
                       <div>
                         <template x-for="tk in meai.tasks" :key="tk.id">
@@ -12219,26 +12248,6 @@
                     </div>
                     </div>
                   </div>
-
-                  <!-- Suggestions (§12) -->
-                  <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
-                    <div class="meai-card">
-                      <div class="meai-card-head" @click="meAiRailToggle('sugg')" :title="meai.railCollapsed.sugg ? 'Show suggestions' : 'Collapse to status'">
-                        <span class="meai-caret" x-text="meai.railCollapsed.sugg ? '▸' : '▾'"></span>
-                        <h4>Suggestions</h4>
-                        <span class="meai-card-count" x-text="(meai.agenda.suggestions||[]).length"></span>
-                      </div>
-                      <div x-show="!meai.railCollapsed.sugg" x-transition>
-                      <template x-for="sg in meai.agenda.suggestions" :key="sg.id">
-                        <div class="meai-sugg" :class="'sev-' + (sg.sev||'info')">
-                          <button class="meai-dismiss" type="button" @click.stop="meAiDismissSuggestion(sg.id)" title="Dismiss this suggestion">✕ Dismiss</button>
-                          <div class="meai-sugg-t" x-text="sg.text"></div>
-                          <a class="meai-detail-link" x-show="sg.link" :href="sg.link" target="_blank" rel="noopener">Open ↗</a>
-                        </div>
-                      </template>
-                      </div>
-                    </div>
-                  </template>
 
                   <!-- Todos for the day -->
                   <div class="meai-card">
@@ -12271,136 +12280,117 @@
                     </div>
                   </div>
 
-                  <!-- Working hours -->
-                  <div class="meai-card">
-                    <div class="meai-card-head" @click="meAiRailToggle('hours')" :title="meai.railCollapsed.hours ? 'Show working-hours settings' : 'Collapse to status'">
-                      <span class="meai-caret" x-text="meai.railCollapsed.hours ? '▸' : '▾'"></span>
-                      <h4>Working hours &amp; grid</h4>
-                    </div>
-                    <div x-show="!meai.railCollapsed.hours" x-transition>
-                    <div class="meai-hours">
-                      <label>Start</label><input type="time" x-model="meai.config.workStart">
-                      <label>End</label><input type="time" x-model="meai.config.workEnd">
-                      <label>Lunch</label>
-                      <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
-                      <label>Grid</label>
-                      <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
-                    </div>
-                    <div class="meai-workweek">
-                      <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
-                      <div class="meai-ww-days">
-                        <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
-                          <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
-                        </template>
-                      </div>
-                    </div>
-                    <div class="meai-timeprefs">
-                      <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
-                      <div class="meai-tp-rows">
-                        <template x-for="tp in [['review','Reviews'],['focus','Deep focus'],['steward','PR stewarding'],['comms','Email &amp; comms'],['admin','Admin'],['prep','Meeting prep']]" :key="tp[0]">
-                          <button type="button" class="meai-tp-row" @click="meAiCycleTimePref(tp[0])" :disabled="meai.generating || meai.savingSettings"
-                            :title="'Click to cycle: no preference → morning → afternoon'">
-                            <span class="meai-tp-name" x-html="tp[1]"></span>
-                            <span class="meai-tp-when" :class="{ set: meAiTimePref(tp[0]) }"
-                              x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
-                          </button>
-                        </template>
-                      </div>
-                    </div>
-                    <button class="btn ghost" type="button" style="margin-top:10px" @click="meAiSaveSettings()" :disabled="meai.savingSettings">Save preferences</button>
-                    <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
-                      Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
-                    </div>
-                    </div>
-                  </div>
                 </div><!-- /.meai-side-work -->
 
-                <!-- Notifications column (REQ-10): standing digests / notification-style cards -->
-                <div class="meai-side meai-side-notify">
-                  <!-- Needs attention -->
-                  <template x-if="meai.agenda && meAiNeedsAttentionList().length">
-                    <div class="meai-card">
-                      <div class="meai-card-head" @click="meAiRailToggle('na')" :title="meai.railCollapsed.na ? 'Show needs-attention items' : 'Collapse to status'">
-                        <span class="meai-caret" x-text="meai.railCollapsed.na ? '▸' : '▾'"></span>
-                        <h4>Needs attention</h4>
-                        <span class="meai-card-dot" x-show="meai.railCollapsed.na"></span>
-                        <span class="meai-card-count" x-text="meAiNeedsAttentionList().length"></span>
-                      </div>
-                      <div x-show="!meai.railCollapsed.na" x-transition>
-                      <template x-for="(n, ni) in meAiNeedsAttentionList()" :key="ni">
-                        <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
-                             @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
-                          <button class="meai-dismiss" type="button" @click.stop="meAiDismiss(n)" title="Not mine — remove from today">✕ Not mine</button>
-                          <div class="meai-na-t">
-                            <span x-show="meAiHasDetail(n)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('na',n,ni))?'▾':'▸'"></span>
-                            <span x-text="n.title || n.label || 'Item'"></span>
+                <!-- Peek rail (col 3): slim notification tabs that expand on hover; click a
+                     tab to pin it open. Working hours moved to the ⚙ modal in the datebar. -->
+                <div class="meai-peek" x-show="meai.agenda">
+                  <!-- Suggestions -->
+                  <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
+                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.sugg }">
+                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('sugg')" title="Suggestions">
+                        <span class="meai-peek-ico">💡</span>
+                        <span class="meai-peek-count" x-text="(meai.agenda.suggestions||[]).length"></span>
+                        <span class="meai-peek-label">Suggestions</span>
+                      </button>
+                      <div class="meai-peek-fly">
+                        <div class="meai-peek-fly-title">💡 Suggestions</div>
+                        <template x-for="sg in meai.agenda.suggestions" :key="sg.id">
+                          <div class="meai-sugg" :class="'sev-' + (sg.sev||'info')">
+                            <button class="meai-dismiss" type="button" @click.stop="meAiDismissSuggestion(sg.id)" title="Dismiss this suggestion">✕ Dismiss</button>
+                            <div class="meai-sugg-t" x-text="sg.text"></div>
+                            <a class="meai-detail-link" x-show="sg.link" :href="sg.link" target="_blank" rel="noopener">Open ↗</a>
                           </div>
-                          <div class="meai-na-m" x-show="n.reason || n.detail" x-text="n.reason || n.detail"></div>
-                          <div class="meai-na-detail" x-show="meAiExpanded(meAiItemKey('na',n,ni))">
-                            <template x-for="row in meAiMetaRows(n)" :key="row[0]">
-                              <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
-                            </template>
-                            <a class="meai-detail-link" x-show="n.link" :href="n.link" target="_blank" rel="noopener">Open ↗</a>
-                          </div>
-                        </div>
-                      </template>
+                        </template>
                       </div>
                     </div>
                   </template>
 
-                  <!-- Backlog / overflow -->
-                  <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
-                    <div class="meai-card">
-                      <div class="meai-card-head" @click="meAiRailToggle('bk')" :title="meai.railCollapsed.bk ? 'Show items that didn\'t fit' : 'Collapse to status'">
-                        <span class="meai-caret" x-text="meai.railCollapsed.bk ? '▸' : '▾'"></span>
-                        <h4>Didn't fit today</h4>
-                        <span class="meai-card-count" x-text="(meai.agenda.backlog||[]).length"></span>
+                  <!-- Needs attention -->
+                  <template x-if="meai.agenda && meAiNeedsAttentionList().length">
+                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.na }">
+                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('na')" title="Needs attention">
+                        <span class="meai-peek-dot"></span>
+                        <span class="meai-peek-count" x-text="meAiNeedsAttentionList().length"></span>
+                        <span class="meai-peek-label">Needs attention</span>
+                      </button>
+                      <div class="meai-peek-fly">
+                        <div class="meai-peek-fly-title">⚠ Needs attention</div>
+                        <template x-for="(n, ni) in meAiNeedsAttentionList()" :key="ni">
+                          <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
+                               @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
+                            <button class="meai-notmine" type="button" @click.stop="meAiDismiss(n)" title="Not mine — remove from today">✕ Not mine</button>
+                            <div class="meai-na-t">
+                              <span x-show="meAiHasDetail(n)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('na',n,ni))?'▾':'▸'"></span>
+                              <span x-text="n.title || n.label || 'Item'"></span>
+                            </div>
+                            <div class="meai-na-m" x-show="n.reason || n.detail" x-text="n.reason || n.detail"></div>
+                            <div class="meai-na-detail" x-show="meAiExpanded(meAiItemKey('na',n,ni))">
+                              <template x-for="row in meAiMetaRows(n)" :key="row[0]">
+                                <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                              </template>
+                              <a class="meai-detail-link" x-show="n.link" :href="n.link" target="_blank" rel="noopener">Open ↗</a>
+                            </div>
+                          </div>
+                        </template>
                       </div>
-                      <div x-show="!meai.railCollapsed.bk" x-transition>
-                      <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
-                        <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
-                             @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
-                          <button class="meai-dismiss" type="button" @click.stop="meAiDismiss(bk)" title="Not mine — remove from today">✕ Not mine</button>
-                          <div class="meai-na-t">
-                            <span x-show="meAiHasDetail(bk)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('bk',bk,bki))?'▾':'▸'"></span>
-                            <span x-text="bk.title || bk.label || 'Task'"></span>
+                    </div>
+                  </template>
+
+                  <!-- Didn't fit today (backlog) -->
+                  <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
+                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.bk }">
+                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('bk')" title="Didn't fit today">
+                        <span class="meai-peek-ico">📥</span>
+                        <span class="meai-peek-count" x-text="(meai.agenda.backlog||[]).length"></span>
+                        <span class="meai-peek-label">Didn't fit today</span>
+                      </button>
+                      <div class="meai-peek-fly">
+                        <div class="meai-peek-fly-title">📥 Didn't fit today</div>
+                        <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
+                          <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
+                               @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
+                            <button class="meai-notmine" type="button" @click.stop="meAiDismiss(bk)" title="Not mine — remove from today">✕ Not mine</button>
+                            <div class="meai-na-t">
+                              <span x-show="meAiHasDetail(bk)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('bk',bk,bki))?'▾':'▸'"></span>
+                              <span x-text="bk.title || bk.label || 'Task'"></span>
+                            </div>
+                            <div class="meai-na-m" x-show="bk.why || bk.reason" x-text="bk.why || bk.reason"></div>
+                            <div class="meai-na-detail" x-show="meAiExpanded(meAiItemKey('bk',bk,bki))">
+                              <template x-for="row in meAiMetaRows(bk)" :key="row[0]">
+                                <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                              </template>
+                              <a class="meai-detail-link" x-show="bk.link" :href="bk.link" target="_blank" rel="noopener">Open ↗</a>
+                            </div>
                           </div>
-                          <div class="meai-na-m" x-show="bk.why || bk.reason" x-text="bk.why || bk.reason"></div>
-                          <div class="meai-na-detail" x-show="meAiExpanded(meAiItemKey('bk',bk,bki))">
-                            <template x-for="row in meAiMetaRows(bk)" :key="row[0]">
-                              <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
-                            </template>
-                            <a class="meai-detail-link" x-show="bk.link" :href="bk.link" target="_blank" rel="noopener">Open ↗</a>
-                          </div>
-                        </div>
-                      </template>
+                        </template>
                       </div>
                     </div>
                   </template>
 
                   <!-- Removed today (#7 dismissed) -->
                   <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
-                    <div class="meai-card">
-                      <div class="meai-card-head" @click="meAiRailToggle('rm')" :title="meai.railCollapsed.rm ? 'Show removed items' : 'Collapse to status'">
-                        <span class="meai-caret" x-text="meai.railCollapsed.rm ? '▸' : '▾'"></span>
-                        <h4>Removed today</h4>
-                        <span class="meai-card-count" x-text="(meai.agenda.dismissed||[]).length"></span>
-                      </div>
-                      <div x-show="!meai.railCollapsed.rm" x-transition>
-                      <template x-for="d in meai.agenda.dismissed" :key="d.key">
-                        <div class="meai-dismissed-row">
-                          <span style="flex:1">
-                            <span x-text="d.title"></span>
-                            <span x-show="d.note" style="color:var(--cp-text-muted)" x-text="' — ' + d.note"></span>
-                          </span>
-                          <button type="button" class="meai-restore" @click="meAiUndismiss(d.key)">Restore</button>
-                        </div>
-                      </template>
+                    <div class="meai-peek-item" :class="{ pinned: meai.peekPinned.rm }">
+                      <button type="button" class="meai-peek-tab" @click="meAiPeekToggle('rm')" title="Removed today">
+                        <span class="meai-peek-ico">🗑</span>
+                        <span class="meai-peek-count" x-text="(meai.agenda.dismissed||[]).length"></span>
+                        <span class="meai-peek-label">Removed today</span>
+                      </button>
+                      <div class="meai-peek-fly">
+                        <div class="meai-peek-fly-title">🗑 Removed today</div>
+                        <template x-for="d in meai.agenda.dismissed" :key="d.key">
+                          <div class="meai-dismissed-row">
+                            <span style="flex:1">
+                              <span x-text="d.title"></span>
+                              <span x-show="d.note" style="color:var(--cp-text-muted)" x-text="' — ' + d.note"></span>
+                            </span>
+                            <button type="button" class="meai-restore" @click="meAiUndismiss(d.key)">Restore</button>
+                          </div>
+                        </template>
                       </div>
                     </div>
                   </template>
-                </div><!-- /.meai-side-notify -->
-                </div><!-- /.meai-rails -->
+                </div><!-- /.meai-peek -->
               </div>
             </div>
 
@@ -15225,15 +15215,64 @@
                   </div>
                 </div>
               </div>
+              <div class="meai-asst-modes">
+                <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode !== 'task' }" @click="meai.asst.mode='agenda'">🗓 Adjust agenda</button>
+                <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode === 'task' }" @click="meai.asst.mode='task'">🤖 Run a task</button>
+              </div>
               <div class="meai-asst-input">
-                <textarea class="field-input" rows="2" x-model="meai.asst.input" placeholder="e.g. add a 1-hour workout at 5pm, reviews in the morning, split the PR review block…"
+                <textarea class="field-input" rows="2" x-model="meai.asst.input"
+                          :placeholder="meai.asst.mode==='task' ? 'Tell a Me agent what to do… (e.g. draft a status update on the Helix work)' : 'e.g. add a 1-hour workout at 5pm, reviews in the morning, split the PR review block…'"
                           :disabled="meai.asst.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); meAiAsstSend(); }" style="flex:1;resize:none"></textarea>
-                <button class="btn primary" type="button" @click="meAiAsstSend()" :disabled="meai.asst.busy || !meai.asst.input.trim()">Send</button>
+                <button class="btn primary" type="button" @click="meAiAsstSend()" :disabled="meai.asst.busy || !meai.asst.input.trim()" x-text="meai.asst.mode==='task' ? 'Run' : 'Send'"></button>
+              </div>
+            </div>
+
+            <!-- Floating agenda-assistant launcher (matches board/connect FABs) -->
+            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
+
+            <!-- Working hours & grid modal (moved out of the side rail) -->
+            <div class="meai-hours-modal" x-show="meai.hoursOpen" x-transition.opacity.duration.150ms x-cloak @click.self="meai.hoursOpen=false">
+              <div class="meai-hours-panel">
+                <div class="meai-hours-panel-head">
+                  <h3>⚙ Working hours &amp; grid</h3>
+                  <button class="icon-button" type="button" @click="meai.hoursOpen=false" title="Close">✕</button>
+                </div>
+                <div class="meai-hours">
+                  <label>Start</label><input type="time" x-model="meai.config.workStart">
+                  <label>End</label><input type="time" x-model="meai.config.workEnd">
+                  <label>Lunch</label>
+                  <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
+                  <label>Grid</label>
+                  <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                </div>
+                <div class="meai-workweek">
+                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
+                  <div class="meai-ww-days">
+                    <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
+                      <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
+                    </template>
+                  </div>
+                </div>
+                <div class="meai-timeprefs">
+                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
+                  <div class="meai-tp-rows">
+                    <template x-for="tp in [['review','Reviews'],['focus','Deep focus'],['steward','PR stewarding'],['comms','Email &amp; comms'],['admin','Admin'],['prep','Meeting prep']]" :key="tp[0]">
+                      <button type="button" class="meai-tp-row" @click="meAiCycleTimePref(tp[0])" :disabled="meai.generating || meai.savingSettings"
+                        :title="'Click to cycle: no preference → morning → afternoon'">
+                        <span class="meai-tp-name" x-html="tp[1]"></span>
+                        <span class="meai-tp-when" :class="{ set: meAiTimePref(tp[0]) }"
+                          x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+                <button class="btn primary" type="button" style="margin-top:12px" @click="meAiSaveSettings(); meai.hoursOpen=false" :disabled="meai.savingSettings">Save preferences</button>
+                <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
+                  Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
+                </div>
               </div>
             </div>
           </section>
-
-          <section x-show="!loading && !errorMessage && route === 'standup'" x-transition.opacity.duration.180ms>
             <div class="page-header">
               <div class="page-title">
                 <h1>🧍 Create Standup Agent</h1>
@@ -20074,8 +20113,12 @@
           // Collapsible side-rail cards — heavy lists (needs-attention, backlog)
           // can be collapsed to a one-line status indicator to reclaim space.
           railCollapsed: (() => { try { return JSON.parse(localStorage.getItem('meAiRailCollapsed') || '{}') || {}; } catch (_) { return {}; } })(),
-          // REQ-13 Agenda Assistant — conversational agenda control.
-          asst: { open: false, busy: false, input: '', messages: [] },
+          // Peek rail: which notification tabs are pinned open (else hover-to-expand).
+          peekPinned: {},
+          // Working hours & grid flyout.
+          hoursOpen: false,
+          // REQ-13 Agenda Assistant — conversational agenda control. mode: 'agenda' | 'task'.
+          asst: { open: false, busy: false, input: '', messages: [], mode: 'agenda' },
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -26433,6 +26476,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiAsstSend() {
           const raw = (this.meai.asst.input || '').trim();
           if (!raw || this.meai.asst.busy) return;
+          // "Run a task" mode — dispatch an ad-hoc Me agent instead of proposing agenda edits.
+          if (this.meai.asst.mode === 'task') {
+            if (this.meai.consoleBusy) return;
+            this.meai.asst.input = '';
+            const title = raw.length > 80 ? raw.slice(0, 77) + '…' : raw;
+            this.meAiDispatch('adhoc', title, { goal: raw, date: this.meai.date });
+            this.meai.asst.messages.push({ role: 'assistant', content: 'On it — I launched a Me agent for “' + title + '”. Watch it in the console (opening now).', actions: [] });
+            this.$nextTick(() => this._meAiAsstScroll());
+            return;
+          }
           this.meai.asst.input = '';
           this.meai.asst.messages.push({ role: 'user', content: raw });
           this.meai.asst.busy = true;
@@ -26907,6 +26960,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiRailToggle(key) {
           this.meai.railCollapsed[key] = !this.meai.railCollapsed[key];
           try { localStorage.setItem('meAiRailCollapsed', JSON.stringify(this.meai.railCollapsed)); } catch (_) {}
+        },
+        // Peek rail: click a tab to pin its flyout open (else it opens on hover).
+        meAiPeekToggle(key) {
+          this.meai.peekPinned[key] = !this.meai.peekPinned[key];
         },
         // De-dupe the redundancy the owner flagged: the top "new items need
         // attention" inbox and the right-rail "Needs attention" digest often show
