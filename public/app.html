@@ -21162,6 +21162,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (scope === 'basic') {
             const bf = this.basicFeatures || {};
             const out = ['home', 'boards', 'codeflow'];
+            if (bf['me-ai']) out.push('me-ai');
             if (bf.insights) out.push('insights');
             out.push('agents');
             if (bf.managers) out.push('managers');
@@ -21177,7 +21178,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return out;
           }
           // workspace
-          return ['home', 'boards', 'insights', 'codeflow', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
+          return ['home', 'me-ai', 'boards', 'insights', 'codeflow', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
         },
         // Reconcile the saved layout against currently-available keys: keep the user's
         // order + groups, drop stale/dupe keys, append newly-available keys at the end.
