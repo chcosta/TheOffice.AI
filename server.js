@@ -11627,6 +11627,53 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
       jsonContract,
     ].filter(Boolean).join('\n');
   }
+  if (playbook === 'implement') {
+    return [
+      `You are my implementation Me-agent. Task: ${ctx.title || 'implement the requested change'}.`,
+      ctx.detail ? `Context: ${ctx.detail}` : '',
+      ctx.link ? `Reference: ${ctx.link}` : '',
+      `Working directory: ${cwd}.`,
+      'Steps: (1) Understand the task and the surrounding code (read the relevant files; run `git status`/`git --no-pager diff` to see current state). (2) Make a focused, correct change that fully addresses the task without touching unrelated code. (3) Run any existing build/tests/lint that apply and fix what you broke. (4) Summarize exactly what you changed (file:line) and how you verified it. Do NOT commit or push unless I ask.',
+      'Stream your reasoning and tool use. Be concise in prose.',
+      '', jsonContract,
+    ].filter(Boolean).join('\n');
+  }
+  if (playbook === 'steward') {
+    const target = ctx.prTitle || ctx.title || 'my pull request';
+    return [
+      'You are my PR-steward Me-agent. Help me shepherd a pull request toward merge.',
+      `PR: ${target}.`,
+      ctx.prUrl || ctx.link ? `Link: ${ctx.prUrl || ctx.link}` : '',
+      `Working directory: ${cwd}.`,
+      'Steps: (1) Assess the PR state — CI/validation status, review status, unresolved comments, merge conflicts (use git and any available PR tooling). (2) Identify what is blocking merge and who/what it is waiting on. (3) Propose concrete next moves — ping reviewers, address a failing check, resolve a conflict, or update the description. Be specific about the single most useful next step.',
+      'Stream your reasoning and tool use. Be concise in prose.',
+      '', jsonContract,
+    ].filter(Boolean).join('\n');
+  }
+  if (playbook === 'comms') {
+    return [
+      'You are my communications Me-agent. Help me handle a communication that needs attention.',
+      `Subject: ${ctx.title || 'a message or thread needing follow-up'}.`,
+      ctx.detail ? `Context: ${ctx.detail}` : '',
+      ctx.link ? `Link: ${ctx.link}` : '',
+      `Working directory: ${cwd}.`,
+      'Steps: (1) Understand what is being asked or discussed and what a good outcome looks like. (2) If it needs a reply, draft a clear, professional response I can send (ready to paste). (3) If it implies action items or a follow-up meeting, list them crisply. Do NOT send anything — only prepare it for my review.',
+      'Be concise. Stream your reasoning.',
+      '', jsonContract,
+    ].filter(Boolean).join('\n');
+  }
+  if (playbook === 'prep') {
+    return [
+      'You are my meeting-prep Me-agent. Get me ready for an upcoming meeting.',
+      `Meeting: ${ctx.title || 'the upcoming meeting'}.`,
+      ctx.detail ? `Context: ${ctx.detail}` : '',
+      ctx.link ? `Link: ${ctx.link}` : '',
+      `Working directory: ${cwd}.`,
+      'Steps: (1) Work out the purpose of the meeting and what I need to know or decide. (2) Pull together the relevant context (recent related PRs/issues/threads if discoverable via tools). (3) Produce a tight prep brief: goal, 3–5 talking points, any decisions needed, and 1–2 questions to raise. Flag anything I should read beforehand.',
+      'Be concise. Stream your reasoning.',
+      '', jsonContract,
+    ].filter(Boolean).join('\n');
+  }
   // Generic fallback playbook.
   return [
     `You are my Me-agent working on: ${ctx.title || playbook}.`,

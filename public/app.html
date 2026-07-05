@@ -11651,7 +11651,7 @@
                               <span x-show="b.type"> · <span x-text="b.type"></span></span>
                             </div>
                             <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
-                            <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin'">
+                            <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus'">
                               <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
                                 🤖 <span x-text="b.type==='review' ? 'Launch review agent' : 'Launch Me agent'"></span>
                               </button>
@@ -25604,9 +25604,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Launch the agent scoped to a specific agenda block (e.g. a review block).
         meAiLaunchForBlock(block) {
           if (!block) return;
-          const pb = (block.type === 'review') ? 'review' : (block.playbook || 'review');
+          const known = ['review', 'prep', 'comms', 'steward', 'implement', 'focus', 'admin'];
+          let pb = block.playbook || (known.includes(block.type) ? block.type : 'review');
+          if (pb === 'focus') pb = 'implement';
           const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
-          this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '' }, scope);
+          this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
         meAiOpenTask(id) {
           const t = this.meai._taskById[id];
