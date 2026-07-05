@@ -13429,6 +13429,25 @@ function _saveRepoSlot(ctx, slotId, partial) {
   return ctx.save({ repos });
 }
 
+// Re-scan status reports across ALL of a dev card's repo slots and merge in the
+// durably-cached reports from slots whose worktree is gone. This makes d.reports
+// the aggregate across every repo — reports are tagged with their source repo
+// ({repoId, repo}) so identically-named reports from different repos are
+// disambiguable, and cached copies survive worktree removal (like PR cards).
+function _rescanDevReports(boardId, devId, d) {
+  const slots = _devRepoSlots(d);
+  const live = slots.filter(s => s.worktreePath);
+  const dead = slots.filter(s => !s.worktreePath);
+  let reports = [];
+  try { reports = devitems.findAndCacheReportsForSlots(boardId, devId, live) || []; } catch {}
+  let cached = [];
+  try { cached = devitems.listCachedReportsForSlots(boardId, devId, dead) || []; } catch {}
+  const seen = new Set(reports.map(r => r.cacheRel || r.rel));
+  for (const c of cached) { const k = c.cacheRel || c.rel; if (!seen.has(k)) { seen.add(k); reports.push(c); } }
+  reports.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  return reports.slice(0, 32);
+}
+
 // ---- Provider dispatch for dev cards -------------------------------------
 // A dev card (or repo slot) may target Azure DevOps (default) or GitHub. These
 // helpers build a provider descriptor and dispatch the work-item / PR calls that
@@ -13515,12 +13534,14 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       const fresh = _devItemCtx(req.params.id, req.params.devId);
       if (!fresh) return;
       const save = { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null };
-      // Reports are scanned on the primary worktree only (status reports live there).
-      if (slot.id === 'primary') {
-        let reports = null; try { reports = devitems.findAndCacheReports(req.params.id, req.params.devId, r.worktreePath); } catch {}
-        save.reports = reports || [];
-      }
       _saveRepoSlot(fresh, slot.id, save);
+      // Re-aggregate reports across EVERY repo slot (this newly-ready worktree plus
+      // any siblings), tagging each with its source repo. Re-read the context so the
+      // freshly-persisted worktree path for this slot is included in the scan.
+      try {
+        const withWt = _devItemCtx(req.params.id, req.params.devId);
+        if (withWt) { const reports = _rescanDevReports(req.params.id, req.params.devId, withWt.dev); withWt.save({ reports }); }
+      } catch {}
       // If a dev agent already exists for this card, refresh it across ALL ready
       // worktrees so every repo (the ones that existed before AND this new one)
       // learns about the newly-added sibling worktree. Re-read the context so the
@@ -13550,8 +13571,9 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   // Git status (only if a worktree exists).
   if (d.worktreePath) {
     try { partial.git = devitems.worktreeStatus(d.worktreePath, { baseBranch: d.baseBranch, desc: _devDesc(d) }); } catch (e) { partial.gitError = (e && e.message) || 'git failed'; }
-    try { partial.reports = devitems.findAndCacheReports(req.params.id, req.params.devId, d.worktreePath); } catch {}
   }
+  // Reports: aggregate across every repo slot (live worktrees + cached-from-removed).
+  try { partial.reports = _rescanDevReports(req.params.id, req.params.devId, d); } catch {}
   // Work item.
   if (d.workItemId && d.org && d.project) {
     try { partial.workItem = await _devWorkItem(_devDesc(d), d.workItemId); } catch (e) { partial.workItemError = (e && e.message) || 'work item failed'; }
@@ -13893,13 +13915,13 @@ async function _reconcileDevSummaries() {
           // best-effort network). fetch:false so the reconciler never hammers origin.
           const meta = await _devRepoMeta(d, { fresh: false });
 
-          // Surface any status reports the dev agent wrote into the worktree. Cheap
-          // fs scan; persist immediately (no LLM) when the set/mtimes change so the
-          // card's Reports row stays current within one sweep.
-          if (d.worktreePath) {
+          // Surface any status reports the dev agent wrote into the worktree(s).
+          // Cheap fs scan across every repo slot; persist immediately (no LLM) when
+          // the set/mtimes change so the card's Artifacts row stays current.
+          if (_devRepoSlots(d).some(s => s.worktreePath)) {
             try {
-              const reports = devitems.findAndCacheReports(b.id, d.id, d.worktreePath);
-              const sig = (arr) => (Array.isArray(arr) ? arr : []).map(r => r.rel + ':' + Math.round(r.mtime)).join('|');
+              const reports = _rescanDevReports(b.id, d.id, d);
+              const sig = (arr) => (Array.isArray(arr) ? arr : []).map(r => (r.cacheRel || r.rel) + ':' + Math.round(r.mtime)).join('|');
               if (sig(reports) !== sig(d.reports)) {
                 const cR = _devItemCtx(b.id, d.id);
                 if (cR) cR.save({ reports });
@@ -13947,16 +13969,15 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   const slot = _findRepoSlot(d, req.body && req.body.repoId ? req.body.repoId : 'primary');
   if (!slot) return res.status(404).json({ error: 'Repo not found' });
   try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath, slot.provider); } catch {}
-  if (slot.primary) {
-    // Keep any reports that have a durable cached copy so the card's Reports row
-    // (and previews) survive worktree deletion; drop ones that were never cached.
-    const keptReports = (Array.isArray(d.reports) ? d.reports : [])
-      .filter(r => r && r.rel && devitems.hasCachedReport(req.params.id, req.params.devId, r.rel))
-      .map(r => ({ ...r, cached: true }));
-    const updated = ctx.save({ worktreePath: '', worktreeStatus: null, git: null, reports: keptReports });
-    return res.json({ ok: true, dev: updated });
-  }
-  const updated = _saveRepoSlot(ctx, slot.id, { worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
+  // Clear this slot's worktree fields (primary lives at top-level; extras in d.repos[]).
+  if (slot.primary) ctx.save({ worktreePath: '', worktreeStatus: null, git: null });
+  else _saveRepoSlot(ctx, slot.id, { worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
+  // Re-aggregate reports across all slots: the removed repo's reports fall back to
+  // their durable cache (findable via listCachedReportsForSlots), and every other
+  // repo's live/cached reports are preserved — so nothing is lost on cleanup.
+  const fresh = _devItemCtx(req.params.id, req.params.devId) || ctx;
+  let updated = fresh.dev;
+  try { updated = fresh.save({ reports: _rescanDevReports(req.params.id, req.params.devId, fresh.dev) }); } catch {}
   res.json({ ok: true, dev: updated });
 });
 
@@ -14001,7 +14022,11 @@ app.post('/api/boards/:id/dev-items/:devId/repos/remove', async (req, res) => {
   if (!slot || slot.primary) return res.status(400).json({ error: 'Specify an extra repo to remove' });
   try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath, slot.provider); } catch {}
   const repos = _devExtraRepos(d).filter(r => r && r.id !== slot.id);
-  const updated = ctx.save({ repos });
+  ctx.save({ repos });
+  // The slot is gone entirely, so its reports should drop out of the aggregate.
+  const fresh = _devItemCtx(req.params.id, req.params.devId) || ctx;
+  let updated = fresh.dev;
+  try { updated = fresh.save({ reports: _rescanDevReports(req.params.id, req.params.devId, fresh.dev) }); } catch {}
   res.json({ ok: true, dev: updated });
 });
 
@@ -14030,13 +14055,12 @@ app.post('/api/boards/:id/dev-items/:devId/workspace', async (req, res) => {
   }
 });
 
-// Re-scan a dev card's worktree for status reports (manual trigger).
+// Re-scan a dev card's worktrees for status reports (manual trigger). Scans every
+// repo slot and merges in cached reports from any slot whose worktree is gone.
 app.post('/api/boards/:id/dev-items/:devId/reports/scan', (req, res) => {
   const ctx = _devItemCtx(req.params.id, req.params.devId);
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
-  const d = ctx.dev;
-  if (!d.worktreePath) return res.json({ ok: true, dev: ctx.dev });
-  let reports = []; try { reports = devitems.findAndCacheReports(req.params.id, req.params.devId, d.worktreePath); } catch {}
+  const reports = _rescanDevReports(req.params.id, req.params.devId, ctx.dev);
   const updated = ctx.save({ reports });
   res.json({ ok: true, dev: updated });
 });
@@ -14052,8 +14076,12 @@ app.get('/api/boards/:id/dev-items/:devId/report', (req, res) => {
   const file = req.query.file;
   try {
     let r;
-    try { r = devitems.readReport(d.worktreePath, file); }
-    catch (e1) { r = devitems.readReportCached(req.params.id, req.params.devId, file); }
+    // Prefer the durable cache: non-primary repos' reports are cached under a
+    // repo-namespaced key (repoId/rel) and are NOT under the primary worktree,
+    // and cached copies survive worktree removal. Fall back to a live read of the
+    // primary worktree for any report not yet cached.
+    try { r = devitems.readReportCached(req.params.id, req.params.devId, file); }
+    catch (e1) { r = devitems.readReport(d.worktreePath, file); }
     res.setHeader('Content-Type', r.contentType);
     res.setHeader('Cache-Control', 'no-store');
     res.send(r.content);
@@ -14470,6 +14498,9 @@ function _normalizeInsight(v) {
     prompt: typeof v.prompt === 'string' ? v.prompt : '',
     schedule: v.schedule || 'never',
     content: (v.content && typeof v.content === 'object' && !Array.isArray(v.content)) ? v.content : null,
+    // Rolling archive of prior generated `content` snapshots (newest last), so the
+    // UI can flip back through past versions of the insight. Capped in finish().
+    history: Array.isArray(v.history) ? v.history.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : [],
     generating: !!v.generating,
     error: v.error || null,
     createdAt: v.createdAt || new Date().toISOString(),
@@ -14559,7 +14590,15 @@ async function generateInsight(viewId) {
     const cur = loadInsights();
     const i2 = cur.findIndex(v => v.id === viewId);
     if (i2 >= 0) {
-      cur[i2] = { ...cur[i2], content, generating: false, error: error || null, updatedAt: new Date().toISOString() };
+      // Archive the previous generated snapshot into a rolling history (cap 15,
+      // newest last) before overwriting, so the UI can page back through it.
+      let hist = Array.isArray(cur[i2].history) ? cur[i2].history.slice() : [];
+      const prev = cur[i2].content;
+      if (prev && typeof prev === 'object' && prev.generatedAt && prev.generatedAt !== content.generatedAt) {
+        hist.push(prev);
+        if (hist.length > 15) hist = hist.slice(hist.length - 15);
+      }
+      cur[i2] = { ...cur[i2], content, history: hist, generating: false, error: error || null, updatedAt: new Date().toISOString() };
       saveInsights(cur); broadcastSSE('insights-changed', { id: viewId });
     }
     return content;

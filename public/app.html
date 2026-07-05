@@ -4646,6 +4646,17 @@
     .board-tbx-item .tbx-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .board-tbx-item .tbx-dot { flex: 0 0 auto; font-size: 10px; color: var(--cp-accent); }
     .board-tbx-item .tbx-grip-r { margin: -2px -2px -2px 0; }
+    .board-tbx-item.tbx-over { border-color: var(--cp-accent); box-shadow: inset 0 2px 0 0 var(--cp-accent); }
+    /* Quiet text toggle in the catalog header — group cards by type (no pill). */
+    .board-tbx-groupbtn { flex: 0 0 auto; border: 0; background: none; color: var(--cp-text-muted); cursor: pointer; font: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 0; line-height: 1; }
+    .board-tbx-groupbtn:hover { color: var(--cp-text); }
+    .board-tbx-groupbtn.on { color: var(--cp-accent); }
+    /* Catalog type-band subheader (drag to reorder the band). */
+    .board-tbx-subhead { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 2px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--cp-text-soft); border-bottom: 1px solid var(--cp-border); cursor: grab; user-select: none; }
+    .board-tbx-subhead:active { cursor: grabbing; }
+    .board-tbx-subhead.dragging { opacity: .4; }
+    .board-tbx-subhead.over { border-bottom-color: var(--cp-accent); color: var(--cp-text); }
+    .board-tbx-subhead .muted-count { font-weight: 600; color: var(--cp-text-muted); letter-spacing: 0; }
     .board-tbx-add { display: flex; flex-direction: column; gap: 6px; }
     .board-tbx-addbtn {
       display: flex; align-items: center; gap: 8px; padding: 6px 8px; width: 100%;
@@ -4752,6 +4763,19 @@
     .board-sec-grid:not(.view-mode) .board-card > .board-panel .board-panel-inner { height: 100%; }
     .board-card > .board-panel .board-panel-body { flex: 0 0 auto; overflow: visible; min-height: 0; }
     .board-sec-grid:not(.view-mode) .board-card > .board-panel .board-panel-body { flex: 1 1 auto; }
+    /* Grouped mode: cards flow into wrapping type bands (flex) instead of the positional
+       grid. A band header spans the full row; cards size to a fraction of the width and
+       grow to their content (override the fixed-height grid rule above). */
+    .board-sec-grid.grouped { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; align-content: flex-start; grid-auto-rows: initial; }
+    .board-sec-grid.grouped .board-card > .board-panel { height: auto !important; overflow: visible; }
+    .board-sec-grid.grouped .board-card > .board-panel .board-panel-inner { height: auto; }
+    .board-sec-grid.grouped .board-card > .board-panel .board-panel-body { flex: 0 0 auto; }
+    .board-band-head { flex: 0 0 100%; width: 100%; display: flex; align-items: center; gap: 7px; padding: 9px 2px 4px; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--cp-text-muted); border-bottom: 1px solid var(--cp-border); cursor: grab; user-select: none; }
+    .board-band-head:active { cursor: grabbing; }
+    .board-band-head.dragging { opacity: .4; }
+    .board-band-head.over { border-bottom-color: var(--cp-accent); color: var(--cp-text); }
+    .board-band-head .bbh-ico { font-size: 13px; line-height: 1; }
+    .board-band-head .bbh-count { color: var(--cp-text-soft); font-variant-numeric: tabular-nums; }
     /* Card hover tools (section-level: view / resize / remove-from-section) */
     .board-card-tools { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; opacity: 0; z-index: 5; transition: opacity .12s ease; pointer-events: none; }
     .board-card:hover .board-card-tools { opacity: 1; pointer-events: auto; }
@@ -8731,23 +8755,45 @@
                     <div class="board-studio">
                       <aside class="board-toolbox scrollfade" :style="'width:' + boardTbxW + 'px'">
                         <div class="board-tbx-group">
-                          <div class="board-tbx-label">Cards <span class="muted-count" x-text="toolboxPanels().length"></span></div>
+                          <div class="board-tbx-label">
+                            <span>Cards <span class="muted-count" x-text="toolboxPanels().length"></span></span>
+                            <span style="flex:1 1 auto"></span>
+                            <button type="button" class="board-tbx-groupbtn" :class="{ on: boardTbxGroup }"
+                                    @click.stop="toggleTbxGroup()"
+                                    :title="boardTbxGroup ? 'Ungroup — show a flat list' : 'Group cards by type'"
+                                    x-text="boardTbxGroup ? 'Grouped' : 'Group'"></button>
+                          </div>
                           <template x-if="!toolboxPanels().length">
                             <div class="hint" style="font-size:11.5px">Nothing pinned yet — use “Add new” below.</div>
                           </template>
-                          <template x-for="p in toolboxPanels()" :key="'tbx-' + p.id">
-                            <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p) }"
-                                 @click="openInView(p)"
-                                 :title="chipType(p) + ': ' + chipName(p) + ' — click to view, or drag the grip onto a section'">
-                              <span class="tbx-grip" draggable="true"
-                                    @dragstart.stop="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
-                                    @click.stop title="Drag onto a section to place this card">⠿</span>
-                              <span class="tbx-emoji" x-text="chipIcon(p)"></span>
-                              <span class="tbx-name" x-text="chipName(p)"></span>
-                              <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
-                              <span class="tbx-grip tbx-grip-r" draggable="true"
-                                    @dragstart.stop="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
-                                    @click.stop title="Drag onto a section to place this card">⠿</span>
+                          <template x-for="row in toolboxRows()" :key="row.key">
+                            <div style="display:contents">
+                              <template x-if="row.header">
+                                <div class="board-tbx-subhead" draggable="true"
+                                     @dragstart.stop="onGroupDragStart(row.header, $event)"
+                                     @dragover.prevent.stop="onGroupDragOver(row.header, $event)"
+                                     @drop.prevent.stop="onGroupDrop(row.header, $event)"
+                                     @dragend="onGroupDragEnd()"
+                                     :class="{ dragging: isGroupDragging(row.header), over: isGroupDragOver(row.header) }"
+                                     :title="'Drag to reorder the ' + row.header + ' group'">
+                                  <span x-text="row.icon"></span><span x-text="row.header"></span>
+                                  <span class="muted-count" x-text="row.count"></span>
+                                </div>
+                              </template>
+                              <template x-for="p in (row.panel ? [row.panel] : [])" :key="'tbx-' + p.id">
+                                <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p), 'tbx-over': _tbxOverBase === panelBaseId(p) }"
+                                     @click="openInView(p)"
+                                     @dragover.prevent.stop="onToolboxItemOver(p, $event)"
+                                     @drop.prevent.stop="onToolboxReorderDrop(p, $event)"
+                                     :title="chipType(p) + ': ' + chipName(p) + ' — click to view, or drag the grip onto a section (or over another card to reorder)'">
+                                  <span class="tbx-emoji" x-text="chipIcon(p)"></span>
+                                  <span class="tbx-name" x-text="chipName(p)"></span>
+                                  <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
+                                  <span class="tbx-grip tbx-grip-r" draggable="true"
+                                        @dragstart.stop="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
+                                        @click.stop title="Drag onto a section to place this card">⠿</span>
+                                </div>
+                              </template>
                             </div>
                           </template>
                         </div>
@@ -8788,15 +8834,33 @@
                              @dragover.prevent="_boardDragOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
                              @dragleave="if ($event.target === $el) _boardDragOver = false"
                              @drop.prevent="_boardDragOver = false; onGridDrop($event)">
-                          <div class="board-sec-grid" :class="{ 'view-mode': isViewTab(), 'show-grid': sectionShowGrid() }" :style="sectionGridStyle()">
-                            <template x-for="p in activeSectionPanels()" :key="p.id">
-                              <div class="board-card" :class="{ 'sz-view': isViewTab() }" :style="isViewTab() ? '' : cardGridStyle(p)" :data-card-base="panelBaseId(p)">
-                                <div class="board-card-tools" x-show="!isViewTab()">
+                          <div class="board-sec-grid" :class="{ 'view-mode': isViewTab(), 'show-grid': sectionShowGrid() && !sectionGrouped(), grouped: sectionGrouped() }" :style="sectionGridStyle()">
+                            <template x-for="row in activeSectionRows()" :key="row.id">
+                              <div style="display:contents">
+                                <template x-if="row.__header">
+                                 <div class="board-band-head" draggable="true"
+                                      @dragstart.stop="onGroupDragStart(row.label, $event)"
+                                      @dragover.prevent.stop="onGroupDragOver(row.label, $event)"
+                                      @drop.prevent.stop="onGroupDrop(row.label, $event)"
+                                      @dragend="onGroupDragEnd()"
+                                      :class="{ dragging: isGroupDragging(row.label), over: isGroupDragOver(row.label) }"
+                                      :title="'Drag to reorder the ' + row.label + ' band'">
+                                   <span class="bbh-ico" x-text="row.icon"></span>
+                                   <span x-text="row.label"></span>
+                                   <span class="bbh-count" x-text="row.count"></span>
+                                 </div>
+                                </template>
+                                <template x-if="!row.__header">
+                                <template x-for="p in [row.panel]" :key="p.id">
+                                <div class="board-card" :class="{ 'sz-view': isViewTab() }" :style="cardStyleFor(p)" :data-card-base="panelBaseId(p)"
+                                     @dragover="if (sectionGrouped()) { $event.preventDefault(); $event.stopPropagation(); try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {} }"
+                                     @drop="if (sectionGrouped()) { $event.preventDefault(); $event.stopPropagation(); onSectionCardReorderDrop(p, $event); }">
+                                <div class="board-card-tools" x-show="!isViewTab() && !sectionGrouped()">
                                   <button type="button" @click.stop="expandCardToFit(p, $event)" title="Expand to fit contents — grows the card so nothing scrolls">⤢</button>
                                 </div>
-                                <div class="board-card-resize" x-show="!isViewTab()" @mousedown.stop.prevent="startCardResize(p, $event)" @click.stop title="Drag to resize width — snaps to the grid columns"></div>
-                                <div class="board-card-resize-v" x-show="!isViewTab()" @mousedown.stop.prevent="startCardVResize(p, $event)" @click.stop title="Drag to resize height — snaps to the grid rows"></div>
-                                <div class="board-card-resize-c" x-show="!isViewTab()" @mousedown.stop.prevent="startCardResize(p, $event); startCardVResize(p, $event)" @click.stop title="Drag to resize"></div>
+                                <div class="board-card-resize" x-show="!isViewTab() && !sectionGrouped()" @mousedown.stop.prevent="startCardResize(p, $event)" @click.stop title="Drag to resize width — snaps to the grid columns"></div>
+                                <div class="board-card-resize-v" x-show="!isViewTab() && !sectionGrouped()" @mousedown.stop.prevent="startCardVResize(p, $event)" @click.stop title="Drag to resize height — snaps to the grid rows"></div>
+                                <div class="board-card-resize-c" x-show="!isViewTab() && !sectionGrouped()" @mousedown.stop.prevent="startCardResize(p, $event); startCardVResize(p, $event)" @click.stop title="Drag to resize"></div>
                                 <div class="board-panel" :class="{ dragging: boardDragId===p.id, collapsed: isPanelCollapsed(p.id), 'pin-chip': pinChipCollapsed(p), 'manual-h': !!(boardLayout[p.id] && boardLayout[p.id].mh != null), 'is-fixed': isPanelFixed(p), stashed: isPanelStashed(p) }" :style="panelStyle(p.id)" :data-pid="p.id">
                           <!-- Pin-view: collapsed icon+name chip (drag to move, click to expand). -->
                           <template x-if="pinChipCollapsed(p)">
@@ -9618,56 +9682,62 @@
                                         </template>
                                       </div>
                                           </div>
-                                          <div class="cf-pane" x-show="devActivePane(d)==='reports'">
-                                      <!-- Status reports surfaced from the worktree. Cached reports
-                                           persist after the worktree is removed (useful for audit), so
-                                           this is gated on having reports, NOT on a live worktree. -->
-                                      <template x-if="d.reports && d.reports.length">
-                                        <div style="display:flex;flex-direction:column;gap:4px">
-                                          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                            <span class="cal-caption">📊 Reports<span x-show="!d.worktreePath" class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
-                                            <button class="board-act" type="button" data-tip="Re-scan the worktree for reports" x-show="d.worktreePath" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
-                                          </div>
-                                          <div style="display:flex;flex-direction:column">
-                                            <template x-for="r in d.reports" :key="r.rel">
-                                              <div class="cal-row">
-                                                <a class="cal-row-link" :href="devReportUrl(d,r)" target="_blank" rel="noopener" :title="'Open ' + r.rel + ' in a new tab — ' + formatRelative(devReportTime(r))" x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></a>
-                                                <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
-                                                <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
-                                              </div>
-                                            </template>
-                                          </div>
-                                        </div>
-                                      </template>
-                                          </div>
-                                          <div class="cf-pane" x-show="devActivePane(d)==='links'">
-                                      <!-- Manually attached links (reports, docs, URLs) -->
-                                      <div style="display:flex;flex-direction:column;gap:4px">
-                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                                          <span class="cal-caption">🔗 Links</span>
-                                          <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)" x-text="(devLinkDraft[d.id] && devLinkDraft[d.id].open) ? 'Cancel' : '＋ Add link'"></button>
-                                        </div>
-                                        <div style="display:flex;flex-direction:column" x-show="d.links && d.links.length">
-                                          <template x-for="l in d.links" :key="l.id || l.url">
-                                            <div class="cal-row">
-                                              <a class="cal-row-link" :href="devLinkHref(d,l)" target="_blank" rel="noopener" :title="l.url" x-text="'🔗 ' + (l.label || l.url)"></a>
-                                              <button class="board-act cal-row-act danger" type="button" data-tip="Remove link" @click="removeDevLink(d,l)">✕</button>
-                                            </div>
-                                          </template>
-                                        </div>
-                                        <div class="hint" style="font-size:11px" x-show="!(d.links && d.links.length) && !(devLinkDraft[d.id] && devLinkDraft[d.id].open)">No links attached — ＋ Add link to attach a report, doc or URL.</div>
-                                        <template x-if="devLinkDraft[d.id] && devLinkDraft[d.id].open">
-                                          <div style="display:flex;flex-direction:column;gap:6px">
-                                            <input class="field-input" type="text" placeholder="Label (optional)" x-model="devLinkDraft[d.id].label" style="font-size:12px" />
-                                            <input class="field-input" type="text" placeholder="https://…  or  file://…" x-model="devLinkDraft[d.id].url" @keydown.enter.prevent="addDevLink(d)" style="font-size:12px" />
-                                            <div style="display:flex;gap:6px;justify-content:flex-end">
-                                              <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)">Cancel</button>
-                                              <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='link'" @click="addDevLink(d)" x-text="devBusy[d.id]==='link' ? 'Saving…' : 'Save'"></button>
-                                            </div>
-                                          </div>
-                                        </template>
+                                         <div class="cf-pane" x-show="devActivePane(d)==='artifacts'">
+                                      <!-- Artifacts = status reports surfaced from the worktree(s) + manually
+                                          attached links, unified. Reports and links stay visually distinct.
+                                          Cached reports persist after a worktree is removed, and reports are
+                                          tagged with their source repo so identically-named ones across repos
+                                          are disambiguated. -->
+                                      <div style="display:flex;flex-direction:column;gap:10px">
+                                       <!-- Reports subgroup -->
+                                       <template x-if="d.reports && d.reports.length">
+                                         <div style="display:flex;flex-direction:column;gap:4px">
+                                           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                             <span class="cal-caption">📊 Reports<span x-show="!devSlots(d).some(s=>s.worktreePath)" class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
+                                             <button class="board-act" type="button" data-tip="Re-scan worktrees for reports" x-show="devSlots(d).some(s=>s.worktreePath)" :disabled="devBusy[d.id]==='reports'" @click="rescanDevReports(d)" x-text="devBusy[d.id]==='reports' ? '…' : '↻'"></button>
+                                           </div>
+                                           <div style="display:flex;flex-direction:column">
+                                             <template x-for="r in d.reports" :key="r.cacheRel || r.rel">
+                                               <div class="cal-row">
+                                                 <a class="cal-row-link" :href="devReportUrl(d,r)" target="_blank" rel="noopener" :title="'Open ' + (r.rel || '') + ' in a new tab — ' + formatRelative(devReportTime(r))">
+                                                   <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span><span x-show="devReportsMultiRepo(d) && r.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.repo"></span>
+                                                 </a>
+                                                 <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
+                                                 <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
+                                               </div>
+                                             </template>
+                                           </div>
+                                         </div>
+                                       </template>
+                                       <!-- Links subgroup -->
+                                       <div style="display:flex;flex-direction:column;gap:4px">
+                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                                           <span class="cal-caption">🔗 Links</span>
+                                           <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)" x-text="(devLinkDraft[d.id] && devLinkDraft[d.id].open) ? 'Cancel' : '＋ Add link'"></button>
+                                         </div>
+                                         <div style="display:flex;flex-direction:column" x-show="d.links && d.links.length">
+                                           <template x-for="l in d.links" :key="l.id || l.url">
+                                             <div class="cal-row">
+                                               <a class="cal-row-link" :href="devLinkHref(d,l)" target="_blank" rel="noopener" :title="l.url" x-text="'🔗 ' + (l.label || l.url)"></a>
+                                               <button class="board-act cal-row-act danger" type="button" data-tip="Remove link" @click="removeDevLink(d,l)">✕</button>
+                                             </div>
+                                           </template>
+                                         </div>
+                                         <div class="hint" style="font-size:11px" x-show="!(d.links && d.links.length) && !(devLinkDraft[d.id] && devLinkDraft[d.id].open)">No links attached — ＋ Add link to attach a report, doc or URL.</div>
+                                         <template x-if="devLinkDraft[d.id] && devLinkDraft[d.id].open">
+                                           <div style="display:flex;flex-direction:column;gap:6px">
+                                             <input class="field-input" type="text" placeholder="Label (optional)" x-model="devLinkDraft[d.id].label" style="font-size:12px" />
+                                             <input class="field-input" type="text" placeholder="https://…  or  file://…" x-model="devLinkDraft[d.id].url" @keydown.enter.prevent="addDevLink(d)" style="font-size:12px" />
+                                             <div style="display:flex;gap:6px;justify-content:flex-end">
+                                               <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" @click="toggleDevLinkDraft(d)">Cancel</button>
+                                               <button class="btn primary" type="button" style="font-size:11px;padding:2px 8px" :disabled="devBusy[d.id]==='link'" @click="addDevLink(d)" x-text="devBusy[d.id]==='link' ? 'Saving…' : 'Save'"></button>
+                                             </div>
+                                           </div>
+                                         </template>
+                                       </div>
+                                       <div class="hint" style="font-size:11px" x-show="!(d.reports && d.reports.length)">No reports yet — the dev agent's status/summary files appear here automatically.</div>
                                       </div>
-                                          </div>
+                                         </div>
 
                                         </div>
                                       </div>
@@ -9724,6 +9794,9 @@
                             <div class="board-resize" x-show="!isPanelCollapsed(p.id) && !boardIsTabbed()" @mousedown="startPanelResize(p.id, $event, 'se')" title="Drag to resize — width and height together"></div>
                           </div>
                           </template>
+                               </template>
+                             </div>
+                           </template>
                         </div>
                               </div>
                             </template>
@@ -9774,8 +9847,9 @@
                             <input type="range" min="0.6" max="1.6" step="0.05" :value="boardFont()" @input="setBoardFont($event.target.value)" title="Text size">
                             <span class="sb-zval" x-text="Math.round(boardFont()*100) + '%'"></span>
                           </span>
-                          <button type="button" class="sb-btn sb-wide" :class="{ active: sectionShowGrid() }" @click="toggleSectionGrid()" :title="sectionShowGrid() ? 'Hide grid guides' : 'Show grid guides — cards snap to columns'">▦ Grid</button>
-                          <span class="sb-slider" title="Number of grid columns for this section — more columns = finer card widths">
+                          <button type="button" class="sb-btn sb-wide" :class="{ active: sectionGrouped() }" @click="toggleSectionGroup()" :title="sectionGrouped() ? 'Ungroup — return to free grid positioning' : 'Group cards into type bands (drag bands or cards to reorder)'">🗂 Group</button>
+                          <button type="button" class="sb-btn sb-wide" x-show="!sectionGrouped()" :class="{ active: sectionShowGrid() }" @click="toggleSectionGrid()" :title="sectionShowGrid() ? 'Hide grid guides' : 'Show grid guides — cards snap to columns'">▦ Grid</button>
+                          <span class="sb-slider" x-show="!sectionGrouped()" title="Number of grid columns for this section — more columns = finer card widths">
                             <span class="sb-ico">▥</span>
                             <input type="range" min="3" max="24" step="1" :value="sectionCols()" @input="setSectionCols($event.target.value)" title="Grid columns">
                             <span class="sb-zval" x-text="sectionCols() + ' cols'"></span>
@@ -10337,11 +10411,13 @@
                   <!-- Cached reports (preserved after worktree removal) -->
                   <template x-if="dc.reports && dc.reports.length">
                     <div style="display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--cp-border);padding-top:8px">
-                      <span class="cal-caption">📊 Reports<span class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
+                      <span class="cal-caption">🔗 Artifacts<span class="hint" style="font-size:10px;margin-left:6px;font-weight:400">cached</span></span>
                       <div style="display:flex;flex-direction:column">
-                        <template x-for="r in dc.reports" :key="r.rel">
+                        <template x-for="r in dc.reports" :key="r.cacheRel || r.rel">
                           <div class="cal-row">
-                            <a class="cal-row-link" :href="devReportUrl(dc,r)" target="_blank" rel="noopener" :title="'Open ' + r.rel + ' in a new tab'" x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></a>
+                            <a class="cal-row-link" :href="devReportUrl(dc,r)" target="_blank" rel="noopener" :title="'Open ' + (r.rel||'') + ' in a new tab'">
+                              <span x-text="(r.kind==='html' ? '📄 ' : '📝 ') + r.name"></span><span x-show="devReportsMultiRepo(dc) && r.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + r.repo"></span>
+                            </a>
                             <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                             <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(dc,r)">👁</button>
                           </div>
@@ -18056,6 +18132,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _tabDrag: { id: null, overId: null },
         // Grouped-rail section drag-to-reorder transient state (style 'c' only).
         _groupDrag: { label: null, overLabel: null },
+        // Toolbox: group catalog cards by type (drag grips to reorder). Persisted.
+        boardTbxGroup: (() => { try { return localStorage.getItem('board-tbx-group') === '1'; } catch { return false; } })(),
+        _tbxOverBase: null, // toolbox reorder drop-target highlight (base id)
         boardCanvasH: 0, // dynamic px height for the canvas scroller (keeps it the sole scroller)
         boardCanvasW: 0, // measured scroller content width — the grid's layout (pre-zoom) width
         boardFocus: false, // fullscreen "focus" mode for the active board (hides the rest of the shell)
@@ -28562,12 +28641,129 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const c of (sec.cards || [])) { const p = this._panelByBase(c.base); if (p) out.push(p); }
           return out;
         },
+        // ----- Section GROUP MODE (auto-band cards by type) -----
+        // When a section has groupBy set, cards ignore free x/y positioning and instead
+        // flow into labeled type bands (drag bands / cards to reorder). isViewTab has no
+        // grouping.
+        sectionGrouped() { return !this.isViewTab() && !!(this.activeSection() && this.activeSection().groupBy); },
+        toggleSectionGroup() {
+          const s = this.activeSection(); if (!s) return;
+          s.groupBy = s.groupBy ? null : 'type';
+          this._touchSections();
+        },
+        // Interleaved header + panel rows for the grouped section stage. Bands follow the
+        // shared rail group order; within a band, cards keep their sec.cards order.
+        activeSectionRows() {
+          const panels = this.activeSectionPanels();
+          if (!this.sectionGrouped()) return panels.map(p => ({ __row: 'card', id: p.id, panel: p }));
+          const order = this._railGroups().map(g => g.label);
+          const byGroup = new Map();
+          for (const p of panels) {
+            const g = this._railGroupOf(p);
+            if (!byGroup.has(g)) byGroup.set(g, []);
+            byGroup.get(g).push(p);
+          }
+          // Any group present but not in the ordered list lands at the end (stable).
+          for (const g of byGroup.keys()) if (!order.includes(g)) order.push(g);
+          const rows = [];
+          for (const g of order) {
+            const list = byGroup.get(g); if (!list || !list.length) continue;
+            rows.push({ __row: 'head', __header: true, id: 'sech-' + g, label: g, icon: this._railGroupIcon(list[0]), count: list.length });
+            for (const p of list) rows.push({ __row: 'card', id: p.id, panel: p });
+          }
+          return rows;
+        },
+        // Card inline style: positional grid in free mode; flex-basis (cols fraction) in
+        // grouped mode so bands wrap naturally.
+        cardStyleFor(p) {
+          if (this.isViewTab()) return '';
+          if (this.sectionGrouped()) {
+            const g = this.cardGeom(p);
+            const cols = this._secCols();
+            const frac = Math.max(1, Math.min(cols, g.w)) / cols;
+            return 'flex:0 0 calc(' + (frac * 100).toFixed(3) + '% - 10px);';
+          }
+          return this.cardGridStyle(p);
+        },
+        // Reorder within the grouped stage: drop a dragged card just BEFORE the target.
+        // A card dragged in from the toolbox is added first, then positioned before target.
+        onSectionCardReorderDrop(target, ev) {
+          const sec = this.activeSection(); if (!sec) return;
+          const dragBase = this._dragBase(ev);
+          this._boardCardDrag = null;
+          this._tbxOverBase = null;
+          const targetBase = this.panelBaseId(target);
+          if (!dragBase) return;
+          sec.cards = (sec.cards || []).slice();
+          let c = sec.cards.find(cc => cc.base === dragBase);
+          if (!c) {
+            c = { base: dragBase, w: this._cardDefaultW(sec, dragBase), h: this._cardDefaultH(dragBase), x: null, y: null };
+          } else {
+            sec.cards = sec.cards.filter(cc => cc !== c);
+          }
+          if (dragBase === targetBase) { this._touchSections(); return; }
+          const at = sec.cards.findIndex(cc => cc.base === targetBase);
+          if (at === -1) sec.cards.push(c);
+          else sec.cards.splice(at, 0, c);
+          this._ensureGeom(sec);
+          this._touchSections();
+        },
         // ----- Toolbox tray: every board panel is draggable into a section -----
         toolboxPanels() { return this.boardTabPanels(); },
         panelInActiveSection(p) {
           const sec = this.activeSection(); if (!sec) return false;
           const b = this.panelBaseId(p);
           return (sec.cards || []).some(c => c.base === b);
+        },
+        // ----- Toolbox catalog: optional grouping by card type -----
+        toggleTbxGroup() {
+          this.boardTbxGroup = !this.boardTbxGroup;
+          try { localStorage.setItem('board-tbx-group', this.boardTbxGroup ? '1' : '0'); } catch {}
+        },
+        // Grouped view of the catalog: reuse the rail's group taxonomy so headers,
+        // icons and order stay consistent with the tab rail. Empty groups are dropped.
+        toolboxGroups() {
+          const panels = this.toolboxPanels();
+          return this._railGroups()
+            .map(g => ({ label: g.label, icon: g.icon, panels: panels.filter(p => this._railGroupOf(p) === g.label) }))
+            .filter(g => g.panels.length);
+        },
+        // Flat list of render rows for the catalog. When grouping is off, one row per
+        // panel; when on, a header pseudo-row precedes each type band. Consumed by a
+        // single x-for that emits either a subhead or a catalog item.
+        toolboxRows() {
+          if (!this.boardTbxGroup) {
+            return this.toolboxPanels().map(p => ({ key: 'tbx-i-' + p.id, panel: p }));
+          }
+          const rows = [];
+          for (const g of this.toolboxGroups()) {
+            rows.push({ key: 'tbx-h-' + g.label, header: g.label, icon: g.icon, count: g.panels.length });
+            for (const p of g.panels) rows.push({ key: 'tbx-i-' + p.id, panel: p });
+          }
+          return rows;
+        },
+        // Drag a catalog grip over another catalog item to reorder the catalog.
+        onToolboxItemOver(p, ev) {
+          if (!this._boardCardDrag) return;   // only while dragging a card (not a section band)
+          try { ev.dataTransfer.dropEffect = 'move'; } catch {}
+          const b = this.panelBaseId(p);
+          if (this._tbxOverBase !== b) this._tbxOverBase = b;
+        },
+        onToolboxReorderDrop(p, ev) {
+          this._tbxOverBase = null;
+          const dragBase = this._dragBase(ev);
+          this._boardCardDrag = null;
+          const targetBase = this.panelBaseId(p);
+          if (!dragBase || dragBase === targetBase) return;
+          const order = this._tabBaseOrder();
+          const from = order.indexOf(dragBase);
+          if (from === -1) return;
+          order.splice(from, 1);
+          const at = order.indexOf(targetBase);   // drop just BEFORE the target
+          if (at === -1) order.push(dragBase);
+          else order.splice(at, 0, dragBase);
+          this.boardCanvas = { ...this.boardCanvas, tabOrder: order };
+          this._saveBoardCanvas();
         },
         // ----- Card width (per section, in grid columns) -----
         _secCols() { return this.sectionCols(); },
@@ -29004,7 +29200,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const sec = this._dropSection();
           if (sec && this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
         },
-        onCardDragEnd() { this._boardCardDrag = null; },
+        onCardDragEnd() { this._boardCardDrag = null; this._tbxOverBase = null; },
         _dragBase(ev) {
           if (this._boardCardDrag && this._boardCardDrag.base) return this._boardCardDrag.base;
           try { const d = ev.dataTransfer.getData('text/plain') || ''; return d.indexOf('card:') === 0 ? d.slice(5) : ''; } catch { return ''; }
@@ -29030,6 +29226,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
           // From the View tab there's no grid to hit-test → first free slot.
           if (onView) { this.placeCard(sec.id, base, null, null); return; }
+          // Grouped mode: position is automatic (banded by type). A drop on empty stage
+          // just ensures the base is a member — it lands at the end of its type band.
+          if (this.sectionGrouped()) {
+            const has = (sec.cards || []).some(c => c.base === base);
+            if (!has) this.placeCard(sec.id, base, null, null);
+            else this._touchSections();
+            return;
+          }
           const grabX = (drag && drag.grabX) || 0;
           const grabY = (drag && drag.grabY) || 0;
           const cell = this._gridDropCell(ev, sec, grabX, grabY);
@@ -32084,8 +32288,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s.worktreePath && this.devGitBadge(s).attention) { repoAttn = true; break; }
           }
           secs.push({ id: 'repos', label: '🗃 Repos', count: slots.length, attn: repoAttn });
-          if (d && d.reports && d.reports.length) secs.push({ id: 'reports', label: '📊 Reports', count: d.reports.length });
-          secs.push({ id: 'links', label: '🔗 Links', count: (d && d.links && d.links.length) || 0 });
+          const artCount = ((d && d.reports && d.reports.length) || 0) + ((d && d.links && d.links.length) || 0);
+          secs.push({ id: 'artifacts', label: '🔗 Artifacts', count: artCount });
           return secs;
         },
         devActivePane(d) {
@@ -32489,7 +32693,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ---- Status reports + manual links on a dev card ----
         devReportUrl(d, r) {
-          return this._devUrl(d, 'report') + '?file=' + encodeURIComponent(r.rel);
+          // Non-primary repos' reports are cached under a repo-namespaced key
+          // (cacheRel); prefer it so multi-repo reports serve from the durable cache.
+          return this._devUrl(d, 'report') + '?file=' + encodeURIComponent((r && (r.cacheRel || r.rel)) || '');
+        },
+        // True when a card's reports span more than one repo — used to show a muted
+        // "· <repo>" tag so identically-named reports are disambiguated.
+        devReportsMultiRepo(d) {
+          const rs = (d && d.reports) || [];
+          const set = new Set();
+          for (const r of rs) set.add((r && (r.repoId || r.repo)) || 'primary');
+          return set.size > 1;
         },
         devLinkHref(d, l) {
           // A link backed by a cached local file is served (and survives worktree

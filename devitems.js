@@ -1029,7 +1029,13 @@ function _fileSha(abs) {
 // If a cached copy of `r.rel` already exists AND the incoming worktree version
 // differs in content, snapshot the existing cached copy into __history before it
 // gets overwritten. Best-effort; never throws.
-function _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r) {
+//
+// `ns` namespaces the cache for a specific repo slot (empty for the primary repo,
+// back-compatible). History snapshots live under `<cache>/<ns>/__history/…` but the
+// manifest rel is recorded RELATIVE TO THE CARD CACHE DIR (ns-qualified) so a single
+// card-level manifest can list every repo's history and the report endpoint can serve
+// each one. `repo`/`repoId` tag the entry so the UI can disambiguate across repos.
+function _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r, ns = '', repo = '') {
   if (!wt || !r || !r.rel) return;
   const rootWt = path.resolve(wt);
   const src = path.resolve(rootWt, r.rel);
@@ -1047,8 +1053,10 @@ function _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r) {
   const base = path.basename(r.rel, ext);
   const ts = new Date();
   const stamp = ts.toISOString().replace(/[:.]/g, '-');
-  const histRel = HISTORY_SUBDIR + '/' + _sanitizeId(base) + '-' + stamp + ext;
-  const histAbs = path.resolve(rootDest, histRel);
+  // Snapshot file lives under destRoot; the manifest rel is card-cache-relative.
+  const histRelLocal = HISTORY_SUBDIR + '/' + _sanitizeId(base) + '-' + stamp + ext;
+  const histRel = ns ? (ns + '/' + histRelLocal) : histRelLocal;
+  const histAbs = path.resolve(rootDest, histRelLocal);
   if (!histAbs.startsWith(rootDest + path.sep)) return;
   try {
     fs.mkdirSync(path.dirname(histAbs), { recursive: true });
@@ -1056,20 +1064,24 @@ function _snapshotHistoryIfChanged(boardId, devId, wt, destRoot, r) {
   } catch { return; }
   let size = 0; try { size = fs.statSync(histAbs).size; } catch {}
   const isHtml = /\.html?$/i.test(ext);
+  const cardRoot = path.resolve(reportCacheDir(boardId, devId));
   const manifest = _readHistoryManifest(boardId, devId);
   manifest.unshift({
     rel: histRel,
     name: path.basename(r.rel),
-    of: r.rel,
+    of: ns ? (ns + '/' + r.rel) : r.rel,
+    repoId: ns || 'primary',
+    repo: repo || '',
     ts: ts.toISOString(),
     size,
     sha: prevSha,
     kind: isHtml ? 'html' : (/\.(md|markdown)$/i.test(ext) ? 'md' : 'txt')
   });
   // Prune oldest history files beyond the cap so the cache can't grow forever.
+  // Rels are card-cache-relative, so resolve pruning against the card root.
   const KEEP = 30;
   for (const old of manifest.slice(KEEP)) {
-    try { fs.rmSync(path.resolve(rootDest, old.rel), { force: true }); } catch {}
+    try { fs.rmSync(path.resolve(cardRoot, old.rel), { force: true }); } catch {}
   }
   _writeHistoryManifest(boardId, devId, manifest.slice(0, KEEP));
 }
@@ -1107,6 +1119,76 @@ function listCachedReports(boardId, devId) {
 
 function hasCachedReport(boardId, devId, rel) {
   try { readReportCached(boardId, devId, rel); return true; } catch { return false; }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-repo report support. A dev card can span several repos, each with its own
+// worktree ("slot"). Reports surfaced from a non-primary repo are cached under a
+// per-repo namespace (`<cache>/<repoId>/…`) so two repos exposing an identically
+// named report never clobber each other. The primary repo keeps caching at the
+// bare rel for byte-compatibility with existing single-repo cards. Every returned
+// report is tagged with { repoId, repo, cacheRel } — cacheRel is the durable key
+// the report endpoint serves from (survives worktree deletion).
+// ---------------------------------------------------------------------------
+
+// Cache one slot's reports under its namespace and tag them. `slot` = { id, repo,
+// worktreePath }. Returns the tagged reports (newest first for that slot).
+function _cacheSlotReports(boardId, devId, slot) {
+  if (!slot || !slot.worktreePath) return [];
+  const repoId = slot.id || 'primary';
+  const ns = (repoId === 'primary') ? '' : _sanitizeId(repoId);
+  const destRoot = ns ? path.join(reportCacheDir(boardId, devId), ns) : reportCacheDir(boardId, devId);
+  let reports = [];
+  try { reports = findReports(slot.worktreePath); } catch { reports = []; }
+  for (const r of reports) {
+    if (!r || !r.rel) continue;
+    try { _snapshotHistoryIfChanged(boardId, devId, slot.worktreePath, destRoot, r, ns, slot.repo || ''); } catch {}
+    const ok = _cacheCopy(slot.worktreePath, destRoot, r.rel);
+    const cacheRel = ns ? (ns + '/' + r.rel) : r.rel;
+    if (ok || hasCachedReport(boardId, devId, cacheRel)) r.cached = true;
+    r.repoId = repoId;
+    r.repo = slot.repo || '';
+    r.cacheRel = cacheRel;
+    // Keep generated reports out of git so they never dirty the card / a push.
+    try { addGitExclude(slot.worktreePath, r.rel); } catch {}
+  }
+  return reports;
+}
+
+// Scan + durably cache reports across EVERY live repo slot for a card. `slots` =
+// [{ id, repo, worktreePath }]. Returns the combined, newest-first, tagged array.
+function findAndCacheReportsForSlots(boardId, devId, slots) {
+  const out = [];
+  for (const s of (Array.isArray(slots) ? slots : [])) {
+    for (const r of _cacheSlotReports(boardId, devId, s)) out.push(r);
+  }
+  out.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  return out.slice(0, 32);
+}
+
+// List durably-cached reports for slots that have NO live worktree (so a repo's
+// artifacts survive worktree removal). `slots` = [{ id, repo }]. Tagged like the
+// live scan (repoId/repo/cacheRel) so callers can merge the two seamlessly.
+function listCachedReportsForSlots(boardId, devId, slots) {
+  const out = [];
+  for (const s of (Array.isArray(slots) ? slots : [])) {
+    if (!s) continue;
+    const repoId = s.id || 'primary';
+    const ns = (repoId === 'primary') ? '' : _sanitizeId(repoId);
+    const dir = ns ? path.join(reportCacheDir(boardId, devId), ns) : reportCacheDir(boardId, devId);
+    let reports = [];
+    try { reports = findReports(dir); } catch { reports = []; }
+    for (const r of reports) {
+      if (!r || !r.rel) continue;
+      r.repoId = repoId;
+      r.repo = s.repo || '';
+      r.cacheRel = ns ? (ns + '/' + r.rel) : r.rel;
+      r.cached = true;
+    }
+    for (const r of reports) out.push(r);
+  }
+  out.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  return out.slice(0, 32);
 }
 
 // Snapshot an arbitrary local file (e.g. the target of a file:// link that lives
@@ -1217,10 +1299,12 @@ module.exports = {
   findReports,
   readReport,
   findAndCacheReports,
+  findAndCacheReportsForSlots,
   cacheReports,
   listReportHistory,
   readReportCached,
   listCachedReports,
+  listCachedReportsForSlots,
   hasCachedReport,
   cacheLinkFile,
   clearReportCache,
