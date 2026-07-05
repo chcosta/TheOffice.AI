@@ -11131,8 +11131,41 @@ function _minToHm(min) {
 
 // Azure DevOps signals for the day: my active work items (focus), PRs I authored
 // (steward), and PRs awaiting my review (needs-attention). Best-effort per target.
+// Code Flow monitored-repo lookup for cross-referencing PR/review signals (#4).
+// A review PR only earns a "needs attention" slot if its repo is one you're
+// actively monitoring in Code Flow; unmonitored review PRs are demoted so they
+// don't flood the rail. `names` powers the email-supersede heuristic below.
+function _meAiMonitoredRepos() {
+  let repos = [];
+  try { repos = loadCodeflowRepos() || []; } catch { repos = []; }
+  const keys = new Set();
+  const names = new Set();
+  for (const r of repos) {
+    const provider = String((r && r.provider) || 'azdo').toLowerCase();
+    const org = String((r && r.org) || '').toLowerCase();
+    const project = String((r && r.project) || '').toLowerCase();
+    const repo = String((r && r.repo) || '').toLowerCase();
+    if (!org || !repo) continue;
+    keys.add(`${provider}|${org}|${project}|${repo}`);
+    names.add(repo);
+  }
+  return {
+    has(provider, org, project, repo) {
+      return keys.has(`${String(provider || 'azdo').toLowerCase()}|${String(org || '').toLowerCase()}|${String(project || '').toLowerCase()}|${String(repo || '').toLowerCase()}`);
+    },
+    // True if a PR URL points at a repo already monitored in Code Flow.
+    coversLink(link) {
+      const l = String(link || '').toLowerCase();
+      if (!l) return false;
+      for (const n of names) { if (n && l.includes('/' + n)) return true; }
+      return false;
+    },
+    names,
+  };
+}
 async function _meAiGatherAdo(s, date) {
   const signals = [], errors = [];
+  const mon = _meAiMonitoredRepos();
   const targets = _connectAdoTargets(s);
   if (!targets.length) return { signals, errors };
   const end = date;
@@ -11163,7 +11196,9 @@ async function _meAiGatherAdo(s, date) {
         const prs = await azdo.listProjectPullRequests(org, project, { reviewerId: creatorId, status: 'active', top: 50 });
         for (const pr of prs) {
           if (pr.createdBy && String(pr.createdBy.id) === meId) continue; // my own PR
-          signals.push({ kind: 'pr', type: 'review', title: `Review PR !${pr.id}: ${pr.title}`, detail: `${pr.repo || project} · ${(pr.createdBy && pr.createdBy.name) || 'author'}`, link: pr.url || '', urgency: 4, source: 'azdo' });
+          const repo = pr.repo || project;
+          const monitored = mon.has('azdo', org, project, repo);
+          signals.push({ kind: 'pr', type: 'review', title: `Review PR !${pr.id}: ${pr.title}`, detail: `${repo} · ${(pr.createdBy && pr.createdBy.name) || 'author'}${monitored ? '' : ' · not in Code Flow'}`, link: pr.url || '', urgency: monitored ? 4 : 2, source: 'azdo', provider: 'azdo', org, project, repo, monitored });
         }
       } catch (e) { errors.push(`review-prs ${org}/${project}: ${e.message}`); }
     }
@@ -11177,6 +11212,7 @@ async function _meAiGatherAdo(s, date) {
 // failed owner never sinks the others, mirroring _meAiGatherAdo.
 async function _meAiGatherGithub(s, date) {
   const signals = [], errors = [];
+  const mon = _meAiMonitoredRepos();
   let repos = [];
   try { repos = (loadCodeflowRepos() || []).filter(r => String((r && r.provider) || 'azdo').toLowerCase() === 'github'); }
   catch { repos = []; }
@@ -11211,7 +11247,9 @@ async function _meAiGatherGithub(s, date) {
       const prs = await github.listProjectPullRequests(owner, '', { reviewerId: login, status: 'active', top: 50 });
       for (const pr of prs) {
         if (pr.createdBy && String(pr.createdBy.id || '').toLowerCase() === meLc) continue; // my own PR
-        signals.push({ kind: 'pr', type: 'review', title: `Review PR #${pr.id}: ${pr.title}`, detail: `${pr.repo || owner} · ${(pr.createdBy && pr.createdBy.name) || 'author'}`, link: pr.url || '', urgency: 4, source: 'github' });
+        const repo = pr.repo || '';
+        const monitored = mon.has('github', owner, '', repo);
+        signals.push({ kind: 'pr', type: 'review', title: `Review PR #${pr.id}: ${pr.title}`, detail: `${repo || owner} · ${(pr.createdBy && pr.createdBy.name) || 'author'}${monitored ? '' : ' · not in Code Flow'}`, link: pr.url || '', urgency: monitored ? 4 : 2, source: 'github', provider: 'github', org: owner, project: '', repo, monitored });
       }
     } catch (e) { errors.push(`gh review-prs ${owner}: ${e.message}`); }
   }
@@ -11237,13 +11275,27 @@ function _meAiGatherCodeflow() {
 // never let it sink agenda generation.
 async function _meAiGatherM365(date) {
   try {
-    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean}. If there is nothing, return [].`;
+    const mon = _meAiMonitoredRepos();
+    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean,"directMention":boolean,"prLink":string|null}. "directMention" is true ONLY if I am personally named / @mentioned or explicitly added as a required reviewer or attendee (NOT merely on a distribution list, CC line, or broad channel). "prLink" is the URL of the specific pull request this item is about, or null if it is not about a PR. If there is nothing, return [].`;
     const text = await _connectRunAgent('collector', prompt);
     const arr = _connectExtractJson(text);
     if (!Array.isArray(arr)) return [];
     return arr.map(x => {
       const kind = x && x.kind === 'meeting' ? 'meeting' : (x && x.kind === 'teams' ? 'teams' : 'email');
       const hm = v => (typeof v === 'string' && /^\d{1,2}:\d{2}$/.test(v)) ? v : null;
+      const needsReply = !!(x && x.needsReply);
+      const directMention = !!(x && x.directMention);
+      const prLink = (x && typeof x.prLink === 'string') ? x.prLink : '';
+      // Email/Teams supersede rule (#4): an email only earns a needs-attention
+      // slot over Code Flow PR work if I'm directly mentioned/added AND the PR it
+      // references isn't already monitored in Code Flow. If Code Flow already
+      // owns that PR, we don't double-surface it from email.
+      let urgency;
+      if (kind === 'meeting') urgency = 5;
+      else if (prLink && mon.coversLink(prLink)) urgency = 2;
+      else if (needsReply && directMention) urgency = 4;
+      else if (needsReply) urgency = 3;
+      else urgency = 2;
       return {
         kind,
         type: kind === 'meeting' ? 'meeting' : 'comms',
@@ -11252,7 +11304,9 @@ async function _meAiGatherM365(date) {
         start: hm(x && x.start),
         end: hm(x && x.end),
         link: (x && x.link) || '',
-        urgency: kind === 'meeting' ? 5 : ((x && x.needsReply) ? 4 : 2),
+        prLink,
+        directMention,
+        urgency,
         source: 'm365',
       };
     }).filter(x => x.title);
@@ -11275,7 +11329,13 @@ function _meAiPrePass(cfg, signals, todos) {
   for (const s of signals || []) {
     if (s.type === 'meeting' && _hmToMin(s.start) != null) meetings.push(s);
     else {
-      if (s.type === 'review' || s.type === 'comms') needsAttention.push(s);
+      // #4 Needs Attention is Code Flow-aware: a review PR only earns a slot if
+      // its repo is monitored in Code Flow (unmonitored review PRs are demoted to
+      // urgency 2 upstream and fall through to normal scheduling/backlog). Comms
+      // reach the rail only when they need a reply (urgency ≥ 4 after the
+      // direct-mention / supersede rule).
+      if (s.type === 'review' && s.monitored !== false) needsAttention.push(s);
+      else if (s.type === 'comms' && (s.urgency || 0) >= 4) needsAttention.push(s);
       tasks.push(s);
     }
   }
