@@ -11670,6 +11670,21 @@
               .meai-card-head .meai-caret { flex:0 0 auto; }
               .meai-card-count { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
               .meai-card-dot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; background:var(--cp-warning,#d29922); }
+              .meai-lookback { border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent); border-radius:10px; padding:10px 14px; margin:0 0 12px; background:var(--cp-surface); }
+              .meai-lookback .meai-card-head { margin:0; }
+              .meai-lookback strong { font-size:13px; }
+              .meai-lb-sum { font-size:12px; color:var(--cp-text-muted); flex:1; }
+              .meai-lb-body { margin-top:10px; }
+              .meai-lb-empty, .meai-lb-none { font-size:12px; color:var(--cp-text-muted); padding:4px 0; }
+              .meai-lb-insights { margin:0 0 10px; padding-left:18px; font-size:12.5px; color:var(--cp-text); line-height:1.6; }
+              .meai-lb-cols { display:flex; gap:18px; flex-wrap:wrap; }
+              .meai-lb-col { flex:1 1 240px; min-width:220px; }
+              .meai-lb-col h5 { margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); }
+              .meai-lb-row { display:flex; align-items:baseline; gap:8px; font-size:12.5px; padding:2px 0; color:var(--cp-text); }
+              .meai-lb-time { flex:0 0 auto; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; width:46px; }
+              .meai-lb-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-lb-type { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
+              .meai-lb-done { flex:0 0 auto; color:var(--cp-success,#3fb950); }
               .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
               .meai-na-item:last-child { border-bottom:0; }
@@ -11881,7 +11896,50 @@
               <div class="meai-dayshape-out" x-show="meai.dayShape && meai.dayShape.detail" x-transition>
                 <span x-text="meai.dayShape.detail"></span>
                 <span class="meai-status-detail" x-show="meai.dayShape.written"> · saved to diary</span>
-                <span class="meai-status-detail" x-show="!meai.dayShape.written && meai.dayShape.reason==='already-logged'"> · already in diary</span>
+              </div>
+
+              <!-- M5 look-back / retro: planned-vs-actual for a PAST date. Read-only. -->
+              <div class="meai-lookback" x-show="meai.lookback" x-transition>
+                <div class="meai-card-head" @click="meai.lookbackOpen=!meai.lookbackOpen">
+                  <span class="meai-caret" x-text="meai.lookbackOpen?'▾':'▸'"></span>
+                  <strong>Look back</strong>
+                  <span class="meai-lb-sum" x-show="meai.lookback" x-text="meai.lookback && meai.lookback.retro ? meai.lookback.retro.summary : ''"></span>
+                </div>
+                <div class="meai-lb-body" x-show="meai.lookbackOpen && meai.lookback" x-transition>
+                  <div class="meai-lb-empty" x-show="meai.lookback && !meai.lookback.hasAgenda">No agenda was planned for this day.</div>
+                  <template x-if="meai.lookback && meai.lookback.hasAgenda">
+                    <div>
+                      <ul class="meai-lb-insights">
+                        <template x-for="(ins, ii) in (meai.lookback.retro.insights||[])" :key="ii">
+                          <li x-text="ins"></li>
+                        </template>
+                      </ul>
+                      <div class="meai-lb-cols">
+                        <div class="meai-lb-col">
+                          <h5>Planned</h5>
+                          <template x-for="(b, bi) in (meai.lookback.planned.blocks||[]).slice(0,12)" :key="bi">
+                            <div class="meai-lb-row">
+                              <span class="meai-lb-time" x-text="b.time"></span>
+                              <span class="meai-lb-title" x-text="b.title"></span>
+                              <span class="meai-lb-type" x-text="b.type"></span>
+                            </div>
+                          </template>
+                          <div class="meai-lb-none" x-show="!(meai.lookback.planned.blocks||[]).length">No work blocks planned.</div>
+                        </div>
+                        <div class="meai-lb-col">
+                          <h5>Actually done</h5>
+                          <template x-for="(c, ci) in (meai.lookback.actual.completions||[])" :key="ci">
+                            <div class="meai-lb-row">
+                              <span class="meai-lb-done">✓</span>
+                              <span class="meai-lb-title" x-text="c.title"></span>
+                            </div>
+                          </template>
+                          <div class="meai-lb-none" x-show="!(meai.lookback.actual.completions||[]).length">No Me.AI task completions recorded.</div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
               </div>
 
               <!-- REQ-8 Proactive attention inbox: newly-arrived email/Teams asks that
@@ -19664,6 +19722,8 @@
           changes: [],           // recent change events {kind,title,from,to,at}
           dayShapeBusy: false,   // end-of-day report request in flight
           dayShape: null,        // { detail, churn } after an end-of-day report
+          lookback: null,        // M5 planned-vs-actual retro for a PAST date
+          lookbackOpen: true,    // collapse state for the look-back card
           _autoTimer: null,      // client poll for auto-regenerated agenda (today only)
           _lastGeneratedAt: '',  // last agenda.generatedAt we rendered (detect silent regen)
           justUpdated: false,    // brief "agenda updated" flash after a silent regen
@@ -26013,6 +26073,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.dayShape = null;
             this.meai.justUpdated = false;
             await this.meAiLoadChanges();
+            await this.meAiLoadLookback();
             this.meAiStartAutoPoll();
           } catch (e) {
             this.meai.agenda = null;
@@ -26024,6 +26085,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const r = await this.request('/api/me-ai/agenda/changes?date=' + encodeURIComponent(this.meai.date));
             this.meai.changes = (r && Array.isArray(r.events)) ? r.events.slice().reverse() : [];
           } catch (_) { this.meai.changes = []; }
+        },
+        // M5 look-back: planned-vs-actual retro. Only meaningful for a PAST date;
+        // the endpoint is cheap (no gather/LLM) so we just fetch and let isPast gate the UI.
+        async meAiLoadLookback() {
+          try {
+            const r = await this.request('/api/me-ai/lookback?date=' + encodeURIComponent(this.meai.date));
+            this.meai.lookback = (r && r.ok && r.isPast) ? r : null;
+          } catch (_) { this.meai.lookback = null; }
         },
         // REQ-7 auto-regenerate: poll TODAY's agenda so a silent server re-plan
         // (triggered by new signals) shows up without the user hitting Regenerate.

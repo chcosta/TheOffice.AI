@@ -12304,8 +12304,59 @@ app.post('/api/me-ai/agenda/dayshape', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// REQ-8 attention inbox routes.
-// GET /api/me-ai/inbox?date= → items + how many are still untriaged ('new').
+// M5 look-back / retro — planned-vs-actual for any (past) date. Read-only, cheap
+// (no signal gather / no LLM): pairs the frozen agenda snapshot with what actually
+// got recorded — Me.AI task completions in the Diary, todo done/carried state, and
+// the day's organic churn — and derives a short retro so the user can see how the
+// day really went vs how it was planned.
+// GET /api/me-ai/lookback?date=YYYY-MM-DD
+app.get('/api/me-ai/lookback', (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = String(req.query.date || '').slice(0, 10) || today;
+    const agenda = loadAgendaForDate(date);
+    const churn = _meAiChurnSummary(loadChangesForDate(date).events);
+    // Planned side (from the frozen snapshot).
+    const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+    const plannedBlocks = blocks
+      .filter(b => b && (b.type !== 'personal'))
+      .map(b => ({ time: b.start || '', title: b.title || '', type: b.type || '' }));
+    const focusPlanned = blocks.filter(b => b && (b.type === 'focus')).length;
+    const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos : [];
+    const workTodos = todos.filter(t => t && (t.scope !== 'personal'));
+    const todosDone = workTodos.filter(t => t && t.done).length;
+    const todosCarried = workTodos.filter(t => t && t.carried).length;
+    const backlogCount = (agenda && Array.isArray(agenda.backlog)) ? agenda.backlog.length : 0;
+    // Actual side: Me.AI task completions recorded in the Diary for this date.
+    let completions = [];
+    try {
+      const ev = connect.listEvidence({ includeHidden: true }) || [];
+      completions = ev
+        .filter(e => e && String(e.date || '').slice(0, 10) === date && (e.tags || []).some(t => String(t) === 'me-ai'))
+        .filter(e => !(e.tags || []).some(t => String(t).startsWith('ext:me-ai:dayshape'))) // exclude the day-shape note itself
+        .map(e => ({ title: e.title || '', detail: e.detail || '', source: e.source || '', links: e.links || [] }));
+    } catch (_) { completions = []; }
+    // Derive a short, honest retro.
+    const insights = [];
+    if (plannedBlocks.length) {
+      insights.push(`Planned ${plannedBlocks.length} work block(s)` + (focusPlanned ? `, incl. ${focusPlanned} focus block(s)` : '') + '.');
+    }
+    if (completions.length) insights.push(`Completed ${completions.length} Me.AI task(s).`);
+    if (workTodos.length) insights.push(`${todosDone}/${workTodos.length} work todo(s) done` + (todosCarried ? `, ${todosCarried} carried over` : '') + '.');
+    if (churn.total) insights.push(`${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) — day shape: ${churn.shape}.`);
+    else if (plannedBlocks.length) insights.push('No organic churn — the plan held (Focused).');
+    if (backlogCount) insights.push(`${backlogCount} item(s) didn\u2019t fit and rolled over.`);
+    const summary = agenda ? _meAiDayShapeText(churn) : 'No agenda was planned for this day.';
+    res.json({
+      ok: true, date, today, isPast: date < today, hasAgenda: !!agenda,
+      planned: { blocks: plannedBlocks, focusPlanned, todos: workTodos.map(t => ({ title: t.title || '', done: !!t.done, carried: !!t.carried })), backlogCount },
+      actual: { completions, todosDone, todosCarried, churn },
+      retro: { summary, insights },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 app.get('/api/me-ai/inbox', (req, res) => {
   try {
     const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
