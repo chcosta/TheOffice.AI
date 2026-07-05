@@ -4947,6 +4947,13 @@
     /* Out-specify the pin-view rule (.board-panel...> .board-panel-body{overflow:auto}) so the
        active tab panel never grows its own inner scrollbar — the tab column is the only scroller. */
     .board-canvas-scroll.board-tabbed .board-panel:not(.dragging):not(.pin-chip) .board-panel-inner > .board-panel-body { flex: 0 0 auto; min-height: 0; overflow: visible; }
+    /* ...EXCEPT positional-grid section cards. Those have a FIXED cell height (h rows),
+       so — unlike the single tab column — their body must scroll INTERNALLY or tall
+       content (dev-card summaries, PR details) overflows the cell and gets clipped by
+       the inner's overflow:hidden with no scrollbar. Out-specify the tab-column rule so
+       the card gets our global subtle, hover-revealed scrollbar. Grouped/ view-mode
+       cards grow to content, so they're excluded. */
+    .board-canvas-scroll.board-tabbed .board-sec-grid:not(.view-mode):not(.grouped) .board-card > .board-panel:not(.dragging):not(.pin-chip) .board-panel-inner > .board-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
     .board-view-toggle { display: inline-flex; border: 1px solid var(--cp-border); border-radius: 8px; overflow: hidden; }
     .board-view-toggle button {
       background: var(--cp-surface); border: none; padding: 5px 11px;
@@ -9860,7 +9867,8 @@
                             </template>
                             <div class="board-canvas-resize" x-show="!boardIsTabbed()" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
                           </div>
-                          <!-- Always-visible trash: drag a card here to remove it from the workspace.
+                          <!-- Always-visible trash: drag a card here to take it off the board
+                               (removed from every section; it stays in the workspace + toolbox).
                                Hidden on Card View and when the toggle is off. -->
                           <div class="board-trash" x-show="!isViewTab() && boardTrashOn" x-cloak
                                :class="{ over: _boardTrashOver }"
@@ -9868,7 +9876,7 @@
                                @dragover.prevent.stop="_boardTrashOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
                                @dragleave.stop="_boardTrashOver = false"
                                @drop.prevent.stop="_boardTrashOver = false; onTrashDrop($event)"
-                               title="Drag a card here to remove it from the workspace">
+                               title="Drag a card here to take it off the board (it stays in the workspace + toolbox)">
                             <span class="board-trash-ico">🗑</span>
                           </div>
                         </div>
@@ -9883,8 +9891,9 @@
                                 <div class="board-editsec-row">
                                   <span class="es-ico" x-text="panelIcon(p)"></span>
                                   <span class="es-name" x-text="panelTitleText(p)" :title="panelTitleText(p)"></span>
-                                  <button type="button" class="es-act" @click="removeCardFromSection(p)" title="Take this card off the current section (the item stays on the board and in the toolbox)">Remove from section</button>
-                                  <button type="button" class="es-act danger" @click="removeCardFromBoard(p)" :title="panelRemoveLabel(p)">Remove from board</button>
+                                  <button type="button" class="es-act" @click="removeCardFromSection(p)" title="Take this card off the current section only (the item stays on the board and in the toolbox)">Remove from section</button>
+                                  <button type="button" class="es-act" @click="removeCardFromBoard(p)" title="Take this item off the board — removes it from every section. It stays in the workspace and toolbox, ready to drag back on.">Remove from board</button>
+                                  <button type="button" class="es-act danger" @click="removeCardFromWorkspace(p)" :title="panelRemoveLabel(p)">Remove from workspace</button>
                                 </div>
                               </template>
                               <template x-if="!activeSectionPanels().length">
@@ -9909,9 +9918,9 @@
                             <input type="range" min="3" max="24" step="1" :value="sectionCols()" @input="setSectionCols($event.target.value)" title="Grid columns">
                             <span class="sb-zval" x-text="sectionCols() + ' cols'"></span>
                           </span>
-                          <button type="button" class="sb-btn sb-wide" @click="boardEditSecOpen = !boardEditSecOpen" :class="{ active: boardEditSecOpen }" title="Edit cards — remove a card from this section, or remove the item from the board entirely">✎ Edit</button>
+                          <button type="button" class="sb-btn sb-wide" @click="boardEditSecOpen = !boardEditSecOpen" :class="{ active: boardEditSecOpen }" title="Edit cards — remove a card from this section, take it off the board, or remove the item from the workspace">✎ Edit</button>
                           <button type="button" class="sb-btn sb-wide" @click="clearSection()" title="Clear this section — removes every card from the section (items stay on the board and in the toolbox)">🧹 Clear</button>
-                          <button type="button" class="sb-btn sb-wide" :class="{ active: boardTrashOn }" @click="toggleBoardTrash()" :title="boardTrashOn ? 'Hide the trash drop-target' : 'Show the trash drop-target — drag cards onto it to remove them from the workspace'">🗑 Trash</button>
+                          <button type="button" class="sb-btn sb-wide" :class="{ active: boardTrashOn }" @click="toggleBoardTrash()" :title="boardTrashOn ? 'Hide the trash drop-target' : 'Show the trash drop-target — drag cards onto it to take them off the board (they stay in the workspace)'">🗑 Trash</button>
                           <span x-show="!!activeSection()" x-text="(activeSection() ? (activeSection().cards||[]).length : 0) + ' card' + ((activeSection() && (activeSection().cards||[]).length===1) ? '' : 's')"></span>
                         </div>
                       </div>
@@ -28956,8 +28965,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _ensureGeom(sec) {
           if (!sec) return;
           const cols = this._secColsOf(sec);
-          const cards = sec.cards || (sec.cards = []);
+          let cards = sec.cards || (sec.cards = []);
           let changed = false;
+          // Drop "ghost" placements whose underlying panel no longer exists so they stop
+          // polluting geometry (occupying rows, inflating the card count, pushing drops
+          // down). Only prune once the board's panels have actually loaded, otherwise a
+          // transient empty boardPanels() during startup would wipe every card.
+          if (cards.length && this.boardPanels().length) {
+            const live = cards.filter(c => this._panelByBase(c.base));
+            if (live.length !== cards.length) { cards = sec.cards = live; changed = true; }
+          }
           cards.forEach(c => {
             if (c.w == null) {
               const s = c.size;
@@ -28986,7 +29003,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           moved.h = Math.max(1, Math.round(moved.h));
           moved.x = Math.max(0, Math.min(cols - moved.w, Math.round(moved.x)));
           moved.y = Math.max(0, Math.round(moved.y));
-          const others = cards.filter(c => c !== moved).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+          // NOTE: compare by unique `base`, NOT object identity. Cards live in an Alpine
+          // reactive array, so `sec.cards[i]` is a Proxy while a freshly pushed card is the
+          // raw object — `proxy !== raw` even though they are the SAME card. An identity
+          // filter here would fail to exclude `moved`, making the card cascade against its
+          // own proxy and fly to the guard ceiling (the "lands way down" bug).
+          const others = cards.filter(c => c.base !== moved.base).sort((a, b) => (a.y - b.y) || (a.x - b.x));
           const placed = [moved];
           others.forEach(c => {
             c.w = Math.max(1, Math.min(cols, Math.round(c.w)));
@@ -29076,10 +29098,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this._resolveSection(sec, c);
             }
           }
-          // 2) After the width reflows, grow height to fit the full content.
+          // 2) After the width reflows, grow height to fit the full content. The body is
+          // now an internal scroller (overflow:auto), so `inner.scrollHeight` just reports
+          // the fixed cell height — we must instead sum the fixed header + the body's FULL
+          // content (`body.scrollHeight` includes the scrolled-away part) + inner padding.
           this.$nextTick(() => {
             const inner2 = innerOf(cardEl);
-            const contentH = inner2 ? inner2.scrollHeight : 0;
+            if (!inner2) return;
+            const head = inner2.querySelector('.board-panel-head');
+            const body = inner2.querySelector('.board-panel-body');
+            const cs = getComputedStyle(inner2);
+            const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+            const headH = head ? head.offsetHeight : 0;
+            const bodyH = body ? body.scrollHeight : (inner2.scrollHeight - headH);
+            const contentH = headH + bodyH + padV;
             if (contentH && rowH) {
               const rows = Math.ceil((contentH + 10) / rowH);
               const nh = Math.max(2, Math.min(80, rows));
@@ -29167,7 +29199,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             s.cards.push(c);
           }
           if (x == null || y == null) {
-            const others = s.cards.filter(cc => cc !== c && cc.x != null && cc.y != null);
+            const others = s.cards.filter(cc => cc.base !== base && cc.x != null && cc.y != null);
             const pos = this._firstFit(others, c.w, c.h, cols);
             c.x = pos.x; c.y = pos.y;
           } else {
@@ -29193,10 +29225,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           s.cards = [];
           this._touchSections();
         },
-        // Remove the item from the BOARD entirely (unpin a pin / delete a note or
+        // Take the item OFF THE BOARD: purge its card placement from every section so it
+        // no longer appears on any section stage. The underlying item is NOT deleted — it
+        // stays in the workspace and in the toolbox tray, ready to be dragged back on.
+        // To delete the item outright, use removeCardFromWorkspace().
+        removeCardFromBoard(p) {
+          if (!p) return;
+          this._purgeBaseFromSections(this.panelBaseId(p));
+        },
+        // Remove the item from the WORKSPACE entirely (unpin a pin / delete a note or
         // checklist / remove a dev card), then purge any dangling card refs it left in
-        // every section. Reuses the shared confirmRemovePanel flow.
-        async removeCardFromBoard(p) {
+        // every section. This also removes it from the toolbox. Reuses confirmRemovePanel.
+        async removeCardFromWorkspace(p) {
           if (!p) return;
           const base = this.panelBaseId(p);
           await this.confirmRemovePanel(p);
@@ -29217,16 +29257,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardTrashOn = !this.boardTrashOn;
           try { localStorage.setItem('board-trash-on', this.boardTrashOn ? '1' : '0'); } catch (e) {}
         },
-        // A card was dropped on the trash — remove that item from the board entirely.
-        async onTrashDrop(ev) {
+        // A card was dropped on the trash — take it OFF THE BOARD (remove its placement
+        // from every section). The underlying item stays in the workspace + toolbox; use
+        // the card menu's "Remove from workspace" to delete it outright.
+        onTrashDrop(ev) {
           const base = this._dragBase(ev);
           this._boardCardDrag = null;
           this._boardTrashOver = false;
           this._boardDragOver = false;
           if (!base) return;
-          const p = this._panelByBase(base);
-          if (p) { await this.removeCardFromBoard(p); }
-          else { this._purgeBaseFromSections(base); }
+          this._purgeBaseFromSections(base);
         },
         // On drag-start immediately switch to the target board section so the user can
         // see where the drop will land (instead of waiting for release).
@@ -29292,7 +29332,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const grabX = (drag && drag.grabX) || 0;
           const grabY = (drag && drag.grabY) || 0;
           const cell = this._gridDropCell(ev, sec, grabX, grabY);
-          this.placeCard(sec.id, base, cell.x, cell.y);
+          // Vertical gravity (gridstack float:false): honor the column the user dropped
+          // on, but float the card UP to the topmost free row instead of leaving it at the
+          // raw cursor Y. This is what keeps the first card top-left and kills the big dead
+          // gap the user saw when a card "landed waaay down" on an otherwise-empty board.
+          const cols = this._secColsOf(sec);
+          const ex = (sec.cards || []).find(c => c.base === base);
+          const w = ex ? ex.w : this._cardDefaultW(sec, base);
+          const h = ex ? ex.h : this._cardDefaultH(base);
+          const x = Math.max(0, Math.min(cols - w, cell.x));
+          const gy = this._dropGravityY(sec, base, x, w, h);
+          this.placeCard(sec.id, base, x, gy);
+        },
+        // Topmost free row (>=0) where a w×h card fits at column x among the OTHER cards
+        // in the section. Empty board / empty column → 0 (top). Fills the highest gap.
+        // IMPORTANT: only RENDERABLE cards count. A "ghost" placement (its underlying
+        // panel was deleted — worktree removed, PR closed, agent gone — so it no longer
+        // renders) occupies zero visual space, so it must NOT push a new drop down. Not
+        // filtering these was why a card dropped on a visually-empty board still landed
+        // "way down": it was floating below invisible ghosts.
+        _dropGravityY(sec, base, x, w, h) {
+          const others = (sec.cards || []).filter(c =>
+            c.base !== base && c.x != null && c.y != null && this._panelByBase(c.base));
+          for (let y = 0; y < 500; y++) {
+            if (!others.some(c => this._overlap(c, { x, y, w, h }))) return y;
+          }
+          return 0;
         },
         // Snap the grabbed point to a grid cell. grabX/grabY (screen px) is the offset of
         // the cursor from the card's top-left; we subtract it so the card's LEFT/TOP edge —

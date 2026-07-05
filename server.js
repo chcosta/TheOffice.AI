@@ -4831,6 +4831,12 @@ function reapDesignTestArtifacts() {
 // SPA — serve new unified app for all page routes
 function serveSpa(req, res) {
   if (fs.existsSync(SPA_PATH)) {
+    // The SPA is a single ~2.5MB HTML file that changes constantly in dev; if the
+    // browser caches it, edits appear to "not take" no matter how many times the user
+    // reloads. Force a fresh fetch every time.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     try {
       res.type('html').send(renderSpaHtml());
     } catch (err) {
