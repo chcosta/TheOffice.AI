@@ -11576,7 +11576,68 @@ async function _meAiClassifyTodo(title) {
   } catch { return heur; }
 }
 
-async function generateMeAiAgenda({ date, todos } = {}) {
+// ---- #3 Background signal pre-indexing ------------------------------------
+// Gathering signals (M365 collector agent + ADO/GitHub REST + Code Flow) is the
+// slow part of building an agenda — the M365 collector alone can take >100s. We
+// cache the gathered signals per day so that (a) an explicit "Regenerate" reuses
+// a warm cache and (b) a mode/pref change only re-runs the cheap pre-pass + LLM
+// refine instead of re-reading every account. A background timer keeps today's
+// cache warm while the user is actively looking at Me.AI.
+const ME_AI_SIGNAL_CACHE = new Map();          // day -> { signals, sources, errors, at }
+const _meAiIndexing = new Map();               // day -> in-flight gather Promise
+const ME_AI_SIGNAL_TTL_MS = 3 * 60 * 1000;     // treat a cache newer than this as fresh
+const ME_AI_PREINDEX_INTERVAL_MS = 10 * 60 * 1000;
+const ME_AI_ACTIVE_WINDOW_MS = 30 * 60 * 1000; // only auto-warm if Me.AI was used recently
+let _meAiLastActive = 0;
+
+async function _meAiGatherSignals(s, cfg, day, { force = false } = {}) {
+  const cached = ME_AI_SIGNAL_CACHE.get(day);
+  if (!force && cached && (Date.now() - cached.at) < ME_AI_SIGNAL_TTL_MS) {
+    return { signals: cached.signals.slice(), sources: { ...cached.sources }, errors: cached.errors.slice(), at: cached.at, cached: true };
+  }
+  // Collapse concurrent gathers for the same day onto one run.
+  if (_meAiIndexing.has(day)) {
+    try { await _meAiIndexing.get(day); } catch {}
+    const c2 = ME_AI_SIGNAL_CACHE.get(day);
+    if (c2) return { signals: c2.signals.slice(), sources: { ...c2.sources }, errors: c2.errors.slice(), at: c2.at, cached: true };
+  }
+  const run = (async () => {
+    const signals = [];
+    const errors = [];
+    const sources = { m365: false, azdo: false, github: false, codeflow: false };
+    if (cfg.consent) {
+      try { const m365 = await _meAiGatherM365(day); if (m365.length) { signals.push(...m365); sources.m365 = true; } } catch (e) { errors.push('m365: ' + (e && e.message || e)); }
+      try { const ado = await _meAiGatherAdo(s, day); if (ado.signals.length) { signals.push(...ado.signals); sources.azdo = true; } if (ado.errors.length) errors.push(...ado.errors); } catch (e) { errors.push('azdo: ' + (e && e.message || e)); }
+      try { const gh = await _meAiGatherGithub(s, day); if (gh.signals.length) { signals.push(...gh.signals); sources.github = true; } if (gh.errors.length) errors.push(...gh.errors); } catch (e) { errors.push('github: ' + (e && e.message || e)); }
+    }
+    try { const cf = _meAiGatherCodeflow(); if (cf.length) { signals.push(...cf); sources.codeflow = true; } } catch (e) { errors.push('codeflow: ' + (e && e.message || e)); }
+    const entry = { signals, sources, errors, at: Date.now() };
+    ME_AI_SIGNAL_CACHE.set(day, entry);
+    return entry;
+  })();
+  _meAiIndexing.set(day, run);
+  try {
+    const entry = await run;
+    return { signals: entry.signals.slice(), sources: { ...entry.sources }, errors: entry.errors.slice(), at: entry.at, cached: false };
+  } finally {
+    _meAiIndexing.delete(day);
+  }
+}
+
+// Fire-and-forget warm of a day's signal cache (consent-gated; external reads
+// only happen with consent — Code Flow alone isn't worth an agent spawn).
+function _meAiPreindex(day) {
+  try {
+    const s = settings.getSettings();
+    const cfg = _meAiConfig(s);
+    if (!cfg.consent) return false;
+    const d = String(day || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    _meAiGatherSignals(s, cfg, d, { force: true }).catch(() => {});
+    return true;
+  } catch { return false; }
+}
+
+async function generateMeAiAgenda({ date, todos, reindex } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
   const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -11599,23 +11660,13 @@ async function generateMeAiAgenda({ date, todos } = {}) {
     saveAgendaForDate(day, agenda);
     return agenda;
   }
-  const signals = [];
-  const errors = [];
-  const sources = { m365: false, azdo: false, github: false, codeflow: false };
-  // M365 + ADO + GitHub only run with consent (they read your accounts). Code
-  // Flow is local data, always safe to read.
-  if (cfg.consent) {
-    const m365 = await _meAiGatherM365(day);
-    if (m365.length) { signals.push(...m365); sources.m365 = true; }
-    const ado = await _meAiGatherAdo(s, day);
-    if (ado.signals.length) { signals.push(...ado.signals); sources.azdo = true; }
-    if (ado.errors.length) errors.push(...ado.errors);
-    const gh = await _meAiGatherGithub(s, day);
-    if (gh.signals.length) { signals.push(...gh.signals); sources.github = true; }
-    if (gh.errors.length) errors.push(...gh.errors);
-  }
-  const cf = _meAiGatherCodeflow();
-  if (cf.length) { signals.push(...cf); sources.codeflow = true; }
+  // #3 Signals come from the pre-index cache when warm. An explicit "Regenerate"
+  // (reindex) forces a fresh read; a mode/pref re-plan reuses the cache so it's fast.
+  _meAiLastActive = Date.now();
+  const gathered = await _meAiGatherSignals(s, cfg, day, { force: !!reindex });
+  const signals = gathered.signals.slice();
+  const errors = gathered.errors.slice();
+  const sources = { ...gathered.sources };
   // #7 Drop anything the user has dismissed ("not mine") for this day so it never
   // re-enters the schedule, backlog, or needs-attention rail on regeneration.
   const dismissed = loadDismissForDate(day);
@@ -11634,7 +11685,7 @@ async function generateMeAiAgenda({ date, todos } = {}) {
     needsAttention: pre.needsAttention,
     dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
     todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
-    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors },
+    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString() },
   };
   saveAgendaForDate(day, agenda);
   return agenda;
@@ -11645,6 +11696,7 @@ app.get('/api/me-ai', (req, res) => {
   try {
     const cfg = _meAiConfig();
     const today = new Date().toISOString().slice(0, 10);
+    _meAiLastActive = Date.now();
     res.json({ ok: true, config: cfg, today, hasAgendaToday: !!loadAgendaForDate(today) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -11690,8 +11742,20 @@ app.get('/api/me-ai/agenda', (req, res) => {
 app.post('/api/me-ai/agenda/generate', async (req, res) => {
   try {
     const b = req.body || {};
-    const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [] });
+    const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [], reindex: b.reindex !== false });
     res.json({ ok: true, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/preindex { date? } → warm the signal cache in the background so
+// a later generate/re-plan is fast (#3). Fire-and-forget; consent-gated inside.
+app.post('/api/me-ai/preindex', (req, res) => {
+  try {
+    const day = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    _meAiLastActive = Date.now();
+    const cached = ME_AI_SIGNAL_CACHE.get(day);
+    const started = _meAiPreindex(day);
+    res.json({ ok: true, day, started, warm: !!cached, indexedAt: cached ? new Date(cached.at).toISOString() : null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -11812,6 +11876,18 @@ function _meAiHydrateTasks() {
   } catch (_) { /* best-effort */ }
 }
 _meAiHydrateTasks();
+
+// #3 Keep today's signal cache warm while Me.AI is being used, so generate/re-plan
+// stays fast. Leader-gated (avoid duplicate collector spawns across machines) and
+// only fires when Me.AI was touched recently — no point spawning the M365 collector
+// when nobody is looking at the page.
+setInterval(() => {
+  try {
+    if (!leaderCheck()) return;
+    if ((Date.now() - _meAiLastActive) > ME_AI_ACTIVE_WINDOW_MS) return;
+    _meAiPreindex(new Date().toISOString().slice(0, 10));
+  } catch (_) { /* best-effort */ }
+}, ME_AI_PREINDEX_INTERVAL_MS);
 function _meAiTaskPublic(t) {
   if (!t) return null;
   return {

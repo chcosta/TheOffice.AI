@@ -25626,6 +25626,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.loaded = true;
             await this.meAiLoadAgenda();
             await this.meAiLoadTasks();
+            // #3 Warm the signal cache for the viewed date in the background so a
+            // later generate / mode-change re-plan is fast. Consent-gated server-side.
+            if (this.meai.config.consent) {
+              this.request('/api/me-ai/preindex', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) }).catch(() => {});
+            }
           } catch (e) {
             this.toast('Failed to load Me.AI: ' + (e.message || e), 'error');
           } finally {
@@ -25640,8 +25645,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.agenda = null;
           }
         },
-        async meAiGenerate() {
+        async meAiGenerate(opts) {
           if (this.meai.generating) return;
+          // #3 Explicit Generate/Regenerate forces a fresh signal read; a mode/pref
+          // re-plan passes { reindex:false } to reuse the warm cache (fast).
+          const reindex = !(opts && opts.reindex === false);
           this.meai.generating = true;
           this.meai.notice = '';
           try {
@@ -25650,7 +25658,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               .filter(t => t.title);
             const r = await this.request('/api/me-ai/agenda/generate', {
               method: 'POST',
-              body: JSON.stringify({ date: this.meai.date, todos }),
+              body: JSON.stringify({ date: this.meai.date, todos, reindex }),
             });
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
             if (!this.meai.agenda) this.meai.notice = 'No agenda was produced.';
@@ -25700,7 +25708,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiSetMode(mode) {
           this.meai.config.mode = mode;
           await this.meAiSaveSettings();
-          if (this.meai.config.consent) await this.meAiGenerate();
+          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false });
         },
         meAiTimePref(type) {
           const p = this.meai.config.timePrefs || {};
@@ -25713,7 +25721,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const next = cur === '' ? 'morning' : (cur === 'morning' ? 'afternoon' : '');
           if (next) this.meai.config.timePrefs[type] = next; else delete this.meai.config.timePrefs[type];
           await this.meAiSaveSettings();
-          if (this.meai.config.consent) await this.meAiGenerate();
+          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false });
         },
         meAiShiftDate(days) {
           const d = new Date(this.meai.date + 'T00:00:00');
