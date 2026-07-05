@@ -11585,6 +11585,12 @@
               .meai-act-btn:disabled { opacity:.5; cursor:default; }
               .meai-reply { display:flex; gap:8px; }
               .meai-reply input { flex:1; }
+              .meai-qgate { border:1px solid var(--cp-accent); border-radius:10px; background:var(--cp-surface); padding:12px 14px; margin-bottom:12px; }
+              .meai-qgate-h { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-accent); margin-bottom:6px; }
+              .meai-qgate-ico { font-size:14px; }
+              .meai-qgate-q { font-size:14px; color:var(--cp-text); line-height:1.5; margin-bottom:10px; white-space:pre-wrap; }
+              .meai-qgate-row { display:flex; gap:8px; }
+              .meai-qgate-row input { flex:1; }
               .meai-dr-foot-bar { display:flex; gap:8px; align-items:center; margin-top:10px; }
               .meai-working { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text-muted); padding:6px 0; }
             </style>
@@ -11820,14 +11826,25 @@
                     </div>
                   </div>
                   <div class="meai-dr-foot">
+                    <!-- Mid-run question gate (§7.3): the agent paused and needs an answer -->
+                    <template x-if="meai.console.question && meai.console.status!=='running'">
+                      <div class="meai-qgate">
+                        <div class="meai-qgate-h"><span class="meai-qgate-ico">❓</span> The agent needs your input</div>
+                        <div class="meai-qgate-q" x-text="meai.console.question"></div>
+                        <div class="meai-qgate-row">
+                          <input class="field-input" placeholder="Type your answer…" x-model="meai.consoleAnswer" @keydown.enter="meAiAnswerSend()" :disabled="meai.consoleBusy">
+                          <button class="btn primary" type="button" @click="meAiAnswerSend()" :disabled="meai.consoleBusy || !meai.consoleAnswer.trim()">Send answer</button>
+                        </div>
+                      </div>
+                    </template>
                     <!-- AI-generated next actions -->
-                    <div class="meai-actions" x-show="meai.console.status!=='running' && (meai.console.nextActions||[]).length">
+                    <div class="meai-actions" x-show="!meai.console.question && meai.console.status!=='running' && (meai.console.nextActions||[]).length">
                       <template x-for="(a, ai) in meai.console.nextActions" :key="ai">
                         <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '')" :disabled="meai.consoleBusy" x-text="a.label"></button>
                       </template>
                     </div>
-                    <!-- Free-text reply (always available) -->
-                    <div class="meai-reply" x-show="meai.console.status!=='running'">
+                    <!-- Free-text reply (available once no question is pending) -->
+                    <div class="meai-reply" x-show="!meai.console.question && meai.console.status!=='running'">
                       <input class="field-input" placeholder="Reply to the agent…" x-model="meai.consoleReply" @keydown.enter="meAiReplySend()" :disabled="meai.consoleBusy">
                       <button class="btn ghost" type="button" @click="meAiReplySend()" :disabled="meai.consoleBusy || !meai.consoleReply.trim()">Send</button>
                     </div>
@@ -19167,6 +19184,7 @@
           console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
           consoleBusy: false,    // a dispatch/act request is in flight
           consoleReply: '',      // free-text reply box
+          consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
           _taskById: {},         // id -> task object (drawer + lane share)
         },
         codeflow: {
@@ -25617,7 +25635,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && r.task) { this.meai._taskById[id] = r.task; this.meai.console = r.task; this.$nextTick(() => this._meAiConsoleScroll()); }
           }).catch(() => {});
         },
-        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; },
+        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; },
         async meAiBackgroundTask() {
           const t = this.meai.console;
           if (!t) return;
@@ -25649,9 +25667,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!txt) return;
           this.meAiAct('continue', txt);
         },
+        // Answer a mid-run question (§7.3): resumes the paused agent with the answer.
+        meAiAnswerSend() {
+          const txt = (this.meai.consoleAnswer || '').trim();
+          if (!txt) return;
+          this.meai.consoleAnswer = '';
+          this.meAiAct('ask-user', txt);
+        },
         // Completion is gated: only allowed once the agent is resting (not running).
         meAiCanComplete() {
           const t = this.meai.console;
+          if (t && t.question) return false; // a pending question must be answered first
           return !!t && t.status !== 'running' && ['awaiting', 'report', 'done', 'error'].includes(t.stage) && t.stage !== 'done';
         },
         async meAiComplete() {
@@ -25691,6 +25717,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (d.stage) t.stage = d.stage;
           if (d.status) t.status = d.status;
+          // Keep the mid-run question gate (§7.3) in sync from the live stream, so a
+          // task that pauses to ask surfaces its question without a full refetch.
+          if (d.status === 'running' || d.stage === 'working') t.question = null;
           const ev = d.ev;
           if (ev) {
             t.events = t.events || [];
@@ -25699,6 +25728,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!t._seen.has(key)) {
               t._seen.add(key);
               t.events.push(ev);
+              if (ev.kind === 'question') t.question = ev.text || null;
               if (t.events.length > 400) t.events.splice(0, t.events.length - 400);
             }
           }
@@ -25716,7 +25746,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return { dispatch: 'Dispatching', working: 'Working', report: 'Report ready', awaiting: 'Your call', done: 'Done', error: 'Needs you' }[stage] || stage || '';
         },
         meAiEventIcon(kind) {
-          return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
+          return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', question: '❓', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
         },
 
         async loadConnect() {

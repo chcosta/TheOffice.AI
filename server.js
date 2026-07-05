@@ -11613,6 +11613,7 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '  "nextActions": [ { "label": "<button text>", "intent": "<one of: apply-fix, comment, push, approve, request-review, retry, change-approach, continue, abandon>", "primary": true|false, "risk": "none|write|external" } ]',
     '}',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human.',
+    'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
   ].join('\n');
   if (playbook === 'review') {
     const target = ctx.prTitle || ctx.branch || 'the current uncommitted changes in this repository';
@@ -11693,6 +11694,7 @@ function _meAiActPrompt(intent, text) {
     'request-review': 'Draft a message requesting review from the right people, summarizing what to look at.',
     'retry': 'Retry the last operation, self-correcting based on what failed.',
     'change-approach': 'Take a different approach to the problem and explain the new plan before acting.',
+    'ask-user': 'Here is my answer to the question you asked. Use it to resume exactly where you paused and carry on.',
     'continue': 'Continue with the next logical step.',
     'summarize': 'Summarize the outcome and any follow-ups.',
   }[intent] || 'Continue.';
@@ -11740,7 +11742,13 @@ function _meAiParseReport(text) {
       { label: 'Continue', intent: 'continue', primary: false, risk: 'none' },
     ];
   }
-  return { report, nextActions };
+  // A mid-run question the agent needs answered before it can continue (§7.3).
+  let question = null;
+  if (parsed && typeof parsed === 'object' && parsed.question != null) {
+    const q = String(parsed.question).trim();
+    if (q) question = q.slice(0, 600);
+  }
+  return { report, nextActions, question };
 }
 // Run one turn of the Me agent, wiring streaming callbacks into the transcript.
 async function _meAiRunTurn(t, prompt, { resume }) {
@@ -11793,9 +11801,10 @@ function _meAiDispatchRun(t) {
         _meAiSetStage(t, 'working', 'running');
         _meAiEmit(t, { kind: 'note', text: attempt > 1 ? `Retrying (attempt ${attempt})…` : 'Dispatching Me agent…' });
         const out = await _meAiRunTurn(t, kickoff, { resume: false });
-        const { report, nextActions } = _meAiParseReport(out);
-        t.report = report; t.nextActions = nextActions; t.question = null;
+        const { report, nextActions, question } = _meAiParseReport(out);
+        t.report = report; t.nextActions = nextActions; t.question = question || null;
         _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
+        if (question) _meAiEmit(t, { kind: 'question', text: question });
         _meAiSetStage(t, 'awaiting', 'awaiting');
         return;
       } catch (e) {
@@ -11819,15 +11828,17 @@ function _meAiActRun(t, intent, text) {
   _meAiSchedule(async () => {
     let attempt = 0;
     const prompt = _meAiActPrompt(intent, text);
+    t.question = null; // a new turn is starting; any prior mid-run question is resolved
     while (true) {
       attempt++;
       try {
         _meAiSetStage(t, 'working', 'running');
         _meAiEmit(t, { kind: 'note', text: `You chose: ${intent}${text ? ' — ' + text : ''}` });
         const out = await _meAiRunTurn(t, prompt, { resume: true });
-        const { report, nextActions } = _meAiParseReport(out);
-        t.report = report; t.nextActions = nextActions; t.error = null;
+        const { report, nextActions, question } = _meAiParseReport(out);
+        t.report = report; t.nextActions = nextActions; t.error = null; t.question = question || null;
         _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
+        if (question) _meAiEmit(t, { kind: 'question', text: question });
         _meAiSetStage(t, 'awaiting', 'awaiting');
         return;
       } catch (e) {
