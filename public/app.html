@@ -190,6 +190,30 @@
     }
     window.__openExternal = openExternal;
 
+    // REQ-11: recognise an email link so we can prefer the DESKTOP mail client.
+    function isEmailUrl(u) {
+      try {
+        if (u.protocol === 'mailto:' || u.protocol === 'ms-outlook:') return true;
+        var h = (u.hostname || '').toLowerCase();
+        if (/(^|\.)outlook\.(office|office365|live)\.com$/.test(h) || h === 'outlook.com') return true;
+        if (/(^|\/)mail\//.test(u.pathname || '')) return true;
+      } catch (_) {}
+      return false;
+    }
+    // Prefer desktop Outlook (server ShellExecute honours the app link-claim); on any
+    // failure fall back to opening the link in the browser via openExternal.
+    function openEmailDesktop(url) {
+      try {
+        fetch('/api/me-ai/open-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url })
+        }).then(function (r) { if (!r || !r.ok) openExternal(url); })
+          .catch(function () { openExternal(url); });
+      } catch (e) { openExternal(url); }
+    }
+    window.__openEmailDesktop = openEmailDesktop;
+
     // Capture-phase click interceptor: runs before Alpine's @click handlers so
     // external / new-tab anchors reliably open in the OS browser on desktop.
     document.addEventListener('click', function (e) {
@@ -200,6 +224,18 @@
       if (!raw || raw === '#') return;
       var u;
       try { u = new URL(raw, location.href); } catch (_) { return; }
+      // Email links prefer the desktop mail client (mailto too); everything else
+      // must be http/https to be routed to the browser.
+      if (isEmailUrl(u)) {
+        var isBlankM = a.getAttribute('target') === '_blank';
+        var isExternalM = u.origin !== location.origin;
+        if (u.protocol === 'mailto:' || isBlankM || isExternalM) {
+          e.preventDefault();
+          e.stopPropagation();
+          openEmailDesktop(u.href);
+          return;
+        }
+      }
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
       var isBlank = a.getAttribute('target') === '_blank';
       var isExternal = u.origin !== location.origin;
@@ -216,6 +252,7 @@
       if (window.__DESKTOP__ && typeof url === 'string' && url) {
         try {
           var u = new URL(url, location.href);
+          if (isEmailUrl(u)) { openEmailDesktop(u.href); return null; }
           if ((u.protocol === 'http:' || u.protocol === 'https:') && u.origin !== location.origin) {
             openExternal(u.href);
             return null;

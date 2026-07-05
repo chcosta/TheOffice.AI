@@ -15108,6 +15108,43 @@ app.post('/api/open-external', (req, res) => {
     return res.status(500).json({ error: (e && e.message) || 'open failed' });
   }
 });
+// REQ-11: open an email link, preferring the DESKTOP mail client, falling back to
+// the browser. Unlike /api/open-external (which uses rundll32 FileProtocolHandler and
+// therefore always lands in the default *browser*), this uses ShellExecute
+// (Start-Process / open / xdg-open) so Windows honours a per-app link claim — e.g.
+// the "New Outlook" / classic Outlook "open supported links in Outlook" association —
+// and routes outlook.office.com deeplinks straight into the desktop app when present.
+// If no desktop handler claims the URL, the OS opens it in the browser, so this is a
+// genuine "desktop first, browser fallback" without needing a Tauri rebuild.
+// NOTE: only meaningful when the SERVER runs on the user's own machine (desktop shell
+// or local browser); the client gates on that so LAN/mobile callers keep using the
+// browser directly rather than launching Outlook on a remote host.
+app.post('/api/me-ai/open-email', (req, res) => {
+  const url = String((req.body && req.body.url) || '').trim();
+  if (!url) return res.status(400).json({ error: 'url required' });
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'invalid url' }); }
+  const okProto = ['http:', 'https:', 'mailto:', 'ms-outlook:'].includes(parsed.protocol);
+  if (!okProto) return res.status(400).json({ error: 'unsupported url scheme' });
+  const { spawn } = require('child_process');
+  try {
+    if (process.platform === 'win32') {
+      // Start-Process uses ShellExecute (honours app link-association). PowerShell
+      // takes the whole URL as one argument, so '&' in OWA query strings is safe
+      // (unlike `start`, which splits on '&'). Single-quote-escape for the -Command.
+      const safe = parsed.href.replace(/'/g, "''");
+      spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command',
+        `Start-Process -FilePath '${safe}'`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', [parsed.href], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn('xdg-open', [parsed.href], { detached: true, stdio: 'ignore' }).unref();
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) || 'open failed' });
+  }
+});
 // bounded Node recursive scan. Returns file/line/snippet matches.
 function _fsSearchNode(root, query, maxMatches) {
   const ql = query.toLowerCase();
