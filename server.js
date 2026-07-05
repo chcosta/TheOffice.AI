@@ -11225,7 +11225,7 @@ function _meAiGatherCodeflow() {
     const map = loadCodeflowWorktrees();
     for (const [key, rec] of Object.entries(map || {})) {
       if (!rec || typeof rec !== 'object') continue;
-      const title = rec.title || rec.branch || key;
+      const title = rec.title || rec.prTitle || rec.workItemTitle || rec.branch || key;
       signals.push({ kind: 'worktree', type: 'focus', title: `Code Flow: ${title}`, detail: rec.branch ? `branch ${rec.branch}` : '', link: '', urgency: 2, source: 'codeflow' });
     }
   } catch { /* best-effort */ }

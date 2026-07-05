@@ -166,6 +166,9 @@ const DEFAULTS = {
   meAiLunchEnd: '12:30',
   // Agenda time-grid granularity in minutes. Configurable 5 / 10 / 15; default 10.
   meAiGrid: 10,
+  // Work-week: weekday ints (0=Sun..6=Sat) the agenda is planned for. Default Mon–Fri.
+  // May legitimately be empty (user works no fixed days). Persisted as an array.
+  meAiWorkDays: [1, 2, 3, 4, 5],
 };
 
 let cache = null;
