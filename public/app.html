@@ -12157,7 +12157,7 @@
                 <span class="meai-status-detail" style="margin-left:auto">Reviews, focus &amp; comms are re-prioritised for your day.</span>
               </div>
 
-              <div class="meai-grid2">
+              <div class="meai-grid2" @mouseleave="meai.peekHover=null">
                 <!-- Agenda timeline -->
                 <div>
                   <template x-if="meai.agenda && (meai.agenda.blocks||[]).length">
@@ -12231,7 +12231,7 @@
                 <!-- Side rail(s): daily-work column + notifications column (REQ-10) -->
                 <!-- Col 2 slides between the daily-work column and the active notification
                      panel; col 3 (below) is the slim peek switcher. -->
-                <div class="meai-side2" :class="{ 'show-peek': !!meai.peekActive }">
+                <div class="meai-side2" :class="{ 'show-peek': !!(meai.peekHover||meai.peekActive) }">
                   <div class="meai-side2-track">
                     <!-- Pane A: daily work (Me agents at work + Today's todos) -->
                     <div class="meai-pane">
@@ -12304,12 +12304,12 @@
                     </div>
                     <!-- Pane B: the active notification panel slides in over pane A -->
                     <div class="meai-pane">
-                      <div class="meai-peek-panel" x-show="!!meai.peekActive">
+                      <div class="meai-peek-panel" x-show="!!(meai.peekHover||meai.peekActive)">
                         <div class="meai-peek-panel-head">
-                          <button type="button" class="meai-peek-back" @click="meai.peekActive=null">← My day</button>
-                          <span class="meai-peek-panel-title" x-text="meai.peekActive==='sugg' ? '💡 Suggestions' : meai.peekActive==='na' ? '⚠ Needs attention' : meai.peekActive==='bk' ? '📥 Didn\'t fit today' : meai.peekActive==='rm' ? '🗑 Removed today' : ''"></span>
+                          <button type="button" class="meai-peek-back" @click="meai.peekActive=null;meai.peekHover=null">← My day</button>
+                          <span class="meai-peek-panel-title" x-text="(meai.peekHover||meai.peekActive)==='sugg' ? '💡 Suggestions' : (meai.peekHover||meai.peekActive)==='na' ? '⚠ Needs attention' : (meai.peekHover||meai.peekActive)==='bk' ? '📥 Didn\'t fit today' : (meai.peekHover||meai.peekActive)==='rm' ? '🗑 Removed today' : ''"></span>
                         </div>
-                        <div x-show="meai.peekActive==='sugg'">
+                        <div x-show="(meai.peekHover||meai.peekActive)==='sugg'">
                         <template x-for="sg in ((meai.agenda&&meai.agenda.suggestions)||[])" :key="sg.id">
                           <div class="meai-sugg" :class="'sev-' + (sg.sev||'info')">
                             <button class="meai-dismiss" type="button" @click.stop="meAiDismissSuggestion(sg.id)" title="Dismiss this suggestion">✕ Dismiss</button>
@@ -12318,7 +12318,7 @@
                           </div>
                         </template>
                         </div>
-                        <div x-show="meai.peekActive==='na'">
+                        <div x-show="(meai.peekHover||meai.peekActive)==='na'">
                         <template x-for="(n, ni) in (meai.agenda?meAiNeedsAttentionList():[])" :key="ni">
                           <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
                                @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
@@ -12337,7 +12337,7 @@
                           </div>
                         </template>
                         </div>
-                        <div x-show="meai.peekActive==='bk'">
+                        <div x-show="(meai.peekHover||meai.peekActive)==='bk'">
                         <template x-for="(bk, bki) in ((meai.agenda&&meai.agenda.backlog)||[])" :key="bki">
                           <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
                                @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
@@ -12356,7 +12356,7 @@
                           </div>
                         </template>
                         </div>
-                        <div x-show="meai.peekActive==='rm'">
+                        <div x-show="(meai.peekHover||meai.peekActive)==='rm'">
                         <template x-for="d in ((meai.agenda&&meai.agenda.dismissed)||[])" :key="d.key">
                           <div class="meai-dismissed-row">
                             <span style="flex:1">
@@ -12375,28 +12375,28 @@
                 <!-- Peek switcher (col 3): slim tabs; click to slide a panel into col 2. -->
                 <div class="meai-peek" x-show="meai.agenda">
                   <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='sugg' }" @click="meAiPeekToggle('sugg')" title="Suggestions">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='sugg' }" @mouseenter="meai.peekHover='sugg'" @click="meAiPeekToggle('sugg')" title="Suggestions">
                       <span class="meai-peek-ico">💡</span>
                       <span class="meai-peek-count" x-text="(meai.agenda.suggestions||[]).length"></span>
                       <span class="meai-peek-label">Suggestions</span>
                     </button>
                   </template>
                   <template x-if="meai.agenda && meAiNeedsAttentionList().length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='na' }" @click="meAiPeekToggle('na')" title="Needs attention">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='na' }" @mouseenter="meai.peekHover='na'" @click="meAiPeekToggle('na')" title="Needs attention">
                       <span class="meai-peek-dot"></span>
                       <span class="meai-peek-count" x-text="meAiNeedsAttentionList().length"></span>
                       <span class="meai-peek-label">Needs attention</span>
                     </button>
                   </template>
                   <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='bk' }" @click="meAiPeekToggle('bk')" title="Didn't fit today">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='bk' }" @mouseenter="meai.peekHover='bk'" @click="meAiPeekToggle('bk')" title="Didn't fit today">
                       <span class="meai-peek-ico">📥</span>
                       <span class="meai-peek-count" x-text="(meai.agenda.backlog||[]).length"></span>
                       <span class="meai-peek-label">Didn't fit today</span>
                     </button>
                   </template>
                   <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
-                    <button type="button" class="meai-peek-tab" :class="{ active: meai.peekActive==='rm' }" @click="meAiPeekToggle('rm')" title="Removed today">
+                    <button type="button" class="meai-peek-tab" :class="{ active: (meai.peekHover||meai.peekActive)==='rm' }" @mouseenter="meai.peekHover='rm'" @click="meAiPeekToggle('rm')" title="Removed today">
                       <span class="meai-peek-ico">🗑</span>
                       <span class="meai-peek-count" x-text="(meai.agenda.dismissed||[]).length"></span>
                       <span class="meai-peek-label">Removed today</span>
@@ -20337,6 +20337,7 @@
           railCollapsed: (() => { try { return JSON.parse(localStorage.getItem('meAiRailCollapsed') || '{}') || {}; } catch (_) { return {}; } })(),
           // Peek switcher: which notification panel is slid into col 2 (null = daily work).
           peekActive: null,
+          peekHover: null,
           // Working hours & grid flyout.
           hoursOpen: false,
           // REQ-13 Agenda Assistant — conversational agenda control. mode: 'agenda' | 'task'.
