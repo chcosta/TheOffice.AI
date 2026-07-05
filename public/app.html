@@ -11578,6 +11578,29 @@
               .meai-status-dot { width:10px; height:10px; border-radius:999px; flex:0 0 auto; }
               .meai-status-txt { font-weight:600; color:var(--cp-text); }
               .meai-status-detail { font-size:13px; color:var(--cp-text-muted); }
+              /* REQ-7 auto-regen + change tracking + day-shape */
+              .meai-daybar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:2px 0 10px; }
+              .meai-auto { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--cp-text-muted); }
+              .meai-auto-dot { width:7px; height:7px; border-radius:999px; background:var(--cp-success); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-success) 22%, transparent); }
+              .meai-auto-flash { font-size:12px; font-weight:600; color:var(--cp-success); }
+              .meai-dayshape { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:5px 12px; font-size:12.5px; cursor:pointer; }
+              .meai-dayshape:hover { border-color:var(--cp-accent); }
+              .meai-dayshape.shape-fragmented { border-left:3px solid var(--cp-danger, #e5534b); }
+              .meai-dayshape.shape-reactive { border-left:3px solid var(--cp-warning); }
+              .meai-dayshape.shape-steady { border-left:3px solid var(--cp-accent); }
+              .meai-dayshape.shape-focused { border-left:3px solid var(--cp-success); }
+              .meai-dayshape-n { color:var(--cp-text-muted); }
+              .meai-eod { font-size:12.5px; }
+              .meai-changes { border:1px solid var(--cp-border); border-radius:10px; padding:8px 12px; margin:0 0 12px; background:var(--cp-surface); display:flex; flex-direction:column; gap:4px; }
+              .meai-change-row { display:flex; align-items:baseline; gap:10px; font-size:12.5px; }
+              .meai-change-kind { flex:0 0 62px; font-weight:600; color:var(--cp-text-muted); }
+              .meai-change-kind.ck-reschedule { color:var(--cp-warning); }
+              .meai-change-kind.ck-slip { color:var(--cp-danger, #e5534b); }
+              .meai-change-kind.ck-add { color:var(--cp-success); }
+              .meai-change-title { color:var(--cp-text); flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-change-when { color:var(--cp-text-muted); flex:0 0 auto; }
+              .meai-change-empty { font-size:12.5px; color:var(--cp-text-muted); }
+              .meai-dayshape-out { border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent); border-radius:10px; padding:10px 14px; margin:0 0 12px; background:var(--cp-surface); font-size:13px; color:var(--cp-text); line-height:1.5; }
               .meai-grid2 { display:grid; grid-template-columns:1fr 320px; gap:24px; align-items:start; }
               @media (max-width:900px) { .meai-grid2 { grid-template-columns:1fr; } }
               .meai-tl { position:relative; }
@@ -11763,6 +11786,47 @@
                   <span x-show="meai.agenda.meta.signalCount"> · <span x-text="meai.agenda.meta.signalCount"></span> signals</span>
                 </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
+              </div>
+
+              <!-- REQ-7 auto-regen + change tracking + end-of-day day-shape report -->
+              <div class="meai-daybar" x-show="meai.loaded && meai.agenda && (meai.agenda.blocks||[]).length">
+                <span class="meai-auto" x-show="meai.date===meai.today" title="Me.AI re-plans today automatically when your work changes — no need to regenerate by hand.">
+                  <span class="meai-auto-dot"></span>Auto-updates on
+                </span>
+                <span class="meai-auto-flash" x-show="meai.justUpdated" x-transition>Agenda updated</span>
+                <template x-if="meai.agenda.meta && meai.agenda.meta.churn">
+                  <button type="button" class="meai-dayshape" :class="'shape-' + (meai.agenda.meta.churn.shape||'Focused').toLowerCase()"
+                          @click="meai.changesOpen=!meai.changesOpen" :title="'Click to see what changed today'">
+                    <span x-text="'Day shape: ' + (meai.agenda.meta.churn.shape||'Focused')"></span>
+                    <span class="meai-dayshape-n" x-show="meai.agenda.meta.churn.total"
+                          x-text="'· ' + meai.agenda.meta.churn.reschedule + ' resched · ' + meai.agenda.meta.churn.slip + ' slipped · ' + meai.agenda.meta.churn.add + ' added'"></span>
+                    <span class="meai-caret" x-show="meai.agenda.meta.churn.total" x-text="meai.changesOpen?'▾':'▸'"></span>
+                  </button>
+                </template>
+                <span style="flex:1"></span>
+                <button type="button" class="btn ghost meai-eod" @click="meAiDayShapeReport()" :disabled="meai.dayShapeBusy"
+                        title="Summarise today's churn into your diary for look-back">
+                  <span x-show="!meai.dayShapeBusy">End-of-day report</span>
+                  <span x-show="meai.dayShapeBusy">Writing…</span>
+                </button>
+              </div>
+              <!-- What changed panel -->
+              <div class="meai-changes" x-show="meai.changesOpen && meai.changes.length" x-transition>
+                <template x-for="(c, ci) in meai.changes.slice(0,40)" :key="ci">
+                  <div class="meai-change-row">
+                    <span class="meai-change-kind" :class="'ck-' + c.kind" x-text="c.kind==='reschedule'?'Moved':c.kind==='slip'?'Slipped':c.kind==='add'?'Added':c.kind"></span>
+                    <span class="meai-change-title" x-text="c.title"></span>
+                    <span class="meai-change-when" x-show="c.kind==='reschedule'" x-text="(c.from||'') + ' → ' + (c.to||'')"></span>
+                    <span class="meai-change-when" x-show="c.kind==='slip'" x-text="'was ' + (c.from||'')"></span>
+                    <span class="meai-change-when" x-show="c.kind==='add'" x-text="'at ' + (c.to||'')"></span>
+                  </div>
+                </template>
+                <div class="meai-change-empty" x-show="!meai.changes.length">No changes yet today — a steady plan.</div>
+              </div>
+              <div class="meai-dayshape-out" x-show="meai.dayShape && meai.dayShape.detail" x-transition>
+                <span x-text="meai.dayShape.detail"></span>
+                <span class="meai-status-detail" x-show="meai.dayShape.written"> · saved to diary</span>
+                <span class="meai-status-detail" x-show="!meai.dayShape.written && meai.dayShape.reason==='already-logged'"> · already in diary</span>
               </div>
 
               <!-- #2 Quick day mode: re-weights the plan (persisted + re-plans on change) -->
@@ -19459,6 +19523,14 @@
           traceOpen: false,      // #9 thinking/tool trace collapsed by default
           expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
+          // REQ-7 auto-regen + change tracking + day-shape report.
+          changesOpen: false,    // "what changed today" panel expanded
+          changes: [],           // recent change events {kind,title,from,to,at}
+          dayShapeBusy: false,   // end-of-day report request in flight
+          dayShape: null,        // { detail, churn } after an end-of-day report
+          _autoTimer: null,      // client poll for auto-regenerated agenda (today only)
+          _lastGeneratedAt: '',  // last agenda.generatedAt we rendered (detect silent regen)
+          justUpdated: false,    // brief "agenda updated" flash after a silent regen
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -25792,9 +25864,59 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
+            this.meai._lastGeneratedAt = (this.meai.agenda && this.meai.agenda.generatedAt) || '';
+            this.meai.dayShape = null;
+            this.meai.justUpdated = false;
+            await this.meAiLoadChanges();
+            this.meAiStartAutoPoll();
           } catch (e) {
             this.meai.agenda = null;
           }
+        },
+        // REQ-7 change log for the viewed date (newest first) → "what changed" panel.
+        async meAiLoadChanges() {
+          try {
+            const r = await this.request('/api/me-ai/agenda/changes?date=' + encodeURIComponent(this.meai.date));
+            this.meai.changes = (r && Array.isArray(r.events)) ? r.events.slice().reverse() : [];
+          } catch (_) { this.meai.changes = []; }
+        },
+        // REQ-7 auto-regenerate: poll TODAY's agenda so a silent server re-plan
+        // (triggered by new signals) shows up without the user hitting Regenerate.
+        meAiStartAutoPoll() {
+          if (this.meai._autoTimer) return;
+          this.meai._autoTimer = setInterval(async () => {
+            try {
+              if (this.route !== 'me-ai') { this.meAiStopAutoPoll(); return; }
+              this.meai.nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })();
+              if (this.meai.date !== this.meai.today || this.meai.generating) return;
+              const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
+              const a = (r && r.agenda) ? r.agenda : null;
+              if (a && a.generatedAt && a.generatedAt !== this.meai._lastGeneratedAt) {
+                this.meai.agenda = a;
+                this.meai._lastGeneratedAt = a.generatedAt;
+                this.meai.justUpdated = true;
+                setTimeout(() => { this.meai.justUpdated = false; }, 6000);
+                this.meAiLoadChanges();
+              }
+            } catch (_) { /* ignore transient poll errors */ }
+          }, 60000);
+        },
+        meAiStopAutoPoll() {
+          if (this.meai._autoTimer) { clearInterval(this.meai._autoTimer); this.meai._autoTimer = null; }
+        },
+        // REQ-7 write an end-of-day "day shape" note into the diary on demand.
+        async meAiDayShapeReport() {
+          if (this.meai.dayShapeBusy) return;
+          this.meai.dayShapeBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/agenda/dayshape', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) });
+            this.meai.dayShape = r ? { detail: r.detail || '', churn: r.churn || null, written: !!r.written, reason: r.reason || '' } : null;
+            if (r && r.written) this.toast('Day-shape report added to your diary', 'success');
+            else if (r && r.reason === 'already-logged') this.toast('Day-shape already logged for this day', 'info');
+            else if (r && r.reason === 'consent-off') this.toast('Enable Me.AI to write to your diary', 'error');
+          } catch (e) {
+            this.toast('Failed to write day-shape report: ' + (e.message || e), 'error');
+          } finally { this.meai.dayShapeBusy = false; }
         },
         async meAiGenerate(opts) {
           if (this.meai.generating) return;
@@ -25813,6 +25935,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             });
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
             if (!this.meai.agenda) this.meai.notice = 'No agenda was produced.';
+            else { this.meai._lastGeneratedAt = this.meai.agenda.generatedAt || ''; this.meAiLoadChanges(); }
           } catch (e) {
             this.toast('Failed to generate agenda: ' + (e.message || e), 'error');
           } finally {

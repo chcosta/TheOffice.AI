@@ -11147,6 +11147,121 @@ function saveDismissForDate(date, map) {
   return map;
 }
 
+// REQ-7 Agenda change-tracking. As the day auto-regenerates we diff the new
+// schedule against the previous one and log what moved: reschedules (a task
+// changed time), slips (a task fell off today's schedule), and late adds (a task
+// that appeared mid-day). The running log powers a "what changed" panel and the
+// end-of-day "day shape" diary report so you can see how random/focused a day was.
+const ME_AI_CHANGES_DIR = path.join(dataPath('me-ai'), 'changes');
+function _meAiChangesPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_CHANGES_DIR, `${safe}.json`);
+}
+function loadChangesForDate(date) {
+  try {
+    const p = _meAiChangesPath(date);
+    if (!fs.existsSync(p)) return { date, events: [] };
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (v && Array.isArray(v.events)) return v;
+    return { date, events: [] };
+  } catch { return { date, events: [] }; }
+}
+function _meAiAppendChanges(date, events) {
+  if (!Array.isArray(events) || !events.length) return loadChangesForDate(date);
+  const log = loadChangesForDate(date);
+  const at = new Date().toISOString();
+  for (const e of events) log.events.push({ ...e, at });
+  if (log.events.length > 500) log.events = log.events.slice(-500);
+  try {
+    fs.mkdirSync(ME_AI_CHANGES_DIR, { recursive: true });
+    fs.writeFileSync(_meAiChangesPath(date), JSON.stringify(log, null, 2));
+  } catch (_) { /* best-effort */ }
+  return log;
+}
+// Map of task-bearing schedule entries → { title, start, type }, keyed by
+// link||title. Skips synthesized fillers (open focus / lunch) that carry no task
+// identity, and expands merged blocks into their constituent items so a single PR
+// moving out of a merged block is tracked individually.
+function _meAiScheduleMap(agenda) {
+  const m = new Map();
+  for (const b of (agenda && agenda.blocks) || []) {
+    const type = String(b.type || '');
+    const items = (Array.isArray(b.items) && b.items.length) ? b.items : null;
+    const hasId = !!b.link || !!items || type === 'meeting';
+    if (!hasId && (type === 'focus' || type === 'personal' || type === 'open' || type === 'break')) continue;
+    const list = items || [{ title: b.title, link: b.link }];
+    for (const it of list) {
+      const key = String((it.link || it.title || b.title) || '').trim().slice(0, 300);
+      if (!key) continue;
+      if (!m.has(key)) m.set(key, { title: it.title || b.title || key, start: String(b.start || ''), type });
+    }
+  }
+  return m;
+}
+function _meAiDiffAgenda(prev, next) {
+  const A = _meAiScheduleMap(prev), B = _meAiScheduleMap(next);
+  const changes = [];
+  for (const [key, nb] of B) {
+    const pa = A.get(key);
+    if (!pa) changes.push({ kind: 'add', key, title: nb.title, to: nb.start });
+    else if (pa.start && nb.start && pa.start !== nb.start) changes.push({ kind: 'reschedule', key, title: nb.title, from: pa.start, to: nb.start });
+  }
+  for (const [key, pa] of A) {
+    if (!B.has(key)) changes.push({ kind: 'slip', key, title: pa.title, from: pa.start });
+  }
+  return changes;
+}
+function _meAiChurnSummary(events) {
+  let reschedule = 0, slip = 0, add = 0;
+  for (const e of (events || [])) {
+    if (e.kind === 'reschedule') reschedule++;
+    else if (e.kind === 'slip') slip++;
+    else if (e.kind === 'add') add++;
+  }
+  const score = reschedule + slip * 2 + add;
+  const shape = score >= 8 ? 'Fragmented' : score >= 4 ? 'Reactive' : score >= 1 ? 'Steady' : 'Focused';
+  return { reschedule, slip, add, total: (events || []).length, score, shape };
+}
+// Stable fingerprint of the day's signal set so auto-regen only re-plans (an LLM
+// call) when the underlying work actually changed — a new PR, email, meeting, etc.
+function _meAiSignalFingerprint(signals) {
+  try {
+    const keys = (signals || []).map(s => `${(s && (s.link || s.title)) || ''}|${(s && s.urgency) || 0}`).sort();
+    return require('crypto').createHash('sha1').update(keys.join('\n')).digest('hex').slice(0, 16);
+  } catch { return ''; }
+}
+function _meAiDayShapeText(churn) {
+  const interp = churn.shape === 'Focused' ? 'A focused, low-churn day — the plan held.'
+    : churn.shape === 'Steady' ? 'A steady day with only minor adjustments.'
+      : churn.shape === 'Reactive' ? 'A reactive day — several reschedules pulled focus around.'
+        : 'A fragmented day — heavy churn; the plan shifted a lot.';
+  return `Day shape: ${churn.shape}. ${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) across ${churn.total} change(s). ${interp}`;
+}
+// End-of-day "day shape" note into the Diary (consent-gated, deduped per date).
+function _meAiWriteDayShape(date) {
+  const s = settings.getSettings();
+  if (!s.meAiConsent) return { written: false, reason: 'consent-off' };
+  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const churn = _meAiChurnSummary(loadChangesForDate(day).events);
+  const detail = _meAiDayShapeText(churn);
+  const extTag = 'ext:me-ai:dayshape:' + day;
+  try {
+    const existing = connect.listEvidence({ includeHidden: true }) || [];
+    if (existing.some(e => (e.tags || []).some(tag => String(tag) === extTag))) {
+      return { written: false, reason: 'already-logged', churn, detail };
+    }
+  } catch (_) {}
+  try {
+    const item = connect.addEvidence({
+      date: day, source: 'other', title: `Day shape — ${day}`, detail, impact: '',
+      links: [], tags: [extTag, 'me-ai', 'day-shape'],
+    }, { origin: 'auto' });
+    return { written: true, item, churn, detail };
+  } catch (e) {
+    return { written: false, reason: e.message, churn, detail };
+  }
+}
+
 function _hmToMin(hm) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '').trim());
   if (!m) return null;
@@ -11704,8 +11819,19 @@ async function generateMeAiAgenda({ date, todos, reindex } = {}) {
     needsAttention: pre.needsAttention,
     dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
     todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
-    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString() },
+    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals) },
   };
+  // REQ-7 change-tracking: diff this schedule against the prior snapshot (if any)
+  // and log reschedules/slips/late-adds so the day's churn is visible and can be
+  // summarised into the diary at day's end. A first generation has no prior → no diff.
+  try {
+    const prevAgenda = loadAgendaForDate(day);
+    if (prevAgenda && Array.isArray(prevAgenda.blocks) && prevAgenda.blocks.length) {
+      const diff = _meAiDiffAgenda(prevAgenda, agenda);
+      if (diff.length) _meAiAppendChanges(day, diff);
+    }
+  } catch (_) { /* best-effort */ }
+  agenda.meta.churn = _meAiChurnSummary(loadChangesForDate(day).events);
   saveAgendaForDate(day, agenda);
   return agenda;
 }
@@ -11763,6 +11889,25 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
     const b = req.body || {};
     const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [], reindex: b.reindex !== false });
     res.json({ ok: true, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/agenda/changes?date= → REQ-7 change log + churn summary for a day.
+app.get('/api/me-ai/agenda/changes', (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const log = loadChangesForDate(date);
+    res.json({ ok: true, date, events: log.events.slice(-100), churn: _meAiChurnSummary(log.events) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/dayshape { date? } → REQ-7 end-of-day "day shape" note to
+// the Diary (consent-gated, deduped). Returns the summary even if already logged.
+app.post('/api/me-ai/agenda/dayshape', (req, res) => {
+  try {
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const r = _meAiWriteDayShape(date);
+    res.json({ ok: true, date, ...r });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -11907,6 +12052,59 @@ setInterval(() => {
     _meAiPreindex(new Date().toISOString().slice(0, 10));
   } catch (_) { /* best-effort */ }
 }, ME_AI_PREINDEX_INTERVAL_MS);
+
+// REQ-7 Auto-regenerate: while Me.AI is in active use, silently re-plan TODAY when
+// the underlying signals change (new PR/email/meeting/etc.) so the user never has
+// to hit "Regenerate". Gated by a signal fingerprint so an LLM re-plan only runs
+// when work actually changed. Leader + active-window + consent gated. Never
+// creates an agenda from scratch (that's the user's first explicit generate).
+const ME_AI_AUTOREGEN_INTERVAL_MS = 4 * 60 * 1000;
+let _meAiAutoRegenBusy = false;
+setInterval(async () => {
+  if (_meAiAutoRegenBusy) return;
+  try {
+    if (!leaderCheck()) return;
+    if ((Date.now() - _meAiLastActive) > ME_AI_ACTIVE_WINDOW_MS) return;
+    const s = settings.getSettings();
+    if (!s.meAiConsent) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const prev = loadAgendaForDate(today);
+    if (!prev || !Array.isArray(prev.blocks) || prev.meta && prev.meta.notWorkDay) return;
+    const cfg = _meAiConfig(s);
+    const gathered = await _meAiGatherSignals(s, cfg, today, { force: false });
+    const fp = _meAiSignalFingerprint(gathered.signals);
+    if (prev.meta && prev.meta.signalFp && prev.meta.signalFp === fp) return; // nothing changed
+    _meAiAutoRegenBusy = true;
+    const todos = (prev.todos || []).map(t => ({ title: t.title, scope: t.scope }));
+    await generateMeAiAgenda({ date: today, todos, reindex: false });
+  } catch (_) { /* best-effort */ }
+  finally { _meAiAutoRegenBusy = false; }
+}, ME_AI_AUTOREGEN_INTERVAL_MS);
+
+// REQ-7 End-of-day "day shape" report: once the work day is over, summarise the
+// day's churn into the Diary for look-back. Cheap (no signal gather / no LLM) and
+// deduped, so it's safe to poll. Runs even when the page is closed (not
+// active-window gated) but stays leader + consent + work-day gated.
+const ME_AI_DAYSHAPE_INTERVAL_MS = 15 * 60 * 1000;
+setInterval(() => {
+  try {
+    if (!leaderCheck()) return;
+    const s = settings.getSettings();
+    if (!s.meAiConsent) return;
+    const cfg = _meAiConfig(s);
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    if (!(cfg.workDays || []).includes(now.getDay())) return; // not a work day
+    const endMin = _hmToMin(cfg.workEnd);
+    if (endMin == null) return;
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    if (nowMin < endMin) return; // work day not over yet
+    const agenda = loadAgendaForDate(today);
+    if (!agenda || !Array.isArray(agenda.blocks) || !agenda.blocks.length) return; // no day to summarise
+    _meAiWriteDayShape(today); // deduped internally
+  } catch (_) { /* best-effort */ }
+}, ME_AI_DAYSHAPE_INTERVAL_MS);
+
 function _meAiTaskPublic(t) {
   if (!t) return null;
   return {
