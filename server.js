@@ -11989,11 +11989,48 @@ function _meAiSuggestions(cfg, agenda, date) {
 // Me-agent binds to its note by a stable key derived from the block link/title,
 // so task completion can stamp that exact note done.
 const ME_AI_DAY_BOARD_ID = 'board-me-ai-day';
-const ME_AI_DAY_NOTE_PREFIX = 'me-note-';
-function _meAiDayNoteKey(seed) {
+const ME_AI_DAY_NOTE_PREFIX = 'me-note-';      // legacy managed notes (now cleaned up)
+const ME_AI_DAY_CL_ID = 'me-cl-today';         // the single managed "Today" checklist
+// Deterministic base36 hash used to key managed board content (PR pins, dev cards,
+// checklist rows) so a re-sync REPLACES managed items and never disturbs user ones,
+// and so task-completion can bind to the exact row it launched from.
+function _meAiHash(seed) {
   const s = String(seed || '').trim().toLowerCase();
   let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
-  return ME_AI_DAY_NOTE_PREFIX + (h >>> 0).toString(36);
+  return (h >>> 0).toString(36);
+}
+function _meAiDayNoteKey(seed) { return ME_AI_DAY_NOTE_PREFIX + _meAiHash(seed); } // legacy binding
+function _meAiDayRowKey(seed) { return 'me-row-' + _meAiHash(seed); }
+function _meAiDayDevId(seed) { return 'dev-meai-' + _meAiHash(seed); }
+// Board pin refId for a PR — must match the SPA's cfPrKey()/loadBoardPrs() exactly so
+// the pinned item resolves to a live Code Flow PR card.
+function _meAiPrRefId(m) {
+  const base = [m.org || '', m.project || '', m.repo || '', m.prId || ''].join('|').toLowerCase();
+  return String(m.provider || 'azdo').toLowerCase() === 'github' ? ('github|' + base) : base;
+}
+// Parse a work-item / issue URL into { provider, org, project, repo?, workItemId } or null.
+function _meAiParseWorkItem(link) {
+  const u = String(link || '');
+  let m;
+  m = u.match(/dev\.azure\.com\/([^/]+)\/([^/]+)\/_workitems\/edit\/(\d+)/i);
+  if (m) return { provider: 'azdo', org: decodeURIComponent(m[1]), project: decodeURIComponent(m[2]), workItemId: m[3] };
+  m = u.match(/https?:\/\/([^.]+)\.visualstudio\.com\/([^/]+)\/_workitems\/edit\/(\d+)/i);
+  if (m) return { provider: 'azdo', org: m[1], project: decodeURIComponent(m[2]), workItemId: m[3] };
+  m = u.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/i);
+  if (m) return { provider: 'github', org: m[1], project: '', repo: m[2], workItemId: m[3] };
+  return null;
+}
+// Stable identity for a work item, so an agenda item and a pre-existing dev card
+// that track the SAME work item collapse to one card.
+function _meAiDevKey(provider, org, project, workItemId) {
+  return [String(provider || 'azdo'), String(org || ''), String(project || ''), String(workItemId || '')].join('|').toLowerCase();
+}
+function _meAiDevCardKey(card) {
+  if (!card) return null;
+  const wid = (card.workItem && card.workItem.id) || card.workItemId;
+  if (!wid) return null;
+  const provider = card.provider || (card.workItem && card.workItem.provider) || 'azdo';
+  return _meAiDevKey(provider, card.org, card.project, wid);
 }
 function _meAiEnsureDayBoard() {
   const boards = loadBoards();
@@ -12011,90 +12048,189 @@ function _meAiEnsureDayBoard() {
   }
   return { boards, idx };
 }
-// Real "do-this" work worth tracking on the board — reviews/stewards/prep/comms/
-// admin/focus blocks + work todos. Skips meetings, lunch, open-focus fillers and
-// personal todos (those don't belong on a work board). Merged blocks expand to
-// their constituent per-item links. Capped so the board can't explode.
-function _meAiActionableItems(agenda) {
-  const out = []; const seen = new Set();
-  const ICONS = { review: '🔍', steward: '🚢', prep: '📎', comms: '✉️', admin: '🗂️', focus: '⌨️' };
-  const push = (icon, title, link, status) => {
-    const t = String(title || '').trim();
-    if (!t || /^open focus$/i.test(t)) return;
-    const key = _meAiDayNoteKey(link || t);
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ key, icon, title: t, link: link || '', status: status || 'planned' });
-  };
+// Classify today's agenda into TYPED board content instead of a pile of notes:
+//   • PR-backed items  → native Code Flow PR cards (board pins, kind:'pr')
+//   • work items/issues → native dev cards (global dev-store, homed on this board)
+//   • everything else actionable (comms/admin/prep/deep-focus + work todos) → rows
+//     of a single "Today" checklist.
+// Skips meetings, lunch, open-focus fillers and personal todos. Merged blocks expand
+// to their constituent per-item links. Each bucket is capped so the board can't explode.
+function _meAiClassifyDay(agenda) {
+  const prs = new Map();   // refId -> PR pin
+  const devs = new Map();  // devId -> dev-card fields
+  const rows = [];         // "Today" checklist rows
+  const rowSeen = new Set();
+  const ROW_TYPES = { prep: 1, comms: 1, admin: 1, focus: 1 };
+  // Expand merged blocks into individual leaves so each PR / work item is its own card.
+  const leaves = [];
   for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
-    if (!b || !ICONS[b.type]) continue;
+    if (!b) continue;
     if (Array.isArray(b.items) && b.items.length > 1) {
-      for (const it of b.items) push(ICONS[b.type], it.title || b.title, it.link || '', 'planned');
+      for (const it of b.items) leaves.push({ type: b.type, title: it.title || b.title, link: it.link || '', meta: it.meta || null });
     } else {
-      push(ICONS[b.type], b.title, b.link || '', 'planned');
+      leaves.push({ type: b.type, title: b.title, link: b.link || '', meta: b.meta || null });
     }
   }
+  for (const lf of leaves) {
+    const title = String(lf.title || '').trim();
+    if (!title || /^open focus$/i.test(title)) continue;
+    // 1) PR-backed → native PR card.
+    if (lf.meta && lf.meta.prId) {
+      const m = lf.meta;
+      const refId = _meAiPrRefId(m);
+      if (!prs.has(refId)) {
+        const view = lf.type === 'review' ? 'reviews' : 'mine';
+        const label = m.title || title.replace(/^(Review\s+)?(PR\s+)?[!#]\d+:\s*/i, '') || title;
+        prs.set(refId, {
+          id: 'pin-' + _meAiHash(refId), kind: 'pr', meAi: true, refId, label,
+          sublabel: [m.repo || '', m.prId ? '#' + m.prId : '', view].filter(Boolean).join(' · '),
+          meta: {
+            org: m.org || '', project: m.project || '', repo: m.repo || '',
+            prId: String(m.prId), url: lf.link || '', view, title: m.title || label,
+            provider: m.provider || 'azdo',
+          },
+        });
+      }
+      continue;
+    }
+    // 2) Work item / issue → native dev card (reuse existing card at sync time).
+    const wi = (lf.type === 'focus' || lf.type === 'review') ? _meAiParseWorkItem(lf.link) : null;
+    if (wi) {
+      const wiKey = _meAiDevKey(wi.provider, wi.org, wi.project, wi.workItemId);
+      if (!devs.has(wiKey)) {
+        devs.set(wiKey, {
+          wiKey, provider: wi.provider, org: wi.org, project: wi.project || '', repo: wi.repo || '',
+          workItemId: wi.workItemId,
+          title: title.replace(/^(DNCENG Task|Work item|Issue|Task|Bug|User Story)\s*#?\d+:\s*/i, '') || title,
+          link: lf.link || '',
+        });
+      }
+      continue;
+    }
+    // 3) Everything else actionable → a "Today" checklist row (skip meetings/lunch/etc).
+    if (!ROW_TYPES[lf.type]) continue;
+    const key = _meAiDayRowKey(lf.link || title);
+    if (rowSeen.has(key)) continue;
+    rowSeen.add(key);
+    rows.push({ id: key, text: lf.link ? '[' + title + '](' + lf.link + ')' : title, done: false });
+  }
+  // Work todos → checklist rows too (personal todos stay off the work board).
   for (const td of (Array.isArray(agenda.todos) ? agenda.todos : [])) {
     if (!td || td.scope === 'personal') continue;
-    push('✅', td.title, '', td.done ? 'done' : 'planned');
+    const t = String(td.title || '').trim();
+    if (!t) continue;
+    const key = _meAiDayRowKey(t);
+    if (rowSeen.has(key)) continue;
+    rowSeen.add(key);
+    rows.push({ id: key, text: t, done: !!td.done });
   }
-  return out.slice(0, 40);
+  return { prs: [...prs.values()].slice(0, 20), devs: [...devs.values()].slice(0, 20), rows: rows.slice(0, 40) };
 }
-function _meAiDayNoteText(item) {
-  const head = (item.status === 'done' ? '✅ ' : (item.icon || '•') + ' ') + item.title;
-  return item.link ? head + '\n' + item.link : head;
-}
-// Reconcile the managed `me-note-*` notes on the My Day board with today's agenda.
-// Leader-gated (the board is shared / cloud-synced) and TODAY-only (a single My
-// Day board tracks the current day). Best-effort: never blocks agenda generation.
+// Reconcile the managed typed cards on the My Day board with today's agenda.
+// Leader-gated (the board is shared / cloud-synced) and TODAY-only. Best-effort:
+// never blocks agenda generation. Managed content is deterministically keyed so a
+// re-sync REPLACES the managed set while preserving anything the user added.
 function _meAiSyncDayBoard(agenda, date) {
   try {
     if (!leaderCheck()) return;
     const today = new Date().toISOString().slice(0, 10);
     if (String(date || '').slice(0, 10) !== today) return;
-    const desired = _meAiActionableItems(agenda || {});
+    const { prs, devs, rows } = _meAiClassifyDay(agenda || {});
     const { boards, idx } = _meAiEnsureDayBoard();
     const board = _normalizeBoard(boards[idx]);
-    const prev = Array.isArray(board.notes) ? board.notes : [];
-    const prevById = new Map(prev.map(n => [n && n.id, n]));
-    const userNotes = prev.filter(n => n && typeof n.id === 'string' && !n.id.startsWith(ME_AI_DAY_NOTE_PREFIX));
     const now = new Date().toISOString();
-    const managed = desired.map(item => {
-      const old = prevById.get(item.key);
-      // Preserve a completion stamp written by task-complete across re-syncs.
-      const wasDone = old && typeof old.text === 'string' && /^✅/.test(old.text.trim());
-      const it = wasDone ? { ...item, status: 'done' } : item;
-      // If already done, keep the exact stamped text (may carry an outcome line).
-      const text = wasDone ? old.text : _meAiDayNoteText(it);
-      return { id: item.key, text, createdAt: (old && old.createdAt) || now, updatedAt: now };
+
+    // Preserve everything the user added; index their existing pins so we never
+    // create a managed duplicate of a PR/dev card they already pinned here.
+    const items = Array.isArray(board.items) ? board.items : [];
+    const userItems = items.filter(it => it && !it.meAi);
+    const prevPr = new Map(items.filter(it => it && it.meAi && it.kind === 'pr').map(it => [it.refId, it]));
+    const prevDevPin = new Map(items.filter(it => it && it.meAi && it.kind === 'dev').map(it => [it.refId, it]));
+    const userPrRefs = new Set(userItems.filter(it => it.kind === 'pr').map(it => it.refId));
+    const userDevRefs = new Set(userItems.filter(it => it.kind === 'dev').map(it => it.refId));
+
+    // 1) PR cards — pin as board items (kind:'pr'); skip any the user already pinned.
+    const managedPr = prs.filter(p => !userPrRefs.has(p.refId)).map(p => {
+      const old = prevPr.get(p.refId);
+      return { ...p, id: (old && old.id) || p.id, addedAt: (old && old.addedAt) || now };
     });
-    board.notes = [...managed, ...userNotes];
+
+    // 2) Dev cards — REUSE a pre-existing store card that already tracks this work
+    //    item (just pin it); only create a managed dev-meai-* card when none exists.
+    const existingByWi = new Map();
+    for (const c of devStore.all()) {
+      if (!c || c.archived || (c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID)) continue; // skip archived + our own managed cards
+      const k = _meAiDevCardKey(c);
+      if (k && !existingByWi.has(k)) existingByWi.set(k, c);
+    }
+    const desiredDevIds = new Set();     // managed dev-meai-* ids to keep
+    const managedDevPins = [];           // board items pinning pre-existing cards
+    for (const d of devs) {
+      const existing = existingByWi.get(d.wiKey);
+      if (existing) {
+        // Already have a card for this work item — pin it (unless already homed here
+        // or the user already pinned it). Never duplicate.
+        if (existing.homeBoardId !== ME_AI_DAY_BOARD_ID && !userDevRefs.has(existing.id)) {
+          const old = prevDevPin.get(existing.id);
+          managedDevPins.push({ id: (old && old.id) || 'pin-' + _meAiHash('dev|' + existing.id), kind: 'dev', refId: existing.id, meAi: true, addedAt: (old && old.addedAt) || now });
+        }
+        continue;
+      }
+      const devId = _meAiDayDevId(d.wiKey);
+      desiredDevIds.add(devId);
+      const fields = {
+        id: devId, title: d.title, org: d.org, project: d.project, repo: d.repo,
+        homeBoardId: ME_AI_DAY_BOARD_ID, meAi: true, source: 'me-ai',
+        workItem: { id: d.workItemId, url: d.link, title: d.title, provider: d.provider },
+      };
+      if (devStore.find(devId)) devStore.patch(devId, { title: d.title, workItem: fields.workItem, org: d.org, project: d.project, repo: d.repo, meAi: true, homeBoardId: ME_AI_DAY_BOARD_ID });
+      else { try { devStore.create(fields); } catch (_) {} }
+    }
+    // Remove stale managed created cards no longer on today's agenda.
+    for (const c of devStore.all()) {
+      if (c && c.meAi && c.homeBoardId === ME_AI_DAY_BOARD_ID && typeof c.id === 'string' && c.id.startsWith('dev-meai-') && !desiredDevIds.has(c.id)) {
+        try { devStore.remove(c.id); } catch (_) {}
+      }
+    }
+
+    board.items = [...userItems, ...managedPr, ...managedDevPins];
+    // 3) "Today" checklist — one managed checklist, done-state preserved across syncs.
+    const cls = Array.isArray(board.checklists) ? board.checklists : [];
+    const prevCl = cls.find(c => c && c.id === ME_AI_DAY_CL_ID);
+    const prevDone = new Map((prevCl && Array.isArray(prevCl.items) ? prevCl.items : []).map(i => [i && i.id, !!(i && i.done)]));
+    const clItems = rows.map(r => ({ id: r.id, text: r.text, done: prevDone.has(r.id) ? prevDone.get(r.id) : !!r.done }));
+    const otherCls = cls.filter(c => c && c.id !== ME_AI_DAY_CL_ID);
+    board.checklists = clItems.length
+      ? [{ id: ME_AI_DAY_CL_ID, title: 'Today', items: clItems, createdAt: (prevCl && prevCl.createdAt) || now, updatedAt: now, meAi: true }, ...otherCls]
+      : otherCls;
+
+    // 4) Migration — drop the legacy managed `me-note-*` notes (preserve user notes).
+    const notes = Array.isArray(board.notes) ? board.notes : [];
+    board.notes = notes.filter(n => !(n && typeof n.id === 'string' && n.id.startsWith(ME_AI_DAY_NOTE_PREFIX)));
+
     board.updatedAt = now;
     boards[idx] = board;
     saveBoards(boards);
     try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {}
   } catch (_) { /* best-effort — never block agenda generation */ }
 }
-// Stamp the managed note bound to a completed task done (called from complete).
+// Mark the "Today" checklist row bound to a completed task done (called from complete).
+// Seed = context.link || title, matching the row key built in _meAiClassifyDay.
 function _meAiMarkDayNoteDone(seed, outcome) {
   try {
     if (!leaderCheck()) return false;
-    const key = _meAiDayNoteKey(seed);
+    const rowId = _meAiDayRowKey(seed);
     const boards = loadBoards();
     const idx = boards.findIndex(b => b && b.id === ME_AI_DAY_BOARD_ID);
     if (idx < 0) return false;
     const board = _normalizeBoard(boards[idx]);
-    const notes = Array.isArray(board.notes) ? board.notes : [];
-    const n = notes.find(x => x && x.id === key);
-    if (!n) return false;
-    const body = String(n.text || '');
-    if (/^✅/.test(body.trim())) return true;
-    const nl = body.indexOf('\n');
-    const head = (nl >= 0 ? body.slice(0, nl) : body).replace(/^\S+\s*/, '');
-    const rest = nl >= 0 ? body.slice(nl) : '';
-    n.text = '✅ ' + head + rest + (outcome ? '\n— ' + String(outcome).slice(0, 160) : '');
-    n.updatedAt = new Date().toISOString();
-    board.updatedAt = n.updatedAt;
+    const cl = (Array.isArray(board.checklists) ? board.checklists : []).find(c => c && c.id === ME_AI_DAY_CL_ID);
+    if (!cl) return false;
+    const it = (Array.isArray(cl.items) ? cl.items : []).find(x => x && x.id === rowId);
+    if (!it) return false;
+    if (it.done) return true;
+    it.done = true;
+    cl.updatedAt = board.updatedAt = new Date().toISOString();
     boards[idx] = board;
     saveBoards(boards);
     try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {}
