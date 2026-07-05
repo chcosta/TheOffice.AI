@@ -11576,6 +11576,7 @@ function _meAiTaskPublic(t) {
   if (!t) return null;
   return {
     id: t.id, date: t.date, playbook: t.playbook, title: t.title, scope: t.scope || 'work',
+    goal: t.goal || _meAiGoalFor(t),
     stage: t.stage, status: t.status, background: !!t.background,
     events: (t.events || []).slice(-200), report: t.report || null,
     nextActions: t.nextActions || [], question: t.question || null,
@@ -11600,6 +11601,20 @@ function _meAiSetStage(t, stage, status) {
   t.updatedAt = new Date().toISOString();
   _meAiEmit(t, { kind: 'stage', stage, status: t.status });
 }
+// One-line human objective for a task, shown at the top of the console so you can
+// see at a glance what the Me agent is trying to accomplish (and why it may be
+// asking you something). Derived from the playbook + title (works for old tasks too).
+function _meAiGoalFor(t) {
+  const title = String((t && t.title) || '').trim();
+  const map = {
+    review: `Review ${title || 'the changes'} at a senior level — surface bugs, risks, and what's good so you can decide how to act.`,
+    implement: `Implement ${title || 'the requested change'} end-to-end and verify it, without touching unrelated code.`,
+    steward: `Shepherd ${title || 'your pull request'} toward merge — find what's blocking it and the single best next move.`,
+    comms: `Handle ${title || 'this message'} — understand the ask and prepare a ready-to-send reply and any action items.`,
+    prep: `Get you ready for ${title || 'the meeting'} — purpose, talking points, decisions needed, and what to read first.`,
+  };
+  return map[(t && t.playbook)] || `Work on ${title || (t && t.playbook) || 'the task'} and report back with what you found.`;
+}
 
 // Build the kickoff prompt for a playbook. M2 ships the code-review playbook; the
 // prompt is written so it produces real, useful work even with NO PR context (it
@@ -11614,7 +11629,7 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '}',
     'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. Include these ONLY when they apply; omit them otherwise. They are rendered as collapsible previews I can inspect.',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human.',
-    'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
+    'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. ALWAYS include your own recommendation inside the question text — end it with what you would do and why (e.g. "… I recommend the 30s default since most callers are interactive."), so I can accept your call quickly. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
   ].join('\n');
   if (playbook === 'review') {
     const target = ctx.prTitle || ctx.branch || 'the current uncommitted changes in this repository';
@@ -11955,6 +11970,7 @@ app.post('/api/me-ai/task/dispatch', (req, res) => {
       finishedAt: null,
     };
     meAiTasks.set(id, t);
+    t.goal = _meAiGoalFor(t);
     _meAiEmit(t, { kind: 'stage', stage: 'dispatch', status: 'queued' });
     _meAiDispatchRun(t);
     res.json({ ok: true, task: _meAiTaskPublic(t) });

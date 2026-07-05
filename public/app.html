@@ -11562,6 +11562,11 @@
               .meai-dr-x { appearance:none; border:none; background:none; font-size:20px; color:var(--cp-text-muted); cursor:pointer; line-height:1; }
               .meai-dr-x:hover { color:var(--cp-text); }
               .meai-dr-body { flex:1; overflow:auto; padding:14px 18px; }
+              .meai-dr-goal { border:1px solid var(--cp-border); border-radius:8px; padding:10px 12px; margin-bottom:12px; background:var(--cp-surface-2, var(--cp-surface)); }
+              .meai-dr-goal-h { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--cp-text-muted); margin-bottom:3px; }
+              .meai-dr-goal-t { font-size:13.5px; color:var(--cp-text); line-height:1.5; }
+              .meai-trace-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--cp-text-muted); padding:4px 0 8px; user-select:none; }
+              .meai-trace-toggle:hover { color:var(--cp-text); }
               .meai-ev { display:grid; grid-template-columns:20px 1fr; gap:8px; padding:4px 0; font-size:13px; line-height:1.5; }
               .meai-ev-ico { text-align:center; }
               .meai-ev-thinking { color:var(--cp-text-muted); font-style:italic; }
@@ -11809,9 +11814,19 @@
                     <button class="meai-dr-x" type="button" @click="meAiCloseConsole()" title="Close">✕</button>
                   </div>
                   <div class="meai-dr-body" id="meAiConsoleScroll">
+                    <!-- Goal summary: what this Me agent is trying to accomplish -->
+                    <div class="meai-dr-goal" x-show="meai.console.goal">
+                      <div class="meai-dr-goal-h">Goal</div>
+                      <div class="meai-dr-goal-t" x-text="meai.console.goal"></div>
+                    </div>
+                    <!-- Thinking & tools trace: collapsed by default -->
+                    <div class="meai-trace-toggle" x-show="meAiTraceCount()>0" @click="meai.traceOpen=!meai.traceOpen">
+                      <span class="meai-prev-caret" :class="{open:meai.traceOpen}">▸</span>
+                      <span x-text="(meai.traceOpen?'Hide':'Show')+' thinking &amp; tool steps ('+meAiTraceCount()+')'"></span>
+                    </div>
                     <!-- Live transcript -->
                     <template x-for="(ev, ei) in (meai.console.events||[])" :key="ev.seq || ei">
-                      <div class="meai-ev" x-show="ev.kind!=='report'">
+                      <div class="meai-ev" x-show="ev.kind!=='report' && (meai.traceOpen || !['thinking','tool_start','tool_complete','agent'].includes(ev.kind))">
                         <span class="meai-ev-ico" x-text="meAiEventIcon(ev.kind)"></span>
                         <div>
                           <template x-if="ev.kind==='thinking'"><span class="meai-ev-thinking" x-text="ev.text"></span></template>
@@ -19217,7 +19232,7 @@
           generating: false,
           savingSettings: false,
           config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5] },
-          date: new Date().toISOString().slice(0, 10),
+          date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} return new Date().toISOString().slice(0, 10); })(),
           today: new Date().toISOString().slice(0, 10),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
           newTodo: '',
@@ -19232,6 +19247,7 @@
           consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
+          traceOpen: false,      // #9 thinking/tool trace collapsed by default
           _taskById: {},         // id -> task object (drawer + lane share)
         },
         codeflow: {
@@ -25494,7 +25510,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
             const today = new Date().toISOString().slice(0, 10);
             this.meai.today = today;
-            if (!this.meai.date) this.meai.date = today;
+            // #8 persist the viewed date across navigation. Restore what was saved, but
+            // don't strand the user on a stale PAST date after the day rolls over — keep
+            // today or any future date they were looking at.
+            if (!this.meai.date || this.meai.date < today) this.meai.date = today;
             this.meai.nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })();
             this.meai.loaded = true;
             await this.meAiLoadAgenda();
@@ -25570,11 +25589,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const d = new Date(this.meai.date + 'T00:00:00');
           d.setDate(d.getDate() + days);
           this.meai.date = d.toISOString().slice(0, 10);
+          try { localStorage.setItem('meAiDate', this.meai.date); } catch (_) {}
           this.meAiLoadAgenda();
         },
         meAiSetDate(v) {
           if (!v) return;
           this.meai.date = v;
+          try { localStorage.setItem('meAiDate', this.meai.date); } catch (_) {}
           this.meAiLoadAgenda();
         },
         async meAiAddTodo() {
@@ -25676,14 +25697,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
         meAiOpenTask(id) {
-          this.meai.diffOpen = false; this.meai.draftOpen = false;
+          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false;
           const t = this.meai._taskById[id];
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); return; }
           this.request('/api/me-ai/task/' + encodeURIComponent(id)).then(r => {
             if (r && r.task) { this.meai._taskById[id] = r.task; this.meai.console = r.task; this.$nextTick(() => this._meAiConsoleScroll()); }
           }).catch(() => {});
         },
-        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; },
+        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false; },
+        // #9 count of collapsible process events (thinking/tools/agent) in the open console.
+        meAiTraceCount() {
+          const evs = (this.meai.console && this.meai.console.events) || [];
+          const P = ['thinking', 'tool_start', 'tool_complete', 'agent'];
+          let n = 0;
+          for (const e of evs) { if (P.includes(e.kind)) n++; }
+          return n;
+        },
         async meAiBackgroundTask() {
           const t = this.meai.console;
           if (!t) return;
