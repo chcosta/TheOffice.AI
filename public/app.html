@@ -1586,6 +1586,23 @@
     .home-wn-go { flex: 0 0 auto; color: var(--cp-text-muted); font-size: 14px; font-weight: 600; }
     .home-wn-row:hover .home-wn-go { color: var(--cp-accent); }
 
+    /* ----- Home: Today's agenda glance (Me.AI) ----- */
+    .home-agenda-list { display: flex; flex-direction: column; gap: 6px; }
+    .home-agenda-row {
+      display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+      border-left: 3px solid var(--cp-border); border-radius: 8px;
+      background: var(--cp-surface-soft);
+    }
+    .home-agenda-row.is-now { background: color-mix(in srgb, var(--cp-accent) 10%, var(--cp-surface-soft)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 40%, transparent); }
+    .home-agenda-time { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; color: var(--cp-text-muted); min-width: 42px; }
+    .home-agenda-title { min-width: 0; flex: 1 1 auto; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .home-agenda-type { flex: 0 0 auto; font-size: 12px; color: var(--cp-text-muted); text-transform: capitalize; }
+    .home-agenda-more { padding: 6px 12px 2px; font-size: 13px; }
+    .home-agenda-more a { color: var(--cp-accent); font-weight: 600; }
+    .home-agenda-stat { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--cp-text-muted); }
+    .home-agenda-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
+
+
     /* ----- Getting started (Basic mode onboarding) ----- */
     .gs-card {
       position: relative;
@@ -6241,6 +6258,54 @@
               </div>
 
               <div class="home-cards" :class="homeArrange ? 'home-arrange' : ''">
+
+                <!-- Today's agenda (Me.AI glance — read-only; click through to plan/act) -->
+                <div class="home-rsec span-full" :style="{ order: homeSecIndex('agenda') }" x-show="homeSectionVisible('agenda')"
+                     :class="homeDragOver === 'agenda' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('agenda')" @drop.prevent="homeReorderDrop('agenda')">
+                  <div class="home-arrange-strip">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('agenda',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="has-name">Today's agenda</span>
+                    <span class="spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('agenda',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('agenda',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card home-agenda-card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title">🗓️ Today's agenda</h2>
+                        <div class="card-subtitle">Your AI-planned day at a glance</div>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <template x-if="homeAgenda.status">
+                          <span class="home-agenda-stat">
+                            <span class="home-agenda-dot" :style="'background:' + (homeAgenda.status.state==='on' ? 'var(--cp-success)' : homeAgenda.status.state==='done' ? 'var(--cp-text-muted)' : 'var(--cp-warning)')"></span>
+                            <span x-text="homeAgenda.status.label"></span>
+                          </span>
+                        </template>
+                        <a class="btn ghost" href="#/me-ai" @click.prevent="goTo('#/me-ai')">Open Me.AI</a>
+                      </div>
+                    </div>
+                    <div x-show="homeAgenda.loading && !homeAgenda.blocks.length" class="hint" style="padding:14px">🗓️ Loading today's plan…</div>
+                    <div x-show="homeAgenda.loaded && !homeAgenda.blocks.length" class="empty-state" style="padding:16px">
+                      No agenda planned for today yet. <a href="#/me-ai" @click.prevent="goTo('#/me-ai')">Open Me.AI</a> to generate one.
+                    </div>
+                    <div class="home-agenda-list" x-show="homeAgenda.blocks.length">
+                      <template x-for="(b, bi) in homeAgendaUpcoming(5)" :key="'ha-'+bi">
+                        <div class="home-agenda-row" :class="{ 'is-now': homeAgendaIsNow(b) }" :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
+                          <span class="home-agenda-time" x-text="b.start"></span>
+                          <span class="home-agenda-title" x-text="b.title"></span>
+                          <span class="home-agenda-type" x-show="b.type" x-text="b.type"></span>
+                        </div>
+                      </template>
+                      <div class="home-agenda-more" x-show="homeAgenda.blocks.filter(x=>x.type!=='lunch').length > 5">
+                        <a href="#/me-ai" @click.prevent="goTo('#/me-ai')" x-text="'+ ' + (homeAgenda.blocks.filter(x=>x.type!=='lunch').length - 5) + ' more in Me.AI →'"></a>
+                      </div>
+                    </div>
+                  </section>
+                </div>
 
                 <!-- What's new (release highlights + new marketplace items; clickable) -->
                 <div class="home-rsec" :style="{ order: homeSecIndex('whatsnew') }" x-show="homeSectionVisible('whatsnew')"
@@ -19399,13 +19464,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['greeting', 'insights', 'devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
+        homeSectionsDefault: ['greeting', 'agenda', 'insights', 'devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeSectionHidden: [],
         homeDrag: null,
         homeDragOver: null,
         homeCustomizeOpen: false,
+        homeAgenda: { loading: false, loaded: false, blocks: [], meta: null, status: null, nowMin: 0, hasSnapshot: false },
         mgmtSectionsDefault: ['greeting', 'teams', 'glance', 'whatsnew', 'attention', 'pulse', 'recent', 'flowchart'],
         mgmtSectionOrder: [],
         mgmtSectionHidden: [],
@@ -20524,6 +20590,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Productivity home extras (fire-and-forget; each is non-blocking).
             this.homeInitSections();
             this.loadHomeNewsletter();
+            this.loadHomeAgenda();
             this.buildInsightsDigest();
             if (!this.whatsNew.entries || !this.whatsNew.entries.length) this.loadWhatsNew();
             this.loadMarketplaceUpdates(true);
@@ -23693,6 +23760,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if ((this.homeSectionHidden || []).includes(key)) return false;
           switch (key) {
             case 'greeting': return true;
+            case 'agenda': return this.featureVisible('me-ai') && !!(this.homeAgenda && (this.homeAgenda.blocks.length || this.homeAgenda.loading));
             case 'devwork': return !!(this.homeDevCards().length || this.homeDoneDevCount() || this.archivedDevCount());
             case 'whatsnew': return this.homeWhatsNewFeed().length > 0;
             case 'boards': return true;
@@ -23752,7 +23820,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homeSecLabel(key) {
           const labels = {
             greeting: 'Good evening', devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
-            boards: 'Workspaces', prs: 'Pull requests', insights: 'Insights',
+            boards: 'Workspaces', prs: 'Pull requests', insights: 'Insights', agenda: "Today's agenda",
             teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
             flowchart: 'Flow / Task activity',
@@ -23804,6 +23872,52 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.homePersistSections();
             try { localStorage.setItem('home-section-hidden', '[]'); } catch {}
           }
+        },
+
+        // #1 Compact read-only "Today's agenda" glance for the HOME page. Reads the
+        // persisted snapshot for TODAY only (never generates) so it stays fast and never
+        // spawns the collector. Uses its own state so it's decoupled from the Me.AI page's
+        // viewed date (which #8 may hold on a future day).
+        async loadHomeAgenda() {
+          if (this.appMode !== 'workspace' || !this.featureVisible('me-ai')) return;
+          const today = new Date().toISOString().slice(0, 10);
+          this.homeAgenda.loading = true;
+          try {
+            const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(today));
+            const ag = (r && r.agenda) ? r.agenda : null;
+            this.homeAgenda.blocks = (ag && Array.isArray(ag.blocks)) ? ag.blocks : [];
+            this.homeAgenda.meta = (ag && ag.meta) ? ag.meta : null;
+            this.homeAgenda.hasSnapshot = !!ag;
+            const d = new Date(); this.homeAgenda.nowMin = d.getHours() * 60 + d.getMinutes();
+            this.homeAgenda.status = this._homeAgendaStatus();
+            this.homeAgenda.loaded = true;
+          } catch (_) {
+            this.homeAgenda.blocks = []; this.homeAgenda.hasSnapshot = false; this.homeAgenda.loaded = true;
+          } finally {
+            this.homeAgenda.loading = false;
+          }
+        },
+        // On-track glance mirroring meAiStatus() but against homeAgenda (today only).
+        _homeAgendaStatus() {
+          const blocks = (this.homeAgenda.blocks || []).filter(b => b.type !== 'lunch');
+          if (!blocks.length) return null;
+          const now = this.homeAgenda.nowMin;
+          const cur = blocks.find(b => now >= (b.startMin ?? this._hmToMin(b.start)) && now < (b.endMin ?? this._hmToMin(b.end)));
+          if (cur) return { state: 'on', label: 'On track', detail: cur.title };
+          const next = blocks.find(b => (b.startMin ?? this._hmToMin(b.start)) > now);
+          if (next) return { state: 'ahead', label: 'Between blocks', detail: 'Next: ' + next.title };
+          return { state: 'done', label: 'Day complete', detail: '' };
+        },
+        // The next few upcoming/current blocks for the compact card (skip lunch/open time).
+        homeAgendaUpcoming(limit) {
+          const now = this.homeAgenda.nowMin;
+          const blocks = (this.homeAgenda.blocks || []).filter(b => b.type !== 'lunch');
+          const rest = blocks.filter(b => (b.endMin ?? this._hmToMin(b.end)) > now);
+          return (rest.length ? rest : blocks).slice(0, limit || 5);
+        },
+        homeAgendaIsNow(b) {
+          const now = this.homeAgenda.nowMin;
+          return now >= (b.startMin ?? this._hmToMin(b.start)) && now < (b.endMin ?? this._hmToMin(b.end));
         },
 
         // Newsletter status for the featured home card (lightweight — no full state).
