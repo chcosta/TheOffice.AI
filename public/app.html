@@ -12511,6 +12511,118 @@
                 </div>
               </div>
             </template>
+
+            <!-- REQ-13 Agenda Assistant drawer -->
+            <div class="meai-asst" x-show="meai.asst.open" x-transition.opacity.duration.150ms x-cloak>
+              <div class="meai-asst-head">
+                <div>
+                  <div class="meai-asst-title">💬 Agenda assistant</div>
+                  <div class="hint" style="font-size:11px">Reshape your day in plain language — I'll propose changes you confirm.</div>
+                </div>
+                <button class="icon-button" type="button" @click="meai.asst.open=false" title="Close">✕</button>
+              </div>
+              <div class="meai-asst-body" x-ref="meAiAsstBody">
+                <template x-if="!meai.asst.messages.length">
+                  <div class="meai-asst-empty">
+                    <div class="hint" style="margin-bottom:8px">Try:</div>
+                    <template x-for="(ex, ei) in meAiAsstExamples()" :key="'mae-'+ei">
+                      <button class="btn ghost" type="button" style="text-align:left;width:100%;margin-bottom:6px" @click="meai.asst.input=ex; meAiAsstSend()" x-text="'“'+ex+'”'"></button>
+                    </template>
+                  </div>
+                </template>
+                <template x-for="(m, mi) in meai.asst.messages" :key="'mam-'+mi">
+                  <div class="meai-asst-msg" :class="m.role">
+                    <div class="meai-asst-bubble" x-show="m.role==='user'" x-text="m.content"></div>
+                    <div class="meai-asst-bubble assistant" x-show="m.role==='assistant'">
+                      <div class="md-output" x-html="renderMarkdown(m.content)"></div>
+                      <template x-if="(m.actions||[]).length">
+                        <div class="meai-asst-actions">
+                          <template x-for="a in m.actions" :key="a.id || a.preview">
+                            <div class="meai-asst-action" :class="{ applied: a._applied, dismissed: a._dismissed }">
+                              <div style="min-width:0;flex:1">
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                                  <span class="meai-asst-kind" x-text="a.label || a.type"></span>
+                                  <span class="hint" x-show="a._applied" style="color:var(--cp-success)">✓ applied</span>
+                                  <span class="hint" x-show="a._dismissed">dismissed</span>
+                                </div>
+                                <div class="meai-asst-preview" x-text="a.preview"></div>
+                              </div>
+                              <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
+                                <button type="button" class="btn primary" style="padding:3px 10px" :disabled="a._busy" @click="meAiAsstApply(a)">
+                                  <span x-text="a._busy ? 'Applying…' : meAiAsstLabel(a)"></span>
+                                </button>
+                                <button class="icon-button" type="button" title="Dismiss" @click="meAiAsstDismiss(a)">✕</button>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+                <div x-show="meai.asst.busy" class="meai-asst-msg assistant">
+                  <div class="meai-asst-bubble assistant" style="display:flex;align-items:center;gap:8px">
+                    <span class="ba-spinner"></span><span>Working on it…</span>
+                  </div>
+                </div>
+              </div>
+              <div class="meai-asst-modes">
+                <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode !== 'task' }" @click="meai.asst.mode='agenda'">🗓 Adjust agenda</button>
+                <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode === 'task' }" @click="meai.asst.mode='task'">🤖 Run a task</button>
+              </div>
+              <div class="meai-asst-input">
+                <textarea class="field-input" rows="2" x-model="meai.asst.input"
+                          :placeholder="meai.asst.mode==='task' ? 'Tell a Me agent what to do… (e.g. draft a status update on the Helix work)' : 'e.g. add a 1-hour workout at 5pm, reviews in the morning, split the PR review block…'"
+                          :disabled="meai.asst.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); meAiAsstSend(); }" style="flex:1;resize:none"></textarea>
+                <button class="btn primary" type="button" @click="meAiAsstSend()" :disabled="meai.asst.busy || !meai.asst.input.trim()" x-text="meai.asst.mode==='task' ? 'Run' : 'Send'"></button>
+              </div>
+            </div>
+
+            <!-- Floating agenda-assistant launcher (matches board/connect FABs) -->
+            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
+
+            <!-- Working hours & grid modal (moved out of the side rail) -->
+            <div class="meai-hours-modal" x-show="meai.hoursOpen" x-transition.opacity.duration.150ms x-cloak @click.self="meai.hoursOpen=false">
+              <div class="meai-hours-panel">
+                <div class="meai-hours-panel-head">
+                  <h3>⚙ Working hours &amp; grid</h3>
+                  <button class="icon-button" type="button" @click="meai.hoursOpen=false" title="Close">✕</button>
+                </div>
+                <div class="meai-hours">
+                  <label>Start</label><input type="time" x-model="meai.config.workStart">
+                  <label>End</label><input type="time" x-model="meai.config.workEnd">
+                  <label>Lunch</label>
+                  <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
+                  <label>Grid</label>
+                  <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                </div>
+                <div class="meai-workweek">
+                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
+                  <div class="meai-ww-days">
+                    <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
+                      <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
+                    </template>
+                  </div>
+                </div>
+                <div class="meai-timeprefs">
+                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
+                  <div class="meai-tp-rows">
+                    <template x-for="tp in [['review','Reviews'],['focus','Deep focus'],['steward','PR stewarding'],['comms','Email &amp; comms'],['admin','Admin'],['prep','Meeting prep']]" :key="tp[0]">
+                      <button type="button" class="meai-tp-row" @click="meAiCycleTimePref(tp[0])" :disabled="meai.generating || meai.savingSettings"
+                        :title="'Click to cycle: no preference → morning → afternoon'">
+                        <span class="meai-tp-name" x-html="tp[1]"></span>
+                        <span class="meai-tp-when" :class="{ set: meAiTimePref(tp[0]) }"
+                          x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+                <button class="btn primary" type="button" style="margin-top:12px" @click="meAiSaveSettings(); meai.hoursOpen=false" :disabled="meai.savingSettings">Save preferences</button>
+                <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
+                  Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
+                </div>
+              </div>
+            </div>
           </section>
 
           <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
@@ -15368,118 +15480,6 @@
                 </div>
               </div>
             </template>
-
-            <!-- REQ-13 Agenda Assistant drawer -->
-            <div class="meai-asst" x-show="meai.asst.open" x-transition.opacity.duration.150ms x-cloak>
-              <div class="meai-asst-head">
-                <div>
-                  <div class="meai-asst-title">💬 Agenda assistant</div>
-                  <div class="hint" style="font-size:11px">Reshape your day in plain language — I'll propose changes you confirm.</div>
-                </div>
-                <button class="icon-button" type="button" @click="meai.asst.open=false" title="Close">✕</button>
-              </div>
-              <div class="meai-asst-body" x-ref="meAiAsstBody">
-                <template x-if="!meai.asst.messages.length">
-                  <div class="meai-asst-empty">
-                    <div class="hint" style="margin-bottom:8px">Try:</div>
-                    <template x-for="(ex, ei) in meAiAsstExamples()" :key="'mae-'+ei">
-                      <button class="btn ghost" type="button" style="text-align:left;width:100%;margin-bottom:6px" @click="meai.asst.input=ex; meAiAsstSend()" x-text="'“'+ex+'”'"></button>
-                    </template>
-                  </div>
-                </template>
-                <template x-for="(m, mi) in meai.asst.messages" :key="'mam-'+mi">
-                  <div class="meai-asst-msg" :class="m.role">
-                    <div class="meai-asst-bubble" x-show="m.role==='user'" x-text="m.content"></div>
-                    <div class="meai-asst-bubble assistant" x-show="m.role==='assistant'">
-                      <div class="md-output" x-html="renderMarkdown(m.content)"></div>
-                      <template x-if="(m.actions||[]).length">
-                        <div class="meai-asst-actions">
-                          <template x-for="a in m.actions" :key="a.id || a.preview">
-                            <div class="meai-asst-action" :class="{ applied: a._applied, dismissed: a._dismissed }">
-                              <div style="min-width:0;flex:1">
-                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                                  <span class="meai-asst-kind" x-text="a.label || a.type"></span>
-                                  <span class="hint" x-show="a._applied" style="color:var(--cp-success)">✓ applied</span>
-                                  <span class="hint" x-show="a._dismissed">dismissed</span>
-                                </div>
-                                <div class="meai-asst-preview" x-text="a.preview"></div>
-                              </div>
-                              <div style="display:flex;gap:6px;flex:0 0 auto" x-show="!a._applied && !a._dismissed">
-                                <button type="button" class="btn primary" style="padding:3px 10px" :disabled="a._busy" @click="meAiAsstApply(a)">
-                                  <span x-text="a._busy ? 'Applying…' : meAiAsstLabel(a)"></span>
-                                </button>
-                                <button class="icon-button" type="button" title="Dismiss" @click="meAiAsstDismiss(a)">✕</button>
-                              </div>
-                            </div>
-                          </template>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                </template>
-                <div x-show="meai.asst.busy" class="meai-asst-msg assistant">
-                  <div class="meai-asst-bubble assistant" style="display:flex;align-items:center;gap:8px">
-                    <span class="ba-spinner"></span><span>Working on it…</span>
-                  </div>
-                </div>
-              </div>
-              <div class="meai-asst-modes">
-                <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode !== 'task' }" @click="meai.asst.mode='agenda'">🗓 Adjust agenda</button>
-                <button type="button" class="meai-asst-mode" :class="{ on: meai.asst.mode === 'task' }" @click="meai.asst.mode='task'">🤖 Run a task</button>
-              </div>
-              <div class="meai-asst-input">
-                <textarea class="field-input" rows="2" x-model="meai.asst.input"
-                          :placeholder="meai.asst.mode==='task' ? 'Tell a Me agent what to do… (e.g. draft a status update on the Helix work)' : 'e.g. add a 1-hour workout at 5pm, reviews in the morning, split the PR review block…'"
-                          :disabled="meai.asst.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); meAiAsstSend(); }" style="flex:1;resize:none"></textarea>
-                <button class="btn primary" type="button" @click="meAiAsstSend()" :disabled="meai.asst.busy || !meai.asst.input.trim()" x-text="meai.asst.mode==='task' ? 'Run' : 'Send'"></button>
-              </div>
-            </div>
-
-            <!-- Floating agenda-assistant launcher (matches board/connect FABs) -->
-            <button class="board-ai-fab meai-ai-fab" type="button" x-show="route==='me-ai' && !meai.asst.open" x-transition.opacity.duration.150ms @click="meAiAsstToggle()" title="Agenda assistant — reshape your day or run a Me agent from chat" aria-label="Open agenda assistant">💬</button>
-
-            <!-- Working hours & grid modal (moved out of the side rail) -->
-            <div class="meai-hours-modal" x-show="meai.hoursOpen" x-transition.opacity.duration.150ms x-cloak @click.self="meai.hoursOpen=false">
-              <div class="meai-hours-panel">
-                <div class="meai-hours-panel-head">
-                  <h3>⚙ Working hours &amp; grid</h3>
-                  <button class="icon-button" type="button" @click="meai.hoursOpen=false" title="Close">✕</button>
-                </div>
-                <div class="meai-hours">
-                  <label>Start</label><input type="time" x-model="meai.config.workStart">
-                  <label>End</label><input type="time" x-model="meai.config.workEnd">
-                  <label>Lunch</label>
-                  <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
-                  <label>Grid</label>
-                  <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
-                </div>
-                <div class="meai-workweek">
-                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
-                  <div class="meai-ww-days">
-                    <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
-                      <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
-                    </template>
-                  </div>
-                </div>
-                <div class="meai-timeprefs">
-                  <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
-                  <div class="meai-tp-rows">
-                    <template x-for="tp in [['review','Reviews'],['focus','Deep focus'],['steward','PR stewarding'],['comms','Email &amp; comms'],['admin','Admin'],['prep','Meeting prep']]" :key="tp[0]">
-                      <button type="button" class="meai-tp-row" @click="meAiCycleTimePref(tp[0])" :disabled="meai.generating || meai.savingSettings"
-                        :title="'Click to cycle: no preference → morning → afternoon'">
-                        <span class="meai-tp-name" x-html="tp[1]"></span>
-                        <span class="meai-tp-when" :class="{ set: meAiTimePref(tp[0]) }"
-                          x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
-                      </button>
-                    </template>
-                  </div>
-                </div>
-                <button class="btn primary" type="button" style="margin-top:12px" @click="meAiSaveSettings(); meai.hoursOpen=false" :disabled="meai.savingSettings">Save preferences</button>
-                <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
-                  Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
-                </div>
-              </div>
-            </div>
           </section>
 
           <section x-show="!loading && !errorMessage && route === 'standup'" x-transition.opacity.duration.180ms>
