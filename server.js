@@ -11542,6 +11542,25 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
       b.meta = (src && src.meta) || null;
       b.urgency = (src && src.urgency) || 0;
       if (src && !b.link && src.link) b.link = src.link;
+      // The LLM merges adjacent same-type PR blocks into one ("Review PRs: !A & !B"),
+      // but a block only carries a single link/meta — so a merged block otherwise
+      // surfaces just one "Open" link for several PRs. Recover the constituent source
+      // blocks (same type, overlapping the merged time window) so the UI can render a
+      // link + meta per PR/work item.
+      const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+      if (bs != null && be != null) {
+        const items = [], seen = new Set();
+        for (const pb of (pre.blocks || [])) {
+          if (!pb.link || pb.type !== b.type) continue;
+          const ps = _hmToMin(pb.start), pe = _hmToMin(pb.end);
+          if (ps == null || pe == null) continue;
+          if (Math.min(be, pe) > Math.max(bs, ps) && !seen.has(pb.link)) {
+            seen.add(pb.link);
+            items.push({ title: pb.title, link: pb.link, meta: pb.meta || null });
+          }
+        }
+        if (items.length > 1) b.items = items;
+      }
     }
     return clean.length ? clean : null;
   } catch { return null; }
@@ -11928,6 +11947,7 @@ function _meAiGoalFor(t) {
     steward: `Shepherd ${title || 'your pull request'} toward merge — find what's blocking it and the single best next move.`,
     comms: `Handle ${title || 'this message'} — understand the ask and prepare a ready-to-send reply and any action items.`,
     prep: `Get you ready for ${title || 'the meeting'} — purpose, talking points, decisions needed, and what to read first.`,
+    adhoc: `Accomplish this end-to-end: ${title || 'your request'} — work out the steps, do the work with your tools, and report what's done and what's left.`,
   };
   return map[(t && t.playbook)] || `Work on ${title || (t && t.playbook) || 'the task'} and report back with what you found.`;
 }
@@ -12004,6 +12024,19 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
       `Working directory: ${cwd}.`,
       'Steps: (1) Work out the purpose of the meeting and what I need to know or decide. (2) Pull together the relevant context (recent related PRs/issues/threads if discoverable via tools). (3) Produce a tight prep brief: goal, 3–5 talking points, any decisions needed, and 1–2 questions to raise. Flag anything I should read beforehand.',
       'Be concise. Stream your reasoning.',
+      '', jsonContract,
+    ].filter(Boolean).join('\n');
+  }
+  // Ad-hoc: the user typed a free-form goal — the agent decides what to do and does it.
+  if (playbook === 'adhoc') {
+    return [
+      'You are my Me-agent. I have given you a free-form goal — work out what needs to happen and take it as far as you safely can, end-to-end.',
+      `My goal: ${ctx.goal || ctx.title || 'help me with a task'}.`,
+      ctx.detail ? `Extra context: ${ctx.detail}` : '',
+      ctx.link ? `Reference: ${ctx.link}` : '',
+      `Working directory: ${cwd}.${ctx.date ? ' Today is ' + ctx.date + '.' : ''}`,
+      'You have full access to my professional context through the available tools (diary, code flows / repositories, work items and pull requests in Azure DevOps and GitHub, and email / Teams via WorkIQ). Steps: (1) Interpret my goal and decide the concrete actions that would accomplish it. (2) Gather whatever context you need with tools before acting. (3) Do the work — investigate, draft, edit code, or prepare the action — as far as you can without my sign-off. (4) Report what you did and exactly what remains. Do NOT send external messages, commit, or push unless I explicitly ask — prepare them for my review instead.',
+      'Stream your reasoning and tool use as you go. Be concise in prose.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
   }

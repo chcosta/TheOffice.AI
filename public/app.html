@@ -11605,6 +11605,12 @@
               .meai-meta-v { color:var(--cp-text); word-break:break-word; }
               .meai-detail-link { font-size:12px; color:var(--cp-accent); text-decoration:none; margin-top:2px; }
               .meai-detail-link:hover { text-decoration:underline; }
+              .meai-detail-items { display:flex; flex-direction:column; gap:8px; }
+              .meai-detail-single { display:flex; flex-direction:column; gap:3px; }
+              .meai-detail-item { display:flex; flex-direction:column; gap:3px; padding:8px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); }
+              .meai-detail-item-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+              .meai-detail-item-title { font-size:12.5px; font-weight:600; color:var(--cp-text); min-width:0; overflow:hidden; text-overflow:ellipsis; }
+              .meai-detail-item-head .meai-detail-link { margin-top:0; flex:0 0 auto; }
               .meai-side h4 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin:0 0 8px; }
               .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
@@ -11644,8 +11650,9 @@
               .meai-block-launch { margin-top:8px; }
               .meai-mini-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:12px; padding:4px 10px; border-radius:8px; cursor:pointer; }
               .meai-mini-btn:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
-              .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--cp-border); cursor:pointer; }
-              .meai-lane-row:last-child { border-bottom:0; }
+              .meai-adhoc { display:flex; gap:8px; align-items:center; margin:0 0 12px; }
+              .meai-adhoc-in { flex:1 1 auto; min-width:0; }
+              .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--cp-border); cursor:pointer; }              .meai-lane-row:last-child { border-bottom:0; }
               .meai-lane-t { font-weight:600; font-size:13px; color:var(--cp-text); }
               .meai-lane-m { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
               .meai-lane-stage { font-size:11px; font-weight:600; }
@@ -11794,10 +11801,31 @@
                             <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
                             <div class="meai-block-detail" x-show="meAiExpanded(meAiItemKey('b',b,bi))">
                               <div class="meai-block-detail-text" x-show="b.detail" x-text="b.detail"></div>
-                              <template x-for="row in meAiMetaRows(b)" :key="row[0]">
-                                <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                              <!-- Merged block (e.g. "Review PRs: !A & !B") — one linked, prioritizable row per constituent item. -->
+                              <template x-if="Array.isArray(b.items) && b.items.length > 1">
+                                <div class="meai-detail-items">
+                                  <template x-for="(it, ii) in b.items" :key="ii">
+                                    <div class="meai-detail-item">
+                                      <div class="meai-detail-item-head">
+                                        <span class="meai-detail-item-title" x-text="it.title"></span>
+                                        <a class="meai-detail-link" x-show="it.link" :href="it.link" target="_blank" rel="noopener">Open ↗</a>
+                                      </div>
+                                      <template x-for="row in meAiMetaRows(it)" :key="row[0]">
+                                        <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                                      </template>
+                                    </div>
+                                  </template>
+                                </div>
                               </template>
-                              <a class="meai-detail-link" x-show="b.link" :href="b.link" target="_blank" rel="noopener">Open ↗</a>
+                              <!-- Single item — meta rows + one Open link. -->
+                              <template x-if="!(Array.isArray(b.items) && b.items.length > 1)">
+                                <div class="meai-detail-single">
+                                  <template x-for="row in meAiMetaRows(b)" :key="row[0]">
+                                    <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                                  </template>
+                                  <a class="meai-detail-link" x-show="b.link" :href="b.link" target="_blank" rel="noopener">Open ↗</a>
+                                </div>
+                              </template>
                             </div>
                             <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus'">
                               <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
@@ -11824,6 +11852,14 @@
                   <!-- Me agents at work (M2 delegation lane) -->
                   <div class="meai-card">
                     <h4>Me agents at work</h4>
+                    <!-- Ad-hoc: tell a Me agent what to accomplish in your own words. -->
+                    <div class="meai-adhoc">
+                      <input class="field-input meai-adhoc-in" x-model="meai.adhocGoal"
+                             placeholder="Ask a Me agent to… (e.g. draft a status update on the Helix work)"
+                             @keydown.enter="meAiLaunchAdhoc()" :disabled="meai.consoleBusy">
+                      <button class="meai-mini-btn" type="button" @click="meAiLaunchAdhoc()"
+                              :disabled="meai.consoleBusy || !(meai.adhocGoal||'').trim()">🤖 Go</button>
+                    </div>
                     <template x-if="(meai.tasks||[]).length">
                       <div>
                         <template x-for="tk in meai.tasks" :key="tk.id">
@@ -19413,6 +19449,7 @@
           nowMin: (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })(),
           // M2 — Me-agent console + delegation lane.
           tasks: [],             // live "Me agents at work" lane (lightweight rows)
+          adhocGoal: '',         // free-form "ask a Me agent to…" composer
           console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
           consoleBusy: false,    // a dispatch/act request is in flight
           consoleReply: '',      // free-text reply box
@@ -26004,6 +26041,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiLaunchReview() {
           this.meAiDispatch('review', 'Code review', {});
+        },
+        // Ad-hoc: dispatch a Me agent against a free-form goal typed by the user.
+        // The agent decides the steps and does the work (more flexible than the
+        // structured per-block "Launch review agent").
+        meAiLaunchAdhoc() {
+          const goal = (this.meai.adhocGoal || '').trim();
+          if (!goal || this.meai.consoleBusy) return;
+          const title = goal.length > 80 ? goal.slice(0, 77) + '…' : goal;
+          this.meAiDispatch('adhoc', title, { goal, date: this.meai.date });
+          this.meai.adhocGoal = '';
         },
         // Launch the agent scoped to a specific agenda block (e.g. a review block).
         meAiLaunchForBlock(block) {
