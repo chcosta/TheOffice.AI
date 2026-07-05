@@ -11668,6 +11668,12 @@
               .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
               .meai-na-item:last-child { border-bottom:0; }
+              .meai-sugg { position:relative; padding:9px 0; border-bottom:1px solid var(--cp-border); }
+              .meai-sugg:last-child { border-bottom:0; }
+              .meai-sugg:hover .meai-dismiss { opacity:.7; }
+              .meai-sugg-t { font-size:12.5px; color:var(--cp-text); line-height:1.45; padding-left:9px; border-left:2px solid var(--cp-border); }
+              .meai-sugg.sev-warn .meai-sugg-t { border-left-color:var(--cp-warning,#d29922); }
+              .meai-sugg.sev-info .meai-sugg-t { border-left-color:var(--cp-accent); }
               .meai-na-t { font-weight:600; color:var(--cp-text); font-size:13px; }
               .meai-na-m { font-size:12px; color:var(--cp-text-muted); margin-top:2px; }
               .meai-todo-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13px; color:var(--cp-text); }
@@ -12034,6 +12040,20 @@
                       <a href="#" @click.prevent="meAiLaunchReview()">review the repo now</a>.
                     </div>
                   </div>
+
+                  <!-- Suggestions (§12) -->
+                  <template x-if="meai.agenda && (meai.agenda.suggestions||[]).length">
+                    <div class="meai-card">
+                      <h4>Suggestions</h4>
+                      <template x-for="sg in meai.agenda.suggestions" :key="sg.id">
+                        <div class="meai-sugg" :class="'sev-' + (sg.sev||'info')">
+                          <button class="meai-dismiss" type="button" @click.stop="meAiDismissSuggestion(sg.id)" title="Dismiss this suggestion">✕ Dismiss</button>
+                          <div class="meai-sugg-t" x-text="sg.text"></div>
+                          <a class="meai-detail-link" x-show="sg.link" :href="sg.link" target="_blank" rel="noopener">Open ↗</a>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
 
                   <!-- Needs attention -->
                   <template x-if="meai.agenda && (meai.agenda.needsAttention||[]).length">
@@ -26291,6 +26311,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (r && r.agenda) this.meai.agenda = r.agenda;
             this.toast('Removed from today', 'success');
           } catch (e) { this.toast('Could not remove: ' + (e.message || e), 'error'); }
+        },
+        async meAiDismissSuggestion(id) {
+          if (!id) return;
+          // Optimistic: drop it locally, then persist for the day.
+          if (this.meai.agenda && Array.isArray(this.meai.agenda.suggestions)) {
+            this.meai.agenda.suggestions = this.meai.agenda.suggestions.filter(sg => sg.id !== id);
+          }
+          try {
+            await this.request('/api/me-ai/suggestion/dismiss', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date, id }),
+            });
+          } catch (e) { this.toast('Could not dismiss: ' + (e.message || e), 'error'); }
         },
         async meAiUndismiss(key) {
           try {

@@ -11915,6 +11915,71 @@ function _meAiCarryOverTodos(cfg, day) {
   return [];
 }
 
+// Suggestions engine (design §12): proactive, dismissible nudges derived from the day's
+// built agenda. Deterministic + bounded; each nudge carries a stable id so a dismissal
+// (me-ai/sugg-dismiss/<date>.json) sticks for the day. Recomputed on every generate.
+const ME_AI_SUGG_DISMISS_DIR = path.join(dataPath('me-ai'), 'sugg-dismiss');
+function _meAiSuggDismissPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_SUGG_DISMISS_DIR, `${safe}.json`);
+}
+function loadSuggDismiss(date) {
+  try {
+    const p = _meAiSuggDismissPath(date);
+    if (!fs.existsSync(p)) return {};
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch { return {}; }
+}
+function saveSuggDismiss(date, map) {
+  fs.mkdirSync(ME_AI_SUGG_DISMISS_DIR, { recursive: true });
+  fs.writeFileSync(_meAiSuggDismissPath(date), JSON.stringify(map || {}, null, 2));
+  return map;
+}
+function _meAiSuggestions(cfg, agenda, date) {
+  const out = [];
+  try {
+    const blocks = Array.isArray(agenda.blocks) ? agenda.blocks : [];
+    const backlog = Array.isArray(agenda.backlog) ? agenda.backlog : [];
+    const needs = Array.isArray(agenda.needsAttention) ? agenda.needsAttention : [];
+    const todoList = Array.isArray(agenda.todos) ? agenda.todos : [];
+    const dur = (b) => { const a = _hmToMin(b && b.start), z = _hmToMin(b && b.end); return (a != null && z != null && z > a) ? z - a : 0; };
+    const winStart = _hmToMin(cfg.workStart); const winEnd = _hmToMin(cfg.workEnd);
+    const winMin = Math.max(60, (winEnd != null && winStart != null) ? winEnd - winStart : 8 * 60);
+    // Meeting overload vs the working window → protect focus.
+    const meetingMin = blocks.filter(b => b.type === 'meeting').reduce((s, b) => s + dur(b), 0);
+    if (meetingMin >= winMin * 0.5) {
+      out.push({ id: 'meeting-load', kind: 'meeting-load', sev: 'warn', text: `Meetings take about ${(meetingMin / 60).toFixed(1)}h of your ${(winMin / 60).toFixed(1)}h day. Consider declining an optional one — or sending a Me agent to summarize — to protect focus time.` });
+    }
+    // Batch comms — several short replies scattered through the day.
+    const commsCount = blocks.filter(b => b.type === 'comms').length + backlog.filter(b => b.type === 'comms').length + needs.filter(b => b.type === 'comms').length;
+    if (commsCount >= 4) {
+      out.push({ id: 'batch-comms', kind: 'batch-comms', sev: 'info', text: `${commsCount} messages need a reply. Knock them out in one focused comms block instead of context-switching all day.` });
+    }
+    // Stale review PRs — waiting a long time for your review.
+    const stale = [];
+    for (const it of needs.concat(backlog)) {
+      const age = it && it.meta && Number(it.meta.ageDays);
+      if (it && it.type === 'review' && Number.isFinite(age) && age >= 7) stale.push({ title: it.title, age, link: it.link || '' });
+    }
+    stale.sort((a, b) => b.age - a.age);
+    for (const s of stale.slice(0, 2)) {
+      out.push({ id: 'stale-pr:' + (s.link || s.title), kind: 'stale-pr', sev: 'warn', link: s.link, text: `${s.title} has been waiting ${s.age} days for review. Review it or ping the author so it doesn't stall.` });
+    }
+    // Carried-over pileup — the day's todo list is accumulating debt.
+    const carried = todoList.filter(t => t && t.carried && !t.done).length;
+    if (carried >= 3) {
+      out.push({ id: 'carried-pileup', kind: 'carried-pileup', sev: 'info', text: `${carried} todos have carried over from earlier days. Reprioritize or drop what's no longer needed so today's list is realistic.` });
+    }
+    // Overloaded — more spilled to the backlog than a day can absorb.
+    if (backlog.length >= 6) {
+      out.push({ id: 'overloaded', kind: 'overloaded', sev: 'warn', text: `${backlog.length} items didn't fit today's plan. Defer the lower-priority ones or renegotiate a due date rather than overpacking the day.` });
+    }
+  } catch (_) { /* best-effort */ }
+  const dismissed = loadSuggDismiss(date);
+  return out.filter(s => !dismissed[s.id]);
+}
+
 async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
@@ -11933,6 +11998,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
       backlog: [],
       needsAttention: [],
       todos: _meAiNormTodos(todos),
+      suggestions: [],
       meta: { refined: false, consent: cfg.consent, notWorkDay: true, sources: { m365: false, azdo: false, github: false, codeflow: false }, signalCount: 0, errors: [] },
     };
     saveAgendaForDate(day, agenda);
@@ -11994,6 +12060,8 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
     }
   } catch (_) { /* best-effort */ }
   agenda.meta.churn = _meAiChurnSummary(loadChangesForDate(day).events);
+  // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
+  agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
   saveAgendaForDate(day, agenda);
   return agenda;
 }
@@ -12067,6 +12135,29 @@ app.post('/api/me-ai/agenda/todos', (req, res) => {
     const snap = loadAgendaForDate(date);
     if (snap) { snap.todos = todos; saveAgendaForDate(date, snap); }
     res.json({ ok: true, date, todos, persisted: !!snap });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/suggestion/dismiss { date, id } → §12 dismiss a nudge for the day
+// (persisted so it stays hidden across regenerates). Strips it from the live snapshot
+// too. Returns the remaining suggestions.
+app.post('/api/me-ai/suggestion/dismiss', (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const id = String(b.id || '').slice(0, 300);
+    if (!id) return res.status(400).json({ error: 'id required' });
+    const store = loadSuggDismiss(date);
+    store[id] = { at: new Date().toISOString() };
+    saveSuggDismiss(date, store);
+    let suggestions = [];
+    const snap = loadAgendaForDate(date);
+    if (snap && Array.isArray(snap.suggestions)) {
+      snap.suggestions = snap.suggestions.filter(sg => sg.id !== id);
+      saveAgendaForDate(date, snap);
+      suggestions = snap.suggestions;
+    }
+    res.json({ ok: true, date, suggestions });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
