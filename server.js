@@ -20,6 +20,7 @@ const ConfigSync = require('./config-sync');
 const azdo = require('./azdo');
 const { forge, providerOf } = require('./forge');
 const devitems = require('./devitems');
+const devStore = require('./dev-store');
 const capabilities = require('./capabilities');
 const mcpTest = require('./mcpTest');
 const agentPackage = require('./agentPackage');
@@ -167,6 +168,15 @@ function loadBoards() {
 function saveBoards(boards) {
   fs.writeFileSync(BOARDS_PATH, JSON.stringify(boards || [], null, 2));
 }
+
+// One-time, idempotent import of every board's devItems[] into the global
+// dev-card store (dev-store.js). READ-ONLY against boards — the raw b.devItems is
+// kept as a backup while `_normalizeBoard` projects the store into each board, so
+// the SPA render path is unchanged. Safe to run on every boot.
+try {
+  const r = devStore.migrateFromBoards(loadBoards);
+  if (r && r.imported) console.log(`[dev-store] imported ${r.imported} dev card(s) from boards`);
+} catch (e) { console.warn('[dev-store] boards migration failed:', e && e.message); }
 
 function loadInsights() {
   try {
@@ -2173,15 +2183,23 @@ function _cfRankApprovers(files, index) {
 function _buildDevCardIndex() {
   const idx = new Map();
   try {
-    for (const b of loadBoards()) {
-      for (const d of (b.devItems || [])) {
-        const prId = d.prId != null ? String(d.prId).trim() : '';
-        if (!prId || !d.org || !d.project || !d.repo) continue;
-        const key = `${d.org}|${d.project}|${d.repo}|${prId}`.toLowerCase();
-        idx.set(key, { boardId: b.id, boardName: b.name || '', devId: d.id, title: d.title || '' });
+    const names = new Map(loadBoards().map(b => [b.id, b.name || '']));
+    for (const d of devStore.all()) {
+      const entry = { boardId: d.homeBoardId || null, boardName: names.get(d.homeBoardId) || '', devId: d.id, title: d.title || '' };
+      // Primary repo (top-level prId/org/project/repo).
+      const prId = d.prId != null ? String(d.prId).trim() : '';
+      if (prId && d.org && d.project && d.repo) {
+        idx.set(`${d.org}|${d.project}|${d.repo}|${prId}`.toLowerCase(), entry);
+      }
+      // Extra repo slots — each may carry its own linked PR.
+      for (const r of (Array.isArray(d.repos) ? d.repos : [])) {
+        const rPrId = r && r.prId != null ? String(r.prId).trim() : '';
+        if (rPrId && r.org && r.project && r.repo) {
+          idx.set(`${r.org}|${r.project}|${r.repo}|${rPrId}`.toLowerCase(), entry);
+        }
       }
     }
-  } catch { /* boards unavailable — no dev-card links, never fatal */ }
+  } catch { /* store unavailable — no dev-card links, never fatal */ }
   return idx;
 }
 
@@ -4988,6 +5006,71 @@ app.post('/api/whats-new/generate', async (req, res) => {
     if (!entry.version) entry.version = version;
     res.json({ entry });
   } catch (e) { res.status(500).json({ error: (e && e.message) || 'generate failed' }); }
+});
+
+// AI-summarized "What's new". Rather than dumping raw commit subjects, this asks
+// the AI to read the recent commit log and produce a short, user-facing digest
+// that highlights the most impactful changes. Cached in-memory keyed on HEAD so
+// we don't re-run the model every time the dialog is opened.
+let _whatsNewSummaryCache = { key: '', data: null, at: 0 };
+app.get('/api/whats-new/summary', async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    let log = '';
+    try {
+      log = execSync('git --no-pager log -50 --no-merges --format=%h%x09%s', { cwd: __dirname, encoding: 'utf-8' }).trim();
+    } catch {
+      return res.json({ available: false, reason: 'git-unavailable' });
+    }
+    if (!log) return res.json({ available: false, reason: 'no-commits' });
+    const rows = log.split('\n').map((l) => l.split('\t'));
+    const headHash = (rows[0] && rows[0][0]) || '';
+    const cacheKey = headHash + ':' + rows.length;
+    if (!req.query.refresh && _whatsNewSummaryCache.key === cacheKey && _whatsNewSummaryCache.data) {
+      return res.json({ available: true, cached: true, ...(_whatsNewSummaryCache.data) });
+    }
+    const subjects = rows.map((r) => (r.slice(1).join('\t') || '').trim()).filter(Boolean);
+    if (!subjects.length) return res.json({ available: false, reason: 'no-commits' });
+    const prompt = [
+      'You are writing a short, user-facing "What\'s new" digest for a desktop/web productivity app.',
+      'Below is the recent git commit log (newest first). Read ALL of it, then synthesize what actually changed for the user.',
+      'Respond with ONE JSON object only (no markdown, no code fence) of this exact shape:',
+      '{ "headline": string, "summary": string, "highlights": [ { "text": string, "impact": "high" | "normal" } ] }',
+      'Rules:',
+      '- Write for end users, not developers. Describe capabilities, improvements, and fixes in plain language.',
+      '- "headline": a punchy 3-7 word phrase capturing the theme of recent work.',
+      '- "summary": 1-2 sentences giving the overall gist of what changed.',
+      '- "highlights": 3-6 items, each a single clear sentence. Mark the genuinely notable, user-visible changes as impact "high"; routine tweaks/fixes as "normal". Order most impactful first.',
+      '- Group related commits into one highlight; omit purely internal/mechanical churn (build tweaks, lint, refactors with no user impact).',
+      '',
+      'Recent commits (newest first):',
+      subjects.slice(0, 60).map((s) => '- ' + s).join('\n').slice(0, 8000),
+      '',
+      'JSON:'
+    ].join('\n');
+    let acc = '';
+    await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'release_notes' } });
+    let data = null;
+    try {
+      const m = acc.match(/\{[\s\S]*\}/);
+      data = JSON.parse(m ? m[0] : acc);
+    } catch {
+      return res.json({ available: false, reason: 'parse-failed' });
+    }
+    // Normalize shape defensively so the client can render without guards.
+    const out = {
+      headline: String(data.headline || 'Recent changes').slice(0, 120),
+      summary: String(data.summary || '').slice(0, 600),
+      highlights: (Array.isArray(data.highlights) ? data.highlights : []).slice(0, 8).map((h) => {
+        if (typeof h === 'string') return { text: h.slice(0, 300), impact: 'normal' };
+        return { text: String((h && h.text) || '').slice(0, 300), impact: (h && h.impact === 'high') ? 'high' : 'normal' };
+      }).filter((h) => h.text),
+    };
+    _whatsNewSummaryCache = { key: cacheKey, data: out, at: Date.now() };
+    res.json({ available: true, cached: false, ...out });
+  } catch (e) {
+    res.json({ available: false, reason: 'error', error: (e && e.message) || 'summary failed' });
+  }
 });
 
 // --- Feedback -> GitHub issue ----------------------------------------------
@@ -11800,6 +11883,37 @@ function _mergeDevItems(existing, incoming) {
     return merged;
   });
 }
+// Mirror a legacy board PUT's devItems[] into the GLOBAL dev store. Runtime fields
+// stay server-authoritative (never taken from the client echo): existing cards are
+// patched with client-editable metadata only; brand-new cards are inserted homed on
+// this board; cards the client dropped are removed (+ their report cache cleared).
+function _syncBoardDevItemsToStore(boardId, teamId, incoming) {
+  const list = Array.isArray(incoming) ? incoming : [];
+  const keep = new Set(list.map(d => d && d.id).filter(Boolean));
+  for (const card of devStore.forBoard(boardId)) {
+    if (!keep.has(card.id)) {
+      devStore.remove(card.id);
+      try { devitems.clearReportCache(boardId, card.id); } catch {}
+    }
+  }
+  for (const item of list) {
+    if (!item) continue;
+    const existing = item.id ? devStore.find(item.id) : null;
+    if (existing) {
+      const partial = _pickDevClientFields(item);
+      partial.archived = !!item.archived;
+      devStore.patch(item.id, partial);
+    } else {
+      // New card (created inline in the SPA): keep whatever the client built, but
+      // home it on this board and scope it to the board's team.
+      devStore.upsert({
+        ...item,
+        homeBoardId: item.homeBoardId || boardId,
+        teamId: (item.teamId !== undefined ? item.teamId : teamId) || null,
+      });
+    }
+  }
+}
 function _normalizeBoard(b) {
   return {
     id: b.id,
@@ -11813,7 +11927,15 @@ function _normalizeBoard(b) {
     // prId, worktreePath, worktreeStatus, git, workItem, pr, summary, ... }. Group an
     // AzDo work item + PR + a git worktree; metadata persists here, heavy git/AzDo/AI
     // work runs through the dedicated /dev-items action endpoints.
-    devItems: Array.isArray(b.devItems) ? b.devItems : [],
+    // Dev cards now live in the GLOBAL store (dev-store.js), not per-board. We
+    // project the store's cards for this board here so the SPA render path (which
+    // reads b.devItems -> type:'dev' panels) is unchanged. Membership = cards homed
+    // on this board (provenance) plus any pinned via a board item of kind 'dev'
+    // (Phase 3). The raw b.devItems on disk is a backup and is intentionally ignored.
+    devItems: devStore.forBoard(
+      b.id,
+      (Array.isArray(b.items) ? b.items : []).filter(it => it && it.kind === 'dev').map(it => it.refId)
+    ),
     layout: (b.layout && typeof b.layout === 'object' && !Array.isArray(b.layout)) ? b.layout : {},
     // Stashed items: { '<panelBaseId>': true }. Stashed pins/notes/checklists are hidden
     // from the board grid but still feed the AI context (where-was-i, assistant). Display-only.
@@ -12144,6 +12266,10 @@ app.put('/api/boards/:id', (req, res) => {
       }
     } catch {}
     b.devItems = _mergeDevItems(b.devItems, devItems);
+    // Dev cards now live in the GLOBAL store. Mirror this legacy client PUT (inline
+    // metadata edits / adds / removes from the SPA) into the store so the projected
+    // devItems the client reads back reflect the change.
+    try { _syncBoardDevItemsToStore(b.id, b.teamId, devItems); } catch (e) { console.error('[dev-store] board PUT sync failed:', e && e.message); }
   }
   if (layout && typeof layout === 'object' && !Array.isArray(layout)) b.layout = layout;
   if (hidden && typeof hidden === 'object' && !Array.isArray(hidden)) b.hidden = hidden;
@@ -13197,7 +13323,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
     const done = items.filter(i => i.done).length;
     manualSources.push({ id: 'cl:' + cl.id, kind: 'checklist', refId: cl.id, label: clip(cl.title, 120) || 'Checklist', sublabel: `${done}/${items.length} done`, route: '', when: cl.updatedAt || cl.createdAt || null, status: (items.length && done === items.length) ? 'success' : '', detail: items.map(i => `${i.done ? '✓' : '○'} ${clip(i.text, 80)}`).join(' · ') });
   }
-  for (const d of (Array.isArray(b.devItems) ? b.devItems : [])) {
+  for (const d of devStore.forBoard(b.id)) {
     if (d && d.archived) continue;
     const sub = [d.repo, d.branch].filter(Boolean).join(' @ ') || (d.workItemId ? 'WI #' + d.workItemId : 'Dev card');
     manualSources.push({ id: 'dev:' + d.id, kind: 'dev', refId: d.id, label: clip(d.title || d.repo || 'Dev card', 120), sublabel: sub, route: '', when: d.updatedAt || d.createdAt || null, status: '', detail: clip((d.summary && d.summary.text) || sub, 240) });
@@ -13242,7 +13368,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   // Fold in any Dev cards (work item + PR + git worktree trackers). These represent
   // active development work, so they belong in the briefing — show each one's work
   // item / PR / worktree state and its AI status summary if present.
-  const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
+  const devItems = devStore.forBoard(b.id);
   if (devItems.length) {
     contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree; notes + artifacts shown per card; reference by devId)\n' + _devCardContextLines(devItems).join('\n'));
   }
@@ -13391,30 +13517,29 @@ function _devCardContextLines(devItems) {
   });
 }
 
-// Locate a dev card on a board; persist a mutated copy back. Returns helpers.
+// Namespace used for report-cache dirs of dev cards not homed on any board.
+const DEV_NS = '_dev';
+
+// Locate a dev card in the GLOBAL store; persist a mutated copy back. Returns
+// helpers. `boardId` is now only a cache-namespace hint (kept for signature
+// compatibility with the board-scoped routes); the card is resolved by devId.
 function _devItemCtx(boardId, devId) {
-  const boards = loadBoards();
-  const idx = boards.findIndex(b => b.id === boardId);
-  if (idx < 0) return null;
-  const board = boards[idx];
-  const items = Array.isArray(board.devItems) ? board.devItems : [];
-  const di = items.findIndex(d => d && d.id === devId);
-  if (di < 0) return null;
+  const dev = devStore.find(devId);
+  if (!dev) return null;
+  // Cache dirs live under the card's home board (continuity with pre-migration
+  // on-disk caches); board-less cards fall back to a fixed namespace.
+  const cacheBoardId = dev.homeBoardId || boardId || DEV_NS;
   return {
-    board, dev: items[di],
-    // Merge a partial onto the dev card, persist the whole board, broadcast.
+    board: null, dev, boardId: cacheBoardId,
+    // Merge a partial onto the dev card, persist to the store, broadcast.
     save(partial) {
-      const updated = { ...items[di], ...partial, updatedAt: new Date().toISOString() };
-      items[di] = updated;
-      board.devItems = items;
-      board.updatedAt = new Date().toISOString();
-      boards[idx] = board;
-      saveBoards(boards);
+      const updated = devStore.patch(devId, partial);
+      if (!updated) return null;
       // Carry the dev id + updated card so a viewing client can surgically patch
-      // just this card (auto-summary reconciler / worktree status flip) instead of
-      // doing a full board reload, which re-seeds the layout and visibly jumbles
-      // neighbouring panels. A dev-card save never changes layout or other items.
-      broadcastSSE('boards-changed', { id: board.id, devId, dev: updated });
+      // just this card (auto-summary reconciler / worktree status flip). Use the
+      // card's home board id so an open board view updates the right panel; the
+      // Dev page listens on devId regardless of board.
+      broadcastSSE('boards-changed', { id: updated.homeBoardId || null, devId, dev: updated });
       return updated;
     }
   };
@@ -13518,6 +13643,72 @@ async function _devCreatePullRequest(desc, body) {
   if (pr && pr.pullRequestId == null && pr.id != null) pr.pullRequestId = pr.id;
   return pr;
 }
+
+// ---- Global dev-card store routes ----------------------------------------
+// Dev cards are first-class objects in dev-store.js (not owned by a board). These
+// routes serve the store directly; the per-op action routes below (worktree/
+// refresh/sync/…) are still registered under /api/boards/:id/dev-items/:devId/* and
+// reused for board-less cards via the alias middleware at the end of this block.
+const DEV_CLIENT_FIELDS = ['title', 'provider', 'org', 'project', 'repo', 'baseBranch', 'branch', 'workItemId', 'prId', 'teamId', 'homeBoardId'];
+function _pickDevClientFields(body) {
+  const out = {};
+  for (const k of DEV_CLIENT_FIELDS) if (body[k] !== undefined) out[k] = body[k];
+  return out;
+}
+
+// List all dev cards (client filters by team/status/etc).
+app.get('/api/dev-items', (req, res) => {
+  res.json(devStore.all());
+});
+
+// Create a new dev card in the global store (may be board-less).
+app.post('/api/dev-items', (req, res) => {
+  const fields = _pickDevClientFields(req.body || {});
+  if (!fields.title || !String(fields.title).trim()) return res.status(400).json({ error: 'A title is required' });
+  const card = devStore.create(fields);
+  broadcastSSE('boards-changed', { id: card.homeBoardId || null, devId: card.id, dev: card });
+  res.json({ ok: true, dev: card });
+});
+
+// Read one dev card.
+app.get('/api/dev-items/:devId', (req, res) => {
+  const card = devStore.find(req.params.devId);
+  if (!card) return res.status(404).json({ error: 'Dev card not found' });
+  res.json(card);
+});
+
+// Edit a dev card's client-editable metadata.
+app.patch('/api/dev-items/:devId', (req, res) => {
+  const card = devStore.find(req.params.devId);
+  if (!card) return res.status(404).json({ error: 'Dev card not found' });
+  const updated = devStore.patch(req.params.devId, _pickDevClientFields(req.body || {}));
+  broadcastSSE('boards-changed', { id: updated.homeBoardId || null, devId: updated.id, dev: updated });
+  res.json({ ok: true, dev: updated });
+});
+
+// Delete a dev card from the store (and drop its durable report cache).
+app.delete('/api/dev-items/:devId', (req, res) => {
+  const card = devStore.find(req.params.devId);
+  if (!card) return res.status(404).json({ error: 'Dev card not found' });
+  const gone = devStore.remove(req.params.devId);
+  try { devitems.clearReportCache(card.homeBoardId || DEV_NS, card.id); } catch {}
+  broadcastSSE('boards-changed', { id: card.homeBoardId || null, devId: card.id, removed: true });
+  res.json({ ok: true, removed: gone ? gone.id : req.params.devId });
+});
+
+// Alias /api/dev-items/:devId/<op> (worktree, refresh, sync, notes/update, …) to the
+// board-scoped action handler below, resolving the card's home board (or a fixed
+// namespace for board-less cards) so report-cache dirs stay stable. Requires an op
+// segment, so bare /api/dev-items/:devId (handled above) is never rewritten.
+app.use((req, res, next) => {
+  const m = /^\/api\/dev-items\/([^/]+)\/([^?]+)(\?.*)?$/.exec(req.url);
+  if (!m) return next();
+  const devId = decodeURIComponent(m[1]);
+  const card = devStore.find(devId);
+  const boardId = (card && card.homeBoardId) || DEV_NS;
+  req.url = `/api/boards/${encodeURIComponent(boardId)}/dev-items/${encodeURIComponent(devId)}/${m[2]}${m[3] || ''}`;
+  next();
+});
 
 // Create (or reuse) the worktree for a dev card repo slot. Runs in the background
 // since a first-time clone can be slow; the slot flips worktreeStatus creating→
@@ -13928,13 +14119,16 @@ async function _reconcileDevSummaries() {
   if (_devSummaryScanBusy) return;
   _devSummaryScanBusy = true;
   try {
-    let boards;
-    try { boards = loadBoards(); } catch { return; }
-    for (const b of boards) {
-      if (!b || b.archived) continue;
-      const items = Array.isArray(b.devItems) ? b.devItems : [];
-      for (const d of items) {
+    // Dev cards live in the global store now (not per-board). Skip cards whose home
+    // board is archived; board-less cards are always eligible.
+    let archivedBoards = new Set();
+    try { archivedBoards = new Set(loadBoards().filter(b => b && b.archived).map(b => b.id)); } catch {}
+    {
+      const cards = devStore.all();
+      for (const d of cards) {
         if (!d || d.autoSummary === false) continue;
+        if (d.homeBoardId && archivedBoards.has(d.homeBoardId)) continue;
+        const b = { id: d.homeBoardId || DEV_NS };
         // Nothing to summarize if there's no linked work item, PR, or worktree.
         if (!d.worktreePath && !d.workItemId && !d.prId) continue;
         const key = b.id + '/' + d.id;
@@ -14509,6 +14703,102 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   res.json({ ok: true, dev: updated, url: pr.url, prId: pr.pullRequestId, repoId: slot.id, committed: committedCount, stateWarning });
 });
 
+// Link an EXISTING pull request to a dev card's repo slot (no push/commit). This
+// is the counterpart to POST …/pr (which CREATES a PR): here the PR already exists
+// and we just record the association. Works for the primary repo or any extra
+// repo. If the PR's repo isn't on the card yet, pass createSlot:true (with
+// org/project/repo) to add a link-only extra slot and attach the PR to it.
+app.post('/api/boards/:id/dev-items/:devId/link-pr', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const d = ctx.dev;
+  const b = req.body || {};
+  const prId = String(b.prId || '').trim();
+  if (!prId) return res.status(400).json({ error: 'prId is required' });
+
+  // Resolve the target slot: explicit repoId wins; else match by org/project/repo;
+  // else (createSlot) mint a link-only extra slot; else default to the primary.
+  let slot = null;
+  const org = String(b.org || '').trim();
+  const project = String(b.project || '').trim();
+  const repo = String(b.repo || '').trim();
+  const provider = (b.provider === 'github') ? 'github' : (b.provider === 'azdo' ? 'azdo' : null);
+  if (b.repoId) {
+    slot = _findRepoSlot(d, String(b.repoId));
+    if (!slot) return res.status(404).json({ error: 'Repo slot not found on this dev card' });
+  } else if (org && repo) {
+    slot = _findRepoSlot(d, { org, project, repo });
+    if (!slot && b.createSlot) {
+      // Mint a link-only extra slot (no worktree). Dedupe defensively.
+      const key = (x) => [x.org, x.project, x.repo].map(v => String(v || '').toLowerCase()).join('/');
+      if (_devRepoSlots(d).some(s => key(s) === key({ org, project, repo }))) {
+        slot = _findRepoSlot(d, { org, project, repo });
+      } else {
+        const id = 'repo-' + Math.random().toString(36).slice(2, 9);
+        const repos = _devExtraRepos(d).slice();
+        repos.push({ id, provider: provider || 'azdo', org, project, repo, branch: `dev/${d.id}`, baseBranch: 'main', worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
+        ctx.save({ repos });
+        slot = _findRepoSlot(ctx.dev, id);
+      }
+    }
+    if (!slot) return res.status(404).json({ error: 'That repo is not on this dev card. Pass createSlot:true to add it.' });
+  } else {
+    slot = _findRepoSlot(d, 'primary');
+  }
+  if (!slot || !slot.org || !slot.project || !slot.repo) {
+    return res.status(400).json({ error: 'Target repo is missing org/project/repo.' });
+  }
+
+  // Fetch PR metadata (best effort — a link should still record even if the API is
+  // unreachable, so we fall back to a minimal descriptor).
+  let prFull = null;
+  try { prFull = await _devPullRequest(_devDesc(slot), prId); } catch {}
+
+  // First-PR-across-the-card work-item transition, mirroring the create route.
+  let wi = ctx.dev.workItem;
+  let stateWarning = null;
+  const hadPrAlready = _devRepoSlots(ctx.dev).some(s => (s.primary ? ctx.dev.prId : s.prId));
+  if (d.workItemId && d.org && d.project && !hadPrAlready) {
+    try {
+      wi = await _devUpdateWorkItemState(_devDesc(d), d.workItemId, 'In PR');
+    } catch (e) {
+      stateWarning = 'PR linked, but the work item could not be moved to "In PR": ' + ((e && e.message) || e);
+    }
+  }
+
+  let updated;
+  if (slot.primary) {
+    const save = { prId: String(prId), pr: prFull };
+    if (wi && !hadPrAlready) save.workItem = wi;
+    updated = ctx.save(save);
+  } else {
+    const repos = _devExtraRepos(ctx.dev).map(r => (r && r.id === slot.id)
+      ? { ...r, prId: String(prId), pr: prFull } : r);
+    const save = { repos };
+    if (wi && !hadPrAlready) save.workItem = wi;
+    updated = ctx.save(save);
+  }
+  res.json({ ok: true, dev: updated, prId: String(prId), repoId: slot.id, url: prFull && prFull.url || null, stateWarning });
+});
+
+// Unlink a pull request from a dev card's repo slot (clears prId/pr on that slot
+// only). The PR itself is untouched. Default target is the primary repo.
+app.post('/api/boards/:id/dev-items/:devId/unlink-pr', (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const slot = _findRepoSlot(ctx.dev, (req.body && (req.body.repoId || req.body.slotId)) || 'primary');
+  if (!slot) return res.status(404).json({ error: 'Repo slot not found on this dev card' });
+  let updated;
+  if (slot.primary) {
+    updated = ctx.save({ prId: null, pr: null });
+  } else {
+    const repos = _devExtraRepos(ctx.dev).map(r => (r && r.id === slot.id)
+      ? { ...r, prId: null, pr: null } : r);
+    updated = ctx.save({ repos });
+  }
+  res.json({ ok: true, dev: updated, repoId: slot.id });
+});
+
 // ============================================================================
 // INSIGHTS — read-only, AI-generated cross-board "Views". An insight gathers the
 // "Where was I?" state of one or more ENABLED boards and produces a prioritized
@@ -14857,7 +15147,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   const notes = (Array.isArray(b.notes) ? b.notes : []);
   const checklists = (Array.isArray(b.checklists) ? b.checklists : []);
   const pins = (Array.isArray(b.items) ? b.items : []);
-  const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
+  const devItems = devStore.forBoard(b.id);
   // Visibility (stash) + per-panel lock state, so the assistant knows which panels are
   // hidden (still in context, just off the board) and which are locked against changes.
   const hiddenMap = (b.hidden && typeof b.hidden === 'object' && !Array.isArray(b.hidden)) ? b.hidden : {};
@@ -15085,8 +15375,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"pin_item","kind":"<agent|manager|task|flow|assignment|pr>","refId":"<kind:refId from AVAILABLE AGENTS, AVAILABLE OPERATIONS & EMPLOYEES, or AVAILABLE PULL REQUESTS>"}  (adds an existing employee, operation, or pull request to this board — propose when the goal needs a capability/op that is not yet pinned, e.g. an agent for email access, a task/flow/assignment that already does the work, a manager that owns the org, or a PR the user wants to track/work on. Employees: agent, manager. Operations: task, flow, assignment. Pull requests: pr.)',
     (prPins.length ? '- {"type":"pr_action","prRefId":"<refId from PINNED PULL REQUESTS>","action":"<review|create-worktree|sync|push|post-comments|refresh|open-worktree|remove-worktree>"}  (drive a pinned PR: create-worktree clones+checks out the PR branch; review runs the AI code review on the worktree; sync pulls the worktree up to date with the PR branch; push pushes local commits (your PRs); post-comments posts the AI review comments (PRs you review); refresh re-reads the worktree/review state; open-worktree opens it in the editor; remove-worktree deletes the on-disk worktree. push/post-comments touch the remote — propose only on explicit request.)' : ''),
     (devItems.length ? '- {"type":"dev_action","devItemId":"<devId from DEV CARDS>","action":"<refresh|sync|create-worktree|summary|create-dev-agent|create-pr|cleanup-worktree>"}  (drive a Dev card: refresh re-reads its live work-item/PR/git state; sync pulls the worktree up to date with origin; create-worktree clones+checks out the branch; summary regenerates the AI state summary; create-dev-agent writes a focused agent file into the worktree; create-pr pushes the branch and opens an AI-authored PR; cleanup-worktree removes the on-disk worktree but keeps the tracker. summary/create-pr/create-dev-agent use AI and take longer.)' : ''),
-    '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. Set createWorktree true if the user wants the worktree created right away.)',
-    (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV CARDS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"..."}  (updates a Dev card\'s metadata, e.g. link a work item or PR or rename it. Include ONLY the fields to change.)' : ''),
+    '- {"type":"create_dev_item","title":"<title>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","baseBranch":"<base branch, optional>","branch":"<feature branch, optional>","workItemId":"<id, optional>","prId":"<id, optional>","homeBoardId":"<board id, optional>","createWorktree":<true|false — set true when the user asks to also create/include a worktree>}  (adds a NEW Dev card tracker — an Azure DevOps work item + PR + git worktree group. org, project and repo are REQUIRED: only propose this when the user supplies them or they clearly appear in context. Do NOT invent an org/project/repo. The card is PINNED to a board: omit homeBoardId to pin it to the current board, or pass a board id to pin it elsewhere. Set createWorktree true if the user wants the worktree created right away.)',
+    (devItems.length ? '- {"type":"update_dev_item","devItemId":"<devId from DEV CARDS>","title":"...","workItemId":"...","prId":"...","baseBranch":"...","branch":"...","homeBoardId":"<board id, optional>"}  (updates a Dev card\'s metadata, e.g. link a work item or PR, rename it, or re-pin it to a different board via homeBoardId. Include ONLY the fields to change.)' : ''),
     (devItems.length ? '- {"type":"remove_dev_item","devItemId":"<devId from DEV CARDS>"}  (removes the Dev card from the board and cleans up its worktree — destructive, only on explicit request.)' : ''),
     (devItems.length ? '- {"type":"add_dev_link","devItemId":"<devId from DEV CARDS>","url":"<https/file/mailto/vscode URL or absolute path>","label":"<short label, optional>"}  (adds a link to the Dev card\'s LINKS section — the list of related URLs/files shown on the card, NOT a work-item or checklist link. Use when the user says "add a link to the dev card".)' : ''),
     (devItems.length ? '- {"type":"remove_dev_link","devItemId":"<devId from DEV CARDS>","linkId":"<lnk-id from the card\'s links>","url":"<the link url, alternative to linkId>"}  (removes ONE link from the Dev card\'s LINKS section. Identify the link by its (lnk-id) or its url as shown under that card\'s "links:" in DEV CARDS — destructive.)' : ''),
@@ -15316,7 +15606,10 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
         title: clip(a.title, 200) || repo, org, project, repo,
         baseBranch: clip(a.baseBranch, 200) || '', branch: clip(a.branch, 200) || '',
         workItemId: a.workItemId != null ? String(a.workItemId).trim() : '',
-        prId: a.prId != null ? String(a.prId).trim() : ''
+        prId: a.prId != null ? String(a.prId).trim() : '',
+        // Which board this card is pinned to. Empty → the sync layer homes it on the
+        // board the assistant is acting on (auto-pin). A value pins it there explicitly.
+        homeBoardId: clip(a.homeBoardId, 80) || ''
       };
       const createWorktree = !!(a.createWorktree || a.withWorktree || a.worktree);
       return { type, devItem: item, createWorktree, label: createWorktree ? 'Add dev card + worktree' : 'Add dev card', preview: `${item.title} — ${org}/${project}/${repo}` + (createWorktree ? ' (with worktree)' : '') };
@@ -15330,6 +15623,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       }
       if (a.workItemId !== undefined) patch.workItemId = a.workItemId != null ? String(a.workItemId).trim() : '';
       if (a.prId !== undefined) patch.prId = a.prId != null ? String(a.prId).trim() : '';
+      // Re-pin (or unpin, via empty string) a card to a different board on request.
+      if (a.homeBoardId !== undefined) patch.homeBoardId = clip(a.homeBoardId, 80) || '';
       if (!Object.keys(patch).length) return null;
       return { type, devItemId: d.id, patch, label: 'Update dev card', preview: clip(d.title || d.repo, 80) + ': ' + Object.keys(patch).join(', ') };
     }
