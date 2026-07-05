@@ -2470,6 +2470,15 @@
     .cf-subsec { min-width:0; }
     .cf-subsec + .cf-subsec { margin-top:14px; border-top:1px dashed var(--cp-border); padding-top:14px; }
     .cf-subhead { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--cp-text-soft); margin:0 0 8px; }
+    /* Horizontal detail tabs pinned to the card bottom (replaces the "Details & actions" drawer toggle). */
+    .cf-dtabs { display:flex; flex-wrap:wrap; gap:2px; margin-top:10px; border-top:1px solid var(--cp-border); padding-top:6px; }
+    .cf-dtab { display:inline-flex; align-items:center; gap:6px; background:none; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--cp-text-muted); font-size:12.5px; font-weight:600; padding:5px 10px 6px; cursor:pointer; letter-spacing:.01em; }
+    .cf-dtab:hover { color:var(--cp-text); }
+    .cf-dtab.active { color:var(--cp-text); border-bottom-color:var(--cp-accent); }
+    .cf-dtab .rc { font-size:11px; color:var(--cp-text-soft); font-weight:600; }
+    .cf-dtab.active .rc { color:var(--cp-accent); }
+    .cf-dtab-dot { flex:0 0 auto; width:6px; height:6px; border-radius:999px; background:var(--cp-warning); }
+    .cf-dtab-panes { margin-top:12px; }
     @media (max-width:640px){ .cf-drawer { grid-template-columns:1fr; } .cf-rail { flex-direction:row; flex-wrap:wrap; } }    .cf-validation { margin-top:12px; border-top:1px dashed var(--cp-border); padding-top:8px; }
     .cf-validation-summary { display:flex; align-items:center; gap:7px; list-style:none; }
     .cf-validation-summary::-webkit-details-marker { display:none; }
@@ -9513,20 +9522,8 @@
                                       </div>
 
                                       <!-- Details &amp; actions drawer (rail + panes) -->
-                                      <button class="cf-drawer-toggle" type="button" @click="devDrawerToggle(d)" x-text="(devDrawerIsOpen(d) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
-                                      <div class="cf-drawer" x-show="devDrawerIsOpen(d)">
-                                        <div class="cf-rail">
-                                          <template x-for="sec in devSections(d)" :key="sec.id">
-                                            <button class="cf-rail-btn" type="button" :class="{ active: devActivePane(d)===sec.id, attn: sec.attn }" @click="devSetPane(d, sec.id)">
-                                              <span class="cf-rail-lbl">
-                                                <span class="cf-rail-dot" x-show="sec.attn"></span>
-                                                <span x-text="sec.label"></span>
-                                              </span>
-                                              <span class="rc" x-show="sec.count" x-text="sec.count"></span>
-                                            </button>
-                                          </template>
-                                        </div>
-                                        <div class="cf-panes">
+                                      <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id) }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
+<div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
                                           <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <!-- Work item link row (the work item is shared by the whole card; PRs are per repo, shown in the Repos box below) -->
                                       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
@@ -10743,20 +10740,8 @@
                                 </div>
 
                                 <!-- Details &amp; actions drawer (rail + panes) -->
-                                <button class="cf-drawer-toggle" type="button" @click="devDrawerToggle(d)" x-text="(devDrawerIsOpen(d) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
-                                <div class="cf-drawer" x-show="devDrawerIsOpen(d)">
-                                  <div class="cf-rail">
-                                    <template x-for="sec in devSections(d)" :key="sec.id">
-                                      <button class="cf-rail-btn" type="button" :class="{ active: devActivePane(d)===sec.id, attn: sec.attn }" @click="devSetPane(d, sec.id)">
-                                        <span class="cf-rail-lbl">
-                                          <span class="cf-rail-dot" x-show="sec.attn"></span>
-                                          <span x-text="sec.label"></span>
-                                        </span>
-                                        <span class="rc" x-show="sec.count" x-text="sec.count"></span>
-                                      </button>
-                                    </template>
-                                  </div>
-                                  <div class="cf-panes">
+                                <div class="cf-dtabs"><template x-for="sec in devSections(d)" :key="sec.id"><button class="cf-dtab" type="button" :class="{ active: devTabActive(d, sec.id) }" @click="devTabToggle(d, sec.id)"><span class="cf-dtab-dot" x-show="sec.attn"></span><span x-text="sec.label"></span><span class="rc" x-show="sec.count" x-text="sec.count"></span></button></template></div>
+<div class="cf-dtab-panes" x-show="devDrawerIsOpen(d)"><div class="cf-panes">
                                     <div class="cf-pane" x-show="devActivePane(d)==='repos'">
                                       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
                                         <template x-if="d.workItemId">
@@ -12821,17 +12806,8 @@
                     </div>
                   </div>
 
-                  <button type="button" class="cf-drawer-toggle" @click="cfDrawerToggle(pr)" x-text="(cfDrawerIsOpen(pr) ? '▾ ' : '▸ ') + 'Details & actions'"></button>
-                  <div class="cf-drawer" x-show="cfDrawerIsOpen(pr)">
-                    <div class="cf-rail">
-                      <template x-for="s in cfSections(pr)" :key="s.id">
-                        <button type="button" class="cf-rail-btn" :class="{ active: cfActivePane(pr) === s.id, attn: s.attn && cfActivePane(pr) !== s.id }" @click="cfSetPane(pr, s.id)">
-                          <span class="cf-rail-lbl"><span class="cf-rail-dot" x-show="s.attn" title="Needs attention"></span><span x-text="s.label"></span></span>
-                          <span class="rc" x-show="s.count" x-text="s.count"></span>
-                        </button>
-                      </template>
-                    </div>
-                    <div class="cf-panes">
+                  <div class="cf-dtabs"><template x-for="s in cfSections(pr)" :key="s.id"><button type="button" class="cf-dtab" :class="{ active: cfTabActive(pr, s.id) }" @click="cfTabToggle(pr, s.id)"><span class="cf-dtab-dot" x-show="s.attn" title="Needs attention"></span><span x-text="s.label"></span><span class="rc" x-show="s.count" x-text="s.count"></span></button></template></div>
+<div class="cf-dtab-panes" x-show="cfDrawerIsOpen(pr)"><div class="cf-panes">
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'reviewers'">
                   <!-- Actual PR reviewers, split Required vs Optional, showing each vote -->
                   <template x-if="cfReviewerGroups(pr).required.length || cfReviewerGroups(pr).optional.length">
@@ -27037,6 +27013,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         cfSetPane(pr, id) {
           this.codeflow.pane[this.cfPrKey(pr)] = id;
+        },
+        // Horizontal-tab model (mirrors devTab*): active only when the pane is open;
+        // clicking the active tab collapses the drawer, any other tab opens that pane.
+        cfTabActive(pr, id) { return this.cfDrawerIsOpen(pr) && this.cfActivePane(pr) === id; },
+        cfTabToggle(pr, id) {
+          const key = this.cfPrKey(pr);
+          if (this.cfTabActive(pr, id)) {
+            delete this.codeflow.drawerOpen[key];
+          } else {
+            this.codeflow.pane[key] = id;
+            this.codeflow.drawerOpen[key] = true;
+          }
+          try { localStorage.setItem('cfDrawerOpen', JSON.stringify(this.codeflow.drawerOpen)); } catch { /* ignore */ }
         },        cfGrpKey(grp) {
           return (this.codeflow.groupBy || 'none') + ':' + (grp && grp.key != null ? grp.key : '');
         },
@@ -33532,6 +33521,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return secs[0].id;
         },
         devSetPane(d, id) { if (d) this.devPane[d.id] = id; },
+        // Horizontal-tab model: a tab is "active" only when its pane is the open one.
+        // Clicking the active tab collapses; clicking any other opens that pane.
+        devTabActive(d, id) { return this.devDrawerIsOpen(d) && this.devActivePane(d) === id; },
+        devTabToggle(d, id) {
+          if (!d) return;
+          if (this.devTabActive(d, id)) { this.devDrawer[d.id] = false; return; }
+          this.devPane[d.id] = id;
+          this.devDrawer[d.id] = true;
+        },
         // One-line, whitespace-collapsed summary for the compact face.
         devFaceSummary(d) {
           const raw = (d && d.summary && d.summary.text) || '';
