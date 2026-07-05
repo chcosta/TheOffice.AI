@@ -4887,8 +4887,40 @@ function readWhatsNew() {
   } catch { return []; }
 }
 
+// When running from source in a plain browser (i.e. NOT the packaged desktop app),
+// there is no shipped version to "update" to — the bundled whats-new.json changelog
+// is tied to desktop releases. Instead, surface the recent git commits as the
+// release notes so "What's new" reflects what actually changed on this checkout.
+// Returns [] on a packaged build or anywhere git is unavailable.
+function readRecentCommitNotes(limit = 40) {
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync(`git --no-pager log -${limit} --no-merges --format=%h%x09%cs%x09%s`, { cwd: __dirname, encoding: 'utf-8' }).trim();
+    if (!out) return [];
+    const rows = out.split('\n').map((l) => {
+      const parts = l.split('\t');
+      return { hash: parts[0] || '', date: parts[1] || '', subject: (parts.slice(2).join('\t') || '').trim() };
+    }).filter((r) => r.subject);
+    if (!rows.length) return [];
+    const subjects = rows.map((r) => r.subject);
+    const items = rows.map((r) => r.subject + (r.hash ? ' (' + r.hash + ')' : ''));
+    return [{
+      version: GIT_VERSION.version || 'dev',
+      date: rows[0].date || new Date().toISOString().slice(0, 10),
+      title: 'Recent changes',
+      summary: 'You\u2019re running from source, so here are the latest commits on this build \u2014 there\u2019s no packaged version to update to.',
+      highlights: subjects.slice(0, 5),
+      details: [{ heading: 'Latest commits', items }],
+    }];
+  } catch { return []; }
+}
+
 app.get('/api/whats-new', (req, res) => {
   const current = GIT_VERSION.version || '';
+  if (!updater.isDesktop()) {
+    const commitNotes = readRecentCommitNotes();
+    if (commitNotes.length) return res.json({ current: commitNotes[0].version, entries: commitNotes, source: 'commits' });
+  }
   let entries = readWhatsNew();
   // Safety net: never hand the UI an empty changelog. If the file is missing or
   // yields nothing (e.g. a build that skipped note generation), synthesize a
@@ -10533,6 +10565,36 @@ app.post('/api/newsletter/asset/upload', (req, res) => {
   }
 });
 
+// Shared chat image upload — used by EVERY chat surface (main chat, board agent
+// cards, create-agent preview, and the Workspace / Connect / Manager assistants) so
+// a user can paste or drag an image into any conversation. We save the decoded image
+// under ~/.copilot/agent-supervisor/chat-uploads and hand back the ABSOLUTE path; the
+// client appends that path to the outgoing message so the agent's file tools can view
+// and analyze the image. Body: { name?, dataUrl }. Returns { ok, file, path, bytes }.
+app.post('/api/chat/image/upload', (req, res) => {
+  try {
+    const b = req.body || {};
+    const dataUrl = String(b.dataUrl || '');
+    const m = dataUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'dataUrl must be a base64 image data URI.' });
+    const extMap = { jpeg: 'jpg', 'svg+xml': 'svg' };
+    let ext = m[1].toLowerCase();
+    ext = extMap[ext] || ext.replace(/[^a-z0-9]/g, '') || 'png';
+    const buffer = Buffer.from(m[2], 'base64');
+    if (!buffer.length) return res.status(400).json({ error: 'Empty image.' });
+    if (buffer.length > 12 * 1024 * 1024) return res.status(413).json({ error: 'Image too large (max 12 MB).' });
+    const dir = dataPath('chat-uploads');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { /* exists */ }
+    const safe = (String(b.name || 'image').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)) || 'image';
+    const file = `${safe}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+    const full = path.join(dir, file);
+    fs.writeFileSync(full, buffer);
+    res.json({ ok: true, file, path: full, bytes: buffer.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Report headless-capture capability (is a Chrome/Edge available to screenshot with).
 app.get('/api/newsletter/capture-capabilities', (req, res) => {
   try { res.json(newsletterCapture.capabilities()); }
@@ -14956,8 +15018,8 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- {"type":"add_section","name":"<section name>","icon":"<optional emoji>"}  (create a NEW empty section/tab)',
     '- {"type":"rename_section","sectionId":"<id>","name":"<new name>"}  (rename a section — you may pass "sectionName":"<current name>" instead of sectionId)',
     '- {"type":"delete_section","sectionId":"<id>"}  (remove a whole section/tab — its cards stay on the board and on any other sections. Destructive — only on explicit request. May use "sectionName" instead of sectionId.)',
-    '- {"type":"place_card","sectionId":"<id>","base":"<card base>"}  (add an existing board item as a card onto a section. You may pass "sectionName" and/or "cardTitle" instead of the ids.)',
-    '- {"type":"move_card","base":"<card base>","toSectionId":"<id>","fromSectionId":"<id, optional>"}  (move a card to another section; without fromSectionId it is removed from the other sections. Accepts "toSectionName"/"fromSectionName"/"cardTitle".)',
+    '- {"type":"place_card","sectionId":"<id>","base":"<card base>","x":<col, optional>,"y":<row, optional>}  (add an existing board item as a card onto a section. You may pass "sectionName" and/or "cardTitle" instead of the ids. OPTIONAL "x"/"y" are 0-based grid coordinates for the card\'s top-left cell — pass them to position it precisely using the GRID GEOMETRY in context; omit them to auto-place at the first free top-left slot.)',
+    '- {"type":"move_card","base":"<card base>","toSectionId":"<id>","fromSectionId":"<id, optional>","x":<col, optional>,"y":<row, optional>}  (move a card to another section; without fromSectionId it is removed from the other sections. Accepts "toSectionName"/"fromSectionName"/"cardTitle". OPTIONAL "x"/"y" reposition it on the target board — same 0-based grid coordinates as place_card.)',
     '- {"type":"remove_card","sectionId":"<id>","base":"<card base>"}  (take a card off ONE section — the underlying item and its other placements are untouched. Accepts "sectionName"/"cardTitle".)',
     '- {"type":"pack_section","sectionId":"<id, optional>"}  (repack a board\'s cards tightly to the top-left, closing gaps left behind by earlier moves/resizes. This is what "move the cards to the top", "line them up", "tidy/pack this board" mean. OMIT sectionId to pack the CURRENT board. May use "sectionName".)',
     '',
@@ -14981,7 +15043,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- SMART AGENT CHOICE: when you need an agent, read the agent NAMES and DESCRIPTIONS in BOARD PINS / AVAILABLE AGENTS and pick the SINGLE best match for the capability required (e.g. an Azure/work-item agent for work-item URLs, an email agent for sending mail). Prefer an already-pinned agent; only propose pin_item when no pinned agent covers the need.',
     // Proactively help build/modify the board from a direction.
     '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
-    '- SECTIONS / LAYOUT REQUESTS: to organize the workspace, work with SECTIONS/BOARDS — add_section, rename_section, delete_section, place_card, move_card, remove_card, pack_section — using the "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS" context below. Examples: "make a section for the release work" → add_section (then place_card the relevant items); "move the autoscaler agent to the Ops tab" → move_card; "put the release checklist on this board" → place_card; "get rid of the empty Scratch tab" → delete_section. CARD POSITIONS: each card sits at a real grid position on its board, and gaps CAN accumulate after cards are moved, resized or removed. When the user asks to "move the cards to the top", "line them up", "tidy / clean up / pack this board", or "remove the dead space", DO propose pack_section — that repacks the cards tightly to the top-left and closes the gaps. OMIT the sectionId (or use the current board\'s id) so it packs the board the user is looking at. Do NOT dismiss these requests as "already packed / no action needed", and NEVER respond to "top of the board" by creating or targeting a section literally named "Board" or by re-adding the cards elsewhere — that is wrong; pack_section the CURRENT board instead. DEFAULT TO THE CURRENT BOARD: whenever the user does not name a specific section, assume every section action (place_card, move_card, remove_card, pack_section) targets the CURRENT board shown in context; only target a different board when the user names it explicitly. NOTE: the OLD free-form "pins" canvas (dragging panels to x/y coordinates, pin-ifying, collapsing/locking panels) and the per-panel "tabs" view are DEPRECATED and no longer available — do not offer them or talk about pinning to positions, collapsing, stashing, or locking panels. For a bare zoom/font nudge you may still use one set_layout, but never for arranging content. Placing an item as a card does NOT duplicate or move the underlying content — the same item can appear on multiple boards.',
+    '- SECTIONS / LAYOUT REQUESTS: to organize the workspace, work with SECTIONS/BOARDS — add_section, rename_section, delete_section, place_card, move_card, remove_card, pack_section — using the "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS" context below. Examples: "make a section for the release work" → add_section (then place_card the relevant items); "move the autoscaler agent to the Ops tab" → move_card; "put the release checklist on this board" → place_card; "get rid of the empty Scratch tab" → delete_section. CARD POSITIONS: each card sits at a real grid position on its board, and gaps CAN accumulate after cards are moved, resized or removed. When the user asks to "move the cards to the top", "line them up", "tidy / clean up / pack this board", or "remove the dead space", DO propose pack_section — that repacks the cards tightly to the top-left and closes the gaps. OMIT the sectionId (or use the current board\'s id) so it packs the board the user is looking at. GRID GEOMETRY: you are given each board\'s column count and every card\'s (x,y) WxH footprint in the "## GRID GEOMETRY" / "## BOARD SECTIONS" context. USE IT to COMPUTE clean, non-overlapping positions yourself and pass explicit "x"/"y" on place_card / move_card whenever the user asks to arrange, align, place side-by-side, stack, or drop something in a specific spot ("put the notes in a row across the top", "place the agent next to the checklist", "two columns"). pack_section is just the shortcut for "tidy / close gaps"; for deliberate placement, reason over the geometry and give x/y rather than relying on pack_section or auto-placement. Do NOT dismiss these requests as "already packed / no action needed", and NEVER respond to "top of the board" by creating or targeting a section literally named "Board" or by re-adding the cards elsewhere — that is wrong; pack_section the CURRENT board instead. DEFAULT TO THE CURRENT BOARD: whenever the user does not name a specific section, assume every section action (place_card, move_card, remove_card, pack_section) targets the CURRENT board shown in context; only target a different board when the user names it explicitly. NOTE: the OLD free-form "pins" canvas (dragging panels to x/y coordinates, pin-ifying, collapsing/locking panels) and the per-panel "tabs" view are DEPRECATED and no longer available — do not offer them or talk about pinning to positions, collapsing, stashing, or locking panels. For a bare zoom/font nudge you may still use one set_layout, but never for arranging content. Placing an item as a card does NOT duplicate or move the underlying content — the same item can appear on multiple boards.',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
     '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry its own LINKS (related URLs/files, each shown as "label → url (lnk-id)"), extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)") and read-only REPORTS. Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). For the card\'s LINKS section use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link are destructive — only on explicit request.',
     // Dedup / merge awareness.
@@ -15379,7 +15441,9 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const base = clip(a.base || a.cardBase || a.card, 200);
       const cardTitle = clip(a.cardTitle || a.title, 200);
       if ((!sectionId && !sectionName) || (!base && !cardTitle)) return null;
-      return { type: 'place_card', sectionId, sectionName, base, cardTitle, label: 'Add card to section', preview: 'Add “' + (cardTitle || base) + '” to ' + (sectionName ? '“' + sectionName + '”' : 'section') };
+      const gx = (a.x != null && isFinite(Number(a.x))) ? Math.max(0, Math.round(Number(a.x))) : null;
+      const gy = (a.y != null && isFinite(Number(a.y))) ? Math.max(0, Math.round(Number(a.y))) : null;
+      return { type: 'place_card', sectionId, sectionName, base, cardTitle, x: gx, y: gy, label: 'Add card to section', preview: 'Add “' + (cardTitle || base) + '” to ' + (sectionName ? '“' + sectionName + '”' : 'section') };
     }
     if (type === 'move_card') {
       const toSectionId = clip(a.toSectionId || a.sectionId, 80);
@@ -15389,7 +15453,9 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const base = clip(a.base || a.cardBase || a.card, 200);
       const cardTitle = clip(a.cardTitle || a.title, 200);
       if ((!toSectionId && !toSectionName) || (!base && !cardTitle)) return null;
-      return { type, toSectionId, toSectionName, fromSectionId, fromSectionName, base, cardTitle, label: 'Move card', preview: 'Move “' + (cardTitle || base) + '” → ' + (toSectionName ? '“' + toSectionName + '”' : 'section') };
+      const gx = (a.x != null && isFinite(Number(a.x))) ? Math.max(0, Math.round(Number(a.x))) : null;
+      const gy = (a.y != null && isFinite(Number(a.y))) ? Math.max(0, Math.round(Number(a.y))) : null;
+      return { type, toSectionId, toSectionName, fromSectionId, fromSectionName, base, cardTitle, x: gx, y: gy, label: 'Move card', preview: 'Move “' + (cardTitle || base) + '” → ' + (toSectionName ? '“' + toSectionName + '”' : 'section') };
     }
     if (type === 'remove_card') {
       const sectionId = clip(a.sectionId || a.id, 80);

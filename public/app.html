@@ -4023,6 +4023,24 @@
       min-height: 78px;
       resize: vertical;
     }
+    /* Shared chat image-attachment preview strip (used by every composer) */
+    .chat-att-strip {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin: 6px 0 4px; padding: 0;
+    }
+    .chat-att-thumb {
+      position: relative; width: 54px; height: 54px;
+      border-radius: 8px; overflow: hidden;
+      border: 1px solid var(--cp-border); background: var(--cp-surface-2, rgba(127,127,127,.08));
+    }
+    .chat-att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .chat-att-x {
+      position: absolute; top: 2px; right: 2px;
+      width: 16px; height: 16px; line-height: 15px; text-align: center;
+      border-radius: 999px; border: none; cursor: pointer;
+      background: rgba(0,0,0,.62); color: #fff; font-size: 11px; padding: 0;
+    }
+    .chat-att-hint { font-size: 11px; color: var(--cp-text-muted); align-self: center; }
     .typing-indicator {
       display: inline-flex;
       align-items: center;
@@ -6164,6 +6182,78 @@
                   </section>
                 </div>
 
+                <!-- Insights: what needs you right now (folded into home) -->
+                <div class="home-rsec span-full" :style="{ order: homeSecIndex('insights') }" x-show="homeSectionVisible('insights')"
+                     :class="homeDragOver === 'insights' ? 'is-drop' : ''"
+                     @dragover.prevent="homeReorderOver('insights')" @drop.prevent="homeReorderDrop('insights')">
+                  <div class="home-arrange-strip">
+                    <span class="home-drag" draggable="true" @dragstart="homeReorderStart('insights',$event)" @dragend="homeReorderEnd()" title="Drag to reorder">⠿</span>
+                    <span class="has-name">Insights</span>
+                    <span class="spacer"></span>
+                    <span class="home-move">
+                      <button type="button" @click="homeMoveSection('insights',-1)" title="Move up">↑</button>
+                      <button type="button" @click="homeMoveSection('insights',1)" title="Move down">↓</button>
+                    </span>
+                  </div>
+                  <section class="card">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="card-title">🛰️ Needs you</h2>
+                        <div class="card-subtitle">What needs you right now — live from your boards, PRs, tasks &amp; agents</div>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span class="hint" x-show="digest.lastSeen" x-text="'Reviewed ' + formatRelative(digest.lastSeen)"></span>
+                        <button class="btn ghost" type="button" @click="buildInsightsDigest()" :disabled="digestLoading" x-text="digestLoading ? '↻…' : '↻ Refresh'"></button>
+                        <button class="btn ghost" type="button" @click="markDigestReviewed()" :disabled="!digest.changed.length">✓ Reviewed</button>
+                      </div>
+                    </div>
+                    <div x-show="digestLoading && !digest.generatedAt" class="hint" style="padding:16px">🛰️ Scanning your boards, pull requests, tasks and agents…</div>
+                    <div x-show="digest.generatedAt && !digest.needsYou.length && !digest.changed.length && !digest.nudges.length" class="empty-state" style="padding:18px">You're all caught up. Nothing needs you right now. 🎉</div>
+                    <div style="display:flex;flex-direction:column;gap:8px" x-show="digest.needsYou.length">
+                      <template x-for="row in digest.needsYou" :key="'hnu-' + row.key">
+                        <div class="card" style="padding:11px 13px;display:flex;align-items:flex-start;gap:11px">
+                          <span style="font-size:17px;line-height:1.4;flex:none" x-text="row.icon"></span>
+                          <div style="min-width:0;flex:1">
+                            <div style="font-weight:600;display:flex;align-items:center;gap:7px">
+                              <span x-show="row.isNew" title="New since your last visit" style="color:var(--cp-accent);flex:none">●</span>
+                              <span x-text="row.title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                            </div>
+                            <div class="hint" x-text="row.why"></div>
+                            <div class="hint" style="opacity:.7;margin-top:2px" x-show="row.source" x-text="row.source + (row.relative ? ' · ' + row.relative : '')"></div>
+                          </div>
+                          <button class="btn ghost" type="button" style="flex:none" @click="digestAct(row)" x-text="row.actionLabel"></button>
+                        </div>
+                      </template>
+                    </div>
+                    <template x-if="digest.changed.length">
+                      <div style="margin-top:12px">
+                        <div style="font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px"><span>🆕 Changed since you last looked</span><span class="hint" x-text="digest.changed.length"></span></div>
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <template x-for="row in digest.changed" :key="'hchg-' + row.key">
+                            <div style="display:flex;align-items:flex-start;gap:9px;cursor:pointer" @click="digestAct(row)">
+                              <span style="flex:none" x-text="row.icon"></span>
+                              <div style="min-width:0"><span x-text="row.title" style="font-weight:600"></span><span class="hint" x-text="' · ' + row.why"></span></div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <template x-if="digest.nudges.length">
+                      <div style="margin-top:12px">
+                        <div style="font-weight:600;margin-bottom:8px">💡 Nudges</div>
+                        <div style="display:flex;flex-direction:column;gap:7px">
+                          <template x-for="(n, i) in digest.nudges" :key="'hnudge-' + i">
+                            <div style="display:flex;align-items:flex-start;gap:9px" :style="n.hash ? 'cursor:pointer' : ''" @click="n.hash && goTo(n.hash)">
+                              <span style="flex:none" x-text="n.icon"></span>
+                              <div style="min-width:0" x-text="n.text"></div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </section>
+                </div>
+
                 <!-- Active dev work -->
                 <div class="home-rsec span-full" :style="{ order: homeSecIndex('devwork') }" x-show="homeSectionVisible('devwork')"
                      :class="homeDragOver === 'devwork' ? 'is-drop' : ''"
@@ -6249,7 +6339,7 @@
                       <a class="btn ghost" href="#/boards">Open</a>
                     </div>
                     <div class="stack list-flow" x-show="homeBoards().length">
-                      <template x-for="b in homeBoards().slice(0, 5)" :key="'home-board-' + b.id">
+                      <template x-for="b in homeBoards()" :key="'home-board-' + b.id">
                         <div class="item-row" style="cursor:pointer" role="button" tabindex="0" @click="goTo('#/boards/' + b.id)" @keydown.enter="goTo('#/boards/' + b.id)">
                           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                             <span x-text="b.emoji || '📌'"></span>
@@ -9105,15 +9195,27 @@
                                               <template x-if="boardAgentChatState(item) && boardAgentChatState(item).error">
                                                 <div class="hint" style="color:var(--cp-danger,#c0392b);padding:2px" x-text="boardAgentChatState(item).error"></div>
                                               </template>
-                                              <div class="board-agent-chat-input" style="display:flex;gap:6px;align-items:flex-end;margin-top:2px">
+                                              <div class="board-agent-chat-input" style="display:flex;flex-direction:column;gap:4px;margin-top:2px">
+                                                <template x-if="chatAttHas('boardagent:' + item.id)">
+                                                  <div class="chat-att-strip">
+                                                    <template x-for="a in chatAttList('boardagent:' + item.id)" :key="a.id">
+                                                      <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('boardagent:' + item.id, a.id)" title="Remove">✕</button></div>
+                                                    </template>
+                                                  </div>
+                                                </template>
+                                                <div style="display:flex;gap:6px;align-items:flex-end">
                                                 <textarea rows="1" class="field-input" placeholder="Message this agent…" style="flex:1;resize:vertical;min-height:34px;max-height:120px"
                                                           :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
                                                           x-model="boardAgentChats[item.refId].input"
-                                                          @keydown.enter.prevent="boardAgentSend(item)"></textarea>
+                                                          @keydown.enter.prevent="boardAgentSend(item)"
+                                                          @paste="chatAttPaste('boardagent:' + item.id, $event)"
+                                                          @drop.prevent="chatAttDrop('boardagent:' + item.id, $event)"
+                                                          @dragover.prevent></textarea>
                                                 <button class="btn" type="button"
                                                         :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
                                                         @click.stop="boardAgentSend(item)"
                                                         x-text="(boardAgentChatState(item) && boardAgentChatState(item).running) ? '…' : 'Send'"></button>
+                                                </div>
                                               </div>
                                             </div>
                                           </template>
@@ -9852,8 +9954,15 @@
                   </div>
                 </div>
                 <div class="board-assistant-input">
-                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask the Workspace Assistant…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" style="flex:1;resize:none"></textarea>
-                  <button class="btn primary" type="button" @click="sendBoardAssistant()" :disabled="boardAssistant.busy || !boardAssistant.input.trim()">Send</button>
+                  <template x-if="chatAttHas('boardassistant')">
+                    <div class="chat-att-strip" style="flex:0 0 100%">
+                      <template x-for="a in chatAttList('boardassistant')" :key="a.id">
+                        <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('boardassistant', a.id)" title="Remove">✕</button></div>
+                      </template>
+                    </div>
+                  </template>
+                  <textarea class="field-input" rows="2" x-model="boardAssistant.input" placeholder="Ask the Workspace Assistant…" :disabled="boardAssistant.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendBoardAssistant(); }" @paste="chatAttPaste('boardassistant', $event)" @drop.prevent="chatAttDrop('boardassistant', $event)" @dragover.prevent style="flex:1;resize:none"></textarea>
+                  <button class="btn primary" type="button" @click="sendBoardAssistant()" :disabled="boardAssistant.busy || (!boardAssistant.input.trim() &amp;&amp; !chatAttHas('boardassistant'))">Send</button>
                 </div>
               </aside>
             </div>
@@ -11149,8 +11258,15 @@
                   </div>
                 </div>
                 <div class="board-assistant-input">
-                  <textarea class="field-input" rows="2" x-model="connect.chat.input" placeholder="Ask Connect AI…" :disabled="connect.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); connectAssistantSend(); }" style="flex:1;resize:none"></textarea>
-                  <button class="btn primary" type="button" @click="connectAssistantSend()" :disabled="connect.chat.busy || !connect.chat.input.trim()">Send</button>
+                  <template x-if="chatAttHas('connect')">
+                    <div class="chat-att-strip" style="flex:0 0 100%">
+                      <template x-for="a in chatAttList('connect')" :key="a.id">
+                        <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('connect', a.id)" title="Remove">✕</button></div>
+                      </template>
+                    </div>
+                  </template>
+                  <textarea class="field-input" rows="2" x-model="connect.chat.input" placeholder="Ask Connect AI…" :disabled="connect.chat.busy" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); connectAssistantSend(); }" @paste="chatAttPaste('connect', $event)" @drop.prevent="chatAttDrop('connect', $event)" @dragover.prevent style="flex:1;resize:none"></textarea>
+                  <button class="btn primary" type="button" @click="connectAssistantSend()" :disabled="connect.chat.busy || (!connect.chat.input.trim() &amp;&amp; !chatAttHas('connect'))">Send</button>
                 </div>
               </aside>
             </div>
@@ -12661,10 +12777,18 @@
 
                       <div x-show="createAgent.chat.error" class="hint" style="margin:0;color:var(--cp-danger)" x-text="createAgent.chat.error"></div>
 
+                      <template x-if="chatAttHas('createagent')">
+                        <div class="chat-att-strip">
+                          <template x-for="a in chatAttList('createagent')" :key="a.id">
+                            <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('createagent', a.id)" title="Remove">✕</button></div>
+                          </template>
+                        </div>
+                      </template>
                       <div style="display:flex;gap:6px">
                         <input class="field-input" type="text" x-model="createAgent.chat.input" placeholder="Message your draft agent…" style="flex:1"
-                          :disabled="createAgent.chat.running" @keydown.enter.prevent="caSend()" />
-                        <button class="btn primary" type="button" @click="caSend()" :disabled="createAgent.chat.running || !createAgent.chat.input.trim()"
+                          :disabled="createAgent.chat.running" @keydown.enter.prevent="caSend()"
+                          @paste="chatAttPaste('createagent', $event)" @drop.prevent="chatAttDrop('createagent', $event)" @dragover.prevent />
+                        <button class="btn primary" type="button" @click="caSend()" :disabled="createAgent.chat.running || (!createAgent.chat.input.trim() &amp;&amp; !chatAttHas('createagent'))"
                           x-text="createAgent.chat.running ? '…' : 'Send'"></button>
                       </div>
                     </div>
@@ -13966,8 +14090,16 @@
                       <div x-show="chatContinueInfo && chatContinueInfo.chatId === (activeChat && activeChat.id)" style="margin-bottom:8px">
                         <button class="btn primary" type="button" @click="_continueAgentChat(chatContinueInfo.chatId, chatContinueInfo.agentId); chatContinueInfo = null;">▶ Continue — retry the unfinished task</button>
                       </div>
-                      <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }"></textarea>
-                      <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim()">Send</button>
+                      <template x-if="chatAttHas('chat')">
+                        <div class="chat-att-strip">
+                          <template x-for="a in chatAttList('chat')" :key="a.id">
+                            <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('chat', a.id)" title="Remove">✕</button></div>
+                          </template>
+                          <span class="chat-att-hint">Images will be sent for the agent to analyze</span>
+                        </div>
+                      </template>
+                      <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }" @paste="chatAttPaste('chat', $event)" @drop.prevent="chatAttDrop('chat', $event)" @dragover.prevent></textarea>
+                      <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim() &amp;&amp; !chatAttHas('chat')">Send</button>
                     </div>
                   </template>
                 </div>
@@ -17208,11 +17340,21 @@
                   </template>
                   <div class="hint" x-show="templates.assistant.busy">Assistant is thinking…</div>
                 </div>
-                <div style="display:flex;gap:8px;align-items:flex-end">
-                  <textarea class="field-input" style="min-height:54px;flex:1" x-model="templates.assistant.input"
-                    @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); sendAssistant(); }"
-                    placeholder="Message the assistant… (Enter to send, Shift+Enter for newline)"></textarea>
-                  <button class="btn primary" type="button" @click="sendAssistant()" :disabled="templates.assistant.busy || !templates.assistant.input.trim()">Send</button>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <template x-if="chatAttHas('mgrtpl')">
+                    <div class="chat-att-strip">
+                      <template x-for="a in chatAttList('mgrtpl')" :key="a.id">
+                        <div class="chat-att-thumb"><img :src="a.dataUrl" :alt="a.name"><button class="chat-att-x" type="button" @click="chatAttRemove('mgrtpl', a.id)" title="Remove">✕</button></div>
+                      </template>
+                    </div>
+                  </template>
+                  <div style="display:flex;gap:8px;align-items:flex-end">
+                    <textarea class="field-input" style="min-height:54px;flex:1" x-model="templates.assistant.input"
+                      @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); sendAssistant(); }"
+                      @paste="chatAttPaste('mgrtpl', $event)" @drop.prevent="chatAttDrop('mgrtpl', $event)" @dragover.prevent
+                      placeholder="Message the assistant… (Enter to send, Shift+Enter for newline)"></textarea>
+                    <button class="btn primary" type="button" @click="sendAssistant()" :disabled="templates.assistant.busy || (!templates.assistant.input.trim() &amp;&amp; !chatAttHas('mgrtpl'))">Send</button>
+                  </div>
                 </div>
                 <div class="hint">New session: <button type="button" style="background:none;border:none;color:var(--cp-link);cursor:pointer;padding:0;font:inherit" @click="resetAssistant()">start over</button></div>
               </div>
@@ -17601,6 +17743,11 @@
         boardAgentChats: {},
         activeChat: null,
         chatDraft: '',
+        // Shared image-attach state for ALL chat composers, keyed by surface id
+        // (e.g. 'chat', 'boardagent:<id>', 'createagent', 'boardassistant',
+        // 'connect', 'mgrtpl'). Each value is an array of pending attachments
+        // { id, name, dataUrl, uploading, path, error }. See chatAtt* helpers.
+        chatAtt: {},
         _cliPollTimer: null,
         cliSessions: [],
         cliSessionsLoading: false,
@@ -17840,7 +17987,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homePrs: { loading: false, items: [], fetchedAt: null },
         // Home (Productivity) redesign — reorderable sections, newsletter status card,
         // recent-conversations feed, and the "What's new" banner.
-        homeSectionsDefault: ['greeting', 'devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
+        homeSectionsDefault: ['greeting', 'insights', 'devwork', 'whatsnew', 'newsletter', 'boards', 'prs'],
         homeArrange: false,
         homeSectionOrder: [],
         homeSectionHidden: [],
@@ -18923,6 +19070,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Productivity home extras (fire-and-forget; each is non-blocking).
             this.homeInitSections();
             this.loadHomeNewsletter();
+            this.buildInsightsDigest();
             if (!this.whatsNew.entries || !this.whatsNew.entries.length) this.loadWhatsNew();
             this.loadMarketplaceUpdates(true);
           }
@@ -22030,6 +22178,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'boards': return true;
             case 'prs': return !!(this.homePrs.items.length || this.homePrs.loading);
             case 'newsletter': return this.featureVisible('newsletter');
+            case 'insights': return !!(this.digest && (this.digest.needsYou.length || this.digest.changed.length || this.digest.nudges.length || this.digestLoading));
             default: return false;
           }
         },
@@ -22083,7 +22232,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         homeSecLabel(key) {
           const labels = {
             greeting: 'Good evening', devwork: 'Active dev work', whatsnew: "What's new", newsletter: 'Newsletter',
-            boards: 'Workspaces', prs: 'Pull requests',
+            boards: 'Workspaces', prs: 'Pull requests', insights: 'Insights',
             teams: 'Teams', glance: 'At a glance',
             attention: 'Attention needed', pulse: 'Team pulse', recent: 'Recently added',
             flowchart: 'Flow / Task activity',
@@ -24788,10 +24937,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // as proposals — nothing changes until the user confirms each one.
         async connectAssistantSend() {
           const c = this.connect.chat;
-          const msg = (c.input || '').trim();
-          if (!msg || c.busy) return;
-          c.messages.push({ role: 'user', content: msg });
+          const raw = (c.input || '').trim();
+          if ((!raw && !this.chatAttHas('connect')) || c.busy) return;
           c.input = '';
+          const { display, prompt } = await this.chatAttConsume('connect', raw);
+          const msg = prompt;
+          c.messages.push({ role: 'user', content: display });
           c.busy = true;
           this._connectStartActivity('Thinking');
           this._connectScroll();
@@ -27669,10 +27820,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async boardAgentSend(item) {
           const st = this.boardAgentChatEnsure(item);
           if (!st) return;
-          const msg = (st.input || '').trim();
-          if (!msg || st.running) return;
+          const key = 'boardagent:' + item.id;
+          const raw = (st.input || '').trim();
+          if ((!raw && !this.chatAttHas(key)) || st.running) return;
           st.error = ''; st.input = '';
-          st.messages.push({ role: 'user', content: msg, activity: [], timestamp: Date.now() });
+          const { display, prompt } = await this.chatAttConsume(key, raw);
+          const msg = prompt;
+          st.messages.push({ role: 'user', content: display, activity: [], timestamp: Date.now() });
           st.running = true; st.live = { status: 'Thinking…', steps: [] };
           try {
             const r = await this.request('/api/agents/' + encodeURIComponent(item.refId) + '/chat', {
@@ -33229,7 +33383,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!s && !a.sectionId && !a.sectionName) s = this._dropSection(); // default: current board
             const base = this._baseResolve(a.base, a.cardTitle);
             if (!s || !base) return false;
-            this.placeCard(s.id, base, null, null);
+            this.placeCard(s.id, base, (a.x != null ? a.x : null), (a.y != null ? a.y : null));
             return true;
           }
           if (a.type === 'move_card') {
@@ -33240,7 +33394,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const from = this._secResolve(a.fromSectionId, a.fromSectionName);
             const sources = from ? [from] : this.boardSections().filter(x => x.id !== to.id);
             sources.forEach(sec => { sec.cards = (sec.cards || []).filter(c => c.base !== base); });
-            this.placeCard(to.id, base, null, null); // persists via _resolveSection→_touchSections
+            this.placeCard(to.id, base, (a.x != null ? a.x : null), (a.y != null ? a.y : null)); // persists via _resolveSection→_touchSections
             this._touchSections();
             return true;
           }
@@ -33287,15 +33441,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             lines.push('When the user does not name a board, assume they mean the CURRENT board below.');
             lines.push('CURRENT BOARD the user is looking at: "' + activeName + '"' + (activeSec ? ' (id=' + activeSec.id + ')' : '') + '. "the board"/"this board"/"the top of the board" all refer to THIS one — never a section literally named "Board".');
             lines.push('');
+            lines.push('## GRID GEOMETRY (positions are REAL — you can compute them)');
+            lines.push('Each board is a grid `cols` columns wide. A card occupies a WxH footprint (in grid');
+            lines.push('CELLS) at position (x,y): x = 0-based column of its LEFT edge, y = 0-based row of its');
+            lines.push('TOP edge. Below, each placed card is shown as name [base=…] @(x,y) WxH. To position a');
+            lines.push('card precisely, pass integer `x` and `y` (grid units) on place_card / move_card; omit');
+            lines.push('them to auto-place at the first free top-left slot. Cards must NOT overlap — when you');
+            lines.push('set x/y, compute a footprint that does not collide with the cards already on that board');
+            lines.push('(anything you push into an occupied cell is cascaded downward automatically). Typical');
+            lines.push('heights (rows): note ~7, checklist ~9, pin ~10, dev ~12, agent/manager ~20; default');
+            lines.push('width is about half the board\'s cols. Use pack_section only to tidy / close gaps');
+            lines.push('("move everything to the top", "line up", "tidy this board").');
+            lines.push('');
             if (!secs.length) {
               lines.push('(no sections yet — propose add_section to create one)');
             } else {
               secs.forEach(s => {
+                try { this._ensureGeom(s); } catch (e) {}
+                const cols = this._secColsOf(s);
                 const cards = (s.cards || []).map(c => {
                   const t = baseTitle[c.base];
-                  return (t ? t + ' ' : '') + '[base=' + c.base + ']';
+                  const geo = '@(' + (c.x || 0) + ',' + (c.y || 0) + ') ' + (c.w || Math.round(cols / 2)) + 'x' + (c.h || 10);
+                  return (t ? t + ' ' : '') + '[base=' + c.base + '] ' + geo;
                 });
-                lines.push('- BOARD id=' + s.id + ' name="' + (s.name || '') + '"'
+                lines.push('- BOARD id=' + s.id + ' name="' + (s.name || '') + '" cols=' + cols
                   + (s.id === activeId ? ' (CURRENT)' : '')
                   + (s.starred ? ' (starred)' : '')
                   + (cards.length ? ' — cards: ' + cards.join('; ') : ' — (empty)'));
@@ -33315,11 +33484,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async sendBoardAssistant() {
           const board = this.activeBoard();
-          const text = (this.boardAssistant.input || '').trim();
-          if (!board || !text || this.boardAssistant.busy) return;
-          this._recordBoardAiPrompt(text);
-          this.boardAssistant.messages.push({ role: 'user', content: text });
+          const raw = (this.boardAssistant.input || '').trim();
+          if (!board || (!raw && !this.chatAttHas('boardassistant')) || this.boardAssistant.busy) return;
+          this._recordBoardAiPrompt(raw);
           this.boardAssistant.input = '';
+          const consumed = await this.chatAttConsume('boardassistant', raw);
+          const text = consumed.prompt;
+          this.boardAssistant.messages.push({ role: 'user', content: consumed.display });
           this.boardAssistant.busy = true;
           this._baStartActivity('Thinking', 'think');
           this._baScroll();
@@ -34162,18 +34333,108 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try { localStorage.setItem('chatVerbose', this.chatVerbose ? '1' : '0'); } catch {}
         },
 
+        // ── Shared chat image attachments ─────────────────────────────────
+        // Paste or drag an image into ANY chat composer. Attachments are held
+        // per-surface in this.chatAtt[key]; on send, chatAttConsume() uploads
+        // them and appends their absolute file paths to the outgoing message so
+        // the agent's file tools can view + analyze the image. The visible user
+        // message keeps just a small "📎 N image(s)" marker.
+        chatAttList(key) { return (this.chatAtt && this.chatAtt[key]) || []; },
+        chatAttHas(key) { return this.chatAttList(key).length > 0; },
+        _chatAttPush(key, name, dataUrl) {
+          if (!dataUrl) return;
+          const arr = this.chatAtt[key] ? this.chatAtt[key].slice() : [];
+          arr.push({ id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: name || 'image.png', dataUrl, uploading: false, path: '', error: '' });
+          this.chatAtt = { ...this.chatAtt, [key]: arr };
+        },
+        chatAttRemove(key, id) {
+          const arr = (this.chatAtt[key] || []).filter(a => a.id !== id);
+          this.chatAtt = { ...this.chatAtt, [key]: arr };
+        },
+        chatAttClear(key) { this.chatAtt = { ...this.chatAtt, [key]: [] }; },
+        _readImageFile(file) {
+          return new Promise((resolve) => {
+            try {
+              const fr = new FileReader();
+              fr.onload = () => resolve({ name: file.name || 'image.png', dataUrl: String(fr.result || '') });
+              fr.onerror = () => resolve(null);
+              fr.readAsDataURL(file);
+            } catch { resolve(null); }
+          });
+        },
+        async _chatAttAddFiles(key, files) {
+          const list = Array.from(files || []).filter(f => f && /^image\//.test(f.type));
+          if (!list.length) return false;
+          for (const f of list) {
+            if (f.size > 12 * 1024 * 1024) { this.showToast('Image too large', (f.name || 'image') + ' is over 12 MB.', 'warn'); continue; }
+            const r = await this._readImageFile(f);
+            if (r && r.dataUrl) this._chatAttPush(key, r.name, r.dataUrl);
+          }
+          return true;
+        },
+        // @paste handler — pulls image blobs off the clipboard. Returns true if it
+        // consumed an image (caller can preventDefault to avoid pasting a filename).
+        async chatAttPaste(key, ev) {
+          try {
+            const items = (ev.clipboardData && ev.clipboardData.items) || [];
+            const imgs = [];
+            for (const it of items) { if (it && it.kind === 'file' && /^image\//.test(it.type)) { const f = it.getAsFile(); if (f) imgs.push(f); } }
+            if (!imgs.length) return false;
+            ev.preventDefault();
+            await this._chatAttAddFiles(key, imgs);
+            return true;
+          } catch { return false; }
+        },
+        // @drop handler for a composer drop zone.
+        async chatAttDrop(key, ev) {
+          try {
+            const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+            if (!files.length) return false;
+            ev.preventDefault();
+            await this._chatAttAddFiles(key, files);
+            return true;
+          } catch { return false; }
+        },
+        // Upload all pending attachments for `key` and fold their paths into the
+        // outgoing text. Returns { display, prompt, count } — `display` is what the
+        // visible bubble should show, `prompt` is what to send to the agent. On any
+        // upload failure the attachment is dropped with a toast. Clears the list.
+        async chatAttConsume(key, text) {
+          const raw = String(text || '');
+          const atts = this.chatAttList(key);
+          if (!atts.length) return { display: raw, prompt: raw, count: 0 };
+          const paths = [];
+          for (const a of atts) {
+            if (a.path) { paths.push({ path: a.path, name: a.name }); continue; }
+            try {
+              const r = await this.request('/api/chat/image/upload', { method: 'POST', body: JSON.stringify({ name: a.name, dataUrl: a.dataUrl }) });
+              if (r && r.path) paths.push({ path: r.path, name: a.name });
+            } catch (e) {
+              this.showToast('Image upload failed', (a.name || 'image') + ': ' + ((e && e.message) || e), 'warn');
+            }
+          }
+          this.chatAttClear(key);
+          if (!paths.length) return { display: raw, prompt: raw, count: 0 };
+          const lines = paths.map(p => '- ' + p.path + (p.name ? ' (original name: ' + p.name + ')' : ''));
+          const block = '\n\n[The user attached ' + paths.length + ' image file' + (paths.length === 1 ? '' : 's') + '. Open and look at each one with your file/vision tools (e.g. the `view` tool on the absolute path) before you respond, and use what you see:\n' + lines.join('\n') + '\n]';
+          const marker = '\n\n📎 ' + paths.length + ' image' + (paths.length === 1 ? '' : 's') + ' attached';
+          return { display: (raw.trim() ? raw.trim() : '(see attached image)') + marker, prompt: (raw.trim() ? raw.trim() : 'Please look at the attached image(s) and tell me what you see.') + block, count: paths.length };
+        },
+
         toggleChatLive() {
           this.chatLive = !this.chatLive;
           try { localStorage.setItem('chatLive', this.chatLive ? '1' : '0'); } catch {}
         },
 
         async sendChat() {
-          if (!this.activeChat || !this.chatDraft.trim()) return;
-          const content = this.chatDraft.trim();
+          if (!this.activeChat || (!this.chatDraft.trim() && !this.chatAttHas('chat'))) return;
+          const raw = this.chatDraft.trim();
           this.chatDraft = '';
+          const { display, prompt } = await this.chatAttConsume('chat', raw);
+          const content = prompt;
           await this.request(`/api/chats/${encodeURIComponent(this.activeChat.id)}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ role: 'user', content })
+            body: JSON.stringify({ role: 'user', content: display })
           });
           // Mark this chat as "typing" BEFORE refreshing so the recovery logic in
           // openChat() doesn't mistake the just-posted user message for a dangling
@@ -34736,10 +34997,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         async sendAssistant() {
           const a = this.templates.assistant;
-          const msg = (a.input || '').trim();
-          if (!msg || a.busy) return;
-          a.messages.push({ role: 'user', text: msg });
+          const raw = (a.input || '').trim();
+          if ((!raw && !this.chatAttHas('mgrtpl')) || a.busy) return;
           a.input = '';
+          const { display, prompt } = await this.chatAttConsume('mgrtpl', raw);
+          const msg = prompt;
+          a.messages.push({ role: 'user', text: display });
           a.busy = true;
           try {
             const payload = { message: msg };
@@ -37951,11 +38214,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async caSend() {
           const c = this.createAgent;
-          const msg = c.chat.input.trim();
-          if (!msg) return;
+          const raw = c.chat.input.trim();
+          if (!raw && !this.chatAttHas('createagent')) return;
           if (!c.prompt.trim()) { this.showToast('Add a prompt first', 'Generate or write the agent prompt before chatting.', 'info'); return; }
           if (c.chat.running) return;
           c.chat.error = ''; c.chat.input = '';
+          const consumed = await this.chatAttConsume('createagent', raw);
+          const msg = consumed.prompt;
+          const display = consumed.display;
           const sig = this.caConfigSig();
           const dirty = !c.chat.sessionId || sig !== c.chat.configSig;
           if (dirty && c.chat.messages.length) {
@@ -37963,7 +38229,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // the visible conversation matches the (re-staged) server session.
             c.chat.messages = [];
           }
-          c.chat.messages.push({ role: 'user', content: msg, activity: [], timestamp: Date.now() });
+          c.chat.messages.push({ role: 'user', content: display, activity: [], timestamp: Date.now() });
           c.chat.running = true; c.chat.status = 'Thinking…';
           c.chat.live = { status: 'Thinking…', steps: [] };
           let warn = '';
