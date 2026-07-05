@@ -11379,6 +11379,442 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== Me.AI M2 — the Me-agent console (dispatch → stream → decide → complete) =====
+// A per-task drawer where a background "Me agent" does a playbook (M2 = code review),
+// streaming its thinking/tools/report to the SPA over the shared `/api/events` SSE bus
+// (event type `me-ai-task`). After each report the agent proposes AI-generated
+// nextActions; the user steers via allowed intents; completion writes a dedup-aware
+// diary entry (§9.1). Runtime is REUSED (sdkRunner.runChat streaming), no new engine.
+const ME_AI_TASKS_DIR = path.join(dataPath('me-ai'), 'tasks');
+const meAiTasks = new Map();            // taskId -> live task object
+const meAiQueue = [];                   // queued run fns waiting for a concurrency slot
+let meAiActive = 0;                     // in-flight background runs
+const ME_AI_MAX_CONCURRENT = 3;         // locked decision #5
+// Allowed intent vocabulary — generated actions must map to one of these (§7.2).
+const ME_AI_INTENTS = ['apply-fix', 'comment', 'push', 'approve', 'request-review', 'retry', 'change-approach', 'hand-to-me', 'continue', 'summarize', 'ask-user', 'abandon'];
+
+function _meAiTaskPath(id) { return path.join(ME_AI_TASKS_DIR, String(id).replace(/[^a-z0-9_-]/gi, '') + '.json'); }
+function _meAiSaveTask(t) {
+  try {
+    fs.mkdirSync(ME_AI_TASKS_DIR, { recursive: true });
+    // Persist a serializable snapshot (drop nothing — events are plain objects).
+    const { _timer, ...snap } = t;
+    fs.writeFileSync(_meAiTaskPath(t.id), JSON.stringify(snap, null, 2));
+  } catch (_) { /* best-effort */ }
+}
+function _meAiLoadTask(id) {
+  if (meAiTasks.has(id)) return meAiTasks.get(id);
+  try {
+    const p = _meAiTaskPath(id);
+    if (!fs.existsSync(p)) return null;
+    const t = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return (t && t.id) ? t : null;
+  } catch { return null; }
+}
+// Rehydrate persisted tasks into the live Map on boot so the "at work" lane and
+// GET /tasks survive a restart. Any task that was mid-run when the process died
+// is neutralized (the SDK session is gone) so it doesn't show a phantom spinner.
+function _meAiHydrateTasks() {
+  try {
+    if (!fs.existsSync(ME_AI_TASKS_DIR)) return;
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000; // keep ~2 weeks
+    const files = fs.readdirSync(ME_AI_TASKS_DIR).filter(f => f.endsWith('.json'));
+    for (const f of files) {
+      try {
+        const p = path.join(ME_AI_TASKS_DIR, f);
+        const t = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (!t || !t.id) continue;
+        const when = Date.parse(t.updatedAt || t.createdAt || 0) || 0;
+        if (when && when < cutoff) continue;
+        if (t.status === 'running') {
+          // Interrupted by the restart — surface it as recoverable, not live.
+          t.status = 'error'; t.stage = 'error';
+          t.error = t.error || 'Interrupted by a server restart.';
+          t.nextActions = [
+            { label: 'Retry', intent: 'retry', primary: true, risk: 'none' },
+            { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
+          ];
+        }
+        meAiTasks.set(t.id, t);
+      } catch (_) { /* skip corrupt file */ }
+    }
+  } catch (_) { /* best-effort */ }
+}
+_meAiHydrateTasks();
+function _meAiTaskPublic(t) {
+  if (!t) return null;
+  return {
+    id: t.id, date: t.date, playbook: t.playbook, title: t.title,
+    stage: t.stage, status: t.status, background: !!t.background,
+    events: (t.events || []).slice(-200), report: t.report || null,
+    nextActions: t.nextActions || [], question: t.question || null,
+    error: t.error || null, completedToDiary: !!t.completedToDiary,
+    createdAt: t.createdAt, updatedAt: t.updatedAt, startedAt: t.startedAt, finishedAt: t.finishedAt,
+  };
+}
+// Push a transcript event, persist, and stream it live over the shared SSE bus.
+function _meAiEmit(t, ev) {
+  t.seq = (t.seq || 0) + 1;
+  const e = Object.assign({ seq: t.seq, at: Date.now() }, ev);
+  t.events = t.events || [];
+  t.events.push(e);
+  if (t.events.length > 600) t.events.splice(0, t.events.length - 600);
+  t.updatedAt = new Date().toISOString();
+  _meAiSaveTask(t);
+  try { broadcastSSE('me-ai-task', { taskId: t.id, stage: t.stage, status: t.status, ev: e }); } catch (_) {}
+}
+function _meAiSetStage(t, stage, status) {
+  t.stage = stage;
+  if (status) t.status = status;
+  t.updatedAt = new Date().toISOString();
+  _meAiEmit(t, { kind: 'stage', stage, status: t.status });
+}
+
+// Build the kickoff prompt for a playbook. M2 ships the code-review playbook; the
+// prompt is written so it produces real, useful work even with NO PR context (it
+// reviews the repo's current uncommitted changes, else the latest commit).
+function _meAiPlaybookPrompt(playbook, context, cwd) {
+  const ctx = context && typeof context === 'object' ? context : {};
+  const jsonContract = [
+    'When you have finished, end your reply with a single fenced ```json block (and nothing after it) of the form:',
+    '{',
+    '  "report": { "summary": "<2-4 sentence outcome>", "findings": [ { "title": "<short>", "detail": "<what & where>", "severity": "high|medium|low" } ] },',
+    '  "nextActions": [ { "label": "<button text>", "intent": "<one of: apply-fix, comment, push, approve, request-review, retry, change-approach, continue, abandon>", "primary": true|false, "risk": "none|write|external" } ]',
+    '}',
+    'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human.',
+  ].join('\n');
+  if (playbook === 'review') {
+    const target = ctx.prTitle || ctx.branch || 'the current uncommitted changes in this repository';
+    return [
+      'You are my code-review Me-agent. Perform a focused, senior-level code review.',
+      `Review target: ${target}.`,
+      ctx.prUrl ? `PR link: ${ctx.prUrl}` : '',
+      `Working directory: ${cwd}.`,
+      'Steps: (1) Inspect the changes — run `git status` and `git --no-pager diff` (and `git --no-pager diff --staged`); if there are no uncommitted changes, review the latest commit with `git --no-pager show --stat HEAD` and its diff. (2) Read the changed files for context. (3) Identify correctness bugs, security issues, missing tests, and style/maintainability concerns — be specific with file:line references. (4) Note what is good too.',
+      'Stream your reasoning and tool use as you go. Be concise in prose.',
+      '',
+      jsonContract,
+    ].filter(Boolean).join('\n');
+  }
+  // Generic fallback playbook.
+  return [
+    `You are my Me-agent working on: ${ctx.title || playbook}.`,
+    ctx.detail ? `Context: ${ctx.detail}` : '',
+    `Working directory: ${cwd}.`,
+    'Investigate using tools as needed, then report.',
+    '', jsonContract,
+  ].filter(Boolean).join('\n');
+}
+// Prompt used when the user picks an intent to continue the loop (§7.2).
+function _meAiActPrompt(intent, text) {
+  const base = {
+    'apply-fix': 'Apply the fix(es) you proposed. Make the edits, run any relevant tests/build to verify, and show what you changed.',
+    'comment': 'Draft the review comments for the findings (grouped by file), ready for me to post.',
+    'push': 'Commit and push the changes you made (describe the commit). If pushing is not possible here, prepare the commit and report exactly what would be pushed.',
+    'approve': 'Summarize why this is approvable and prepare an approval note.',
+    'request-review': 'Draft a message requesting review from the right people, summarizing what to look at.',
+    'retry': 'Retry the last operation, self-correcting based on what failed.',
+    'change-approach': 'Take a different approach to the problem and explain the new plan before acting.',
+    'continue': 'Continue with the next logical step.',
+    'summarize': 'Summarize the outcome and any follow-ups.',
+  }[intent] || 'Continue.';
+  const extra = (text && String(text).trim()) ? ('\n\nMy note: ' + String(text).trim()) : '';
+  return base + extra + '\n\n' + [
+    'When done, again end with a single fenced ```json block:',
+    '{ "report": { "summary": "...", "findings": [...] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none" } ] }',
+  ].join('\n');
+}
+// Parse the agent's final text into a structured report + nextActions, tolerant of
+// missing/garbled JSON (fall back to prose + a sane default action set).
+function _meAiParseReport(text) {
+  const raw = String(text || '');
+  let parsed = null;
+  try { parsed = _connectExtractJson(raw); } catch (_) { parsed = null; }
+  let report = null, nextActions = [];
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.report && typeof parsed.report === 'object') {
+      report = {
+        summary: String(parsed.report.summary || '').trim(),
+        findings: Array.isArray(parsed.report.findings) ? parsed.report.findings.slice(0, 30).map(f => ({
+          title: String(f.title || '').slice(0, 200),
+          detail: String(f.detail || '').slice(0, 1200),
+          severity: ['high', 'medium', 'low'].includes(f.severity) ? f.severity : 'medium',
+        })) : [],
+      };
+    }
+    if (Array.isArray(parsed.nextActions)) {
+      nextActions = parsed.nextActions.slice(0, 6).map(a => ({
+        label: String(a.label || a.intent || 'Continue').slice(0, 60),
+        intent: ME_AI_INTENTS.includes(a.intent) ? a.intent : 'continue',
+        primary: !!a.primary,
+        risk: ['none', 'write', 'external'].includes(a.risk) ? a.risk : 'none',
+      }));
+    }
+  }
+  // Strip the trailing JSON block from the prose so the transcript reads cleanly.
+  const prose = raw.replace(/```json[\s\S]*?```\s*$/i, '').trim();
+  if (!report) report = { summary: prose.slice(0, 600) || 'Run complete.', findings: [] };
+  report.markdown = prose;
+  if (!nextActions.length) {
+    nextActions = [
+      { label: 'Looks good — done', intent: 'approve', primary: true, risk: 'none' },
+      { label: 'Draft comments', intent: 'comment', primary: false, risk: 'none' },
+      { label: 'Continue', intent: 'continue', primary: false, risk: 'none' },
+    ];
+  }
+  return { report, nextActions };
+}
+// Run one turn of the Me agent, wiring streaming callbacks into the transcript.
+async function _meAiRunTurn(t, prompt, { resume }) {
+  const cwd = (t.context && t.context.cwd) || __dirname;
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: resume ? null : { cwd, allowAll: true },
+    prompt,
+    sessionId: t.sessionId,
+    resume: !!resume,
+    cwd,
+    meta: { source: 'me-ai', category: 'me-ai' },
+    onChunk: (c) => { acc += c; },
+    onStep: (s) => {
+      if (!s || !s.kind) return;
+      if (s.kind === 'thinking') _meAiEmit(t, { kind: 'thinking', text: String(s.content || '').slice(0, 1500) });
+      else if (s.kind === 'tool_start') _meAiEmit(t, { kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId, args: (() => { try { return JSON.stringify(s.args).slice(0, 400); } catch { return ''; } })() });
+      else if (s.kind === 'tool_complete') _meAiEmit(t, { kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success, result: String(s.result || '').slice(0, 800) });
+      else if (s.kind === 'agent') _meAiEmit(t, { kind: 'agent', name: s.name });
+    },
+  });
+  if (result && result.fallback) {
+    const err = new Error(result.error || 'Me agent runtime unavailable');
+    err._fallback = true;
+    throw err;
+  }
+  return acc.trim() ? acc : ((result && result.output) || '');
+}
+// Concurrency gate: run now if a slot is free, else queue. Drains on completion.
+function _meAiSchedule(fn) {
+  if (meAiActive >= ME_AI_MAX_CONCURRENT) { meAiQueue.push(fn); return; }
+  meAiActive++;
+  Promise.resolve().then(fn).catch(() => {}).finally(() => {
+    meAiActive--;
+    if (meAiQueue.length && meAiActive < ME_AI_MAX_CONCURRENT) {
+      const next = meAiQueue.shift();
+      _meAiSchedule(next);
+    }
+  });
+}
+// The background driver for a fresh task: working → (auto-retry once) → report/awaiting.
+function _meAiDispatchRun(t) {
+  _meAiSchedule(async () => {
+    t.startedAt = new Date().toISOString();
+    const kickoff = _meAiPlaybookPrompt(t.playbook, t.context, (t.context && t.context.cwd) || __dirname);
+    let attempt = 0;
+    while (true) {
+      attempt++;
+      try {
+        _meAiSetStage(t, 'working', 'running');
+        _meAiEmit(t, { kind: 'note', text: attempt > 1 ? `Retrying (attempt ${attempt})…` : 'Dispatching Me agent…' });
+        const out = await _meAiRunTurn(t, kickoff, { resume: false });
+        const { report, nextActions } = _meAiParseReport(out);
+        t.report = report; t.nextActions = nextActions; t.question = null;
+        _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
+        _meAiSetStage(t, 'awaiting', 'awaiting');
+        return;
+      } catch (e) {
+        _meAiEmit(t, { kind: 'error', text: String(e.message || e) });
+        // Locked policy: auto-retry once, then escalate to the user (§7.5).
+        if (attempt <= 1 && !e._fallback) { continue; }
+        t.error = String(e.message || e);
+        t.nextActions = [
+          { label: 'Retry', intent: 'retry', primary: true, risk: 'none' },
+          { label: 'Change approach', intent: 'change-approach', primary: false, risk: 'none' },
+          { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
+        ];
+        _meAiSetStage(t, 'error', 'error');
+        return;
+      }
+    }
+  });
+}
+// Continue the loop when the user picks an intent (§7.2). Resumes the same session.
+function _meAiActRun(t, intent, text) {
+  _meAiSchedule(async () => {
+    let attempt = 0;
+    const prompt = _meAiActPrompt(intent, text);
+    while (true) {
+      attempt++;
+      try {
+        _meAiSetStage(t, 'working', 'running');
+        _meAiEmit(t, { kind: 'note', text: `You chose: ${intent}${text ? ' — ' + text : ''}` });
+        const out = await _meAiRunTurn(t, prompt, { resume: true });
+        const { report, nextActions } = _meAiParseReport(out);
+        t.report = report; t.nextActions = nextActions; t.error = null;
+        _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
+        _meAiSetStage(t, 'awaiting', 'awaiting');
+        return;
+      } catch (e) {
+        _meAiEmit(t, { kind: 'error', text: String(e.message || e) });
+        if (attempt <= 1 && !e._fallback) { continue; }
+        t.error = String(e.message || e);
+        t.nextActions = [
+          { label: 'Retry', intent: 'retry', primary: true, risk: 'none' },
+          { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
+        ];
+        _meAiSetStage(t, 'error', 'error');
+        return;
+      }
+    }
+  });
+}
+// Dedup-aware diary write-back on completion (§9.1). Only writes what a passive
+// collector wouldn't capture (a Me-agent-driven task outcome), keyed by ext tag.
+function _meAiWriteDiary(t) {
+  const s = settings.getSettings();
+  if (!s.meAiConsent) return { written: false, reason: 'consent-off' };
+  const extTag = 'ext:me-ai:' + t.id;
+  try {
+    const existing = connect.listEvidence({ includeHidden: true }) || [];
+    if (existing.some(e => (e.tags || []).some(tag => String(tag) === extTag))) {
+      return { written: false, reason: 'already-logged' };
+    }
+  } catch (_) {}
+  const r = t.report || {};
+  const findingsLine = Array.isArray(r.findings) && r.findings.length
+    ? (' Findings: ' + r.findings.map(f => f.title).filter(Boolean).slice(0, 6).join('; ') + '.')
+    : '';
+  const title = t.title || (t.playbook === 'review' ? 'Code review (Me.AI)' : ('Me.AI task: ' + t.playbook));
+  const detail = (r.summary || 'Completed via Me.AI.') + findingsLine;
+  const links = [];
+  if (t.context && t.context.prUrl) links.push(t.context.prUrl);
+  try {
+    const item = connect.addEvidence({
+      date: t.date || new Date().toISOString().slice(0, 10),
+      source: t.playbook === 'review' ? 'pr-review' : 'other',
+      title,
+      detail,
+      impact: '',
+      links,
+      tags: [extTag, 'me-ai', t.playbook].filter(Boolean),
+    }, { origin: 'auto' });
+    return { written: true, item };
+  } catch (e) {
+    return { written: false, reason: e.message };
+  }
+}
+
+// POST /api/me-ai/task/dispatch { playbook, title, context, date } → start a Me agent.
+app.post('/api/me-ai/task/dispatch', (req, res) => {
+  try {
+    const b = req.body || {};
+    const playbook = String(b.playbook || 'review');
+    const id = require('crypto').randomUUID();
+    const t = {
+      id,
+      date: (typeof b.date === 'string' && b.date.slice(0, 10)) || new Date().toISOString().slice(0, 10),
+      playbook,
+      title: String(b.title || '').slice(0, 200) || (playbook === 'review' ? 'Code review' : playbook),
+      context: (b.context && typeof b.context === 'object') ? b.context : {},
+      stage: 'dispatch',
+      status: 'queued',
+      background: !!b.background,
+      events: [],
+      report: null,
+      nextActions: [],
+      question: null,
+      sessionId: require('crypto').randomUUID(),
+      seq: 0,
+      error: null,
+      completedToDiary: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      startedAt: null,
+      finishedAt: null,
+    };
+    meAiTasks.set(id, t);
+    _meAiEmit(t, { kind: 'stage', stage: 'dispatch', status: 'queued' });
+    _meAiDispatchRun(t);
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/task/:id → full transcript + current state (reconnect / resurface).
+app.get('/api/me-ai/task/:id', (req, res) => {
+  try {
+    const t = _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/tasks?date=YYYY-MM-DD → lightweight list (the "at work" lane).
+app.get('/api/me-ai/tasks', (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10);
+    const items = [];
+    for (const t of meAiTasks.values()) {
+      if (date && t.date !== date) continue;
+      items.push({ id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status, background: !!t.background, updatedAt: t.updatedAt, date: t.date });
+    }
+    items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    res.json({ ok: true, tasks: items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/act { intent, text } → steer the loop (§7.2).
+app.post('/api/me-ai/task/:id/act', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found or no longer live' });
+    const b = req.body || {};
+    const intent = String(b.intent || '').trim();
+    if (!ME_AI_INTENTS.includes(intent)) return res.status(400).json({ error: 'Unknown intent: ' + intent });
+    if (t.status === 'running') return res.status(409).json({ error: 'Task is still working' });
+    if (intent === 'abandon') {
+      _meAiEmit(t, { kind: 'note', text: 'Task abandoned.' });
+      t.nextActions = [];
+      _meAiSetStage(t, 'done', 'complete');
+      return res.json({ ok: true, task: _meAiTaskPublic(t) });
+    }
+    _meAiActRun(t, intent, b.text);
+    // Flip to running synchronously so a second /act in the same tick can't
+    // pass the 409 guard and double-dispatch (the scheduled run only flips
+    // status once it actually starts, which may be deferred by the queue).
+    t.status = 'running';
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/background → detach; it reports back via SSE + the lane.
+app.post('/api/me-ai/task/:id/background', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    t.background = true; _meAiSaveTask(t);
+    res.json({ ok: true, task: _meAiTaskPublic(t) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/task/:id/complete → gated finish + dedup-aware diary write (§7.1/§9.1).
+app.post('/api/me-ai/task/:id/complete', (req, res) => {
+  try {
+    const t = meAiTasks.get(req.params.id) || _meAiLoadTask(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+    if (t.status === 'running') return res.status(409).json({ error: 'Cannot complete while the agent is still working' });
+    if (!['awaiting', 'report', 'done', 'error'].includes(t.stage)) {
+      return res.status(409).json({ error: 'Task is not in a completable state yet' });
+    }
+    const diary = _meAiWriteDiary(t);
+    t.completedToDiary = !!(diary && diary.written);
+    t.finishedAt = new Date().toISOString();
+    t.nextActions = [];
+    if (meAiTasks.has(t.id)) meAiTasks.set(t.id, t);
+    _meAiSetStage(t, 'done', 'complete');
+    if (diary && diary.written) _meAiEmit(t, { kind: 'note', text: 'Logged to your diary.' });
+    else if (diary && diary.reason === 'consent-off') _meAiEmit(t, { kind: 'note', text: 'Diary write-back is off (turn on personal signals to log outcomes).' });
+    res.json({ ok: true, task: _meAiTaskPublic(t), diary });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- Managed dependencies -----------------------------------------------------
 // Copilot CLI/SDK + machine prerequisites (git, az, ripgrep). The bundled copy
 // what we update. All per-user, no admin, staged + validated + atomic promote.

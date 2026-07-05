@@ -11536,6 +11536,50 @@
               .meai-hours { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; font-size:13px; }
               .meai-hours label { color:var(--cp-text-muted); }
               .meai-hours input, .meai-hours select { padding:5px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text); }
+              /* --- M2: Me-agent launch, at-work lane, console drawer --- */
+              .meai-block-launch { margin-top:8px; }
+              .meai-mini-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:12px; padding:4px 10px; border-radius:8px; cursor:pointer; }
+              .meai-mini-btn:hover { border-color:var(--cp-accent); color:var(--cp-accent); }
+              .meai-lane-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--cp-border); cursor:pointer; }
+              .meai-lane-row:last-child { border-bottom:0; }
+              .meai-lane-t { font-weight:600; font-size:13px; color:var(--cp-text); }
+              .meai-lane-m { font-size:12px; color:var(--cp-text-muted); margin-top:1px; }
+              .meai-lane-stage { font-size:11px; font-weight:600; }
+              .meai-lane-spin { display:inline-block; width:9px; height:9px; border:2px solid var(--cp-border); border-top-color:var(--cp-accent); border-radius:999px; animation:meaiSpin .7s linear infinite; }
+              @keyframes meaiSpin { to { transform:rotate(360deg); } }
+              .meai-drawer-scrim { position:fixed; inset:0; background:rgba(0,0,0,.32); z-index:60; }
+              .meai-drawer { position:fixed; top:0; right:0; bottom:0; width:min(640px,94vw); background:var(--cp-bg); border-left:1px solid var(--cp-border); box-shadow:-8px 0 32px rgba(0,0,0,.28); z-index:61; display:flex; flex-direction:column; }
+              .meai-dr-head { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--cp-border); }
+              .meai-dr-title { font-weight:700; color:var(--cp-text); font-size:15px; flex:1; min-width:0; }
+              .meai-dr-stage { font-size:12px; font-weight:600; color:var(--cp-text-muted); display:flex; align-items:center; gap:6px; }
+              .meai-dr-x { appearance:none; border:none; background:none; font-size:20px; color:var(--cp-text-muted); cursor:pointer; line-height:1; }
+              .meai-dr-x:hover { color:var(--cp-text); }
+              .meai-dr-body { flex:1; overflow:auto; padding:14px 18px; }
+              .meai-ev { display:grid; grid-template-columns:20px 1fr; gap:8px; padding:4px 0; font-size:13px; line-height:1.5; }
+              .meai-ev-ico { text-align:center; }
+              .meai-ev-thinking { color:var(--cp-text-muted); font-style:italic; }
+              .meai-ev-tool { color:var(--cp-text); }
+              .meai-ev-tool code { font-size:12px; color:var(--cp-text-muted); }
+              .meai-ev-error { color:var(--cp-danger); }
+              .meai-ev-note { color:var(--cp-text-muted); }
+              .meai-report { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:12px 0; background:var(--cp-surface); }
+              .meai-report h5 { margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); }
+              .meai-report-sum { font-size:14px; color:var(--cp-text); line-height:1.5; }
+              .meai-finding { padding:8px 0; border-top:1px solid var(--cp-border); }
+              .meai-finding-t { font-weight:600; font-size:13px; color:var(--cp-text); }
+              .meai-finding-d { font-size:12.5px; color:var(--cp-text-muted); margin-top:2px; white-space:pre-wrap; }
+              .meai-sev { font-size:11px; font-weight:700; margin-right:6px; }
+              .meai-sev.high { color:var(--cp-danger); } .meai-sev.medium { color:var(--cp-warning); } .meai-sev.low { color:var(--cp-text-muted); }
+              .meai-dr-foot { border-top:1px solid var(--cp-border); padding:12px 18px; background:var(--cp-surface); }
+              .meai-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+              .meai-act-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:13px; padding:7px 14px; border-radius:8px; cursor:pointer; }
+              .meai-act-btn:hover { border-color:var(--cp-accent); }
+              .meai-act-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; }
+              .meai-act-btn:disabled { opacity:.5; cursor:default; }
+              .meai-reply { display:flex; gap:8px; }
+              .meai-reply input { flex:1; }
+              .meai-dr-foot-bar { display:flex; gap:8px; align-items:center; margin-top:10px; }
+              .meai-working { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-text-muted); padding:6px 0; }
             </style>
 
             <div class="meai-wrap">
@@ -11600,6 +11644,11 @@
                               <span x-show="b.type"> · <span x-text="b.type"></span></span>
                             </div>
                             <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
+                            <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin'">
+                              <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
+                                🤖 <span x-text="b.type==='review' ? 'Launch review agent' : 'Launch Me agent'"></span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </template>
@@ -11613,6 +11662,31 @@
 
                 <!-- Side rail -->
                 <div class="meai-side">
+                  <!-- Me agents at work (M2 delegation lane) -->
+                  <div class="meai-card">
+                    <h4>Me agents at work</h4>
+                    <template x-if="(meai.tasks||[]).length">
+                      <div>
+                        <template x-for="tk in meai.tasks" :key="tk.id">
+                          <div class="meai-lane-row" @click="meAiOpenTask(tk.id)">
+                            <div style="min-width:0">
+                              <div class="meai-lane-t" x-text="tk.title"></div>
+                              <div class="meai-lane-m" x-text="tk.playbook + (tk.background ? ' · background' : '')"></div>
+                            </div>
+                            <div class="meai-lane-stage" :style="'color:' + (tk.stage==='done' ? 'var(--cp-success)' : tk.stage==='error' ? 'var(--cp-danger)' : tk.status==='running' ? 'var(--cp-accent)' : 'var(--cp-text-muted)')">
+                              <span x-show="tk.status==='running'" class="meai-lane-spin"></span>
+                              <span x-text="meAiTaskStageLabel(tk.stage)"></span>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    <div x-show="!(meai.tasks||[]).length" style="font-size:12.5px;color:var(--cp-text-muted)">
+                      No agents running. Launch one from a review block, or
+                      <a href="#" @click.prevent="meAiLaunchReview()">review the repo now</a>.
+                    </div>
+                  </div>
+
                   <!-- Needs attention -->
                   <template x-if="meai.agenda && (meai.agenda.needsAttention||[]).length">
                     <div class="meai-card">
@@ -11674,6 +11748,74 @@
                 </div>
               </div>
             </div>
+
+            <!-- ===== Me-agent console drawer (M2) ===== -->
+            <template x-if="meai.console">
+              <div>
+                <div class="meai-drawer-scrim" @click="meAiCloseConsole()"></div>
+                <div class="meai-drawer">
+                  <div class="meai-dr-head">
+                    <div class="meai-dr-title" x-text="meai.console.title"></div>
+                    <div class="meai-dr-stage">
+                      <span x-show="meai.console.status==='running'" class="meai-lane-spin"></span>
+                      <span x-text="meAiTaskStageLabel(meai.console.stage)"></span>
+                    </div>
+                    <button class="meai-dr-x" type="button" @click="meAiCloseConsole()" title="Close">✕</button>
+                  </div>
+                  <div class="meai-dr-body" id="meAiConsoleScroll">
+                    <!-- Live transcript -->
+                    <template x-for="(ev, ei) in (meai.console.events||[])" :key="ev.seq || ei">
+                      <div class="meai-ev" x-show="ev.kind!=='report'">
+                        <span class="meai-ev-ico" x-text="meAiEventIcon(ev.kind)"></span>
+                        <div>
+                          <template x-if="ev.kind==='thinking'"><span class="meai-ev-thinking" x-text="ev.text"></span></template>
+                          <template x-if="ev.kind==='tool_start'"><span class="meai-ev-tool"><span x-text="ev.tool"></span> <code x-show="ev.args" x-text="ev.args"></code></span></template>
+                          <template x-if="ev.kind==='tool_complete'"><span class="meai-ev-tool" :style="ev.success===false ? 'color:var(--cp-danger)' : ''"><span x-text="ev.tool"></span> <span x-text="ev.success===false ? 'failed' : 'done'"></span></span></template>
+                          <template x-if="ev.kind==='agent'"><span class="meai-ev-note">Using agent: <span x-text="ev.name"></span></span></template>
+                          <template x-if="ev.kind==='stage'"><span class="meai-ev-note" x-text="meAiTaskStageLabel(ev.stage)"></span></template>
+                          <template x-if="ev.kind==='note'"><span class="meai-ev-note" x-text="ev.text"></span></template>
+                          <template x-if="ev.kind==='error'"><span class="meai-ev-error" x-text="ev.text"></span></template>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- Report card -->
+                    <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length)">
+                      <div class="meai-report">
+                        <h5>Report</h5>
+                        <div class="meai-report-sum" x-text="meai.console.report.summary"></div>
+                        <template x-for="(f, fi) in (meai.console.report.findings||[])" :key="fi">
+                          <div class="meai-finding">
+                            <div class="meai-finding-t"><span class="meai-sev" :class="f.severity" x-text="(f.severity||'').toUpperCase()"></span><span x-text="f.title"></span></div>
+                            <div class="meai-finding-d" x-show="f.detail" x-text="f.detail"></div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    <div class="meai-working" x-show="meai.console.status==='running'">
+                      <span class="meai-lane-spin"></span> Me agent is working…
+                    </div>
+                  </div>
+                  <div class="meai-dr-foot">
+                    <!-- AI-generated next actions -->
+                    <div class="meai-actions" x-show="meai.console.status!=='running' && (meai.console.nextActions||[]).length">
+                      <template x-for="(a, ai) in meai.console.nextActions" :key="ai">
+                        <button class="meai-act-btn" :class="{ primary: a.primary }" type="button" @click="meAiAct(a.intent, '')" :disabled="meai.consoleBusy" x-text="a.label"></button>
+                      </template>
+                    </div>
+                    <!-- Free-text reply (always available) -->
+                    <div class="meai-reply" x-show="meai.console.status!=='running'">
+                      <input class="field-input" placeholder="Reply to the agent…" x-model="meai.consoleReply" @keydown.enter="meAiReplySend()" :disabled="meai.consoleBusy">
+                      <button class="btn ghost" type="button" @click="meAiReplySend()" :disabled="meai.consoleBusy || !meai.consoleReply.trim()">Send</button>
+                    </div>
+                    <div class="meai-dr-foot-bar">
+                      <button class="btn ghost" type="button" @click="meAiBackgroundTask()" x-show="meai.console.stage!=='done'">Run in background</button>
+                      <span style="flex:1"></span>
+                      <button class="btn primary" type="button" @click="meAiComplete()" :disabled="!meAiCanComplete() || meai.consoleBusy">Mark task complete</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
           </section>
 
           <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
@@ -18996,6 +19138,12 @@
           todos: [],             // draft todos for the day (title strings), fed into generate
           notice: '',
           nowMin: (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })(),
+          // M2 — Me-agent console + delegation lane.
+          tasks: [],             // live "Me agents at work" lane (lightweight rows)
+          console: null,         // active task drawer: full task {id,stage,events,report,nextActions,...} or null
+          consoleBusy: false,    // a dispatch/act request is in flight
+          consoleReply: '',      // free-text reply box
+          _taskById: {},         // id -> task object (drawer + lane share)
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -20817,6 +20965,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 if (this.newsletter.loaded) this.loadNewsletter();
                 this.toast('📰 A new newsletter is ready for review', 'success');
               } catch {}
+            });
+            // Me.AI M2 — Me-agent console/task stream (thinking/tools/report/stage).
+            source.addEventListener('me-ai-task', (event) => {
+              try { this._meAiOnTaskEvent(JSON.parse(event.data || '{}')); } catch {}
             });
             const _resilienceRefresh = (event) => {
               try {
@@ -25256,6 +25408,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })();
             this.meai.loaded = true;
             await this.meAiLoadAgenda();
+            await this.meAiLoadTasks();
           } catch (e) {
             this.toast('Failed to load Me.AI: ' + (e.message || e), 'error');
           } finally {
@@ -25370,6 +25523,152 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const h = Math.floor(this.meai.nowMin / 60), m = this.meai.nowMin % 60;
           return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
         },
+        // ===== Me.AI M2 — Me-agent console (dispatch / stream / decide / complete) =====
+        async meAiLoadTasks() {
+          try {
+            const r = await this.request('/api/me-ai/tasks?date=' + encodeURIComponent(this.meai.date));
+            this.meai.tasks = (r && Array.isArray(r.tasks)) ? r.tasks : [];
+          } catch (_) { /* lane is best-effort */ }
+        },
+        // Dispatch a Me agent for a playbook and open the console drawer on it.
+        async meAiDispatch(playbook, title, context) {
+          if (this.meai.consoleBusy) return;
+          this.meai.consoleBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/dispatch', {
+              method: 'POST',
+              body: JSON.stringify({ playbook, title, context: context || {}, date: this.meai.date }),
+            });
+            if (r && r.task) {
+              this.meai._taskById[r.task.id] = r.task;
+              this.meai.console = r.task;
+              this.meAiLoadTasks();
+              this.$nextTick(() => this._meAiConsoleScroll());
+            }
+          } catch (e) {
+            this.toast('Could not start Me agent: ' + (e.message || e), 'error');
+          } finally {
+            this.meai.consoleBusy = false;
+          }
+        },
+        meAiLaunchReview() {
+          this.meAiDispatch('review', 'Code review', {});
+        },
+        // Launch the agent scoped to a specific agenda block (e.g. a review block).
+        meAiLaunchForBlock(block) {
+          if (!block) return;
+          const pb = (block.type === 'review') ? 'review' : (block.playbook || 'review');
+          this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '' });
+        },
+        meAiOpenTask(id) {
+          const t = this.meai._taskById[id];
+          if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); return; }
+          this.request('/api/me-ai/task/' + encodeURIComponent(id)).then(r => {
+            if (r && r.task) { this.meai._taskById[id] = r.task; this.meai.console = r.task; this.$nextTick(() => this._meAiConsoleScroll()); }
+          }).catch(() => {});
+        },
+        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; },
+        async meAiBackgroundTask() {
+          const t = this.meai.console;
+          if (!t) return;
+          try { await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/background', { method: 'POST' }); } catch (_) {}
+          t.background = true;
+          this.meAiCloseConsole();
+          this.meAiLoadTasks();
+        },
+        // The user picked an AI-generated next action (or replied free-text).
+        async meAiAct(intent, text) {
+          const t = this.meai.console;
+          if (!t || this.meai.consoleBusy) return;
+          this.meai.consoleBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/act', {
+              method: 'POST',
+              body: JSON.stringify({ intent, text: text || '' }),
+            });
+            if (r && r.task) this._meAiMergeTask(r.task);
+            this.meai.consoleReply = '';
+          } catch (e) {
+            this.toast(e.message || String(e), 'error');
+          } finally {
+            this.meai.consoleBusy = false;
+          }
+        },
+        meAiReplySend() {
+          const txt = (this.meai.consoleReply || '').trim();
+          if (!txt) return;
+          this.meAiAct('continue', txt);
+        },
+        // Completion is gated: only allowed once the agent is resting (not running).
+        meAiCanComplete() {
+          const t = this.meai.console;
+          return !!t && t.status !== 'running' && ['awaiting', 'report', 'done', 'error'].includes(t.stage) && t.stage !== 'done';
+        },
+        async meAiComplete() {
+          const t = this.meai.console;
+          if (!t || !this.meAiCanComplete()) return;
+          this.meai.consoleBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/task/' + encodeURIComponent(t.id) + '/complete', { method: 'POST' });
+            if (r && r.task) this._meAiMergeTask(r.task);
+            if (r && r.diary && r.diary.written) this.toast('Task complete · logged to your diary', 'success');
+            else this.toast('Task marked complete', 'success');
+            this.meAiLoadTasks();
+          } catch (e) {
+            this.toast(e.message || String(e), 'error');
+          } finally {
+            this.meai.consoleBusy = false;
+          }
+        },
+        _meAiMergeTask(task) {
+          if (!task || !task.id) return;
+          this.meai._taskById[task.id] = task;
+          if (this.meai.console && this.meai.console.id === task.id) this.meai.console = task;
+          this.$nextTick(() => this._meAiConsoleScroll());
+        },
+        // Live SSE event → append to the task transcript + refresh derived state.
+        _meAiOnTaskEvent(d) {
+          if (!d || !d.taskId) return;
+          const id = d.taskId;
+          let t = this.meai._taskById[id];
+          // A task we haven't hydrated yet (e.g. started in another tab): pull it once.
+          if (!t) {
+            if (this.meai.console || (this.meai.tasks || []).some(x => x.id === id)) {
+              this.request('/api/me-ai/task/' + encodeURIComponent(id)).then(r => { if (r && r.task) this.meai._taskById[id] = r.task; }).catch(() => {});
+            }
+            this.meAiLoadTasks();
+            return;
+          }
+          if (d.stage) t.stage = d.stage;
+          if (d.status) t.status = d.status;
+          const ev = d.ev;
+          if (ev) {
+            t.events = t.events || [];
+            if (!t._seen) t._seen = new Set();
+            const key = 's' + ev.seq;
+            if (!t._seen.has(key)) {
+              t._seen.add(key);
+              t.events.push(ev);
+              if (t.events.length > 400) t.events.splice(0, t.events.length - 400);
+            }
+          }
+          // Keep the lane row in sync (stage/status change) without a full refetch.
+          const row = (this.meai.tasks || []).find(x => x.id === id);
+          if (row) { row.stage = t.stage; row.status = t.status; }
+          else if (ev && ev.kind === 'stage') this.meAiLoadTasks();
+          if (this.meai.console && this.meai.console.id === id) this.$nextTick(() => this._meAiConsoleScroll());
+        },
+        _meAiConsoleScroll() {
+          const el = document.getElementById('meAiConsoleScroll');
+          if (el) el.scrollTop = el.scrollHeight;
+        },
+        meAiTaskStageLabel(stage) {
+          return { dispatch: 'Dispatching', working: 'Working', report: 'Report ready', awaiting: 'Your call', done: 'Done', error: 'Needs you' }[stage] || stage || '';
+        },
+        meAiEventIcon(kind) {
+          return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
+        },
+
         async loadConnect() {
           this.connect.loading = true;
           try {
