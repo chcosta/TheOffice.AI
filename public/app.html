@@ -13093,6 +13093,214 @@
 
           </section>
 
+          <!-- ===== Diary (standalone page — the shared activity journal Connect / Newsletter / Me.AI build on) ===== -->
+          <section x-show="!loading && !errorMessage && route === 'diary'" x-transition.opacity.duration.180ms>
+            <style>
+              .diary-wrap { max-width:1180px; }
+              .diary-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:6px; }
+              .diary-head h1 { margin:0; font-size:22px; display:flex; align-items:center; gap:10px; }
+              .diary-sub { color:var(--cp-text-muted); font-size:13.5px; margin:2px 0 0; max-width:640px; line-height:1.5; }
+              .diary-stats { display:flex; gap:10px; flex-wrap:wrap; margin:16px 0 18px; }
+              .diary-stat { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:10px;
+                padding:12px 16px; min-width:120px; }
+              .diary-stat .n { font-size:22px; font-weight:700; line-height:1.1; }
+              .diary-stat .l { font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft); margin-top:3px; }
+              .diary-stat .src-line { font-size:12px; color:var(--cp-text-muted); display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+              .diary-stat .src-line span { white-space:nowrap; }
+              .diary-toolbar { position:sticky; top:0; z-index:5; background:var(--cp-bg); padding:10px 0 12px;
+                border-bottom:1px solid var(--cp-border); margin-bottom:18px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+              .diary-layout { display:grid; grid-template-columns:200px 1fr; gap:28px; align-items:start; }
+              .diary-jump { position:sticky; top:82px; }
+              .diary-jump h4 { margin:0 0 8px; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--cp-text-soft); }
+              .diary-jump a { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:5px 8px;
+                border-radius:8px; color:var(--cp-text-muted); text-decoration:none; font-size:13px; cursor:pointer; }
+              .diary-jump a:hover { background:var(--cp-accent-soft); color:var(--cp-text); }
+              .diary-jump a .c { font-size:11.5px; color:var(--cp-text-soft); }
+              .diary-month-hd { font-size:13px; font-weight:700; color:var(--cp-text); margin:2px 0 12px;
+                padding-bottom:6px; border-bottom:1px solid var(--cp-border); }
+              @media (max-width:900px) { .diary-layout { grid-template-columns:1fr; } .diary-jump { display:none; } }
+            </style>
+
+            <div class="diary-wrap">
+              <div class="diary-head">
+                <div>
+                  <h1><span>📖</span> Diary</h1>
+                  <p class="diary-sub">Your running record of what you actually worked on — meetings you ran, features you shipped, people you unblocked. Connect, Newsletter, and Me.AI all build on these entries.</p>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="btn primary" type="button" @click="openConnectEvidence(null)">+ Add entry</button>
+                  <button class="btn ghost" type="button" :disabled="connect.collecting" @click="connectCollect()" x-text="connect.collecting ? 'Collecting…' : '⟳ Collect now'"></button>
+                </div>
+              </div>
+
+              <!-- Quick stats -->
+              <div class="diary-stats" x-show="!connect.loading">
+                <div class="diary-stat">
+                  <div class="n" x-text="diaryStats().total"></div>
+                  <div class="l">Entries</div>
+                </div>
+                <div class="diary-stat">
+                  <div class="n" x-text="diaryStats().thisWeek"></div>
+                  <div class="l">This week</div>
+                </div>
+                <div class="diary-stat">
+                  <div class="n" x-text="diaryStats().days"></div>
+                  <div class="l">Days logged</div>
+                </div>
+                <div class="diary-stat" style="flex:1;min-width:220px" x-show="diaryStats().sources.length">
+                  <div class="l" style="margin:0 0 6px">By source</div>
+                  <div class="src-line">
+                    <template x-for="s in diaryStats().sources" :key="s.src">
+                      <span x-text="s.meta.icon + ' ' + s.meta.label + ' ' + s.count"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <p class="hint" x-show="connect.loading" style="padding:24px 0;text-align:center">Loading your diary…</p>
+
+              <!-- Sticky filter/search toolbar -->
+              <div class="diary-toolbar" x-show="!connect.loading">
+                <select x-model="connect.filterSource" style="width:auto">
+                  <option value="">All sources</option>
+                  <option value="manual">✍ Manual</option>
+                  <option value="teams">💬 Teams</option>
+                  <option value="email">✉ Email</option>
+                  <option value="meeting">📅 Meetings</option>
+                  <option value="ado">📋 Work items</option>
+                  <option value="pr">🔀 Pull requests</option>
+                  <option value="pr-review">👀 PR reviews</option>
+                  <option value="other">Other</option>
+                </select>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label class="hint" style="margin:0">From</label>
+                  <input type="date" x-model="connect.filterFrom" style="width:auto">
+                  <label class="hint" style="margin:0">to</label>
+                  <input type="date" x-model="connect.filterTo" style="width:auto">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:220px">
+                  <input type="text" x-model="connect.aiQuery" @keydown.enter.prevent="connectAiSearch()"
+                         placeholder="🔎 AI search — e.g. 'reliability work' or 'mentoring'" style="flex:1;min-width:0">
+                  <button class="btn ghost small" type="button" :disabled="connect.aiSearching || !connect.aiQuery.trim()" @click="connectAiSearch()" x-text="connect.aiSearching ? 'Searching…' : 'Search'"></button>
+                </div>
+                <button class="btn ghost small" type="button" x-show="connect.filterFrom || connect.filterTo || connect.aiMatchIds !== null || connect.filterSource" @click="connectClearDiaryFilters()">Clear</button>
+              </div>
+              <p class="hint" x-show="connect.aiMatchIds !== null && !connect.loading" style="margin:-8px 0 12px" x-text="connect.aiMatchIds ? ('✨ AI search — showing ' + connect.aiMatchIds.length + ' matching ' + (connect.aiMatchIds.length === 1 ? 'entry' : 'entries') + ' for “' + connect.aiQuery + '”') : ''"></p>
+
+              <!-- Inline add/edit form -->
+              <template x-if="connect.evForm">
+              <div class="connect-card" x-transition.opacity.duration.120ms>
+                <h3 x-text="connect.evForm && connect.evForm.id ? 'Edit entry' : 'New diary entry'"></h3>
+                <div class="connect-grid2">
+                  <div class="connect-field">
+                    <label>Date</label>
+                    <input type="date" x-model="connect.evForm.date">
+                  </div>
+                  <div class="connect-field">
+                    <label>Source</label>
+                    <select x-model="connect.evForm.source">
+                      <option value="manual">✍ Manual</option>
+                      <option value="teams">💬 Teams</option>
+                      <option value="email">✉ Email</option>
+                      <option value="meeting">📅 Meeting</option>
+                      <option value="ado">📋 Work item</option>
+                      <option value="pr">🔀 Pull request</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="connect-field">
+                  <label>Title</label>
+                  <input type="text" x-model="connect.evForm.title" placeholder="What did you do?">
+                </div>
+                <div class="connect-field">
+                  <label>Detail</label>
+                  <textarea rows="2" x-model="connect.evForm.detail" placeholder="Context, what you did, who was involved"></textarea>
+                </div>
+                <div class="connect-field">
+                  <label>Impact <span class="hint" style="font-weight:400">— the outcome it drove</span></label>
+                  <textarea rows="2" x-model="connect.evForm.impact" placeholder="e.g. cut build time 40%, unblocked 3 teams"></textarea>
+                </div>
+                <div class="connect-grid2">
+                  <div class="connect-field">
+                    <label>Links <span class="hint" style="font-weight:400">(one per line)</span></label>
+                    <textarea rows="2" x-model="connect.evForm.links" placeholder="https://…"></textarea>
+                  </div>
+                  <div class="connect-field">
+                    <label>Tags <span class="hint" style="font-weight:400">(comma-separated)</span></label>
+                    <input type="text" x-model="connect.evForm.tags" placeholder="leadership, reliability">
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button class="btn primary" type="button" :disabled="connect.evBusy" @click="saveConnectEvidence()" x-text="connect.evBusy ? 'Saving…' : 'Save entry'"></button>
+                  <button class="btn ghost" type="button" @click="closeConnectEvidence()">Cancel</button>
+                </div>
+              </div>
+              </template>
+
+              <!-- Empty states -->
+              <div x-show="!connect.loading && !connectFilteredEvidence().length && !connect.evForm && !connect.filterFrom && !connect.filterTo && connect.aiMatchIds === null && !connect.filterSource" class="hint" style="padding:32px 0;text-align:center">
+                <div>No diary entries yet. Add what you've worked on — meetings you ran, features you shipped, people you unblocked — and build up the evidence for your Connect, Newsletter, and Me.AI.</div>
+                <div x-show="connect.config && connect.config.consent" style="margin-top:14px">
+                  <button class="btn primary small" type="button" :disabled="connect.collecting" @click="connectWideBackfill()" x-text="connect.collecting ? 'Backfilling…' : '⟳ Backfill my last 45 days'"></button>
+                  <div class="hint" style="font-size:0.72rem;margin-top:6px;opacity:0.85">One-time deeper pull across all sources. Takes longer than a normal collect — meetings stream in the background while the rest lands right away.</div>
+                </div>
+              </div>
+              <div x-show="!connect.loading && !connectFilteredEvidence().length && !connect.evForm && (connect.filterFrom || connect.filterTo || connect.aiMatchIds !== null || connect.filterSource)" class="hint" style="padding:32px 0;text-align:center">
+                No entries match the current filters. <a href="#" @click.prevent="connectClearDiaryFilters()" style="color:var(--cp-link)">Clear filters</a>
+              </div>
+
+              <!-- Two-column: quick-jump nav + day-grouped entries -->
+              <div class="diary-layout" x-show="!connect.loading && connectFilteredEvidence().length">
+                <aside class="diary-jump" x-show="diaryQuickJump().length > 1">
+                  <h4>Jump to</h4>
+                  <template x-for="m in diaryQuickJump()" :key="m.key">
+                    <a @click.prevent="diaryJumpTo(m.key)">
+                      <span x-text="m.label"></span>
+                      <span class="c" x-text="m.count"></span>
+                    </a>
+                  </template>
+                </aside>
+
+                <div>
+                  <template x-for="(day, di) in connectEvidenceByDate()" :key="day.date">
+                    <div class="connect-diary-day" :data-diary-month="day.date.slice(0,7)">
+                      <div class="diary-month-hd" x-show="di === 0 || connectEvidenceByDate()[di-1].date.slice(0,7) !== day.date.slice(0,7)"
+                           x-text="new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })"></div>
+                      <div class="connect-diary-date" x-text="new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })"></div>
+                      <template x-for="ev in day.items" :key="ev.id">
+                        <div class="connect-ev" :class="{ 'hidden-ev': ev.hidden }">
+                          <div class="connect-ev-icon" x-text="connectSourceMeta(ev.source).icon"></div>
+                          <div class="connect-ev-body">
+                            <div class="connect-ev-title" x-text="ev.title || '(untitled)'"></div>
+                            <div class="connect-ev-src">
+                              <span x-text="connectSourceMeta(ev.source).label"></span>
+                              <span x-show="ev.origin === 'auto'"> · collected</span>
+                              <span x-show="ev.hidden"> · hidden from draft</span>
+                            </div>
+                            <div class="connect-ev-detail" x-show="ev.detail" x-text="ev.detail"></div>
+                            <div class="connect-ev-impact" x-show="ev.impact"><b>Impact:</b> <span x-text="ev.impact"></span></div>
+                            <div x-show="ev.links && ev.links.length" style="margin-top:4px">
+                              <template x-for="(l, i) in ev.links" :key="i">
+                                <a :href="l" target="_blank" class="hint" style="margin-right:10px" x-text="'↗ link ' + (i+1)"></a>
+                              </template>
+                            </div>
+                          </div>
+                          <div class="connect-ev-actions">
+                            <button type="button" @click="openConnectEvidence(ev)" title="Edit">✎</button>
+                            <button type="button" @click="toggleConnectEvidenceHidden(ev)" :title="ev.hidden ? 'Show in draft' : 'Hide from draft'" x-text="ev.hidden ? '🙈' : '👁'"></button>
+                            <button type="button" @click="deleteConnectEvidence(ev)" title="Delete">🗑</button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
           <!-- ===== Newsletter (Connect diary → polished, emailable digest) ===== -->
           <section x-show="!loading && !errorMessage && route === 'newsletter'" x-transition.opacity.duration.180ms>
             <style>
@@ -21134,7 +21342,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -21227,6 +21435,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.$nextTick(() => this._scheduleBoardCanvasH());
             }
           } else if (this.route === 'connect') {
+            await this.loadConnect();
+          } else if (this.route === 'diary') {
             await this.loadConnect();
           } else if (this.route === 'me-ai') {
             await this.loadMeAi();
@@ -22121,6 +22331,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             case 'insights': return mk('Insights', '🛰️', '#/insights', 'insights');
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
             case 'connect': return mk('Connect', '🌟', '#/connect', 'connect');
+            case 'diary': return mk('Diary', '📖', '#/diary', 'diary');
             case 'newsletter': return mk('Newsletter', '📰', '#/newsletter', 'newsletter', { attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' });
             case 'watercooler': return mk('Water cooler', '💬', '#/chat', 'chat');
             case 'agents': return mk('Agents', '🤖', '#/agents', 'agents');
@@ -22142,7 +22353,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const out = ['home', 'boards', 'codeflow'];
             if (bf['me-ai']) out.push('me-ai');
             if (bf.insights) out.push('insights');
-            out.push('agents');
+            out.push('agents', 'diary');
             if (bf.managers) out.push('managers');
             if (bf.tasks) out.push('tasks');
             if (bf.flows) out.push('chains');
@@ -22156,7 +22367,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             return out;
           }
           // workspace
-          return ['home', 'me-ai', 'boards', 'insights', 'codeflow', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
+          return ['home', 'me-ai', 'boards', 'insights', 'codeflow', 'diary', 'connect', 'newsletter', 'watercooler', 'teams', 'sessions', 'activity', 'reports'];
         },
         // Reconcile the saved layout against currently-available keys: keep the user's
         // order + groups, drop stale/dupe keys, append newly-available keys at the end.
@@ -22572,7 +22783,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai'].includes(r)) return 'workspace';
+          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai', 'diary'].includes(r)) return 'workspace';
           if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
@@ -22658,7 +22869,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes.
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events', 'diary'].includes(r)) return true;
           const bf = this.basicFeatures || {};
           const gated = {
             'me-ai': ['me-ai'],
@@ -28046,7 +28257,41 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
           return m[src] || m.other;
         },
-        openConnectEvidence(ev) {
+        diaryStats() {
+          const all = this.connect.evidence || [];
+          const total = all.length;
+          const today = new Date();
+          const wkStart = new Date(today); wkStart.setDate(today.getDate() - 6);
+          const wk = wkStart.toISOString().slice(0, 10);
+          let thisWeek = 0;
+          const bySrc = {};
+          const days = new Set();
+          for (const e of all) {
+            if (e.date) { days.add(e.date); if (e.date >= wk) thisWeek++; }
+            bySrc[e.source || 'other'] = (bySrc[e.source || 'other'] || 0) + 1;
+          }
+          const sources = Object.keys(bySrc).sort((a, b) => bySrc[b] - bySrc[a])
+            .map(s => ({ src: s, count: bySrc[s], meta: this.connectSourceMeta(s) }));
+          return { total, thisWeek, sources, days: days.size };
+        },
+        diaryQuickJump() {
+          // month buckets from the (filtered) evidence, newest first
+          const groups = this.connectEvidenceByDate();
+          const months = {};
+          for (const g of groups) {
+            const mk = g.date.slice(0, 7);
+            if (!months[mk]) months[mk] = { key: mk, count: 0, first: g.date };
+            months[mk].count += g.items.length;
+          }
+          return Object.values(months).sort((a, b) => a.key < b.key ? 1 : -1).map(m => ({
+            key: m.key, count: m.count, first: m.first,
+            label: new Date(m.key + '-01T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+          }));
+        },
+        diaryJumpTo(monthKey) {
+          const el = document.querySelector('[data-diary-month="' + monthKey + '"]');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
           if (ev) {
             this.connect.evForm = {
               id: ev.id, date: ev.date, source: ev.source, title: ev.title,
