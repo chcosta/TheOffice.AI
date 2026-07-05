@@ -11532,6 +11532,9 @@
               .meai-todo-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13px; color:var(--cp-text); }
               .meai-todo-x { cursor:pointer; color:var(--cp-text-muted); }
               .meai-todo-x:hover { color:var(--cp-danger); }
+              .meai-todo-scope { font-size:11px; padding:2px 7px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text-muted); cursor:pointer; transition:all .12s; }
+              .meai-todo-scope:hover { border-color:var(--cp-accent); }
+              .meai-todo-scope.personal { color:var(--cp-text); border-color:var(--cp-accent); background:var(--cp-accent-soft, rgba(88,166,255,.14)); }
               .meai-empty { text-align:center; padding:40px 20px; color:var(--cp-text-muted); }
               .meai-hours { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; font-size:13px; }
               .meai-hours label { color:var(--cp-text-muted); }
@@ -11727,6 +11730,11 @@
                     <template x-for="(t, ti) in meai.todos" :key="ti">
                       <div class="meai-todo-row">
                         <span style="flex:1" x-text="(typeof t==='string') ? t : t.title"></span>
+                        <button type="button" class="meai-todo-scope"
+                          :class="{ personal: (typeof t!=='string' && t.scope==='personal') }"
+                          @click="meAiToggleTodoScope(ti)"
+                          :title="(typeof t!=='string' && t.classifying) ? 'Classifying…' : 'Click to toggle work / personal'"
+                          x-text="(typeof t!=='string' && t.classifying) ? '…' : ((typeof t!=='string' && t.scope==='personal') ? 'Personal' : 'Work')"></button>
                         <span class="meai-todo-x" @click="meAiRemoveTodo(ti)" title="Remove">✕</span>
                       </div>
                     </template>
@@ -25445,7 +25453,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.generating = true;
           this.meai.notice = '';
           try {
-            const todos = (this.meai.todos || []).map(t => (typeof t === 'string' ? t : (t.title || ''))).filter(Boolean);
+            const todos = (this.meai.todos || [])
+              .map(t => (typeof t === 'string' ? { title: t, scope: 'work' } : { title: t.title || '', scope: t.scope === 'personal' ? 'personal' : 'work' }))
+              .filter(t => t.title);
             const r = await this.request('/api/me-ai/agenda/generate', {
               method: 'POST',
               body: JSON.stringify({ date: this.meai.date, todos }),
@@ -25502,11 +25512,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meai.date = v;
           this.meAiLoadAgenda();
         },
-        meAiAddTodo() {
-          const t = (this.meai.newTodo || '').trim();
-          if (!t) return;
-          this.meai.todos.push(t);
+        async meAiAddTodo() {
+          const title = (this.meai.newTodo || '').trim();
+          if (!title) return;
+          const todo = { title, scope: 'work', classifying: true };
+          this.meai.todos.push(todo);
           this.meai.newTodo = '';
+          try {
+            const r = await this.request('/api/me-ai/todo/classify', { method: 'POST', body: JSON.stringify({ title }) });
+            todo.scope = (r && r.scope === 'personal') ? 'personal' : 'work';
+          } catch (_) { /* keep default work */ }
+          finally { todo.classifying = false; }
+        },
+        meAiToggleTodoScope(i) {
+          const t = this.meai.todos[i];
+          if (!t) return;
+          if (typeof t === 'string') { this.meai.todos[i] = { title: t, scope: 'personal', classifying: false }; return; }
+          t.scope = t.scope === 'personal' ? 'work' : 'personal';
         },
         meAiRemoveTodo(i) { this.meai.todos.splice(i, 1); },
         meAiDateLabel() {
@@ -25556,13 +25578,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (_) { /* lane is best-effort */ }
         },
         // Dispatch a Me agent for a playbook and open the console drawer on it.
-        async meAiDispatch(playbook, title, context) {
+        async meAiDispatch(playbook, title, context, scope) {
           if (this.meai.consoleBusy) return;
           this.meai.consoleBusy = true;
           try {
             const r = await this.request('/api/me-ai/task/dispatch', {
               method: 'POST',
-              body: JSON.stringify({ playbook, title, context: context || {}, date: this.meai.date }),
+              body: JSON.stringify({ playbook, title, context: context || {}, date: this.meai.date, scope: scope === 'personal' ? 'personal' : 'work' }),
             });
             if (r && r.task) {
               this.meai._taskById[r.task.id] = r.task;
@@ -25583,7 +25605,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiLaunchForBlock(block) {
           if (!block) return;
           const pb = (block.type === 'review') ? 'review' : (block.playbook || 'review');
-          this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '' });
+          const scope = (block.type === 'personal' || block.scope === 'personal') ? 'personal' : 'work';
+          this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '' }, scope);
         },
         meAiOpenTask(id) {
           const t = this.meai._taskById[id];

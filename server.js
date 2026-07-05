@@ -11280,7 +11280,10 @@ function _meAiPrePass(cfg, signals, todos) {
     }
   }
   for (const t of (todos || [])) {
-    if (t && String(t.title || '').trim()) tasks.push({ kind: 'todo', type: 'focus', title: String(t.title).trim(), detail: 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo' });
+    if (t && String(t.title || '').trim()) {
+      const scope = (t.scope === 'personal') ? 'personal' : 'work';
+      tasks.push({ kind: 'todo', type: scope === 'personal' ? 'personal' : 'focus', title: String(t.title).trim(), detail: scope === 'personal' ? 'Personal todo' : 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo', scope });
+    }
   }
   // Fixed blocks: meetings + lunch, sorted, clipped to window.
   const fixed = [];
@@ -11368,6 +11371,35 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
   } catch { return null; }
 }
 
+function _meAiHeuristicScope(title) {
+  const t = String(title || '').toLowerCase();
+  if (!t) return 'work';
+  const personal = /\b(lunch|dinner|breakfast|gym|workout|exercise|run|walk|dentist|doctor|appointment|groceries|shopping|family|kids|kid|school|birthday|anniversary|vacation|holiday|laundry|clean|cook|pick up|drop off|pet|dog|cat|car|bank|haircut|personal|home|house|errand)\b/;
+  const work = /\b(pr|pull request|review|deploy|bug|ticket|standup|sprint|meeting|design|spec|code|refactor|test|build|release|customer|client|stakeholder|roadmap|okr|report|email|teams|slack|azdo|github|api|service|incident|oncall|on-call)\b/;
+  if (personal.test(t) && !work.test(t)) return 'personal';
+  return 'work';
+}
+
+async function _meAiClassifyTodo(title) {
+  const clean = String(title || '').trim();
+  if (!clean) return 'work';
+  const heur = _meAiHeuristicScope(clean);
+  try {
+    const prompt = `Classify this to-do item as either work-related or personal. Reply with ONLY one word: "work" or "personal".\n\nTo-do: ${clean}`;
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'me-ai', category: 'me-ai' },
+    });
+    if (result && result.fallback) return heur;
+    const raw = ((acc || (result && result.output) || '') + '').toLowerCase();
+    if (/\bpersonal\b/.test(raw)) return 'personal';
+    if (/\bwork\b/.test(raw)) return 'work';
+    return heur;
+  } catch { return heur; }
+}
+
 async function generateMeAiAgenda({ date, todos } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
@@ -11385,7 +11417,7 @@ async function generateMeAiAgenda({ date, todos } = {}) {
       blocks: [],
       backlog: [],
       needsAttention: [],
-      todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim() })).filter(t => t.title),
+      todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
       meta: { refined: false, consent: cfg.consent, notWorkDay: true, sources: { m365: false, azdo: false, github: false, codeflow: false }, signalCount: 0, errors: [] },
     };
     saveAgendaForDate(day, agenda);
@@ -11417,7 +11449,7 @@ async function generateMeAiAgenda({ date, todos } = {}) {
     blocks: refined || pre.blocks,
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
-    todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim() })).filter(t => t.title),
+    todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
     meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: signals.length, errors },
   };
   saveAgendaForDate(day, agenda);
@@ -11465,6 +11497,16 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
     const b = req.body || {};
     const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [] });
     res.json({ ok: true, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/todo/classify { title } → { scope: 'work'|'personal' }.
+app.post('/api/me-ai/todo/classify', async (req, res) => {
+  try {
+    const title = String((req.body && req.body.title) || '').trim();
+    if (!title) return res.json({ ok: true, scope: 'work' });
+    const scope = await _meAiClassifyTodo(title);
+    res.json({ ok: true, scope });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -11533,7 +11575,7 @@ _meAiHydrateTasks();
 function _meAiTaskPublic(t) {
   if (!t) return null;
   return {
-    id: t.id, date: t.date, playbook: t.playbook, title: t.title,
+    id: t.id, date: t.date, playbook: t.playbook, title: t.title, scope: t.scope || 'work',
     stage: t.stage, status: t.status, background: !!t.background,
     events: (t.events || []).slice(-200), report: t.report || null,
     nextActions: t.nextActions || [], question: t.question || null,
@@ -11760,6 +11802,7 @@ function _meAiActRun(t, intent, text) {
 function _meAiWriteDiary(t) {
   const s = settings.getSettings();
   if (!s.meAiConsent) return { written: false, reason: 'consent-off' };
+  if (t && t.scope === 'personal') return { written: false, reason: 'personal' };
   const extTag = 'ext:me-ai:' + t.id;
   try {
     const existing = connect.listEvidence({ includeHidden: true }) || [];
@@ -11803,6 +11846,7 @@ app.post('/api/me-ai/task/dispatch', (req, res) => {
       playbook,
       title: String(b.title || '').slice(0, 200) || (playbook === 'review' ? 'Code review' : playbook),
       context: (b.context && typeof b.context === 'object') ? b.context : {},
+      scope: (b.scope === 'personal') ? 'personal' : 'work',
       stage: 'dispatch',
       status: 'queued',
       background: !!b.background,
