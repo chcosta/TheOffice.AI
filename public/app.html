@@ -1336,6 +1336,7 @@
     .cb-item.bad strong { color: var(--cp-danger); }
     .cb-item.warn { border-color: var(--cp-warning); }
     .cb-item.warn strong { color: var(--cp-warning); }
+    .clickable { cursor: pointer; }
     .card.clickable { cursor: pointer; transition: border-color .12s, transform .12s, box-shadow .12s; }
     .card.clickable:hover { border-color: var(--cp-accent); transform: translateY(-1px); box-shadow: var(--cp-shadow); }
     .orgh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; }
@@ -19942,14 +19943,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.codeflow.cfTab = 'dev';
               await this.devEnsureLoaded();
               if (wantId && (this.devItems || []).some(d => d.id === wantId)) this.devPage.selectedId = wantId;
+            } else if (cfFocus) {
+              // Deep-linked PR key (from a board PR card or a dev card's PR link) →
+              // always open the Pull Requests tab and focus it, even if the last-viewed
+              // sub-tab was Dev cards (otherwise we'd strand the user on the Dev tab).
+              this.codeflow.cfTab = 'prs';
+              await this.loadCodeFlow();
+              this.codeflowPrefillRepoDefaults();
+              this.focusCodeflowPr(cfFocus);
             } else {
-              // Restore the last-viewed Code Flow sub-tab (persisted in localStorage).
+              // No deep-link → restore the last-viewed Code Flow sub-tab (persisted).
               if (this.codeflow.cfTab === 'dev') {
                 await this.devEnsureLoaded();
               } else {
                 await this.loadCodeFlow();
                 this.codeflowPrefillRepoDefaults();
-                if (cfFocus) this.focusCodeflowPr(cfFocus);
               }
             }
           } else if (this.route === 'dev') {
@@ -19959,7 +19967,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const focus = this.app.routeParam || '';
             this._cfWantDev = focus || true;
             try { history.replaceState(null, '', '#/codeflow'); } catch {}
-            this.route = 'codeflow';
+            this.app.route = 'codeflow';
             this.codeflow.cfTab = 'dev';
             await this.devEnsureLoaded();
             if (focus && (this.devItems || []).some(d => d.id === focus)) this.devPage.selectedId = focus;
@@ -30067,9 +30075,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Only ARM the swipe once movement is clearly leftward-dominant. Rightward /
           // vertical movement is left to the native HTML5 drag (place on a board).
           this._tbxSwipeArmed = startOpen;
+          // dragstart's own clientX/Y is the press point (delta ≈ 0), so the drag gate
+          // can't read direction from it. Track the latest pointer delta here instead.
+          this._tbxLastDX = 0;
+          this._tbxLastDY = 0;
           const move = (e) => {
             const ddx = e.clientX - this._tbxSwipeStartX;
             const ddy = e.clientY - this._tbxSwipeStartY;
+            this._tbxLastDX = ddx;
+            this._tbxLastDY = ddy;
             if (!this._tbxSwipeArmed) {
               if (Math.abs(ddx) < 6 && Math.abs(ddy) < 6) return;      // below threshold — wait
               if (ddx < 0 && Math.abs(ddx) > Math.abs(ddy)) this._tbxSwipeArmed = true; // leftward → swipe
@@ -30197,13 +30211,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // On drag-start immediately switch to the target board section so the user can
         // see where the drop will land (instead of waiting for release).
         onTbxItemDragStart(p, ev) {
-          // Whole-row native drag = place on a board. Only a RIGHTWARD-dominant gesture
-          // starts it; LEFT arms the swipe (unpin/delete) and pure up/down does NEITHER,
-          // so dragging a row toward the unpin action isn't hijacked into place-on-board.
-          const ddx = ev.clientX - (this._tbxSwipeStartX || 0);
-          const ddy = ev.clientY - (this._tbxSwipeStartY || 0);
-          const rightward = ddx > 0 && Math.abs(ddx) >= Math.abs(ddy);
-          if (this._tbxSwipeArmed || !rightward) { try { ev.preventDefault(); } catch {} return; }
+          // Whole-row native drag = place on a board. Decide direction from the LAST
+          // tracked pointer delta (dragstart's own clientX/Y is the press point, ≈0), so
+          // a normal rightward drag reliably starts. Block only when the swipe is armed,
+          // the gesture is clearly LEFTward (unpin/delete) or clearly vertical (does
+          // neither). Ambiguous / tiny movement defaults to allowing the drag.
+          const dx = this._tbxLastDX || 0;
+          const dy = this._tbxLastDY || 0;
+          const leftward = dx < 0 && Math.abs(dx) >= Math.abs(dy);
+          const verticalDominant = Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 6;
+          if (this._tbxSwipeArmed || leftward || verticalDominant) { try { ev.preventDefault(); } catch {} return; }
           this._tbxSwipeCleanup();
           this.onToolboxDragStart(this.panelBaseId(p), ev);
         },
