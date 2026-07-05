@@ -17725,7 +17725,7 @@
             <div class="page-header">
               <div class="page-title">
                 <h1>📊 Reports</h1>
-                <p x-text="reportView === 'productivity' ? 'The developer time this system saves you — measured across every AI-assisted activity.' : 'Usage and cost analytics across agents, tasks, managers, flows, and chats.'"></p>
+                <p x-text="reportView === 'productivity' ? 'The developer time this system saves you — measured across every AI-assisted activity.' : reportView === 'focus' ? 'Your daily focus & flow — how focused vs. fragmented each day was, and what you got done.' : 'Usage and cost analytics across agents, tasks, managers, flows, and chats.'"></p>
               </div>
               <div class="toolbar">
                 <div class="filter-pills">
@@ -17733,7 +17733,7 @@
                     <button class="pill" type="button" :class="{ active: reportRange === r }" @click="setReportRange(r)" x-text="'Last ' + r + 'd'"></button>
                   </template>
                 </div>
-                <button class="btn" type="button" @click="loadReports()" :disabled="reportsLoading">↻ Refresh</button>
+                <button class="btn" type="button" @click="loadReports(); if (reportView === 'focus') loadMeaiReport()" :disabled="reportsLoading">↻ Refresh</button>
                 <button class="btn" type="button" @click="emailReport()" :disabled="reportsLoading || !reports" title="Open this report in your mail client">✉ Email report</button>
               </div>
             </div>
@@ -17741,6 +17741,7 @@
             <div class="cli-view-toggle" role="tablist" style="margin-bottom:16px" title="Switch report">
               <button type="button" :class="{ active: reportView === 'usage' }" @click="setReportView('usage')">🔌 AI Usage</button>
               <button type="button" :class="{ active: reportView === 'productivity' }" @click="setReportView('productivity')">⚡ Productivity</button>
+              <button type="button" x-show="featureVisible('me-ai')" :class="{ active: reportView === 'focus' }" @click="setReportView('focus')">🎯 Focus &amp; flow</button>
             </div>
 
             <div class="empty-state" x-show="reportsLoading">Loading usage…</div>
@@ -17986,6 +17987,122 @@
                 </div>
               </div>
             </template>
+
+            <!-- Focus & flow (Me.AI daily activity + fragmentation) — decoupled from the usage `reports` object -->
+            <div x-show="reportView === 'focus'">
+              <div class="empty-state" x-show="meaiReportLoading">Loading focus &amp; flow…</div>
+              <template x-if="!meaiReportLoading && meaiReport && meaiReport.summary">
+                <div>
+                  <!-- Headline -->
+                  <div class="report-grid" style="margin-bottom:20px">
+                    <div class="card report-stat">
+                      <div class="report-stat-label">🎯 Focused days</div>
+                      <div class="report-stat-value" x-text="meaiReport.summary.focusDays + '/' + meaiReport.summary.activeDays"></div>
+                      <div class="hint" x-text="Math.round((meaiReport.summary.focusRatio || 0) * 100) + '% of tracked days held their shape'"></div>
+                    </div>
+                    <div class="card report-stat">
+                      <div class="report-stat-label">🌀 Fragmentation</div>
+                      <div class="report-stat-value" x-text="(meaiReport.summary.reschedule + meaiReport.summary.slip + meaiReport.summary.add)"></div>
+                      <div class="hint" x-text="meaiReport.summary.reschedule + ' reschedule · ' + meaiReport.summary.slip + ' slip · ' + meaiReport.summary.add + ' late add'"></div>
+                    </div>
+                    <div class="card report-stat">
+                      <div class="report-stat-label">🧭 Planning adjustments</div>
+                      <div class="report-stat-value" x-text="meaiReport.summary.planned"></div>
+                      <div class="hint">deliberate re-plans — not counted as churn</div>
+                    </div>
+                    <div class="card report-stat">
+                      <div class="report-stat-label">🤖 Me-agents launched</div>
+                      <div class="report-stat-value" x-text="meaiReport.summary.agentsLaunched"></div>
+                      <div class="hint" x-text="meaiReport.summary.tasksDone + ' task(s) completed'"></div>
+                    </div>
+                  </div>
+
+                  <!-- Day-shape distribution -->
+                  <div class="card" style="margin-bottom:20px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Day shape</h3>
+                      <span class="hint">How focused vs. fragmented each tracked day was</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">Derived from organic agenda churn — reschedules, slips and late adds. Deliberate planning changes (switching day mode, time-of-day prefs, manual edits) are recorded separately and never count against a day.</p>
+                    <template x-for="s in meaiShapeBars()" :key="s.shape">
+                      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                        <div style="width:96px;font-size:0.85rem;color:var(--cp-text)" x-text="s.shape"></div>
+                        <div style="flex:1;height:10px;border-radius:6px;background:var(--cp-surface-soft,#e5e7eb);overflow:hidden">
+                          <div :style="`width:${s.pct}%;height:100%;border-radius:6px;background:${s.color}`"></div>
+                        </div>
+                        <div style="width:36px;text-align:right;font-size:0.85rem;color:var(--cp-text-muted)" x-text="s.count"></div>
+                      </div>
+                    </template>
+                    <div class="hint" x-show="!meaiReport.summary.activeDays" style="margin-top:4px">No tracked days in this range yet.</div>
+                  </div>
+
+                  <!-- Triage decisions -->
+                  <div class="card" style="margin-bottom:20px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Triage decisions</h3>
+                      <span class="hint">What you chose not to carry</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">Attention items you cleared off the agenda. <strong>Not mine</strong> = someone else owns it; <strong>Won't fix</strong> = yours, but a deliberate no-op. Kept apart so declining on purpose reads differently from handing work off.</p>
+                    <div style="display:flex;gap:28px;flex-wrap:wrap">
+                      <div>
+                        <div class="report-stat-value" style="font-size:1.6rem" x-text="meaiReport.summary.notMine"></div>
+                        <div class="hint">🙌 Not mine (handed off)</div>
+                      </div>
+                      <div>
+                        <div class="report-stat-value" style="font-size:1.6rem" x-text="meaiReport.summary.wontFix"></div>
+                        <div class="hint">🚫 Won't fix (declined)</div>
+                      </div>
+                      <div>
+                        <div class="report-stat-value" style="font-size:1.6rem" x-text="meaiReport.summary.todosCarried"></div>
+                        <div class="hint">↪ Todos carried over</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Per-day table -->
+                  <div class="card">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Daily activity</h3>
+                      <span class="hint">Day by day — most recent first</span>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="report-table">
+                        <thead>
+                          <tr><th>Day</th><th>Shape</th><th class="num">Blocks</th><th class="num">Focus</th><th class="num">Meetings</th><th class="num">Agents</th><th class="num">Done</th><th class="num">Carried</th><th class="num">Churn</th><th class="num">Planned</th></tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="d in meaiActiveDays()" :key="d.date">
+                            <tr>
+                              <td>
+                                <span x-text="meaiDayLabel(d.date)"></span>
+                                <span class="hint" x-show="d.isToday" style="margin-left:6px">today</span>
+                              </td>
+                              <td>
+                                <span x-show="d.shape" style="display:inline-flex;align-items:center;gap:6px">
+                                  <span :style="`width:8px;height:8px;border-radius:999px;background:${meaiShapeColor(d.shape)}`"></span>
+                                  <span x-text="d.shape"></span>
+                                </span>
+                                <span class="hint" x-show="!d.shape">—</span>
+                              </td>
+                              <td class="num" x-text="d.blocks"></td>
+                              <td class="num" x-text="d.focus"></td>
+                              <td class="num" x-text="d.meetings"></td>
+                              <td class="num" x-text="d.agentsLaunched"></td>
+                              <td class="num" x-text="d.tasksDone"></td>
+                              <td class="num" x-text="d.todosCarried"></td>
+                              <td class="num" x-text="(d.reschedule + d.slip + d.add) || '—'"></td>
+                              <td class="num"><span class="hint" x-text="d.planned || '—'"></span></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                      <div class="empty-state" x-show="!meaiActiveDays().length" style="padding:18px">No Me.AI activity recorded in this range yet. As you plan and run your day, focus &amp; fragmentation will appear here.</div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div class="empty-state" x-show="!meaiReportLoading && (!meaiReport || !meaiReport.summary)" style="padding:24px">Nothing to show yet.</div>
+            </div>
           </section>
 
           <!-- CLI Sessions -->
@@ -19540,6 +19657,8 @@
         reportsLoading: false,
         reportRange: 30,
         reportMetric: 'cost',
+        meaiReport: null,
+        meaiReportLoading: false,
         reportView: (() => { try { return localStorage.getItem('report-view') || 'usage'; } catch (_) { return 'usage'; } })(),
         prodAggressiveness: (() => { try { return localStorage.getItem('prod-aggr') || 'balanced'; } catch (_) { return 'balanced'; } })(),
         reportRate: 0.04,
@@ -20946,6 +21065,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'reports') {
             this.loadModels();
             await this.loadReports();
+            if (this.reportView === 'focus') this.loadMeaiReport();
           } else if (this.route === 'sessions') {
             await this.loadCliSessions();
           } else if (this.route === 'updates') {
@@ -41895,6 +42015,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         setReportRange(days) {
           this.reportRange = days;
           this.loadReports();
+          if (this.reportView === 'focus') this.loadMeaiReport();
         },
 
         async saveReportRate() {
@@ -42138,6 +42259,55 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         setReportView(v) {
           this.reportView = v;
           try { localStorage.setItem('report-view', v); } catch (_) {}
+          if (v === 'focus' && !this.meaiReport) this.loadMeaiReport();
+        },
+
+        // REQ-12: Me.AI daily activity + fragmentation rollup for the Reports "Focus & flow" view.
+        async loadMeaiReport() {
+          this.meaiReportLoading = true;
+          try {
+            const res = await fetch(`/api/me-ai/reports?days=${this.reportRange}`);
+            if (!res.ok) throw new Error('me-ai/reports ' + res.status);
+            this.meaiReport = await res.json();
+          } catch (err) {
+            console.error('loadMeaiReport failed', err);
+            this.meaiReport = null;
+          } finally {
+            this.meaiReportLoading = false;
+          }
+        },
+
+        meaiShapeColor(shape) {
+          return ({
+            Focused: 'var(--cp-success,#22c55e)',
+            Steady: 'var(--cp-accent,#6366f1)',
+            Reactive: 'var(--cp-warning,#f59e0b)',
+            Fragmented: 'var(--cp-danger,#ef4444)',
+          })[shape] || 'var(--cp-text-muted,#9ca3af)';
+        },
+
+        meaiShapeBars() {
+          const sc = (this.meaiReport && this.meaiReport.summary && this.meaiReport.summary.shapeCounts) || {};
+          const total = (this.meaiReport && this.meaiReport.summary && this.meaiReport.summary.activeDays) || 0;
+          return ['Focused', 'Steady', 'Reactive', 'Fragmented'].map(shape => ({
+            shape,
+            count: sc[shape] || 0,
+            pct: total ? Math.round(((sc[shape] || 0) / total) * 100) : 0,
+            color: this.meaiShapeColor(shape),
+          }));
+        },
+
+        meaiActiveDays() {
+          const s = (this.meaiReport && Array.isArray(this.meaiReport.series)) ? this.meaiReport.series : [];
+          // Most-recent first, only days with something to show.
+          return s.filter(d => d && d.hasActivity).slice().reverse();
+        },
+
+        meaiDayLabel(date) {
+          try {
+            const d = new Date(String(date) + 'T00:00:00');
+            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+          } catch (_) { return date; }
         },
 
         setProdAggressiveness(v) {

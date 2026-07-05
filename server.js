@@ -12615,6 +12615,94 @@ app.get('/api/me-ai/lookback', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/me-ai/reports?days=N → per-day daily-activity + fragmentation rollup for the
+// Reports page (REQ-12). Read-only + cheap: reuses the frozen agenda snapshots, the
+// change log (day-shape churn), the diary (task completions), the Me-agent task store
+// (agents launched) and the dismiss store (Not-mine vs Won't-fix). Planning adjustments
+// (day-mode/timeprefs/manual/triage) are recorded as `planned` and NEVER counted as
+// fragmentation.
+app.get('/api/me-ai/reports', (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    let days = Number(req.query.days) || 30;
+    days = Math.max(1, Math.min(180, Math.round(days)));
+    // Diary completions indexed by date once (avoids re-scanning per day).
+    let ev = [];
+    try { ev = connect.listEvidence({ includeHidden: true }) || []; } catch (_) { ev = []; }
+    const doneByDate = {};
+    for (const e of ev) {
+      if (!e) continue;
+      const d = String(e.date || '').slice(0, 10);
+      if (!d) continue;
+      if (!(e.tags || []).some(t => String(t) === 'me-ai')) continue;
+      if ((e.tags || []).some(t => String(t).startsWith('ext:me-ai:dayshape'))) continue; // the note itself
+      doneByDate[d] = (doneByDate[d] || 0) + 1;
+    }
+    // Me-agent tasks indexed by creation date.
+    const launchedByDate = {};
+    try {
+      for (const t of meAiTasks.values()) {
+        const d = String((t && (t.createdAt || t.updatedAt)) || '').slice(0, 10);
+        if (d) launchedByDate[d] = (launchedByDate[d] || 0) + 1;
+      }
+    } catch (_) { /* best-effort */ }
+    const out = [];
+    const base = new Date(today + 'T00:00:00');
+    for (let i = 0; i < days; i++) {
+      const dt = new Date(base.getTime() - i * 86400000);
+      const date = dt.toISOString().slice(0, 10);
+      const churn = _meAiChurnSummary(loadChangesForDate(date).events);
+      const agenda = loadAgendaForDate(date);
+      const blocks = (agenda && Array.isArray(agenda.blocks)) ? agenda.blocks : [];
+      const workBlocks = blocks.filter(b => b && b.type !== 'personal' && b.type !== 'lunch' && b.type !== 'open');
+      const focus = blocks.filter(b => b && b.type === 'focus').length;
+      const meetings = blocks.filter(b => b && b.type === 'meeting').length;
+      const todos = (agenda && Array.isArray(agenda.todos)) ? agenda.todos.filter(t => t && t.scope !== 'personal') : [];
+      const todosDone = todos.filter(t => t && t.done).length;
+      const todosCarried = todos.filter(t => t && t.carried).length;
+      const backlog = (agenda && Array.isArray(agenda.backlog)) ? agenda.backlog.length : 0;
+      // Not-mine vs Won't-fix from the dismiss store (reason field; legacy = not-mine).
+      let notMine = 0, wontFix = 0;
+      try {
+        const dm = loadDismissForDate(date) || {};
+        for (const v of Object.values(dm)) {
+          if (v && v.reason === 'wontfix') wontFix++; else notMine++;
+        }
+      } catch (_) { /* best-effort */ }
+      const agentsLaunched = launchedByDate[date] || 0;
+      const tasksDone = doneByDate[date] || 0;
+      const hasActivity = !!agenda || churn.total > 0 || churn.planned > 0 || agentsLaunched > 0 || tasksDone > 0 || notMine > 0 || wontFix > 0;
+      out.push({
+        date, isToday: date === today, hasAgenda: !!agenda, hasActivity,
+        shape: agenda ? churn.shape : '', score: churn.score,
+        reschedule: churn.reschedule, slip: churn.slip, add: churn.add, planned: churn.planned,
+        blocks: workBlocks.length, focus, meetings,
+        todos: todos.length, todosDone, todosCarried, backlog,
+        agentsLaunched, tasksDone, notMine, wontFix,
+      });
+    }
+    // Chronological (oldest → newest) for charting.
+    out.reverse();
+    const active = out.filter(d => d.hasActivity);
+    const shapeCounts = { Focused: 0, Steady: 0, Reactive: 0, Fragmented: 0 };
+    let reschedule = 0, slip = 0, add = 0, planned = 0, agentsLaunched = 0, tasksDone = 0, todosCarried = 0, notMine = 0, wontFix = 0, focusDays = 0;
+    for (const d of active) {
+      if (d.shape && shapeCounts[d.shape] != null) shapeCounts[d.shape]++;
+      reschedule += d.reschedule; slip += d.slip; add += d.add; planned += d.planned;
+      agentsLaunched += d.agentsLaunched; tasksDone += d.tasksDone; todosCarried += d.todosCarried;
+      notMine += d.notMine; wontFix += d.wontFix;
+      if (d.shape === 'Focused' || d.shape === 'Steady') focusDays++;
+    }
+    const summary = {
+      activeDays: active.length,
+      focusDays, focusRatio: active.length ? focusDays / active.length : 0,
+      shapeCounts, reschedule, slip, add, planned,
+      agentsLaunched, tasksDone, todosCarried, notMine, wontFix,
+    };
+    res.json({ ok: true, today, days, series: out, summary });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 app.get('/api/me-ai/inbox', (req, res) => {
   try {
