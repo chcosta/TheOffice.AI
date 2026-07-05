@@ -11601,6 +11601,33 @@
               .meai-change-when { color:var(--cp-text-muted); flex:0 0 auto; }
               .meai-change-empty { font-size:12.5px; color:var(--cp-text-muted); }
               .meai-dayshape-out { border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent); border-radius:10px; padding:10px 14px; margin:0 0 12px; background:var(--cp-surface); font-size:13px; color:var(--cp-text); line-height:1.5; }
+              /* REQ-8 attention inbox */
+              .meai-inbox { margin:0 0 12px; }
+              .meai-inbox-bar { display:flex; align-items:center; gap:10px; border:1px solid var(--cp-border); border-radius:10px; padding:6px 12px; background:var(--cp-surface); }
+              .meai-inbox-bar.alert { border-left:3px solid var(--cp-warning); }
+              .meai-inbox-toggle { display:inline-flex; align-items:center; gap:8px; border:0; background:transparent; color:var(--cp-text); font-size:13px; font-weight:600; cursor:pointer; padding:2px 0; }
+              .meai-inbox-dot { width:8px; height:8px; border-radius:999px; background:var(--cp-warning); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning) 22%, transparent); }
+              .meai-inbox-n { color:var(--cp-text-muted); font-weight:500; }
+              .meai-inbox-refresh { font-size:12.5px; }
+              .meai-inbox-list { border:1px solid var(--cp-border); border-top:0; border-radius:0 0 10px 10px; margin-top:-1px; background:var(--cp-surface); display:flex; flex-direction:column; }
+              .meai-inbox-item { padding:10px 14px; border-top:1px solid var(--cp-border); }
+              .meai-inbox-item:first-child { border-top:0; }
+              .meai-inbox-item.fresh { background:color-mix(in srgb, var(--cp-warning) 6%, transparent); }
+              .meai-inbox-item.parked { opacity:.75; }
+              .meai-inbox-head { display:flex; align-items:baseline; gap:8px; font-size:13px; }
+              .meai-inbox-freshdot { flex:0 0 auto; width:7px; height:7px; border-radius:999px; background:var(--cp-warning); align-self:center; }
+              .meai-inbox-kind { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-text-muted); text-transform:uppercase; letter-spacing:.03em; }
+              .meai-inbox-title { color:var(--cp-text); font-weight:600; flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+              .meai-inbox-title.clickable:hover { color:var(--cp-accent); text-decoration:underline; }
+              .meai-inbox-mention { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-accent); }
+              .meai-inbox-state { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
+              .meai-inbox-detail { font-size:12.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.45; }
+              .meai-inbox-acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+              .meai-tri { border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:4px 12px; font-size:12.5px; cursor:pointer; }
+              .meai-tri:hover { border-color:var(--cp-accent); }
+              .meai-tri.ghost { color:var(--cp-text-muted); }
+              .meai-tri:disabled { opacity:.5; cursor:default; }
+              .meai-inbox-empty { padding:12px 14px; border-top:1px solid var(--cp-border); font-size:12.5px; color:var(--cp-text-muted); }
               .meai-grid2 { display:grid; grid-template-columns:1fr 320px; gap:24px; align-items:start; }
               @media (max-width:900px) { .meai-grid2 { grid-template-columns:1fr; } }
               .meai-tl { position:relative; }
@@ -11828,6 +11855,56 @@
                 <span class="meai-status-detail" x-show="meai.dayShape.written"> · saved to diary</span>
                 <span class="meai-status-detail" x-show="!meai.dayShape.written && meai.dayShape.reason==='already-logged'"> · already in diary</span>
               </div>
+
+              <!-- REQ-8 Proactive attention inbox: newly-arrived email/Teams asks that
+                   need a triage decision so focus isn't derailed but nothing is missed. -->
+              <div class="meai-inbox" x-show="meai.loaded">
+                <div class="meai-inbox-bar" :class="{ alert: meAiInboxNewCount()>0 }">
+                  <button type="button" class="meai-inbox-toggle" @click="meai.inboxOpen=!meai.inboxOpen">
+                    <span class="meai-inbox-dot" x-show="meAiInboxNewCount()>0"></span>
+                    <span x-show="meAiInboxNewCount()>0" x-text="meAiInboxNewCount() + (meAiInboxNewCount()===1?' new item needs attention':' new items need attention')"></span>
+                    <span x-show="!meAiInboxNewCount()">Attention inbox<span class="meai-inbox-n" x-show="(meai.inbox.items||[]).length" x-text="' ' + (meai.inbox.items||[]).length"></span></span>
+                    <span class="meai-caret" x-text="meai.inboxOpen?'▾':'▸'"></span>
+                  </button>
+                  <span style="flex:1"></span>
+                  <span class="meai-status-detail" x-show="meai.inbox.polledAt" x-text="'checked ' + (new Date(meai.inbox.polledAt)).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})"></span>
+                  <button type="button" class="btn ghost meai-inbox-refresh" @click="meAiRefreshInbox()" :disabled="meai.inboxBusy"
+                          title="Check email & Teams for new asks now">
+                    <span x-show="!meai.inboxBusy">Check now</span>
+                    <span x-show="meai.inboxBusy">Checking…</span>
+                  </button>
+                </div>
+                <div class="meai-inbox-list" x-show="meai.inboxOpen" x-transition>
+                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => x.triage!=='dismissed')" :key="it.id">
+                    <div class="meai-inbox-item" :class="{ fresh: it.triage==='new', parked: it.triage==='later' }">
+                      <div class="meai-inbox-head">
+                        <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
+                        <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
+                        <span class="meai-inbox-title clickable" :title="it.link ? 'Open' : ''" @click="it.link && window.open(it.link,'_blank')" x-text="it.title"></span>
+                        <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned directly">@you</span>
+                        <span class="meai-inbox-state" x-show="it.triage==='later'">Parked</span>
+                        <span class="meai-inbox-state" x-show="it.triage==='today'">On today</span>
+                        <span class="meai-inbox-state" x-show="it.triage==='now'">Handling</span>
+                      </div>
+                      <div class="meai-inbox-detail" x-show="it.detail" x-text="it.detail"></div>
+                      <div class="meai-inbox-acts" x-show="it.triage==='new' || it.triage==='seen'">
+                        <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
+                        <button type="button" class="meai-tri" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
+                        <button type="button" class="meai-tri" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — remove for today">Not mine</button>
+                      </div>
+                      <div class="meai-inbox-acts" x-show="it.triage==='later'">
+                        <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
+                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy">Not mine</button>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="meai-inbox-empty" x-show="!(meai.inbox.items||[]).filter(x => x.triage!=='dismissed').length">
+                    Nothing waiting — email &amp; Teams are quiet. <span class="meai-status-detail">New asks appear here automatically while you work.</span>
+                  </div>
+                </div>
+              </div>
+
 
               <!-- #2 Quick day mode: re-weights the plan (persisted + re-plans on change) -->
               <div class="meai-modebar" x-show="meai.loaded">
@@ -19531,6 +19608,10 @@
           _autoTimer: null,      // client poll for auto-regenerated agenda (today only)
           _lastGeneratedAt: '',  // last agenda.generatedAt we rendered (detect silent regen)
           justUpdated: false,    // brief "agenda updated" flash after a silent regen
+          // REQ-8 proactive attention inbox.
+          inbox: { items: [], newCount: 0, polledAt: '' },
+          inboxOpen: false,      // inbox panel expanded
+          inboxBusy: false,      // a refresh / triage request is in flight
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -25849,6 +25930,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.meai.loaded = true;
             await this.meAiLoadAgenda();
             await this.meAiLoadTasks();
+            await this.meAiLoadInbox();
             // #3 Warm the signal cache for the viewed date in the background so a
             // later generate / mode-change re-plan is fast. Consent-gated server-side.
             if (this.meai.config.consent) {
@@ -25898,6 +25980,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 setTimeout(() => { this.meai.justUpdated = false; }, 6000);
                 this.meAiLoadChanges();
               }
+              // REQ-8 refresh the attention inbox on the same tick (today only) so
+              // newly-arrived asks surface without a full agenda regen.
+              try {
+                const ir = await this.request('/api/me-ai/inbox?date=' + encodeURIComponent(this.meai.date));
+                if (ir && ir.items) {
+                  const prevNew = this.meai.inbox.newCount || 0;
+                  this.meai.inbox = { items: ir.items, newCount: ir.newCount || 0, polledAt: ir.polledAt || '' };
+                  if ((ir.newCount || 0) > prevNew) { this.meai.inboxOpen = true; }
+                }
+              } catch (_) { /* ignore */ }
             } catch (_) { /* ignore transient poll errors */ }
           }, 60000);
         },
@@ -25917,6 +26009,53 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.toast('Failed to write day-shape report: ' + (e.message || e), 'error');
           } finally { this.meai.dayShapeBusy = false; }
+        },
+        // REQ-8 attention inbox — surface newly-arrived email/Teams asks + triage.
+        async meAiLoadInbox() {
+          try {
+            const r = await this.request('/api/me-ai/inbox?date=' + encodeURIComponent(this.meai.date));
+            this.meai.inbox = { items: (r && r.items) || [], newCount: (r && r.newCount) || 0, polledAt: (r && r.polledAt) || '' };
+          } catch (_) { this.meai.inbox = { items: [], newCount: 0, polledAt: '' }; }
+        },
+        async meAiRefreshInbox() {
+          if (this.meai.inboxBusy) return;
+          this.meai.inboxBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/inbox/refresh', { method: 'POST', body: JSON.stringify({ date: this.meai.date }) });
+            this.meai.inbox = { items: (r && r.items) || [], newCount: (r && r.newCount) || 0, polledAt: (r && r.polledAt) || '' };
+            if (r && !r.consent) this.toast('Turn on personal signals to check email & Teams', 'error');
+            else if (r && r.added) { this.meai.inboxOpen = true; this.toast(r.added + (r.added === 1 ? ' new item needs your attention' : ' new items need your attention'), 'info'); }
+            else this.toast('No new items — you\u2019re caught up', 'success');
+          } catch (e) {
+            this.toast('Failed to check for new items: ' + (e.message || e), 'error');
+          } finally { this.meai.inboxBusy = false; }
+        },
+        // Triage a single inbox item. 'now' also launches a comms Me-agent; 'today'
+        // re-plans the day (server returns the fresh agenda).
+        async meAiTriage(item, action) {
+          if (!item || this.meai.inboxBusy) return;
+          this.meai.inboxBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id, action }) });
+            if (r && r.items) this.meai.inbox = { items: r.items, newCount: r.newCount || 0, polledAt: this.meai.inbox.polledAt };
+            if (action === 'today') {
+              if (r && r.agenda) { this.meai.agenda = r.agenda; this.meai._lastGeneratedAt = r.agenda.generatedAt || ''; this.meAiLoadChanges(); }
+              this.toast('Fitted into today\u2019s agenda', 'success');
+            } else if (action === 'later') {
+              this.toast('Parked — it\u2019ll stay on your attention rail', 'info');
+            } else if (action === 'dismiss') {
+              this.toast('Removed — won\u2019t resurface today', 'info');
+            }
+          } catch (e) {
+            this.toast('Triage failed: ' + (e.message || e), 'error');
+          } finally { this.meai.inboxBusy = false; }
+          // 'now' → hand it to a comms Me-agent (outside the busy guard so the drawer opens cleanly).
+          if (action === 'now') {
+            this.meAiDispatch('comms', item.title || 'Handle this message', { link: item.link || item.prLink || '', detail: item.detail || '' }, 'work');
+          }
+        },
+        meAiInboxNewCount() {
+          return (this.meai.inbox.items || []).filter(i => i.triage === 'new').length;
         },
         async meAiGenerate(opts) {
           if (this.meai.generating) return;

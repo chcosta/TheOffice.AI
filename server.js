@@ -11147,6 +11147,100 @@ function saveDismissForDate(date, map) {
   return map;
 }
 
+// REQ-8 Proactive attention inbox. A leader-gated poller keeps this fresh so that
+// email/Teams items needing your reply or action surface even while you're head-down,
+// WITHOUT silently reshuffling your focus. Each newly-arrived item is flagged 'new'
+// until you triage it: Later (park on the rail), Now (launch a comms Me-agent), or
+// Today (fit into the agenda + re-plan via REQ-7). Dismissed ("not mine") items are
+// never re-added. Stored at me-ai/inbox/<date>.json.
+const ME_AI_INBOX_DIR = path.join(dataPath('me-ai'), 'inbox');
+function _meAiInboxPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_INBOX_DIR, `${safe}.json`);
+}
+function _meAiInboxId(sig) {
+  const basis = String((sig && (sig.link || sig.prLink || sig.title)) || '').trim().toLowerCase();
+  return require('crypto').createHash('sha1').update(basis).digest('hex').slice(0, 16);
+}
+function loadInboxForDate(date) {
+  try {
+    const p = _meAiInboxPath(date);
+    if (!fs.existsSync(p)) return { date, items: [], polledAt: '' };
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (v && Array.isArray(v.items)) return v;
+    return { date, items: [], polledAt: '' };
+  } catch { return { date, items: [], polledAt: '' }; }
+}
+function saveInboxForDate(date, inbox) {
+  fs.mkdirSync(ME_AI_INBOX_DIR, { recursive: true });
+  fs.writeFileSync(_meAiInboxPath(date), JSON.stringify(inbox || { date, items: [] }, null, 2));
+  return inbox;
+}
+// Merge freshly gathered comms signals into the day's attention inbox. Existing
+// items keep their triage state + first-seen; genuinely new asks arrive as 'new'.
+// Meetings are excluded (calendar anchors, not asks); pure-FYI items (urgency < 3
+// and no direct mention) don't interrupt. Dismissed items are never re-added.
+function _meAiMergeInbox(date, signals) {
+  const inbox = loadInboxForDate(date);
+  const byId = new Map(inbox.items.map(it => [it.id, it]));
+  const dismissedKeys = new Set(Object.keys(loadDismissForDate(date)));
+  const now = new Date().toISOString();
+  let added = 0;
+  for (const sig of (signals || [])) {
+    if (!sig || sig.kind === 'meeting' || sig.type !== 'comms') continue;
+    if (!((Number(sig.urgency) || 0) >= 3 || sig.directMention)) continue; // FYI → no interrupt
+    if (dismissedKeys.has(_meAiDismissKey(sig))) continue;
+    const id = _meAiInboxId(sig);
+    const base = {
+      id, kind: sig.kind || 'email', title: String(sig.title || '').slice(0, 200),
+      detail: String(sig.detail || '').slice(0, 200), link: sig.link || '', prLink: sig.prLink || '',
+      directMention: !!sig.directMention, urgency: Number(sig.urgency) || 3, source: sig.source || 'm365',
+    };
+    const ex = byId.get(id);
+    if (ex) {
+      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note });
+    } else {
+      const it = Object.assign(base, { firstSeen: now, triage: 'new', triagedAt: '', note: '' });
+      inbox.items.push(it); byId.set(id, it); added++;
+    }
+  }
+  inbox.items.sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
+  if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
+  inbox.polledAt = now;
+  saveInboxForDate(date, inbox);
+  return { inbox, added };
+}
+// Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
+// signal cache unless force).
+async function _meAiRefreshInbox(s, cfg, date, { force = false } = {}) {
+  if (!cfg.consent) return { inbox: loadInboxForDate(date), added: 0, consent: false };
+  const gathered = await _meAiGatherSignals(s, cfg, date, { force });
+  const r = _meAiMergeInbox(date, gathered.signals);
+  return { inbox: r.inbox, added: r.added, consent: true };
+}
+// Apply triage decisions to the live signal list before planning: 'today' pins an
+// item into the schedule (urgency boost, synthesised if it dropped out of the live
+// gather); 'later' parks it on the rail (urgency capped so it's not scheduled).
+function _meAiApplyInboxTriage(date, signals) {
+  const inbox = loadInboxForDate(date);
+  if (!inbox.items.length) return signals;
+  const byId = new Map(inbox.items.map(it => [it.id, it]));
+  const out = (signals || []).map(sig => {
+    const it = byId.get(_meAiInboxId(sig));
+    if (!it) return sig;
+    if (it.triage === 'today') return { ...sig, urgency: Math.max(Number(sig.urgency) || 0, 5), pinned: true };
+    if (it.triage === 'later') return { ...sig, urgency: Math.min(Number(sig.urgency) || 0, 2) };
+    return sig;
+  });
+  const present = new Set((signals || []).map(_meAiInboxId));
+  for (const it of inbox.items) {
+    if (it.triage === 'today' && !present.has(it.id)) {
+      out.push({ kind: it.kind, type: 'comms', title: it.title, detail: it.detail, start: null, end: null, link: it.link, prLink: it.prLink, directMention: it.directMention, urgency: 5, source: it.source || 'm365', pinned: true });
+    }
+  }
+  return out;
+}
+
 // REQ-7 Agenda change-tracking. As the day auto-regenerates we diff the new
 // schedule against the previous one and log what moved: reschedules (a task
 // changed time), slips (a task fell off today's schedule), and late adds (a task
@@ -11808,8 +11902,13 @@ async function generateMeAiAgenda({ date, todos, reindex } = {}) {
   const liveSignals = dismissedKeys.size
     ? signals.filter(sig => !dismissedKeys.has(_meAiDismissKey(sig)))
     : signals;
-  const pre = _meAiPrePass(cfg, liveSignals, todos);
-  const refined = await _meAiLlmRefine(cfg, pre, liveSignals, day);
+  // REQ-8 keep the attention inbox in sync with what we just gathered (records any
+  // newly-arrived asks as 'new'), then apply the user's triage before planning so
+  // "Fit into today" items get a real block and "Later" items stay on the rail.
+  try { _meAiMergeInbox(day, liveSignals); } catch (_) { /* best-effort */ }
+  const planSignals = _meAiApplyInboxTriage(day, liveSignals);
+  const pre = _meAiPrePass(cfg, planSignals, todos);
+  const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
@@ -11908,6 +12007,76 @@ app.post('/api/me-ai/agenda/dayshape', (req, res) => {
     const date = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
     const r = _meAiWriteDayShape(date);
     res.json({ ok: true, date, ...r });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// REQ-8 attention inbox routes.
+// GET /api/me-ai/inbox?date= → items + how many are still untriaged ('new').
+app.get('/api/me-ai/inbox', (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const inbox = loadInboxForDate(date);
+    const newCount = inbox.items.filter(i => i.triage === 'new').length;
+    res.json({ ok: true, date, items: inbox.items, newCount, polledAt: inbox.polledAt || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/inbox/refresh { date? } → poll M365 now and merge new asks in.
+app.post('/api/me-ai/inbox/refresh', async (req, res) => {
+  try {
+    const date = String((req.body && req.body.date) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const s = settings.getSettings();
+    const cfg = _meAiConfig(s);
+    _meAiLastActive = Date.now();
+    const r = await _meAiRefreshInbox(s, cfg, date, { force: true });
+    const newCount = r.inbox.items.filter(i => i.triage === 'new').length;
+    res.json({ ok: true, date, items: r.inbox.items, newCount, added: r.added, consent: r.consent, polledAt: r.inbox.polledAt || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/inbox/triage { date?, id, action } → record a triage decision.
+// action: 'seen' (clear the new flag), 'later' (park on rail), 'now' (handling it —
+// client launches a comms Me-agent), 'today' (fit into the agenda → re-plan),
+// 'dismiss' (not mine → also excluded from the agenda). Returns the updated inbox,
+// plus a freshly re-planned agenda when the decision was "today".
+app.post('/api/me-ai/inbox/triage', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const id = String(b.id || '').trim();
+    const action = String(b.action || '').trim();
+    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss'];
+    if (!id || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
+    const inbox = loadInboxForDate(date);
+    const it = inbox.items.find(x => x.id === id);
+    if (!it) return res.status(404).json({ error: 'not found' });
+    const now = new Date().toISOString();
+    if (action === 'dismiss') {
+      // Mirror the "not mine" dismiss store so the item stays out of the agenda too.
+      try {
+        const dm = loadDismissForDate(date);
+        dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now };
+        saveDismissForDate(date, dm);
+      } catch (_) { /* best-effort */ }
+      it.triage = 'dismissed';
+    } else if (action === 'seen') {
+      if (it.triage === 'new') it.triage = 'seen';
+    } else {
+      it.triage = action; // 'later' | 'now' | 'today'
+    }
+    it.triagedAt = now;
+    saveInboxForDate(date, inbox);
+    let agenda = null;
+    if (action === 'today') {
+      // Fit-into-today → re-plan immediately (reuse warm cache) so it lands now.
+      try {
+        const prev = loadAgendaForDate(date);
+        const todos = (prev && Array.isArray(prev.todos)) ? prev.todos.map(t => ({ title: t.title, scope: t.scope })) : [];
+        agenda = await generateMeAiAgenda({ date, todos, reindex: false });
+      } catch (_) { /* best-effort */ }
+    }
+    const newCount = inbox.items.filter(i => i.triage === 'new').length;
+    res.json({ ok: true, date, items: inbox.items, newCount, agenda });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -12104,6 +12273,33 @@ setInterval(() => {
     _meAiWriteDayShape(today); // deduped internally
   } catch (_) { /* best-effort */ }
 }, ME_AI_DAYSHAPE_INTERVAL_MS);
+
+// REQ-8 Proactive attention poller: keep the attention inbox fresh so email/Teams
+// asks surface even while the user is head-down (NOT active-window gated). New items
+// arrive flagged 'new' and wait for triage — we never silently reshuffle the agenda.
+// Leader + consent + work-day + (roughly) work-hours gated; TODAY only. Reuses the
+// warm signal cache when fresh to bound collector-agent spawns.
+const ME_AI_INBOX_POLL_INTERVAL_MS = 12 * 60 * 1000;
+let _meAiInboxPollBusy = false;
+setInterval(async () => {
+  if (_meAiInboxPollBusy) return;
+  try {
+    if (!leaderCheck()) return;
+    const s = settings.getSettings();
+    if (!s.meAiConsent) return;
+    const cfg = _meAiConfig(s);
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    if (!(cfg.workDays || []).includes(now.getDay())) return; // not a work day
+    const startMin = _hmToMin(cfg.workStart), endMin = _hmToMin(cfg.workEnd);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    if (startMin != null && nowMin < startMin - 30) return; // before the work day
+    if (endMin != null && nowMin > endMin + 30) return;     // after the work day
+    _meAiInboxPollBusy = true;
+    await _meAiRefreshInbox(s, cfg, today, { force: false });
+  } catch (_) { /* best-effort */ }
+  finally { _meAiInboxPollBusy = false; }
+}, ME_AI_INBOX_POLL_INTERVAL_MS);
 
 function _meAiTaskPublic(t) {
   if (!t) return null;
