@@ -11695,6 +11695,7 @@ function _meAiActPrompt(intent, text) {
     'request-review': 'Draft a message requesting review from the right people, summarizing what to look at.',
     'retry': 'Retry the last operation, self-correcting based on what failed.',
     'change-approach': 'Take a different approach to the problem and explain the new plan before acting.',
+    'hand-to-me': 'Stop here and hand this back to me — I will take it from here. Briefly summarize where things stand and the single most useful next step for me to pick up.',
     'ask-user': 'Here is my answer to the question you asked. Use it to resume exactly where you paused and carry on.',
     'continue': 'Continue with the next logical step.',
     'summarize': 'Summarize the outcome and any follow-ups.',
@@ -11703,6 +11704,18 @@ function _meAiActPrompt(intent, text) {
   return base + extra + '\n\n' + [
     'When done, again end with a single fenced ```json block:',
     '{ "report": { "summary": "...", "findings": [...] }, "nextActions": [ { "label":"...","intent":"...","primary":true,"risk":"none" } ] }',
+  ].join('\n');
+}
+// §7.5 self-correction: on an auto-retry, feed the failure back so the agent
+// diagnoses and corrects rather than blindly re-running the same thing.
+function _meAiCorrectionPrompt(errText) {
+  return [
+    'That last attempt failed with this error:',
+    '',
+    String(errText || 'Unknown error').slice(0, 1500),
+    '',
+    'Diagnose what went wrong and self-correct. In ONE line, state the correction you are making; then carry it out. If the same failure is genuinely unavoidable (missing access, an external blocker), say so plainly and stop rather than looping.',
+    'End with the usual single fenced ```json report block (report + nextActions).',
   ].join('\n');
 }
 // Parse the agent's final text into a structured report + nextActions, tolerant of
@@ -11810,22 +11823,27 @@ function _meAiDispatchRun(t) {
       attempt++;
       try {
         _meAiSetStage(t, 'working', 'running');
-        _meAiEmit(t, { kind: 'note', text: attempt > 1 ? `Retrying (attempt ${attempt})…` : 'Dispatching Me agent…' });
-        const out = await _meAiRunTurn(t, kickoff, { resume: false });
+        const selfCorrect = attempt > 1 && t._lastError;
+        _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : 'Dispatching Me agent…' });
+        // First attempt runs the fresh kickoff; a retry resumes the same session
+        // with the failure fed back so the agent corrects rather than re-running blind.
+        const prompt = selfCorrect ? _meAiCorrectionPrompt(t._lastError) : kickoff;
+        const out = await _meAiRunTurn(t, prompt, { resume: !!selfCorrect });
         const { report, nextActions, question } = _meAiParseReport(out);
-        t.report = report; t.nextActions = nextActions; t.question = question || null;
+        t.report = report; t.nextActions = nextActions; t.question = question || null; t._lastError = null;
         _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
         if (question) _meAiEmit(t, { kind: 'question', text: question });
         _meAiSetStage(t, 'awaiting', 'awaiting');
         return;
       } catch (e) {
         _meAiEmit(t, { kind: 'error', text: String(e.message || e) });
-        // Locked policy: auto-retry once, then escalate to the user (§7.5).
-        if (attempt <= 1 && !e._fallback) { continue; }
-        t.error = String(e.message || e);
+        // Locked policy: auto-retry once (self-correcting), then escalate (§7.5).
+        if (attempt <= 1 && !e._fallback) { t._lastError = String(e.message || e); continue; }
+        t.error = String(e.message || e); t._lastError = null;
         t.nextActions = [
           { label: 'Retry', intent: 'retry', primary: true, risk: 'none' },
           { label: 'Change approach', intent: 'change-approach', primary: false, risk: 'none' },
+          { label: 'Hand to me', intent: 'hand-to-me', primary: false, risk: 'none' },
           { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
         ];
         _meAiSetStage(t, 'error', 'error');
@@ -11838,26 +11856,30 @@ function _meAiDispatchRun(t) {
 function _meAiActRun(t, intent, text) {
   _meAiSchedule(async () => {
     let attempt = 0;
-    const prompt = _meAiActPrompt(intent, text);
+    const basePrompt = _meAiActPrompt(intent, text);
     t.question = null; // a new turn is starting; any prior mid-run question is resolved
     while (true) {
       attempt++;
       try {
         _meAiSetStage(t, 'working', 'running');
-        _meAiEmit(t, { kind: 'note', text: `You chose: ${intent}${text ? ' — ' + text : ''}` });
+        const selfCorrect = attempt > 1 && t._lastError;
+        _meAiEmit(t, { kind: 'note', text: selfCorrect ? `Self-correcting and retrying (attempt ${attempt})…` : `You chose: ${intent}${text ? ' — ' + text : ''}` });
+        const prompt = selfCorrect ? _meAiCorrectionPrompt(t._lastError) : basePrompt;
         const out = await _meAiRunTurn(t, prompt, { resume: true });
         const { report, nextActions, question } = _meAiParseReport(out);
-        t.report = report; t.nextActions = nextActions; t.error = null; t.question = question || null;
+        t.report = report; t.nextActions = nextActions; t.error = null; t.question = question || null; t._lastError = null;
         _meAiEmit(t, { kind: 'report', summary: report.summary, findings: report.findings });
         if (question) _meAiEmit(t, { kind: 'question', text: question });
         _meAiSetStage(t, 'awaiting', 'awaiting');
         return;
       } catch (e) {
         _meAiEmit(t, { kind: 'error', text: String(e.message || e) });
-        if (attempt <= 1 && !e._fallback) { continue; }
-        t.error = String(e.message || e);
+        if (attempt <= 1 && !e._fallback) { t._lastError = String(e.message || e); continue; }
+        t.error = String(e.message || e); t._lastError = null;
         t.nextActions = [
           { label: 'Retry', intent: 'retry', primary: true, risk: 'none' },
+          { label: 'Change approach', intent: 'change-approach', primary: false, risk: 'none' },
+          { label: 'Hand to me', intent: 'hand-to-me', primary: false, risk: 'none' },
           { label: 'Abandon', intent: 'abandon', primary: false, risk: 'none' },
         ];
         _meAiSetStage(t, 'error', 'error');
@@ -11975,6 +11997,18 @@ app.post('/api/me-ai/task/:id/act', (req, res) => {
       _meAiEmit(t, { kind: 'note', text: 'Task abandoned.' });
       t.nextActions = [];
       _meAiSetStage(t, 'done', 'complete');
+      return res.json({ ok: true, task: _meAiTaskPublic(t) });
+    }
+    if (intent === 'hand-to-me') {
+      // Hand back to the human: stop the agent loop, leave the task in a state the
+      // user can pick up (review the report, background, or mark complete). No turn.
+      _meAiEmit(t, { kind: 'note', text: 'Handed back to you — the Me agent has stopped. Take it from here.' });
+      t.error = null; t._lastError = null;
+      t.nextActions = [
+        { label: 'Retry', intent: 'retry', primary: false, risk: 'none' },
+        { label: 'Change approach', intent: 'change-approach', primary: false, risk: 'none' },
+      ];
+      _meAiSetStage(t, 'awaiting', 'awaiting');
       return res.json({ ok: true, task: _meAiTaskPublic(t) });
     }
     _meAiActRun(t, intent, b.text);
