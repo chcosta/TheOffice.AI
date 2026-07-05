@@ -11260,11 +11260,12 @@ function loadChangesForDate(date) {
     return { date, events: [] };
   } catch { return { date, events: [] }; }
 }
-function _meAiAppendChanges(date, events) {
+function _meAiAppendChanges(date, events, cause) {
   if (!Array.isArray(events) || !events.length) return loadChangesForDate(date);
   const log = loadChangesForDate(date);
   const at = new Date().toISOString();
-  for (const e of events) log.events.push({ ...e, at });
+  const c = String(cause || 'auto');
+  for (const e of events) log.events.push({ ...e, cause: c, at });
   if (log.events.length > 500) log.events = log.events.slice(-500);
   try {
     fs.mkdirSync(ME_AI_CHANGES_DIR, { recursive: true });
@@ -11305,16 +11306,27 @@ function _meAiDiffAgenda(prev, next) {
   }
   return changes;
 }
+// "Day shape" = how much the day randomised *on its own*. Deliberate re-plans (a
+// day-mode switch, time-of-day prefs, a manual Regenerate, or fitting an item into
+// today) are planning *choices*, not fragmentation — so we tag their change events
+// with an intentional cause and exclude them from the churn score. They still show
+// in the "what changed" trail (as planning adjustments) for full transparency, and
+// re-baseline the plan so later organic diffs measure against the new intent.
+const ME_AI_INTENTIONAL_CAUSES = new Set(['mode', 'timeprefs', 'todo', 'manual', 'triage']);
 function _meAiChurnSummary(events) {
-  let reschedule = 0, slip = 0, add = 0;
+  let reschedule = 0, slip = 0, add = 0, planned = 0;
   for (const e of (events || [])) {
+    if (ME_AI_INTENTIONAL_CAUSES.has(e && e.cause)) { planned++; continue; }
     if (e.kind === 'reschedule') reschedule++;
     else if (e.kind === 'slip') slip++;
     else if (e.kind === 'add') add++;
   }
+  const counted = reschedule + slip + add;
   const score = reschedule + slip * 2 + add;
   const shape = score >= 8 ? 'Fragmented' : score >= 4 ? 'Reactive' : score >= 1 ? 'Steady' : 'Focused';
-  return { reschedule, slip, add, total: (events || []).length, score, shape };
+  // total = organic changes that count toward the shape; planned = deliberate
+  // adjustments recorded but not counted.
+  return { reschedule, slip, add, planned, total: counted, score, shape };
 }
 // Stable fingerprint of the day's signal set so auto-regen only re-plans (an LLM
 // call) when the underlying work actually changed — a new PR, email, meeting, etc.
@@ -11329,7 +11341,8 @@ function _meAiDayShapeText(churn) {
     : churn.shape === 'Steady' ? 'A steady day with only minor adjustments.'
       : churn.shape === 'Reactive' ? 'A reactive day — several reschedules pulled focus around.'
         : 'A fragmented day — heavy churn; the plan shifted a lot.';
-  return `Day shape: ${churn.shape}. ${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) across ${churn.total} change(s). ${interp}`;
+  const planned = churn.planned ? ` ${churn.planned} deliberate planning adjustment(s) (not counted).` : '';
+  return `Day shape: ${churn.shape}. ${churn.reschedule} reschedule(s), ${churn.slip} slip(s), ${churn.add} late add(s) across ${churn.total} organic change(s).${planned} ${interp}`;
 }
 // End-of-day "day shape" note into the Diary (consent-gated, deduped per date).
 function _meAiWriteDayShape(date) {
@@ -11865,7 +11878,7 @@ function _meAiPreindex(day) {
   } catch { return false; }
 }
 
-async function generateMeAiAgenda({ date, todos, reindex } = {}) {
+async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
   const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -11927,7 +11940,7 @@ async function generateMeAiAgenda({ date, todos, reindex } = {}) {
     const prevAgenda = loadAgendaForDate(day);
     if (prevAgenda && Array.isArray(prevAgenda.blocks) && prevAgenda.blocks.length) {
       const diff = _meAiDiffAgenda(prevAgenda, agenda);
-      if (diff.length) _meAiAppendChanges(day, diff);
+      if (diff.length) _meAiAppendChanges(day, diff, cause || 'auto');
     }
   } catch (_) { /* best-effort */ }
   agenda.meta.churn = _meAiChurnSummary(loadChangesForDate(day).events);
@@ -11986,7 +11999,8 @@ app.get('/api/me-ai/agenda', (req, res) => {
 app.post('/api/me-ai/agenda/generate', async (req, res) => {
   try {
     const b = req.body || {};
-    const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [], reindex: b.reindex !== false });
+    const cause = ME_AI_INTENTIONAL_CAUSES.has(b.cause) ? b.cause : 'manual';
+    const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [], reindex: b.reindex !== false, cause });
     res.json({ ok: true, agenda });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -12072,7 +12086,7 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
       try {
         const prev = loadAgendaForDate(date);
         const todos = (prev && Array.isArray(prev.todos)) ? prev.todos.map(t => ({ title: t.title, scope: t.scope })) : [];
-        agenda = await generateMeAiAgenda({ date, todos, reindex: false });
+        agenda = await generateMeAiAgenda({ date, todos, reindex: false, cause: 'triage' });
       } catch (_) { /* best-effort */ }
     }
     const newCount = inbox.items.filter(i => i.triage === 'new').length;

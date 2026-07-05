@@ -11590,6 +11590,7 @@
               .meai-dayshape.shape-steady { border-left:3px solid var(--cp-accent); }
               .meai-dayshape.shape-focused { border-left:3px solid var(--cp-success); }
               .meai-dayshape-n { color:var(--cp-text-muted); }
+              .meai-dayshape-planned { color:var(--cp-text-muted); opacity:.75; font-style:italic; }
               .meai-eod { font-size:12.5px; }
               .meai-changes { border:1px solid var(--cp-border); border-radius:10px; padding:8px 12px; margin:0 0 12px; background:var(--cp-surface); display:flex; flex-direction:column; gap:4px; }
               .meai-change-row { display:flex; align-items:baseline; gap:10px; font-size:12.5px; }
@@ -11599,6 +11600,8 @@
               .meai-change-kind.ck-add { color:var(--cp-success); }
               .meai-change-title { color:var(--cp-text); flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-change-when { color:var(--cp-text-muted); flex:0 0 auto; }
+              .meai-change-row.meai-change-planned { opacity:.6; }
+              .meai-change-cause { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); border:1px solid var(--cp-border); border-radius:6px; padding:0 6px; }
               .meai-change-empty { font-size:12.5px; color:var(--cp-text-muted); }
               .meai-dayshape-out { border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent); border-radius:10px; padding:10px 14px; margin:0 0 12px; background:var(--cp-surface); font-size:13px; color:var(--cp-text); line-height:1.5; }
               /* REQ-8 attention inbox */
@@ -11827,7 +11830,10 @@
                     <span x-text="'Day shape: ' + (meai.agenda.meta.churn.shape||'Focused')"></span>
                     <span class="meai-dayshape-n" x-show="meai.agenda.meta.churn.total"
                           x-text="'· ' + meai.agenda.meta.churn.reschedule + ' resched · ' + meai.agenda.meta.churn.slip + ' slipped · ' + meai.agenda.meta.churn.add + ' added'"></span>
-                    <span class="meai-caret" x-show="meai.agenda.meta.churn.total" x-text="meai.changesOpen?'▾':'▸'"></span>
+                    <span class="meai-dayshape-planned" x-show="meai.agenda.meta.churn.planned"
+                          x-text="'· ' + meai.agenda.meta.churn.planned + ' planning'"
+                          title="Deliberate re-plans (day mode, time prefs, fit-into-today) — recorded but not counted against your focus"></span>
+                    <span class="meai-caret" x-show="meai.agenda.meta.churn.total || meai.agenda.meta.churn.planned" x-text="meai.changesOpen?'▾':'▸'"></span>
                   </button>
                 </template>
                 <span style="flex:1"></span>
@@ -11840,12 +11846,15 @@
               <!-- What changed panel -->
               <div class="meai-changes" x-show="meai.changesOpen && meai.changes.length" x-transition>
                 <template x-for="(c, ci) in meai.changes.slice(0,40)" :key="ci">
-                  <div class="meai-change-row">
+                  <div class="meai-change-row" :class="['mode','timeprefs','todo','manual','triage'].includes(c.cause) ? 'meai-change-planned' : ''">
                     <span class="meai-change-kind" :class="'ck-' + c.kind" x-text="c.kind==='reschedule'?'Moved':c.kind==='slip'?'Slipped':c.kind==='add'?'Added':c.kind"></span>
                     <span class="meai-change-title" x-text="c.title"></span>
                     <span class="meai-change-when" x-show="c.kind==='reschedule'" x-text="(c.from||'') + ' → ' + (c.to||'')"></span>
                     <span class="meai-change-when" x-show="c.kind==='slip'" x-text="'was ' + (c.from||'')"></span>
                     <span class="meai-change-when" x-show="c.kind==='add'" x-text="'at ' + (c.to||'')"></span>
+                    <span class="meai-change-cause" x-show="['mode','timeprefs','todo','manual','triage'].includes(c.cause)"
+                          x-text="c.cause==='mode'?'day mode':c.cause==='timeprefs'?'time prefs':c.cause==='todo'?'todo':c.cause==='triage'?'triage':'manual'"
+                          title="Planning adjustment — not counted toward day shape"></span>
                   </div>
                 </template>
                 <div class="meai-change-empty" x-show="!meai.changes.length">No changes yet today — a steady plan.</div>
@@ -26062,6 +26071,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // #3 Explicit Generate/Regenerate forces a fresh signal read; a mode/pref
           // re-plan passes { reindex:false } to reuse the warm cache (fast).
           const reindex = !(opts && opts.reindex === false);
+          // Attribute the re-plan so intentional adjustments (day mode, time-of-day
+          // prefs, fitting a todo) are recorded but don't count against the day-shape
+          // churn score. Absent a reason, an explicit Generate/Regenerate = 'manual'.
+          const cause = (opts && opts.cause) || (opts && opts.reason) || 'manual';
           this.meai.generating = true;
           this.meai.notice = '';
           try {
@@ -26070,7 +26083,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               .filter(t => t.title);
             const r = await this.request('/api/me-ai/agenda/generate', {
               method: 'POST',
-              body: JSON.stringify({ date: this.meai.date, todos, reindex }),
+              body: JSON.stringify({ date: this.meai.date, todos, reindex, cause }),
             });
             this.meai.agenda = (r && r.agenda) ? r.agenda : null;
             if (!this.meai.agenda) this.meai.notice = 'No agenda was produced.';
@@ -26121,7 +26134,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiSetMode(mode) {
           this.meai.config.mode = mode;
           await this.meAiSaveSettings();
-          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false });
+          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false, cause: 'mode' });
         },
         meAiTimePref(type) {
           const p = this.meai.config.timePrefs || {};
@@ -26134,7 +26147,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const next = cur === '' ? 'morning' : (cur === 'morning' ? 'afternoon' : '');
           if (next) this.meai.config.timePrefs[type] = next; else delete this.meai.config.timePrefs[type];
           await this.meAiSaveSettings();
-          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false });
+          if (this.meai.config.consent && this.meai.agenda) await this.meAiGenerate({ reindex: false, cause: 'timeprefs' });
         },
         meAiShiftDate(days) {
           const d = new Date(this.meai.date + 'T00:00:00');
