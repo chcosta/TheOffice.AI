@@ -28292,6 +28292,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const el = document.querySelector('[data-diary-month="' + monthKey + '"]');
           if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         },
+        openConnectEvidence(ev) {
           if (ev) {
             this.connect.evForm = {
               id: ev.id, date: ev.date, source: ev.source, title: ev.title,
