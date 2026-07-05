@@ -11669,6 +11669,16 @@
               .meai-tri.ghost { color:var(--cp-text-muted); }
               .meai-tri:disabled { opacity:.5; cursor:default; }
               .meai-inbox-empty { padding:12px 14px; border-top:1px solid var(--cp-border); font-size:12.5px; color:var(--cp-text-muted); }
+              /* REQ-9: auto-handled strip — calm, no pills; sits atop the inbox list. */
+              .meai-auto { border-top:1px solid var(--cp-border); background:var(--cp-surface-2, rgba(127,127,127,.05)); padding:8px 14px 10px; }
+              .meai-auto-head { display:flex; flex-direction:column; gap:1px; margin-bottom:6px; }
+              .meai-auto-title { font-size:12.5px; font-weight:600; color:var(--cp-text); }
+              .meai-auto-sub { font-size:11px; color:var(--cp-text-muted); }
+              .meai-auto-item { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:4px 0; font-size:12px; }
+              .meai-auto-verb { color:var(--cp-text-muted); font-style:italic; }
+              .meai-auto-name { color:var(--cp-text); font-weight:500; }
+              .meai-auto-why { color:var(--cp-text-muted); font-size:11px; }
+              .meai-auto-undo { margin-left:auto; }
               .meai-grid2 { display:grid; grid-template-columns:1fr 320px; gap:24px; align-items:start; }
               /* REQ-10: the two side rails (daily-work + notifications). Default / medium:
                  they stack in a single 320px side column. Wide: they spread into two 320px
@@ -12008,7 +12018,23 @@
                   </button>
                 </div>
                 <div class="meai-inbox-list" x-show="meai.inboxOpen" x-transition>
-                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => x.triage!=='dismissed' && x.triage!=='wontfix')" :key="it.id">
+                  <template x-if="meAiAutoHandled().length">
+                    <div class="meai-auto">
+                      <div class="meai-auto-head">
+                        <span class="meai-auto-title" x-text="'Me.AI handled ' + meAiAutoHandled().length + (meAiAutoHandled().length===1?' item for you':' items for you')"></span>
+                        <span class="meai-auto-sub">based on how you've triaged similar asks</span>
+                      </div>
+                      <template x-for="(it, ai) in meAiAutoHandled()" :key="it.id">
+                        <div class="meai-auto-item">
+                          <span class="meai-auto-verb" x-text="meAiAutoLabel(it)"></span>
+                          <span class="meai-auto-name clickable" :title="it.link ? 'Open' : ''" @click="it.link && window.open(it.link,'_blank')" x-text="it.title"></span>
+                          <span class="meai-auto-why" x-show="it.autoReason" x-text="'you did this to ' + (it.autoReason?it.autoReason.n:0) + ' of ' + (it.autoReason?it.autoReason.total:0) + ' similar'"></span>
+                          <button type="button" class="meai-tri ghost meai-auto-undo" @click="meAiUndoAuto(it)" :disabled="meai.inboxBusy" title="Undo — I'll decide this one myself">Undo</button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix')" :key="it.id">
                     <div class="meai-inbox-item" :class="{ fresh: it.triage==='new', parked: it.triage==='later' }">
                       <div class="meai-inbox-head">
                         <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
@@ -12035,7 +12061,7 @@
                       </div>
                     </div>
                   </template>
-                  <div class="meai-inbox-empty" x-show="!(meai.inbox.items||[]).filter(x => x.triage!=='dismissed' && x.triage!=='wontfix').length">
+                  <div class="meai-inbox-empty" x-show="!meAiAutoHandled().length && !(meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix').length">
                     Nothing waiting — email &amp; Teams are quiet. <span class="meai-status-detail">New asks appear here automatically while you work.</span>
                   </div>
                 </div>
@@ -26297,6 +26323,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiInboxNewCount() {
           return (this.meai.inbox.items || []).filter(i => i.triage === 'new').length;
+        },
+        // REQ-9: items Me.AI auto-triaged for you (safe, reversible decisions applied from
+        // your past behaviour). Shown in a dedicated strip with Undo, not the main list.
+        meAiAutoHandled() {
+          return (this.meai.inbox.items || []).filter(i => i.auto);
+        },
+        meAiAutoLabel(it) {
+          const a = it && it.autoReason && it.autoReason.action;
+          if (a === 'later') return 'Parked for later';
+          if (a === 'wontfix') return 'Marked won\u2019t-fix';
+          if (a === 'dismiss') return 'Set aside (not yours)';
+          return 'Handled';
+        },
+        async meAiUndoAuto(item) {
+          if (!item || this.meai.inboxBusy) return;
+          this.meai.inboxBusy = true;
+          try {
+            const r = await this.request('/api/me-ai/inbox/undo-auto', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id }) });
+            if (r && r.items) this.meai.inbox = { items: r.items, newCount: r.newCount || 0, polledAt: this.meai.inbox.polledAt };
+            this.toast('Undone — you decide this one', 'info');
+          } catch (e) {
+            this.toast('Undo failed: ' + (e.message || e), 'error');
+          } finally { this.meai.inboxBusy = false; }
         },
         // Compact absolute timestamp for an attention-inbox item (email received /
         // Teams sent). Absolute (not relative) on purpose — the app's world clock and

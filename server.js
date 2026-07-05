@@ -11155,6 +11155,98 @@ function saveDismissForDate(date, map) {
   return map;
 }
 
+// REQ-9 Triage learning. Every explicit triage decision (later / now / today /
+// not-mine / won't-fix) is aggregated by a stable feature signature of the signal
+// (source · kind · direct-mention · normalized subject tokens) so that when a NEW
+// item strongly matches a consistent past choice we can auto-apply the SAFE,
+// reversible ones (later / not-mine / won't-fix) and simply tell the user — with a
+// one-click Undo that also teaches the model it got one wrong. We NEVER auto-fit
+// into today or auto-launch an agent (those pull your focus); those always ask.
+const ME_AI_TRIAGE_LEARN_PATH = path.join(dataPath('me-ai'), 'triage-learning.json');
+const ME_AI_TRIAGE_AUTO = new Set(['later', 'dismiss', 'wontfix']); // safe + reversible only
+const ME_AI_TRIAGE_STOP = new Set(['the', 'a', 'an', 'for', 'and', 'to', 'of', 'in', 'on', 'at', 'by', 're', 'fw', 'fwd', 'your', 'you', 'my', 'me', 'is', 'are', 'it', 'this', 'that', 'with', 'from', 'please', 'pls', 'need', 'needs', 'action', 'required', 'update', 'request', 'new']);
+// Stable feature signature. Empty when the subject is too generic to learn from.
+function _meAiTriageSignature(it) {
+  if (!it) return '';
+  const source = String(it.source || 'm365').toLowerCase().slice(0, 12);
+  const kind = String(it.kind || 'email').toLowerCase().slice(0, 12);
+  const dm = it.directMention ? 'dm' : 'nd';
+  let t = String(it.title || '').toLowerCase();
+  t = t.replace(/https?:\/\/\S+/g, ' ')
+       .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+/g, ' ')
+       .replace(/[#!]\d+/g, ' ').replace(/\d+/g, ' ').replace(/[^a-z\s]/g, ' ');
+  const toks = Array.from(new Set(t.split(/\s+/).filter(w => w.length > 2 && !ME_AI_TRIAGE_STOP.has(w)))).sort().slice(0, 8);
+  if (toks.length < 2) return ''; // too generic — don't learn from it
+  return `${source}|${kind}|${dm}|${toks.join(' ')}`;
+}
+function loadTriageRules() {
+  try {
+    if (!fs.existsSync(ME_AI_TRIAGE_LEARN_PATH)) return { rules: {} };
+    const v = JSON.parse(fs.readFileSync(ME_AI_TRIAGE_LEARN_PATH, 'utf-8'));
+    return (v && v.rules && typeof v.rules === 'object') ? v : { rules: {} };
+  } catch { return { rules: {} }; }
+}
+function saveTriageRules(store) {
+  try {
+    fs.mkdirSync(path.dirname(ME_AI_TRIAGE_LEARN_PATH), { recursive: true });
+    fs.writeFileSync(ME_AI_TRIAGE_LEARN_PATH, JSON.stringify(store || { rules: {} }, null, 2));
+  } catch (_) { /* best-effort */ }
+  return store;
+}
+function _meAiTriageLabel(action) {
+  return ['later', 'dismiss', 'wontfix', 'today', 'now'].includes(action) ? action : '';
+}
+// Record an explicit triage decision. `corrective` (a prior auto action the user is
+// now overriding) is penalized so a wrong auto-apply loses confidence fast.
+function _meAiRecordTriage(it, action, opts = {}) {
+  const label = _meAiTriageLabel(action);
+  if (!label) return;
+  const sig = _meAiTriageSignature(it);
+  if (!sig) return;
+  const store = loadTriageRules();
+  const rule = store.rules[sig] || { counts: {}, total: 0, sample: '', features: { source: it.source || '', kind: it.kind || '', directMention: !!it.directMention }, lastAt: '' };
+  if (opts.corrective && rule.counts[opts.corrective]) {
+    rule.counts[opts.corrective] = Math.max(0, (rule.counts[opts.corrective] || 0) - 2);
+    rule.total = Math.max(0, (rule.total || 0) - 2);
+  }
+  rule.counts[label] = (rule.counts[label] || 0) + 1;
+  rule.total = (rule.total || 0) + 1;
+  rule.sample = String(it.title || rule.sample || '').slice(0, 120);
+  rule.lastAction = label;
+  rule.lastAt = new Date().toISOString();
+  store.rules[sig] = rule;
+  saveTriageRules(store);
+}
+// Teach that an auto-apply was wrong (Undo) — penalize without adding a replacement.
+function _meAiPenalizeTriage(it, action) {
+  const label = _meAiTriageLabel(action);
+  if (!label) return;
+  const sig = _meAiTriageSignature(it);
+  if (!sig) return;
+  const store = loadTriageRules();
+  const rule = store.rules[sig];
+  if (!rule || !rule.counts[label]) return;
+  rule.counts[label] = Math.max(0, rule.counts[label] - 2);
+  rule.total = Math.max(0, (rule.total || 0) - 2);
+  rule.lastAt = new Date().toISOString();
+  store.rules[sig] = rule;
+  saveTriageRules(store);
+}
+// Decide whether a rule is confident enough to auto-apply. Conservative: >=3 total
+// decisions and a single SAFE action holding >=80% of them.
+function _meAiTriageDecide(it) {
+  const sig = _meAiTriageSignature(it);
+  if (!sig) return null;
+  const rule = loadTriageRules().rules[sig];
+  if (!rule || (rule.total || 0) < 3) return null;
+  let best = null, bestN = 0;
+  for (const [act, n] of Object.entries(rule.counts || {})) { if (n > bestN) { best = act; bestN = n; } }
+  if (!best || !ME_AI_TRIAGE_AUTO.has(best) || bestN < 3) return null;
+  const share = bestN / rule.total;
+  if (share < 0.8) return null;
+  return { action: best, n: bestN, total: rule.total, share: Math.round(share * 100), sig };
+}
+
 // REQ-8 Proactive attention inbox. A leader-gated poller keeps this fresh so that
 // email/Teams items needing your reply or action surface even while you're head-down,
 // WITHOUT silently reshuffling your focus. Each newly-arrived item is flagged 'new'
@@ -11194,6 +11286,7 @@ function _meAiMergeInbox(date, signals) {
   const dismissedKeys = new Set(Object.keys(loadDismissForDate(date)));
   const now = new Date().toISOString();
   let added = 0;
+  let autoHandled = 0;
   for (const sig of (signals || [])) {
     if (!sig || sig.kind === 'meeting' || sig.type !== 'comms') continue;
     if (!((Number(sig.urgency) || 0) >= 3 || sig.directMention)) continue; // FYI → no interrupt
@@ -11207,9 +11300,25 @@ function _meAiMergeInbox(date, signals) {
     };
     const ex = byId.get(id);
     if (ex) {
-      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note });
+      Object.assign(ex, base, { firstSeen: ex.firstSeen, triage: ex.triage, triagedAt: ex.triagedAt, note: ex.note, auto: ex.auto, autoReason: ex.autoReason });
     } else {
       const it = Object.assign(base, { firstSeen: now, triage: 'new', triagedAt: '', note: '' });
+      // REQ-9: auto-apply a confident, safe, reversible past decision instead of asking.
+      const auto = _meAiTriageDecide(it);
+      if (auto) {
+        it.triage = auto.action === 'dismiss' ? 'dismissed' : auto.action; // canonical inbox state
+        it.auto = true;
+        it.autoReason = { action: auto.action, n: auto.n, total: auto.total, share: auto.share, at: now };
+        it.triagedAt = now;
+        if (auto.action === 'dismiss' || auto.action === 'wontfix') {
+          try {
+            const dm = loadDismissForDate(date);
+            dm[_meAiDismissKey(it)] = { title: it.title, note: '', at: now, reason: auto.action, auto: true };
+            saveDismissForDate(date, dm);
+          } catch (_) { /* best-effort */ }
+        }
+        autoHandled++;
+      }
       inbox.items.push(it); byId.set(id, it); added++;
     }
   }
@@ -11217,30 +11326,33 @@ function _meAiMergeInbox(date, signals) {
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added };
+  return { inbox, added, autoHandled };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
 async function _meAiRefreshInbox(s, cfg, date, { force = false } = {}) {
-  if (!cfg.consent) return { inbox: loadInboxForDate(date), added: 0, consent: false };
+  if (!cfg.consent) return { inbox: loadInboxForDate(date), added: 0, autoHandled: 0, consent: false };
   const gathered = await _meAiGatherSignals(s, cfg, date, { force });
   const r = _meAiMergeInbox(date, gathered.signals);
-  return { inbox: r.inbox, added: r.added, consent: true };
+  return { inbox: r.inbox, added: r.added, autoHandled: r.autoHandled || 0, consent: true };
 }
 // Apply triage decisions to the live signal list before planning: 'today' pins an
 // item into the schedule (urgency boost, synthesised if it dropped out of the live
-// gather); 'later' parks it on the rail (urgency capped so it's not scheduled).
+// gather); 'later' parks it on the rail (urgency capped so it's not scheduled);
+// dismissed / won't-fix items (manual or REQ-9 auto) are dropped from planning.
 function _meAiApplyInboxTriage(date, signals) {
   const inbox = loadInboxForDate(date);
   if (!inbox.items.length) return signals;
   const byId = new Map(inbox.items.map(it => [it.id, it]));
-  const out = (signals || []).map(sig => {
+  const out = [];
+  for (const sig of (signals || [])) {
     const it = byId.get(_meAiInboxId(sig));
-    if (!it) return sig;
-    if (it.triage === 'today') return { ...sig, urgency: Math.max(Number(sig.urgency) || 0, 5), pinned: true };
-    if (it.triage === 'later') return { ...sig, urgency: Math.min(Number(sig.urgency) || 0, 2) };
-    return sig;
-  });
+    if (!it) { out.push(sig); continue; }
+    if (it.triage === 'dismissed' || it.triage === 'wontfix') continue; // removed
+    if (it.triage === 'today') { out.push({ ...sig, urgency: Math.max(Number(sig.urgency) || 0, 5), pinned: true }); continue; }
+    if (it.triage === 'later') { out.push({ ...sig, urgency: Math.min(Number(sig.urgency) || 0, 2) }); continue; }
+    out.push(sig);
+  }
   const present = new Set((signals || []).map(_meAiInboxId));
   for (const it of inbox.items) {
     if (it.triage === 'today' && !present.has(it.id)) {
@@ -12522,7 +12634,7 @@ app.post('/api/me-ai/inbox/refresh', async (req, res) => {
     _meAiLastActive = Date.now();
     const r = await _meAiRefreshInbox(s, cfg, date, { force: true });
     const newCount = r.inbox.items.filter(i => i.triage === 'new').length;
-    res.json({ ok: true, date, items: r.inbox.items, newCount, added: r.added, consent: r.consent, polledAt: r.inbox.polledAt || '' });
+    res.json({ ok: true, date, items: r.inbox.items, newCount, added: r.added, autoHandled: r.autoHandled || 0, consent: r.consent, polledAt: r.inbox.polledAt || '' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -12543,6 +12655,10 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     const it = inbox.items.find(x => x.id === id);
     if (!it) return res.status(404).json({ error: 'not found' });
     const now = new Date().toISOString();
+    // REQ-9: if the user is overriding a prior AUTO decision, remember which one so we
+    // can penalize the rule (learn the exception) and lift any auto dismissal.
+    const wasAuto = !!it.auto;
+    const overridden = (wasAuto && it.autoReason && it.autoReason.action) ? it.autoReason.action : null;
     if (action === 'dismiss' || action === 'wontfix') {
       // Both remove the item from the agenda. 'dismiss' = "not mine" (someone else
       // owns it); 'wontfix' = "mine, but I'm consciously declining to act". We keep
@@ -12559,8 +12675,17 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     } else {
       it.triage = action; // 'later' | 'now' | 'today'
     }
+    // If the user moved an auto-dismissed item back into play, lift the auto dismissal.
+    if (overridden && (overridden === 'dismiss' || overridden === 'wontfix') && action !== 'dismiss' && action !== 'wontfix') {
+      try { const dm = loadDismissForDate(date); delete dm[_meAiDismissKey(it)]; saveDismissForDate(date, dm); } catch (_) { /* best-effort */ }
+    }
+    it.auto = false; // now an explicit user decision
     it.triagedAt = now;
     saveInboxForDate(date, inbox);
+    // REQ-9: learn from the explicit decision ('seen' is just clearing the flag).
+    if (action !== 'seen') {
+      try { _meAiRecordTriage(it, action, { corrective: overridden }); } catch (_) { /* best-effort */ }
+    }
     let agenda = null;
     if (action === 'today') {
       // Fit-into-today → re-plan immediately (reuse warm cache) so it lands now.
@@ -12575,7 +12700,45 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/me-ai/preindex { date? } → warm the signal cache in the background so
+// POST /api/me-ai/inbox/undo-auto { date?, id } → undo a REQ-9 auto-handled decision.
+// Lifts any auto dismissal, penalizes the learned rule so it stops auto-applying, and
+// resets the item to 'seen' so the user can triage it themselves.
+app.post('/api/me-ai/inbox/undo-auto', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const id = String(b.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'bad request' });
+    const inbox = loadInboxForDate(date);
+    const it = inbox.items.find(x => x.id === id);
+    if (!it) return res.status(404).json({ error: 'not found' });
+    const prev = (it.autoReason && it.autoReason.action) ? it.autoReason.action : null;
+    if (prev === 'dismiss' || prev === 'wontfix') {
+      try { const dm = loadDismissForDate(date); delete dm[_meAiDismissKey(it)]; saveDismissForDate(date, dm); } catch (_) { /* best-effort */ }
+    }
+    if (prev) { try { _meAiPenalizeTriage(it, prev); } catch (_) { /* best-effort */ } }
+    it.triage = it.triage === 'new' ? 'new' : 'seen';
+    it.auto = false; it.autoReason = null; it.triagedAt = new Date().toISOString();
+    saveInboxForDate(date, inbox);
+    const newCount = inbox.items.filter(i => i.triage === 'new').length;
+    res.json({ ok: true, date, items: inbox.items, newCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/triage-rules → transparency: the learned auto-handle rules ("why did
+// you auto-handle this"). Returns rules sorted by confidence.
+app.get('/api/me-ai/triage-rules', (req, res) => {
+  try {
+    const store = loadTriageRules();
+    const rules = Object.entries(store.rules || {}).map(([sig, r]) => {
+      const total = Number(r.total) || 0;
+      let best = null, bestN = 0;
+      for (const [a, n] of Object.entries(r.counts || {})) { if (n > bestN) { best = a; bestN = n; } }
+      return { sig, sample: r.sample || '', best, share: total ? bestN / total : 0, total, counts: r.counts || {}, lastAction: r.lastAction || '', lastAt: r.lastAt || '', auto: ME_AI_TRIAGE_AUTO.has(best) && total >= 3 && bestN >= 3 && (total ? bestN / total : 0) >= 0.8 };
+    }).sort((a, b) => (b.share - a.share) || (b.total - a.total));
+    res.json({ ok: true, rules });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // a later generate/re-plan is fast (#3). Fire-and-forget; consent-gated inside.
 app.post('/api/me-ai/preindex', (req, res) => {
   try {
