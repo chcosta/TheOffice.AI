@@ -11647,7 +11647,7 @@ function _meAiPrePass(cfg, signals, todos) {
     }
   }
   for (const t of (todos || [])) {
-    if (t && String(t.title || '').trim()) {
+    if (t && !t.done && String(t.title || '').trim()) {
       const scope = (t.scope === 'personal') ? 'personal' : 'work';
       tasks.push({ kind: 'todo', type: scope === 'personal' ? 'personal' : 'focus', title: String(t.title).trim(), detail: scope === 'personal' ? 'Personal todo' : 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo', scope });
     }
@@ -11878,6 +11878,43 @@ function _meAiPreindex(day) {
   } catch { return false; }
 }
 
+// Normalize a raw todo list to the stored shape, preserving completion + carry-over
+// flags (REQ-3). Accepts legacy string todos and {title,scope} objects.
+function _meAiNormTodos(list) {
+  return (list || [])
+    .map(t => {
+      const title = String((t && t.title) || (typeof t === 'string' ? t : '') || '').trim();
+      if (!title) return null;
+      const scope = (t && t.scope === 'personal') ? 'personal' : 'work';
+      const out = { title, scope, done: !!(t && t.done) };
+      if (t && t.carried) { out.carried = true; if (t.carriedFrom) out.carriedFrom = String(t.carriedFrom).slice(0, 10); }
+      return out;
+    })
+    .filter(Boolean);
+}
+
+// REQ-3 carry-over: find the most recent prior WORK day (walking back, respecting the
+// configured work-week) that has a saved agenda, and return its uncompleted todos tagged
+// as carried-over. Stops at the first planned day found so week-old todos don't resurrect
+// endlessly; only seeded when a day's agenda is first created (see generateMeAiAgenda).
+function _meAiCarryOverTodos(cfg, day) {
+  try {
+    const workDays = cfg.workDays || [];
+    const d = new Date(day + 'T00:00:00');
+    if (isNaN(d)) return [];
+    for (let i = 0; i < 14; i++) {
+      d.setDate(d.getDate() - 1);
+      if (workDays.length && !workDays.includes(d.getDay())) continue; // skip off-days
+      const prevDate = d.toISOString().slice(0, 10);
+      const snap = loadAgendaForDate(prevDate);
+      if (!snap) continue; // no plan that day — keep walking to the last worked day
+      const open = _meAiNormTodos(snap.todos).filter(t => !t.done);
+      return open.map(t => ({ title: t.title, scope: t.scope, done: false, carried: true, carriedFrom: prevDate }));
+    }
+  } catch (_) { /* best-effort */ }
+  return [];
+}
+
 async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
@@ -11895,7 +11932,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
       blocks: [],
       backlog: [],
       needsAttention: [],
-      todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
+      todos: _meAiNormTodos(todos),
       meta: { refined: false, consent: cfg.consent, notWorkDay: true, sources: { m365: false, azdo: false, github: false, codeflow: false }, signalCount: 0, errors: [] },
     };
     saveAgendaForDate(day, agenda);
@@ -11920,7 +11957,20 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // "Fit into today" items get a real block and "Later" items stay on the rail.
   try { _meAiMergeInbox(day, liveSignals); } catch (_) { /* best-effort */ }
   const planSignals = _meAiApplyInboxTriage(day, liveSignals);
-  const pre = _meAiPrePass(cfg, planSignals, todos);
+  // REQ-3: on the FIRST agenda for a work day, seed uncompleted todos carried over from
+  // the most recent prior work day (deduped against anything already passed in). On later
+  // regenerates the day's own persisted todos are authoritative (no re-seeding) so a
+  // carried item the user drops does not come back.
+  const priorSnapshot = loadAgendaForDate(day);
+  const effTodos = _meAiNormTodos(todos);
+  if (!priorSnapshot) {
+    const carried = _meAiCarryOverTodos(cfg, day);
+    if (carried.length) {
+      const have = new Set(effTodos.map(t => t.title.toLowerCase()));
+      for (const c of carried) { if (!have.has(c.title.toLowerCase())) { effTodos.push(c); have.add(c.title.toLowerCase()); } }
+    }
+  }
+  const pre = _meAiPrePass(cfg, planSignals, effTodos);
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   const agenda = {
     date: day,
@@ -11930,14 +11980,14 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
     dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
-    todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
+    todos: effTodos,
     meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors, cached: gathered.cached, indexedAt: new Date(gathered.at).toISOString(), signalFp: _meAiSignalFingerprint(liveSignals) },
   };
   // REQ-7 change-tracking: diff this schedule against the prior snapshot (if any)
   // and log reschedules/slips/late-adds so the day's churn is visible and can be
   // summarised into the diary at day's end. A first generation has no prior → no diff.
   try {
-    const prevAgenda = loadAgendaForDate(day);
+    const prevAgenda = priorSnapshot;
     if (prevAgenda && Array.isArray(prevAgenda.blocks) && prevAgenda.blocks.length) {
       const diff = _meAiDiffAgenda(prevAgenda, agenda);
       if (diff.length) _meAiAppendChanges(day, diff, cause || 'auto');
@@ -12002,6 +12052,21 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
     const cause = ME_AI_INTENTIONAL_CAUSES.has(b.cause) ? b.cause : 'manual';
     const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [], reindex: b.reindex !== false, cause });
     res.json({ ok: true, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/todos { date, todos } → persist the day's todo list onto the
+// snapshot without a full re-plan (REQ-3). Keeps done/scope/carry-over durable across
+// navigation. If no snapshot exists yet the todos stay a client-side draft until the
+// first generate folds them in.
+app.post('/api/me-ai/agenda/todos', (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const todos = _meAiNormTodos(Array.isArray(b.todos) ? b.todos : []);
+    const snap = loadAgendaForDate(date);
+    if (snap) { snap.todos = todos; saveAgendaForDate(date, snap); }
+    res.json({ ok: true, date, todos, persisted: !!snap });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
