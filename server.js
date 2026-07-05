@@ -11163,6 +11163,27 @@ function _meAiMonitoredRepos() {
     names,
   };
 }
+
+// Compact, prioritization-oriented metadata for a PR signal (#5). Surfaces the
+// data you need to decide "should I do this now?" in an expandable agenda item:
+// age, merge/draft state, target branch, and per-reviewer votes. `extra` folds
+// in repo/provider/monitored context from the caller.
+function _meAiPrMeta(pr, extra) {
+  const ageDays = pr && pr.creationDate ? Math.max(0, Math.round((Date.now() - new Date(pr.creationDate).getTime()) / 86400000)) : null;
+  const reviewers = ((pr && pr.reviewers) || []).map(r => ({ name: r.name || r.login || '', vote: r.voteLabel || '' })).slice(0, 12);
+  const pending = reviewers.filter(r => !r.vote || /no.?vote|no.?response|waiting|pending/i.test(r.vote)).length;
+  return Object.assign({
+    prId: (pr && pr.id) || null,
+    author: (pr && pr.createdBy && pr.createdBy.name) || '',
+    ageDays,
+    status: (pr && pr.status) || '',
+    isDraft: !!(pr && pr.isDraft),
+    mergeStatus: (pr && pr.mergeStatus) || '',
+    target: (pr && pr.targetBranch) || '',
+    reviewers,
+    pending,
+  }, extra || {});
+}
 async function _meAiGatherAdo(s, date) {
   const signals = [], errors = [];
   const mon = _meAiMonitoredRepos();
@@ -11190,7 +11211,7 @@ async function _meAiGatherAdo(s, date) {
       } catch (e) { errors.push(`workitems ${org}/${project}: ${e.message}`); }
       try {
         const prs = await azdo.listProjectPullRequests(org, project, { creatorId, status: 'active', top: 50 });
-        for (const pr of prs) signals.push({ kind: 'pr', type: 'steward', title: `PR !${pr.id}: ${pr.title}`, detail: `${pr.repo || project} · yours`, link: pr.url || '', urgency: 3, source: 'azdo' });
+        for (const pr of prs) signals.push({ kind: 'pr', type: 'steward', title: `PR !${pr.id}: ${pr.title}`, detail: `${pr.repo || project} · yours`, link: pr.url || '', urgency: 3, source: 'azdo', provider: 'azdo', org, project, repo: pr.repo || project, meta: _meAiPrMeta(pr, { repo: pr.repo || project, org, project, provider: 'azdo', monitored: mon.has('azdo', org, project, pr.repo || project), mine: true }) });
       } catch (e) { errors.push(`prs ${org}/${project}: ${e.message}`); }
       try {
         const prs = await azdo.listProjectPullRequests(org, project, { reviewerId: creatorId, status: 'active', top: 50 });
@@ -11198,7 +11219,7 @@ async function _meAiGatherAdo(s, date) {
           if (pr.createdBy && String(pr.createdBy.id) === meId) continue; // my own PR
           const repo = pr.repo || project;
           const monitored = mon.has('azdo', org, project, repo);
-          signals.push({ kind: 'pr', type: 'review', title: `Review PR !${pr.id}: ${pr.title}`, detail: `${repo} · ${(pr.createdBy && pr.createdBy.name) || 'author'}${monitored ? '' : ' · not in Code Flow'}`, link: pr.url || '', urgency: monitored ? 4 : 2, source: 'azdo', provider: 'azdo', org, project, repo, monitored });
+          signals.push({ kind: 'pr', type: 'review', title: `Review PR !${pr.id}: ${pr.title}`, detail: `${repo} · ${(pr.createdBy && pr.createdBy.name) || 'author'}${monitored ? '' : ' · not in Code Flow'}`, link: pr.url || '', urgency: monitored ? 4 : 2, source: 'azdo', provider: 'azdo', org, project, repo, monitored, meta: _meAiPrMeta(pr, { repo, org, project, provider: 'azdo', monitored }) });
         }
       } catch (e) { errors.push(`review-prs ${org}/${project}: ${e.message}`); }
     }
@@ -11241,7 +11262,7 @@ async function _meAiGatherGithub(s, date) {
     } catch (e) { errors.push(`gh issues ${owner}: ${e.message}`); }
     try {
       const prs = await github.listProjectPullRequests(owner, '', { creatorId: login, status: 'active', top: 50 });
-      for (const pr of prs) signals.push({ kind: 'pr', type: 'steward', title: `PR #${pr.id}: ${pr.title}`, detail: `${pr.repo || owner} · yours`, link: pr.url || '', urgency: 3, source: 'github' });
+      for (const pr of prs) signals.push({ kind: 'pr', type: 'steward', title: `PR #${pr.id}: ${pr.title}`, detail: `${pr.repo || owner} · yours`, link: pr.url || '', urgency: 3, source: 'github', provider: 'github', org: owner, project: '', repo: pr.repo || '', meta: _meAiPrMeta(pr, { repo: pr.repo || '', org: owner, project: '', provider: 'github', monitored: mon.has('github', owner, '', pr.repo || ''), mine: true }) });
     } catch (e) { errors.push(`gh prs ${owner}: ${e.message}`); }
     try {
       const prs = await github.listProjectPullRequests(owner, '', { reviewerId: login, status: 'active', top: 50 });
@@ -11249,7 +11270,7 @@ async function _meAiGatherGithub(s, date) {
         if (pr.createdBy && String(pr.createdBy.id || '').toLowerCase() === meLc) continue; // my own PR
         const repo = pr.repo || '';
         const monitored = mon.has('github', owner, '', repo);
-        signals.push({ kind: 'pr', type: 'review', title: `Review PR #${pr.id}: ${pr.title}`, detail: `${repo || owner} · ${(pr.createdBy && pr.createdBy.name) || 'author'}${monitored ? '' : ' · not in Code Flow'}`, link: pr.url || '', urgency: monitored ? 4 : 2, source: 'github', provider: 'github', org: owner, project: '', repo, monitored });
+        signals.push({ kind: 'pr', type: 'review', title: `Review PR #${pr.id}: ${pr.title}`, detail: `${repo || owner} · ${(pr.createdBy && pr.createdBy.name) || 'author'}${monitored ? '' : ' · not in Code Flow'}`, link: pr.url || '', urgency: monitored ? 4 : 2, source: 'github', provider: 'github', org: owner, project: '', repo, monitored, meta: _meAiPrMeta(pr, { repo, org: owner, project: '', provider: 'github', monitored }) });
       }
     } catch (e) { errors.push(`gh review-prs ${owner}: ${e.message}`); }
   }
@@ -11351,10 +11372,10 @@ function _meAiPrePass(cfg, signals, todos) {
     let a = snap(_hmToMin(m.start));
     let b = _hmToMin(m.end) != null ? snap(_hmToMin(m.end)) : a + Math.max(grid, 30);
     if (b <= a) b = a + Math.max(grid, 30);
-    fixed.push({ start: a, end: b, type: 'meeting', title: m.title, detail: m.detail, link: m.link, source: m.source, why: 'Scheduled meeting' });
+    fixed.push({ start: a, end: b, type: 'meeting', title: m.title, detail: m.detail, link: m.link, source: m.source, why: 'Scheduled meeting', meta: m.meta || null, urgency: m.urgency || 5 });
   }
   const ls = _hmToMin(cfg.lunchStart), le = _hmToMin(cfg.lunchEnd);
-  if (ls != null && le != null && le > ls) fixed.push({ start: snap(ls), end: snap(le), type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break' });
+  if (ls != null && le != null && le > ls) fixed.push({ start: snap(ls), end: snap(le), type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break', meta: null, urgency: 0 });
   fixed.sort((x, y) => x.start - y.start);
   // Free intervals = window minus fixed.
   const free = [];
@@ -11374,17 +11395,17 @@ function _meAiPrePass(cfg, signals, todos) {
     while (c + grid <= fb && ti < tasks.length) {
       const t = tasks[ti++];
       const len = Math.min(CHUNK, fb - c);
-      blocks.push({ start: c, end: c + len, type: t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : 'focus')), title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t) });
+      blocks.push({ start: c, end: c + len, type: t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : 'focus')), title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t), meta: t.meta || null, urgency: t.urgency || 0 });
       c += len;
     }
     // If no tasks left, leave the remaining free time as an open focus block.
     if (ti >= tasks.length && c + grid <= fb) {
-      blocks.push({ start: c, end: fb, type: 'focus', title: 'Open focus time', detail: 'Deep work / catch-up', link: '', source: 'me', why: 'Unallocated working time' });
+      blocks.push({ start: c, end: fb, type: 'focus', title: 'Open focus time', detail: 'Deep work / catch-up', link: '', source: 'me', why: 'Unallocated working time', meta: null, urgency: 0 });
     }
   }
-  const backlog = tasks.slice(ti).map(t => ({ title: t.title, detail: t.detail, link: t.link, type: t.type, source: t.source }));
+  const backlog = tasks.slice(ti).map(t => ({ title: t.title, detail: t.detail, link: t.link, type: t.type, source: t.source, why: _meAiWhy(t), meta: t.meta || null, urgency: t.urgency || 0 }));
   const all = fixed.concat(blocks).sort((a, b) => a.start - b.start).map(b => ({
-    start: _minToHm(b.start), end: _minToHm(b.end), type: b.type, title: b.title, detail: b.detail || '', link: b.link || '', source: b.source || '', why: b.why || '',
+    start: _minToHm(b.start), end: _minToHm(b.end), type: b.type, title: b.title, detail: b.detail || '', link: b.link || '', source: b.source || '', why: b.why || '', meta: b.meta || null, urgency: b.urgency || 0,
   }));
   return { blocks: all, backlog, needsAttention };
 }
@@ -11427,6 +11448,20 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
       }))
       .filter(b => b.start && b.end && b.title)
       .sort((a, b) => _hmToMin(a.start) - _hmToMin(b.start));
+    // Re-attach the source metadata the LLM can't reproduce (PR age/reviewers/
+    // repo/monitored). Match refined blocks back to the deterministic draft by
+    // link (strongest) then exact title so expandable detail (#5) survives refine.
+    const byLink = new Map(), byTitle = new Map();
+    for (const pb of (pre.blocks || [])) {
+      if (pb.link) byLink.set(pb.link, pb);
+      if (pb.title) byTitle.set(pb.title, pb);
+    }
+    for (const b of clean) {
+      const src = (b.link && byLink.get(b.link)) || byTitle.get(b.title) || null;
+      b.meta = (src && src.meta) || null;
+      b.urgency = (src && src.urgency) || 0;
+      if (src && !b.link && src.link) b.link = src.link;
+    }
     return clean.length ? clean : null;
   } catch { return null; }
 }

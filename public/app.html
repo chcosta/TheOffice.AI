@@ -11523,6 +11523,15 @@
               .meai-block-title { font-weight:600; color:var(--cp-text); font-size:14px; }
               .meai-block-meta { font-size:12px; color:var(--cp-text-muted); margin-top:3px; }
               .meai-block-why { font-size:12px; color:var(--cp-text-muted); margin-top:5px; font-style:italic; }
+              .meai-block-title.clickable, .meai-na-item.clickable { cursor:pointer; }
+              .meai-caret { display:inline-block; width:12px; color:var(--cp-text-muted); font-size:10px; }
+              .meai-block-detail, .meai-na-detail { margin-top:6px; padding-top:6px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:3px; }
+              .meai-block-detail-text { font-size:12px; color:var(--cp-text-muted); }
+              .meai-meta-row { display:flex; gap:8px; font-size:12px; }
+              .meai-meta-k { color:var(--cp-text-muted); min-width:82px; flex:0 0 auto; }
+              .meai-meta-v { color:var(--cp-text); word-break:break-word; }
+              .meai-detail-link { font-size:12px; color:var(--cp-accent); text-decoration:none; margin-top:2px; }
+              .meai-detail-link:hover { text-decoration:underline; }
               .meai-side h4 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin:0 0 8px; }
               .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
@@ -11672,12 +11681,23 @@
                           <div class="meai-block-body"
                                :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end) }"
                                :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
-                            <div class="meai-block-title" x-text="b.title"></div>
+                            <div class="meai-block-title" :class="{ clickable: meAiHasDetail(b) }"
+                                 @click="meAiHasDetail(b) && meAiToggle(meAiItemKey('b',b,bi))">
+                              <span x-show="meAiHasDetail(b)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('b',b,bi))?'▾':'▸'"></span>
+                              <span x-text="b.title"></span>
+                            </div>
                             <div class="meai-block-meta">
                               <span x-text="b.start + '–' + b.end"></span>
                               <span x-show="b.type"> · <span x-text="b.type"></span></span>
                             </div>
                             <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
+                            <div class="meai-block-detail" x-show="meAiExpanded(meAiItemKey('b',b,bi))">
+                              <div class="meai-block-detail-text" x-show="b.detail" x-text="b.detail"></div>
+                              <template x-for="row in meAiMetaRows(b)" :key="row[0]">
+                                <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                              </template>
+                              <a class="meai-detail-link" x-show="b.link" :href="b.link" target="_blank" rel="noopener">Open ↗</a>
+                            </div>
                             <div class="meai-block-launch" x-show="b.type==='review' || b.type==='prep' || b.type==='comms' || b.type==='admin' || b.type==='steward' || b.type==='focus'">
                               <button class="meai-mini-btn" type="button" @click="meAiLaunchForBlock(b)" :disabled="meai.consoleBusy">
                                 🤖 <span x-text="b.type==='review' ? 'Launch review agent' : 'Launch Me agent'"></span>
@@ -11730,9 +11750,19 @@
                     <div class="meai-card">
                       <h4>Needs attention</h4>
                       <template x-for="(n, ni) in meai.agenda.needsAttention" :key="ni">
-                        <div class="meai-na-item">
-                          <div class="meai-na-t" x-text="n.title || n.label || 'Item'"></div>
+                        <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
+                             @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
+                          <div class="meai-na-t">
+                            <span x-show="meAiHasDetail(n)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('na',n,ni))?'▾':'▸'"></span>
+                            <span x-text="n.title || n.label || 'Item'"></span>
+                          </div>
                           <div class="meai-na-m" x-show="n.reason || n.detail" x-text="n.reason || n.detail"></div>
+                          <div class="meai-na-detail" x-show="meAiExpanded(meAiItemKey('na',n,ni))">
+                            <template x-for="row in meAiMetaRows(n)" :key="row[0]">
+                              <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                            </template>
+                            <a class="meai-detail-link" x-show="n.link" :href="n.link" target="_blank" rel="noopener">Open ↗</a>
+                          </div>
                         </div>
                       </template>
                     </div>
@@ -11743,9 +11773,19 @@
                     <div class="meai-card">
                       <h4>Didn't fit today</h4>
                       <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
-                        <div class="meai-na-item">
-                          <div class="meai-na-t" x-text="bk.title || bk.label || 'Task'"></div>
+                        <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
+                             @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
+                          <div class="meai-na-t">
+                            <span x-show="meAiHasDetail(bk)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('bk',bk,bki))?'▾':'▸'"></span>
+                            <span x-text="bk.title || bk.label || 'Task'"></span>
+                          </div>
                           <div class="meai-na-m" x-show="bk.why || bk.reason" x-text="bk.why || bk.reason"></div>
+                          <div class="meai-na-detail" x-show="meAiExpanded(meAiItemKey('bk',bk,bki))">
+                            <template x-for="row in meAiMetaRows(bk)" :key="row[0]">
+                              <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
+                            </template>
+                            <a class="meai-detail-link" x-show="bk.link" :href="bk.link" target="_blank" rel="noopener">Open ↗</a>
+                          </div>
                         </div>
                       </template>
                     </div>
@@ -19248,6 +19288,7 @@
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
           traceOpen: false,      // #9 thinking/tool trace collapsed by default
+          expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
         },
         codeflow: {
@@ -25633,6 +25674,45 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             admin: 'var(--cp-text-muted)', lunch: '#f59e0b',
           };
           return map[type] || 'var(--cp-border)';
+        },
+        // #5 Expandable agenda/backlog/attention items. Each item toggles a detail
+        // panel; keyed by a stable-ish composite so re-renders preserve open state.
+        meAiItemKey(prefix, it, i) {
+          const base = (it && (it.link || it.title || it.label)) || ('' + i);
+          return prefix + ':' + String(base).slice(0, 120);
+        },
+        meAiToggle(key) {
+          const e = this.meai.expanded;
+          if (e[key]) delete e[key]; else e[key] = true;
+        },
+        meAiExpanded(key) { return !!this.meai.expanded[key]; },
+        // Human-readable prioritization rows for a PR-backed item's meta (#5).
+        meAiMetaRows(it) {
+          const m = it && it.meta;
+          if (!m) return [];
+          const rows = [];
+          if (m.author) rows.push(['Author', m.author]);
+          if (m.ageDays != null) rows.push(['Age', m.ageDays === 0 ? 'today' : m.ageDays + ' day' + (m.ageDays === 1 ? '' : 's') + ' old']);
+          if (m.isDraft) rows.push(['State', 'Draft']);
+          else if (m.status) rows.push(['State', m.status]);
+          if (m.target) rows.push(['Target', m.target]);
+          if (m.mergeStatus && !/succeeded/i.test(m.mergeStatus)) rows.push(['Merge', m.mergeStatus]);
+          if (Array.isArray(m.reviewers) && m.reviewers.length) {
+            const votes = m.reviewers.map(r => r.name + (r.vote ? ' (' + r.vote + ')' : '')).join(', ');
+            rows.push(['Reviewers', votes]);
+          }
+          if (m.pending) rows.push(['Waiting on', m.pending + ' reviewer' + (m.pending === 1 ? '' : 's')]);
+          if (m.repo) rows.push(['Repo', m.repo + (m.provider ? ' · ' + m.provider : '')]);
+          if (m.monitored === false) rows.push(['Code Flow', 'not monitored']);
+          else if (m.monitored === true) rows.push(['Code Flow', 'monitored']);
+          return rows;
+        },
+        meAiHasDetail(it) {
+          if (!it) return false;
+          if (it.link) return true;
+          if (this.meAiMetaRows(it).length) return true;
+          if (it.detail && String(it.detail).trim()) return true;
+          return false;
         },
         // On-track status for TODAY only, derived from block start/end vs the current minute.
         meAiStatus() {
