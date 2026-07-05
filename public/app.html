@@ -11560,6 +11560,21 @@
             .meai-ww-day { padding:4px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; cursor:pointer; transition:all .12s; }
             .meai-ww-day:hover { border-color:var(--cp-accent); }
             .meai-ww-day.on { background:var(--cp-accent-soft, rgba(88,166,255,.14)); color:var(--cp-text); border-color:var(--cp-accent); font-weight:600; }
+            /* #2 day mode segmented control + time-of-day prefs */
+            .meai-modebar { display:flex; align-items:center; gap:10px; margin:2px 0 4px; flex-wrap:wrap; }
+            .meai-mode-lbl { font-size:12px; color:var(--cp-text-muted); font-weight:600; }
+            .meai-seg { display:inline-flex; border:1px solid var(--cp-border); border-radius:8px; overflow:hidden; }
+            .meai-seg-btn { appearance:none; border:0; border-right:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; padding:5px 11px; cursor:pointer; transition:all .12s; }
+            .meai-seg-btn:last-child { border-right:0; }
+            .meai-seg-btn:hover:not(:disabled) { color:var(--cp-text); }
+            .meai-seg-btn.on { background:var(--cp-accent-soft, rgba(88,166,255,.14)); color:var(--cp-text); font-weight:600; }
+            .meai-seg-btn:disabled { opacity:.5; cursor:default; }
+            .meai-tp-rows { display:flex; flex-direction:column; gap:3px; }
+            .meai-tp-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); font-size:12px; cursor:pointer; transition:border-color .12s; text-align:left; }
+            .meai-tp-row:hover:not(:disabled) { border-color:var(--cp-accent); }
+            .meai-tp-row:disabled { opacity:.6; cursor:default; }
+            .meai-tp-when { color:var(--cp-text-muted); white-space:nowrap; }
+            .meai-tp-when.set { color:var(--cp-accent); font-weight:600; }
               /* --- M2: Me-agent launch, at-work lane, console drawer --- */
               .meai-block-launch { margin-top:8px; }
               .meai-mini-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:12px; padding:4px 10px; border-radius:8px; cursor:pointer; }
@@ -11676,6 +11691,17 @@
                   <span x-show="meai.agenda.meta.signalCount"> · <span x-text="meai.agenda.meta.signalCount"></span> signals</span>
                 </span>
                 <span class="meai-status-detail" x-text="meai.notice"></span>
+              </div>
+
+              <!-- #2 Quick day mode: re-weights the plan (persisted + re-plans on change) -->
+              <div class="meai-modebar" x-show="meai.loaded">
+                <span class="meai-mode-lbl">Day mode</span>
+                <div class="meai-seg" role="group" aria-label="Day mode">
+                  <template x-for="m in [['balanced','Balanced'],['focused','Focused'],['unblock-team','Unblock team'],['relaxed','Relaxed'],['low-sleep','Low sleep']]" :key="m[0]">
+                    <button type="button" class="meai-seg-btn" :class="{ on: (meai.config.mode||'balanced')===m[0] }" @click="meAiSetMode(m[0])" :disabled="meai.generating || meai.savingSettings" x-text="m[1]"></button>
+                  </template>
+                </div>
+                <span class="meai-status-detail" style="margin-left:auto">Reviews, focus &amp; comms are re-prioritised for your day.</span>
               </div>
 
               <div class="meai-grid2">
@@ -11856,6 +11882,19 @@
                       <div class="meai-ww-days">
                         <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
                           <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="meai-timeprefs">
+                      <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">When I'm sharpest (time-of-day preference)</label>
+                      <div class="meai-tp-rows">
+                        <template x-for="tp in [['review','Reviews'],['focus','Deep focus'],['steward','PR stewarding'],['comms','Email &amp; comms'],['admin','Admin'],['prep','Meeting prep']]" :key="tp[0]">
+                          <button type="button" class="meai-tp-row" @click="meAiCycleTimePref(tp[0])" :disabled="meai.generating || meai.savingSettings"
+                            :title="'Click to cycle: no preference → morning → afternoon'">
+                            <span class="meai-tp-name" x-html="tp[1]"></span>
+                            <span class="meai-tp-when" :class="{ set: meAiTimePref(tp[0]) }"
+                              x-text="meAiTimePref(tp[0]) === 'morning' ? '☀ Morning' : (meAiTimePref(tp[0]) === 'afternoon' ? '🌙 Afternoon' : 'Any time')"></span>
+                          </button>
                         </template>
                       </div>
                     </div>
@@ -19299,7 +19338,7 @@
           loading: false,
           generating: false,
           savingSettings: false,
-          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5] },
+          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5], mode: 'balanced', timePrefs: {} },
           date: (() => { try { const v = localStorage.getItem('meAiDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {} return new Date().toISOString().slice(0, 10); })(),
           today: new Date().toISOString().slice(0, 10),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
@@ -25633,6 +25672,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 lunchStart: c.lunchStart, lunchEnd: c.lunchEnd,
                 grid: Number(c.grid) || 10,
                 workDays: Array.isArray(c.workDays) ? c.workDays : [1, 2, 3, 4, 5],
+                mode: c.mode || 'balanced',
+                timePrefs: (c.timePrefs && typeof c.timePrefs === 'object') ? c.timePrefs : {},
               }),
             });
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
@@ -25653,6 +25694,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async meAiSetConsent(v) {
           this.meai.config.consent = !!v;
           await this.meAiSaveSettings();
+        },
+        // #2 Quick day-mode picker: persist the chosen mode then re-plan so the change
+        // is immediate. If there's no agenda yet (or no consent) we just save.
+        async meAiSetMode(mode) {
+          this.meai.config.mode = mode;
+          await this.meAiSaveSettings();
+          if (this.meai.config.consent) await this.meAiGenerate();
+        },
+        meAiTimePref(type) {
+          const p = this.meai.config.timePrefs || {};
+          return p[type] || '';
+        },
+        // Cycle a type's time-of-day preference: '' → morning → afternoon → '' and re-plan.
+        async meAiCycleTimePref(type) {
+          if (!this.meai.config.timePrefs || typeof this.meai.config.timePrefs !== 'object') this.meai.config.timePrefs = {};
+          const cur = this.meai.config.timePrefs[type] || '';
+          const next = cur === '' ? 'morning' : (cur === 'morning' ? 'afternoon' : '');
+          if (next) this.meai.config.timePrefs[type] = next; else delete this.meai.config.timePrefs[type];
+          await this.meAiSaveSettings();
+          if (this.meai.config.consent) await this.meAiGenerate();
         },
         meAiShiftDate(days) {
           const d = new Date(this.meai.date + 'T00:00:00');

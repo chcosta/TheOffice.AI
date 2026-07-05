@@ -169,6 +169,14 @@ const DEFAULTS = {
   // Work-week: weekday ints (0=Sun..6=Sat) the agenda is planned for. Default Mon–Fri.
   // May legitimately be empty (user works no fixed days). Persisted as an array.
   meAiWorkDays: [1, 2, 3, 4, 5],
+  // #2 Quick agenda MODE — a day-shape preset that re-weights task ordering and
+  // steers the LLM refine. One of: balanced | relaxed | focused | low-sleep |
+  // unblock-team. Default balanced (no bias).
+  meAiMode: 'balanced',
+  // #2 Time-of-day preferences per activity type — map of block type
+  // (review|steward|focus|comms|admin|prep) → 'morning' | 'afternoon' | ''.
+  // Biases ordering so preferred-morning work lands earlier; also fed to refine.
+  meAiTimePrefs: {},
 };
 
 let cache = null;
@@ -200,6 +208,8 @@ function updateSettings(patch) {
     if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
       if (Array.isArray(DEFAULTS[k])) {
         next[k] = Array.isArray(patch[k]) ? patch[k] : DEFAULTS[k];
+      } else if (DEFAULTS[k] && typeof DEFAULTS[k] === 'object') {
+        next[k] = (patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])) ? patch[k] : DEFAULTS[k];
       } else if (typeof DEFAULTS[k] === 'boolean') {
         next[k] = typeof patch[k] === 'boolean' ? patch[k] : (patch[k] === 'true' || patch[k] === 1 || patch[k] === '1');
       } else if (typeof DEFAULTS[k] === 'number') {

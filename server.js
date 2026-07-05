@@ -11082,6 +11082,9 @@ function _meAiConfig(s) {
   const targets = _connectAdoTargets(s);
   const grid = [5, 10, 15].includes(Number(s.meAiGrid)) ? Number(s.meAiGrid) : 10;
   const workDays = _meAiSanitizeWorkDays(s.meAiWorkDays);
+  const MODES = ['balanced', 'relaxed', 'focused', 'low-sleep', 'unblock-team'];
+  const mode = MODES.includes(String(s.meAiMode)) ? String(s.meAiMode) : 'balanced';
+  const timePrefs = (s.meAiTimePrefs && typeof s.meAiTimePrefs === 'object' && !Array.isArray(s.meAiTimePrefs)) ? s.meAiTimePrefs : {};
   return {
     consent: !!s.meAiConsent,
     workStart: s.meAiWorkStart || '08:00',
@@ -11090,6 +11093,8 @@ function _meAiConfig(s) {
     lunchEnd: s.meAiLunchEnd || '',
     grid,
     workDays,
+    mode,
+    timePrefs,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
     hasGithub: (() => {
@@ -11359,6 +11364,40 @@ async function _meAiGatherM365(date) {
   } catch { return []; }
 }
 
+// #2 Mode + time-of-day re-weighting. Returns a sortable score (higher = schedule
+// earlier / gets the better slots). Combines base urgency with a day-shape mode bias
+// and a per-type time-of-day nudge, so e.g. "unblock-team" floats reviews/stewards up
+// and "reviews in the morning" front-loads them into the earliest free intervals.
+function _meAiModeWeight(type, mode) {
+  const M = {
+    balanced: {},
+    focused: { focus: 2, steward: 1, review: -1, comms: -2, admin: -1 },
+    'unblock-team': { review: 3, steward: 2, comms: 1, focus: -1 },
+    'low-sleep': { admin: 2, comms: 1, review: -2, focus: -2, steward: -1 },
+    relaxed: {},
+  };
+  const t = type === 'review' ? 'review' : type === 'steward' ? 'steward' : type === 'comms' ? 'comms' : type === 'admin' ? 'admin' : 'focus';
+  return ((M[mode] || {})[t]) || 0;
+}
+function _meAiTimeBias(type, prefs) {
+  if (!prefs || typeof prefs !== 'object') return 0;
+  const t = type === 'review' ? 'review' : type === 'steward' ? 'steward' : type === 'comms' ? 'comms' : type === 'admin' ? 'admin' : type === 'prep' ? 'prep' : 'focus';
+  const p = String(prefs[t] || '').toLowerCase();
+  if (p === 'morning') return 1.5;    // front-load → earliest slots
+  if (p === 'afternoon') return -1.5; // defer → later slots
+  return 0;
+}
+function _meAiTaskScore(t, cfg) {
+  return (Number(t.urgency) || 0) * 10
+    + _meAiModeWeight(t.type, cfg.mode) * 3
+    + _meAiTimeBias(t.type, cfg.timePrefs) * 4;
+}
+function _meAiLoadFactor(mode) {
+  if (mode === 'relaxed') return 0.6;
+  if (mode === 'low-sleep') return 0.72;
+  return 1.0;
+}
+
 // Deterministic pre-pass: ALWAYS produces a complete day within working hours.
 // Places fixed anchors (meetings), carves lunch, then greedily fills the free
 // intervals with prioritized task blocks (merging adjacent same-type work). Any
@@ -11410,21 +11449,30 @@ function _meAiPrePass(cfg, signals, todos) {
     cursor = Math.max(cursor, f.end);
   }
   if (cursor < winEnd) free.push([cursor, winEnd]);
-  // Prioritize tasks: higher urgency first, review/steward ahead of plain focus.
-  tasks.sort((a, b) => (b.urgency || 0) - (a.urgency || 0));
+  // #2 Prioritize tasks by mode/time-aware score (falls back to urgency when
+  // balanced with no prefs). Higher score → earlier slot in the chronological fill.
+  tasks.sort((a, b) => _meAiTaskScore(b, cfg) - _meAiTaskScore(a, cfg));
   const blocks = [];
   const CHUNK = Math.max(grid, 30);
+  // #2 relaxed / low-sleep reserve open time: cap how many task-chunks we place so
+  // the day stays lighter (leftover free time becomes open focus; the rest spills to
+  // the visible backlog rather than cramming the calendar).
+  const freeMinutes = free.reduce((sum, [fa, fb]) => sum + Math.max(0, fb - fa), 0);
+  const capacityChunks = Math.floor(freeMinutes / CHUNK);
+  const chunkBudget = Math.max(1, Math.ceil(capacityChunks * _meAiLoadFactor(cfg.mode)));
+  let placedChunks = 0;
   let ti = 0;
   for (const [fa, fb] of free) {
     let c = fa;
-    while (c + grid <= fb && ti < tasks.length) {
+    while (c + grid <= fb && ti < tasks.length && placedChunks < chunkBudget) {
       const t = tasks[ti++];
       const len = Math.min(CHUNK, fb - c);
       blocks.push({ start: c, end: c + len, type: t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : 'focus')), title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t), meta: t.meta || null, urgency: t.urgency || 0 });
       c += len;
+      placedChunks++;
     }
-    // If no tasks left, leave the remaining free time as an open focus block.
-    if (ti >= tasks.length && c + grid <= fb) {
+    // Remaining free time (no tasks left, or budget reached) → open focus block.
+    if ((ti >= tasks.length || placedChunks >= chunkBudget) && c + grid <= fb) {
       blocks.push({ start: c, end: fb, type: 'focus', title: 'Open focus time', detail: 'Deep work / catch-up', link: '', source: 'me', why: 'Unallocated working time', meta: null, urgency: 0 });
     }
   }
@@ -11450,7 +11498,15 @@ function _meAiWhy(t) {
 async function _meAiLlmRefine(cfg, pre, signals, date) {
   try {
     const compact = JSON.stringify({ workStart: cfg.workStart, workEnd: cfg.workEnd, grid: cfg.grid, blocks: pre.blocks, backlog: pre.backlog });
-    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\nRefine it: (1) keep all fixed meetings and lunch at their exact times; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
+    const modeNote = {
+      balanced: '', relaxed: 'The user wants a RELAXED, lighter day — keep generous open/buffer time and do not overpack.',
+      focused: 'The user wants a FOCUSED deep-work day — protect long contiguous focus blocks (ideally in the morning) and cluster interruptive comms together.',
+      'low-sleep': 'The user did not sleep well — front-load lighter/admin work, keep heavy review/deep-focus shorter, and add small breaks.',
+      'unblock-team': 'The user wants to UNBLOCK THE TEAM — prioritize reviews and stewarding your open PRs early so others are not waiting.',
+    }[cfg.mode] || '';
+    const prefPairs = Object.entries(cfg.timePrefs || {}).filter(([, v]) => v === 'morning' || v === 'afternoon').map(([k, v]) => `${k}→${v}`);
+    const prefNote = prefPairs.length ? ` Respect these time-of-day preferences where the fixed schedule allows: ${prefPairs.join(', ')}.` : '';
+    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\n${modeNote}${prefNote}\nRefine it: (1) keep all fixed meetings and lunch at their exact times; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
     let acc = '';
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
@@ -11572,7 +11628,7 @@ async function generateMeAiAgenda({ date, todos } = {}) {
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
-    config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid },
+    config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid, mode: cfg.mode, timePrefs: cfg.timePrefs },
     blocks: refined || pre.blocks,
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
@@ -11606,6 +11662,17 @@ app.put('/api/me-ai/settings', (req, res) => {
     if (b.lunchEnd === '' || validHm(b.lunchEnd)) patch.meAiLunchEnd = b.lunchEnd;
     if ([5, 10, 15].includes(Number(b.grid))) patch.meAiGrid = Number(b.grid);
     if (b.workDays !== undefined) patch.meAiWorkDays = _meAiSanitizeWorkDays(b.workDays);
+    const MODES = ['balanced', 'relaxed', 'focused', 'low-sleep', 'unblock-team'];
+    if (MODES.includes(String(b.mode))) patch.meAiMode = String(b.mode);
+    if (b.timePrefs && typeof b.timePrefs === 'object' && !Array.isArray(b.timePrefs)) {
+      const allowT = ['review', 'steward', 'focus', 'comms', 'admin', 'prep'];
+      const allowV = ['', 'morning', 'afternoon'];
+      const clean = {};
+      for (const [k, v] of Object.entries(b.timePrefs)) {
+        if (allowT.includes(k) && allowV.includes(String(v))) { if (v) clean[k] = String(v); }
+      }
+      patch.meAiTimePrefs = clean;
+    }
     settings.updateSettings(patch);
     res.json({ ok: true, config: _meAiConfig() });
   } catch (err) { res.status(500).json({ error: err.message }); }
