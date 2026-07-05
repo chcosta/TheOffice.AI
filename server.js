@@ -13238,7 +13238,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
   // item / PR / worktree state and its AI status summary if present.
   const devItems = (Array.isArray(b.devItems) ? b.devItems : []);
   if (devItems.length) {
-    contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree; reference by devId)\n' + _devCardContextLines(devItems).join('\n'));
+    contextBlocks.push('### DEV CARDS (active development — work item + PR + git worktree; notes + artifacts shown per card; reference by devId)\n' + _devCardContextLines(devItems).join('\n'));
   }
 
   // Deterministic fallback used when the board is empty, has no usable context, or
@@ -13350,13 +13350,36 @@ function _devCardContextLines(devItems) {
     const agent = d.devAgentName ? ` | dev-agent ${d.devAgentName}` : '';
     const head = `- (${d.id}) "${clip(d.title || d.repo || 'Dev card', 100)}" — ${gh ? 'GitHub ' : ''}${slug(d.org, d.project, d.repo)} @ ${d.branch || '?'} | ${wi} | ${pr} | worktree ${wt}${git}${agent}`;
     const extra = [];
-    const links = Array.isArray(d.links) ? d.links : [];
-    if (links.length) extra.push('    links: ' + links.map(l => `[${clip(l.label || l.url, 60)} → ${clip(l.url, 160)} (${l.id})]`).join(', '));
-    else extra.push('    links: none');
     const repos = Array.isArray(d.repos) ? d.repos : [];
+    // ARTIFACTS on a Dev card = user-attached LINKS (editable via *_dev_link) plus
+    // agent-generated REPORTS (read-only). Surface both so the assistant/briefing can
+    // reference them and, for links, offer to change them.
+    const links = Array.isArray(d.links) ? d.links : [];
+    if (links.length) extra.push('    artifact links (editable): ' + links.map(l => `[${clip(l.label || l.url, 60)} → ${clip(l.url, 160)} (${l.id})]`).join(', '));
+    else extra.push('    artifact links: none');
     if (repos.length) extra.push('    extra repos: ' + repos.map(r => `[${slug(r.org, r.project, r.repo)} @ ${r.branch || '?'} (${r.id})${r.worktreeStatus ? ' ' + r.worktreeStatus : ''}]`).join(', '));
     const reports = Array.isArray(d.reports) ? d.reports : [];
-    if (reports.length) extra.push('    reports (read-only): ' + reports.map(r => `[${clip(r.name || r.rel, 80)} (${r.rel})]`).join(', '));
+    if (reports.length) extra.push('    artifact reports (read-only, agent-generated): ' + reports.map(r => `[${clip(r.name || r.rel, 80)} (${r.rel})]`).join(', '));
+    // NOTES — freeform status jots. A note is GENERAL (card-level) or scoped to ONE
+    // repo section via note.slot ('primary' or a repo-id). The assistant can add / edit /
+    // delete / check / uncheck these, so each is shown with its (note-id) + done state,
+    // grouped by the repo it belongs to.
+    const notes = Array.isArray(d.notes) ? d.notes : [];
+    if (notes.length) {
+      const slotLabel = (sid) => {
+        if (!sid || sid === 'primary') return slug(d.org, d.project, d.repo);
+        const rr = repos.find(r => r && r.id === sid);
+        return rr ? slug(rr.org, rr.project, rr.repo) : sid;
+      };
+      const fmt = (n) => `[${n.done ? '✓done' : 'open'}] ${clip(n.text, 200)} (${n.id})`;
+      const general = notes.filter(n => !(n && n.slot));
+      if (general.length) extra.push('    notes (general): ' + general.map(fmt).join(' · '));
+      const bySlot = {};
+      for (const n of notes) if (n && n.slot) (bySlot[n.slot] = bySlot[n.slot] || []).push(n);
+      for (const sid of Object.keys(bySlot)) {
+        extra.push(`    notes (repo ${slotLabel(sid)}, slot ${sid}): ` + bySlot[sid].map(fmt).join(' · '));
+      }
+    }
     if (d.summary && d.summary.text) extra.push('    summary: ' + clip(d.summary.text, 400));
     return [head, ...extra].join('\n');
   });
@@ -14137,9 +14160,14 @@ app.post('/api/boards/:id/dev-items/:devId/notes', (req, res) => {
   if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
   const text = String((req.body && req.body.text) || '').trim();
   if (!text) return res.status(400).json({ error: 'Note text is required.' });
+  // Optional per-repo scoping: a note tagged with a slot id belongs to that repo
+  // section; an untagged note is a general (card-level) note.
+  const slot = (req.body && typeof req.body.slot === 'string' && req.body.slot.trim()) ? req.body.slot.trim() : null;
   const notes = Array.isArray(ctx.dev.notes) ? ctx.dev.notes.slice() : [];
   const now = new Date().toISOString();
-  notes.push({ id: 'note-' + Math.random().toString(36).slice(2, 9), text, done: false, createdAt: now, updatedAt: now });
+  const note = { id: 'note-' + Math.random().toString(36).slice(2, 9), text, done: false, createdAt: now, updatedAt: now };
+  if (slot) note.slot = slot;
+  notes.push(note);
   const updated = ctx.save({ notes });
   res.json({ ok: true, dev: updated });
 });
@@ -14891,7 +14919,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
   // its (devId) so the assistant can drive it (refresh/sync/summary/worktree/PR/
   // dev-agent/cleanup) or propose new/updated ones.
   if (devItems.length) {
-    ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId; LINKS / extra REPOS / REPORTS shown per card)\n' + _devCardContextLines(devItems).join('\n'));
+    ctx.push('## DEV CARDS (work item + PR + git worktree trackers — reference by devId; NOTES, ARTIFACT LINKS/REPORTS, and extra REPOS shown per card)\n' + _devCardContextLines(devItems).join('\n'));
   }
   // Pinned PULL REQUESTS: each carries an identity snapshot (org/project/repo/prId)
   // in item.meta and may have a local worktree. List them with live worktree/drift
@@ -14907,8 +14935,17 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       const bits = _cfWtBits(wt);
       const live = _cfPrLive(m);
       const head = `- (pr:${p.refId}) "${clip(p.label || m.title || p.refId, 120)}" — ${clip(m.repo || '', 60)} #${m.prId || '?'} [${m.view || 'mine'}] (worktree: ${bits.join(', ')})`;
-      if (live && live.lines.length) return head + '\n' + live.lines.map(l => '    · ' + clip(l, 180)).join('\n');
-      return head;
+      // ARTIFACTS on a PR = the AI code-review REPORTS generated in Code Flow (read-only).
+      // They survive worktree removal, and often carry findings the user cares about, so
+      // surface their names (+ any history depth) for the assistant/briefing to reference.
+      let arts = '';
+      const reps = (wt && Array.isArray(wt.reports)) ? wt.reports : [];
+      if (reps.length) {
+        const hist = (wt && Array.isArray(wt.reportHistory) && wt.reportHistory.length) ? ` (+${wt.reportHistory.length} in history)` : '';
+        arts = '\n    artifacts (AI review reports, read-only): ' + reps.map(r => clip(r.name || r.rel || 'report', 60)).join(', ') + hist;
+      }
+      if (live && live.lines.length) return head + arts + '\n' + live.lines.map(l => '    · ' + clip(l, 180)).join('\n');
+      return head + arts;
     }).join('\n'));
   }
   // AVAILABLE PULL REQUESTS catalog — built ONLY from the codeflow cache (no forced
@@ -15050,6 +15087,11 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     (devItems.length ? '- {"type":"replace_dev_link","devItemId":"<devId from DEV CARDS>","linkId":"<lnk-id of the link to replace, or url>","url":"<new URL>","label":"<new label, optional>"}  (replaces an existing Dev card LINK with a new URL in one step — use this when the user asks to "replace/swap/update the link" in the card\'s Links section. Identify the old link by its (lnk-id) or url.)' : ''),
     (devItems.length ? '- {"type":"add_dev_repo","devItemId":"<devId from DEV CARDS>","org":"<azdo org>","project":"<azdo project>","repo":"<repo name>","branch":"<feature branch, optional>","baseBranch":"<base branch, optional>"}  (adds an ADDITIONAL repo to a multi-repo Dev card. org, project and repo are REQUIRED — never invent them.)' : ''),
     (devItems.length ? '- {"type":"remove_dev_repo","devItemId":"<devId from DEV CARDS>","repoId":"<repo-id from the card\'s extra repos>"}  (removes an EXTRA repo from a multi-repo Dev card by its (repo-id) as shown under that card\'s "extra repos:" — the primary repo cannot be removed this way. Destructive.)' : ''),
+    (devItems.length ? '- {"type":"add_dev_note","devItemId":"<devId from DEV CARDS>","text":"<note text>","repoId":"<optional slot id: \'primary\' or a repo-id to scope the note to ONE repo section; omit for a general card note>"}  (adds a freeform NOTE to a Dev card — a status jot like "blocked on review" or "rebased onto main". Notes are shown under that card\'s "notes (general)" / "notes (repo …)" lines in DEV CARDS. Pass repoId (the slot id shown after "slot ") to attach it to a specific repo section; omit repoId for a general card-level note.)' : ''),
+    (devItems.length ? '- {"type":"edit_dev_note","devItemId":"<devId from DEV CARDS>","noteId":"<note-id from the card\'s notes>","text":"<new full text>"}  (rewrites ONE Dev card note. Identify it by its (note-id) as shown in DEV CARDS.)' : ''),
+    (devItems.length ? '- {"type":"check_dev_note","devItemId":"<devId from DEV CARDS>","noteId":"<note-id>"}  (marks a Dev card note DONE.)' : ''),
+    (devItems.length ? '- {"type":"uncheck_dev_note","devItemId":"<devId from DEV CARDS>","noteId":"<note-id>"}  (marks a Dev card note NOT done.)' : ''),
+    (devItems.length ? '- {"type":"delete_dev_note","devItemId":"<devId from DEV CARDS>","noteId":"<note-id>"}  (removes ONE Dev card note — destructive, only on explicit request.)' : ''),
     (canQuery && locationPins.length ? '- {"type":"search_location","refId":"<path of a PINNED source location>","query":"<text to grep for>","purpose":"<why>"}  (searches inside a pinned source folder. This runs AUTOMATICALLY and instantly — there is NO confirm step and no cost — and the matching file contents are folded straight back so you can answer from real code/docs. Propose this FREELY and immediately whenever the user asks about, or you need to find anything inside, a pinned source location. You may propose several in one turn; you will be re-invoked with the results to give the final answer.)' : ''),
     '- {"type":"set_layout", ...}  (LEGACY / rarely needed — the free-form pin canvas and per-panel tab layout it drove are NO LONGER USED; this board is organized with SECTIONS instead, see below. Only keep for a bare zoom/font nudge. Change how the board is PRESENTED — VISUAL ONLY, never touches content. Include ONLY the optional fields the request needs: "summary":"<short human label of the change>", "focus":{"kind":"<note|checklist|agent|manager|task|flow|assignment|chat|session>","refId":"<id>"} (spotlight ONE item — collapses all others and expands + widens it), "collapse":"all"|"none"|[{"kind":"...","refId":"..."}, ...] ("all" collapses every panel, "none" expands every panel, or a list of specific panels to collapse), "expand":[{"kind":"...","refId":"..."}, ...], "hide":[{"kind":"...","refId":"..."}, ...] (STASH these panels off the board — they stay in context but are removed from view; use for "hide/stash the finished/boring panels"), "show":[{"kind":"...","refId":"..."}, ...] (un-stash previously hidden panels back onto the board), "zoom":<0.5-1.2>, "fontScale":<0.8-1.3>, "organize":true (de-overlap/tidy), "compact":true (shrink widths + pack tightly), "aiDesign":true (hand the WHOLE view to the layout AI). Propose at most ONE set_layout per turn.)',
     '',
@@ -15084,7 +15126,7 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
     '- BUILD/MODIFY THE BOARD: treat AVAILABLE OPERATIONS & EMPLOYEES (and AVAILABLE AGENTS) as the catalog you can draw from. When the user gives a DIRECTION for the board (e.g. "set this board up to monitor Azure and email me when something breaks", "make this a release-readiness board"), examine that catalog, pick the items whose NAMES and DESCRIPTIONS best match the goal, and propose pin_item for each relevant employee/operation — then add a short note and/or checklist that wires them into a concrete plan (link checklist items to the things you just proposed to pin by their kind:refId). Prefer existing operations (task/flow/assignment) over re-deriving the work by hand. Only pin what is clearly relevant to the stated goal; do not pin the entire catalog.',
     '- SECTIONS / LAYOUT REQUESTS: to organize the workspace, work with SECTIONS/BOARDS — add_section, rename_section, delete_section, place_card, move_card, remove_card, pack_section — using the "## BOARD SECTIONS (current view)" and "## AVAILABLE CARDS" context below. Examples: "make a section for the release work" → add_section (then place_card the relevant items); "move the autoscaler agent to the Ops tab" → move_card; "put the release checklist on this board" → place_card; "get rid of the empty Scratch tab" → delete_section. CARD POSITIONS: each card sits at a real grid position on its board, and gaps CAN accumulate after cards are moved, resized or removed. When the user asks to "move the cards to the top", "line them up", "tidy / clean up / pack this board", or "remove the dead space", DO propose pack_section — that repacks the cards tightly to the top-left and closes the gaps. OMIT the sectionId (or use the current board\'s id) so it packs the board the user is looking at. GRID GEOMETRY: you are given each board\'s column count and every card\'s (x,y) WxH footprint in the "## GRID GEOMETRY" / "## BOARD SECTIONS" context. USE IT to COMPUTE clean, non-overlapping positions yourself and pass explicit "x"/"y" on place_card / move_card whenever the user asks to arrange, align, place side-by-side, stack, or drop something in a specific spot ("put the notes in a row across the top", "place the agent next to the checklist", "two columns"). pack_section is just the shortcut for "tidy / close gaps"; for deliberate placement, reason over the geometry and give x/y rather than relying on pack_section or auto-placement. Do NOT dismiss these requests as "already packed / no action needed", and NEVER respond to "top of the board" by creating or targeting a section literally named "Board" or by re-adding the cards elsewhere — that is wrong; pack_section the CURRENT board instead. DEFAULT TO THE CURRENT BOARD: whenever the user does not name a specific section, assume every section action (place_card, move_card, remove_card, pack_section) targets the CURRENT board shown in context; only target a different board when the user names it explicitly. NOTE: the OLD free-form "pins" canvas (dragging panels to x/y coordinates, pin-ifying, collapsing/locking panels) and the per-panel "tabs" view are DEPRECATED and no longer available — do not offer them or talk about pinning to positions, collapsing, stashing, or locking panels. For a bare zoom/font nudge you may still use one set_layout, but never for arranging content. Placing an item as a card does NOT duplicate or move the underlying content — the same item can appear on multiple boards.',
     '- Use pin_item ONLY for kind:refId pairs that literally appear under AVAILABLE AGENTS or AVAILABLE OPERATIONS & EMPLOYEES. Never invent one. Pick the best matches for the stated goal/capability.',
-    '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry its own LINKS (related URLs/files, each shown as "label → url (lnk-id)"), extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)") and read-only REPORTS. Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). For the card\'s LINKS section use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link are destructive — only on explicit request.',
+    '- DEV CARDS: each item under DEV CARDS groups an Azure DevOps work item + PR + a local git worktree, and may carry NOTES (freeform status jots — general OR scoped to one repo section), ARTIFACTS (user-attached LINKS, each shown as "label → url (lnk-id)", plus read-only agent REPORTS), and extra REPOS (multi-repo, each "org/project/repo @ branch (repo-id)"). Reference a card by its (devId). Use dev_action to operate on an EXISTING item (refresh / sync / create-worktree / summary / create-dev-agent / create-pr / cleanup-worktree). NOTES are fully editable: add_dev_note (optionally scope it to a repo section with repoId = the slot id shown after "slot "), edit_dev_note, check_dev_note / uncheck_dev_note (toggle done), delete_dev_note (destructive) — identify a note by its (note-id). Notes often explain WHY a card matters, so read them when deciding what is interesting. For the card\'s ARTIFACT LINKS use add_dev_link / remove_dev_link / replace_dev_link (when the user says "the link" / "replace the link" on a dev card they mean THIS Links section — identify the link by its (lnk-id) or url, NOT a work-item markdown link in a checklist). For multi-repo use add_dev_repo / remove_dev_repo (by repo-id; the primary repo cannot be removed). Artifact REPORTS are read-only — you can mention them but cannot add/remove them. Proactively SUGGEST cleanup-worktree when an item has a worktree AND its work item state is Done/Closed/Resolved/Completed. Only propose create_dev_item / add_dev_repo when you have a real org/project/repo (never invent them); remove_dev_item / remove_dev_repo / remove_dev_link / delete_dev_note are destructive — only on explicit request.',
     // Dedup / merge awareness.
     '- AVOID DUPLICATES: before add_checklist, scan the CHECKLISTS already in the context — if one already covers this topic, use add_checklist_items against its real id instead of creating a near-duplicate. Likewise prefer edit_note to update an existing relevant note rather than adding a second one. Do not propose items that already exist on the board.',
     // Multi-step confirmable plans.
@@ -15346,6 +15388,45 @@ async function runBoardAssistant(b, { message, history = [], extraContext = '', 
       if (!target && repos.length === 1) target = repos[0];
       if (!target) return null;
       return { type, devItemId: d.id, repoId: target.id, label: 'Remove repo from dev card', preview: `${target.org}/${target.project}/${target.repo}`, destructive: true };
+    }
+    if (type === 'add_dev_note') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const text = clip(a.text || a.note, 2000);
+      if (!text) return null;
+      // Optional per-repo scoping. Validate the slot names a real repo section; drop it
+      // silently if it does not (falls back to a general card-level note).
+      let slot = String(a.repoId || a.slot || '').trim();
+      if (slot) {
+        let ok = false;
+        try { ok = _devRepoSlots(d).some(s => s.id === slot); } catch { ok = false; }
+        if (!ok) {
+          // Try resolving org/project/repo shorthand to a slot id.
+          try { const rs = _findRepoSlot(d, slot); if (rs) slot = rs.id; else slot = ''; } catch { slot = ''; }
+        }
+      }
+      let where = '';
+      if (slot) { try { const rs = _findRepoSlot(d, slot); if (rs) where = ' [' + (rs.repo || slot) + ']'; else where = ' [' + slot + ']'; } catch { where = ' [' + slot + ']'; } }
+      return { type, devItemId: d.id, text, slot: slot || undefined, label: 'Add dev card note', preview: clip(text, 60) + ' → ' + clip(d.title || d.repo || 'Dev card', 40) + where };
+    }
+    if (type === 'edit_dev_note' || type === 'delete_dev_note' || type === 'check_dev_note' || type === 'uncheck_dev_note') {
+      const d = devItems.find(x => x.id === (a.devItemId || a.devId));
+      if (!d) return null;
+      const notes = Array.isArray(d.notes) ? d.notes : [];
+      const nid = a.noteId || a.id;
+      let target = nid ? notes.find(n => n && n.id === nid) : null;
+      if (!target && notes.length === 1) target = notes[0];
+      if (!target) return null;
+      if (type === 'edit_dev_note') {
+        const text = clip(a.text, 2000);
+        if (!text) return null;
+        return { type, devItemId: d.id, noteId: target.id, text, label: 'Edit dev card note', preview: clip(text, 70) };
+      }
+      if (type === 'delete_dev_note') {
+        return { type, devItemId: d.id, noteId: target.id, label: 'Delete dev card note', preview: clip(target.text, 70), destructive: true };
+      }
+      const done = (type === 'check_dev_note');
+      return { type, devItemId: d.id, noteId: target.id, done, label: done ? 'Check dev card note' : 'Uncheck dev card note', preview: clip(target.text, 70) };
     }
     if (type === 'pr_action') {
       // Drive a pinned PR via the Code Flow worktree/review action endpoints. Maps a
