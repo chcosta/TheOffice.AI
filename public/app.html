@@ -11665,6 +11665,11 @@
               .meai-detail-item-title { font-size:12.5px; font-weight:600; color:var(--cp-text); min-width:0; overflow:hidden; text-overflow:ellipsis; }
               .meai-detail-item-head .meai-detail-link { margin-top:0; flex:0 0 auto; }
               .meai-side h4 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin:0 0 8px; }
+              .meai-card-head { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; margin:0 0 8px; }
+              .meai-card-head h4 { margin:0; flex:1; }
+              .meai-card-head .meai-caret { flex:0 0 auto; }
+              .meai-card-count { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; }
+              .meai-card-dot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; background:var(--cp-warning,#d29922); }
               .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
               .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
               .meai-na-item:last-child { border-bottom:0; }
@@ -12061,10 +12066,16 @@
                   </template>
 
                   <!-- Needs attention -->
-                  <template x-if="meai.agenda && (meai.agenda.needsAttention||[]).length">
+                  <template x-if="meai.agenda && meAiNeedsAttentionList().length">
                     <div class="meai-card">
-                      <h4>Needs attention</h4>
-                      <template x-for="(n, ni) in meai.agenda.needsAttention" :key="ni">
+                      <div class="meai-card-head" @click="meAiRailToggle('na')" :title="meai.railCollapsed.na ? 'Show needs-attention items' : 'Collapse to status'">
+                        <span class="meai-caret" x-text="meai.railCollapsed.na ? '▸' : '▾'"></span>
+                        <h4>Needs attention</h4>
+                        <span class="meai-card-dot" x-show="meai.railCollapsed.na"></span>
+                        <span class="meai-card-count" x-text="meAiNeedsAttentionList().length"></span>
+                      </div>
+                      <div x-show="!meai.railCollapsed.na" x-transition>
+                      <template x-for="(n, ni) in meAiNeedsAttentionList()" :key="ni">
                         <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
                              @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
                           <button class="meai-dismiss" type="button" @click.stop="meAiDismiss(n)" title="Not mine — remove from today">✕ Not mine</button>
@@ -12081,13 +12092,19 @@
                           </div>
                         </div>
                       </template>
+                      </div>
                     </div>
                   </template>
 
                   <!-- Backlog / overflow -->
                   <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
                     <div class="meai-card">
-                      <h4>Didn't fit today</h4>
+                      <div class="meai-card-head" @click="meAiRailToggle('bk')" :title="meai.railCollapsed.bk ? 'Show items that didn\'t fit' : 'Collapse to status'">
+                        <span class="meai-caret" x-text="meai.railCollapsed.bk ? '▸' : '▾'"></span>
+                        <h4>Didn't fit today</h4>
+                        <span class="meai-card-count" x-text="(meai.agenda.backlog||[]).length"></span>
+                      </div>
+                      <div x-show="!meai.railCollapsed.bk" x-transition>
                       <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
                         <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
                              @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
@@ -12105,6 +12122,7 @@
                           </div>
                         </div>
                       </template>
+                      </div>
                     </div>
                   </template>
 
@@ -19653,6 +19671,9 @@
           inbox: { items: [], newCount: 0, polledAt: '' },
           inboxOpen: false,      // inbox panel expanded
           inboxBusy: false,      // a refresh / triage request is in flight
+          // Collapsible side-rail cards — heavy lists (needs-attention, backlog)
+          // can be collapsed to a one-line status indicator to reclaim space.
+          railCollapsed: (() => { try { return JSON.parse(localStorage.getItem('meAiRailCollapsed') || '{}') || {}; } catch (_) { return {}; } })(),
         },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
@@ -26304,6 +26325,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.meAiMetaRows(it).length) return true;
           if (it.detail && String(it.detail).trim()) return true;
           return false;
+        },
+        // Collapse/expand a side-rail card (persisted) so heavy lists can shrink
+        // to a one-line status indicator when the user wants the space back.
+        meAiRailToggle(key) {
+          this.meai.railCollapsed[key] = !this.meai.railCollapsed[key];
+          try { localStorage.setItem('meAiRailCollapsed', JSON.stringify(this.meai.railCollapsed)); } catch (_) {}
+        },
+        // De-dupe the redundancy the owner flagged: the top "new items need
+        // attention" inbox and the right-rail "Needs attention" digest often show
+        // the SAME email/Teams ask. The inbox is the actionable, triage-now surface;
+        // the rail is a standing digest. When an item is already surfaced (and not
+        // yet dismissed) in the inbox, drop it from the rail so it appears once.
+        meAiNeedsAttentionList() {
+          const na = (this.meai.agenda && this.meai.agenda.needsAttention) || [];
+          const inbox = (this.meai.inbox && this.meai.inbox.items) || [];
+          if (!inbox.length) return na;
+          const norm = s => String(s || '').trim().toLowerCase();
+          const active = inbox.filter(i => i.triage !== 'dismissed');
+          const links = new Set(active.map(i => norm(i.link || i.prLink)).filter(Boolean));
+          const titles = new Set(active.map(i => norm(i.title)).filter(Boolean));
+          return na.filter(n => {
+            const l = norm(n.link);
+            if (l && links.has(l)) return false;
+            const t = norm(n.title || n.label);
+            if (t && titles.has(t)) return false;
+            return true;
+          });
         },
         // #7 "Not mine" — remove an item from today's agenda. Persists server-side so
         // regeneration keeps excluding it; optionally captures a follow-up note. The
