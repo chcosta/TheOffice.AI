@@ -11117,6 +11117,31 @@ function saveAgendaForDate(date, agenda) {
   return agenda;
 }
 
+// #7 Per-day "not mine" dismissals. When the user removes an item from a day's
+// agenda, we persist its key (link || title) so regeneration keeps excluding it.
+// Stored as { <key>: { note, at, title } } at me-ai/dismiss/<date>.json.
+const ME_AI_DISMISS_DIR = path.join(dataPath('me-ai'), 'dismiss');
+function _meAiDismissPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_DISMISS_DIR, `${safe}.json`);
+}
+function _meAiDismissKey(it) {
+  return String((it && (it.link || it.title || it.label)) || '').trim().slice(0, 300);
+}
+function loadDismissForDate(date) {
+  try {
+    const p = _meAiDismissPath(date);
+    if (!fs.existsSync(p)) return {};
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch { return {}; }
+}
+function saveDismissForDate(date, map) {
+  fs.mkdirSync(ME_AI_DISMISS_DIR, { recursive: true });
+  fs.writeFileSync(_meAiDismissPath(date), JSON.stringify(map || {}, null, 2));
+  return map;
+}
+
 function _hmToMin(hm) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '').trim());
   if (!m) return null;
@@ -11535,8 +11560,15 @@ async function generateMeAiAgenda({ date, todos } = {}) {
   }
   const cf = _meAiGatherCodeflow();
   if (cf.length) { signals.push(...cf); sources.codeflow = true; }
-  const pre = _meAiPrePass(cfg, signals, todos);
-  const refined = await _meAiLlmRefine(cfg, pre, signals, day);
+  // #7 Drop anything the user has dismissed ("not mine") for this day so it never
+  // re-enters the schedule, backlog, or needs-attention rail on regeneration.
+  const dismissed = loadDismissForDate(day);
+  const dismissedKeys = new Set(Object.keys(dismissed));
+  const liveSignals = dismissedKeys.size
+    ? signals.filter(sig => !dismissedKeys.has(_meAiDismissKey(sig)))
+    : signals;
+  const pre = _meAiPrePass(cfg, liveSignals, todos);
+  const refined = await _meAiLlmRefine(cfg, pre, liveSignals, day);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
@@ -11544,8 +11576,9 @@ async function generateMeAiAgenda({ date, todos } = {}) {
     blocks: refined || pre.blocks,
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
+    dismissed: Object.keys(dismissed).map(k => ({ key: k, title: dismissed[k] && dismissed[k].title || k, note: dismissed[k] && dismissed[k].note || '', at: dismissed[k] && dismissed[k].at || '' })),
     todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim(), scope: (t && t.scope === 'personal') ? 'personal' : 'work' })).filter(t => t.title),
-    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: signals.length, errors },
+    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: liveSignals.length, errors },
   };
   saveAgendaForDate(day, agenda);
   return agenda;
@@ -11592,6 +11625,51 @@ app.post('/api/me-ai/agenda/generate', async (req, res) => {
     const b = req.body || {};
     const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [] });
     res.json({ ok: true, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/dismiss { date, key?, title?, link?, note? }
+// #7 "Not mine" — persist a per-day dismissal so regeneration excludes the item,
+// and immediately strip it from the current snapshot (regenerate is slow) so the
+// UI reflects the removal at once. Returns the updated agenda.
+app.post('/api/me-ai/agenda/dismiss', (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const key = _meAiDismissKey({ link: b.link, title: b.title }) || String(b.key || '').trim().slice(0, 300);
+    if (!key) return res.status(400).json({ error: 'key or title required' });
+    const map = loadDismissForDate(date);
+    map[key] = { note: String(b.note || '').trim().slice(0, 500), title: String(b.title || key).slice(0, 300), at: new Date().toISOString() };
+    saveDismissForDate(date, map);
+    // Strip from the live snapshot so the change is instant.
+    const agenda = loadAgendaForDate(date);
+    if (agenda) {
+      const keep = it => _meAiDismissKey(it) !== key;
+      agenda.blocks = (agenda.blocks || []).filter(keep);
+      agenda.backlog = (agenda.backlog || []).filter(keep);
+      agenda.needsAttention = (agenda.needsAttention || []).filter(keep);
+      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '' }));
+      saveAgendaForDate(date, agenda);
+    }
+    res.json({ ok: true, date, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/undismiss { date, key } → restore a dismissed item.
+// (The item returns on the next generate; we just drop the dismissal record.)
+app.post('/api/me-ai/agenda/undismiss', (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const key = String(b.key || '').trim().slice(0, 300);
+    const map = loadDismissForDate(date);
+    if (key && map[key]) { delete map[key]; saveDismissForDate(date, map); }
+    const agenda = loadAgendaForDate(date);
+    if (agenda) {
+      agenda.dismissed = Object.keys(map).map(k => ({ key: k, title: map[k] && map[k].title || k, note: map[k] && map[k].note || '', at: map[k] && map[k].at || '' }));
+      saveAgendaForDate(date, agenda);
+    }
+    res.json({ ok: true, date, agenda, dismissed: agenda ? agenda.dismissed : [] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

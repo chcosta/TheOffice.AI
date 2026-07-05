@@ -11518,7 +11518,15 @@
               .meai-tl { position:relative; }
               .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
               .meai-block-time { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; padding-top:12px; text-align:right; }
-              .meai-block-body { border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:8px; padding:10px 14px; background:var(--cp-surface); margin-bottom:8px; }
+              .meai-block-body { position:relative; border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:8px; padding:10px 14px; background:var(--cp-surface); margin-bottom:8px; }
+              .meai-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:var(--cp-text-muted); font-size:12px; cursor:pointer; padding:2px 5px; border-radius:6px; opacity:0; transition:opacity .12s; }
+              .meai-block-body:hover .meai-dismiss, .meai-na-item:hover .meai-dismiss { opacity:.7; }
+              .meai-dismiss:hover { opacity:1 !important; color:var(--cp-danger,#dc2626); background:var(--cp-hover,rgba(0,0,0,.05)); }
+              .meai-na-item { position:relative; }
+              .meai-dismissed-row { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:12px; color:var(--cp-text-muted); border-bottom:1px solid var(--cp-border); }
+              .meai-dismissed-row:last-child { border-bottom:0; }
+              .meai-restore { border:0; background:transparent; color:var(--cp-accent); font-size:12px; cursor:pointer; padding:0; }
+              .meai-restore:hover { text-decoration:underline; }
               .meai-block-body.is-now { box-shadow:0 0 0 1px var(--cp-accent); }
               .meai-block-title { font-weight:600; color:var(--cp-text); font-size:14px; }
               .meai-block-meta { font-size:12px; color:var(--cp-text-muted); margin-top:3px; }
@@ -11681,6 +11689,8 @@
                           <div class="meai-block-body"
                                :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end) }"
                                :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
+                            <button class="meai-dismiss" type="button" x-show="b.source && b.source!=='me'"
+                                    @click.stop="meAiDismiss(b)" title="Not mine — remove from today">✕ Not mine</button>
                             <div class="meai-block-title" :class="{ clickable: meAiHasDetail(b) }"
                                  @click="meAiHasDetail(b) && meAiToggle(meAiItemKey('b',b,bi))">
                               <span x-show="meAiHasDetail(b)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('b',b,bi))?'▾':'▸'"></span>
@@ -11752,6 +11762,7 @@
                       <template x-for="(n, ni) in meai.agenda.needsAttention" :key="ni">
                         <div class="meai-na-item" :class="{ clickable: meAiHasDetail(n) }"
                              @click="meAiHasDetail(n) && meAiToggle(meAiItemKey('na',n,ni))">
+                          <button class="meai-dismiss" type="button" @click.stop="meAiDismiss(n)" title="Not mine — remove from today">✕ Not mine</button>
                           <div class="meai-na-t">
                             <span x-show="meAiHasDetail(n)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('na',n,ni))?'▾':'▸'"></span>
                             <span x-text="n.title || n.label || 'Item'"></span>
@@ -11775,6 +11786,7 @@
                       <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
                         <div class="meai-na-item" :class="{ clickable: meAiHasDetail(bk) }"
                              @click="meAiHasDetail(bk) && meAiToggle(meAiItemKey('bk',bk,bki))">
+                          <button class="meai-dismiss" type="button" @click.stop="meAiDismiss(bk)" title="Not mine — remove from today">✕ Not mine</button>
                           <div class="meai-na-t">
                             <span x-show="meAiHasDetail(bk)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('bk',bk,bki))?'▾':'▸'"></span>
                             <span x-text="bk.title || bk.label || 'Task'"></span>
@@ -11786,6 +11798,22 @@
                             </template>
                             <a class="meai-detail-link" x-show="bk.link" :href="bk.link" target="_blank" rel="noopener">Open ↗</a>
                           </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Removed today (#7 dismissed) -->
+                  <template x-if="meai.agenda && (meai.agenda.dismissed||[]).length">
+                    <div class="meai-card">
+                      <h4>Removed today</h4>
+                      <template x-for="d in meai.agenda.dismissed" :key="d.key">
+                        <div class="meai-dismissed-row">
+                          <span style="flex:1">
+                            <span x-text="d.title"></span>
+                            <span x-show="d.note" style="color:var(--cp-text-muted)" x-text="' — ' + d.note"></span>
+                          </span>
+                          <button type="button" class="meai-restore" @click="meAiUndismiss(d.key)">Restore</button>
                         </div>
                       </template>
                     </div>
@@ -25713,6 +25741,33 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.meAiMetaRows(it).length) return true;
           if (it.detail && String(it.detail).trim()) return true;
           return false;
+        },
+        // #7 "Not mine" — remove an item from today's agenda. Persists server-side so
+        // regeneration keeps excluding it; optionally captures a follow-up note. The
+        // server strips it from the live snapshot and returns the updated agenda.
+        async meAiDismiss(it) {
+          if (!it) return;
+          const label = it.title || it.label || 'this item';
+          const note = window.prompt('Remove "' + String(label).slice(0, 80) + '" from today.\n\nOptional follow-up note (e.g. who owns it) — leave blank to just remove:', '');
+          if (note === null) return; // cancelled
+          try {
+            const r = await this.request('/api/me-ai/agenda/dismiss', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date, title: it.title || it.label || '', link: it.link || '', note: note || '' }),
+            });
+            if (r && r.agenda) this.meai.agenda = r.agenda;
+            this.toast('Removed from today', 'success');
+          } catch (e) { this.toast('Could not remove: ' + (e.message || e), 'error'); }
+        },
+        async meAiUndismiss(key) {
+          try {
+            const r = await this.request('/api/me-ai/agenda/undismiss', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date, key }),
+            });
+            if (r && r.agenda) this.meai.agenda = r.agenda;
+            this.toast('Restored — regenerate to bring it back into the plan', 'success');
+          } catch (e) { this.toast('Could not restore: ' + (e.message || e), 'error'); }
         },
         // On-track status for TODAY only, derived from block start/end vs the current minute.
         meAiStatus() {
