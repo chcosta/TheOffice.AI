@@ -9867,10 +9867,10 @@
                             </template>
                             <div class="board-canvas-resize" x-show="!boardIsTabbed()" @mousedown="startCanvasResize($event)" title="Drag to resize the board — wider for more room across, down for extra height"></div>
                           </div>
-                          <!-- Always-visible trash: drag a card here to take it off the board
-                               (removed from every section; it stays in the workspace + toolbox).
-                               Hidden on Card View and when the toggle is off. -->
-                          <div class="board-trash" x-show="!isViewTab() && boardTrashOn" x-cloak
+                          <!-- Trash drop-target: appears only while a card is being dragged
+                               (drop here to take it off the board — removed from every section;
+                               it stays in the workspace + toolbox). Hidden on Card View. -->
+                          <div class="board-trash" x-show="!isViewTab() && !!_boardCardDrag" x-cloak
                                :class="{ over: _boardTrashOver }"
                                @dragenter.prevent.stop="_boardTrashOver = true"
                                @dragover.prevent.stop="_boardTrashOver = true; try { $event.dataTransfer.dropEffect = 'move'; } catch (e) {}"
@@ -9920,7 +9920,6 @@
                           </span>
                           <button type="button" class="sb-btn sb-wide" @click="boardEditSecOpen = !boardEditSecOpen" :class="{ active: boardEditSecOpen }" title="Edit cards — remove a card from this section, take it off the board, or remove the item from the workspace">✎ Edit</button>
                           <button type="button" class="sb-btn sb-wide" @click="clearSection()" title="Clear this section — removes every card from the section (items stay on the board and in the toolbox)">🧹 Clear</button>
-                          <button type="button" class="sb-btn sb-wide" :class="{ active: boardTrashOn }" @click="toggleBoardTrash()" :title="boardTrashOn ? 'Hide the trash drop-target' : 'Show the trash drop-target — drag cards onto it to take them off the board (they stay in the workspace)'">🗑 Trash</button>
                           <span x-show="!!activeSection()" x-text="(activeSection() ? (activeSection().cards||[]).length : 0) + ' card' + ((activeSection() && (activeSection().cards||[]).length===1) ? '' : 's')"></span>
                         </div>
                       </div>
@@ -10374,7 +10373,7 @@
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <template x-for="k in ['session','chat','task','assignment','flow','agent','manager','location','pr']" :key="k">
+                    <template x-for="k in ['session','chat','task','flow','agent','manager','location','pr']" :key="k">
                       <button type="button" class="pill" :class="{ active: boardPinKind === k }" @click="setPinKind(k)" x-text="boardKindIcon(k) + ' ' + boardKindLabel(k)"></button>
                     </template>
                   </div>
@@ -17875,7 +17874,6 @@
         _pendingBoardSection: null,
         // Trash-can drop target (lower-left of the section stage). Persisted on/off toggle;
         // drag a card onto it to remove the item from the workspace entirely.
-        boardTrashOn: (() => { try { const v = localStorage.getItem('board-trash-on'); return v === null ? true : v === '1'; } catch (e) { return true; } })(),
         _boardTrashOver: false,
         // Left toolbox tray width (px) — user-draggable splitter, persisted globally.
         boardTbxW: (() => { try { const v = parseInt(localStorage.getItem('board-tbx-w'), 10); return (isFinite(v) && v >= 150 && v <= 460) ? v : 216; } catch (e) { return 216; } })(),
@@ -27626,11 +27624,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out = (this.data.managers || []).filter(m => this.idInCurrentOrg(m.id))
               .map(m => ({ kind: 'manager', refId: m.id, label: m.name, sublabel: 'Manager' }));
           } else if (this.boardPinKind === 'task') {
-            out = this.allTasks().filter(t => t.type === 'agent' && inOrg(t.teamId))
-              .map(t => ({ kind: 'task', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
-          } else if (this.boardPinKind === 'assignment') {
-            out = this.allTasks().filter(t => t.type === 'assignment' && inOrg(t.teamId))
-              .map(t => ({ kind: 'assignment', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
+            // Tasks and manager assignments were unified into "tasks" — surface BOTH under
+            // the one Task picker (no separate Assignment tab). Each candidate keeps its
+            // underlying pin kind ('task' for agent tasks, 'assignment' for manager
+            // assignments) so existing pins, routing, icons and pinned-markers still resolve.
+            out = this.allTasks().filter(t => (t.type === 'agent' || t.type === 'assignment') && inOrg(t.teamId))
+              .map(t => ({ kind: t.type === 'assignment' ? 'assignment' : 'task', refId: t.taskKey, label: t.name, sublabel: t.ownerName }));
           } else if (this.boardPinKind === 'flow') {
             out = (this.data.chains || []).filter(c => inOrg(c.teamId))
               .map(c => ({ kind: 'flow', refId: c.id, label: c.name || c.id, sublabel: 'Flow' }));
@@ -29251,11 +29250,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (s.cards.length !== before) changed = true;
           });
           if (changed) this._touchSections();
-        },
-        // Toggle the always-visible trash drop-target on/off (persisted globally).
-        toggleBoardTrash() {
-          this.boardTrashOn = !this.boardTrashOn;
-          try { localStorage.setItem('board-trash-on', this.boardTrashOn ? '1' : '0'); } catch (e) {}
         },
         // A card was dropped on the trash — take it OFF THE BOARD (remove its placement
         // from every section). The underlying item stays in the workspace + toolbox; use
