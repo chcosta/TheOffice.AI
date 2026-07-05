@@ -11980,6 +11980,128 @@ function _meAiSuggestions(cfg, agenda, date) {
   return out.filter(s => !dismissed[s.id]);
 }
 
+// ---- REQ-1: "My Day" board sync ---------------------------------------------
+// Me.AI reflects TODAY's actionable agenda items onto a single persistent
+// "My Day" board (a normal Board — the app's "workspace" surface) so the day's
+// work shows up alongside everything else instead of living in a Me.AI silo.
+// We manage ONLY notes whose id is prefixed `me-note-` (reconciled on every
+// generate); user-added notes and all other cards are left untouched. A launched
+// Me-agent binds to its note by a stable key derived from the block link/title,
+// so task completion can stamp that exact note done.
+const ME_AI_DAY_BOARD_ID = 'board-me-ai-day';
+const ME_AI_DAY_NOTE_PREFIX = 'me-note-';
+function _meAiDayNoteKey(seed) {
+  const s = String(seed || '').trim().toLowerCase();
+  let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
+  return ME_AI_DAY_NOTE_PREFIX + (h >>> 0).toString(36);
+}
+function _meAiEnsureDayBoard() {
+  const boards = loadBoards();
+  let idx = boards.findIndex(b => b && b.id === ME_AI_DAY_BOARD_ID);
+  if (idx < 0) {
+    const now = new Date().toISOString();
+    const board = _normalizeBoard({
+      id: ME_AI_DAY_BOARD_ID, name: 'My Day', emoji: '📅',
+      teamId: null, items: [], notes: [], checklists: [],
+      createdAt: now, updatedAt: now,
+    });
+    boards.push(board); idx = boards.length - 1;
+    saveBoards(boards);
+    try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {}
+  }
+  return { boards, idx };
+}
+// Real "do-this" work worth tracking on the board — reviews/stewards/prep/comms/
+// admin/focus blocks + work todos. Skips meetings, lunch, open-focus fillers and
+// personal todos (those don't belong on a work board). Merged blocks expand to
+// their constituent per-item links. Capped so the board can't explode.
+function _meAiActionableItems(agenda) {
+  const out = []; const seen = new Set();
+  const ICONS = { review: '🔍', steward: '🚢', prep: '📎', comms: '✉️', admin: '🗂️', focus: '⌨️' };
+  const push = (icon, title, link, status) => {
+    const t = String(title || '').trim();
+    if (!t || /^open focus$/i.test(t)) return;
+    const key = _meAiDayNoteKey(link || t);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ key, icon, title: t, link: link || '', status: status || 'planned' });
+  };
+  for (const b of (Array.isArray(agenda.blocks) ? agenda.blocks : [])) {
+    if (!b || !ICONS[b.type]) continue;
+    if (Array.isArray(b.items) && b.items.length > 1) {
+      for (const it of b.items) push(ICONS[b.type], it.title || b.title, it.link || '', 'planned');
+    } else {
+      push(ICONS[b.type], b.title, b.link || '', 'planned');
+    }
+  }
+  for (const td of (Array.isArray(agenda.todos) ? agenda.todos : [])) {
+    if (!td || td.scope === 'personal') continue;
+    push('✅', td.title, '', td.done ? 'done' : 'planned');
+  }
+  return out.slice(0, 40);
+}
+function _meAiDayNoteText(item) {
+  const head = (item.status === 'done' ? '✅ ' : (item.icon || '•') + ' ') + item.title;
+  return item.link ? head + '\n' + item.link : head;
+}
+// Reconcile the managed `me-note-*` notes on the My Day board with today's agenda.
+// Leader-gated (the board is shared / cloud-synced) and TODAY-only (a single My
+// Day board tracks the current day). Best-effort: never blocks agenda generation.
+function _meAiSyncDayBoard(agenda, date) {
+  try {
+    if (!leaderCheck()) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (String(date || '').slice(0, 10) !== today) return;
+    const desired = _meAiActionableItems(agenda || {});
+    const { boards, idx } = _meAiEnsureDayBoard();
+    const board = _normalizeBoard(boards[idx]);
+    const prev = Array.isArray(board.notes) ? board.notes : [];
+    const prevById = new Map(prev.map(n => [n && n.id, n]));
+    const userNotes = prev.filter(n => n && typeof n.id === 'string' && !n.id.startsWith(ME_AI_DAY_NOTE_PREFIX));
+    const now = new Date().toISOString();
+    const managed = desired.map(item => {
+      const old = prevById.get(item.key);
+      // Preserve a completion stamp written by task-complete across re-syncs.
+      const wasDone = old && typeof old.text === 'string' && /^✅/.test(old.text.trim());
+      const it = wasDone ? { ...item, status: 'done' } : item;
+      // If already done, keep the exact stamped text (may carry an outcome line).
+      const text = wasDone ? old.text : _meAiDayNoteText(it);
+      return { id: item.key, text, createdAt: (old && old.createdAt) || now, updatedAt: now };
+    });
+    board.notes = [...managed, ...userNotes];
+    board.updatedAt = now;
+    boards[idx] = board;
+    saveBoards(boards);
+    try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {}
+  } catch (_) { /* best-effort — never block agenda generation */ }
+}
+// Stamp the managed note bound to a completed task done (called from complete).
+function _meAiMarkDayNoteDone(seed, outcome) {
+  try {
+    if (!leaderCheck()) return false;
+    const key = _meAiDayNoteKey(seed);
+    const boards = loadBoards();
+    const idx = boards.findIndex(b => b && b.id === ME_AI_DAY_BOARD_ID);
+    if (idx < 0) return false;
+    const board = _normalizeBoard(boards[idx]);
+    const notes = Array.isArray(board.notes) ? board.notes : [];
+    const n = notes.find(x => x && x.id === key);
+    if (!n) return false;
+    const body = String(n.text || '');
+    if (/^✅/.test(body.trim())) return true;
+    const nl = body.indexOf('\n');
+    const head = (nl >= 0 ? body.slice(0, nl) : body).replace(/^\S+\s*/, '');
+    const rest = nl >= 0 ? body.slice(nl) : '';
+    n.text = '✅ ' + head + rest + (outcome ? '\n— ' + String(outcome).slice(0, 160) : '');
+    n.updatedAt = new Date().toISOString();
+    board.updatedAt = n.updatedAt;
+    boards[idx] = board;
+    saveBoards(boards);
+    try { broadcastSSE('boards-changed', { id: ME_AI_DAY_BOARD_ID }); } catch (_) {}
+    return true;
+  } catch (_) { return false; }
+}
+
 async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
@@ -12002,6 +12124,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
       meta: { refined: false, consent: cfg.consent, notWorkDay: true, sources: { m365: false, azdo: false, github: false, codeflow: false }, signalCount: 0, errors: [] },
     };
     saveAgendaForDate(day, agenda);
+    try { _meAiSyncDayBoard(agenda, day); } catch (_) { /* best-effort */ }  // REQ-1: clear stale work on a day off
     return agenda;
   }
   // #3 Signals come from the pre-index cache when warm. An explicit "Regenerate"
@@ -12063,6 +12186,7 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
   agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
   saveAgendaForDate(day, agenda);
+  try { _meAiSyncDayBoard(agenda, day); } catch (_) { /* best-effort */ }  // REQ-1
   return agenda;
 }
 
@@ -12976,6 +13100,14 @@ app.post('/api/me-ai/task/:id/complete', (req, res) => {
     _meAiSetStage(t, 'done', 'complete');
     if (diary && diary.written) _meAiEmit(t, { kind: 'note', text: 'Logged to your diary.' });
     else if (diary && diary.reason === 'consent-off') _meAiEmit(t, { kind: 'note', text: 'Diary write-back is off (turn on personal signals to log outcomes).' });
+    // REQ-1: reflect completion onto the My Day board note bound to this task.
+    try {
+      const seed = (t.context && t.context.link) || t.title;
+      const today = new Date().toISOString().slice(0, 10);
+      if (seed && String(t.date || '').slice(0, 10) === today) {
+        _meAiMarkDayNoteDone(seed, (t.report && t.report.summary) || '');
+      }
+    } catch (_) { /* best-effort */ }
     res.json({ ok: true, task: _meAiTaskPublic(t), diary });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

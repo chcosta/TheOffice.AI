@@ -11846,6 +11846,11 @@
                   </button>
                 </template>
                 <span style="flex:1"></span>
+                <button type="button" class="btn ghost meai-eod" @click="meAiOpenDayBoard()"
+                        x-show="meai.date===meai.today"
+                        title="Today's actionable work is mirrored to a 'My Day' board so it lives alongside your other workspaces.">
+                  📅 My Day board
+                </button>
                 <button type="button" class="btn ghost meai-eod" @click="meAiDayShapeReport()" :disabled="meai.dayShapeBusy"
                         title="Summarise today's churn into your diary for look-back">
                   <span x-show="!meai.dayShapeBusy">End-of-day report</span>
@@ -26121,6 +26126,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.meai.generating = false;
           }
+        },
+        // REQ-1: jump to the persistent "My Day" board that mirrors today's agenda.
+        meAiOpenDayBoard() {
+          this.goTo('#/boards');
+          this.$nextTick(() => { try { this.selectBoard('board-me-ai-day'); } catch (_) {} });
         },
         async meAiSaveSettings() {
           this.meai.savingSettings = true;
