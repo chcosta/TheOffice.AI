@@ -149,6 +149,23 @@ const DEFAULTS = {
   // When true (default), a review-ready draft .eml is opened in the mail client on
   // each scheduled run. The in-app "review pending" flag is always set regardless.
   newsletterNotifyEmail: true,
+
+  // ---- Me.AI (personal daily agenda / command center) ----------------------
+  // Me.AI is a daily hub backed by a personal "Me agent". M1 is the read-only
+  // agenda MVP: it reads your calendar/email/Teams (via WorkIQ, consent-gated),
+  // Azure DevOps PRs/work items, and Code Flow worktrees, then plans your day on
+  // a configurable grid. Separate, explicit consent — nothing is read until the
+  // user turns this on (mirrors the Connect consent model). Azure DevOps targets
+  // are reused from the Connect ADO config (connectAdoOrgs / connectAdoOrg).
+  meAiConsent: false,
+  // Working-hours envelope the agenda is planned within (24h HH:MM local).
+  meAiWorkStart: '08:00',
+  meAiWorkEnd: '17:00',
+  // Lunch break carved out of the day (HH:MM). Empty start disables the block.
+  meAiLunchStart: '12:00',
+  meAiLunchEnd: '12:30',
+  // Agenda time-grid granularity in minutes. Configurable 5 / 10 / 15; default 10.
+  meAiGrid: 10,
 };
 
 let cache = null;

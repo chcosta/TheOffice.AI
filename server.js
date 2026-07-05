@@ -11054,6 +11054,331 @@ app.post('/api/connect/assistant', async (req, res) => {
   }
 });
 
+// --- Me.AI (personal daily agenda / command center) --------------------------
+// M1: read-only agenda MVP. Consent-gated read of M365 (WorkIQ collector, best
+// effort), Azure DevOps (PRs + work items), and Code Flow worktrees → a
+// deterministic pre-pass that ALWAYS yields a complete day → an optional LLM
+// refine that merges same-focus chunks + adds prep, falling back to the
+// deterministic plan on any failure → persisted daily agenda snapshot. No agents
+// or console yet (that is M2+). Azure DevOps targets are reused from the Connect
+// ADO config so the user configures them in one place.
+const ME_AI_AGENDA_DIR = path.join(dataPath('me-ai'), 'agenda');
+
+function _meAiConfig(s) {
+  s = s || settings.getSettings();
+  const targets = _connectAdoTargets(s);
+  const grid = [5, 10, 15].includes(Number(s.meAiGrid)) ? Number(s.meAiGrid) : 10;
+  return {
+    consent: !!s.meAiConsent,
+    workStart: s.meAiWorkStart || '08:00',
+    workEnd: s.meAiWorkEnd || '17:00',
+    lunchStart: s.meAiLunchStart || '',
+    lunchEnd: s.meAiLunchEnd || '',
+    grid,
+    hasAdo: targets.length > 0,
+    adoOrgs: targets.map(t => t.org),
+  };
+}
+
+function _meAiAgendaPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_AGENDA_DIR, `${safe}.json`);
+}
+function loadAgendaForDate(date) {
+  try {
+    const p = _meAiAgendaPath(date);
+    if (!fs.existsSync(p)) return null;
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return (v && typeof v === 'object') ? v : null;
+  } catch { return null; }
+}
+function saveAgendaForDate(date, agenda) {
+  fs.mkdirSync(ME_AI_AGENDA_DIR, { recursive: true });
+  fs.writeFileSync(_meAiAgendaPath(date), JSON.stringify(agenda, null, 2));
+  return agenda;
+}
+
+function _hmToMin(hm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '').trim());
+  if (!m) return null;
+  const v = (+m[1]) * 60 + (+m[2]);
+  return (v >= 0 && v <= 1440) ? v : null;
+}
+function _minToHm(min) {
+  min = Math.max(0, Math.min(1439, Math.round(min)));
+  const h = Math.floor(min / 60), m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// Azure DevOps signals for the day: my active work items (focus), PRs I authored
+// (steward), and PRs awaiting my review (needs-attention). Best-effort per target.
+async function _meAiGatherAdo(s, date) {
+  const signals = [], errors = [];
+  const targets = _connectAdoTargets(s);
+  if (!targets.length) return { signals, errors };
+  const end = date;
+  const startD = new Date(date + 'T00:00:00');
+  startD.setDate(startD.getDate() - 14);
+  const start = startD.toISOString().slice(0, 10);
+  const DONE = new Set(['closed', 'done', 'resolved', 'completed', 'removed']);
+  for (const { org, projects } of targets) {
+    let me;
+    try { me = await azdo.getCurrentUser(org); }
+    catch (e) { errors.push(`auth ${org}: ${e.message}`); continue; }
+    const creatorId = me && me.id;
+    const meId = String(creatorId || '');
+    for (const project of projects) {
+      try {
+        const wis = await azdo.listMyWorkItems(org, project, { start, end });
+        for (const w of wis) {
+          if (DONE.has(String(w.state || '').toLowerCase())) continue;
+          if (meId && String(w.assignedToId || '') !== meId) continue; // only my plate
+          signals.push({ kind: 'workitem', type: 'focus', title: `${w.type || 'Work item'} #${w.id}: ${w.title}`, detail: `${project} · ${w.state || ''}`.trim(), link: w.url || '', urgency: 2, source: 'azdo' });
+        }
+      } catch (e) { errors.push(`workitems ${org}/${project}: ${e.message}`); }
+      try {
+        const prs = await azdo.listProjectPullRequests(org, project, { creatorId, status: 'active', top: 50 });
+        for (const pr of prs) signals.push({ kind: 'pr', type: 'steward', title: `PR !${pr.id}: ${pr.title}`, detail: `${pr.repo || project} · yours`, link: pr.url || '', urgency: 3, source: 'azdo' });
+      } catch (e) { errors.push(`prs ${org}/${project}: ${e.message}`); }
+      try {
+        const prs = await azdo.listProjectPullRequests(org, project, { reviewerId: creatorId, status: 'active', top: 50 });
+        for (const pr of prs) {
+          if (pr.createdBy && String(pr.createdBy.id) === meId) continue; // my own PR
+          signals.push({ kind: 'pr', type: 'review', title: `Review PR !${pr.id}: ${pr.title}`, detail: `${pr.repo || project} · ${(pr.createdBy && pr.createdBy.name) || 'author'}`, link: pr.url || '', urgency: 4, source: 'azdo' });
+        }
+      } catch (e) { errors.push(`review-prs ${org}/${project}: ${e.message}`); }
+    }
+  }
+  return { signals, errors };
+}
+
+// Code Flow worktrees → in-progress work you're actively coding on.
+function _meAiGatherCodeflow() {
+  const signals = [];
+  try {
+    const map = loadCodeflowWorktrees();
+    for (const [key, rec] of Object.entries(map || {})) {
+      if (!rec || typeof rec !== 'object') continue;
+      const title = rec.title || rec.branch || key;
+      signals.push({ kind: 'worktree', type: 'focus', title: `Code Flow: ${title}`, detail: rec.branch ? `branch ${rec.branch}` : '', link: '', urgency: 2, source: 'codeflow' });
+    }
+  } catch { /* best-effort */ }
+  return signals;
+}
+
+// M365 (calendar + actionable email/Teams) via the WorkIQ collector agent.
+// Best-effort: constrained agent, so we tolerate empty/unparseable output and
+// never let it sink agenda generation.
+async function _meAiGatherM365(date) {
+  try {
+    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean}. If there is nothing, return [].`;
+    const text = await _connectRunAgent('collector', prompt);
+    const arr = _connectExtractJson(text);
+    if (!Array.isArray(arr)) return [];
+    return arr.map(x => {
+      const kind = x && x.kind === 'meeting' ? 'meeting' : (x && x.kind === 'teams' ? 'teams' : 'email');
+      const hm = v => (typeof v === 'string' && /^\d{1,2}:\d{2}$/.test(v)) ? v : null;
+      return {
+        kind,
+        type: kind === 'meeting' ? 'meeting' : 'comms',
+        title: String((x && x.title) || '').slice(0, 200),
+        detail: String((x && x.detail) || '').slice(0, 200),
+        start: hm(x && x.start),
+        end: hm(x && x.end),
+        link: (x && x.link) || '',
+        urgency: kind === 'meeting' ? 5 : ((x && x.needsReply) ? 4 : 2),
+        source: 'm365',
+      };
+    }).filter(x => x.title);
+  } catch { return []; }
+}
+
+// Deterministic pre-pass: ALWAYS produces a complete day within working hours.
+// Places fixed anchors (meetings), carves lunch, then greedily fills the free
+// intervals with prioritized task blocks (merging adjacent same-type work). Any
+// tasks that don't fit spill into `backlog`. needs-attention (review/comms) are
+// surfaced separately for the rail even if not all are scheduled.
+function _meAiPrePass(cfg, signals, todos) {
+  const grid = cfg.grid;
+  const winStart = _hmToMin(cfg.workStart) ?? 8 * 60;
+  const winEnd = _hmToMin(cfg.workEnd) ?? 17 * 60;
+  const snap = m => Math.round(m / grid) * grid;
+  const meetings = [];
+  const tasks = [];
+  const needsAttention = [];
+  for (const s of signals || []) {
+    if (s.type === 'meeting' && _hmToMin(s.start) != null) meetings.push(s);
+    else {
+      if (s.type === 'review' || s.type === 'comms') needsAttention.push(s);
+      tasks.push(s);
+    }
+  }
+  for (const t of (todos || [])) {
+    if (t && String(t.title || '').trim()) tasks.push({ kind: 'todo', type: 'focus', title: String(t.title).trim(), detail: 'Todo', link: '', urgency: Number(t.urgency) || 3, source: 'todo' });
+  }
+  // Fixed blocks: meetings + lunch, sorted, clipped to window.
+  const fixed = [];
+  for (const m of meetings) {
+    let a = snap(_hmToMin(m.start));
+    let b = _hmToMin(m.end) != null ? snap(_hmToMin(m.end)) : a + Math.max(grid, 30);
+    if (b <= a) b = a + Math.max(grid, 30);
+    fixed.push({ start: a, end: b, type: 'meeting', title: m.title, detail: m.detail, link: m.link, source: m.source, why: 'Scheduled meeting' });
+  }
+  const ls = _hmToMin(cfg.lunchStart), le = _hmToMin(cfg.lunchEnd);
+  if (ls != null && le != null && le > ls) fixed.push({ start: snap(ls), end: snap(le), type: 'personal', title: 'Lunch', detail: '', link: '', source: 'me', why: 'Daily break' });
+  fixed.sort((x, y) => x.start - y.start);
+  // Free intervals = window minus fixed.
+  const free = [];
+  let cursor = winStart;
+  for (const f of fixed) {
+    if (f.start > cursor) free.push([cursor, Math.min(f.start, winEnd)]);
+    cursor = Math.max(cursor, f.end);
+  }
+  if (cursor < winEnd) free.push([cursor, winEnd]);
+  // Prioritize tasks: higher urgency first, review/steward ahead of plain focus.
+  tasks.sort((a, b) => (b.urgency || 0) - (a.urgency || 0));
+  const blocks = [];
+  const CHUNK = Math.max(grid, 30);
+  let ti = 0;
+  for (const [fa, fb] of free) {
+    let c = fa;
+    while (c + grid <= fb && ti < tasks.length) {
+      const t = tasks[ti++];
+      const len = Math.min(CHUNK, fb - c);
+      blocks.push({ start: c, end: c + len, type: t.type === 'review' ? 'review' : (t.type === 'steward' ? 'steward' : (t.type === 'comms' ? 'comms' : 'focus')), title: t.title, detail: t.detail, link: t.link, source: t.source, why: _meAiWhy(t) });
+      c += len;
+    }
+    // If no tasks left, leave the remaining free time as an open focus block.
+    if (ti >= tasks.length && c + grid <= fb) {
+      blocks.push({ start: c, end: fb, type: 'focus', title: 'Open focus time', detail: 'Deep work / catch-up', link: '', source: 'me', why: 'Unallocated working time' });
+    }
+  }
+  const backlog = tasks.slice(ti).map(t => ({ title: t.title, detail: t.detail, link: t.link, type: t.type, source: t.source }));
+  const all = fixed.concat(blocks).sort((a, b) => a.start - b.start).map(b => ({
+    start: _minToHm(b.start), end: _minToHm(b.end), type: b.type, title: b.title, detail: b.detail || '', link: b.link || '', source: b.source || '', why: b.why || '',
+  }));
+  return { blocks: all, backlog, needsAttention };
+}
+function _meAiWhy(t) {
+  if (t.type === 'review') return 'PR is waiting on your review';
+  if (t.type === 'steward') return 'Your open PR needs stewarding';
+  if (t.type === 'comms') return t.urgency >= 4 ? 'Needs a reply from you' : 'Follow-up';
+  if (t.source === 'codeflow') return 'Active worktree in progress';
+  if (t.source === 'azdo') return 'Assigned work item on your plate';
+  if (t.source === 'todo') return 'Your todo for today';
+  return 'Planned work';
+}
+
+// Optional LLM refine — merge same-focus adjacent chunks, add short meeting-prep
+// blocks, and set a one-line "why" per block. Falls back to the deterministic
+// plan if the model is unavailable or returns nothing parseable.
+async function _meAiLlmRefine(cfg, pre, signals, date) {
+  try {
+    const compact = JSON.stringify({ workStart: cfg.workStart, workEnd: cfg.workEnd, grid: cfg.grid, blocks: pre.blocks, backlog: pre.backlog });
+    const prompt = `You are a personal chief-of-staff planning my working day (${date}). Here is a deterministic draft agenda within my working hours:\n${compact}\n\nRefine it: (1) keep all fixed meetings and lunch at their exact times; (2) merge adjacent blocks of the SAME type/focus into one block so I get contiguous focus time (chunks are ${cfg.grid}-min); (3) if a meeting clearly needs prep, insert a short "prep" block (type "prep") in free time just before it; (4) give each block a concise one-line "why". Do NOT invent meetings or overlap fixed blocks, and stay within ${cfg.workStart}–${cfg.workEnd}. Return ONLY a JSON object: {"blocks":[{"start":"HH:MM","end":"HH:MM","type":"meeting|prep|review|steward|focus|comms|personal|admin","title":string,"detail":string,"link":string,"why":string}]}.`;
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null, prompt, sessionId: require('crypto').randomUUID(),
+      resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      meta: { source: 'me-ai', category: 'me-ai' },
+    });
+    if (result && result.fallback) return null;
+    const raw = (acc.trim() || (result && result.output) || '').trim();
+    const obj = _connectExtractJson(raw);
+    if (!obj || !Array.isArray(obj.blocks) || !obj.blocks.length) return null;
+    const clean = obj.blocks
+      .map(b => ({
+        start: _hmToMin(b && b.start) != null ? String(b.start) : null,
+        end: _hmToMin(b && b.end) != null ? String(b.end) : null,
+        type: String((b && b.type) || 'focus'),
+        title: String((b && b.title) || '').slice(0, 200),
+        detail: String((b && b.detail) || '').slice(0, 300),
+        link: String((b && b.link) || ''),
+        why: String((b && b.why) || '').slice(0, 200),
+      }))
+      .filter(b => b.start && b.end && b.title)
+      .sort((a, b) => _hmToMin(a.start) - _hmToMin(b.start));
+    return clean.length ? clean : null;
+  } catch { return null; }
+}
+
+async function generateMeAiAgenda({ date, todos } = {}) {
+  const s = settings.getSettings();
+  const cfg = _meAiConfig(s);
+  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const signals = [];
+  const errors = [];
+  const sources = { m365: false, azdo: false, codeflow: false };
+  // M365 + ADO only run with consent (they read your accounts). Code Flow is
+  // local data, always safe to read.
+  if (cfg.consent) {
+    const m365 = await _meAiGatherM365(day);
+    if (m365.length) { signals.push(...m365); sources.m365 = true; }
+    const ado = await _meAiGatherAdo(s, day);
+    if (ado.signals.length) { signals.push(...ado.signals); sources.azdo = true; }
+    if (ado.errors.length) errors.push(...ado.errors);
+  }
+  const cf = _meAiGatherCodeflow();
+  if (cf.length) { signals.push(...cf); sources.codeflow = true; }
+  const pre = _meAiPrePass(cfg, signals, todos);
+  const refined = await _meAiLlmRefine(cfg, pre, signals, day);
+  const agenda = {
+    date: day,
+    generatedAt: new Date().toISOString(),
+    config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid },
+    blocks: refined || pre.blocks,
+    backlog: pre.backlog,
+    needsAttention: pre.needsAttention,
+    todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim() })).filter(t => t.title),
+    meta: { refined: !!refined, consent: cfg.consent, sources, signalCount: signals.length, errors },
+  };
+  saveAgendaForDate(day, agenda);
+  return agenda;
+}
+
+// GET /api/me-ai → config + whether today already has an agenda snapshot.
+app.get('/api/me-ai', (req, res) => {
+  try {
+    const cfg = _meAiConfig();
+    const today = new Date().toISOString().slice(0, 10);
+    res.json({ ok: true, config: cfg, today, hasAgendaToday: !!loadAgendaForDate(today) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/me-ai/settings → persist consent + working hours + grid.
+app.put('/api/me-ai/settings', (req, res) => {
+  try {
+    const b = req.body || {};
+    const patch = {};
+    if (typeof b.consent === 'boolean') patch.meAiConsent = b.consent;
+    const validHm = v => typeof v === 'string' && _hmToMin(v) != null;
+    if (validHm(b.workStart)) patch.meAiWorkStart = b.workStart;
+    if (validHm(b.workEnd)) patch.meAiWorkEnd = b.workEnd;
+    if (b.lunchStart === '' || validHm(b.lunchStart)) patch.meAiLunchStart = b.lunchStart;
+    if (b.lunchEnd === '' || validHm(b.lunchEnd)) patch.meAiLunchEnd = b.lunchEnd;
+    if ([5, 10, 15].includes(Number(b.grid))) patch.meAiGrid = Number(b.grid);
+    settings.updateSettings(patch);
+    res.json({ ok: true, config: _meAiConfig() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/me-ai/agenda?date=YYYY-MM-DD → cached snapshot (or null).
+app.get('/api/me-ai/agenda', (req, res) => {
+  try {
+    const date = String(req.query.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    res.json({ ok: true, date, agenda: loadAgendaForDate(date), config: _meAiConfig() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/generate { date, todos:[{title}] } → build + persist.
+app.post('/api/me-ai/agenda/generate', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const agenda = await generateMeAiAgenda({ date: b.date, todos: Array.isArray(b.todos) ? b.todos : [] });
+    res.json({ ok: true, agenda });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- Managed dependencies -----------------------------------------------------
 // Copilot CLI/SDK + machine prerequisites (git, az, ripgrep). The bundled copy
 // what we update. All per-user, no admin, staged + validated + atomic promote.

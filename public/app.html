@@ -11494,6 +11494,189 @@
           </section>
 
           <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
+          <!-- ===== Me.AI (personal daily agenda / command center) — M1 read-only ===== -->
+          <section x-show="!loading && !errorMessage && route === 'me-ai'" x-transition.opacity.duration.180ms>
+            <style>
+              .meai-wrap { max-width:1100px; margin:0 auto; }
+              .meai-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:0 0 6px; }
+              .meai-title { font-size:22px; font-weight:700; color:var(--cp-text); margin:0; display:flex; align-items:center; gap:10px; }
+              .meai-scope { font-size:12px; color:var(--cp-text-muted); margin:2px 0 0; }
+              .meai-datebar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:18px 0 12px; }
+              .meai-datenav { display:flex; align-items:center; gap:6px; }
+              .meai-daynav-btn { width:30px; height:30px; border:1px solid var(--cp-border); background:var(--cp-surface); border-radius:8px; cursor:pointer; color:var(--cp-text); font-size:14px; line-height:1; }
+              .meai-daynav-btn:hover { border-color:var(--cp-accent); }
+              .meai-datelabel { font-weight:600; color:var(--cp-text); min-width:180px; }
+              .meai-consent { border:1px solid var(--cp-warning); background:color-mix(in srgb, var(--cp-warning) 8%, transparent); border-radius:10px; padding:16px 18px; margin:14px 0; }
+              .meai-consent h4 { margin:0 0 6px; font-size:15px; color:var(--cp-text); }
+              .meai-consent p { margin:0 0 10px; font-size:13px; color:var(--cp-text-muted); line-height:1.5; }
+              .meai-status { display:flex; align-items:center; gap:12px; border:1px solid var(--cp-border); border-radius:10px; padding:12px 16px; margin:14px 0; background:var(--cp-surface); }
+              .meai-status-dot { width:10px; height:10px; border-radius:999px; flex:0 0 auto; }
+              .meai-status-txt { font-weight:600; color:var(--cp-text); }
+              .meai-status-detail { font-size:13px; color:var(--cp-text-muted); }
+              .meai-grid2 { display:grid; grid-template-columns:1fr 320px; gap:24px; align-items:start; }
+              @media (max-width:900px) { .meai-grid2 { grid-template-columns:1fr; } }
+              .meai-tl { position:relative; }
+              .meai-block { display:grid; grid-template-columns:64px 1fr; gap:14px; padding:2px 0; }
+              .meai-block-time { font-size:12px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; padding-top:12px; text-align:right; }
+              .meai-block-body { border:1px solid var(--cp-border); border-left:3px solid var(--cp-border); border-radius:8px; padding:10px 14px; background:var(--cp-surface); margin-bottom:8px; }
+              .meai-block-body.is-now { box-shadow:0 0 0 1px var(--cp-accent); }
+              .meai-block-title { font-weight:600; color:var(--cp-text); font-size:14px; }
+              .meai-block-meta { font-size:12px; color:var(--cp-text-muted); margin-top:3px; }
+              .meai-block-why { font-size:12px; color:var(--cp-text-muted); margin-top:5px; font-style:italic; }
+              .meai-side h4 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); margin:0 0 8px; }
+              .meai-card { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:0 0 16px; background:var(--cp-surface); }
+              .meai-na-item { padding:8px 0; border-bottom:1px solid var(--cp-border); }
+              .meai-na-item:last-child { border-bottom:0; }
+              .meai-na-t { font-weight:600; color:var(--cp-text); font-size:13px; }
+              .meai-na-m { font-size:12px; color:var(--cp-text-muted); margin-top:2px; }
+              .meai-todo-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13px; color:var(--cp-text); }
+              .meai-todo-x { cursor:pointer; color:var(--cp-text-muted); }
+              .meai-todo-x:hover { color:var(--cp-danger); }
+              .meai-empty { text-align:center; padding:40px 20px; color:var(--cp-text-muted); }
+              .meai-hours { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; font-size:13px; }
+              .meai-hours label { color:var(--cp-text-muted); }
+              .meai-hours input, .meai-hours select { padding:5px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text); }
+            </style>
+
+            <div class="meai-wrap">
+              <div class="meai-head">
+                <div>
+                  <h1 class="meai-title">🧭 Me.AI</h1>
+                  <p class="meai-scope">Your AI-planned daily agenda. Reads Code Flow<span x-show="meai.config.hasAdo"> · Azure DevOps</span><span x-show="meai.config.consent"> · calendar &amp; mail</span> to plan your day.</p>
+                </div>
+                <div class="meai-datenav">
+                  <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(-1)" title="Previous day">‹</button>
+                  <span class="meai-datelabel" x-text="meAiDateLabel()"></span>
+                  <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(1)" title="Next day">›</button>
+                  <input type="date" class="field-input" style="width:150px" :value="meai.date" @change="meAiSetDate($event.target.value)">
+                </div>
+              </div>
+
+              <!-- Consent (off) banner -->
+              <div class="meai-consent" x-show="meai.loaded && !meai.config.consent">
+                <h4>Turn on personal signals</h4>
+                <p>Me.AI can read your calendar, email, and Teams to build a realistic agenda. Nothing is read until you turn this on. You can still generate a Code Flow–only agenda without it.</p>
+                <button class="btn primary" type="button" @click="meAiSetConsent(true)" :disabled="meai.savingSettings">Turn on &amp; save</button>
+              </div>
+
+              <!-- Status band (today only) -->
+              <template x-if="meAiStatus()">
+                <div class="meai-status">
+                  <span class="meai-status-dot" :style="'background:' + (meAiStatus().state==='on' ? 'var(--cp-success)' : meAiStatus().state==='done' ? 'var(--cp-text-muted)' : 'var(--cp-warning)')"></span>
+                  <span class="meai-status-txt" x-text="meAiStatus().label"></span>
+                  <span class="meai-status-detail" x-text="meAiStatus().detail"></span>
+                  <span style="flex:1"></span>
+                  <span class="meai-status-detail" x-text="'Now ' + meAiNowLabel()"></span>
+                </div>
+              </template>
+
+              <div class="meai-datebar">
+                <button class="btn primary" type="button" @click="meAiGenerate()" :disabled="meai.generating">
+                  <span x-show="!meai.generating" x-text="meai.agenda ? 'Regenerate agenda' : 'Generate agenda'"></span>
+                  <span x-show="meai.generating">Planning your day…</span>
+                </button>
+                <span class="meai-status-detail" x-show="meai.agenda && meai.agenda.meta">
+                  <span x-show="meai.agenda.meta.refined">AI-refined</span>
+                  <span x-show="!meai.agenda.meta.refined">Deterministic plan</span>
+                  <span x-show="meai.agenda.meta.signalCount"> · <span x-text="meai.agenda.meta.signalCount"></span> signals</span>
+                </span>
+                <span class="meai-status-detail" x-text="meai.notice"></span>
+              </div>
+
+              <div class="meai-grid2">
+                <!-- Agenda timeline -->
+                <div>
+                  <template x-if="meai.agenda && (meai.agenda.blocks||[]).length">
+                    <div class="meai-tl">
+                      <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
+                        <div class="meai-block">
+                          <div class="meai-block-time" x-text="b.start"></div>
+                          <div class="meai-block-body"
+                               :class="{ 'is-now': meai.date===meai.today && meai.nowMin >= _hmToMin(b.start) && meai.nowMin < _hmToMin(b.end) }"
+                               :style="'border-left-color:' + meAiBlockTypeColor(b.type)">
+                            <div class="meai-block-title" x-text="b.title"></div>
+                            <div class="meai-block-meta">
+                              <span x-text="b.start + '–' + b.end"></span>
+                              <span x-show="b.type"> · <span x-text="b.type"></span></span>
+                            </div>
+                            <div class="meai-block-why" x-show="b.why" x-text="b.why"></div>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div class="meai-empty" x-show="meai.loaded && (!meai.agenda || !(meai.agenda.blocks||[]).length)">
+                    <p style="font-size:15px;margin:0 0 6px">No agenda yet for this day.</p>
+                    <p style="font-size:13px;margin:0">Click <strong>Generate agenda</strong> to plan it from your signals.</p>
+                  </div>
+                </div>
+
+                <!-- Side rail -->
+                <div class="meai-side">
+                  <!-- Needs attention -->
+                  <template x-if="meai.agenda && (meai.agenda.needsAttention||[]).length">
+                    <div class="meai-card">
+                      <h4>Needs attention</h4>
+                      <template x-for="(n, ni) in meai.agenda.needsAttention" :key="ni">
+                        <div class="meai-na-item">
+                          <div class="meai-na-t" x-text="n.title || n.label || 'Item'"></div>
+                          <div class="meai-na-m" x-show="n.reason || n.detail" x-text="n.reason || n.detail"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Backlog / overflow -->
+                  <template x-if="meai.agenda && (meai.agenda.backlog||[]).length">
+                    <div class="meai-card">
+                      <h4>Didn't fit today</h4>
+                      <template x-for="(bk, bki) in meai.agenda.backlog" :key="bki">
+                        <div class="meai-na-item">
+                          <div class="meai-na-t" x-text="bk.title || bk.label || 'Task'"></div>
+                          <div class="meai-na-m" x-show="bk.why || bk.reason" x-text="bk.why || bk.reason"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Todos for the day -->
+                  <div class="meai-card">
+                    <h4>Today's todos</h4>
+                    <template x-for="(t, ti) in meai.todos" :key="ti">
+                      <div class="meai-todo-row">
+                        <span style="flex:1" x-text="(typeof t==='string') ? t : t.title"></span>
+                        <span class="meai-todo-x" @click="meAiRemoveTodo(ti)" title="Remove">✕</span>
+                      </div>
+                    </template>
+                    <div style="display:flex;gap:6px;margin-top:8px">
+                      <input class="field-input" style="flex:1" placeholder="Add a todo…" x-model="meai.newTodo" @keydown.enter="meAiAddTodo()">
+                      <button class="btn ghost" type="button" @click="meAiAddTodo()">Add</button>
+                    </div>
+                    <p class="meai-na-m" style="margin-top:8px">Todos are folded into the next agenda you generate.</p>
+                  </div>
+
+                  <!-- Working hours -->
+                  <div class="meai-card">
+                    <h4>Working hours &amp; grid</h4>
+                    <div class="meai-hours">
+                      <label>Start</label><input type="time" x-model="meai.config.workStart">
+                      <label>End</label><input type="time" x-model="meai.config.workEnd">
+                      <label>Lunch</label>
+                      <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
+                      <label>Grid</label>
+                      <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                    </div>
+                    <button class="btn ghost" type="button" style="margin-top:10px" @click="meAiSaveSettings()" :disabled="meai.savingSettings">Save preferences</button>
+                    <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
+                      Personal signals: <strong>on</strong> · <a href="#" @click.prevent="meAiSetConsent(false)">turn off</a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ============ CODE FLOW (Azure DevOps PR monitoring) ============ -->
           <!-- ===== Connect (living impact / performance diary) ===== -->
           <section x-show="!loading && !errorMessage && route === 'connect'" x-transition.opacity.duration.180ms>
             <style>
@@ -18799,6 +18982,21 @@
             progress: [],        // live activity while the assistant investigates: { icon, text }
           },
         },
+        // ===== Me.AI (personal daily agenda / command center) — M1 read-only =====
+        meai: {
+          loaded: false,
+          loading: false,
+          generating: false,
+          savingSettings: false,
+          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [] },
+          date: new Date().toISOString().slice(0, 10),
+          today: new Date().toISOString().slice(0, 10),
+          agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
+          newTodo: '',
+          todos: [],             // draft todos for the day (title strings), fed into generate
+          notice: '',
+          nowMin: (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })(),
+        },
         codeflow: {
           view: 'mine',          // 'mine' | 'reviews' | 'active'
           // The non-"mine" tab ("Active PRs") shows every open PR in the watched
@@ -19812,7 +20010,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'insights' && second) return { route: 'insights', param: second };
           if (first === 'organizations') return { route: 'teams', param: second };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'teams', 'boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -19905,6 +20103,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } else if (this.route === 'connect') {
             await this.loadConnect();
+          } else if (this.route === 'me-ai') {
+            await this.loadMeAi();
           } else if (this.route === 'newsletter') {
             await this.loadNewsletter();
           } else if (this.route === 'insights') {
@@ -20786,6 +20986,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const mk = (label, icon, href, routeGroup, extra) => Object.assign({ key, label, title: label, icon, href, routeGroup, items: [], collapsible: false }, extra || {});
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
+            case 'me-ai': return mk('Me.AI', '🧭', '#/me-ai', 'me-ai');
             case 'boards': return mk('Workspaces', '📌', '#/boards', 'boards');
             case 'insights': return mk('Insights', '🛰️', '#/insights', 'insights');
             case 'codeflow': return mk('Code Flow', '🔀', '#/codeflow', 'codeflow', { badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' });
@@ -21012,6 +21213,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.experienceLevel === 'basic') {
             const bf = this.basicFeatures || {};
             const boards = { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false };
+            const meai = { key: 'me-ai', label: 'Me.AI', title: 'Me.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false };
             const codeflow = { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' };
             const insights = { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false };
             const agents = { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false };
@@ -21028,6 +21230,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               { key: 'reports', title: 'Reports', icon: '📊', href: '#/reports', routeGroup: 'reports', items: [] }
             ]};
             const out = [scope, home, boards, codeflow];
+            if (bf['me-ai']) out.push(meai);
             if (bf.insights) out.push(insights);
             out.push(agents);
             if (bf.managers) out.push(managers);
@@ -21065,6 +21268,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return [
             scope,
             home,
+            { key: 'me-ai', label: 'Me.AI', title: 'Me.AI', icon: '🧭', href: '#/me-ai', routeGroup: 'me-ai', items: [], collapsible: false },
             { key: 'boards', label: 'Workspaces', title: 'Workspaces', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'insights', label: 'Insights', title: 'Insights', icon: '🛰️', href: '#/insights', routeGroup: 'insights', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
@@ -21237,7 +21441,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter'].includes(r)) return 'workspace';
+          if (['boards', 'insights', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'me-ai'].includes(r)) return 'workspace';
           if (['agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'managers', 'manager-detail', 'executions',
                'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments',
                'assignment-detail', 'design'].includes(r)) return 'workforce';
@@ -21266,6 +21470,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Order here drives the order they appear in the Settings checklist.
         basicFeatureCatalog() {
           return [
+            { key: 'me-ai', label: 'Me.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.' },
             { key: 'insights', label: 'Insights', icon: '🛰️', hint: 'Team telemetry & analytics dashboards.' },
             { key: 'managers', label: 'Managers', icon: '👔', hint: 'AI managers that orchestrate your agents.' },
             { key: 'tasks', label: 'Tasks', icon: '⚡', hint: 'Scheduled prompts & recurring operations.' },
@@ -21325,6 +21530,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'settings', 'events'].includes(r)) return true;
           const bf = this.basicFeatures || {};
           const gated = {
+            'me-ai': ['me-ai'],
             insights: ['insights'],
             managers: ['managers', 'manager-detail'],
             tasks: ['tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task'],
@@ -25038,6 +25244,132 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ---- Code Flow (Azure DevOps PR monitoring) ----------------------------
         // ===== Connect (living impact / performance diary) =====
+        // ===== Me.AI methods (M1 read-only agenda) =====
+        async loadMeAi() {
+          this.meai.loading = true;
+          try {
+            const r = await this.request('/api/me-ai');
+            if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
+            const today = new Date().toISOString().slice(0, 10);
+            this.meai.today = today;
+            if (!this.meai.date) this.meai.date = today;
+            this.meai.nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })();
+            this.meai.loaded = true;
+            await this.meAiLoadAgenda();
+          } catch (e) {
+            this.toast('Failed to load Me.AI: ' + (e.message || e), 'error');
+          } finally {
+            this.meai.loading = false;
+          }
+        },
+        async meAiLoadAgenda() {
+          try {
+            const r = await this.request('/api/me-ai/agenda?date=' + encodeURIComponent(this.meai.date));
+            this.meai.agenda = (r && r.agenda) ? r.agenda : null;
+          } catch (e) {
+            this.meai.agenda = null;
+          }
+        },
+        async meAiGenerate() {
+          if (this.meai.generating) return;
+          this.meai.generating = true;
+          this.meai.notice = '';
+          try {
+            const todos = (this.meai.todos || []).map(t => (typeof t === 'string' ? t : (t.title || ''))).filter(Boolean);
+            const r = await this.request('/api/me-ai/agenda/generate', {
+              method: 'POST',
+              body: JSON.stringify({ date: this.meai.date, todos }),
+            });
+            this.meai.agenda = (r && r.agenda) ? r.agenda : null;
+            if (!this.meai.agenda) this.meai.notice = 'No agenda was produced.';
+          } catch (e) {
+            this.toast('Failed to generate agenda: ' + (e.message || e), 'error');
+          } finally {
+            this.meai.generating = false;
+          }
+        },
+        async meAiSaveSettings() {
+          this.meai.savingSettings = true;
+          try {
+            const c = this.meai.config;
+            const r = await this.request('/api/me-ai/settings', {
+              method: 'PUT',
+              body: JSON.stringify({
+                consent: !!c.consent,
+                workStart: c.workStart, workEnd: c.workEnd,
+                lunchStart: c.lunchStart, lunchEnd: c.lunchEnd,
+                grid: Number(c.grid) || 10,
+              }),
+            });
+            if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
+            this.toast('Me.AI settings saved', 'success');
+          } catch (e) {
+            this.toast('Failed to save settings: ' + (e.message || e), 'error');
+          } finally {
+            this.meai.savingSettings = false;
+          }
+        },
+        async meAiSetConsent(v) {
+          this.meai.config.consent = !!v;
+          await this.meAiSaveSettings();
+        },
+        meAiShiftDate(days) {
+          const d = new Date(this.meai.date + 'T00:00:00');
+          d.setDate(d.getDate() + days);
+          this.meai.date = d.toISOString().slice(0, 10);
+          this.meAiLoadAgenda();
+        },
+        meAiSetDate(v) {
+          if (!v) return;
+          this.meai.date = v;
+          this.meAiLoadAgenda();
+        },
+        meAiAddTodo() {
+          const t = (this.meai.newTodo || '').trim();
+          if (!t) return;
+          this.meai.todos.push(t);
+          this.meai.newTodo = '';
+        },
+        meAiRemoveTodo(i) { this.meai.todos.splice(i, 1); },
+        meAiDateLabel() {
+          try {
+            const d = new Date(this.meai.date + 'T00:00:00');
+            const opts = { weekday: 'long', month: 'short', day: 'numeric' };
+            let s = d.toLocaleDateString(undefined, opts);
+            if (this.meai.date === this.meai.today) s = 'Today · ' + s;
+            return s;
+          } catch { return this.meai.date; }
+        },
+        meAiBlockTypeColor(type) {
+          const map = {
+            meeting: 'var(--cp-accent)', prep: 'var(--cp-warning)', review: '#8b5cf6',
+            focus: 'var(--cp-success)', comms: '#0891b2', personal: 'var(--cp-text-muted)',
+            admin: 'var(--cp-text-muted)', lunch: '#f59e0b',
+          };
+          return map[type] || 'var(--cp-border)';
+        },
+        // On-track status for TODAY only, derived from block start/end vs the current minute.
+        meAiStatus() {
+          const a = this.meai.agenda;
+          if (!a || this.meai.date !== this.meai.today) return null;
+          const now = this.meai.nowMin;
+          const blocks = (a.blocks || []).filter(b => b.type !== 'lunch');
+          if (!blocks.length) return null;
+          const current = blocks.find(b => now >= (b.startMin ?? this._hmToMin(b.start)) && now < (b.endMin ?? this._hmToMin(b.end)));
+          if (current) return { state: 'on', label: 'On track', detail: current.title };
+          const next = blocks.find(b => (b.startMin ?? this._hmToMin(b.start)) > now);
+          if (next) return { state: 'ahead', label: 'Between blocks', detail: 'Next: ' + next.title };
+          return { state: 'done', label: 'Day complete', detail: '' };
+        },
+        _hmToMin(hm) {
+          if (typeof hm !== 'string') return 0;
+          const m = hm.match(/^(\d{1,2}):(\d{2})$/);
+          return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : 0;
+        },
+        meAiNowLabel() {
+          const h = Math.floor(this.meai.nowMin / 60), m = this.meai.nowMin % 60;
+          return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        },
         async loadConnect() {
           this.connect.loading = true;
           try {
