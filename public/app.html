@@ -4316,7 +4316,9 @@
        hovered; the status dot + relative time to its left stay visible. */
     .board-pin-acts { display: flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
     .board-pin-card:hover .board-pin-acts,
-    .board-pin-card:focus-within .board-pin-acts { opacity: 1; pointer-events: auto; }
+    .board-pin-card:focus-within .board-pin-acts,
+    .board-panel:hover .board-pin-acts,
+    .board-panel:focus-within .board-pin-acts { opacity: 1; pointer-events: auto; }
     .board-panel-tag { font-size: 14px; line-height: 1; flex: 0 0 auto; opacity: .9; }
     .board-panel-type {
       font-size: 10.5px;
@@ -4669,6 +4671,23 @@
     .board-tbx-item .tbx-dot { flex: 0 0 auto; font-size: 10px; color: var(--cp-accent); }
     .board-tbx-item .tbx-grip-r { margin: -2px -2px -2px 0; }
     .board-tbx-item.tbx-over { border-color: var(--cp-accent); box-shadow: inset 0 2px 0 0 var(--cp-accent); }
+    /* Swipe-left-to-remove: the row slides left over an "Unpin"/"Delete" action that
+       sits behind it on the right. The row has an opaque bg so the action stays hidden
+       until the row is swiped open. */
+    .board-tbx-swipe { position: relative; }
+    .board-tbx-swipe .board-tbx-item { position: relative; z-index: 1; transition: transform .16s cubic-bezier(.2,.7,.3,1); }
+    .board-tbx-swipe-act {
+      position: absolute; top: 0; right: 0; bottom: 0; width: 62px; z-index: 0;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--cp-border); border-radius: 8px; background: var(--cp-surface-soft);
+      color: var(--cp-text-muted); font-size: 11px; font-weight: 600; letter-spacing: .2px;
+      cursor: pointer; padding: 0; opacity: 0; pointer-events: none;
+      transition: opacity .12s ease, background .12s ease, color .12s ease;
+    }
+    .board-tbx-swipe.open .board-tbx-swipe-act { opacity: 1; pointer-events: auto; }
+    .board-tbx-swipe-act.danger { color: var(--cp-danger, #d9534f); }
+    .board-tbx-swipe-act:hover { background: var(--cp-surface-hover, var(--cp-surface)); color: var(--cp-text); }
+    .board-tbx-swipe-act.danger:hover { background: color-mix(in srgb, var(--cp-danger, #d9534f) 16%, transparent); color: var(--cp-danger, #d9534f); }
     /* Quiet text toggle in the catalog header — group cards by type (no pill). */
     .board-tbx-groupbtn { flex: 0 0 auto; border: 0; background: none; color: var(--cp-text-muted); cursor: pointer; font: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 0; line-height: 1; }
     .board-tbx-groupbtn:hover { color: var(--cp-text); }
@@ -8821,17 +8840,24 @@
                                 </div>
                               </template>
                               <template x-for="p in (row.panel ? [row.panel] : [])" :key="'tbx-' + p.id">
-                                <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p), 'tbx-over': _tbxOverBase === panelBaseId(p) }"
-                                     @click="openInView(p)"
-                                     @dragover.prevent.stop="onToolboxItemOver(p, $event)"
-                                     @drop.prevent.stop="onToolboxReorderDrop(p, $event)"
-                                     :title="chipType(p) + ': ' + chipName(p) + ' — click to view, or drag the grip onto a section (or over another card to reorder)'">
-                                  <span class="tbx-emoji" x-text="chipIcon(p)"></span>
-                                  <span class="tbx-name" x-text="chipName(p)"></span>
-                                  <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
-                                  <span class="tbx-grip tbx-grip-r" draggable="true"
-                                        @dragstart.stop="onToolboxDragStart(panelBaseId(p), $event)" @dragend="onCardDragEnd()"
-                                        @click.stop title="Drag onto a section to place this card">⠿</span>
+                                <div class="board-tbx-swipe" :class="{ open: tbxSwipeRevealed(p) }">
+                                  <button class="board-tbx-swipe-act" type="button" :class="{ danger: !panelIsPinned(p) }"
+                                          @click.stop="tbxSwipeRemove(p)"
+                                          :title="panelIsPinned(p) ? 'Unpin this item from the board' : 'Delete this item from the workspace'"
+                                          x-text="panelIsPinned(p) ? 'Unpin' : 'Delete'"></button>
+                                  <div class="board-tbx-item" :class="{ placed: panelInActiveSection(p), 'tbx-over': _tbxOverBase === panelBaseId(p) }"
+                                       draggable="true"
+                                       :style="tbxSwipeStyle(p)"
+                                       @pointerdown="tbxSwipeStart(p, $event)"
+                                       @click="tbxSwipeClick(p)"
+                                       @dragstart="onTbxItemDragStart(p, $event)" @dragend="onCardDragEnd()"
+                                       @dragover.prevent.stop="onToolboxItemOver(p, $event)"
+                                       @drop.prevent.stop="onToolboxReorderDrop(p, $event)"
+                                       :title="chipType(p) + ': ' + chipName(p) + ' — click to view · drag right/up/down onto a board · swipe left to unpin/delete'">
+                                    <span class="tbx-emoji" x-text="chipIcon(p)"></span>
+                                    <span class="tbx-name" x-text="chipName(p)"></span>
+                                    <template x-if="panelInActiveSection(p)"><span class="tbx-dot" title="In this section">●</span></template>
+                                  </div>
                                 </div>
                               </template>
                             </div>
@@ -8950,13 +8976,11 @@
                                 <button class="board-panel-chevron" type="button" x-show="isChipPanel(p)" @click.stop="reducePinChip(p)" @mousedown.stop title="Pin-ify: reduce this item to an icon chip">⊟</button>
                                 <span class="board-panel-grip" title="Drag to move">⠿</span>
                               </div>
-                              <!-- Tabbed/section view: lightweight remove control for board-native
-                                   cards (notes/checklists). Pinned operations are removed via the
-                                   trash-can drop zone / More → Edit, so we do NOT show a per-card
-                                   pin/remove icon for them (it crowded the top-right tools). -->
+                              <!-- Tabbed/section view: removal now lives on the toolbox — swipe a
+                                   row left to reveal Unpin/Delete. So we only keep the expand tool
+                                   in the card header (no per-card remove icon). -->
                               <div class="bph-right" x-show="boardIsTabbed() && p.type !== 'summary'">
-                                <button class="board-panel-chevron" type="button" x-show="!isViewTab() && !sectionGrouped()" @click.stop="expandCardToFit(p, $event)" title="Expand to fit contents — grows the card so nothing scrolls">⤢</button>
-                                <button class="board-panel-chevron" type="button" x-show="!panelIsPinned(p)" @click.stop="confirmRemovePanel(p)" :title="panelRemoveLabel(p)">🗑</button>
+                                <button class="board-panel-chevron" type="button" x-show="!isViewTab() && !sectionGrouped()" @click.stop="expandCardToFit(p, $event)" title="Fit contents — resize the card to its content (grows or shrinks so nothing scrolls and no empty space)">⤢</button>
                               </div>
                             </div>
                             <div class="board-panel-body" x-show="!isPanelCollapsed(p.id)">
@@ -9036,7 +9060,7 @@
                               <template x-if="p.type === 'pin'">
                                 <div style="display:flex;flex-direction:column;gap:8px">
                                   <template x-for="item in [p.item]" :key="item.id">
-                                    <div class="card board-pin-card" :class="{ 'summary-muted': item.excludeFromSummary }" style="display:flex;flex-direction:column;padding:0">
+                                    <div class="board-pin-card" :class="{ 'summary-muted': item.excludeFromSummary }" style="display:flex;flex-direction:column;padding:0">
                                       <div class="clickable" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px" @click="boardJump(item)">
                                         <div style="display:flex;align-items:center;gap:8px;min-width:0">
                                           <template x-if="pinStatus(item)">
@@ -9058,10 +9082,8 @@
                                           <span class="board-pin-acts">
                                           <button class="board-act" type="button" x-show="boardPinHasDetail(item)" :data-tip="boardPinIsExpanded(item) ? 'Hide details' : (item.kind === 'chat' ? 'Show latest message' : (item.kind === 'comment' ? 'Show full comment' : 'Show latest run'))" @click.stop="toggleBoardPinDetail(item)" x-text="boardPinIsExpanded(item) ? '▾' : '▸'"></button>
                                           <button class="board-act" :class="{ active: item.excludeFromSummary }" type="button" :data-tip="item.excludeFromSummary ? 'Include in summary &amp; insights' : 'Hide from summary &amp; insights'" @click.stop="toggleItemSummary(item)" x-text="item.excludeFromSummary ? '🙈' : '👁'"></button>
-                                          <button class="board-act" type="button" x-show="item.kind === 'agent' || item.kind === 'manager'" :data-tip="'Chat with ' + (item.label || item.refId)" @click.stop="openOrCreateChat(item.kind, item.refId)">💬</button>
-                                          <button class="board-act" type="button" x-show="boardRefRunnable(item)" :disabled="pinStatus(item) && pinStatus(item).state === 'running'" :data-tip="(pinStatus(item) && pinStatus(item).state === 'running') ? (item.label || item.refId) + ' is running…' : 'Run ' + (item.label || item.refId) + ' here'" @click.stop="runBoardRef(item)" x-text="(pinStatus(item) && pinStatus(item).state === 'running') ? '⟳' : '▶'"></button>
-                                          <button class="board-act" type="button" :data-tip="item.kind === 'session' ? 'Resume in terminal' : 'Open'" @click.stop="boardJump(item)" x-text="item.kind === 'session' ? '▶' : '↗'"></button>
-                                          <button class="board-act danger tip-end" type="button" data-tip="Unpin from board" @click.stop="unpinItem(item)">✕</button>
+                                          <button class="board-act" type="button" x-show="item.kind === 'manager'" :data-tip="'Chat with ' + (item.label || item.refId)" @click.stop="openOrCreateChat(item.kind, item.refId)">💬</button>
+                                          <button class="board-act" type="button" x-show="boardRefRunnable(item) && item.kind !== 'agent'" :disabled="pinStatus(item) && pinStatus(item).state === 'running'" :data-tip="(pinStatus(item) && pinStatus(item).state === 'running') ? (item.label || item.refId) + ' is running…' : 'Run ' + (item.label || item.refId) + ' here'" @click.stop="runBoardRef(item)" x-text="(pinStatus(item) && pinStatus(item).state === 'running') ? '⟳' : '▶'"></button>
                                           </span>
                                         </div>
                                       </div>
@@ -9202,8 +9224,10 @@
                                             <div>
                                               <template x-for="pr in [boardPrFor(item)]" :key="pr.id">
                                                 <div>
-                                                  <!-- Header: title + meta line — full parity with the Code Flow PR card. -->
-                                                  <a class="cf-pr-title" :href="pr.url || '#'" target="_blank" rel="noopener" x-text="pr.title || item.label || 'Pull request'"></a>
+                                                  <!-- Meta line only. The pin header above already shows the PR title
+                                                       (and click-routes to Code Flow), so we don't repeat the title here —
+                                                       this keeps PR cards single-titled like dev cards. Azure DevOps stays
+                                                       reachable via the #id link below and the "⇄ Open PR" button. -->
                                                   <div class="cf-meta-line">
                                                     <span class="cf-m-repo" x-text="(item.meta && item.meta.repo) || pr.repo || ''"></span>
                                                     <a class="cf-m-id" :href="pr.url || '#'" target="_blank" rel="noopener" x-text="pr.id != null && pr.id !== '' ? '#' + pr.id : ''"></a>
@@ -9345,12 +9369,6 @@
                                             <div class="hint" style="margin-top:4px;font-size:11px;opacity:.7" x-show="note.createdAt" :title="stampTitle(note)" x-text="stampLine(note)"></div>
                                           </div>
                                         </template>
-                                        <div class="row-actions-menu" x-data="{ open:false }" @keydown.escape.window="open=false">
-                                          <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
-                                          <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
-                                            <button class="row-menu-item danger" type="button" @click="deleteBoardNote(note); open=false"><span>✕</span><span>Delete note</span></button>
-                                          </div>
-                                        </div>
                                       </div>
                                     </template>
                                   </div>
@@ -9370,12 +9388,6 @@
                                           </div>
                                           <div style="display:flex;align-items:center;gap:8px">
                                             <span class="hint" x-text="checklistProgress(cl).done + '/' + checklistProgress(cl).total"></span>
-                                            <div class="row-actions-menu" x-data="{ open:false }" @keydown.escape.window="open=false">
-                                              <button class="icon-button" type="button" title="More actions" @click.stop="open=!open">⋯</button>
-                                              <div class="row-actions-pop" x-show="open" x-transition.opacity @click.outside="open=false" style="display:none">
-                                                <button class="row-menu-item danger" type="button" @click="deleteChecklist(cl); open=false"><span>✕</span><span>Delete checklist</span></button>
-                                              </div>
-                                            </div>
                                           </div>
                                         </div>
                                         <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
@@ -9453,13 +9465,12 @@
                                       <!-- Header: title + quick links + actions -->
                                       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
                                         <div style="min-width:0">
-                                          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="d.title || d.repo || 'Dev card'"></div>
+                                        <div class="clickable" style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Open this dev card on the Code Flow page" @click="goTo('#/dev/' + encodeURIComponent(d.id))" x-text="d.title || d.repo || 'Dev card'"></div>
                                           <div class="hint" style="font-size:11px" x-text="(d.org ? d.org + ' / ' : '') + (d.project ? d.project + ' / ' : '') + (d.repo || '') + (d.branch ? ' @ ' + d.branch : '')"></div>
                                         </div>
-                                        <div style="display:flex;align-items:center;gap:2px;flex:0 0 auto">
+                                        <div class="board-pin-acts" style="flex:0 0 auto">
                                           <button class="board-act" type="button" data-tip="Refresh state (git + work item + PR)" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? '…' : '↻'"></button>
                                           <button class="board-act" type="button" data-tip="Edit dev card" @click="openDevModal(d)">✎</button>
-                                          <button class="board-act danger tip-end" type="button" data-tip="Remove from board" @click="confirmRemovePanel(p)">✕</button>
                                         </div>
                                       </div>
 
@@ -18571,6 +18582,16 @@
         _boardDragOver: false,
         boardEditSecOpen: false,
         _boardDragOverSec: null,
+        _tbxSwipeOpen: null,
+        _tbxSwipeDragBase: null,
+        _tbxSwipeDX: 0,
+        _tbxSwipeStartX: 0,
+        _tbxSwipeStartY: 0,
+        _tbxSwipeArmed: false,
+        _tbxSwipeMove: null,
+        _tbxSwipeUp: null,
+        _tbxSwipeMoved: false,
+        _tbxSwipeSuppressClick: false,
         _pendingBoardSection: null,
         // Trash-can drop target (lower-left of the section stage). Persisted on/off toggle;
         // drag a card onto it to remove the item from the workspace entirely.
@@ -28390,7 +28411,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // ----- Pinning -----
         boardKindLabel(kind) {
-          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Assignment', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
+          return ({ session: 'CLI Session', chat: 'Chat', task: 'Task', flow: 'Flow', assignment: 'Task', agent: 'Agent', manager: 'Manager', comment: 'Comment', location: 'Source Location', pr: 'Pull Request', note: 'Note', checklist: 'Checklist', dev: 'Dev Card' })[kind] || kind;
         },
         boardKindIcon(kind) {
           return ({ session: '💻', chat: '💬', task: '⚡', flow: '🔗', assignment: '📋', agent: '🤖', manager: '👔', comment: '🗨️', location: '📂', pr: '⇄', dev: '🧰' })[kind] || '📌';
@@ -30011,6 +30032,84 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardCanvas = { ...this.boardCanvas, sec: 'view', viewBase: b };
           this._saveBoardCanvas();
         },
+        // ----- Toolbox swipe-left → reveal unpin/delete -----
+        // Press-drag a toolbox row LEFT with the mouse to slide it open, revealing an
+        // "Unpin" (pinned refs) or "Delete" (board-native notes/checklists/dev) action.
+        // confirmRemovePanel() handles the confirmation + the actual unpin/delete.
+        tbxSwipeStyle(p) {
+          const b = this.panelBaseId(p);
+          let x = 0;
+          if (this._tbxSwipeDragBase === b) x = this._tbxSwipeDX;
+          else if (this._tbxSwipeOpen === b) x = -66;
+          if (x > 0) x = 0;
+          if (x < -80) x = -80;
+          return x ? ('transform: translateX(' + x + 'px)') : '';
+        },
+        tbxSwipeRevealed(p) {
+          const b = this.panelBaseId(p);
+          if (this._tbxSwipeOpen === b) return true;
+          return this._tbxSwipeDragBase === b && this._tbxSwipeDX < -20;
+        },
+        tbxSwipeStart(p, ev) {
+          // The reveal (Unpin/Delete) button owns its own clicks.
+          if (ev && ev.target && ev.target.closest && ev.target.closest('.board-tbx-swipe-act')) return;
+          if (ev && ev.button !== undefined && ev.button !== 0) return;
+          const base = this.panelBaseId(p);
+          if (this._tbxSwipeOpen && this._tbxSwipeOpen !== base) this._tbxSwipeOpen = null;
+          const startOpen = (this._tbxSwipeOpen === base);
+          this._tbxSwipeDragBase = base;
+          this._tbxSwipeStartX = ev.clientX;
+          this._tbxSwipeStartY = ev.clientY;
+          this._tbxSwipeDX = startOpen ? -66 : 0;
+          this._tbxSwipeMoved = false;
+          // Only ARM the swipe once movement is clearly leftward-dominant. Rightward /
+          // vertical movement is left to the native HTML5 drag (place on a board).
+          this._tbxSwipeArmed = startOpen;
+          const move = (e) => {
+            const ddx = e.clientX - this._tbxSwipeStartX;
+            const ddy = e.clientY - this._tbxSwipeStartY;
+            if (!this._tbxSwipeArmed) {
+              if (Math.abs(ddx) < 6 && Math.abs(ddy) < 6) return;      // below threshold — wait
+              if (ddx < 0 && Math.abs(ddx) > Math.abs(ddy)) this._tbxSwipeArmed = true; // leftward → swipe
+              else { this._tbxSwipeCleanup(); return; }                 // right/up/down → let native drag own it
+            }
+            let dx = ddx + (startOpen ? -66 : 0);
+            if (dx > 0) dx = 0;
+            if (dx < -80) dx = -80;
+            this._tbxSwipeDX = dx;
+            if (Math.abs(ddx) > 4) this._tbxSwipeMoved = true;
+          };
+          const up = () => {
+            this._tbxSwipeCleanup();
+            const open = this._tbxSwipeDX <= -34;
+            this._tbxSwipeOpen = open ? base : null;
+            this._tbxSwipeDragBase = null;
+            this._tbxSwipeDX = startOpen ? -66 : 0;
+            if (this._tbxSwipeMoved) { this._tbxSwipeSuppressClick = true; setTimeout(() => { this._tbxSwipeSuppressClick = false; }, 80); }
+          };
+          this._tbxSwipeMove = move;
+          this._tbxSwipeUp = up;
+          window.addEventListener('pointermove', move, true);
+          window.addEventListener('pointerup', up, true);
+        },
+        _tbxSwipeCleanup() {
+          if (this._tbxSwipeMove) window.removeEventListener('pointermove', this._tbxSwipeMove, true);
+          if (this._tbxSwipeUp) window.removeEventListener('pointerup', this._tbxSwipeUp, true);
+          this._tbxSwipeMove = null;
+          this._tbxSwipeUp = null;
+          this._tbxSwipeArmed = false;
+        },
+        tbxSwipeClick(p) {
+          if (this._tbxSwipeSuppressClick) return;
+          const b = this.panelBaseId(p);
+          if (this._tbxSwipeOpen === b) { this._tbxSwipeOpen = null; return; }
+          if (this._tbxSwipeOpen) this._tbxSwipeOpen = null;
+          this.openInView(p);
+        },
+        async tbxSwipeRemove(p) {
+          this._tbxSwipeOpen = null;
+          await this.confirmRemovePanel(p);
+        },
         viewPanel() {
           const b = this.boardCanvas && this.boardCanvas.viewBase;
           return b ? this._panelByBase(b) : null;
@@ -30095,6 +30194,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // On drag-start immediately switch to the target board section so the user can
         // see where the drop will land (instead of waiting for release).
+        onTbxItemDragStart(p, ev) {
+          // Whole-row native drag. If the pointer is mid leftward-swipe, cancel the native
+          // drag so the pointer swipe (delete) owns the gesture instead of place-on-board.
+          if (this._tbxSwipeArmed || (this._tbxSwipeDX < 0)) { try { ev.preventDefault(); } catch {} return; }
+          this._tbxSwipeCleanup();
+          this.onToolboxDragStart(this.panelBaseId(p), ev);
+        },
         onToolboxDragStart(base, ev) {
           this._boardCardDrag = { base, grabX: 0, grabY: 0 };
           try { ev.dataTransfer.effectAllowed = 'copyMove'; ev.dataTransfer.setData('text/plain', 'card:' + base); } catch {}
@@ -30120,7 +30226,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const sec = this._dropSection();
           if (sec && this.activeSectionId() !== sec.id) this.setActiveSection(sec.id);
         },
-        onCardDragEnd() { this._boardCardDrag = null; this._tbxOverBase = null; },
+        onCardDragEnd() { this._boardCardDrag = null; this._tbxOverBase = null; this._tbxSwipeCleanup(); this._tbxSwipeDragBase = null; this._tbxSwipeDX = this._tbxSwipeOpen ? -66 : 0; },
         _dragBase(ev) {
           if (this._boardCardDrag && this._boardCardDrag.base) return this._boardCardDrag.base;
           try { const d = ev.dataTransfer.getData('text/plain') || ''; return d.indexOf('card:') === 0 ? d.slice(5) : ''; } catch { return ''; }
