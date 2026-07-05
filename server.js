@@ -11155,6 +11155,127 @@ function saveDismissForDate(date, map) {
   return map;
 }
 
+// REQ-13 Agenda Assistant — per-day MANUAL OVERRIDES layer. Structural edits the
+// user makes through the Agenda Assistant (or hover controls) that must survive a
+// regenerate: custom one-off/recurring blocks (a workout, protected deep-work,
+// "10-min break every hour"), splitting a merged review item into per-PR blocks,
+// and removing a single constituent from a merged block. Dismiss ("not mine") and
+// inbox-triage already have their own stores; overrides is the additive/structural
+// layer applied AFTER planning on every generate. Stored at me-ai/overrides/<date>.json:
+//   { addBlocks:[{id,start,end,title,type,detail}], recurring:[{id,everyMin,durMin,
+//     title,type,from,to}], splits:[<blockKey>], removedItems:[<link||title>] }
+const ME_AI_OVERRIDES_DIR = path.join(dataPath('me-ai'), 'overrides');
+const ME_AI_BLOCK_TYPES = new Set(['prep', 'meeting', 'review', 'focus', 'comms', 'personal', 'admin', 'break', 'workout', 'deep-focus']);
+function _meAiOverridesPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_OVERRIDES_DIR, `${safe}.json`);
+}
+function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [] }; }
+function loadMeAiOverrides(date) {
+  try {
+    const p = _meAiOverridesPath(date);
+    if (!fs.existsSync(p)) return _meAiEmptyOverrides();
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return _meAiEmptyOverrides();
+    return {
+      addBlocks: Array.isArray(v.addBlocks) ? v.addBlocks : [],
+      recurring: Array.isArray(v.recurring) ? v.recurring : [],
+      splits: Array.isArray(v.splits) ? v.splits : [],
+      removedItems: Array.isArray(v.removedItems) ? v.removedItems : [],
+    };
+  } catch { return _meAiEmptyOverrides(); }
+}
+function saveMeAiOverrides(date, ov) {
+  fs.mkdirSync(ME_AI_OVERRIDES_DIR, { recursive: true });
+  const clean = {
+    addBlocks: Array.isArray(ov && ov.addBlocks) ? ov.addBlocks : [],
+    recurring: Array.isArray(ov && ov.recurring) ? ov.recurring : [],
+    splits: Array.isArray(ov && ov.splits) ? ov.splits : [],
+    removedItems: Array.isArray(ov && ov.removedItems) ? ov.removedItems : [],
+  };
+  fs.writeFileSync(_meAiOverridesPath(date), JSON.stringify(clean, null, 2));
+  return clean;
+}
+// Stable identity for a scheduled block (link preferred, else title).
+function _meAiBlockKey(b) {
+  return String((b && (b.link || b.title)) || '').trim().slice(0, 300);
+}
+// Apply the manual overrides onto a freshly-built agenda. Mutates + returns blocks.
+// Order: remove constituents → split merged blocks → inject custom/recurring blocks
+// → sort by start. Injected blocks are tagged meta.manual so the client can badge
+// them and offer removal, and so change-tracking can treat them as intentional.
+function _meAiApplyOverrides(agenda, date) {
+  if (!agenda || !Array.isArray(agenda.blocks)) return agenda;
+  const ov = loadMeAiOverrides(date);
+  const removed = new Set((ov.removedItems || []).map(k => String(k || '').trim().slice(0, 300)).filter(Boolean));
+  const splits = new Set((ov.splits || []).map(k => String(k || '').trim().slice(0, 300)).filter(Boolean));
+  let blocks = [];
+  for (const b of agenda.blocks) {
+    if (!b || typeof b !== 'object') continue;
+    // 1. Remove a single constituent from a merged block (or drop a lone block whose
+    //    own key was removed).
+    if (removed.size) {
+      const selfKey = _meAiBlockKey(b);
+      if (Array.isArray(b.items) && b.items.length) {
+        const keep = b.items.filter(it => !removed.has(String((it && (it.link || it.title)) || '').trim().slice(0, 300)));
+        if (!keep.length) continue; // whole block removed
+        if (keep.length !== b.items.length) {
+          b.items = keep;
+          if (keep.length === 1) { // collapse back to a single-item block
+            b.title = keep[0].title || b.title; b.link = keep[0].link || b.link; b.meta = keep[0].meta || b.meta; delete b.items;
+          }
+        }
+      } else if (selfKey && removed.has(selfKey)) {
+        continue;
+      }
+    }
+    // 2. Split a merged block into one block per constituent item, dividing its window.
+    if (splits.size && Array.isArray(b.items) && b.items.length > 1 && splits.has(_meAiBlockKey(b))) {
+      const s = _hmToMin(b.start), e = _hmToMin(b.end);
+      const span = (s != null && e != null && e > s) ? (e - s) : (b.items.length * 20);
+      const per = Math.max(10, Math.round(span / b.items.length));
+      let cur = (s != null ? s : _hmToMin(agenda.config && agenda.config.workStart) || 480);
+      for (const it of b.items) {
+        blocks.push({
+          start: _minToHm(cur), end: _minToHm(cur + per), type: b.type, title: (it && it.title) || b.title,
+          detail: b.detail || '', link: (it && it.link) || '', why: b.why || '', meta: (it && it.meta) || null,
+          urgency: b.urgency || 0,
+        });
+        cur += per;
+      }
+      continue;
+    }
+    blocks.push(b);
+  }
+  // 3. Inject explicit one-off custom blocks.
+  for (const a of (ov.addBlocks || [])) {
+    if (!a || !a.start || !a.end) continue;
+    blocks.push({
+      start: String(a.start), end: String(a.end), type: ME_AI_BLOCK_TYPES.has(a.type) ? a.type : 'personal',
+      title: String(a.title || 'Blocked time').slice(0, 200), detail: String(a.detail || '').slice(0, 500),
+      link: '', why: String(a.why || 'Added by you').slice(0, 200), meta: { manual: true, overrideId: a.id || '' }, urgency: 0,
+    });
+  }
+  // 4. Expand recurring blocks (e.g. a 10-minute break every hour) across their window.
+  for (const r of (ov.recurring || [])) {
+    if (!r || !r.everyMin) continue;
+    const from = _hmToMin(r.from) != null ? _hmToMin(r.from) : (_hmToMin(agenda.config && agenda.config.workStart) || 480);
+    const to = _hmToMin(r.to) != null ? _hmToMin(r.to) : (_hmToMin(agenda.config && agenda.config.workEnd) || 1020);
+    const every = Math.max(15, Math.min(480, +r.everyMin || 60));
+    const dur = Math.max(5, Math.min(240, +r.durMin || 10));
+    for (let t = from + every; t + dur <= to; t += every) {
+      blocks.push({
+        start: _minToHm(t), end: _minToHm(t + dur), type: ME_AI_BLOCK_TYPES.has(r.type) ? r.type : 'break',
+        title: String(r.title || 'Break').slice(0, 200), detail: '', link: '',
+        why: 'Recurring block you set', meta: { manual: true, recurring: true, overrideId: r.id || '' }, urgency: 0,
+      });
+    }
+  }
+  blocks.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
+  agenda.blocks = blocks;
+  return agenda;
+}
+
 // REQ-9 Triage learning. Every explicit triage decision (later / now / today /
 // not-mine / won't-fix) is aggregated by a stable feature signature of the signal
 // (source · kind · direct-mention · normalized subject tokens) so that when a NEW
@@ -12442,11 +12563,225 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
     }
   } catch (_) { /* best-effort */ }
   agenda.meta.churn = _meAiChurnSummary(loadChangesForDate(day).events);
+  // REQ-13: apply the user's manual structural overrides (custom/recurring blocks,
+  // merged-item splits, per-item removals) on top of the planned schedule so they
+  // survive every regenerate. Done before suggestions so nudges see the real day.
+  try { _meAiApplyOverrides(agenda, day); } catch (_) { /* best-effort */ }
   // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
   agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
   saveAgendaForDate(day, agenda);
   try { _meAiSyncDayBoard(agenda, day); } catch (_) { /* best-effort */ }  // REQ-1
   return agenda;
+}
+
+// REQ-13: re-plan the live day cheaply (no fresh gather) after a structural override,
+// preserving the day's persisted todos so a regenerate never wipes them. Returns the
+// rebuilt agenda (overrides are folded in by generateMeAiAgenda).
+async function _meAiRegenLive(date) {
+  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const snap = loadAgendaForDate(day);
+  const todos = snap && Array.isArray(snap.todos) ? snap.todos : [];
+  return generateMeAiAgenda({ date: day, todos, reindex: false, cause: 'manual' });
+}
+
+// REQ-13 Agenda Assistant — a conversational, full-featured controller for the Me.AI
+// agenda, modeled on runConnectAssistant / runBoardAssistant. It reads the current
+// day (settings + built agenda + inbox) and PROPOSES concrete agenda operations the
+// user confirms and applies; it NEVER claims a change already happened. The client
+// maps each returned action to the matching endpoint (override / settings / todos /
+// triage / dismiss / regenerate). Returns { reply, actions[] }.
+const ME_AI_ASSISTANT_ACTIONS = new Set([
+  'add_block', 'add_recurring', 'split_item', 'remove_item', 'dismiss_item',
+  'set_mode', 'set_time_pref', 'set_hours', 'set_grid', 'set_work_days',
+  'add_todo', 'remove_todo', 'triage_inbox', 'regenerate',
+]);
+function _meAiResolveAssistantAction(a, ctx) {
+  if (!a || typeof a !== 'object') return null;
+  const type = String(a.type || '').trim();
+  if (!ME_AI_ASSISTANT_ACTIONS.has(type)) return null;
+  const clip = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
+  const okHm = (v) => _hmToMin(v) != null;
+  switch (type) {
+    case 'add_block': {
+      if (!okHm(a.start) || !okHm(a.end) || _hmToMin(a.end) <= _hmToMin(a.start)) return null;
+      const t = clip(a.title, 200) || 'Blocked time';
+      const sub = String(a.blocktype || a.blockType || a.kind || '').trim();
+      const bt = ME_AI_BLOCK_TYPES.has(sub) ? sub : 'personal';
+      return { type, start: String(a.start), end: String(a.end), title: t, blkType: bt, detail: clip(a.detail, 500),
+        label: 'Add block', preview: `${a.start}–${a.end} · ${t}` };
+    }
+    case 'add_recurring': {
+      const every = Math.max(15, Math.min(480, +a.everyMin || 60));
+      const dur = Math.max(5, Math.min(240, +a.durMin || 10));
+      const t = clip(a.title, 200) || 'Break';
+      const sub = String(a.blocktype || a.blockType || a.kind || '').trim();
+      const bt = ME_AI_BLOCK_TYPES.has(sub) ? sub : 'break';
+      return { type, everyMin: every, durMin: dur, title: t, blkType: bt,
+        from: okHm(a.from) ? String(a.from) : '', to: okHm(a.to) ? String(a.to) : '',
+        label: 'Add recurring block', preview: `${t} — ${dur} min every ${every} min` };
+    }
+    case 'split_item':
+    case 'remove_item':
+    case 'dismiss_item': {
+      const key = clip(a.key || a.link || a.title, 300);
+      if (!key) return null;
+      const lbl = type === 'split_item' ? 'Split into separate items' : type === 'remove_item' ? 'Remove from its block' : 'Not mine (dismiss)';
+      const out = { type, key, label: lbl, preview: clip(a.title || key, 160) };
+      if (type === 'dismiss_item') out.note = clip(a.note, 300);
+      return out;
+    }
+    case 'set_mode': {
+      const modes = new Set(['balanced', 'focused', 'unblock-team', 'relaxed', 'low-sleep']);
+      const m = String(a.mode || '').trim();
+      if (!modes.has(m)) return null;
+      return { type, mode: m, label: 'Change day mode', preview: m };
+    }
+    case 'set_time_pref': {
+      const acts = new Set(['review', 'steward', 'focus', 'comms', 'admin', 'prep']);
+      const act = String(a.activity || '').trim();
+      let when = String(a.when || '').trim().toLowerCase();
+      if (when === 'any' || when === 'none') when = '';
+      if (!acts.has(act) || !['', 'morning', 'afternoon'].includes(when)) return null;
+      return { type, activity: act, when, label: 'Set time-of-day preference', preview: `${act} → ${when || 'any time'}` };
+    }
+    case 'set_hours': {
+      const patch = {};
+      for (const k of ['workStart', 'workEnd', 'lunchStart', 'lunchEnd']) if (a[k] != null && okHm(a[k])) patch[k] = String(a[k]);
+      if (!Object.keys(patch).length) return null;
+      return { type, patch, label: 'Adjust working hours', preview: Object.entries(patch).map(([k, v]) => `${k}=${v}`).join(', ') };
+    }
+    case 'set_grid': {
+      const g = +a.grid; if (![5, 10, 15].includes(g)) return null;
+      return { type, grid: g, label: 'Change grid', preview: `${g}-minute grid` };
+    }
+    case 'set_work_days': {
+      if (!Array.isArray(a.days)) return null;
+      const days = [...new Set(a.days.map(d => +d).filter(d => d >= 0 && d <= 6))].sort();
+      if (!days.length) return null;
+      const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return { type, days, label: 'Set work days', preview: days.map(d => names[d]).join(', ') };
+    }
+    case 'add_todo': {
+      const t = clip(a.title, 200); if (!t) return null;
+      const scope = a.scope === 'personal' ? 'personal' : 'work';
+      return { type, title: t, scope, label: 'Add to-do', preview: t + (scope === 'personal' ? ' (personal)' : '') };
+    }
+    case 'remove_todo': {
+      const t = clip(a.title, 200); if (!t) return null;
+      return { type, title: t, label: 'Remove to-do', preview: t };
+    }
+    case 'triage_inbox': {
+      const key = clip(a.key || a.link || a.title, 300); if (!key) return null;
+      const act = String(a.action || '').trim();
+      if (!['later', 'now', 'today', 'dismiss', 'wontfix'].includes(act)) return null;
+      const lbl = { later: 'Snooze to later', now: 'Handle now', today: 'Fit into today', dismiss: 'Not mine', wontfix: "Won't fix" }[act];
+      return { type, key, act, label: lbl, preview: clip(a.title || key, 160) };
+    }
+    case 'regenerate':
+      return { type, label: 'Regenerate the day', preview: 'Re-plan with the latest signals' };
+    default: return null;
+  }
+}
+async function runMeAiAgendaAssistant({ message, history, date } = {}) {
+  const msg = String(message || '').trim();
+  if (!msg) throw new Error('Tell me what you would like to change about your day.');
+  const s = settings.getSettings();
+  const cfg = _meAiConfig(s);
+  const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const agenda = loadAgendaForDate(day) || { blocks: [], backlog: [], needsAttention: [], todos: [] };
+  const inbox = (() => { try { return loadInboxForDate(day).items || []; } catch { return []; } })();
+  const clip = (s2, n) => String(s2 == null ? '' : s2).replace(/\s+/g, ' ').trim().slice(0, n);
+
+  const blocks = [];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  blocks.push('## CURRENT SETTINGS\n' +
+    `Working hours: ${cfg.workStart}–${cfg.workEnd} (lunch ${cfg.lunchStart}–${cfg.lunchEnd})\n` +
+    `Work days: ${(cfg.workDays || []).map(d => dayNames[d]).join(', ') || '(none)'}\n` +
+    `Grid: ${cfg.grid}-minute · Day mode: ${cfg.mode || 'balanced'}\n` +
+    `Time-of-day prefs: ${Object.entries(cfg.timePrefs || {}).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(', ') || '(none set)'}`);
+  const bl = (agenda.blocks || []).map((b, i) => {
+    const key = _meAiBlockKey(b);
+    const items = Array.isArray(b.items) && b.items.length ? ` [${b.items.length} items: ${b.items.map(it => clip(it.title, 40)).join(' · ')}]` : '';
+    const man = b.meta && b.meta.manual ? ' (manual)' : '';
+    return `- #${i} ${b.start}–${b.end} [${b.type}]${man} ${clip(b.title, 120)}${items}${key ? `  {key: ${clip(key, 120)}}` : ''}`;
+  }).join('\n') || '(no blocks planned yet)';
+  blocks.push(`## TODAY'S BLOCKS (${(agenda.blocks || []).length})\n` + bl);
+  const backlog = (agenda.backlog || []).slice(0, 20).map(x => `- ${clip(x.title, 100)}${x.link ? `  {key: ${clip(x.link, 100)}}` : ''}`).join('\n');
+  if (backlog) blocks.push('## BACKLOG (not scheduled today)\n' + backlog);
+  const todos = (agenda.todos || []).map(t => `- ${t.done ? '[x]' : '[ ]'} ${clip(t.title, 100)}${t.scope === 'personal' ? ' (personal)' : ''}`).join('\n');
+  if (todos) blocks.push('## TO-DOS\n' + todos);
+  const inb = inbox.filter(it => it && it.triage !== 'dismissed' && it.triage !== 'wontfix').slice(0, 12)
+    .map(it => `- ${clip(it.title, 100)}${it.link ? `  {key: ${clip(it.link, 100)}}` : ''}`).join('\n');
+  if (inb) blocks.push('## ATTENTION INBOX (asks awaiting triage)\n' + inb);
+
+  const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
+    const role = h && h.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${clip((h && h.content) || '', 500)}`;
+  }).filter(Boolean).join('\n') || '(none)';
+
+  const sys = [
+    'You are the Agenda assistant embedded in a personal "Me.AI" daily-planning workspace.',
+    'You help the user shape their day: add protected/break/workout blocks, split or remove',
+    'agenda items, reshape the day (mode, working hours, work days, grid, time-of-day prefs),',
+    'manage to-dos, and triage attention-inbox asks.',
+    'You ALWAYS propose changes for the user to confirm — you NEVER claim a change was already made.',
+    '',
+    'Respond with ONLY a single JSON object (no prose outside it, no markdown code fence):',
+    '{ "reply": "<a short, friendly message>", "actions": [ <zero or more action objects> ] }',
+    '',
+    'Action objects (propose only the ones the user actually needs):',
+    '- Add a one-off block: {"type":"add_block","start":"HH:MM","end":"HH:MM","title":"...","blocktype":"break|workout|focus|deep-focus|personal|admin|prep|comms|review|meeting","detail":"..."}',
+    '- Add a recurring block: {"type":"add_recurring","everyMin":60,"durMin":10,"title":"Break","type":"break","from":"HH:MM","to":"HH:MM"} (from/to optional = working hours)',
+    '- Split a merged item into separate blocks: {"type":"split_item","key":"<block key>"}',
+    '- Remove one item from its block (keeps the rest): {"type":"remove_item","key":"<item/PR link or title>"}',
+    "- Dismiss an item as not yours: {\"type\":\"dismiss_item\",\"key\":\"<link or title>\",\"note\":\"...\"}",
+    '- Change day mode: {"type":"set_mode","mode":"balanced|focused|unblock-team|relaxed|low-sleep"}',
+    '- Set when you are sharpest for an activity: {"type":"set_time_pref","activity":"review|steward|focus|comms|admin|prep","when":"morning|afternoon|any"}',
+    '- Adjust working hours: {"type":"set_hours","workStart":"HH:MM","workEnd":"HH:MM","lunchStart":"HH:MM","lunchEnd":"HH:MM"} (any subset)',
+    '- Change the grid: {"type":"set_grid","grid":5|10|15}',
+    '- Set work days: {"type":"set_work_days","days":[1,2,3,4,5]} (0=Sun … 6=Sat)',
+    '- Add a to-do: {"type":"add_todo","title":"...","scope":"work|personal"}',
+    '- Remove a to-do: {"type":"remove_todo","title":"<exact title>"}',
+    '- Triage an inbox ask: {"type":"triage_inbox","key":"<link or title>","action":"today|now|later|dismiss|wontfix"}',
+    '- Re-plan the day with the latest signals: {"type":"regenerate"}',
+    '',
+    'Rules:',
+    '- Reference blocks/items by the {key: …} shown in the context. Use exact HH:MM 24-hour times.',
+    '- To "protect 2–3pm for deep work", propose add_block 14:00–15:00 type deep-focus.',
+    '- To "break the PR review of A, B, C into separate items", propose split_item on that block key.',
+    '- To "remove PR 62392 from today\'s review", propose remove_item with that PR\'s link/title.',
+    '- Keep "reply" concise and friendly. If nothing needs changing, return "actions": [] and just answer.',
+    '- Propose at most a handful of actions per turn.',
+    '',
+    blocks.join('\n\n'),
+    '',
+    '## CONVERSATION',
+    histLines,
+    '',
+    '## USER MESSAGE',
+    msg,
+  ].join('\n');
+
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null, prompt: sys, sessionId: require('crypto').randomUUID(),
+    resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    meta: { source: 'me-ai', category: 'me-ai-assistant' },
+  });
+  let raw = (acc.trim() || (result && result.output) || '').trim();
+  const parseModel = (text) => {
+    let t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
+  };
+  const parsed = parseModel(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return { reply: raw || 'Sorry, I could not put that together — try rephrasing.', actions: [] };
+  }
+  const proposed = Array.isArray(parsed.actions) ? parsed.actions : [];
+  const actions = proposed.map(a => _meAiResolveAssistantAction(a, { agenda })).filter(Boolean).slice(0, 8);
+  return { reply: String(parsed.reply || (actions.length ? 'Here is what I can do.' : 'Done.')).slice(0, 1200), actions };
 }
 
 // GET /api/me-ai → config + whether today already has an agenda snapshot.
@@ -12880,6 +13215,57 @@ app.post('/api/me-ai/agenda/undismiss', (req, res) => {
       saveAgendaForDate(date, agenda);
     }
     res.json({ ok: true, date, agenda, dismissed: agenda ? agenda.dismissed : [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// REQ-13 Agenda Assistant chat → { reply, actions[] }. Read-only proposal turn; the
+// client confirms + applies each action via the endpoints below (or existing ones).
+app.post('/api/me-ai/agenda/assistant', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const out = await runMeAiAgendaAssistant({ message: b.message, history: Array.isArray(b.history) ? b.history : [], date: b.date });
+    res.json({ ok: true, ...out });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// REQ-13 structural overrides — a single endpoint mutates the per-day override store
+// then re-plans the live day so custom/recurring blocks, splits and item-removals take
+// effect immediately and survive future regenerates. Body: { date, op, ... }.
+app.post('/api/me-ai/agenda/override', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const op = String(b.op || '').trim();
+    const ov = loadMeAiOverrides(date);
+    const uid = () => 'ov-' + Math.random().toString(36).slice(2, 9);
+    if (op === 'add_block') {
+      if (_hmToMin(b.start) == null || _hmToMin(b.end) == null || _hmToMin(b.end) <= _hmToMin(b.start)) return res.status(400).json({ error: 'valid start/end required' });
+      ov.addBlocks.push({ id: uid(), start: String(b.start), end: String(b.end), title: String(b.title || 'Blocked time').slice(0, 200), type: ME_AI_BLOCK_TYPES.has(b.blockType) ? b.blockType : 'personal', detail: String(b.detail || '').slice(0, 500), why: String(b.why || 'Added by you').slice(0, 200) });
+    } else if (op === 'add_recurring') {
+      ov.recurring.push({ id: uid(), everyMin: Math.max(15, Math.min(480, +b.everyMin || 60)), durMin: Math.max(5, Math.min(240, +b.durMin || 10)), title: String(b.title || 'Break').slice(0, 200), type: ME_AI_BLOCK_TYPES.has(b.blockType) ? b.blockType : 'break', from: _hmToMin(b.from) != null ? String(b.from) : '', to: _hmToMin(b.to) != null ? String(b.to) : '' });
+    } else if (op === 'split') {
+      const key = String(b.key || '').trim().slice(0, 300); if (!key) return res.status(400).json({ error: 'key required' });
+      if (!ov.splits.includes(key)) ov.splits.push(key);
+    } else if (op === 'remove_item') {
+      const key = String(b.key || '').trim().slice(0, 300); if (!key) return res.status(400).json({ error: 'key required' });
+      if (!ov.removedItems.includes(key)) ov.removedItems.push(key);
+    } else if (op === 'clear_block') {
+      // Remove a manual custom/recurring block by its overrideId.
+      const id = String(b.overrideId || '').trim(); if (!id) return res.status(400).json({ error: 'overrideId required' });
+      ov.addBlocks = ov.addBlocks.filter(x => x.id !== id);
+      ov.recurring = ov.recurring.filter(x => x.id !== id);
+    } else if (op === 'unsplit') {
+      const key = String(b.key || '').trim().slice(0, 300);
+      ov.splits = ov.splits.filter(k => k !== key);
+    } else if (op === 'restore_item') {
+      const key = String(b.key || '').trim().slice(0, 300);
+      ov.removedItems = ov.removedItems.filter(k => k !== key);
+    } else {
+      return res.status(400).json({ error: 'unknown op' });
+    }
+    saveMeAiOverrides(date, ov);
+    const agenda = await _meAiRegenLive(date);
+    res.json({ ok: true, date, agenda, overrides: ov });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
