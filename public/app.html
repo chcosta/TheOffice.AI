@@ -11577,6 +11577,22 @@
               .meai-finding-d { font-size:12.5px; color:var(--cp-text-muted); margin-top:2px; white-space:pre-wrap; }
               .meai-sev { font-size:11px; font-weight:700; margin-right:6px; }
               .meai-sev.high { color:var(--cp-danger); } .meai-sev.medium { color:var(--cp-warning); } .meai-sev.low { color:var(--cp-text-muted); }
+              /* §7.4 rich previews (diff / draft) */
+              .meai-prev { border-top:1px solid var(--cp-border); margin-top:8px; padding-top:8px; }
+              .meai-prev-h { display:flex; align-items:center; gap:8px; width:100%; appearance:none; background:none; border:none; padding:2px 0; cursor:pointer; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); }
+              .meai-prev-h:hover { color:var(--cp-text); }
+              .meai-prev-caret { display:inline-block; transition:transform .12s ease; font-size:11px; }
+              .meai-prev-caret.open { transform:rotate(90deg); }
+              .meai-prev-stat { margin-left:auto; font-weight:500; text-transform:none; letter-spacing:0; color:var(--cp-text-muted); }
+              .meai-diff { margin-top:8px; border:1px solid var(--cp-border); border-radius:8px; overflow:auto; max-height:340px; background:var(--cp-bg); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; line-height:1.45; }
+              .meai-diff-ln { padding:0 10px; white-space:pre; color:var(--cp-text); }
+              .meai-diff-ln.add { background:color-mix(in srgb, var(--cp-success, #2ea043) 16%, transparent); }
+              .meai-diff-ln.del { background:color-mix(in srgb, var(--cp-danger) 15%, transparent); }
+              .meai-diff-ln.hunk { color:var(--cp-accent); background:color-mix(in srgb, var(--cp-accent) 8%, transparent); }
+              .meai-diff-ln.meta { color:var(--cp-text-muted); }
+              .meai-draft { margin-top:8px; }
+              .meai-draft-body { margin:0; padding:12px 14px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; max-height:340px; overflow:auto; font-family:inherit; }
+              .meai-draft-copy { margin-top:8px; }
               .meai-dr-foot { border-top:1px solid var(--cp-border); padding:12px 18px; background:var(--cp-surface); }
               .meai-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
               .meai-act-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:13px; padding:7px 14px; border-radius:8px; cursor:pointer; }
@@ -11809,7 +11825,7 @@
                       </div>
                     </template>
                     <!-- Report card -->
-                    <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length)">
+                    <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length || meai.console.report.diff || meai.console.report.draft)">
                       <div class="meai-report">
                         <h5>Report</h5>
                         <div class="meai-report-sum" x-text="meai.console.report.summary"></div>
@@ -11817,6 +11833,35 @@
                           <div class="meai-finding">
                             <div class="meai-finding-t"><span class="meai-sev" :class="f.severity" x-text="(f.severity||'').toUpperCase()"></span><span x-text="f.title"></span></div>
                             <div class="meai-finding-d" x-show="f.detail" x-text="f.detail"></div>
+                          </div>
+                        </template>
+                        <!-- §7.4 diff preview: collapsed by default, expandable -->
+                        <template x-if="meai.console.report.diff">
+                          <div class="meai-prev">
+                            <button type="button" class="meai-prev-h" @click="meai.diffOpen=!meai.diffOpen">
+                              <span class="meai-prev-caret" :class="{open:meai.diffOpen}">▸</span>
+                              <span>Changes</span>
+                              <span class="meai-prev-stat" x-text="meAiDiffStat(meai.console.report.diff)"></span>
+                            </button>
+                            <div class="meai-diff" x-show="meai.diffOpen">
+                              <template x-for="(ln, li) in meAiDiffLines(meai.console.report.diff)" :key="li">
+                                <div class="meai-diff-ln" :class="ln.t" x-text="ln.s"></div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                        <!-- §7.4 draft preview (comms): collapsed by default, expandable -->
+                        <template x-if="meai.console.report.draft">
+                          <div class="meai-prev">
+                            <button type="button" class="meai-prev-h" @click="meai.draftOpen=!meai.draftOpen">
+                              <span class="meai-prev-caret" :class="{open:meai.draftOpen}">▸</span>
+                              <span>Draft</span>
+                              <span class="meai-prev-stat" x-text="(meai.console.report.draft||'').split(/\s+/).filter(Boolean).length + ' words'"></span>
+                            </button>
+                            <div class="meai-draft" x-show="meai.draftOpen">
+                              <pre class="meai-draft-body" x-text="meai.console.report.draft"></pre>
+                              <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyDraft()">Copy</button>
+                            </div>
                           </div>
                         </template>
                       </div>
@@ -19185,6 +19230,8 @@
           consoleBusy: false,    // a dispatch/act request is in flight
           consoleReply: '',      // free-text reply box
           consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
+          diffOpen: false,       // §7.4 diff preview expanded
+          draftOpen: false,      // §7.4 draft preview expanded
           _taskById: {},         // id -> task object (drawer + lane share)
         },
         codeflow: {
@@ -25629,13 +25676,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.meAiDispatch(pb, block.title || 'Me.AI task', { blockRef: block.id || null, detail: block.detail || '', link: block.link || '' }, scope);
         },
         meAiOpenTask(id) {
+          this.meai.diffOpen = false; this.meai.draftOpen = false;
           const t = this.meai._taskById[id];
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); return; }
           this.request('/api/me-ai/task/' + encodeURIComponent(id)).then(r => {
             if (r && r.task) { this.meai._taskById[id] = r.task; this.meai.console = r.task; this.$nextTick(() => this._meAiConsoleScroll()); }
           }).catch(() => {});
         },
-        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; },
+        meAiCloseConsole() { this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; },
         async meAiBackgroundTask() {
           const t = this.meai.console;
           if (!t) return;
@@ -25747,6 +25795,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiEventIcon(kind) {
           return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', question: '❓', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
+        },
+        // §7.4 — classify unified-diff lines for coloring.
+        meAiDiffLines(diff) {
+          const out = [];
+          const lines = String(diff || '').split('\n');
+          for (const s of lines) {
+            let t = 'ctx';
+            if (/^(diff --git|index |--- |\+\+\+ |new file|deleted file|rename |similarity |old mode|new mode)/.test(s)) t = 'meta';
+            else if (s.startsWith('@@')) t = 'hunk';
+            else if (s.startsWith('+')) t = 'add';
+            else if (s.startsWith('-')) t = 'del';
+            out.push({ t, s: s === '' ? ' ' : s });
+          }
+          return out;
+        },
+        // §7.4 — compact "N files · +A −B" stat for the diff header.
+        meAiDiffStat(diff) {
+          const lines = String(diff || '').split('\n');
+          let files = 0, add = 0, del = 0;
+          for (const s of lines) {
+            if (s.startsWith('diff --git')) files++;
+            else if (s.startsWith('+') && !s.startsWith('+++')) add++;
+            else if (s.startsWith('-') && !s.startsWith('---')) del++;
+          }
+          const parts = [];
+          if (files) parts.push(files + (files === 1 ? ' file' : ' files'));
+          parts.push('+' + add + ' \u2212' + del);
+          return parts.join(' \u00b7 ');
+        },
+        async meAiCopyDraft() {
+          const d = this.meai.console && this.meai.console.report && this.meai.console.report.draft;
+          if (!d) return;
+          try { await navigator.clipboard.writeText(d); this.toast('Draft copied', 'success'); } catch (_) {}
         },
 
         async loadConnect() {

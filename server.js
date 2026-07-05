@@ -11612,6 +11612,7 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '  "report": { "summary": "<2-4 sentence outcome>", "findings": [ { "title": "<short>", "detail": "<what & where>", "severity": "high|medium|low" } ] },',
     '  "nextActions": [ { "label": "<button text>", "intent": "<one of: apply-fix, comment, push, approve, request-review, retry, change-approach, continue, abandon>", "primary": true|false, "risk": "none|write|external" } ]',
     '}',
+    'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. Include these ONLY when they apply; omit them otherwise. They are rendered as collapsible previews I can inspect.',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human.',
     'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
   ].join('\n');
@@ -11721,6 +11722,16 @@ function _meAiParseReport(text) {
           severity: ['high', 'medium', 'low'].includes(f.severity) ? f.severity : 'medium',
         })) : [],
       };
+      // §7.4 rich previews: an optional unified diff (review/implement) and an
+      // optional draft body (comms). Rendered as collapsible preview blocks.
+      if (parsed.report.diff != null) {
+        const d = String(parsed.report.diff).trim();
+        if (d) report.diff = d.slice(0, 60000);
+      }
+      if (parsed.report.draft != null) {
+        const dr = String(parsed.report.draft).trim();
+        if (dr) report.draft = dr.slice(0, 20000);
+      }
     }
     if (Array.isArray(parsed.nextActions)) {
       nextActions = parsed.nextActions.slice(0, 6).map(a => ({
