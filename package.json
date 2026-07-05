@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'})}catch(e){}\"",
     "notes": "node scripts/generate-release-notes.mjs",
     "install-service": "node install-service.js",
     "uninstall-service": "node uninstall-service.js",

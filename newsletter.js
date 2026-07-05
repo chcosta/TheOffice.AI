@@ -341,6 +341,36 @@ function deleteDraftVersion(id) {
   return true;
 }
 
+// Delete the CURRENT newsletter (draft) outright and promote the newest history
+// version to become current — so "delete the current issue" behaves like a proper
+// version manager. The deleted current is discarded (NOT snapshotted, or it would
+// just reappear in history). If no earlier versions exist, the draft is cleared to
+// its empty default. Returns { state, promoted } where `promoted` is the version
+// metadata that became current (or null when there was nothing to promote).
+function deleteCurrentPromoteLatest() {
+  const st = getState();
+  const items = _readVersions();
+  let promoted = null;
+  if (items.length) {
+    const top = items.shift();                // newest-first → latest becomes current
+    _writeVersions(items);
+    const title = extractTitle(top.markdown || '') || top.title || '';
+    st.draft = {
+      ..._clone(DEFAULT_STATE.draft),
+      markdown: top.markdown || '',
+      title,
+      source: top.source === 'ai' ? 'ai' : 'manual',
+      generatedAt: top.createdAt || '',
+      updatedAt: new Date().toISOString(),
+    };
+    promoted = { id: top.id, title, source: st.draft.source, savedAt: top.savedAt || null };
+  } else {
+    st.draft = _clone(DEFAULT_STATE.draft);
+  }
+  _writeJson(_statePath(), st);
+  return { state: st, promoted };
+}
+
 // ---- Evidence window (delegates to Connect) ---------------------------------
 
 // Compute the YYYY-MM-DD lower bound for a timeframe in days (inclusive).
@@ -389,6 +419,7 @@ module.exports = {
   listDraftVersions,
   getDraftVersion,
   deleteDraftVersion,
+  deleteCurrentPromoteLatest,
   renameDraftVersion,
   extractTitle,
   sinceForDays,

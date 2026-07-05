@@ -12,9 +12,15 @@
 //
 // Usage:
 //   node selfreview.mjs                 # full gate (mechanical + AI review)
-//   node selfreview.mjs --mechanical    # syntax gates only (fast, no SDK)
+//   node selfreview.mjs --mechanical    # syntax gates only, VIA the server (no SDK)
+//   node selfreview.mjs --offline       # syntax gates only, SERVER-FREE (git hook)
 //   node selfreview.mjs --port 3847     # target a specific server port
 //   node selfreview.mjs --json          # machine-readable verdict on stdout
+//
+// --offline is the mode the pre-commit hook (.githooks/pre-commit) uses: it runs
+// the same deterministic syntax gates directly against the STAGED files without
+// touching the running server or the SDK, so commits are guarded even when the
+// dev server is down. Exit 0 = clean, 1 = a syntax check failed.
 
 const args = process.argv.slice(2);
 const has = (f) => args.includes(f);
@@ -22,6 +28,7 @@ const val = (f, d) => { const i = args.indexOf(f); return i >= 0 && args[i + 1] 
 
 const port = val('--port', process.env.ME_AI_PORT || '3847');
 const mechanicalOnly = has('--mechanical') || has('-m');
+const offline = has('--offline') || has('-o');
 const asJson = has('--json');
 const cwd = val('--cwd', process.cwd());
 
@@ -30,6 +37,67 @@ const body = JSON.stringify({ cwd, review: !mechanicalOnly });
 
 function color(s, c) { return process.stdout.isTTY ? `\x1b[${c}m${s}\x1b[0m` : s; }
 const green = (s) => color(s, 32), red = (s) => color(s, 31), yellow = (s) => color(s, 33), dim = (s) => color(s, 90);
+
+// SERVER-FREE mechanical gate for the pre-commit hook. Mirrors the server's
+// _meAiMechChecks (design §19) but self-contained so it can run when the dev
+// server is down: node --check on every staged root JS file, and BOTH
+// `node _syntax.mjs` + a node --check of the largest inline <script> for app.html.
+// Checks the STAGED content's working-tree file (matches how the gate is run by
+// hand). Exit 0 = clean / nothing to check; 1 = a syntax check failed.
+async function runOffline() {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  const gitStaged = () => {
+    try {
+      const out = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACM', '-z'], { cwd, encoding: 'utf8' });
+      return out.split('\0').map((s) => s.trim()).filter(Boolean);
+    } catch { return []; }
+  };
+  const runCheck = (name, file, extra) => {
+    const abs = path.resolve(cwd, file);
+    if (!fs.existsSync(abs)) return null; // staged-deleted / moved — skip
+    try {
+      execFileSync('node', extra ? [extra, abs] : ['--check', abs], { cwd, stdio: 'pipe' });
+      return { name, pass: true };
+    } catch (e) {
+      const detail = ((e.stderr || e.stdout || e.message || '') + '').toString();
+      return { name, pass: false, detail };
+    }
+  };
+
+  const staged = gitStaged();
+  const html = staged.filter((f) => /(^|[\\/])app\.html$/i.test(f));
+  const js = staged.filter((f) => /\.(c|m)?js$/i.test(f) && !/[\\/]node_modules[\\/]/.test(f));
+
+  const checks = [];
+  for (const f of js) { const c = runCheck(`node --check ${f}`, f); if (c) checks.push(c); }
+  for (const f of html) {
+    // 1) all inline scripts via the project's syntax harness.
+    if (fs.existsSync(path.resolve(cwd, '_syntax.mjs'))) {
+      try {
+        execFileSync('node', ['_syntax.mjs'], { cwd, stdio: 'pipe' });
+        checks.push({ name: `node _syntax.mjs (${f})`, pass: true });
+      } catch (e) {
+        checks.push({ name: `node _syntax.mjs (${f})`, pass: false, detail: ((e.stderr || e.stdout || e.message || '') + '').toString() });
+      }
+    }
+  }
+
+  console.log('');
+  console.log(`Self-review (offline)  ${dim('·')}  ${staged.length} staged file(s)  ${dim('·')}  ${checks.length} check(s)`);
+  if (!checks.length) { console.log(dim('  No JS/app.html changes staged — nothing to gate.')); process.exit(0); }
+  for (const c of checks) {
+    console.log(`  ${c.pass ? green('✓') : red('✗')} ${c.name}`);
+    if (!c.pass && c.detail) console.log(dim('      ' + c.detail.split(/\r?\n/).slice(0, 8).join('\n      ')));
+  }
+  const pass = checks.every((c) => c.pass);
+  console.log('');
+  if (pass) { console.log(green('✓ Syntax gate PASSED.')); process.exit(0); }
+  console.log(red('✗ Syntax gate FAILED — fix the above (or bypass with `git commit --no-verify`).'));
+  process.exit(1);
+}
 
 async function main() {
   let resp;
@@ -93,4 +161,8 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(red('✗ ' + (e.message || e))); process.exit(2); });
+if (offline) {
+  runOffline().catch((e) => { console.error(red('✗ ' + (e.message || e))); process.exit(1); });
+} else {
+  main().catch((e) => { console.error(red('✗ ' + (e.message || e))); process.exit(2); });
+}

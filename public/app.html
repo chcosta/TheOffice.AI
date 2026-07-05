@@ -12993,6 +12993,9 @@
               .nlx-frame button { flex:1; border:0; background:transparent; color:var(--cp-text-soft); padding:6px 0; font-size:12px; cursor:pointer; border-left:1px solid var(--cp-border); }
               .nlx-frame button:first-child { border-left:0; }
               .nlx-frame button.active { background:var(--cp-accent-soft); color:var(--cp-text); font-weight:600; }
+              .nlx-frame input { flex:1; min-width:0; width:100%; border:0; border-left:1px solid var(--cp-border); background:transparent; color:var(--cp-text-soft); padding:6px 8px; font-size:12px; text-align:center; }
+              .nlx-frame input::placeholder { color:var(--cp-text-soft); opacity:.7; }
+              .nlx-frame input.active { background:var(--cp-accent-soft); color:var(--cp-text); font-weight:600; }
               .nlx-win { display:flex; gap:18px; margin-top:12px; }
               .nlx-win b { display:block; font-size:20px; line-height:1.05; color:var(--cp-text); }
               .nlx-win span { font-size:11.5px; color:var(--cp-text-soft); }
@@ -13185,6 +13188,10 @@
                     <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 14 }" @click="newsletterSetTimeframe(14)">14d</button>
                     <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 30 }" @click="newsletterSetTimeframe(30)">30d</button>
                     <button type="button" :class="{ active: newsletter.config && newsletter.config.timeframeDays == 90 }" @click="newsletterSetTimeframe(90)">Qtr</button>
+                    <input type="number" min="1" max="400" title="Custom number of days" placeholder="Custom"
+                           :class="{ active: newsletter.config && ![7,14,30,90].includes(Number(newsletter.config.timeframeDays)) }"
+                           :value="newsletter.config && ![7,14,30,90].includes(Number(newsletter.config.timeframeDays)) ? newsletter.config.timeframeDays : ''"
+                           @change="newsletterSetTimeframe(Number($event.target.value))" />
                   </div>
                   <div class="nlx-win">
                     <div>
@@ -13216,11 +13223,8 @@
                     <div class="nlx-acc-body">
                       <div class="nlx-fld"><label>Title <span class="hint" style="font-weight:400">(optional — AI writes one if blank)</span></label><input class="field-input" type="text" x-model="newsletter.config.title" placeholder="Leave blank to auto-title" /></div>
                       <div class="nlx-fld"><label>Subtitle <span class="hint" style="font-weight:400">(optional)</span></label><input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="What shipped and why it matters" /></div>
-                      <div class="nlx-fld"><label>Timeframe (days)</label><input class="field-input" type="number" min="1" max="400" x-model.number="newsletter.config.timeframeDays" /></div>
-                      <div class="nlx-fld2">
-                        <div class="nlx-fld"><label>Cadence</label><select class="field-input" x-model="newsletter.config.cadence"><option value="weekly">Weekly</option><option value="biweekly">Every two weeks</option><option value="monthly">Monthly</option><option value="adhoc">Ad-hoc</option></select></div>
-                        <div class="nlx-fld"><label>Template</label><select class="field-input" x-model="newsletter.config.template"><option value="digest">Digest</option><option value="highlights">Highlights</option><option value="executive">Executive</option></select></div>
-                      </div>
+                      <div class="nlx-fld"><label>Template</label><select class="field-input" x-model="newsletter.config.template"><option value="digest">Digest</option><option value="highlights">Highlights</option><option value="executive">Executive</option></select></div>
+                      <p class="hint" style="margin:2px 0 6px;font-weight:400">Timeframe is set with the day chips next to Generate.</p>
                       <div class="nlx-fld"><label>Email to</label><input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" /></div>
                   </div>
                   <div class="nlx-acc" x-data="{ o:false }" :class="{ open:o }">
@@ -13321,7 +13325,24 @@
 
                 <!-- History stage -->
                 <div class="nlx-hist" x-show="newsletter.tab === 'history'">
-                  <p class="hint" x-show="!newsletter.versions.length" style="margin:0">No earlier versions yet. Each time you generate or save a draft, the previous one is snapshotted here.</p>
+                  <!-- The CURRENT issue shows first so it can be deleted like any other
+                       version — deleting it promotes the next-newest to current. -->
+                  <div class="connect-version-row" x-show="newsletter.draftText && newsletter.draftText.trim()">
+                    <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
+                      <div style="min-width:0">
+                        <strong x-text="newsletterCurrentTitle() || 'Untitled newsletter'"></strong>
+                        <span class="connect-src-badge" style="background:var(--cp-accent-soft);color:var(--cp-text)">Current</span>
+                        <span class="connect-src-badge" x-show="newsletter.state && newsletter.state.draft && newsletter.state.draft.source === 'ai'" x-text="'✨ AI'"></span>
+                      </div>
+                      <div class="connect-mem-actions">
+                        <a href="#" @click.prevent="newsletterViewVersion('__current__')" x-text="newsletter._viewVersionId === '__current__' ? 'Hide' : 'View'"></a>
+                        <span class="dot">·</span>
+                        <a href="#" @click.prevent="newsletterDeleteCurrent()" style="color:var(--cp-danger)">Delete</a>
+                      </div>
+                    </div>
+                    <div class="connect-version-preview nl-preview md-output" x-show="newsletter._viewVersionId === '__current__'" x-html="newsletterRenderHtml(newsletter.draftText || '')"></div>
+                  </div>
+                  <p class="hint" x-show="!newsletter.versions.length && !(newsletter.draftText && newsletter.draftText.trim())" style="margin:0">No earlier versions yet. Each time you generate or save a draft, the previous one is snapshotted here.</p>
                   <template x-for="v in newsletter.versions" :key="v.id">
                     <div class="connect-version-row">
                       <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap">
@@ -27018,6 +27039,42 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             await this.request('/api/newsletter/versions/' + encodeURIComponent(id), { method: 'DELETE' });
             this.newsletterLoadVersions();
+          } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
+        },
+        // Title of the CURRENT issue (H1 in the draft body, else the saved title).
+        newsletterCurrentTitle() {
+          const nl = this.newsletter;
+          const md = nl.draftText || '';
+          const m = md.match(/^\s*#\s+(.+?)\s*$/m);
+          if (m && m[1]) return m[1].trim();
+          return (nl.draftTitle || '').trim();
+        },
+        // Delete the CURRENT issue; the newest history version is promoted to current.
+        async newsletterDeleteCurrent() {
+          const nl = this.newsletter;
+          const hasHistory = Array.isArray(nl.versions) && nl.versions.length > 0;
+          const ok = await this.uiConfirm({
+            title: 'Delete current newsletter',
+            message: hasHistory
+              ? 'Delete the current issue? The most recent version in history will become the current newsletter.'
+              : 'Delete the current issue? There are no earlier versions, so this will clear the newsletter.',
+            confirmLabel: 'Delete',
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            const r = await this.request('/api/newsletter/current/delete', { method: 'POST', body: JSON.stringify({}) });
+            if (r && r.state) {
+              nl.state = r.state;
+              if (r.state.config) nl.config = r.state.config;
+              const d = r.state.draft || null;
+              nl.draftText = (d && d.markdown) || '';
+              nl.draftTitle = (d && d.title) || '';
+              nl.draftDirty = false;
+            }
+            nl._viewVersionId = null;
+            await this.newsletterLoadVersions();
+            this.toast(r && r.promoted ? 'Deleted — promoted the previous version to current' : 'Newsletter deleted', 'success');
           } catch (e) { this.toast('Delete failed: ' + (e.message || e), 'error'); }
         },
         async newsletterRenameVersion(v) {

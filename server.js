@@ -10889,6 +10889,14 @@ app.patch('/api/newsletter/versions/:id', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Delete the CURRENT issue and promote the newest history version to current.
+app.post('/api/newsletter/current/delete', (req, res) => {
+  try {
+    const { state, promoted } = newsletter.deleteCurrentPromoteLatest();
+    res.json({ ok: true, state, promoted });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Compose a styled, self-contained HTML newsletter and open it as a draft email.
 app.post('/api/newsletter/email', async (req, res) => {
   try {
