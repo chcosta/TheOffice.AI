@@ -11064,10 +11064,24 @@ app.post('/api/connect/assistant', async (req, res) => {
 // ADO config so the user configures them in one place.
 const ME_AI_AGENDA_DIR = path.join(dataPath('me-ai'), 'agenda');
 
+// Normalize the configured work-week to a sorted array of unique weekday
+// indices (0=Sun .. 6=Sat). Default: Mon–Fri. Accepts an array or object map.
+function _meAiSanitizeWorkDays(v) {
+  const def = [1, 2, 3, 4, 5];
+  let src = v;
+  if (src && typeof src === 'object' && !Array.isArray(src)) {
+    src = Object.keys(src).filter(k => src[k]).map(Number);
+  }
+  if (!Array.isArray(src)) return def.slice();
+  const out = [...new Set(src.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+  return out; // may legitimately be empty (user works no days)
+}
+
 function _meAiConfig(s) {
   s = s || settings.getSettings();
   const targets = _connectAdoTargets(s);
   const grid = [5, 10, 15].includes(Number(s.meAiGrid)) ? Number(s.meAiGrid) : 10;
+  const workDays = _meAiSanitizeWorkDays(s.meAiWorkDays);
   return {
     consent: !!s.meAiConsent,
     workStart: s.meAiWorkStart || '08:00',
@@ -11075,8 +11089,13 @@ function _meAiConfig(s) {
     lunchStart: s.meAiLunchStart || '',
     lunchEnd: s.meAiLunchEnd || '',
     grid,
+    workDays,
     hasAdo: targets.length > 0,
     adoOrgs: targets.map(t => t.org),
+    hasGithub: (() => {
+      try { return (loadCodeflowRepos() || []).some(r => String((r && r.provider) || 'azdo').toLowerCase() === 'github'); }
+      catch { return false; }
+    })(),
   };
 }
 
@@ -11148,6 +11167,53 @@ async function _meAiGatherAdo(s, date) {
         }
       } catch (e) { errors.push(`review-prs ${org}/${project}: ${e.message}`); }
     }
+  }
+  return { signals, errors };
+}
+
+// GitHub signals for the day: issues assigned to me (focus), PRs I authored
+// (steward), and PRs awaiting my review (needs-attention). Owners are the
+// distinct GitHub accounts tracked in Code Flow. Best-effort per owner — a
+// failed owner never sinks the others, mirroring _meAiGatherAdo.
+async function _meAiGatherGithub(s, date) {
+  const signals = [], errors = [];
+  let repos = [];
+  try { repos = (loadCodeflowRepos() || []).filter(r => String((r && r.provider) || 'azdo').toLowerCase() === 'github'); }
+  catch { repos = []; }
+  // Distinct owners, preserving original casing for the API calls.
+  const ownerCase = new Map();
+  for (const r of repos) {
+    const o = String((r && r.org) || '').trim();
+    if (o && !ownerCase.has(o.toLowerCase())) ownerCase.set(o.toLowerCase(), o);
+  }
+  if (!ownerCase.size) return { signals, errors };
+  const startD = new Date(date + 'T00:00:00');
+  startD.setDate(startD.getDate() - 14);
+  const start = startD.toISOString().slice(0, 10);
+  let login = '';
+  try { const me = await github.getCurrentUser(); login = String((me && me.login) || ''); }
+  catch (e) { errors.push(`github auth: ${e.message}`); return { signals, errors }; }
+  const meLc = login.toLowerCase();
+  const DONE = new Set(['closed', 'done', 'merged', 'completed']);
+  for (const [, owner] of ownerCase) {
+    try {
+      const wis = await github.listMyWorkItems(owner, '', { start, end: date });
+      for (const w of wis) {
+        if (DONE.has(String(w.state || '').toLowerCase())) continue;
+        signals.push({ kind: 'workitem', type: 'focus', title: `Issue #${w.id}: ${w.title}`, detail: `${owner} · ${w.state || ''}`.trim(), link: w.url || '', urgency: 2, source: 'github' });
+      }
+    } catch (e) { errors.push(`gh issues ${owner}: ${e.message}`); }
+    try {
+      const prs = await github.listProjectPullRequests(owner, '', { creatorId: login, status: 'active', top: 50 });
+      for (const pr of prs) signals.push({ kind: 'pr', type: 'steward', title: `PR #${pr.id}: ${pr.title}`, detail: `${pr.repo || owner} · yours`, link: pr.url || '', urgency: 3, source: 'github' });
+    } catch (e) { errors.push(`gh prs ${owner}: ${e.message}`); }
+    try {
+      const prs = await github.listProjectPullRequests(owner, '', { reviewerId: login, status: 'active', top: 50 });
+      for (const pr of prs) {
+        if (pr.createdBy && String(pr.createdBy.id || '').toLowerCase() === meLc) continue; // my own PR
+        signals.push({ kind: 'pr', type: 'review', title: `Review PR #${pr.id}: ${pr.title}`, detail: `${pr.repo || owner} · ${(pr.createdBy && pr.createdBy.name) || 'author'}`, link: pr.url || '', urgency: 4, source: 'github' });
+      }
+    } catch (e) { errors.push(`gh review-prs ${owner}: ${e.message}`); }
   }
   return { signals, errors };
 }
@@ -11306,17 +11372,39 @@ async function generateMeAiAgenda({ date, todos } = {}) {
   const s = settings.getSettings();
   const cfg = _meAiConfig(s);
   const day = String(date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  // Work-week guard (REQ-2): on a configured non-work day we don't build a
+  // schedule or read your accounts — just an empty "not a work day" agenda.
+  // User todos still pass through so anything explicitly planned stays visible.
+  const dow = (() => { const d = new Date(day + 'T00:00:00'); return isNaN(d) ? null : d.getDay(); })();
+  const isWorkDay = dow == null ? true : (cfg.workDays || []).includes(dow);
+  if (!isWorkDay) {
+    const agenda = {
+      date: day,
+      generatedAt: new Date().toISOString(),
+      config: { workStart: cfg.workStart, workEnd: cfg.workEnd, lunchStart: cfg.lunchStart, lunchEnd: cfg.lunchEnd, grid: cfg.grid },
+      blocks: [],
+      backlog: [],
+      needsAttention: [],
+      todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim() })).filter(t => t.title),
+      meta: { refined: false, consent: cfg.consent, notWorkDay: true, sources: { m365: false, azdo: false, github: false, codeflow: false }, signalCount: 0, errors: [] },
+    };
+    saveAgendaForDate(day, agenda);
+    return agenda;
+  }
   const signals = [];
   const errors = [];
-  const sources = { m365: false, azdo: false, codeflow: false };
-  // M365 + ADO only run with consent (they read your accounts). Code Flow is
-  // local data, always safe to read.
+  const sources = { m365: false, azdo: false, github: false, codeflow: false };
+  // M365 + ADO + GitHub only run with consent (they read your accounts). Code
+  // Flow is local data, always safe to read.
   if (cfg.consent) {
     const m365 = await _meAiGatherM365(day);
     if (m365.length) { signals.push(...m365); sources.m365 = true; }
     const ado = await _meAiGatherAdo(s, day);
     if (ado.signals.length) { signals.push(...ado.signals); sources.azdo = true; }
     if (ado.errors.length) errors.push(...ado.errors);
+    const gh = await _meAiGatherGithub(s, day);
+    if (gh.signals.length) { signals.push(...gh.signals); sources.github = true; }
+    if (gh.errors.length) errors.push(...gh.errors);
   }
   const cf = _meAiGatherCodeflow();
   if (cf.length) { signals.push(...cf); sources.codeflow = true; }
@@ -11330,7 +11418,7 @@ async function generateMeAiAgenda({ date, todos } = {}) {
     backlog: pre.backlog,
     needsAttention: pre.needsAttention,
     todos: (todos || []).map(t => ({ title: String((t && t.title) || '').trim() })).filter(t => t.title),
-    meta: { refined: !!refined, consent: cfg.consent, sources, signalCount: signals.length, errors },
+    meta: { refined: !!refined, consent: cfg.consent, notWorkDay: false, sources, signalCount: signals.length, errors },
   };
   saveAgendaForDate(day, agenda);
   return agenda;
@@ -11357,6 +11445,7 @@ app.put('/api/me-ai/settings', (req, res) => {
     if (b.lunchStart === '' || validHm(b.lunchStart)) patch.meAiLunchStart = b.lunchStart;
     if (b.lunchEnd === '' || validHm(b.lunchEnd)) patch.meAiLunchEnd = b.lunchEnd;
     if ([5, 10, 15].includes(Number(b.grid))) patch.meAiGrid = Number(b.grid);
+    if (b.workDays !== undefined) patch.meAiWorkDays = _meAiSanitizeWorkDays(b.workDays);
     settings.updateSettings(patch);
     res.json({ ok: true, config: _meAiConfig() });
   } catch (err) { res.status(500).json({ error: err.message }); }

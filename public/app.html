@@ -11536,6 +11536,10 @@
               .meai-hours { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; font-size:13px; }
               .meai-hours label { color:var(--cp-text-muted); }
               .meai-hours input, .meai-hours select { padding:5px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text); }
+            .meai-ww-days { display:flex; gap:4px; flex-wrap:wrap; }
+            .meai-ww-day { padding:4px 8px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-bg); color:var(--cp-text-muted); font-size:12px; cursor:pointer; transition:all .12s; }
+            .meai-ww-day:hover { border-color:var(--cp-accent); }
+            .meai-ww-day.on { background:var(--cp-accent-soft, rgba(88,166,255,.14)); color:var(--cp-text); border-color:var(--cp-accent); font-weight:600; }
               /* --- M2: Me-agent launch, at-work lane, console drawer --- */
               .meai-block-launch { margin-top:8px; }
               .meai-mini-btn { appearance:none; border:1px solid var(--cp-border); background:var(--cp-bg); color:var(--cp-text); font-size:12px; padding:4px 10px; border-radius:8px; cursor:pointer; }
@@ -11586,7 +11590,7 @@
               <div class="meai-head">
                 <div>
                   <h1 class="meai-title">🧭 Me.AI</h1>
-                  <p class="meai-scope">Your AI-planned daily agenda. Reads Code Flow<span x-show="meai.config.hasAdo"> · Azure DevOps</span><span x-show="meai.config.consent"> · calendar &amp; mail</span> to plan your day.</p>
+                  <p class="meai-scope">Your AI-planned daily agenda. Reads Code Flow<span x-show="meai.config.hasAdo"> · Azure DevOps</span><span x-show="meai.config.hasGithub"> · GitHub</span><span x-show="meai.config.consent"> · calendar &amp; mail</span> to plan your day.</p>
                 </div>
                 <div class="meai-datenav">
                   <button class="meai-daynav-btn" type="button" @click="meAiShiftDate(-1)" title="Previous day">‹</button>
@@ -11654,7 +11658,11 @@
                       </template>
                     </div>
                   </template>
-                  <div class="meai-empty" x-show="meai.loaded && (!meai.agenda || !(meai.agenda.blocks||[]).length)">
+                  <div class="meai-empty" x-show="meai.loaded && meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay">
+                    <p style="font-size:15px;margin:0 0 6px">🌤️ Not a work day.</p>
+                    <p style="font-size:13px;margin:0">This weekday is outside your work week. Adjust it under <strong>Working hours &amp; grid → Work week</strong> if that's not right.</p>
+                  </div>
+                  <div class="meai-empty" x-show="meai.loaded && (!meai.agenda || !(meai.agenda.blocks||[]).length) && !(meai.agenda && meai.agenda.meta && meai.agenda.meta.notWorkDay)">
                     <p style="font-size:15px;margin:0 0 6px">No agenda yet for this day.</p>
                     <p style="font-size:13px;margin:0">Click <strong>Generate agenda</strong> to plan it from your signals.</p>
                   </div>
@@ -11739,6 +11747,14 @@
                       <span style="display:flex;gap:6px;align-items:center"><input type="time" x-model="meai.config.lunchStart"> – <input type="time" x-model="meai.config.lunchEnd"></span>
                       <label>Grid</label>
                       <select x-model.number="meai.config.grid"><option :value="5">5 min</option><option :value="10">10 min</option><option :value="15">15 min</option></select>
+                    </div>
+                    <div class="meai-workweek">
+                      <label style="display:block;font-size:12px;color:var(--cp-text-muted);margin:10px 0 4px">Work week</label>
+                      <div class="meai-ww-days">
+                        <template x-for="(dn, di) in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']" :key="di">
+                          <button type="button" class="meai-ww-day" :class="{ on: (meai.config.workDays || []).includes(di) }" @click="meAiToggleWorkDay(di)" x-text="dn" :title="(meai.config.workDays || []).includes(di) ? 'Work day — click to skip' : 'Off day — click to enable'"></button>
+                        </template>
+                      </div>
                     </div>
                     <button class="btn ghost" type="button" style="margin-top:10px" @click="meAiSaveSettings()" :disabled="meai.savingSettings">Save preferences</button>
                     <div style="margin-top:10px;font-size:12px;color:var(--cp-text-muted)" x-show="meai.config.consent">
@@ -19130,7 +19146,7 @@
           loading: false,
           generating: false,
           savingSettings: false,
-          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [] },
+          config: { consent: false, workStart: '08:00', workEnd: '17:00', lunchStart: '12:00', lunchEnd: '12:30', grid: 10, hasAdo: false, adoOrgs: [], hasGithub: false, workDays: [1, 2, 3, 4, 5] },
           date: new Date().toISOString().slice(0, 10),
           today: new Date().toISOString().slice(0, 10),
           agenda: null,          // { date, blocks[], backlog[], needsAttention[], meta }
@@ -25453,6 +25469,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 workStart: c.workStart, workEnd: c.workEnd,
                 lunchStart: c.lunchStart, lunchEnd: c.lunchEnd,
                 grid: Number(c.grid) || 10,
+                workDays: Array.isArray(c.workDays) ? c.workDays : [1, 2, 3, 4, 5],
               }),
             });
             if (r && r.config) this.meai.config = Object.assign({}, this.meai.config, r.config);
@@ -25462,6 +25479,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             this.meai.savingSettings = false;
           }
+        },
+        meAiToggleWorkDay(di) {
+          di = Number(di);
+          if (!Array.isArray(this.meai.config.workDays)) this.meai.config.workDays = [1, 2, 3, 4, 5];
+          const arr = this.meai.config.workDays;
+          const i = arr.indexOf(di);
+          if (i >= 0) arr.splice(i, 1); else { arr.push(di); arr.sort((a, b) => a - b); }
         },
         async meAiSetConsent(v) {
           this.meai.config.consent = !!v;
