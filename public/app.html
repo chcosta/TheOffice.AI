@@ -2421,6 +2421,8 @@
     .cf-stat.cf-tone-warn .cf-stat-v { color:var(--cp-warning); font-weight:600; }
     .cf-stat.cf-tone-bad .cf-stat-v { color:var(--cp-danger); font-weight:700; }
     .cf-stat.cf-tone-muted .cf-stat-v { color:var(--cp-text-muted); }
+    .cf-stat.cf-stat-link { cursor:pointer; }
+    .cf-stat.cf-stat-link:hover .cf-stat-v { text-decoration:underline; }
     .cf-sum-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr)); gap:8px; margin-bottom:10px; }
     .cf-sum-cell { display:flex; flex-direction:column; gap:2px; padding:7px 10px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); }
     .cf-sum-k { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:var(--cp-text-soft); }
@@ -9500,7 +9502,7 @@
                                         <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                         <div class="cf-stat-strip" style="margin-top:8px">
                                           <template x-for="st in devFaceStats(d)" :key="st.k">
-                                            <span class="cf-stat" :class="'cf-tone-' + st.tone">
+                                            <span class="cf-stat" :class="'cf-tone-' + st.tone + (st.href && st.href!=='#' ? ' cf-stat-link' : '')" :title="st.href && st.href!=='#' ? 'Open in Azure DevOps' : ''" @click="openDevStat(st, $event)">
                                               <span class="cf-stat-k" x-text="st.k"></span>
                                               <span class="cf-stat-v" x-text="st.v"></span>
                                             </span>
@@ -10730,7 +10732,7 @@
                                   <div class="hint" x-show="!(d.summary && d.summary.text) && devBusy[d.id]!=='summary'" style="font-size:12px">No summary yet — it generates automatically once the work item, PR or worktree is read, or click ↻ Refresh to review now.</div>
                                   <div class="cf-stat-strip" style="margin-top:8px">
                                     <template x-for="st in devFaceStats(d)" :key="st.k">
-                                      <span class="cf-stat" :class="'cf-tone-' + st.tone">
+                                      <span class="cf-stat" :class="'cf-tone-' + st.tone + (st.href && st.href!=='#' ? ' cf-stat-link' : '')" :title="st.href && st.href!=='#' ? 'Open in Azure DevOps' : ''" @click="openDevStat(st, $event)">
                                         <span class="cf-stat-k" x-text="st.k"></span>
                                         <span class="cf-stat-v" x-text="st.v"></span>
                                       </span>
@@ -30071,7 +30073,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!this._tbxSwipeArmed) {
               if (Math.abs(ddx) < 6 && Math.abs(ddy) < 6) return;      // below threshold — wait
               if (ddx < 0 && Math.abs(ddx) > Math.abs(ddy)) this._tbxSwipeArmed = true; // leftward → swipe
-              else { this._tbxSwipeCleanup(); return; }                 // right/up/down → let native drag own it
+              else { this._tbxSwipeCleanup(); return; }                 // not leftward → dragstart gate decides (right = drag; up/down = neither)
             }
             let dx = ddx + (startOpen ? -66 : 0);
             if (dx > 0) dx = 0;
@@ -30195,9 +30197,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // On drag-start immediately switch to the target board section so the user can
         // see where the drop will land (instead of waiting for release).
         onTbxItemDragStart(p, ev) {
-          // Whole-row native drag. If the pointer is mid leftward-swipe, cancel the native
-          // drag so the pointer swipe (delete) owns the gesture instead of place-on-board.
-          if (this._tbxSwipeArmed || (this._tbxSwipeDX < 0)) { try { ev.preventDefault(); } catch {} return; }
+          // Whole-row native drag = place on a board. Only a RIGHTWARD-dominant gesture
+          // starts it; LEFT arms the swipe (unpin/delete) and pure up/down does NEITHER,
+          // so dragging a row toward the unpin action isn't hijacked into place-on-board.
+          const ddx = ev.clientX - (this._tbxSwipeStartX || 0);
+          const ddy = ev.clientY - (this._tbxSwipeStartY || 0);
+          const rightward = ddx > 0 && Math.abs(ddx) >= Math.abs(ddy);
+          if (this._tbxSwipeArmed || !rightward) { try { ev.preventDefault(); } catch {} return; }
           this._tbxSwipeCleanup();
           this.onToolboxDragStart(this.panelBaseId(p), ev);
         },
@@ -33523,7 +33529,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (d.workItemId) {
             const done = this.devWorkItemDone(d);
             const state = (d.workItem && d.workItem.state) || '';
-            out.push({ k: 'Work item', v: '#' + d.workItemId + (state ? ' · ' + state : ''), tone: done ? 'muted' : 'ok' });
+            out.push({ k: 'Work item', v: '#' + d.workItemId + (state ? ' · ' + state : ''), tone: done ? 'muted' : 'ok', href: this.devWorkItemUrl(d) });
           }
           const slots = this.devSlots(d);
           if (slots.length) {
@@ -33540,7 +33546,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (prSlots.length === 1) {
             const p = prSlots[0].pr;
             const st = (p && p.status) || 'open';
-            out.push({ k: 'PR', v: '!' + prSlots[0].prId + ' · ' + st, tone: st === 'completed' ? 'muted' : 'ok' });
+            out.push({ k: 'PR', v: '!' + prSlots[0].prId + ' · ' + st, tone: st === 'completed' ? 'muted' : 'ok', href: this.devPrUrl(prSlots[0]) });
           } else if (prSlots.length > 1) {
             out.push({ k: 'PRs', v: prSlots.length + ' open', tone: 'ok' });
           }
@@ -33550,6 +33556,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out.push({ k: 'Git', v: gitAttn ? 'needs attention' : 'clean', tone: gitAttn ? 'warn' : 'ok' });
           }
           return out;
+        },
+        openDevStat(st, ev) {
+          if (st && st.href && st.href !== '#') { try { ev.stopPropagation(); } catch {} window.open(st.href, '_blank', 'noopener'); }
         },
         // ----- Create / edit modal -----
         // ---- Create Standup Agent ----------------------------------------
