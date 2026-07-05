@@ -49,3 +49,5 @@ _*.mjs
 tmp_probe/
 _srv.err
 _srv.out
+# Me.AI design mockup (throwaway reference, not a production page)
+public/me-ai-mockup.html

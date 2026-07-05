@@ -12796,6 +12796,9 @@ function _meAiTaskPublic(t) {
 }
 // Push a transcript event, persist, and stream it live over the shared SSE bus.
 function _meAiEmit(t, ev) {
+  // The self-review gate (REQ-6) runs the review playbook on an ephemeral task
+  // that must not surface in the "at work" lane, persist, or broadcast SSE.
+  if (t && t._ephemeral) { t.seq = (t.seq || 0) + 1; return; }
   t.seq = (t.seq || 0) + 1;
   const e = Object.assign({ seq: t.seq, at: Date.now() }, ev);
   t.events = t.events || [];
@@ -13163,6 +13166,158 @@ function _meAiWriteDiary(t) {
     return { written: false, reason: e.message };
   }
 }
+
+// ── REQ-6: Self-review quality gate (design §19) ────────────────────────────
+// Formalizes the M2 code-review playbook as a routine PRE-COMMIT self-review of
+// agent-authored changes. Two independent passes over the current working tree:
+//   (1) MECHANICAL — deterministic, SDK-free syntax gates (the same ones the
+//       building-agent must run by hand: `node --check` on changed root JS, and
+//       when app.html changed both `node _syntax.mjs` AND an extracted
+//       largest-<script> `node --check` — the stronger gate that has caught
+//       corruption `_syntax.mjs` alone missed). These HARD-FAIL the gate.
+//   (2) REVIEW — the senior-review Me-agent pointed at the live diff. high/medium
+//       findings block; low findings are surfaced but do not fail (triage rule:
+//       fix real high/med, justify/dismiss low). Best-effort: if the SDK is
+//       unavailable the mechanical gate still governs and review is flagged.
+// Never auto-applies fixes — it only reports, so a human/agent decides.
+function _meAiExec(cmd, args, opts) {
+  return new Promise((resolve) => {
+    try {
+      require('child_process').execFile(cmd, args, {
+        cwd: __dirname, timeout: 90000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, ...(opts || {}),
+      }, (err, stdout, stderr) => {
+        resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
+      });
+    } catch (e) { resolve({ code: 1, stdout: '', stderr: String(e && e.message || e) }); }
+  });
+}
+// Union of staged + unstaged + untracked files (repo-relative), from git status.
+function _meAiChangedFiles(cwd) {
+  try {
+    const out = require('child_process').execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 8000 });
+    const files = [];
+    for (const line of out.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      let p = line.slice(3).trim();               // strip the "XY " status prefix
+      const arrow = p.indexOf(' -> ');
+      if (arrow >= 0) p = p.slice(arrow + 4).trim(); // renames: take the new path
+      p = p.replace(/^"(.*)"$/, '$1');
+      if (p) files.push(p);
+    }
+    return Array.from(new Set(files));
+  } catch (_) { return []; }
+}
+// The stronger app.html gate: extract the largest inline <script> and node --check it.
+async function _meAiCheckLargestScript(cwd) {
+  const name = 'node --check (largest app.html script)';
+  try {
+    const html = fs.readFileSync(path.join(cwd, 'public', 'app.html'), 'utf-8');
+    const re = /<script\b[^>]*>([\s\S]*?)<\/script>/gi; let m, best = '';
+    while ((m = re.exec(html))) { if (/\bsrc\s*=/.test(m[0])) continue; if (m[1].length > best.length) best = m[1]; }
+    if (!best.trim()) return { name, pass: true, detail: 'No inline script found.' };
+    const tmp = path.join(require('os').tmpdir(), `me-ai-selfreview-${Date.now()}.js`);
+    fs.writeFileSync(tmp, best, 'utf-8');
+    const r = await _meAiExec(process.execPath, ['--check', tmp], { cwd });
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    return { name, pass: r.code === 0, detail: (r.stderr || r.stdout || '').trim().slice(0, 1200) };
+  } catch (e) { return { name, pass: false, detail: String(e && e.message || e).slice(0, 400) }; }
+}
+// Deterministic syntax gates over the changed files.
+async function _meAiMechChecks(cwd, files) {
+  const checks = [];
+  const jsFiles = files.filter(f => /\.(js|mjs|cjs)$/i.test(f) && fs.existsSync(path.join(cwd, f)));
+  for (const f of jsFiles) {
+    const r = await _meAiExec(process.execPath, ['--check', f], { cwd });
+    checks.push({ name: `node --check ${f}`, pass: r.code === 0, detail: (r.stderr || r.stdout || '').trim().slice(0, 1200) });
+  }
+  const appHtmlChanged = files.some(f => /(^|[\\/])app\.html$/i.test(f));
+  if (appHtmlChanged) {
+    const s = await _meAiExec(process.execPath, ['_syntax.mjs'], { cwd });
+    checks.push({ name: 'node _syntax.mjs', pass: s.code === 0 && /,\s*0 errors/.test(s.stdout), detail: (s.stdout || s.stderr || '').trim().slice(0, 1200) });
+    checks.push(await _meAiCheckLargestScript(cwd));
+  }
+  if (!checks.length) checks.push({ name: 'syntax', pass: true, detail: 'No JS or app.html changes to syntax-check.' });
+  return checks;
+}
+// Resolve a client-supplied cwd to a SAFE checkout root. The gate runs git +
+// `node --check` in this directory, so an arbitrary path would let a localhost
+// tab execute commands anywhere the process can reach. Only accept a directory
+// that (a) exists and (b) is a git working tree (contains .git) — otherwise fall
+// back to this server's own repo (__dirname). Neutralizes out-of-repo traversal.
+function _meAiSafeCwd(cwd) {
+  if (!cwd || typeof cwd !== 'string' || !cwd.trim()) return __dirname;
+  let resolved;
+  try { resolved = path.resolve(cwd.trim()); } catch (_) { return __dirname; }
+  try {
+    if (resolved === __dirname) return __dirname;
+    const st = fs.statSync(resolved);
+    if (!st.isDirectory()) return __dirname;
+    if (!fs.existsSync(path.join(resolved, '.git'))) return __dirname; // not a checkout
+    return resolved;
+  } catch (_) { return __dirname; }
+}
+// Only one self-review may run at a time — each spawns child processes (and an
+// SDK turn), so overlapping invocations would race and could overload the host.
+let _meAiSelfReviewPromise = null;
+// Run both passes and compute the gate verdict.
+async function _meAiSelfReview({ cwd, review } = {}) {
+  const root = _meAiSafeCwd(cwd);
+  const files = _meAiChangedFiles(root);
+  const mechChecks = await _meAiMechChecks(root, files);
+  const mechPass = mechChecks.every(c => c.pass);
+  const verdict = {
+    cwd: root, changedFiles: files,
+    mechanical: { pass: mechPass, checks: mechChecks },
+    counts: { high: 0, medium: 0, low: 0 }, blocking: [],
+  };
+  if (files.length === 0) {
+    verdict.review = { status: 'skipped', reason: 'no-changes' };
+    verdict.pass = mechPass;
+    return verdict;
+  }
+  if (review === false) {
+    verdict.review = { status: 'skipped', reason: 'mechanical-only' };
+    verdict.pass = mechPass;
+    return verdict;
+  }
+  // Reuse the M2 review playbook on an ephemeral task (no lane / SSE / persistence).
+  const t = { id: 'selfreview', _ephemeral: true, playbook: 'review', context: { cwd: root }, sessionId: require('crypto').randomUUID(), events: [], seq: 0, date: new Date().toISOString().slice(0, 10) };
+  const prompt = _meAiPlaybookPrompt('review', t.context, root);
+  try {
+    // Runs directly (not via _meAiSchedule) by design: this is an on-demand,
+    // single-flight, developer-blocking pre-commit gate. Queueing it behind the
+    // ME_AI_MAX_CONCURRENT background lane could stall the gate behind long tasks;
+    // the single-flight lock caps it at one transient session above the soft cap.
+    const out = await _meAiRunTurn(t, prompt, { resume: false });
+    const { report } = _meAiParseReport(out);
+    const findings = Array.isArray(report.findings) ? report.findings : [];
+    for (const f of findings) verdict.counts[f.severity] = (verdict.counts[f.severity] || 0) + 1;
+    verdict.blocking = findings.filter(f => f.severity === 'high' || f.severity === 'medium');
+    verdict.review = { status: 'ok', summary: report.summary || '', findings, markdown: report.markdown || '' };
+    verdict.pass = mechPass && verdict.blocking.length === 0;
+  } catch (e) {
+    // SDK unavailable / runtime error — mechanical result still governs the gate.
+    verdict.review = { status: e && e._fallback ? 'unavailable' : 'error', error: String(e && e.message || e) };
+    verdict.pass = mechPass;
+  }
+  return verdict;
+}
+// POST /api/me-ai/self-review { cwd?, review? } → run the pre-commit quality gate.
+app.post('/api/me-ai/self-review', async (req, res) => {
+  // Single-flight: the check + assignment run synchronously with no await between
+  // them, so a second request always observes a non-null promise and is rejected.
+  if (_meAiSelfReviewPromise) {
+    return res.status(409).json({ error: 'A self-review is already running — wait for it to finish.' });
+  }
+  const b = req.body || {};
+  const review = b.review === false ? false : true;
+  _meAiSelfReviewPromise = _meAiSelfReview({ cwd: b.cwd, review });
+  try {
+    const verdict = await _meAiSelfReviewPromise;
+    res.json({ ok: true, verdict });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+  finally { _meAiSelfReviewPromise = null; }
+});
 
 // POST /api/me-ai/task/dispatch { playbook, title, context, date } → start a Me agent.
 app.post('/api/me-ai/task/dispatch', (req, res) => {
