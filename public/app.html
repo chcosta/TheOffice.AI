@@ -11623,6 +11623,7 @@
               .meai-inbox-title { color:var(--cp-text); font-weight:600; flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .meai-inbox-title.clickable:hover { color:var(--cp-accent); text-decoration:underline; }
               .meai-inbox-mention { flex:0 0 auto; font-size:11px; font-weight:600; color:var(--cp-accent); }
+              .meai-inbox-ts { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
               .meai-inbox-state { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
               .meai-inbox-detail { font-size:12.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.45; }
               .meai-inbox-acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
@@ -11961,12 +11962,13 @@
                   </button>
                 </div>
                 <div class="meai-inbox-list" x-show="meai.inboxOpen" x-transition>
-                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => x.triage!=='dismissed')" :key="it.id">
+                  <template x-for="(it, ii) in (meai.inbox.items||[]).filter(x => x.triage!=='dismissed' && x.triage!=='wontfix')" :key="it.id">
                     <div class="meai-inbox-item" :class="{ fresh: it.triage==='new', parked: it.triage==='later' }">
                       <div class="meai-inbox-head">
                         <span class="meai-inbox-freshdot" x-show="it.triage==='new'"></span>
                         <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
                         <span class="meai-inbox-title clickable" :title="it.link ? 'Open' : ''" @click="it.link && window.open(it.link,'_blank')" x-text="it.title"></span>
+                        <span class="meai-inbox-ts" x-show="meAiInboxTs(it)" :title="it.ts||''" x-text="meAiInboxTs(it)"></span>
                         <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned directly">@you</span>
                         <span class="meai-inbox-state" x-show="it.triage==='later'">Parked</span>
                         <span class="meai-inbox-state" x-show="it.triage==='today'">On today</span>
@@ -11977,15 +11979,17 @@
                         <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
                         <button type="button" class="meai-tri" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
                         <button type="button" class="meai-tri" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
-                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — remove for today">Not mine</button>
+                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
+                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
                       </div>
                       <div class="meai-inbox-acts" x-show="it.triage==='later'">
                         <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
-                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy">Not mine</button>
+                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
+                        <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
                       </div>
                     </div>
                   </template>
-                  <div class="meai-inbox-empty" x-show="!(meai.inbox.items||[]).filter(x => x.triage!=='dismissed').length">
+                  <div class="meai-inbox-empty" x-show="!(meai.inbox.items||[]).filter(x => x.triage!=='dismissed' && x.triage!=='wontfix').length">
                     Nothing waiting — email &amp; Teams are quiet. <span class="meai-status-detail">New asks appear here automatically while you work.</span>
                   </div>
                 </div>
@@ -26177,6 +26181,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.toast('Parked — it\u2019ll stay on your attention rail', 'info');
             } else if (action === 'dismiss') {
               this.toast('Removed — won\u2019t resurface today', 'info');
+            } else if (action === 'wontfix') {
+              this.toast('Marked won\u2019t-fix — recorded for your report', 'info');
             }
           } catch (e) {
             this.toast('Triage failed: ' + (e.message || e), 'error');
@@ -26188,6 +26194,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiInboxNewCount() {
           return (this.meai.inbox.items || []).filter(i => i.triage === 'new').length;
+        },
+        // Compact absolute timestamp for an attention-inbox item (email received /
+        // Teams sent). Absolute (not relative) on purpose — the app's world clock and
+        // the browser clock differ, so relative math would mislead.
+        meAiInboxTs(it) {
+          const raw = it && it.ts;
+          if (!raw) return '';
+          const d = new Date(raw);
+          if (isNaN(d.getTime())) return '';
+          const datePart = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          if (!/\d{1,2}:\d{2}/.test(String(raw))) return datePart;
+          return datePart + ' \u00b7 ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         },
         async meAiGenerate(opts) {
           if (this.meai.generating) return;

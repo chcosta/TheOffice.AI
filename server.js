@@ -11194,6 +11194,7 @@ function _meAiMergeInbox(date, signals) {
     const base = {
       id, kind: sig.kind || 'email', title: String(sig.title || '').slice(0, 200),
       detail: String(sig.detail || '').slice(0, 200), link: sig.link || '', prLink: sig.prLink || '',
+      ts: sig.ts || '',
       directMention: !!sig.directMention, urgency: Number(sig.urgency) || 3, source: sig.source || 'm365',
     };
     const ex = byId.get(id);
@@ -11235,7 +11236,7 @@ function _meAiApplyInboxTriage(date, signals) {
   const present = new Set((signals || []).map(_meAiInboxId));
   for (const it of inbox.items) {
     if (it.triage === 'today' && !present.has(it.id)) {
-      out.push({ kind: it.kind, type: 'comms', title: it.title, detail: it.detail, start: null, end: null, link: it.link, prLink: it.prLink, directMention: it.directMention, urgency: 5, source: it.source || 'm365', pinned: true });
+      out.push({ kind: it.kind, type: 'comms', title: it.title, detail: it.detail, start: null, end: null, link: it.link, prLink: it.prLink, ts: it.ts || '', directMention: it.directMention, urgency: 5, source: it.source || 'm365', pinned: true });
     }
   }
   return out;
@@ -11549,7 +11550,7 @@ function _meAiGatherCodeflow() {
 async function _meAiGatherM365(date) {
   try {
     const mon = _meAiMonitoredRepos();
-    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean,"directMention":boolean,"prLink":string|null}. "directMention" is true ONLY if I am personally named / @mentioned or explicitly added as a required reviewer or attendee (NOT merely on a distribution list, CC line, or broad channel). "prLink" is the URL of the specific pull request this item is about, or null if it is not about a PR. If there is nothing, return [].`;
+    const prompt = `Build inputs for my daily agenda on ${date}. Using WorkIQ, return ONLY a JSON array (no prose, no code fence). Include: calendar meetings scheduled ON ${date} (with local start/end times), plus any emails or Teams messages from the last 2 days that need a reply or action from me. Each element: {"kind":"meeting"|"email"|"teams","title":string,"start":"HH:MM"|null,"end":"HH:MM"|null,"detail":string,"link":string|null,"needsReply":boolean,"directMention":boolean,"prLink":string|null,"ts":string|null}. "directMention" is true ONLY if I am personally named / @mentioned or explicitly added as a required reviewer or attendee (NOT merely on a distribution list, CC line, or broad channel). "prLink" is the URL of the specific pull request this item is about, or null if it is not about a PR. "ts" is the ISO 8601 timestamp (local) when the email was received or the Teams message was sent, or null for meetings / when unknown. If there is nothing, return [].`;
     const text = await _connectRunAgent('collector', prompt);
     const arr = _connectExtractJson(text);
     if (!Array.isArray(arr)) return [];
@@ -11559,6 +11560,7 @@ async function _meAiGatherM365(date) {
       const needsReply = !!(x && x.needsReply);
       const directMention = !!(x && x.directMention);
       const prLink = (x && typeof x.prLink === 'string') ? x.prLink : '';
+      const ts = (x && typeof x.ts === 'string' && x.ts.trim()) ? x.ts.trim() : '';
       // Email/Teams supersede rule (#4): an email only earns a needs-attention
       // slot over Code Flow PR work if I'm directly mentioned/added AND the PR it
       // references isn't already monitored in Code Flow. If Code Flow already
@@ -11578,6 +11580,7 @@ async function _meAiGatherM365(date) {
         end: hm(x && x.end),
         link: (x && x.link) || '',
         prLink,
+        ts,
         directMention,
         urgency,
         source: 'm365',
@@ -12526,20 +12529,23 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
     const id = String(b.id || '').trim();
     const action = String(b.action || '').trim();
-    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss'];
+    const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix'];
     if (!id || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
     const inbox = loadInboxForDate(date);
     const it = inbox.items.find(x => x.id === id);
     if (!it) return res.status(404).json({ error: 'not found' });
     const now = new Date().toISOString();
-    if (action === 'dismiss') {
-      // Mirror the "not mine" dismiss store so the item stays out of the agenda too.
+    if (action === 'dismiss' || action === 'wontfix') {
+      // Both remove the item from the agenda. 'dismiss' = "not mine" (someone else
+      // owns it); 'wontfix' = "mine, but I'm consciously declining to act". We keep
+      // the distinction on the item (triage) and in the dismiss store (reason) so
+      // the Reports page can tell an ignored ask from a deliberate no-op.
       try {
         const dm = loadDismissForDate(date);
-        dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now };
+        dm[_meAiDismissKey(it)] = { title: it.title, note: it.note || '', at: now, reason: action };
         saveDismissForDate(date, dm);
       } catch (_) { /* best-effort */ }
-      it.triage = 'dismissed';
+      it.triage = action === 'wontfix' ? 'wontfix' : 'dismissed';
     } else if (action === 'seen') {
       if (it.triage === 'new') it.triage = 'seen';
     } else {
