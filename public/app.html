@@ -11723,6 +11723,11 @@
               .meai-inbox-swipe-btn:hover { background:var(--cp-danger, #d9534f); }
               .meai-inbox-swipe-btn:disabled { opacity:.6; cursor:default; }
               .meai-inbox-done { margin-left:auto; flex:0 0 auto; }
+              /* Issue 8: compact one-line legend explaining the inbox state labels. */
+              .meai-inbox-legend { display:flex; flex-wrap:wrap; gap:6px 16px; padding:8px 14px; border-bottom:1px solid var(--cp-border); font-size:11px; color:var(--cp-text-muted); }
+              .meai-inbox-legend b { font-weight:600; color:var(--cp-text); }
+              .meai-inbox-legend b.meai-lg-you { color:var(--cp-accent); }
+              .meai-inbox-legend .meai-lg-hint { margin-left:auto; font-style:italic; }
               .meai-inbox-item.fresh { background:color-mix(in srgb, var(--cp-warning) 6%, transparent); }
               .meai-inbox-item.parked { opacity:.75; }
               .meai-inbox-head { display:flex; align-items:baseline; gap:8px; font-size:13px; }
@@ -11734,7 +11739,11 @@
               .meai-inbox-ts { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
               .meai-inbox-state { flex:0 0 auto; font-size:11px; color:var(--cp-text-muted); }
               .meai-inbox-detail { font-size:12.5px; color:var(--cp-text-muted); margin-top:4px; line-height:1.45; }
-              .meai-inbox-acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+              /* Issue 5: keep the row calm — reveal triage actions only on hover/focus of the
+                 item (no layout jump: space animates in). Matches the todo-x / launch-agent reveals. */
+              .meai-inbox-acts { display:flex; flex-wrap:wrap; gap:8px; margin-top:0; max-height:0; opacity:0; overflow:hidden; pointer-events:none; transition:opacity .12s ease, max-height .16s ease, margin-top .16s ease; }
+              .meai-inbox-item:hover .meai-inbox-acts,
+              .meai-inbox-item:focus-within .meai-inbox-acts { max-height:120px; opacity:1; margin-top:8px; pointer-events:auto; }
               .meai-tri { border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:4px 12px; font-size:12.5px; cursor:pointer; }
               .meai-tri:hover { border-color:var(--cp-accent); }
               .meai-tri.ghost { color:var(--cp-text-muted); }
@@ -11823,6 +11832,21 @@
               .meai-block-why { font-size:12px; color:var(--cp-text-muted); margin-top:5px; font-style:italic; }
               .meai-block-title.clickable, .meai-na-item.clickable { cursor:pointer; }
               .meai-caret { display:inline-block; width:12px; color:var(--cp-text-muted); font-size:10px; }
+              /* I2 drag-to-lock + I3 rename */
+              .meai-block-time[draggable="true"] { cursor:grab; }
+              .meai-block-time[draggable="true"]:active { cursor:grabbing; }
+              .meai-block.meai-drag-src, .meai-block-time.meai-drag-src { opacity:.5; }
+              .meai-block.meai-drop-hi > .meai-block-swipe > .meai-block-body { box-shadow:0 0 0 2px var(--cp-accent); }
+              .meai-title-wrap { display:inline-flex; align-items:center; gap:6px; }
+              .meai-lock-badge { font-size:11px; cursor:pointer; opacity:.85; }
+              .meai-lock-badge:hover { opacity:1; }
+              .meai-title-edit { border:0; background:transparent; color:var(--cp-text-muted); font-size:12px; cursor:pointer; padding:0 2px; opacity:0; transition:opacity .12s; }
+              .meai-block:hover .meai-title-edit { opacity:.7; }
+              .meai-title-edit:hover { opacity:1; color:var(--cp-accent); }
+              .meai-title-editrow { display:inline-flex; align-items:center; gap:6px; }
+              .meai-title-input { font-size:14px; font-weight:600; padding:2px 6px; border:1px solid var(--cp-border); border-radius:6px; background:var(--cp-surface); color:var(--cp-text); min-width:180px; }
+              .meai-title-save { border:1px solid var(--cp-accent); background:var(--cp-accent); color:#fff; font-size:12px; padding:2px 8px; border-radius:6px; cursor:pointer; }
+              .meai-title-cancel { border:0; background:transparent; color:var(--cp-text-muted); font-size:13px; cursor:pointer; padding:0 2px; }
               .meai-block-detail, .meai-na-detail { margin-top:6px; padding-top:6px; border-top:1px solid var(--cp-border); display:flex; flex-direction:column; gap:3px; }
               .meai-block-detail-text { font-size:12px; color:var(--cp-text-muted); }
               .meai-meta-row { display:flex; gap:8px; font-size:12px; }
@@ -12366,6 +12390,12 @@
                   </button>
                 </div>
                 <div class="meai-inbox-list" x-show="meai.inboxOpen" x-transition>
+                  <div class="meai-inbox-legend" x-show="(meai.inbox.items||[]).filter(x => !x.auto && x.triage!=='dismissed' && x.triage!=='wontfix' && x.triage!=='done').length">
+                    <span><b class="meai-lg-you">@you</b> mentioned by name</span>
+                    <span><b>On today</b> scheduled on your agenda</span>
+                    <span><b>Parked</b> saved for later</span>
+                    <span class="meai-lg-hint">hover an item for actions · swipe left to remove</span>
+                  </div>
                   <template x-if="meAiAutoHandled().length">
                     <div class="meai-auto">
                       <div class="meai-auto-head">
@@ -12393,22 +12423,23 @@
                           <span class="meai-inbox-kind" x-text="(it.kind||'email')==='teams'?'Teams':'Email'"></span>
                           <span class="meai-inbox-title clickable" :title="(it.link||it.prLink) ? 'Open' : ''" @click="meAiInboxOpen(it)" x-text="it.title"></span>
                           <span class="meai-inbox-ts" x-show="meAiInboxTs(it)" :title="it.ts||''" x-text="meAiInboxTs(it)"></span>
-                          <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned directly">@you</span>
-                          <span class="meai-inbox-state" x-show="it.triage==='later'">Parked</span>
-                          <span class="meai-inbox-state" x-show="it.triage==='today'">On today</span>
-                          <span class="meai-inbox-state" x-show="it.triage==='now'">Handling</span>
-                          <button type="button" class="meai-tri ghost meai-inbox-done" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">✓ Done</button>
+                          <span class="meai-inbox-mention" x-show="it.directMention" title="You were mentioned by name — this ask is pointed straight at you">@you</span>
+                          <span class="meai-inbox-state" x-show="it.triage==='later'" title="Parked — saved on your attention rail for later; not on today's agenda">Parked</span>
+                          <span class="meai-inbox-state" x-show="it.triage==='today'" title="On today — this ask is scheduled into today's agenda">On today</span>
+                          <span class="meai-inbox-state" x-show="it.triage==='now'" title="A Me-agent is handling this for you right now">Handling</span>
                         </div>
                         <div class="meai-inbox-detail" x-show="it.detail" x-text="it.detail"></div>
                         <div class="meai-inbox-acts" x-show="it.triage==='new' || it.triage==='seen'">
                           <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy" title="Fit into today's agenda">Fit into today</button>
                           <button type="button" class="meai-tri" @click="meAiTriage(it,'now')" :disabled="meai.inboxBusy" title="Handle it now with a Me-agent">Handle now</button>
                           <button type="button" class="meai-tri" @click="meAiTriage(it,'later')" :disabled="meai.inboxBusy" title="Deal with it later">Later</button>
+                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">Mark as done</button>
                           <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
                           <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
                         </div>
                         <div class="meai-inbox-acts" x-show="it.triage==='later'">
                           <button type="button" class="meai-tri" @click="meAiTriage(it,'today')" :disabled="meai.inboxBusy">Fit into today</button>
+                          <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'done')" :disabled="meai.inboxBusy" title="I've already handled this — mark it done (counts as completed, not declined)">Mark as done</button>
                           <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'dismiss')" :disabled="meai.inboxBusy" title="Not mine — someone else owns this">Not mine</button>
                           <button type="button" class="meai-tri ghost" @click="meAiTriage(it,'wontfix')" :disabled="meai.inboxBusy" title="Mine, but I'm not going to act on it (recorded for your report)">Won't fix</button>
                         </div>
@@ -12445,8 +12476,13 @@
                         </template>
                       </div>
                       <template x-for="(b, bi) in meai.agenda.blocks" :key="bi">
-                        <div class="meai-block">
-                          <div class="meai-block-time" x-text="_meAiFmtHm(b.start)"></div>
+                        <div class="meai-block"
+                             :class="{ 'meai-drop-hi': meai.dragBlockKey && meai.dragBlockKey!==meAiItemKey('b',b,bi) && meai.dropTargetKey===meAiItemKey('b',b,bi), 'meai-locked': b.meta && b.meta.locked }"
+                             @dragover.prevent="meAiBlockDragOver($event,b,bi)" @drop.prevent="meAiBlockDrop($event,b,bi)">
+                          <div class="meai-block-time" x-text="_meAiFmtHm(b.start)"
+                               draggable="true" @dragstart="meAiBlockDragStart($event,b,bi)" @dragend="meAiBlockDragEnd()"
+                               :class="{ 'meai-drag-src': meai.dragBlockKey===meAiItemKey('b',b,bi) }"
+                               title="Drag onto a time slot to lock this item there"></div>
                           <div class="meai-block-swipe">
                             <!-- Disposition strip: revealed by swiping the row left or tapping ⋮.
                                  Available on ANY agenda item. Lives behind the body (opaque), which
@@ -12464,9 +12500,24 @@
                             <button class="meai-dismiss" type="button"
                                     @click.stop="meAiBlockSwipeToggle(b,bi)" @pointerdown.stop title="Remove / defer this item">⋮</button>
                             <div class="meai-block-title" :class="{ clickable: meAiHasDetail(b) }"
-                                 @click="!_blockSwipeMoved && meAiHasDetail(b) && meAiToggle(meAiItemKey('b',b,bi))">
+                                 @click="!_blockSwipeMoved && !meAiIsEditing(b,bi) && meAiHasDetail(b) && meAiToggle(meAiItemKey('b',b,bi))">
                               <span x-show="meAiHasDetail(b)" class="meai-caret" x-text="meAiExpanded(meAiItemKey('b',b,bi))?'▾':'▸'"></span>
-                              <span x-text="b.title"></span>
+                              <template x-if="!meAiIsEditing(b,bi)">
+                                <span class="meai-title-wrap">
+                                  <span x-text="b.title"></span>
+                                  <span x-show="b.meta && b.meta.locked" class="meai-lock-badge" title="Locked to this time — click to unlock" @click.stop="meAiUnlockBlock(b,bi)" @pointerdown.stop>🔒</span>
+                                  <button class="meai-title-edit" type="button" title="Rename this item" @click.stop="meAiStartRename(b,bi)" @pointerdown.stop>✎</button>
+                                </span>
+                              </template>
+                              <template x-if="meAiIsEditing(b,bi)">
+                                <span class="meai-title-editrow" @click.stop @pointerdown.stop>
+                                  <input class="meai-title-input" type="text" x-model="meai.editBlockTitle"
+                                         @keydown.enter.prevent="meAiCommitRename(b,bi)" @keydown.escape.prevent="meAiCancelRename()"
+                                         x-init="$nextTick(() => $el.focus())">
+                                  <button class="meai-title-save" type="button" @click.stop="meAiCommitRename(b,bi)">Save</button>
+                                  <button class="meai-title-cancel" type="button" title="Cancel" @click.stop="meAiCancelRename()">✕</button>
+                                </span>
+                              </template>
                             </div>
                             <div class="meai-block-meta">
                               <span x-text="_meAiFmtHm(b.start) + '–' + _meAiFmtHm(b.end)"></span>
@@ -12483,7 +12534,7 @@
                                     <div class="meai-detail-item">
                                       <div class="meai-detail-item-head">
                                         <span class="meai-detail-item-title" x-text="it.title"></span>
-                                        <a class="meai-detail-link" x-show="it.link" :href="it.link" target="_blank" rel="noopener" x-text="b.type==='comms' ? 'Open to reply ↗' : 'Open ↗'"></a>
+                                        <a class="meai-detail-link" x-show="it.link" :href="meAiCfKey(it) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(it))) : it.link" :target="meAiCfKey(it) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(it)" x-text="meAiCfKey(it) ? 'Open in Code Flow →' : (b.type==='comms' ? 'Open to reply ↗' : 'Open ↗')"></a>
                                       </div>
                                       <div class="meai-detail-item-why" x-show="it.why" x-text="it.why"></div>
                                       <template x-for="row in meAiMetaRows(it)" :key="row[0]">
@@ -12499,7 +12550,7 @@
                                   <template x-for="row in meAiMetaRows(b)" :key="row[0]">
                                     <div class="meai-meta-row"><span class="meai-meta-k" x-text="row[0]"></span><span class="meai-meta-v" x-text="row[1]"></span></div>
                                   </template>
-                                  <a class="meai-detail-link" x-show="b.link" :href="b.link" target="_blank" rel="noopener">Open ↗</a>
+                                  <a class="meai-detail-link" x-show="b.link" :href="meAiCfKey(b) ? ('#/codeflow/'+encodeURIComponent(meAiCfKey(b))) : b.link" :target="meAiCfKey(b) ? '_self' : '_blank'" rel="noopener" @click.prevent="meAiOpenItem(b)" x-text="meAiCfKey(b) ? 'Open in Code Flow →' : 'Open ↗'"></a>
                                 </div>
                               </template>
                             </div>
@@ -20975,6 +21026,8 @@
           approvalDecisions: {}, // per-task approve/decline map { taskId: { <label>: 'approve'|'decline' } }
           laneSwipeId: null, laneSwipeDx: 0, laneSwipeOpen: null,
           blockSwipeId: null, blockSwipeDx: 0, blockSwipeOpen: null,  // Task 3: swipe-to-dispose on agenda blocks
+          dragBlockKey: null, dropTargetKey: null,   // I2 drag-to-lock (source + hovered target)
+          editBlockKey: null, editBlockTitle: '',     // I3 inline rename of an agenda item
           laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
           expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
@@ -27682,7 +27735,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!item || this.meai.inboxBusy) return;
           this.meai.inboxBusy = true;
           try {
-            const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id, action }) });
+            const r = await this.request('/api/me-ai/inbox/triage', { method: 'POST', body: JSON.stringify({ date: this.meai.date, id: item.id, action, title: item.title || '', link: item.link || item.prLink || '' }) });
             if (r && r.items) this.meai.inbox = { items: r.items, newCount: r.newCount || 0, polledAt: this.meai.inbox.polledAt };
             if (action === 'today') {
               if (r && r.agenda) { this.meai.agenda = r.agenda; this.meai._lastGeneratedAt = r.agenda.generatedAt || ''; this.meAiLoadChanges(); }
@@ -27690,7 +27743,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             } else if (action === 'later') {
               this.toast('Parked — it\u2019ll stay on your attention rail', 'info');
             } else if (action === 'dismiss') {
-              this.toast('Removed — won\u2019t resurface today', 'info');
+              this.toast('Removed from your attention inbox', 'info');
             } else if (action === 'wontfix') {
               this.toast('Marked won\u2019t-fix — recorded for your report', 'info');
             } else if (action === 'done') {
@@ -28132,6 +28185,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (it.detail && String(it.detail).trim()) return true;
           return false;
         },
+        // Build a Code Flow PR key (org|project|repo|prId, GitHub prefixed) from an
+        // agenda item's PR metadata — mirrors cfPrKey / server _cfWtKey. Empty string
+        // when the item isn't a PR (no org/repo/prId), so callers fall back to the
+        // raw link.
+        meAiCfKey(it) {
+          const m = it && it.meta; if (!m) return '';
+          const prId = m.prId != null ? m.prId : null;
+          const org = m.org || '', repo = m.repo || '';
+          if (prId == null || !org || !repo) return '';
+          const base = [org, m.project || '', repo, prId].join('|').toLowerCase();
+          return String(m.provider || 'azdo').toLowerCase() === 'github' ? ('github|' + base) : base;
+        },
+        // Open an agenda item: a PR routes to its in-app Code Flow entry (so the user
+        // lands on our steward/review surface, not raw AzDo/GitHub); anything else
+        // (email/Teams/work item) opens its external link in a new tab.
+        meAiOpenItem(it) {
+          const key = this.meAiCfKey(it);
+          if (key) { this.goTo('#/codeflow/' + encodeURIComponent(key)); return; }
+          if (it && it.link) window.open(it.link, '_blank', 'noopener');
+        },
         // Collapse/expand a side-rail card (persisted) so heavy lists can shrink
         // to a one-line status indicator when the user wants the space back.
         meAiRailToggle(key) {
@@ -28495,6 +28568,86 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // reflow to reclaim the freed time (dismissal store keeps it excluded)
             this.meAiGenerate({ reindex: false, cause: 'triage' });
           } catch (e) { this.toast('Could not remove: ' + (e.message || e), 'error'); }
+        },
+        // ── I2 drag-to-lock ─────────────────────────────────────────────────────────
+        // Drag a block by its time label onto another block's slot to PIN it there. The
+        // pinned block holds that exact time on every regenerate; other work reflows around
+        // it. Persisted server-side as a `lock` override (survives re-plan).
+        meAiBlockDragStart(ev, b, bi) {
+          const m = this.meai;
+          m.dragBlockKey = this.meAiItemKey('b', b, bi);
+          this._dragBlock = b;
+          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(b.title || '')); } catch (_) {}
+        },
+        meAiBlockDragEnd() {
+          this.meai.dragBlockKey = null; this.meai.dropTargetKey = null; this._dragBlock = null;
+        },
+        meAiBlockDragOver(ev, b, bi) {
+          if (!this.meai.dragBlockKey) return;
+          try { ev.dataTransfer.dropEffect = 'move'; } catch (_) {}
+          this.meai.dropTargetKey = this.meAiItemKey('b', b, bi);
+        },
+        meAiBlockDragLeave(bi) {
+          // only clear when leaving the block we last marked (avoids flicker between children)
+        },
+        async meAiBlockDrop(ev, target, bi) {
+          const m = this.meai;
+          const drag = this._dragBlock;
+          m.dropTargetKey = null; m.dragBlockKey = null; this._dragBlock = null;
+          if (!drag || !target) return;
+          const dragKey = String((drag.link || drag.title) || '').trim();
+          if (!dragKey) { this.toast('This item can’t be locked (no stable id).', 'error'); return; }
+          const s = this._hmToMin(target.start);
+          if (s == null) return;
+          const dur = Math.max(10, (this._hmToMin(drag.end) - this._hmToMin(drag.start)) || 30);
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify({
+                date: m.date, op: 'lock', key: dragKey, start: target.start, durMin: dur,
+                type: drag.type || 'focus', title: drag.title || '', detail: drag.detail || '',
+                link: drag.link || '', why: drag.why || '', urgency: drag.urgency || 0,
+              }),
+            });
+            if (r && r.agenda) m.agenda = r.agenda;
+            this.toast('Locked "' + (drag.title || 'item') + '" to ' + this._meAiFmtHm(target.start), 'success');
+          } catch (e) { this.toast('Could not lock: ' + (e.message || e), 'error'); }
+        },
+        async meAiUnlockBlock(b, bi) {
+          const m = this.meai;
+          const key = String((b.link || b.title) || '').trim();
+          if (!key) return;
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify({ date: m.date, op: 'unlock', key }),
+            });
+            if (r && r.agenda) m.agenda = r.agenda;
+            this.toast('Unlocked — free to re-plan', 'success');
+          } catch (e) { this.toast('Could not unlock: ' + (e.message || e), 'error'); }
+        },
+        // ── I3 rename an agenda item ────────────────────────────────────────────────
+        meAiIsEditing(b, bi) { return this.meai.editBlockKey === this.meAiItemKey('b', b, bi); },
+        meAiStartRename(b, bi) {
+          this.meai.blockSwipeOpen = null;
+          this.meai.editBlockKey = this.meAiItemKey('b', b, bi);
+          this.meai.editBlockTitle = b.title || '';
+        },
+        meAiCancelRename() { this.meai.editBlockKey = null; this.meai.editBlockTitle = ''; },
+        async meAiCommitRename(b, bi) {
+          const m = this.meai;
+          const title = String(m.editBlockTitle || '').trim();
+          if (!title || title === b.title) { this.meAiCancelRename(); return; }
+          const key = String((b.link || b.title) || '').trim();
+          this.meAiCancelRename();
+          try {
+            const r = await this.request('/api/me-ai/agenda/override', {
+              method: 'POST',
+              body: JSON.stringify({ date: m.date, op: 'rename', key, title, origTitle: b.title || '' }),
+            });
+            if (r && r.agenda) m.agenda = r.agenda;
+            this.toast('Renamed', 'success');
+          } catch (e) { this.toast('Could not rename: ' + (e.message || e), 'error'); }
         },
         meAiLaneClick(tk) {
           const m = this.meai;

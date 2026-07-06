@@ -11220,7 +11220,7 @@ function _meAiOverridesPath(date) {
   const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
   return path.join(ME_AI_OVERRIDES_DIR, `${safe}.json`);
 }
-function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], dayStart: '', dayEnd: '' }; }
+function _meAiEmptyOverrides() { return { addBlocks: [], recurring: [], splits: [], removedItems: [], renames: [], locks: [], dayStart: '', dayEnd: '' }; }
 function loadMeAiOverrides(date) {
   try {
     const p = _meAiOverridesPath(date);
@@ -11232,6 +11232,8 @@ function loadMeAiOverrides(date) {
       recurring: Array.isArray(v.recurring) ? v.recurring : [],
       splits: Array.isArray(v.splits) ? v.splits : [],
       removedItems: Array.isArray(v.removedItems) ? v.removedItems : [],
+      renames: Array.isArray(v.renames) ? v.renames : [],
+      locks: Array.isArray(v.locks) ? v.locks : [],
       dayStart: typeof v.dayStart === 'string' ? v.dayStart : '',
       dayEnd: typeof v.dayEnd === 'string' ? v.dayEnd : '',
     };
@@ -11244,11 +11246,44 @@ function saveMeAiOverrides(date, ov) {
     recurring: Array.isArray(ov && ov.recurring) ? ov.recurring : [],
     splits: Array.isArray(ov && ov.splits) ? ov.splits : [],
     removedItems: Array.isArray(ov && ov.removedItems) ? ov.removedItems : [],
+    renames: Array.isArray(ov && ov.renames) ? ov.renames : [],
+    locks: Array.isArray(ov && ov.locks) ? ov.locks : [],
     dayStart: (ov && typeof ov.dayStart === 'string') ? ov.dayStart : '',
     dayEnd: (ov && typeof ov.dayEnd === 'string') ? ov.dayEnd : '',
   };
   fs.writeFileSync(_meAiOverridesPath(date), JSON.stringify(clean, null, 2));
   return clean;
+}
+// I2/I3 helpers. A LOCK pins a block to a specific time (fed to the pre-pass as a fixed
+// reservation so flexible work lays out around it); a RENAME overrides a block's title.
+// Both are keyed by the block's stable identity (link || original title).
+function _meAiLockReservations(ov) {
+  const out = [];
+  for (const l of ((ov && ov.locks) || [])) {
+    const s = _hmToMin(l.start), e = _hmToMin(l.end);
+    if (s == null || e == null || e <= s) continue;
+    out.push({
+      start: s, end: e, type: ME_AI_BLOCK_TYPES.has(l.type) ? l.type : 'focus',
+      title: String(l.title || 'Locked block').slice(0, 200), detail: String(l.detail || '').slice(0, 500),
+      link: String(l.link || '').slice(0, 500), why: String(l.why || 'Locked to this time by you').slice(0, 200),
+      urgency: Number(l.urgency) || 0,
+      meta: Object.assign({}, l.meta || {}, { locked: true, lockedKey: String(l.key || '').slice(0, 300) }),
+    });
+  }
+  return out;
+}
+function _meAiApplyRenames(blocks, ov) {
+  const map = new Map();
+  for (const r of ((ov && ov.renames) || [])) {
+    const k = String((r && r.key) || '').trim().toLowerCase();
+    if (k && r.title) map.set(k, String(r.title).slice(0, 200));
+  }
+  if (!map.size) return blocks;
+  for (const b of (blocks || [])) {
+    const k = String((b.link || b.title) || '').trim().toLowerCase();
+    if (map.has(k)) { b.meta = Object.assign({}, b.meta || {}, { renamed: true }); b.title = map.get(k); }
+  }
+  return blocks;
 }
 // Rollover / deferrals store. When the user marks an item "not done — move to a future
 // day" (defer_future) or a "reschedule later today" can't fit, the item is carried to a
@@ -12203,7 +12238,7 @@ function _meAiPrePass(cfg, signals, todos, reserved) {
   // work is scheduled AROUND them — an explicit "2h golf" supersedes suggested items.
   for (const r of (reserved || [])) {
     if (!r || r.start == null || r.end == null || r.end <= r.start) continue;
-    fixed.push({ start: r.start, end: r.end, type: r.type || 'personal', title: r.title || 'Blocked time', detail: r.detail || '', link: '', source: 'me', why: r.why || 'Added by you', meta: r.meta || { manual: true }, urgency: 0 });
+    fixed.push({ start: r.start, end: r.end, type: r.type || 'personal', title: r.title || 'Blocked time', detail: r.detail || '', link: r.link || '', source: 'me', why: r.why || 'Added by you', meta: r.meta || { manual: true }, urgency: r.urgency || 0 });
   }
   fixed.sort((x, y) => x.start - y.start);
   // Free intervals = window minus fixed.
@@ -12309,6 +12344,74 @@ function _meAiActivityKey(title) {
 // personal todos authoritative: drop every LLM personal block that echoes one of them
 // (by activity key), then re-insert the ONE canonical pre-pass block per todo at its exact
 // time and title. Reserved/manual personal blocks are preserved. Deterministic safety net.
+// I1 look-ahead buffer: when RE-PLANNING today, an item that's active right now (or
+// starts within the next 30 min) must not be relocated by a regenerate — you shouldn't
+// look up and find the thing you're about to do has moved. Derive "imminent pins" from
+// the PRIOR snapshot: any non-meeting/non-lunch block whose window is active-now or
+// begins inside the buffer. These are fed to the pre-pass as fixed reservations so work
+// lays out around them, and re-asserted after the LLM refine (below) in case it moved one.
+function _meAiImminentPins(priorSnapshot, nowMin, cfg) {
+  const pins = [];
+  if (!priorSnapshot || !Array.isArray(priorSnapshot.blocks) || nowMin == null) return pins;
+  const BUFFER = 30;
+  for (const pb of priorSnapshot.blocks) {
+    const bs = _hmToMin(pb.start), be = _hmToMin(pb.end);
+    if (bs == null || be == null) continue;
+    if (be <= nowMin) continue;              // already finished — nothing to protect
+    if (bs > nowMin + BUFFER) continue;      // beyond the look-ahead buffer — free to re-plan
+    const ty = String(pb.type || '');
+    if (ty === 'meeting') continue;                              // meetings re-fix from live signals
+    if (/^lunch$/i.test(String(pb.title || '').trim())) continue; // lunch re-fixes from config
+    if (ty === 'open' || ty === 'break') continue;               // flexible filler isn't worth pinning
+    pins.push({
+      start: bs, end: be, type: ty || 'focus', title: pb.title,
+      detail: pb.detail || '', link: pb.link || '',
+      why: 'In progress / imminent — held in place', urgency: pb.urgency || 0,
+      meta: Object.assign({}, pb.meta || {}, { pinned: true, imminent: true }),
+    });
+  }
+  return pins;
+}
+// Re-assert imminent pins after the LLM refine: snap each pinned block back to its held
+// time (the refine can drift it), then cascade any non-pinned block that now overlaps a
+// pin to just after it (preserving duration), and de-clump so shifted flexible blocks
+// don't stack. Meetings and pins hold their ground; conflicts they create are surfaced
+// by _meAiDetectConflicts, not silently hidden.
+function _meAiEnforcePins(blocks, pins) {
+  if (!Array.isArray(blocks) || !pins || !pins.length) return blocks || [];
+  const out = blocks.map(b => ({ ...b }));
+  const isPinned = b => b && b.meta && b.meta.pinned;
+  const ranges = [];
+  for (const p of pins) {
+    const key = String(p.title || '').trim().toLowerCase();
+    let blk = key ? out.find(b => String(b.title || '').trim().toLowerCase() === key) : null;
+    if (blk) {
+      blk.start = _minToHm(p.start); blk.end = _minToHm(p.end);
+      blk.meta = Object.assign({}, blk.meta || {}, p.meta || {}, { pinned: true });
+    } else {
+      out.push({ start: _minToHm(p.start), end: _minToHm(p.end), type: p.type || 'focus', title: p.title, detail: p.detail || '', link: p.link || '', source: 'me', why: p.why || '', meta: Object.assign({}, p.meta || {}, { pinned: true }), urgency: p.urgency || 0 });
+    }
+    ranges.push([p.start, p.end]);
+  }
+  for (const [ps, pe] of ranges) {
+    for (const b of out) {
+      if (isPinned(b) || String(b.type || '') === 'meeting') continue;
+      const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+      if (bs == null || be == null) continue;
+      if (bs < pe && be > ps) { const dur = be - bs; b.start = _minToHm(pe); b.end = _minToHm(pe + dur); }
+    }
+  }
+  out.sort((a, b) => (_hmToMin(a.start) || 0) - (_hmToMin(b.start) || 0));
+  // Forward de-clump: a flexible block that now overlaps its predecessor slides later.
+  for (let i = 1; i < out.length; i++) {
+    const prev = out[i - 1], cur = out[i];
+    if (isPinned(cur) || String(cur.type || '') === 'meeting') continue;
+    const pe = _hmToMin(prev.end), cs = _hmToMin(cur.start), ce = _hmToMin(cur.end);
+    if (pe == null || cs == null || ce == null) continue;
+    if (cs < pe) { const dur = ce - cs; cur.start = _minToHm(pe); cur.end = _minToHm(pe + dur); }
+  }
+  return out;
+}
 function _meAiEnsurePersonalTodos(preBlocks, finalBlocks) {
   try {
     const personal = (preBlocks || []).filter(b => b && b.meta && b.meta.personalTodo && String(b.title || '').trim());
@@ -12437,6 +12540,21 @@ Return ONLY a fenced \`\`\`json code block with an array of {"i":<index>,"urgenc
   } catch { return signals; }
 }
 
+// Pull PR / work-item reference numbers out of a block title or detail, e.g.
+// "Shepherd SLA rejection PRs (!62392 + !62389)" → ["62392","62389"], "PR #123" →
+// ["123"]. Used to recover a merged block's constituents when the LLM compresses
+// two adjacent PR blocks so tightly that a pure time-window overlap misses one.
+function _meAiExtractRefs(text) {
+  const out = [];
+  const re = /(?:PR\s*)?[!#]\s*(\d{2,7})|\bPR\s+(\d{2,7})\b/gi;
+  let m;
+  while ((m = re.exec(String(text || '')))) {
+    const n = m[1] || m[2];
+    if (n && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
 // Optional LLM refine — merge same-focus adjacent chunks, add short meeting-prep
 // blocks, and set a one-line "why" per block. Falls back to the deterministic
 // plan if the model is unavailable or returns nothing parseable.
@@ -12493,8 +12611,14 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
       // blocks (same type, overlapping the merged time window) so the UI can render a
       // link + meta per PR/work item.
       const bs = _hmToMin(b.start), be = _hmToMin(b.end);
+      const items = [], seen = new Set();
+      const pushItem = (pb) => {
+        const key = pb.link || pb.title;
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        items.push({ title: pb.title, link: pb.link || '', why: pb.why || '', detail: pb.detail || '', meta: pb.meta || null });
+      };
       if (bs != null && be != null) {
-        const items = [], seen = new Set();
         for (const pb of (pre.blocks || [])) {
           if (pb.type !== b.type) continue;
           const ps = _hmToMin(pb.start), pe = _hmToMin(pb.end);
@@ -12503,15 +12627,24 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
           // PR/review constituents always carry a link; comms items (an email or
           // Teams ask) may not, so fall back to the title for the dedupe key —
           // otherwise a merged comms block ("Reply: A + B") collapses to a single
-          // Open link and the other asks vanish. Carry why/detail so the UI can
-          // explain each item, not just link it.
-          const key = pb.link || pb.title;
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          items.push({ title: pb.title, link: pb.link || '', why: pb.why || '', detail: pb.detail || '', meta: pb.meta || null });
+          // Open link and the other asks vanish.
+          pushItem(pb);
         }
-        if (items.length > 1) b.items = items;
       }
+      // The time-window pass misses a constituent when the LLM merges two adjacent
+      // PR blocks into a span that only touches the second block's boundary. Recover
+      // the rest by matching the PR/work-item numbers the merged title/detail still
+      // names ("!62392 + !62389") back to the deterministic source blocks by prId.
+      const refs = _meAiExtractRefs((b.title || '') + ' ' + (b.detail || ''));
+      if (refs.length) {
+        for (const pb of (pre.blocks || [])) {
+          if (pb.type !== 'steward' && pb.type !== 'review') continue;
+          const pid = pb.meta && pb.meta.prId != null ? String(pb.meta.prId)
+            : (_meAiExtractRefs(pb.title)[0] || '');
+          if (pid && refs.includes(pid)) pushItem(pb);
+        }
+      }
+      if (items.length > 1) b.items = items;
     }
     return clean.length ? clean : null;
   } catch { return null; }
@@ -13128,17 +13261,54 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   // the pre-pass lays flexible work around them (they supersede suggested items).
   const overridesForPlan = loadMeAiOverrides(day);
   const reservedBlocks = _meAiReservationsFromOverrides(overridesForPlan, cfg);
+  // I2 drag-to-lock: blocks the user pinned to a specific time are fixed reservations too.
+  // Drop the matching live signal / todo so a locked item isn't ALSO scheduled elsewhere.
+  const lockReservations = _meAiLockReservations(overridesForPlan);
+  let planTodos = effTodos;
+  if (lockReservations.length) {
+    const lockKeys = new Set(
+      (overridesForPlan.locks || [])
+        .map(l => String((l.key || l.link || l.title) || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    for (let i = planSignals.length - 1; i >= 0; i--) {
+      const k = String((planSignals[i].link || planSignals[i].title) || '').trim().toLowerCase();
+      if (k && lockKeys.has(k)) planSignals.splice(i, 1);
+    }
+    planTodos = effTodos.filter(t => !lockKeys.has(String(t.title || '').trim().toLowerCase()));
+  }
   // Normalize urgency across signal types (PR vs dev card vs work item vs comms) on a
   // single scale BEFORE the deterministic scheduler runs, so prioritization is fair.
   _meAiEmitProgress(day, 'prioritize', 'Prioritizing what matters most today…');
   await _meAiNormalizeUrgency(cfg, planSignals, day);
-  const pre = _meAiPrePass(cfg, planSignals, effTodos, reservedBlocks);
+  // I1 look-ahead buffer: on a re-plan of TODAY, hold anything active-now / imminent in
+  // place. Pins go in as fixed reservations so work lays out around them; we also drop the
+  // matching live signal so a pinned item isn't scheduled twice.
+  let imminentPins = [];
+  if (day === _meAiLocalDay() && priorSnapshot) {
+    const _now = new Date();
+    imminentPins = _meAiImminentPins(priorSnapshot, _now.getHours() * 60 + _now.getMinutes(), cfg);
+    if (imminentPins.length) {
+      const pinTitles = new Set(imminentPins.map(p => String(p.title || '').trim().toLowerCase()).filter(Boolean));
+      for (let i = planSignals.length - 1; i >= 0; i--) {
+        const t = String(planSignals[i].title || '').trim().toLowerCase();
+        if (t && pinTitles.has(t)) planSignals.splice(i, 1);
+      }
+    }
+  }
+  const pre = _meAiPrePass(cfg, planSignals, planTodos, reservedBlocks.concat(lockReservations, imminentPins));
   _meAiEmitProgress(day, 'refine', 'Shaping your day with AI…');
   const refined = await _meAiLlmRefine(cfg, pre, planSignals, day);
   // Safety net: the LLM refine can merge/drop a personal-todo block (it reads as flexible
   // focus time). Re-insert any personal commitment the refine lost so an explicit todo
   // like "gym workout" always survives onto the agenda.
-  const finalBlocks = refined ? _meAiEnsurePersonalTodos(pre.blocks, refined) : pre.blocks;
+  let finalBlocks = refined ? _meAiEnsurePersonalTodos(pre.blocks, refined) : pre.blocks;
+  // I1: re-assert the imminent pins in case the refine drifted one, cascading others around.
+  if (imminentPins.length) finalBlocks = _meAiEnforcePins(finalBlocks, imminentPins);
+  // I2: re-assert locked blocks (the refine can nudge a reservation) so a pinned item
+  // holds its exact slot; others reflow around it. I3: apply title overrides.
+  if (lockReservations.length) finalBlocks = _meAiEnforcePins(finalBlocks, lockReservations);
+  finalBlocks = _meAiApplyRenames(finalBlocks, overridesForPlan);
   const agenda = {
     date: day,
     generatedAt: new Date().toISOString(),
@@ -13840,9 +14010,21 @@ app.post('/api/me-ai/inbox/triage', async (req, res) => {
     const ALLOWED = ['seen', 'later', 'now', 'today', 'dismiss', 'wontfix', 'done'];
     if (!id || !ALLOWED.includes(action)) return res.status(400).json({ error: 'bad request' });
     const inbox = loadInboxForDate(date);
-    const it = inbox.items.find(x => x.id === id);
-    if (!it) return res.status(404).json({ error: 'not found' });
     const now = new Date().toISOString();
+    let it = inbox.items.find(x => x.id === id);
+    if (!it) {
+      // Terminal / idempotent actions must ALWAYS succeed even if the item isn't in the
+      // persisted store (it can be a synthesized reminder-style entry, or the store was
+      // re-merged since the client loaded it). Upsert a minimal stub so "Mark as done" /
+      // "Remove" never fail with a confusing "Triage failed: not found" toast. Actions
+      // that need real signal data to schedule ('today'/'now'/'later') still 404.
+      if (action === 'done' || action === 'dismiss' || action === 'wontfix' || action === 'seen') {
+        it = { id, title: String(b.title || '').trim() || 'Item', link: String(b.link || '').trim() || '', triage: 'seen', firstSeen: now, stub: true };
+        inbox.items.push(it);
+      } else {
+        return res.status(404).json({ error: 'not found' });
+      }
+    }
     // REQ-9: if the user is overriding a prior AUTO decision, remember which one so we
     // can penalize the rule (learn the exception) and lift any auto dismissal.
     const wasAuto = !!it.auto;
@@ -14139,6 +14321,40 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
       saveMeAiOverrides(date, ov);
       const agenda = await _meAiRegenLive(date);
       return res.json({ ok: true, date, agenda, overrides: ov, at: _minToHm(slot) });
+    } else if (op === 'rename') {
+      // I3: change an agenda item's title. Keyed by the block's STABLE identity (link ||
+      // ORIGINAL title) so the override re-applies across regenerates even though the
+      // displayed title changes.
+      const key = String((b.key || b.link || b.origTitle || b.title) || '').trim().slice(0, 300);
+      const title = String(b.title || '').trim().slice(0, 200);
+      if (!key || !title) return res.status(400).json({ error: 'key and title required' });
+      ov.renames = (ov.renames || []).filter(r => String((r && r.key) || '').trim().toLowerCase() !== key.toLowerCase());
+      ov.renames.push({ key, title });
+    } else if (op === 'lock') {
+      // I2: pin a block to a specific time. It becomes a fixed reservation the pre-pass
+      // lays other work around. Store the full block so it can be re-materialised on every
+      // regenerate; keyed by link || title.
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      if (!key) return res.status(400).json({ error: 'key required' });
+      let s = _hmToMin(b.start), e = _hmToMin(b.end);
+      if (s == null) return res.status(400).json({ error: 'valid start required' });
+      if (e == null || e <= s) {
+        const dur = Math.max(10, Math.min(480, +b.durMin || 30));
+        e = s + dur;
+      }
+      ov.locks = (ov.locks || []).filter(l => String((l && (l.key || l.link || l.title)) || '').trim().toLowerCase() !== key.toLowerCase());
+      ov.locks.push({
+        key, start: _minToHm(s), end: _minToHm(e),
+        type: ME_AI_BLOCK_TYPES.has(b.blockType) ? b.blockType : (ME_AI_BLOCK_TYPES.has(b.type) ? b.type : 'focus'),
+        title: String(b.title || 'Locked block').slice(0, 200), detail: String(b.detail || '').slice(0, 500),
+        link: String(b.link || '').slice(0, 500), why: String(b.why || '').slice(0, 200), urgency: Number(b.urgency) || 0,
+        meta: (b.meta && typeof b.meta === 'object' && !Array.isArray(b.meta)) ? b.meta : {},
+        at: new Date().toISOString(),
+      });
+    } else if (op === 'unlock') {
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      if (!key) return res.status(400).json({ error: 'key required' });
+      ov.locks = (ov.locks || []).filter(l => String((l && (l.key || l.link || l.title)) || '').trim().toLowerCase() !== key.toLowerCase());
     } else {
       return res.status(400).json({ error: 'unknown op' });
     }
