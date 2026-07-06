@@ -12004,6 +12004,15 @@
               .meai-draft { margin-top:8px; }
               .meai-draft-body { margin:0; padding:12px 14px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; max-height:340px; overflow:auto; font-family:inherit; }
               .meai-draft-copy { margin-top:8px; }
+              .meai-brief { margin-top:8px; }
+              .meai-brief-body { padding:12px 14px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); color:var(--cp-text); font-size:13px; line-height:1.6; max-height:460px; overflow:auto; word-break:break-word; }
+              .meai-brief-body h3, .meai-brief-body h4, .meai-brief-body h5, .meai-brief-body h6 { margin:10px 0 6px; font-size:13.5px; font-weight:650; color:var(--cp-text); }
+              .meai-brief-body h3:first-child, .meai-brief-body h4:first-child { margin-top:0; }
+              .meai-brief-body p { margin:6px 0; }
+              .meai-brief-body ul, .meai-brief-body ol { margin:6px 0; padding-left:20px; }
+              .meai-brief-body li { margin:3px 0; }
+              .meai-brief-body code { background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:4px; padding:1px 4px; font-size:12px; }
+              .meai-brief-body a { color:var(--cp-accent); }
               .meai-dr-foot { border-top:1px solid var(--cp-border); padding:12px 18px; background:var(--cp-surface); }
               .meai-actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
               /* REQ-13 Agenda Assistant drawer */
@@ -12810,7 +12819,7 @@
                       </div>
                     </template>
                     <!-- Report card -->
-                    <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length || meai.console.report.diff || meai.console.report.draft)">
+                    <template x-if="meai.console.report && (meai.console.report.summary || (meai.console.report.findings||[]).length || meai.console.report.diff || meai.console.report.draft || meAiBriefText())">
                       <div class="meai-report" :class="{ compact: meai.console.question && !meai.reportOpen }">
                         <template x-if="meai.console.question">
                           <button type="button" class="meai-report-toggle" @click="meai.reportOpen=!meai.reportOpen">
@@ -12853,6 +12862,20 @@
                             <div class="meai-draft" x-show="meai.draftOpen">
                               <pre class="meai-draft-body" x-text="meai.console.report.draft"></pre>
                               <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyDraft()">Copy</button>
+                            </div>
+                          </div>
+                        </template>
+                        <!-- meeting-prep brief: the deliverable, rendered from Markdown, open by default -->
+                        <template x-if="meAiBriefText()">
+                          <div class="meai-prev">
+                            <button type="button" class="meai-prev-h" @click="meai.briefOpen=!meai.briefOpen">
+                              <span class="meai-prev-caret" :class="{open:meai.briefOpen}">▸</span>
+                              <span>Meeting brief</span>
+                              <span class="meai-prev-stat" x-text="meAiBriefText().split(/\s+/).filter(Boolean).length + ' words'"></span>
+                            </button>
+                            <div class="meai-brief" x-show="meai.briefOpen">
+                              <div class="meai-brief-body" x-html="meAiBriefHtml(meAiBriefText())"></div>
+                              <button type="button" class="btn-ghost meai-draft-copy" @click="meAiCopyBrief()">Copy</button>
                             </div>
                           </div>
                         </template>
@@ -20843,6 +20866,7 @@
           consoleAnswer: '',     // answer box for a mid-run agent question (§7.3)
           diffOpen: false,       // §7.4 diff preview expanded
           draftOpen: false,      // §7.4 draft preview expanded
+          briefOpen: true,       // meeting-prep brief preview (deliverable — open by default)
           reportOpen: false,     // report card force-expanded while a question is pending
           lookahead: [],         // next 5 work days (light per-day summary) — the week-ahead strip
           lookaheadLoading: false,
@@ -28398,7 +28422,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
         },
         meAiOpenTask(id) {
-          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = true; this.meai.reportOpen = false;
+          this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = true; this.meai.reportOpen = false;
           const t = this.meai._taskById[id];
           // Show the cached copy immediately for responsiveness…
           if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); }
@@ -28426,7 +28450,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             t.background = true;
             this.meAiLoadTasks();
           }
-          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false;
+          this.meai.console = null; this.meai.consoleReply = ''; this.meai.consoleAnswer = ''; this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.briefOpen = true; this.meai.traceOpen = false;
         },
         // #9 count of collapsible process events (thinking/tools/agent) in the open console.
         meAiTraceCount() {
@@ -28590,6 +28614,50 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const d = this.meai.console && this.meai.console.report && this.meai.console.report.draft;
           if (!d) return;
           try { await navigator.clipboard.writeText(d); this.toast('Draft copied', 'success'); } catch (_) {}
+        },
+        meAiBriefText() {
+          // The prep agent reliably writes the full meeting brief as its natural-language
+          // message (captured as report.markdown) and keeps only summary/findings inside the
+          // JSON. So the viewable brief is report.brief when present, else — for prep tasks
+          // ONLY — report.markdown. Other playbooks also set report.markdown (their prose
+          // preamble) but must NOT show a "Meeting brief", so we gate the fallback on prep.
+          const c = this.meai.console;
+          const r = c && c.report;
+          if (!r) return '';
+          if (r.brief) return r.brief;
+          if (c.playbook === 'prep') return r.markdown || '';
+          return '';
+        },
+        async meAiCopyBrief() {
+          const b = this.meAiBriefText();
+          if (!b) return;
+          try { await navigator.clipboard.writeText(b); this.toast('Brief copied', 'success'); } catch (_) {}
+        },
+        meAiBriefHtml(md) {
+          // Lightweight Markdown → HTML for the meeting brief preview (headings, bold,
+          // italics, bullet/numbered lists, inline code, links). Escapes first so agent
+          // output can never inject markup.
+          let s = String(md || '');
+          const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          s = esc(s);
+          const lines = s.split('\n');
+          let html = '', inUl = false, inOl = false;
+          const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
+          for (let ln of lines) {
+            let m;
+            if ((m = ln.match(/^\s*(#{1,4})\s+(.*)$/))) { closeLists(); const lvl = m[1].length + 2; html += '<h' + lvl + '>' + m[2] + '</h' + lvl + '>'; continue; }
+            if ((m = ln.match(/^\s*[-*]\s+(.*)$/))) { if (!inUl) { closeLists(); html += '<ul>'; inUl = true; } html += '<li>' + m[1] + '</li>'; continue; }
+            if ((m = ln.match(/^\s*\d+\.\s+(.*)$/))) { if (!inOl) { closeLists(); html += '<ol>'; inOl = true; } html += '<li>' + m[1] + '</li>'; continue; }
+            if (!ln.trim()) { closeLists(); continue; }
+            closeLists(); html += '<p>' + ln + '</p>';
+          }
+          closeLists();
+          html = html
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+          return html;
         },
 
         async loadConnect() {

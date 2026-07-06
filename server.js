@@ -14355,6 +14355,58 @@ function _meAiGoalFor(t) {
   return map[(t && t.playbook)] || `Work on ${title || (t && t.playbook) || 'the task'} and report back with what you found.`;
 }
 
+// Compact directory of the user's OWN internal resources — the Boards/workspaces they
+// keep (with their AI briefing summaries), the specialist agents they've registered
+// (e.g. a "Helix UX Standup" facilitator), and their team roster — so a Me-agent
+// consults what we already know INTERNALLY before reaching out to external systems
+// (GitHub / Azure DevOps) or, worse, guessing. Bounded + best-effort: any failure
+// yields an empty string and the agent just proceeds without it.
+function _meAiInternalDirectory() {
+  const parts = [];
+  try {
+    const boards = loadBoards().filter(b => b && !b.archived && b.enabled !== false && b.name !== 'My Day');
+    if (boards.length) {
+      const rows = boards.slice(0, 12).map(b => {
+        const sum = String(b.summary || '').replace(/\s+/g, ' ').trim();
+        return `- "${b.name}"${sum ? ': ' + sum.slice(0, 240) : ''}`;
+      });
+      parts.push('WORKSPACES (Boards) I keep — each is a live briefing on an area of my work:\n' + rows.join('\n'));
+    }
+  } catch (_) { /* best-effort */ }
+  try {
+    const agents = loadAgents().filter(a => a && a.name);
+    if (agents.length) {
+      const rows = agents.slice(0, 24).map(a => {
+        const d = String(a.description || '').replace(/\s+/g, ' ').trim();
+        return `- ${a.name}${d ? ' — ' + d.slice(0, 140) : ''}`;
+      });
+      parts.push('SPECIALIST AGENTS I have registered (prefer using a matching one over generic external lookups):\n' + rows.join('\n'));
+    }
+  } catch (_) { /* best-effort */ }
+  try {
+    const roster = new Set();
+    for (const m of loadManagers()) {
+      const team = Array.isArray(m && m.team) ? m.team : (Array.isArray(m && m.org) ? m.org : []);
+      for (const p of team) { const n = String(p || '').trim(); if (n) roster.add(n); }
+    }
+    if (roster.size) parts.push('TEAM / people in my roster: ' + [...roster].slice(0, 30).join(', ') + '.');
+  } catch (_) { /* best-effort */ }
+  return parts.join('\n\n');
+}
+
+// The "consult internal first" directive shared by the knowledge-gathering playbooks
+// (prep / admin / adhoc). Returns '' when there's nothing internal to point at.
+function _meAiInternalFirstBlock() {
+  const dir = _meAiInternalDirectory();
+  if (!dir) return '';
+  return [
+    'START WITH WHAT I ALREADY HAVE. Before reaching out to external systems (GitHub, Azure DevOps, the web) or asking me for direction, consult my OWN internal resources below — my workspaces/Boards and their briefings, and especially the specialist agents I have already set up. If one of these clearly matches the task (e.g. a meeting whose topic maps to a registered standup/facilitator agent, or a Board that briefs exactly this area), use ITS knowledge as your primary source and only go external to fill genuine gaps. Do NOT ask me which to use when the match is obvious — pick the best fit and proceed.',
+    '',
+    _meAiIndent(dir),
+  ].join('\n');
+}
+function _meAiIndent(s) { return String(s || '').split('\n').map(l => l).join('\n'); }
+
 // Build the kickoff prompt for a playbook. M2 ships the code-review playbook; the
 // prompt is written so it produces real, useful work even with NO PR context (it
 // reviews the repo's current uncommitted changes, else the latest commit).
@@ -14366,7 +14418,7 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     '  "report": { "summary": "<2-4 sentence outcome>", "findings": [ { "title": "<short>", "detail": "<what & where>", "severity": "high|medium|low" } ] },',
     '  "nextActions": [ { "label": "<button text>", "intent": "<one of: apply-fix, comment, push, approve, request-review, retry, change-approach, continue, abandon>", "primary": true|false, "risk": "none|write|external" } ]',
     '}',
-    'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. Include these ONLY when they apply; omit them otherwise. They are rendered as collapsible previews I can inspect.',
+    'When the outcome includes actual code changes, ALSO add "diff" inside report — the exact unified diff (the verbatim output of `git --no-pager diff`, unedited). When the outcome is a message/email/newsletter to be sent, ALSO add "draft" inside report — the ready-to-use body text. When the outcome is a written briefing/prep document, ALSO add "brief" inside report — the full briefing body as Markdown. Include these ONLY when they apply; omit them otherwise. They are rendered as inspectable previews.',
     'HONESTY ABOUT DRAFTS: you have NO ability to save an Outlook/Teams draft, send mail, or post a message — you can only produce the text. So never claim in report.summary that you "created/prepared/saved N drafts" (that reads as items in my Outlook Drafts folder, which will not exist). Say instead that you "drafted reply text below for my review" and put the actual text in report.draft. If there are several, put each in a clearly-labelled section of report.draft.',
     'Propose 2–4 nextActions that genuinely make sense given what you found (e.g. apply-fix if there are blocking issues, approve if clean). Keep labels short and human.',
     'If — and only if — you genuinely cannot proceed without a decision from me (an ambiguous requirement, a risky choice, missing information only I have), STOP before doing that step and add a top-level "question": "<one clear, specific question>" to the same JSON. Ask ONE question at a time; still fill in report with what you found so far. ALWAYS include your own recommendation inside the question text — end it with what you would do and why (e.g. "… I recommend the 30s default since most callers are interactive."), so I can accept your call quickly. I will answer and you resume exactly where you paused. Do not ask for permission you already have — only ask when a real decision is needed.',
@@ -14426,14 +14478,17 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
     ].filter(Boolean).join('\n');
   }
   if (playbook === 'prep') {
+    const internalFirst = _meAiInternalFirstBlock();
     return [
       'You are my meeting-prep Me-agent. Get me ready for an upcoming meeting.',
       `Meeting: ${ctx.title || 'the upcoming meeting'}.`,
       ctx.detail ? `Context: ${ctx.detail}` : '',
       ctx.link ? `Link: ${ctx.link}` : '',
       `Working directory: ${cwd}.`,
-      'Steps: (1) Work out the purpose of the meeting and what I need to know or decide. (2) Pull together the relevant context (recent related PRs/issues/threads if discoverable via tools). (3) Produce a tight prep brief: goal, 3–5 talking points, any decisions needed, and 1–2 questions to raise. Flag anything I should read beforehand.',
-      'Be concise. Stream your reasoning.',
+      internalFirst,
+      'Steps: (1) Work out the purpose of the meeting and what I need to know or decide. (2) Gather the relevant context — CONSULT MY INTERNAL RESOURCES FIRST (the workspaces/Boards and specialist agents listed above; if a registered agent maps to this meeting, e.g. a standup facilitator for the same team/epic, treat its briefing as your primary source), then fill gaps with recent related PRs/issues/threads via tools. (3) Produce a tight prep brief: goal, 3–5 talking points, any decisions needed, and 1–2 questions to raise. Flag anything I should read beforehand.',
+      'OUTPUT SHAPE (important): the narrative brief is the deliverable — put the WHOLE brief (goal, talking points, decisions needed, questions to raise, pre-reads) in report.brief as Markdown with clear headings/bullets. Keep report.summary to a 2–3 sentence overview. Use report.findings ONLY for discrete risks/blockers worth flagging with a severity (leave it empty if there are none) — do NOT put the talking points there instead of in report.brief. Do NOT claim you produced an artifact I cannot see — the brief IS report.brief.',
+      'Be concise in prose. Stream your reasoning and tool use.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
   }
@@ -14442,12 +14497,14 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
   // (draft a coverage note, propose rescheduling affected 1:1s) — nothing applied/sent
   // without my sign-off. The actions ride the standard nextActions confirm loop.
   if (playbook === 'admin') {
+    const internalFirst = _meAiInternalFirstBlock();
     return [
       'You are my day-setup Me-agent. This is an admin / awareness item — your job is to brief me on how it affects my day AND prepare the concrete follow-ups so I can approve them.',
       `Item: ${ctx.title || 'today\'s admin / awareness setup'}.`,
       ctx.detail ? `Context: ${ctx.detail}` : '',
       ctx.link ? `Link: ${ctx.link}` : '',
       `Working directory: ${cwd}.${ctx.date ? ' Today is ' + ctx.date + '.' : ''}`,
+      internalFirst,
       'You have my professional context via tools (email / Teams / calendar via WorkIQ, work items & PRs in Azure DevOps and GitHub, and my diary). Steps:',
       '(1) Gather the awareness facts this item is about — e.g. who on my team is out of office today/this week, meetings on my calendar today, and where their absence creates a coverage gap, a blocked hand-off, or a 1:1 that should move.',
       '(2) Assess the IMPACT on my day: which of my meetings/tasks are affected, what is now at risk or unblocked, and what I should adjust.',
@@ -14459,13 +14516,15 @@ function _meAiPlaybookPrompt(playbook, context, cwd) {
   }
   // Ad-hoc: the user typed a free-form goal — the agent decides what to do and does it.
   if (playbook === 'adhoc') {
+    const internalFirst = _meAiInternalFirstBlock();
     return [
       'You are my Me-agent. I have given you a free-form goal — work out what needs to happen and take it as far as you safely can, end-to-end.',
       `My goal: ${ctx.goal || ctx.title || 'help me with a task'}.`,
       ctx.detail ? `Extra context: ${ctx.detail}` : '',
       ctx.link ? `Reference: ${ctx.link}` : '',
       `Working directory: ${cwd}.${ctx.date ? ' Today is ' + ctx.date + '.' : ''}`,
-      'You have full access to my professional context through the available tools (diary, code flows / repositories, work items and pull requests in Azure DevOps and GitHub, and email / Teams via WorkIQ). Steps: (1) Interpret my goal and decide the concrete actions that would accomplish it. (2) Gather whatever context you need with tools before acting. (3) Do the work — investigate, draft, edit code, or prepare the action — as far as you can without my sign-off. (4) Report what you did and exactly what remains. Do NOT send external messages, commit, or push unless I explicitly ask — prepare them for my review instead.',
+      internalFirst,
+      'You have full access to my professional context through the available tools (diary, code flows / repositories, work items and pull requests in Azure DevOps and GitHub, and email / Teams via WorkIQ). Steps: (1) Interpret my goal and decide the concrete actions that would accomplish it. (2) Gather whatever context you need with tools before acting — check my internal resources above first when they are relevant. (3) Do the work — investigate, draft, edit code, or prepare the action — as far as you can without my sign-off. (4) Report what you did and exactly what remains. Do NOT send external messages, commit, or push unless I explicitly ask — prepare them for my review instead.',
       'Stream your reasoning and tool use as you go. Be concise in prose.',
       '', jsonContract,
     ].filter(Boolean).join('\n');
