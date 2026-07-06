@@ -11965,6 +11965,10 @@
               .meai-dr-goal-t { font-size:13.5px; color:var(--cp-text); line-height:1.5; }
               .meai-trace-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--cp-text-muted); padding:4px 0 8px; user-select:none; }
               .meai-trace-toggle:hover { color:var(--cp-text); }
+              .meai-dr-tracebar { display:flex; align-items:center; padding:7px 18px; border-bottom:1px solid var(--cp-border); background:var(--cp-bg); }
+              .meai-trace-check { display:flex; align-items:center; gap:7px; cursor:pointer; font-size:12px; color:var(--cp-text-muted); user-select:none; }
+              .meai-trace-check:hover { color:var(--cp-text); }
+              .meai-trace-check input { cursor:pointer; margin:0; accent-color:var(--cp-accent); }
               .meai-ev { display:grid; grid-template-columns:20px 1fr; gap:8px; padding:4px 0; font-size:13px; line-height:1.5; }
               .meai-ev-ico { text-align:center; }
               .meai-ev-thinking { color:var(--cp-text-muted); font-style:italic; }
@@ -12027,11 +12031,13 @@
               /* Approval gate: explicit per-item Approve / Decline before the agent resumes */
               .meai-apprv { border:1px solid var(--cp-accent); border-radius:10px; background:color-mix(in srgb, var(--cp-accent) 6%, var(--cp-surface)); padding:12px 14px; margin-bottom:10px; }
               .meai-apprv-h { font-size:12.5px; font-weight:700; color:var(--cp-text); margin-bottom:8px; }
-              .meai-apprv-row { display:flex; align-items:center; gap:9px; padding:7px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); margin-bottom:6px; }
+              .meai-apprv-row { display:flex; align-items:flex-start; gap:9px; padding:7px 8px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-bg); margin-bottom:6px; }
               .meai-apprv-row.approved { border-color:color-mix(in srgb, var(--cp-good, #2e7d32) 55%, var(--cp-border)); background:color-mix(in srgb, var(--cp-good, #2e7d32) 8%, var(--cp-bg)); }
               .meai-apprv-row.declined { border-color:color-mix(in srgb, var(--cp-danger, #c62828) 45%, var(--cp-border)); background:color-mix(in srgb, var(--cp-danger, #c62828) 7%, var(--cp-bg)); opacity:.82; }
-              .meai-apprv-flag { flex:0 0 auto; font-size:13px; color:var(--cp-accent); width:16px; text-align:center; }
+              .meai-apprv-flag { flex:0 0 auto; font-size:13px; color:var(--cp-accent); width:16px; text-align:center; padding-top:1px; }
               .meai-apprv-label { flex:1 1 auto; font-size:13px; color:var(--cp-text); line-height:1.4; }
+              .meai-apprv-detail { display:block; font-size:12px; color:var(--cp-text-muted); line-height:1.4; margin-top:2px; }
+              .meai-lane-ask-detail { display:block; font-size:11.5px; color:var(--cp-text-muted); line-height:1.35; margin-top:1px; }
               .meai-apprv-btns { flex:0 0 auto; display:flex; gap:6px; }
               .meai-apprv-b { appearance:none; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:4px 12px; font-size:12px; font-weight:600; cursor:pointer; }
               .meai-apprv-b:hover:not(:disabled) { border-color:var(--cp-text-muted); }
@@ -12542,8 +12548,8 @@
                             <div class="meai-lane-ask meai-lane-ask-open"
                                  :class="{ approval: meAiLaneApprovalNeeded(tk) }"
                                  role="button" tabindex="0"
-                                 @pointerdown.stop @click.stop="meAiOpenTask(tk)"
-                                 @keydown.enter.stop="meAiOpenTask(tk)">
+                                 @pointerdown.stop @click.stop="meAiOpenTask(tk.id)"
+                                 @keydown.enter.stop="meAiOpenTask(tk.id)">
                               <template x-if="meAiLaneApprovalNeeded(tk)">
                                 <div>
                                   <div class="meai-lane-ask-head"><span class="meai-lane-ask-ico">⚠️</span> Approval requested</div>
@@ -12551,7 +12557,10 @@
                                     <template x-for="(a, ai) in meAiLaneApprovalList(tk)" :key="ai">
                                       <div class="meai-lane-ask-line">
                                         <span class="meai-lane-ask-flag" x-text="a.risk==='external' ? '↗' : '✎'" :title="a.risk==='external' ? 'Sends/posts externally' : 'Makes a change'"></span>
-                                        <span x-text="a.label"></span>
+                                        <span>
+                                          <span x-text="a.label"></span>
+                                          <span x-show="a.detail" class="meai-lane-ask-detail" x-text="a.detail"></span>
+                                        </span>
                                       </div>
                                     </template>
                                   </div>
@@ -12800,6 +12809,15 @@
                     <button type="button" class="meai-dr-tab" :class="{ on: meai.consoleTab==='chat' }" @click="meai.consoleTab='chat'">Conversation</button>
                     <button type="button" class="meai-dr-tab" :class="{ on: meai.consoleTab==='report' }" @click="meai.consoleTab='report'">Report</button>
                   </div>
+                  <!-- Persistent thinking/tools toggle: lives in the sticky header (outside the
+                       scroll body) so it's always reachable without scrolling back to the top
+                       of the transcript. Controls the same meai.traceOpen flag. -->
+                  <div class="meai-dr-tracebar" x-show="meai.consoleTab==='chat' && meAiTraceCount()>0">
+                    <label class="meai-trace-check">
+                      <input type="checkbox" x-model="meai.traceOpen">
+                      <span x-text="'Show thinking &amp; tool steps ('+meAiTraceCount()+')'"></span>
+                    </label>
+                  </div>
                   <div class="meai-dr-body" id="meAiConsoleScroll">
                     <div x-show="meai.consoleTab==='chat'">
                     <!-- Goal summary: what this Me agent is trying to accomplish -->
@@ -12829,11 +12847,8 @@
                         <div class="meai-attn-foot" x-text="meAiLaneApprovalNeeded(meai.console) ? 'Approve or decline below ↓' : 'Answer below ↓'"></div>
                       </div>
                     </template>
-                    <!-- Thinking & tools trace: collapsed by default -->
-                    <div class="meai-trace-toggle" x-show="meAiTraceCount()>0" @click="meai.traceOpen=!meai.traceOpen">
-                      <span class="meai-prev-caret" :class="{open:meai.traceOpen}">▸</span>
-                      <span x-text="(meai.traceOpen?'Hide':'Show')+' thinking &amp; tool steps ('+meAiTraceCount()+')'"></span>
-                    </div>
+                    <!-- Thinking & tools trace visibility is controlled by the persistent
+                         checkbox in the sticky header (meai.traceOpen) above. -->
                     <!-- Live transcript -->
                     <template x-for="(ev, ei) in (meai.console.events||[])" :key="ev.seq || ei">
                       <div class="meai-ev" x-show="meai.traceOpen || !['thinking','tool_start','tool_complete','agent'].includes(ev.kind)">
@@ -12940,7 +12955,10 @@
                         <template x-for="(a, ai) in meAiConsoleApprovals()" :key="ai">
                           <div class="meai-apprv-row" :class="{ approved: meAiDecision(a.label)==='approve', declined: meAiDecision(a.label)==='decline' }">
                             <span class="meai-apprv-flag" :title="a.risk==='external' ? 'Sends/posts externally' : 'Writes a change'" x-text="a.risk==='external' ? '↗' : '✎'"></span>
-                            <span class="meai-apprv-label" x-text="a.label"></span>
+                            <span class="meai-apprv-label">
+                              <span x-text="a.label"></span>
+                              <span x-show="a.detail" class="meai-apprv-detail" x-text="a.detail"></span>
+                            </span>
                             <span class="meai-apprv-btns">
                               <button type="button" class="meai-apprv-b approve" :class="{ on: meAiDecision(a.label)==='approve' }" @click="meAiSetDecision(a.label,'approve')" :disabled="meai.consoleBusy">Approve</button>
                               <button type="button" class="meai-apprv-b decline" :class="{ on: meAiDecision(a.label)==='decline' }" @click="meAiSetDecision(a.label,'decline')" :disabled="meai.consoleBusy">Decline</button>
