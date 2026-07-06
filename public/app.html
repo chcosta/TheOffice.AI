@@ -13009,7 +13009,7 @@
                       </div>
                     </template>
                     <div class="meai-working" x-show="meai.console.status==='running'">
-                      <span class="meai-lane-spin"></span> Me agent is working…
+                      <span class="meai-lane-spin"></span> Me agent is working…<span x-show="meAiWorkingStatus()" x-text="' ' + meAiWorkingStatus()" style="color:var(--cp-text-muted);font-variant-numeric:tabular-nums"></span>
                     </div>
                     </div><!-- /chat tab -->
                     <!-- Report tab: the full report lives here, out of the chat flow so it
@@ -21280,6 +21280,9 @@
           laneActingId: null,    // lane-level Approve in flight (disables that row's buttons)
           expanded: {},          // #5 expandable agenda/backlog/attention items (key -> bool)
           _taskById: {},         // id -> task object (drawer + lane share)
+          // Slow-LLM transparency: transient heartbeat for the open console task.
+          heartbeat: null,       // { taskId, elapsedMs, idleMs, at } from me-ai-heartbeat SSE
+          _hbTick: 0,            // bumped by a 1s ticker so the "working… mm:ss" line updates
           // REQ-7 auto-regen + change tracking + day-shape report.
           changesOpen: false,    // "what changed today" panel expanded
           changes: [],           // recent change events {kind,title,from,to,at}
@@ -23178,6 +23181,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Me.AI M2 — Me-agent console/task stream (thinking/tools/report/stage).
             source.addEventListener('me-ai-task', (event) => {
               try { this._meAiOnTaskEvent(JSON.parse(event.data || '{}')); } catch {}
+            });
+            // Slow-LLM transparency: transient heartbeat during a Me-agent turn (NOT
+            // persisted to the transcript). Drives a ticking "working… mm:ss · thinking"
+            // status so a long silent think never looks frozen.
+            source.addEventListener('me-ai-heartbeat', (event) => {
+              try { this._meAiOnHeartbeat(JSON.parse(event.data || '{}')); } catch {}
             });
             // Live agenda-planning heartbeat: show which phase we're in (reading accounts →
             // prioritizing → shaping) so a slow generate never looks stalled. Only render it
@@ -29373,6 +29382,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           else if (ev && ev.kind === 'stage') this.meAiLoadTasks();
           if (this.meai.console && this.meai.console.id === id) this.$nextTick(() => this._meAiConsoleScroll());
+        },
+        // Transient heartbeat during a Me-agent turn (not persisted). Keeps a ticking
+        // "working… mm:ss" alive for the open console task so a slow, silent LLM think
+        // never looks frozen. A 1s ticker fills the gaps between 15s server beats.
+        _meAiOnHeartbeat(d) {
+          if (!d || !d.taskId) return;
+          this.meai.heartbeat = { taskId: d.taskId, elapsedMs: d.elapsedMs || 0, idleMs: d.idleMs || 0, at: Date.now() };
+          if (!this._meAiHbTicker) {
+            this._meAiHbTicker = setInterval(() => {
+              const hb = this.meai.heartbeat;
+              // Stop ticking once the run ends or beats stop arriving (>40s stale).
+              const c = this.meai.console;
+              const live = c && c.id === (hb && hb.taskId) && (c.status === 'running' || c.stage === 'working');
+              if (!hb || !live || (Date.now() - hb.at) > 40000) {
+                clearInterval(this._meAiHbTicker); this._meAiHbTicker = null; this.meai._hbTick = 0; return;
+              }
+              this.meai._hbTick++;
+            }, 1000);
+          }
+        },
+        // "working… 1:23" (+ "· thinking" on a long silent stretch, "· reconnecting…" if
+        // beats stop). Returns '' when there's no live heartbeat for the open task.
+        meAiWorkingStatus() {
+          const c = this.meai.console; const hb = this.meai.heartbeat;
+          this.meai._hbTick; // reactive dep — recompute each tick
+          if (!c || !hb || hb.taskId !== c.id) return '';
+          const stale = Date.now() - hb.at;
+          const elapsed = Math.max(0, Math.round((hb.elapsedMs + stale) / 1000));
+          const mm = Math.floor(elapsed / 60), ss = elapsed % 60;
+          let s = mm + ':' + String(ss).padStart(2, '0');
+          if (stale > 40000) return s + ' · reconnecting…';
+          const idle = Math.round((hb.idleMs + stale) / 1000);
+          if (idle > 20) s += ' · thinking';
+          return s;
         },
         _meAiConsoleScroll() {
           const el = document.getElementById('meAiConsoleScroll');

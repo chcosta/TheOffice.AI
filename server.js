@@ -15821,22 +15821,48 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
   // Per-agent model override (Settings → System agents). On a resume turn config is
   // null unless the user pinned a model, in which case we must materialize a config.
   if (_saOv.model) config = { ...(config || {}), model: _saOv.model };
-  const result = await sdkRunner.runChat({
-    config,
-    prompt,
-    sessionId,
-    resume: !!resume,
-    cwd,
-    meta: { source: 'me-ai', category: 'me-ai' },
-    onChunk: (c) => { acc += c; },
-    onStep: (s) => {
-      if (!s || !s.kind) return;
-      if (s.kind === 'thinking') _meAiEmit(t, { kind: 'thinking', text: String(s.content || '').slice(0, 1500) });
-      else if (s.kind === 'tool_start') _meAiEmit(t, { kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId, args: (() => { try { return JSON.stringify(s.args).slice(0, 400); } catch { return ''; } })() });
-      else if (s.kind === 'tool_complete') _meAiEmit(t, { kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success, result: String(s.result || '').slice(0, 800) });
-      else if (s.kind === 'agent') _meAiEmit(t, { kind: 'agent', name: s.name });
-    },
-  });
+  // Slow-LLM transparency: a long, SILENT turn (the model thinking for a while with no
+  // tool calls) leaves the transcript static and looks frozen. Emit a lightweight,
+  // TRANSIENT heartbeat (not via _meAiEmit → never persisted to the transcript) so the
+  // console can show a ticking "still working (Ns)" that proves the run is alive. Idle
+  // time (ms since the last chunk/step) tells the client to say "· thinking" vs streaming.
+  const _runStart = Date.now();
+  let _lastActivity = _runStart;
+  let _hbTimer = null;
+  if (t && !t._ephemeral) {
+    _hbTimer = setInterval(() => {
+      try {
+        broadcastSSE('me-ai-heartbeat', {
+          taskId: t.id,
+          elapsedMs: Date.now() - _runStart,
+          idleMs: Date.now() - _lastActivity,
+        });
+      } catch (_) {}
+    }, 15000);
+    if (_hbTimer && _hbTimer.unref) _hbTimer.unref();
+  }
+  let result;
+  try {
+    result = await sdkRunner.runChat({
+      config,
+      prompt,
+      sessionId,
+      resume: !!resume,
+      cwd,
+      meta: { source: 'me-ai', category: 'me-ai' },
+      onChunk: (c) => { _lastActivity = Date.now(); acc += c; },
+      onStep: (s) => {
+        _lastActivity = Date.now();
+        if (!s || !s.kind) return;
+        if (s.kind === 'thinking') _meAiEmit(t, { kind: 'thinking', text: String(s.content || '').slice(0, 1500) });
+        else if (s.kind === 'tool_start') _meAiEmit(t, { kind: 'tool_start', tool: s.tool, toolCallId: s.toolCallId, args: (() => { try { return JSON.stringify(s.args).slice(0, 400); } catch { return ''; } })() });
+        else if (s.kind === 'tool_complete') _meAiEmit(t, { kind: 'tool_complete', tool: s.tool, toolCallId: s.toolCallId, success: s.success, result: String(s.result || '').slice(0, 800) });
+        else if (s.kind === 'agent') _meAiEmit(t, { kind: 'agent', name: s.name });
+      },
+    });
+  } finally {
+    if (_hbTimer) clearInterval(_hbTimer);
+  }
   if (result && result.fallback) {
     const err = new Error(result.error || 'Me agent runtime unavailable');
     err._fallback = true;
