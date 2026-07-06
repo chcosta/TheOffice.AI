@@ -12355,6 +12355,31 @@ function saveMeAiTodoStore(date, todos) {
   } catch (_) { /* best-effort */ }
   return todos;
 }
+// Per-day tombstone of DELIBERATELY removed todo titles (lowercased). The generate path
+// folds in brand-new caller-passed todos not yet in the store; without a tombstone a stale
+// client `todos` payload (e.g. an in-flight generate that snapshotted the list before a
+// delete landed, or a background regenerate carrying an old copy) could re-add a todo the
+// user just deleted. Tombstoning a removed title blocks it from ever being re-folded; the
+// tombstone is lifted the moment the user re-adds that title.
+function _meAiTodoTombPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_TODOS_DIR, 'tomb', `${safe}.json`);
+}
+function loadMeAiTodoTomb(date) {
+  try {
+    const p = _meAiTodoTombPath(date);
+    if (!fs.existsSync(p)) return [];
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return Array.isArray(v) ? v.map(s => String(s || '').trim().toLowerCase()).filter(Boolean) : [];
+  } catch { return []; }
+}
+function saveMeAiTodoTomb(date, titles) {
+  try {
+    fs.mkdirSync(path.dirname(_meAiTodoTombPath(date)), { recursive: true });
+    const uniq = Array.from(new Set((titles || []).map(s => String(s || '').trim().toLowerCase()).filter(Boolean)));
+    fs.writeFileSync(_meAiTodoTombPath(date), JSON.stringify(uniq, null, 2));
+  } catch (_) { /* best-effort */ }
+}
 function _meAiSuggestions(cfg, agenda, date) {
   const out = [];
   try {
@@ -12719,11 +12744,15 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   let effTodos;
   if (todoStore) {
     // Honour the stored list verbatim, but fold in any brand-new todos the caller passed
-    // that aren't tracked yet (e.g. one typed just before this generate) so they persist.
+    // that aren't tracked yet (e.g. one typed just before this generate) so they persist —
+    // EXCEPT titles the user has deliberately removed (tombstoned), which must never come
+    // back from a stale caller payload.
     effTodos = todoStore;
+    const tomb = new Set(loadMeAiTodoTomb(day));
     const have = new Set(effTodos.map(t => t.title.toLowerCase()));
     for (const t of _meAiNormTodos(todos)) {
-      if (!have.has(t.title.toLowerCase())) { effTodos.push(t); have.add(t.title.toLowerCase()); }
+      const key = t.title.toLowerCase();
+      if (!have.has(key) && !tomb.has(key)) { effTodos.push(t); have.add(key); }
     }
   } else {
     effTodos = _meAiNormTodos(todos);
@@ -13061,6 +13090,15 @@ app.post('/api/me-ai/agenda/todos', (req, res) => {
     const b = req.body || {};
     const date = String(b.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
     const todos = _meAiNormTodos(Array.isArray(b.todos) ? b.todos : []);
+    // Maintain the removed-title tombstone so a deleted todo can't be re-folded by a later
+    // generate: any title that was in the prior store but is absent now is a deliberate
+    // removal; any title present again (re-added by the user) lifts its tombstone.
+    const prior = loadMeAiTodoStore(date) || [];
+    const nextTitles = new Set(todos.map(t => t.title.toLowerCase()));
+    const tomb = new Set(loadMeAiTodoTomb(date));
+    for (const t of prior) { const k = t.title.toLowerCase(); if (!nextTitles.has(k)) tomb.add(k); }
+    for (const k of nextTitles) tomb.delete(k);
+    saveMeAiTodoTomb(date, Array.from(tomb));
     saveMeAiTodoStore(date, todos);
     const snap = loadAgendaForDate(date);
     if (snap) { snap.todos = todos; saveAgendaForDate(date, snap); }

@@ -11909,6 +11909,10 @@
               .meai-ev-tool code { font-size:12px; color:var(--cp-text-muted); }
               .meai-ev-error { color:var(--cp-danger); }
               .meai-ev-note { color:var(--cp-text-muted); }
+              .meai-ev-ask { color:var(--cp-text); }
+              .meai-ev-ask strong { color:var(--cp-accent); font-weight:600; }
+              .meai-ev-milestone { color:var(--cp-text); }
+              .meai-ev-milestone strong { color:var(--cp-text-muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
               .meai-report { border:1px solid var(--cp-border); border-radius:10px; padding:14px 16px; margin:12px 0; background:var(--cp-surface); }
               .meai-report h5 { margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--cp-text-muted); }
               .meai-report-sum { font-size:14px; color:var(--cp-text); line-height:1.5; }
@@ -12593,8 +12597,8 @@
                     </div>
                     <button class="meai-dr-x" type="button" @click="meAiToggleConsoleLock()"
                             :class="{ on: meai.consoleLocked }"
-                            :title="meai.consoleLocked ? 'Locked open — a click-outside won\'t close it. Click to unlock.' : 'Lock open so a click-outside won\'t close it'"
-                            x-text="meai.consoleLocked ? '📌' : '📍'"></button>
+                            :title="meai.consoleLocked ? 'Docked open — a click outside won\'t close it. Click to undock.' : 'Dock open so a click outside won\'t close it'"
+                            x-text="meai.consoleLocked ? '🔒' : '🔓'"></button>
                     <button class="meai-dr-x" type="button" @click="meAiCloseConsole()" title="Close">✕</button>
                   </div>
                   <div class="meai-dr-body" id="meAiConsoleScroll">
@@ -12610,7 +12614,7 @@
                     </div>
                     <!-- Live transcript -->
                     <template x-for="(ev, ei) in (meai.console.events||[])" :key="ev.seq || ei">
-                      <div class="meai-ev" x-show="ev.kind!=='report' && (meai.traceOpen || !['thinking','tool_start','tool_complete','agent'].includes(ev.kind))">
+                      <div class="meai-ev" x-show="meai.traceOpen || !['thinking','tool_start','tool_complete','agent'].includes(ev.kind)">
                         <span class="meai-ev-ico" x-text="meAiEventIcon(ev.kind)"></span>
                         <div>
                           <template x-if="ev.kind==='thinking'"><span class="meai-ev-thinking" x-text="ev.text"></span></template>
@@ -12619,6 +12623,8 @@
                           <template x-if="ev.kind==='agent'"><span class="meai-ev-note">Using agent: <span x-text="ev.name"></span></span></template>
                           <template x-if="ev.kind==='stage'"><span class="meai-ev-note" x-text="meAiTaskStageLabel(ev.stage)"></span></template>
                           <template x-if="ev.kind==='note'"><span class="meai-ev-note" x-text="ev.text"></span></template>
+                          <template x-if="ev.kind==='question'"><span class="meai-ev-ask"><strong>Asked you:</strong> <span x-text="ev.text"></span></span></template>
+                          <template x-if="ev.kind==='report'"><span class="meai-ev-milestone"><strong>What I did:</strong> <span x-text="ev.summary || 'Produced a report.'"></span></span></template>
                           <template x-if="ev.kind==='error'"><span class="meai-ev-error" x-text="ev.text"></span></template>
                         </div>
                       </div>
@@ -12711,8 +12717,8 @@
                 </div>
                 <button class="icon-button" type="button" @click="meAiAsstToggleLock()"
                         :class="{ on: meai.asst.locked }"
-                        :title="meai.asst.locked ? 'Pinned open — stays across reloads. Click to unpin.' : 'Pin the assistant open (keeps the chat across reloads)'"
-                        x-text="meai.asst.locked ? '📌' : '📍'"></button>
+                        :title="meai.asst.locked ? 'Docked open — stays across reloads. Click to undock.' : 'Dock the assistant open (keeps the chat across reloads)'"
+                        x-text="meai.asst.locked ? '🔒' : '🔓'"></button>
                 <button class="icon-button" type="button" @click="meai.asst.open=false" title="Close">✕</button>
               </div>
               <div class="meai-asst-body" x-ref="meAiAsstBody">
@@ -27808,9 +27814,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         meAiOpenTask(id) {
           this.meai.diffOpen = false; this.meai.draftOpen = false; this.meai.traceOpen = false;
           const t = this.meai._taskById[id];
-          if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); return; }
+          // Show the cached copy immediately for responsiveness…
+          if (t) { this.meai.console = t; this.$nextTick(() => this._meAiConsoleScroll()); }
+          // …but ALWAYS refetch the authoritative task so the full transcript (stopping
+          // points, your responses, per-turn "what I did" reports) reappears after a
+          // navigate-away or a server restart, when the in-memory cache may be stale/gone.
           this.request('/api/me-ai/task/' + encodeURIComponent(id)).then(r => {
-            if (r && r.task) { this.meai._taskById[id] = r.task; this.meai.console = r.task; this.$nextTick(() => this._meAiConsoleScroll()); }
+            if (r && r.task) {
+              // Preserve the client-only de-dupe set so live SSE events keep flowing.
+              const seen = t && t._seen;
+              this.meai._taskById[id] = r.task;
+              if (seen) r.task._seen = seen;
+              if (this.meai.console && this.meai.console.id === id) this.meai.console = r.task;
+              this.$nextTick(() => this._meAiConsoleScroll());
+            }
           }).catch(() => {});
         },
         meAiCloseConsole() {
