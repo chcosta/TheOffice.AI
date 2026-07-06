@@ -14316,6 +14316,7 @@ function _meAiTaskPublic(t) {
     nextActions: t.nextActions || [], question: t.question || null,
     error: t.error || null, completedToDiary: !!t.completedToDiary,
     createdAt: t.createdAt, updatedAt: t.updatedAt, startedAt: t.startedAt, finishedAt: t.finishedAt,
+    awaitingSince: t.awaitingSince || null,
   };
 }
 // Push a transcript event, persist, and stream it live over the shared SSE bus.
@@ -14333,9 +14334,15 @@ function _meAiEmit(t, ev) {
   try { broadcastSSE('me-ai-task', { taskId: t.id, stage: t.stage, status: t.status, ev: e }); } catch (_) {}
 }
 function _meAiSetStage(t, stage, status) {
+  const prevStage = t.stage;
   t.stage = stage;
   if (status) t.status = status;
   t.updatedAt = new Date().toISOString();
+  // Track when the task started waiting on the user so the lane can show how long
+  // it's been paused (which ones have been waiting longer). Set on entry to
+  // 'awaiting', cleared when it moves on.
+  if (stage === 'awaiting') { if (prevStage !== 'awaiting' || !t.awaitingSince) t.awaitingSince = t.updatedAt; }
+  else { t.awaitingSince = null; }
   _meAiEmit(t, { kind: 'stage', stage, status: t.status });
 }
 // One-line human objective for a task, shown at the top of the console so you can
@@ -15110,6 +15117,7 @@ app.get('/api/me-ai/tasks', (req, res) => {
       items.push({
         id: t.id, playbook: t.playbook, title: t.title, stage: t.stage, status: t.status,
         background: !!t.background, updatedAt: t.updatedAt, date: t.date,
+        awaitingSince: t.awaitingSince || null,
         question: t.question || null, nextActions: t.nextActions || [],
       });
     }

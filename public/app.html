@@ -11948,6 +11948,7 @@
               .meai-lane-stage { font-size:11px; font-weight:600; }
               .meai-lane-spin { display:inline-block; width:9px; height:9px; border:2px solid var(--cp-border); border-top-color:var(--cp-accent); border-radius:999px; animation:meaiSpin .7s linear infinite; }
               .meai-lane-wait { display:inline-block; width:9px; height:9px; border-radius:999px; background:var(--cp-warning,#d97706); box-shadow:0 0 0 3px color-mix(in srgb, var(--cp-warning,#d97706) 22%, transparent); }
+              .meai-lane-waited { font-size:10.5px; font-weight:600; opacity:.8; font-variant-numeric:tabular-nums; }
               @keyframes meaiSpin { to { transform:rotate(360deg); } }
               .meai-drawer-scrim { position:fixed; inset:0; background:rgba(0,0,0,.32); z-index:60; }
               .meai-drawer-scrim.locked { background:transparent; pointer-events:none; }
@@ -12502,6 +12503,7 @@
                               <span x-show="tk.status==='running' && tk.stage!=='awaiting'" class="meai-lane-spin"></span>
                               <span x-show="tk.stage==='awaiting'" class="meai-lane-wait" title="Paused — waiting for your input"></span>
                               <span x-text="meAiTaskStageLabel(tk.stage)"></span>
+                              <span x-show="tk.stage==='awaiting' && meAiWaitedLabel(tk)" class="meai-lane-waited" x-text="'· ' + meAiWaitedLabel(tk)" :title="'Waiting on you for ' + meAiWaitedLabel(tk)"></span>
                             </div>
                             </div>
                           </div>
@@ -12760,6 +12762,7 @@
                       <span x-show="meai.console.status==='running' && meai.console.stage!=='awaiting'" class="meai-lane-spin"></span>
                       <span x-show="meai.console.stage==='awaiting'" class="meai-lane-wait" title="Paused — waiting for your input"></span>
                       <span x-text="meAiTaskStageLabel(meai.console.stage)"></span>
+                      <span x-show="meai.console.stage==='awaiting' && meAiWaitedLabel(meai.console)" class="meai-lane-waited" x-text="'· ' + meAiWaitedLabel(meai.console)" :title="'Waiting on you for ' + meAiWaitedLabel(meai.console)"></span>
                     </div>
                     <button class="meai-dr-x" type="button" @click="meAiToggleConsoleLock()"
                             :class="{ on: meai.consoleLocked }"
@@ -28578,6 +28581,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         meAiTaskStageLabel(stage) {
           return { dispatch: 'Dispatching', working: 'Working', report: 'Report ready', awaiting: 'Waiting on you', done: 'Done', error: 'Needs you' }[stage] || stage || '';
+        },
+        // How long a paused task has been waiting on the user, e.g. "3m", "1h 20m",
+        // "2d 4h". Uses the ticking `this.now` so it updates live. Only meaningful
+        // while the task is in the awaiting stage; returns '' otherwise.
+        meAiWaitedLabel(tk) {
+          if (!tk || tk.stage !== 'awaiting') return '';
+          const since = Date.parse(tk.awaitingSince || tk.updatedAt || '');
+          if (!since) return '';
+          let s = Math.max(0, Math.floor(((this.now || Date.now()) - since) / 1000));
+          if (s < 60) return s + 's';
+          const m = Math.floor(s / 60);
+          if (m < 60) return m + 'm';
+          const h = Math.floor(m / 60), rm = m % 60;
+          if (h < 24) return rm ? (h + 'h ' + rm + 'm') : (h + 'h');
+          const d = Math.floor(h / 24), rh = h % 24;
+          return rh ? (d + 'd ' + rh + 'h') : (d + 'd');
         },
         meAiEventIcon(kind) {
           return { thinking: '💭', tool_start: '🔧', tool_complete: '✓', agent: '🤖', report: '📋', question: '❓', note: '•', error: '⚠️', stage: '▸', delta: '💬' }[kind] || '•';
