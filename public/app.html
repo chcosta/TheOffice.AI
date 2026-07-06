@@ -2151,12 +2151,22 @@
       margin-top: 12px;
       display: grid;
       gap: 8px;
+      min-width: 0;
     }
+    /* Grid/flex children default to min-width:auto and won't shrink below their
+       content, so a long non-wrapping status line creeps past the sidebar edge.
+       Force everything in the lower-left block to stay inside its column. */
+    .sidebar-bottom > * { min-width: 0; }
     .sidebar-meta {
       font-size: 12px;
       color: var(--cp-text-soft);
       padding: 0 10px;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
+    .sidebar-meta > div { min-width: 0; overflow-wrap: anywhere; }
+    .conn-cluster { min-width: 0; }
+    .conn-row-wrap { min-width: 0; }
     /* In-app updater controls (desktop build only). Plain, compact — NOT a pill. */
     .sidebar-update-btn {
       display: block;
@@ -5087,6 +5097,11 @@
     .board-tab-brief-next .btb-next-more { flex: 0 0 auto; font-weight: 400; font-size: 11px; color: var(--cp-text-muted); }
     .board-tab-brief-next.empty .btb-next-text { font-weight: 400; font-size: 12px; font-style: italic; color: var(--cp-text-muted); }
     .board-tab-brief-caret { font-size: 11px; color: var(--cp-text-muted); }
+    .board-tab-brief-lock { font-size: 11px; flex: 0 0 auto; }
+    /* Collapsed-by-default briefing: quiet when idle, subtle accent when hover-peeked or locked. */
+    .board-header-brief.collapsed { border-style: dashed; border-color: var(--cp-border); }
+    .board-header-brief.collapsed:hover { border-style: solid; border-color: var(--cp-border-strong); }
+    .board-header-brief.locked { border-color: var(--cp-border-strong); }
     .board-tab-brief-body { margin-top: 8px; font-size: 14px; }
     .board-header-brief .board-tab-brief-body { max-height: 44vh; overflow: auto; }
     .board-canvas-scroll.board-tabbed .board-panel { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; }
@@ -8782,13 +8797,48 @@
                     <button class="board-ai-fab" type="button" x-show="!boardAssistant.open" x-transition.opacity.duration.150ms :disabled="boardInert(activeBoard())" @click="openBoardAssistant()" title="Workspace Assistant — chat to organize notes, checklists & dev cards from this workspace's activity" aria-label="Open Workspace Assistant chat">💬</button>
                     <!-- Board toolbar renders below the briefing as a sticky stage-bar. -->
 
-                    <!-- Where was I? briefing — lifted out of the board into the header
-                         section so it sits above the canvas rather than inside it. -->
+                    <!-- Where was I? briefing — relocated BELOW the stage-bar (board
+                         name / starred / focus); see just after the toolbar. -->
+
+                    <!-- Active board toolbar — a stage-bar pinned atop the board. The
+                         "Where was I?" briefing sits directly BELOW it (relocated per
+                         owner ask) so the board name / starred / focus come first. -->
+                    <div class="card board-stagebar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                        <span style="font-size:22px" x-text="activeBoard().emoji || '📌'"></span>
+                        <div style="min-width:0">
+                          <div style="font-weight:600" x-text="activeBoard().name"></div>
+                          <div class="hint" x-text="boardOrgLabel(activeBoard()) + ' · ' + ((activeBoard().items||[]).length) + ' pinned'"></div>
+                        </div>
+                      </div>
+                      <div class="toolbar">
+                        <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
+                        <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
+                        <!-- Secondary board actions tucked behind an overflow menu so the
+                             toolbar stays focused on the things you reach for constantly. -->
+                        <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
+                          <button class="btn ghost" type="button" @click="open = !open" :class="{ active: open }" title="More board actions" aria-haspopup="true" :aria-expanded="open">⋯ More</button>
+                          <div class="org-menu" x-show="open" x-transition.opacity.duration.120ms x-cloak style="min-width:180px" @click="open = false">
+                            <button class="org-menu-item" type="button" @click="openBoardModal(activeBoard())"><span>✏</span><span class="org-menu-label">Edit</span></button>
+                            <button class="org-menu-item" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)"><span>🗄</span><span class="org-menu-label">Archive</span></button>
+                            <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
+                            <button class="org-menu-item" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)"><span>✅</span><span class="org-menu-label">Enable</span></button>
+                            <button class="org-menu-item" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)"><span>⏸</span><span class="org-menu-label">Disable</span></button>
+                            <div class="org-menu-sep"></div>
+                            <button class="org-menu-item" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)"><span>🗑</span><span class="org-menu-label">Delete</span></button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Where was I? briefing — relocated BELOW the stage-bar. Collapsed
+                         by default; expands on hover; a lock (📌) keeps it open. -->
                     <template x-if="boardIsTabbed()">
-                      <div class="board-tab-brief board-header-brief" :class="{ collapsed: !boardBriefOpen() }" style="margin-bottom:16px">
-                        <div class="board-tab-brief-head" @click="toggleBoardBrief()">
+                      <div class="board-tab-brief board-header-brief" :class="{ collapsed: !boardBriefOpen(), locked: boardBriefLocked() }" style="margin:0 0 16px" @mouseenter="setBoardBriefHover(true)" @mouseleave="setBoardBriefHover(false)">
+                        <div class="board-tab-brief-head" @click="toggleBoardBrief()" :title="boardBriefLocked() ? 'Locked open — click to collapse (hover to peek)' : 'Click to lock open (hover to peek)'">
                           <span class="board-tab-brief-caret" x-text="boardBriefOpen() ? '▾' : '▸'"></span>
                           <span style="flex:0 0 auto">🧭 Briefing</span>
+                          <span class="board-tab-brief-lock" x-text="boardBriefLocked() ? '📌' : ''" title="Locked open"></span>
                           <template x-if="!boardBriefOpen()">
                             <div class="board-tab-brief-next" :class="{ empty: !briefNextStepShort() }">
                               <template x-if="briefNextStepShort()">
@@ -8870,36 +8920,6 @@
                         </div>
                       </div>
                     </template>
-
-                    <!-- Active board toolbar — a stage-bar pinned atop the board, sitting
-                         directly above the stage (briefing lives above it in the header). -->
-                    <div class="card board-stagebar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-                      <div style="display:flex;align-items:center;gap:10px;min-width:0">
-                        <span style="font-size:22px" x-text="activeBoard().emoji || '📌'"></span>
-                        <div style="min-width:0">
-                          <div style="font-weight:600" x-text="activeBoard().name"></div>
-                          <div class="hint" x-text="boardOrgLabel(activeBoard()) + ' · ' + ((activeBoard().items||[]).length) + ' pinned'"></div>
-                        </div>
-                      </div>
-                      <div class="toolbar">
-                        <button class="btn ghost board-star-btn" type="button" :class="{ starred: activeBoard().starred }" @click="toggleBoardStar(activeBoard())" :title="activeBoard().starred ? 'Unstar — remove from quick launch' : 'Star — add to the quick launch bar'" x-text="activeBoard().starred ? '★ Starred' : '☆ Star'"></button>
-                        <button class="btn ghost" type="button" @click="toggleBoardFocus()" :class="{ active: boardFocus }" :title="boardFocus ? 'Exit focus (Esc) — back to the full app' : 'Focus — fill the screen with just this board to eliminate distractions'" x-text="boardFocus ? '✕ Exit focus' : '⛶ Focus'"></button>
-                        <!-- Secondary board actions tucked behind an overflow menu so the
-                             toolbar stays focused on the things you reach for constantly. -->
-                        <div style="position:relative" x-data="{ open: false }" @click.outside="open = false">
-                          <button class="btn ghost" type="button" @click="open = !open" :class="{ active: open }" title="More board actions" aria-haspopup="true" :aria-expanded="open">⋯ More</button>
-                          <div class="org-menu" x-show="open" x-transition.opacity.duration.120ms x-cloak style="min-width:180px" @click="open = false">
-                            <button class="org-menu-item" type="button" @click="openBoardModal(activeBoard())"><span>✏</span><span class="org-menu-label">Edit</span></button>
-                            <button class="org-menu-item" type="button" x-show="!activeBoard().archived" @click="setBoardArchived(activeBoard(), true)"><span>🗄</span><span class="org-menu-label">Archive</span></button>
-                            <button class="org-menu-item" type="button" x-show="activeBoard().archived" @click="setBoardArchived(activeBoard(), false)"><span>↩</span><span class="org-menu-label">Restore</span></button>
-                            <button class="org-menu-item" type="button" x-show="activeBoard().enabled === false" @click="setBoardEnabled(activeBoard(), true)"><span>✅</span><span class="org-menu-label">Enable</span></button>
-                            <button class="org-menu-item" type="button" x-show="activeBoard().enabled !== false" @click="setBoardEnabled(activeBoard(), false)"><span>⏸</span><span class="org-menu-label">Disable</span></button>
-                            <div class="org-menu-sep"></div>
-                            <button class="org-menu-item" type="button" @click="deleteBoard(activeBoard())" style="color:var(--cp-danger)"><span>🗑</span><span class="org-menu-label">Delete</span></button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
 
                     <!-- Manually disabled: a board the user paused. Distinct from the
                          team-compliance gate; greyed but trivially re-enabled. -->
@@ -21038,6 +21058,7 @@
         boardChecklistDraft: '',
         boardSummaryLoading: false,
         boardPromptPop: false,
+        boardBriefHover: false, // transient: briefing expands on hover unless locked open
         _briefEdit: { open: false, id: null, name: '', text: '' },
         boardCompliance: {},
         boardComplianceLoading: false,
@@ -21391,7 +21412,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         boardRowH: 36,
         boardGap: 14,
         // Per-board resizable canvas (px). null = fit to window width / auto height.
-        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true, tabOrder: null, groupOrder: null },
+        boardCanvas: { w: null, h: null, baseW: null, z: 1, view: 'pin', tab: null, briefOpen: true, briefLocked: false, tabOrder: null, groupOrder: null },
         // Tabbed-view hover preview flyout (single, body-teleported, JS-positioned).
         _tabFlyout: { show: false, top: 0, left: 0, icon: '', name: '', type: '', body: '' },
         // Button tooltip (single, body-teleported) so it escapes panel overflow:auto clipping.
@@ -33966,12 +33987,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.boardCanvas = { ...this.boardCanvas, tab: id };
           this._saveBoardCanvas();
         },
-        boardBriefOpen() { return this.boardCanvas.briefOpen !== false; },
+        // The briefing is collapsed by default and expands on hover; the user can
+        // LOCK it open so it stays expanded without hovering (owner ask). "Open" =
+        // locked OR currently hovered.
+        boardBriefLocked() { return this.boardCanvas.briefLocked === true; },
+        boardBriefOpen() { return this.boardBriefLocked() || this.boardBriefHover; },
         toggleBoardBrief() {
-          this.boardCanvas = { ...this.boardCanvas, briefOpen: !this.boardBriefOpen() };
+          // Head click toggles the LOCK (persisted). Hover handles transient expand.
+          this.boardCanvas = { ...this.boardCanvas, briefLocked: !this.boardBriefLocked() };
           this._saveBoardCanvas();
-          // The briefing bar sits above the tabbed canvas; collapsing/expanding it changes
-          // the canvas top, so re-measure the fixed canvas height to keep the bar docked.
+          if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
+        },
+        setBoardBriefHover(on) {
+          this.boardBriefHover = !!on;
+          // Expanding/collapsing on hover changes the canvas top, so re-dock the
+          // fixed canvas height (matches the lock-toggle path).
           if (this.boardIsTabbed()) this.$nextTick(() => this._scheduleBoardCanvasH());
         },
         // ========================================================================
@@ -35800,7 +35830,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const c = boardId && map[boardId];
           // The board now always uses the unified SECTIONS model (view is pinned to
           // 'tabbed' — the pin-view geometry is retained but no longer surfaced).
-          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: 'tabbed', tab: c.tab || null, briefOpen: (c.briefOpen !== false), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null), groupOrder: (Array.isArray(c.groupOrder) ? c.groupOrder : null), sections: (Array.isArray(c.sections) ? c.sections : null), sec: (c.sec || null), viewBase: (c.viewBase || null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'tabbed', tab: null, briefOpen: true, tabOrder: null, groupOrder: null, sections: null, sec: null, viewBase: null };
+          this.boardCanvas = (c && typeof c === 'object') ? { w: c.w || null, h: c.h || null, baseW: c.baseW || null, z: c.z || 1, fs: c.fs || 1, view: 'tabbed', tab: c.tab || null, briefOpen: (c.briefOpen !== false), briefLocked: (c.briefLocked === true), tabOrder: (Array.isArray(c.tabOrder) ? c.tabOrder : null), groupOrder: (Array.isArray(c.groupOrder) ? c.groupOrder : null), sections: (Array.isArray(c.sections) ? c.sections : null), sec: (c.sec || null), viewBase: (c.viewBase || null) } : { w: null, h: null, baseW: null, z: 1, fs: 1, view: 'tabbed', tab: null, briefOpen: true, briefLocked: false, tabOrder: null, groupOrder: null, sections: null, sec: null, viewBase: null };
           this._seedSectionsIfEmpty();
           this._applyPendingSection();
         },
@@ -35808,11 +35838,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const b = this.activeBoard(); if (!b) return;
           let map = {};
           try { map = JSON.parse(localStorage.getItem('board-canvas') || '{}') || {}; } catch {}
-          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: 'tabbed', tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null), sections: (Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null), sec: (this.boardCanvas.sec || null), viewBase: (this.boardCanvas.viewBase || null) };
+          map[b.id] = { w: this.boardCanvas.w || null, h: this.boardCanvas.h || null, baseW: this.boardCanvas.baseW || null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: 'tabbed', tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), briefLocked: (this.boardCanvas.briefLocked === true), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null), sections: (Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null), sec: (this.boardCanvas.sec || null), viewBase: (this.boardCanvas.viewBase || null) };
           try { localStorage.setItem('board-canvas', JSON.stringify(map)); } catch {}
         },
         resetBoardCanvas() {
-          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: 'tabbed', tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null), sections: (Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null), sec: (this.boardCanvas.sec || null), viewBase: (this.boardCanvas.viewBase || null) };
+          this.boardCanvas = { w: null, h: null, baseW: null, z: this.boardCanvas.z || 1, fs: this.boardCanvas.fs || 1, view: 'tabbed', tab: this.boardCanvas.tab || null, briefOpen: (this.boardCanvas.briefOpen !== false), briefLocked: (this.boardCanvas.briefLocked === true), tabOrder: (Array.isArray(this.boardCanvas.tabOrder) ? this.boardCanvas.tabOrder : null), groupOrder: (Array.isArray(this.boardCanvas.groupOrder) ? this.boardCanvas.groupOrder : null), sections: (Array.isArray(this.boardCanvas.sections) ? this.boardCanvas.sections : null), sec: (this.boardCanvas.sec || null), viewBase: (this.boardCanvas.viewBase || null) };
           this._saveBoardCanvas();
           this.scheduleAutoFit();
         },
