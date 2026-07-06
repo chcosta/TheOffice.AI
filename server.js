@@ -11200,6 +11200,67 @@ function saveMeAiOverrides(date, ov) {
   fs.writeFileSync(_meAiOverridesPath(date), JSON.stringify(clean, null, 2));
   return clean;
 }
+// Rollover / deferrals store. When the user marks an item "not done — move to a future
+// day" (defer_future) or a "reschedule later today" can't fit, the item is carried to a
+// TARGET work day and shown there in the "Rolled over" digest. Keyed by the TARGET date
+// (me-ai/deferrals/<targetDate>.json = array of {key,title,link,from,fromLabel,reason,at}).
+const ME_AI_DEFERRALS_DIR = path.join(dataPath('me-ai'), 'deferrals');
+function _meAiDeferralsPath(date) {
+  const safe = String(date || '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return path.join(ME_AI_DEFERRALS_DIR, `${safe}.json`);
+}
+function loadMeAiDeferrals(date) {
+  try {
+    const p = _meAiDeferralsPath(date);
+    if (!fs.existsSync(p)) return [];
+    const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    return Array.isArray(v) ? v.filter(x => x && typeof x === 'object') : [];
+  } catch { return []; }
+}
+function saveMeAiDeferrals(date, arr) {
+  fs.mkdirSync(ME_AI_DEFERRALS_DIR, { recursive: true });
+  fs.writeFileSync(_meAiDeferralsPath(date), JSON.stringify(Array.isArray(arr) ? arr : [], null, 2));
+  return arr;
+}
+// Human label for a YYYY-MM-DD (e.g. "Jul 7").
+function _meAiDateLabel(date) {
+  try {
+    const d = new Date(String(date || '') + 'T00:00:00');
+    if (isNaN(d)) return String(date || '');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch { return String(date || ''); }
+}
+// The next WORK day strictly after `fromDate` (skips off-days; falls back to +1 day
+// after 14 tries so it never loops forever).
+function _meAiNextWorkDay(cfg, fromDate) {
+  try {
+    const workDays = (cfg && cfg.workDays) || [];
+    const d = new Date(String(fromDate || '') + 'T00:00:00');
+    if (isNaN(d)) return null;
+    for (let i = 0; i < 14; i++) {
+      d.setDate(d.getDate() + 1);
+      if (!workDays.length || workDays.includes(d.getDay())) return d.toISOString().slice(0, 10);
+    }
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  } catch { return null; }
+}
+// Add a deferral to a target day's store, deduped by key (incoming wins).
+function _meAiPushDeferral(targetDate, entry) {
+  const key = String((entry && (entry.key || entry.link || entry.title)) || '').trim().slice(0, 300);
+  if (!key) return;
+  const list = loadMeAiDeferrals(targetDate).filter(x => String((x.key || x.link || x.title) || '').trim().slice(0, 300) !== key);
+  list.push({
+    key,
+    title: String((entry && entry.title) || key).slice(0, 200),
+    link: String((entry && entry.link) || '').slice(0, 500),
+    from: String((entry && entry.from) || '').slice(0, 10),
+    fromLabel: String((entry && entry.fromLabel) || '').slice(0, 40),
+    reason: String((entry && entry.reason) || '').slice(0, 40),
+    at: new Date().toISOString(),
+  });
+  saveMeAiDeferrals(targetDate, list);
+}
 // Stable identity for a scheduled block (link preferred, else title).
 function _meAiBlockKey(b) {
   return String((b && (b.link || b.title)) || '').trim().slice(0, 300);
@@ -12710,6 +12771,15 @@ async function generateMeAiAgenda({ date, todos, reindex, cause } = {}) {
   try { _meAiApplyOverrides(agenda, day); } catch (_) { /* best-effort */ }
   // §12 Suggestions engine — proactive nudges from the built day (dismissible, per-day).
   agenda.suggestions = _meAiSuggestions(cfg, agenda, day);
+  // Rollover digest — items carried to this day from a prior day (defer-to-future or a
+  // "later today" that couldn't fit). Read-only here; the ro section renders it with a
+  // "Do today" restore. Hide any already dismissed/removed for the day.
+  try {
+    const removed = new Set((loadMeAiOverrides(day).removedItems) || []);
+    agenda.rollover = loadMeAiDeferrals(day)
+      .filter(r => !removed.has(String((r.key || r.link || r.title) || '').trim().slice(0, 300)))
+      .map(r => ({ key: r.key, title: r.title, link: r.link || '', from: r.from || '', fromLabel: r.fromLabel || _meAiDateLabel(r.from), reason: r.reason || '' }));
+  } catch (_) { agenda.rollover = []; }
   saveAgendaForDate(day, agenda);
   try { _meAiSyncDayBoard(agenda, day); } catch (_) { /* best-effort */ }  // REQ-1
   return agenda;
@@ -13442,6 +13512,97 @@ app.post('/api/me-ai/agenda/override', async (req, res) => {
     } else if (op === 'restore_item') {
       const key = String(b.key || '').trim().slice(0, 300);
       ov.removedItems = ov.removedItems.filter(k => k !== key);
+    } else if (op === 'reschedule_later') {
+      // "Do it later today." Find the earliest free slot from now (rounded to the grid)
+      // to work-end and drop a block there. If nothing fits, carry it to the next work
+      // day's rollover instead (deferred=true) so it isn't silently lost.
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      const title = String(b.title || 'Follow-up').slice(0, 200);
+      if (!key) return res.status(400).json({ error: 'key or title required' });
+      const durMin = Math.max(10, Math.min(240, +b.durMin || 30));
+      const cfg = _meAiConfig();
+      const snap = loadAgendaForDate(date) || {};
+      const grid = Math.max(5, (snap.config && snap.config.grid) || cfg.grid || 10);
+      const ws = _hmToMin((snap.config && snap.config.workStart) || ov.dayStart || cfg.workStart) ?? 480;
+      const we = _hmToMin((snap.config && snap.config.workEnd) || ov.dayEnd || cfg.workEnd) ?? 1020;
+      const today = new Date().toISOString().slice(0, 10);
+      let from = ws;
+      if (date === today) { const d = new Date(); from = Math.max(ws, Math.ceil((d.getHours() * 60 + d.getMinutes()) / grid) * grid); }
+      const occupied = ((snap.blocks) || [])
+        .map(bl => [_hmToMin(bl.start), _hmToMin(bl.end)])
+        .filter(([s2, e2]) => s2 != null && e2 != null && e2 > s2)
+        .concat(_meAiReservationsFromOverrides(ov, snap.config || cfg).map(r => [r.start, r.end]))
+        .sort((x, y) => x[0] - y[0]);
+      let slot = null;
+      for (let t = from; t + durMin <= we; t += grid) {
+        const clash = occupied.some(([s2, e2]) => t < e2 && (t + durMin) > s2);
+        if (!clash) { slot = t; break; }
+      }
+      if (slot != null) {
+        ov.addBlocks.push({ id: uid(), start: _minToHm(slot), end: _minToHm(slot + durMin), title, type: ME_AI_BLOCK_TYPES.has(b.blockType) ? b.blockType : 'personal', detail: String(b.detail || '').slice(0, 500), why: 'Rescheduled later today by you', link: String(b.link || '').slice(0, 500) });
+        if (!ov.removedItems.includes(key)) ov.removedItems.push(key);
+        saveMeAiOverrides(date, ov);
+        const agenda = await _meAiRegenLive(date);
+        return res.json({ ok: true, date, agenda, overrides: ov, deferred: false, at: _minToHm(slot) });
+      }
+      // No room left today → carry to the next work day.
+      const target = _meAiNextWorkDay(cfg, date);
+      if (target) _meAiPushDeferral(target, { key, title, link: b.link, from: date, fromLabel: _meAiDateLabel(date), reason: 'no-room' });
+      if (!ov.removedItems.includes(key)) ov.removedItems.push(key);
+      saveMeAiOverrides(date, ov);
+      const agenda = await _meAiRegenLive(date);
+      return res.json({ ok: true, date, agenda, overrides: ov, deferred: true, toLabel: target ? _meAiDateLabel(target) : '' });
+    } else if (op === 'defer_future') {
+      // "Not done — move to a future day." Carry the item to the next work day's rollover
+      // digest and drop it from today.
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      const title = String(b.title || 'Follow-up').slice(0, 200);
+      if (!key) return res.status(400).json({ error: 'key or title required' });
+      const cfg = _meAiConfig();
+      const target = _meAiNextWorkDay(cfg, date);
+      if (target) _meAiPushDeferral(target, { key, title, link: b.link, from: date, fromLabel: _meAiDateLabel(date), reason: 'not-done' });
+      if (!ov.removedItems.includes(key)) ov.removedItems.push(key);
+      saveMeAiOverrides(date, ov);
+      const agenda = await _meAiRegenLive(date);
+      return res.json({ ok: true, date, agenda, overrides: ov, toLabel: target ? _meAiDateLabel(target) : '' });
+    } else if (op === 'rollover_today') {
+      // "Do today" on a rolled-over item: drop it from this day's deferral store and
+      // reschedule it into the day via the reschedule-later slot logic.
+      const key = String((b.key || b.link || b.title) || '').trim().slice(0, 300);
+      const title = String(b.title || 'Follow-up').slice(0, 200);
+      if (!key) return res.status(400).json({ error: 'key or title required' });
+      const remaining = loadMeAiDeferrals(date).filter(x => String((x.key || x.link || x.title) || '').trim().slice(0, 300) !== key);
+      saveMeAiDeferrals(date, remaining);
+      ov.removedItems = ov.removedItems.filter(k => k !== key); // allow it back onto the day
+      const cfg = _meAiConfig();
+      const snap = loadAgendaForDate(date) || {};
+      const grid = Math.max(5, (snap.config && snap.config.grid) || cfg.grid || 10);
+      const ws = _hmToMin((snap.config && snap.config.workStart) || ov.dayStart || cfg.workStart) ?? 480;
+      const we = _hmToMin((snap.config && snap.config.workEnd) || ov.dayEnd || cfg.workEnd) ?? 1020;
+      const today = new Date().toISOString().slice(0, 10);
+      let from = ws;
+      if (date === today) { const d = new Date(); from = Math.max(ws, Math.ceil((d.getHours() * 60 + d.getMinutes()) / grid) * grid); }
+      const durMin = 30;
+      const occupied = ((snap.blocks) || [])
+        .map(bl => [_hmToMin(bl.start), _hmToMin(bl.end)])
+        .filter(([s2, e2]) => s2 != null && e2 != null && e2 > s2)
+        .concat(_meAiReservationsFromOverrides(ov, snap.config || cfg).map(r => [r.start, r.end]))
+        .sort((x, y) => x[0] - y[0]);
+      let slot = null;
+      for (let t = from; t + durMin <= we; t += grid) {
+        const clash = occupied.some(([s2, e2]) => t < e2 && (t + durMin) > s2);
+        if (!clash) { slot = t; break; }
+      }
+      // "Do today" is an explicit commitment — if the day is packed, append it at the end
+      // of the last block (past work-end if need be) rather than dropping it silently.
+      if (slot == null) {
+        const lastEnd = occupied.reduce((m, [, e2]) => Math.max(m, e2), from);
+        slot = Math.max(from, lastEnd);
+      }
+      ov.addBlocks.push({ id: uid(), start: _minToHm(slot), end: _minToHm(slot + durMin), title, type: 'personal', detail: '', why: 'Brought into today by you', link: String(b.link || '').slice(0, 500) });
+      saveMeAiOverrides(date, ov);
+      const agenda = await _meAiRegenLive(date);
+      return res.json({ ok: true, date, agenda, overrides: ov, at: _minToHm(slot) });
     } else {
       return res.status(400).json({ error: 'unknown op' });
     }
