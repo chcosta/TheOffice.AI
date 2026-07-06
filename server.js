@@ -2039,7 +2039,7 @@ app.get('/api/codeflow/me', async (req, res) => {
 // --- PR aggregation ---
 
 const _codeflowCache = new Map(); // view -> { at, data }
-const CODEFLOW_TTL_MS = 120000;
+const CODEFLOW_TTL_MS = 300000; // 5 min — long enough that the 3-min attention poll reuses cache most ticks (was 2 min → re-gathered every poll, a big GitHub-quota driver)
 const _codeflowAiCache = new Map(); // view -> Map(prId -> { sig, at, insight })
 const CODEFLOW_AI_TTL_MS = 600000; // 10 min
 const _cfApproverCache = new Map(); // "org|project|repo" -> { at, entries }
@@ -2241,6 +2241,39 @@ function _buildDevCardIndex() {
   return idx;
 }
 
+// Forgiving match of a configured group name against a reviewer DISPLAY NAME.
+// AzDO decorates group names with a scope prefix ("[internal]\\Team"); GitHub teams
+// show as "org/team". Shared by the gather pre-filter (list data, ZERO API calls) and
+// the per-PR enrichment so both agree on what counts as "one of my groups".
+function _cfMatchesGroup(rvName, myGroups) {
+  const want = (Array.isArray(myGroups) ? myGroups : [])
+    .map(v => String(v == null ? '' : v).trim().toLowerCase()).filter(Boolean);
+  if (!want.length) return false;
+  const norm = v => String(v == null ? '' : v).trim().toLowerCase();
+  const tail = v => { const s = norm(v); const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); return i >= 0 ? s.slice(i + 1).trim() : s; };
+  const full = norm(rvName); const last = tail(rvName);
+  return want.some(w => w && (w === full || w === last || full === tail(w) || full.includes(w) || last.includes(tail(w))));
+}
+
+// Cheap keep-decision using ONLY the PR list's reviewer array — no per-PR API calls.
+// Am I a direct reviewer, or is one of my groups a reviewer? Used to pre-filter the
+// broad "reviews + groups" fetch so we fully enrich only real action items instead of
+// hammering GitHub's rate limit on every open PR across large repos.
+function _cfListReviewerFlags(pr, me, myGroups) {
+  const meId = String((me && me.id) || '').toLowerCase();
+  const meName = String((me && me.name) || '').trim().toLowerCase();
+  const meEmail = String((me && me.email) || '').trim().toLowerCase();
+  let amReviewer = false, amGroup = false;
+  for (const r of (pr.reviewers || [])) {
+    const rid = String((r && r.id) || '').toLowerCase();
+    const rname = String((r && r.name) || '').trim().toLowerCase();
+    const remail = String(((r && r.uniqueName) || (r && r.email)) || '').trim().toLowerCase();
+    if ((meId && rid === meId) || (meEmail && remail === meEmail) || (meName && rname === meName)) amReviewer = true;
+    else if (_cfMatchesGroup(r && r.name, myGroups)) amGroup = true;
+  }
+  return { amReviewer, amGroup };
+}
+
 async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   const safe = (p) => p.catch(() => null);
   const provider = opts.provider || pr.provider;
@@ -2399,21 +2432,12 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   const myGroups = Array.isArray(opts.myGroups) ? opts.myGroups : [];
   let groupReviewers = [];
   if (myGroups.length) {
-    // Match a configured group name against a reviewer entry's DISPLAY NAME. Group
-    // reviewers surface as named reviewer entries (AzDO groups, GitHub teams) — there
-    // is no email to match on. AzDO decorates group names with a scope prefix, e.g.
-    // "[internal]\\Dotnet-Core-Engineering" or "[TEAM FOUNDATION]\\MaWilkie's Direct
-    // Reports", and GitHub teams show as "org/team". So we match forgivingly: exact,
-    // or the reviewer's trailing path segment (after \\ or /), or a whole-name contains.
-    const norm = v => String(v == null ? '' : v).trim().toLowerCase();
-    const tail = v => { const s = norm(v); const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/')); return i >= 0 ? s.slice(i + 1).trim() : s; };
-    const want = myGroups.map(norm).filter(Boolean);
-    const matchesGroup = (rvName) => {
-      const full = norm(rvName); const last = tail(rvName);
-      return want.some(w => w && (w === full || w === last || full === tail(w) || full.includes(w) || last.includes(tail(w))));
-    };
+    // Match a configured group name against a reviewer entry's DISPLAY NAME via the
+    // shared forgiving matcher (_cfMatchesGroup): exact, trailing path segment (after
+    // \\ or /), or whole-name contains — so "[internal]\\Dotnet-Core-Engineering",
+    // "[TEAM FOUNDATION]\\…", and GitHub "org/team" all resolve.
     groupReviewers = (pr.reviewers || [])
-      .filter(rv => rv && rv.id !== viewerId && matchesGroup(rv.name))
+      .filter(rv => rv && rv.id !== viewerId && _cfMatchesGroup(rv.name, myGroups))
       .map(rv => ({ name: rv.name, voteLabel: rv.voteLabel || null }));
   }
   const amGroupReviewer = groupReviewers.length > 0;
@@ -2613,19 +2637,41 @@ async function _gatherCodeflow(view) {
     try {
       // 'mine' → PRs I authored; 'reviews' → PRs that list me as a reviewer;
       // 'active' → every open PR in the repo (no person filter — a broad listing).
-      // reviewsWithGroups → fetch broadly (like 'active') so group-reviewer PRs are
-      // included, then keep only PRs where I'm a direct or group reviewer (below).
-      const broad = view === 'active' || reviewsWithGroups;
-      const filter = view === 'mine' ? { creatorId: me.id }
-                   : broad ? { top: 100 }
-                   : { reviewerId: me.id };
-      const [prs, repoContributors, approverIndex] = await Promise.all([
-        F.listPullRequests(r.org, r.project, r.repo, filter),
+      //
+      // reviewsWithGroups is the rate-limit-sensitive path: with a group configured we
+      // still want group-reviewer PRs, but we must NOT fully enrich every open PR (that's
+      // ~8-10 GitHub calls each across large repos, run every few minutes by the attention
+      // poll → blows the 5000/hr limit). Instead we fetch my DIRECT-review set (cheap,
+      // server-filtered, and includes the already-reviewed-but-open union) PLUS a broad
+      // LIST, then keep only the handful of PRs a group of mine reviews using list data
+      // alone (zero per-PR calls). Only that small union gets enriched below.
+      const runLite = view === 'active' || reviewsWithGroups;
+      const [repoContributors, approverIndex] = await Promise.all([
         F.getRepoContributors(r.org, r.project, r.repo).catch(() => []),
-        broad ? Promise.resolve([]) : _cfApproverIndex(r)
+        runLite ? Promise.resolve([]) : _cfApproverIndex(r)
       ]);
+      const meId0 = String(me.id || '').toLowerCase();
+      let prs;
+      if (reviewsWithGroups) {
+        const [direct, all] = await Promise.all([
+          F.listPullRequests(r.org, r.project, r.repo, { reviewerId: me.id }).catch(() => []),
+          F.listPullRequests(r.org, r.project, r.repo, { top: 100 }).catch(() => [])
+        ]);
+        const seen = new Set(direct.map(p => String(p.id)));
+        const groupPrs = all.filter(p => {
+          if (seen.has(String(p.id))) return false;
+          if (String((p.createdBy && p.createdBy.id) || '').toLowerCase() === meId0) return false;
+          return _cfListReviewerFlags(p, me, myGroups).amGroup;
+        });
+        prs = direct.concat(groupPrs);
+      } else {
+        const filter = view === 'mine' ? { creatorId: me.id }
+                     : view === 'active' ? { top: 100 }
+                     : { reviewerId: me.id };
+        prs = await F.listPullRequests(r.org, r.project, r.repo, filter);
+      }
       const meId = String(me.id || '').toLowerCase();
-      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: broad, provider, myGroups };
+      const opts = { repoContributors, approverIndex, devCardIndex, viewerName: me.name, viewerEmail: me.email, lite: runLite, provider, myGroups };
       const enriched = (await Promise.all(prs.map(async (pr) => {
         // Exclude PRs I authored from any non-'mine' view — my own PR belongs only under
         // "My PRs", never under Active/Reviews (GitHub also empties requested_reviewers on
